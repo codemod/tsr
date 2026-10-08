@@ -1,0 +1,15 @@
+diff --git a/crates/tsr-checker/src/array_literals.rs b/crates/tsr-checker/src/array_literals.rs
+index 5bf1530..9196be5 100644
+--- a/crates/tsr-checker/src/array_literals.rs
++++ b/crates/tsr-checker/src/array_literals.rs
+@@ -1163,7 +1163,9 @@ impl Checker<'_, '_> {
+             }
+         } else {
+             let reduced = self.get_union_type(&elements);
+-            if self.object_constituent_count(reduced) > 1 {
++            if matches!(self.store.get(reduced).data, crate::types::TypeData::Union { .. })
++                && !self.is_subtype_reduction_free(reduced)
++            {
+                 // Upstream reduces the element union with
+                 // `UnionReductionSubtype` (`checker.go:8096`). In a position
+                 // WITH a contextual type the members kept their literals and

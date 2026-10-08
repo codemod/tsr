@@ -111,3 +111,81 @@ change interning, so it is not attempted here.
 `conformance/spreadUnion2` (11 lines), plus one line in
 `conformance/unknownControlFlow`. Perf median CPU ratio 0.993 / 0.997 (21
 samples).
+
+## 5. Remaining clusters (not ported here, with the reason)
+
+Census at `e8f0d2e`. A temporary `eprintln!` in `union_with_subtype_reduction`
+over the unfiltered types corpus (not committed) found **40** `Unknown`
+answers from `relate_ternary(.., StrictSubtype)`, each of which declines a
+whole reduction to a gap:
+
+| source → target (strict subtype) | count | owner |
+|---|---|---|
+| tuple → interface reference (`[number, number]` → `ConcatArray<..>`, `[number]` → `Promise<[0]>`) | 22 | relater arms (`relater.rs`, main) |
+| signature literal → signature literal (`() => any` → `() => T`) | 6 | relater signature arm |
+| primitive → `Function` / `{}` (`string`, `"whatever"`) | 6 | relater apparent-type arm |
+| tuple → `{}` / object literal (`literalTypes2`) | 3 | relater |
+| `T[keyof T]` → `null`, `T` → `typeof E`, intersection → indexed access | 5 | relater |
+
+None of these can be decided in `unions.rs` without re-deriving the
+relation, which box-protocol §3a forbids.
+
+**Union-origin entry order** (`getUnionTypeWorker`'s
+`insertType(reducedTypes, namedUnion)`, `checker.go:25726`, then
+`CompareTypes` on the entry's own flags). The port's entry key reads a named
+union's first *member*'s sort flags. Native reads the union's own flags,
+which carry `Union`, so it puts `T`, objects and arrays before an enum or
+alias union: `T | Directive`, `(T | Primitive)[]`, `{ a: string; } | E`
+(`generatorYieldContextualType`, `typeInferenceLiteralUnion`,
+`logicalOrOperatorWithEveryType`, `unknownControlFlow:23`; about 10 lines).
+**Stopped:** `main` ported a change to this same origin construction during
+the round (`de66da7`, `tsr-2zk.16.527`), so per the round-4 duplicate rule
+it is left to that lane.
+
+**`compareTypeMappers` for mapped-type member instantiations**
+(`utilities.go:672`). `{ key: "bar"; … } | { key: "foo"; … }`
+(`mappedTypeIndexedAccess`) needs the per-key mapper of each instantiated
+template. TSR records mappers only for signature instantiations
+(`instantiated_signature_mappers`), and the mapped-type instantiation in
+`mapped.rs` (not owned) would have to publish one.
+
+**Aliased signature types carry no alias attribute.** See
+`r4-unions-alias-of-signature-types.diff` (§6).
+
+## 6. Cross-lane patches (measured, not committed as code)
+
+### `r4-unions-alias-of-signature-types.diff` — `function_types.rs`, `declared.rs`
+
+ADR-0045 rule 2 writer for the signature-bearing type-literal constructors.
+`getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode` sets `t.alias`
+(`checker.go:22942`), and `getTypeNameSymbol` (`utilities.go:607`) sorts by
+it, so `type F1 = (x: unknown) => false` sorts as "F1". TSR bakes the alias
+name into the `Anonymous` text but writes no `alias_of` entry, so
+`compare_type_names` sees no name and the type sorts after every named
+type (`P1 | P2 | F1`, `F3 | F0`, `R | L`). The patch inserts
+`alias_of[built] = (alias, [])` exactly where the alias-named text is
+chosen. `compare_type_names` already reads `alias_of` and needs no change.
+
+Measured on top of `2f373c3` (unfiltered): **+20 type lines, 0 lost,
+diagnostics unchanged.** Converts `compiler/narrowingByTypeofInSwitch`,
+`compiler/typePredicatesInUnion3`, `conformance/unionTypeCallSignatures6`,
+plus one line of `compiler/contextualTypeCaching`.
+
+### `r4-unions-array-literal-subtype-gate.diff` — `array_literals.rs` (r4-arrays), NOT READY
+
+`checkArrayLiteral` reduces the element union with `UnionReductionSubtype`
+unconditionally (`checker.go:8096`). TSR enters the reduction only when
+`object_constituent_count(reduced) > 1`, so `[t, base]` (`T extends Base`)
+and `[A2, B2]` (`typeof` two identical classes) never reach
+`removeSubtypes`. The patch gates on `!is_subtype_reduction_free(reduced)`
+instead.
+
+Measured on top of `e8f0d2e`: **+22 type lines, −10 lost**, so it is not
+mergeable as is. Gains: `heterogeneousArrayLiterals` (18),
+`typeArgumentInferenceTransitiveConstraints` (converts), `typeRelationships`
+(converts). Losses: `compositeContextualSignature:4,5`,
+`typeInferenceLiteralUnion:24` and `arrayLiteralInference:33,44,58` become
+GAP, because the relater now answers `Unknown` on pairs the old gate never
+asked about (§5 table). `enumBasics:78,79,98,99` become WRONG. Those need
+the relater arms first; the enum lines are not yet diagnosed. Left with
+`object_constituent_count` in place; the patch would make it dead code.

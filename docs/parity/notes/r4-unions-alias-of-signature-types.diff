@@ -1,0 +1,48 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 362991d..b90f8ac 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -2296,10 +2296,13 @@ impl<'a> Checker<'a, '_> {
+             };
+             let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
+             self.signature_types.insert(built, vec![signature]);
+-            if alias.is_some() {
++            if let Some(alias) = alias {
+                 // The alias name is the print; the site re-render that
+                 // collapses the signature applies to an unaliased literal.
+                 self.alias_named_signature_types.insert(built);
++                // ADR-0045 rule 2: the type-literal constructor records the
++                // alias `getAliasSymbolForTypeNode` answered (`Type.alias`).
++                self.alias_of.insert(built, (alias, Vec::new()));
+             }
+             return built;
+         }
+diff --git a/crates/tsr-checker/src/function_types.rs b/crates/tsr-checker/src/function_types.rs
+index eab3906..22eb4be 100644
+--- a/crates/tsr-checker/src/function_types.rs
++++ b/crates/tsr-checker/src/function_types.rs
+@@ -135,9 +135,11 @@ impl<'a> Checker<'a, '_> {
+         // string }: O) => any` records `>F2 : F2`), a generic one gaps rather
+         // than dropping its arguments, an unaliased node renders structurally.
+ 
++        let mut alias_symbol = None;
+         let alias_name = match self.alias_symbol_for_type_node(id) {
+             None => None,
+             Some(alias) if self.local_type_parameters_of(alias).is_empty() => {
++                alias_symbol = Some(alias);
+                 Some(self.binder.symbols().get(alias).name.to_string())
+             }
+             // §947.2: the alias currently being re-resolved renders its body
+@@ -196,6 +198,12 @@ impl<'a> Checker<'a, '_> {
+         if alias_named {
+             self.alias_named_signature_types.insert(built);
+         }
++        // ADR-0045 rule 2: `getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode`
++        // gives the type the alias `getAliasSymbolForTypeNode` answered
++        // (`Type.alias`), which `CompareTypes`' `getTypeNameSymbol` sorts by.
++        if let Some(alias) = alias_symbol {
++            self.alias_of.insert(built, (alias, Vec::new()));
++        }
+         // The structure the text was rendered from, kept reachable from the id
+         // so `instantiate_type` can rebuild this type with substituted parts —
+         // see `Checker::signature_types` (`bd tsr-0hc`). Recorded here because
