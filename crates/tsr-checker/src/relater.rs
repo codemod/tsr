@@ -1568,6 +1568,42 @@ impl Relater<'_, '_, '_> {
         }
     }
 
+    /// The evaluated bodies of two instantiations of one type alias whose
+    /// source body is neither an Object nor a Conditional type
+    /// (`structuredTypeRelatedToWorker`'s alias-variance gate,
+    /// `relater.go:3392`). `None` for a class or interface reference, an
+    /// Object/Conditional body, or a body that does not evaluate; those keep
+    /// the variance road. The bodies come from `evaluate_alias_body`'s
+    /// existing `(symbol, arguments)` cache; nothing is published here.
+    ///
+    /// An INTERSECTION body also keeps the variance road, a stated
+    /// divergence: native relates it structurally, but this relater answers
+    /// `Unknown` for intersection constituents with no members table
+    /// (`typeof Class<T>`, reasons row 3), which loses
+    /// `aliasInstantiationExpressionGenericIntersectionNoCrash2`'s TS2352
+    /// (`docs/parity/notes/r5-relater3.md` §2).
+    fn non_object_alias_bodies(
+        &mut self,
+        symbol: SymbolId,
+        source_arguments: &[TypeId],
+        target_arguments: &[TypeId],
+    ) -> Option<(TypeId, TypeId)> {
+        if !self.checker.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let source_body = self.checker.evaluate_alias_body(symbol, source_arguments)?;
+        if self
+            .checker
+            .type_of(source_body)
+            .flags
+            .intersects(TypeFlags::OBJECT | TypeFlags::CONDITIONAL | TypeFlags::INTERSECTION)
+        {
+            return None;
+        }
+        let target_body = self.checker.evaluate_alias_body(symbol, target_arguments)?;
+        Some((source_body, target_body))
+    }
+
     /// `structuredTypeRelatedToWorker`'s generic-mapped-target arm
     /// (`relater.go:3593`): is `source` related to `{ [P in Q]: T }` or
     /// `{ [P in Q as R]: T }`?
@@ -3376,6 +3412,22 @@ impl Relater<'_, '_, '_> {
             && source_symbol == target_symbol
             && source_arguments.len() == target_arguments.len()
         {
+            // structuredTypeRelatedToWorker's alias arm (relater.go:3389-3392)
+            // probes alias variance only when the SOURCE is an Object or
+            // Conditional type: other aliased types are interned and may or
+            // may not carry their alias. This port mints every generic alias
+            // instantiation as a named reference, so the native flags are the
+            // evaluated body's (`compute_base_constraint` reads the same
+            // body). A union, intersection or primitive body relates
+            // structurally, body to body: `SearchResult<undefined>` to
+            // `SearchResult<string>` with `SearchResult<T> = { value: T |
+            // undefined } | undefined` is decided member by member
+            // (tsr-2zk.927). An unevaluable body keeps the variance road.
+            if let Some((source_body, target_body)) =
+                self.non_object_alias_bodies(source_symbol, &source_arguments, &target_arguments)
+            {
+                return self.is_related_to(source_body, target_body);
+            }
             let measured = self.checker.inference_variances(source_symbol);
             let variances = match measured {
                 Some(variances)
