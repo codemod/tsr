@@ -163,6 +163,7 @@ pub mod member_completeness;
 pub mod members;
 pub mod merge_conflicts;
 mod merged_export_spaces;
+pub mod module_specifiers;
 mod name_suggestion;
 pub mod node_reuse;
 pub mod nonexistent_property;

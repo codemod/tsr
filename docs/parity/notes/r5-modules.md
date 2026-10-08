@@ -273,3 +273,120 @@ Left in the cluster:
   through `existing_import_specifier`/the ending choice is the follow-up,
   measured against its `imported_here` gate, which was tuned to resolver
   gaps (`exportsAndImports3`).
+
+## 5. Module specifiers into `node_modules` (tsr-2zk.999)
+
+Claimed by the integrator after §4, with ownership of the new `ModuleHost`
+methods in `resolution.rs`, their `Program` impl and the new
+`crates/tsr-checker/src/module_specifiers.rs`.
+
+### 5.1 The forcing constraint: the checker cannot read a `package.json`
+
+`tryGetModuleNameAsNodeModule` (`modulespecifiers/specifiers.go:743`)
+names a file under `node_modules` by its package: `tryDirectoryWithPackageJson`
+(`:832`) reads the `package.json` at the package root
+(`GetNodeModulePathParts`, `util.go:290`) — `exports` first (when
+`GetResolvePackageJsonExports()`; a package whose `exports` do not reach
+the file *blocks* it), then `typesVersions`, then the main file
+(`typings`/`types`/`main`, else `index.js`). The checker has no file system
+and no `tsr-module` dependency, and the loader drops its resolver (and its
+`package.json` cache) when loading ends.
+
+Taken: `Program::from_root_files` reads, once, the `package.json` at the
+package root of every program file under `node_modules`,
+deduplicated by directory, and keeps a plain-data
+`PackageJsonView` per directory (`tsr-compiler/src/lib.rs`,
+`package_jsons_for_specifiers`). Three defaulted `ModuleHost` methods expose
+it: `package_json_for_specifiers(dir)`, `specifier_options(mode)`
+(`GetResolvePackageJsonExports`, node16..nodenext resolution, and
+`module.GetConditions`) and `is_applicable_versioned_types_key`.
+
+Rejected:
+- **A walk down to the file's directory.** Strada retries each deeper
+  directory; tsgo's loop advances a local index but passes the unchanged
+  `*parts` to `tryDirectoryWithPackageJson`, so at the pinned commit every
+  iteration re-tries the package root and the loop ends in `processEnding`
+  of that first attempt. Ported as the single attempt it is; if upstream
+  fixes the loop, the program must read the deeper directories too.
+- **A lazy read through the host**, as upstream's program cache does. The
+  checker holds the program by shared reference across worker threads; a
+  lazy read needs a lock and a retained file-system handle the program does
+  not keep. The eager read costs one `file_exists` per directory under a
+  `node_modules` package that holds a program file — none at all for a
+  program without `node_modules` files, which is both perf benches.
+  Revisit if a real project with a large `node_modules` closure shows the
+  read in a profile.
+- **Retaining the loader's resolver cache.** It holds only the
+  `package.json` files resolution happened to visit, keyed by the resolver's
+  own path spelling, and changing what the loader hands back would touch the
+  loader functions r5-loader edits this round.
+- **Adding `tsr-module` as a checker dependency** (so the checker could read
+  `PackageJson` directly): a `Cargo.lock` change, which boxes do not commit,
+  and a checker → resolver layering the crates otherwise avoid.
+
+### 5.2 What is ported (`module_specifiers.rs`)
+
+`node_module_path_parts` (`GetNodeModulePathParts`), `node_module_specifier`
+(`tryGetModuleNameAsNodeModule` with `packageNameOnly = false`),
+`try_directory_with_package_json`, `module_name_from_exports` /
+`module_name_from_exports_or_imports` (exact, directory and pattern
+subpaths; conditions with `default` and `types@<range>`; arrays; the
+target's extension-swapped `.js` form), `module_name_from_paths` for
+`typesVersions` (`tryGetModuleNameFromPaths` over the allowed endings),
+`process_ending` and `allowed_endings` (`getAllowedEndingsInPreferredOrder`
+without the `.ts` ending), and `@types/` un-mangling. The import mode for
+`exports` conditions is the file's default mode overridden by the target's
+`.cjs`/`.mjs` family extension, as upstream's comment there says.
+
+Two callers:
+- `module_specifier_for_symbol` (the `typeof import("…")` route) tries the
+  package name for a `node_modules` target before the relative specifier;
+  when it names nothing (blocked by `exports`, or the `node_modules`
+  directory is not above the importing file) the relative specifier is
+  upstream's own fallback (`computeModuleSpecifiers`), e.g.
+  `./node_modules/inner/other.js`.
+- `symbol_chain`'s file-module arm (`import("…").T`) now hands a
+  `node_modules` module to `module_specifier_for_symbol` where its flat arm
+  declines. Its relative-module gates (`imported_here`, the flat-directory
+  slice) are unchanged.
+
+Not ported, each a decline or an unchanged answer rather than a guess:
+symlinked module paths (`GetEachFileNameOfModule`'s symlink cache: a
+symlinked package keeps the real path's answer), project-reference and
+duplicate-package redirects (`IsRedirect`), the global typings cache, the
+`.d.json.ts` remap, the `.ts` ending `allowImportingTsExtensions` admits,
+and `tryGetAnyFileFromPath`'s "keep `/index` when a file shares the
+directory's name" probe.
+
+### 5.3 Measured
+
+Against commit 4, unfiltered, zero losses on either dump against the
+frozen baseline: **types +168 lines** (166 WRONG → RIGHT, 2 GAP → RIGHT),
+diagnostics unchanged. Converted: `nodeModulesExportsSourceTs` (28 lines
+over node16..nodenext), `nodeModulesExports{BlocksSpecifierResolution,
+SpecifierGenerationPattern,SpecifierGenerationDirectory,
+SpecifierGenerationConditions}` (20 each), `declarationEmitObjectAssignedDefaultExport`
+14, `typesVersionsDeclarationEmit.multiFile` 8,
+`legacyNodeModulesExportsSpecifierGenerationConditions` 6,
+`declarationsIndirectGeneratedAliasReference` 5,
+`typesVersionsDeclarationEmit.multiFileBackReferenceToSelf`,
+`duplicatePackage_relativeImportWithinPackage{,_scoped}`,
+`declarationEmitUnsafeImportSymbolName`,
+`declarationEmitCommonJsModuleReferencedType` (4 each), and one line each in
+seven more. The first version walked every directory down to the file
+(strada's loop); the single package-root attempt (§5.1) converted 2 lines
+more, among them a `node_modules/foo.d.ts` file named `foo`.
+
+Perf, median child CPU: domain-model 0.948 (21 samples). generic-imports
+read 1.039 at 21 and 1.063 at 41 against the baseline binary; a controlled
+re-run of three binaries back to back at 41 samples read base/base 0.981,
+commit 3/base 0.982, this/base 0.988, and callgrind (single-threaded,
+generic-imports) counts 399,690,754 → 399,702,651 instructions (+0.003%):
+noise, as neither bench has a `node_modules` file and no new code runs.
+
+**TS2883 does not move**, and cannot from here: upstream reports it from the
+declaration emitter's symbol tracker
+(`ReportLikelyUnsafeImportRequiredError`, `nodebuilderimpl.go:709`, when the
+specifier the node builder generates contains `/node_modules/`), and this
+port has no producer for it. The specifier it needs now exists
+(`module_specifier_for_symbol`); the producer is declaration-emit work.

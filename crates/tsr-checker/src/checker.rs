@@ -2396,8 +2396,15 @@ impl<'a, 'n> Checker<'a, 'n> {
                 return (!relative.contains('/') && !relative.is_empty())
                     .then(|| format!("\"./{relative}\""));
             };
-            if to.contains("/node_modules/") {
-                return None;
+            // `computeModuleSpecifiers`' node_modules arm
+            // (`tryGetModuleNameAsNodeModule`, `crate::module_specifiers`);
+            // when it names nothing, the relative specifier below is
+            // upstream's fallback too (r5-modules §5).
+            if to.contains("/node_modules/")
+                && let Some(name) =
+                    self.node_module_specifier(from_file, tsr_path::get_directory_path(&from), &to)
+            {
+                return Some(crate::printing::quote(&name));
             }
             // `processEnding` (`modulespecifiers/specifiers.go:636`) under the
             // node builder's ending choice (r5-modules §4).
@@ -3175,6 +3182,19 @@ impl<'a, 'n> Checker<'a, 'n> {
                         .is_none();
                 if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
                     return Some(format!("import(\"./{stem}\")."));
+                }
+                // A module under `node_modules` takes `getSpecifierForModuleSymbol`'s
+                // whole answer — an existing import, the package name
+                // (`tryGetModuleNameAsNodeModule`) or the relative fallback —
+                // where the flat arm above declines (r5-modules §5). The
+                // relative-module gates above are left as they are.
+                if !unresolved_export
+                    && !same_file
+                    && !imported_here
+                    && stem.contains("node_modules/")
+                    && let Some(specifier) = self.module_specifier_for_symbol(parent, reference)
+                {
+                    return Some(format!("import({specifier})."));
                 }
             }
             return None;
