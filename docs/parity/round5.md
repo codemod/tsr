@@ -514,3 +514,21 @@ TS2339/TS18046, TS2345/TS2769) are main's active lanes (`.11`, `.4`, `.9`), so
 the lane was picked from the type-line clusters instead: instantiation
 expressions (`tsr-2zk.1006`; instantiationExpressionErrors alone has 66 WRONG
 lines) and unique-symbol identity (`.1005`; uniqueSymbolsErrors has 34).
+
+### r5-mapped3 finished; r5-mapped4 dispatched (`tsr-2zk.1056`)
+
+r5-mapped3 landed `f5ea71e9`: the any arms of resolveMappedTypeMembers,
+template optionality, and the non-generic mapped print split. That is +30
+type lines and +2 cases, with Ir +0.05%. Its enum-keys diff touches mapped.rs
+plus flow.rs's tryGetNameFromEntityNameExpression and lands in batch W, for
++12 type lines and no losses. The mapped half alone loses 2 cases, so the two
+halves land together.
+
+The declared-route diff (net +56 type lines, +1 case) waits on two print fixes.
+One is keyof-origin parenthesization in intersections.rs (13 lines). The other
+is node reuse for a signature's type-parameter constraint (6 lines). r5-mapped4
+takes both, and also `.1053`.
+
+Box finding: varianceProblingAndZeroOrderIndexSignatureRelationsAlign peaks at
+about 13.6 GB RSS even on the base. This is the memory-headroom risk behind
+`tsr-2zk.1041`.
