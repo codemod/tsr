@@ -494,3 +494,6 @@ per-file flag must become per-node.
   type is enum-like), `true`/`false`, and (negative) bigint. A bare
   identifier is invalid (TS1254). The only decline left: an enum-reference
   candidate whose port type is `errorType`.
+- `const` without initializer (`checkGrammarVariableDeclaration`): TS1155 is
+  `grammarErrorOnNode(node)`, i.e. the declaration's error span (its name),
+  not the whole declaration.
