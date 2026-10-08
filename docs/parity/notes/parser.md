@@ -514,3 +514,8 @@ per-file flag must become per-node.
 - `ScriptKind::JavaScript` (`.js`/`.cjs`/`.mjs`/`.jsx`) is the parser's
   `NodeFlagsJavaScriptFile` context: JSX tags skip type arguments there
   (`parseJsxOpeningOrSelfClosingElementOrOpeningFragment`).
+- Function types (`isStartOfFunctionTypeOrConstructorType` →
+  `parseFunctionOrConstructorType`): once `<` or an unambiguous `(` decides a
+  function type, the parse commits; a missing `=>` is reported by
+  `parseReturnType` and the return type parsed anyway, instead of falling
+  back to a parenthesized type (`x: ()` is `'=>' expected`).
