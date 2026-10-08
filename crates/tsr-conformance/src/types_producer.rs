@@ -1445,6 +1445,37 @@ pub fn assertions_for_case_with_error_kinds(
     (rendered, kinds)
 }
 
+/// The unit a baseline section was written from.
+///
+/// The section header is `removeTestPathPrefixes(unitName)`
+/// (`type_symbol_baseline.go:241`), so a unit whose printed name IS the header
+/// is that section's unit. `same_unit`'s suffix rule is only the fallback:
+/// `utils/index.ts` ends in `/index.ts` and comes first in
+/// `compiler/esModuleInteropImportTSLibHasImport`, which rendered section
+/// `index.ts` from the wrong unit (`docs/parity/notes/r5-align.md` §2.2).
+#[must_use]
+pub fn unit_for_section<'c>(
+    case: &'c crate::TestCase,
+    section: &str,
+) -> Option<&'c crate::case::TestFile> {
+    case.files
+        .iter()
+        .find(|u| crate::full_oracle::printed_path(&u.name, false) == section)
+        .or_else(|| case.files.iter().find(|u| crate::binder_suite::same_unit(&u.name, section)))
+}
+
+/// A case's `.types` baseline, read with each section's own source so a code
+/// line echoed with a leading `>` is not taken for an assertion
+/// ([`types_baseline::parse_with_sources`]). The gate's readers
+/// (`types_suite`, `verdict`) use this; `types_baseline::parse` remains for
+/// probes that have no case loaded.
+#[must_use]
+pub fn expected_for_case(text: &str, case: &crate::TestCase) -> Vec<FileTypes> {
+    crate::types_baseline::parse_with_sources(text, |section| {
+        unit_for_section(case, section).map(|unit| unit.content.as_str())
+    })
+}
+
 /// The body both entry points share, so they cannot drift apart.
 fn render_case(
     program: &tsr_compiler::Program<'_>,
@@ -1513,18 +1544,18 @@ fn render_case(
 
     let mut ours = Vec::new();
     for expected_file in expected {
-        // A section with no unit, a JSON unit, or a unit the loader did not put
-        // in the program — an unsupported extension, or a name it could not read
-        // — renders empty, exactly as a unit with no expected section does.
+        // A section with no unit, or a unit the loader did not put in the
+        // program — an unsupported extension, or a name it could not read —
+        // renders empty, exactly as a unit with no expected section does.
         // Absent rather than wrong.
-        let file = case
-            .files
-            .iter()
-            .find(|u| crate::binder_suite::same_unit(&u.name, &expected_file.file))
-            .filter(|u| {
-                tsr_parser::ScriptKind::from_file_name(&u.name) != tsr_parser::ScriptKind::Json
-            })
-            .and_then(|u| program.source_file(&u.name));
+        //
+        // A JSON unit the program holds is walked like any other:
+        // `iterateBaseline` (`type_symbol_baseline.go:211`) walks every test
+        // file through `program.GetSourceFile`, and a JSON source file's
+        // object literal is an expression (`docs/parity/notes/r5-align.md`
+        // §2.1).
+        let file =
+            unit_for_section(case, &expected_file.file).and_then(|u| program.source_file(&u.name));
         let Some(file) = file else {
             ours.push(Vec::new());
             if let Some(ids) = ids.as_deref_mut() {

@@ -212,6 +212,14 @@ impl Suite for CheckerTypes {
                 lines: Some(LineTally { matched: 0, total: assertions }),
             };
         };
+        // Re-read with each section's source, so a code line the writer
+        // echoed with a leading `>` is not an assertion
+        // (`types_producer::expected_for_case`, `docs/parity/notes/r5-align.md`
+        // §2.3). It can only drop lines, so the skip is re-tested.
+        let files = types_producer::expected_for_case(&text, &parsed);
+        if types_baseline::assertion_count(&files) == 0 {
+            return skip("the .types baseline has no assertions");
+        }
 
         // One rendered section per baseline section, in the baseline's order, so
         // position `i` on one side is position `i` on the other.

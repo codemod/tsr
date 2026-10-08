@@ -75,11 +75,15 @@ fn case_rows(case: &crate::corpus::CaseEntry) -> Vec<String> {
         return out;
     }
     let Some(text) = case.expected_types() else { return out };
-    let expected = types_baseline::parse(&text);
-    if types_baseline::assertion_count(&expected) == 0 {
+    if types_baseline::assertion_count(&types_baseline::parse(&text)) == 0 {
         return out;
     }
     let Ok(parsed) = case.load() else { return out };
+    // The reading `types_suite` judges: echoed code lines are not assertions.
+    let expected = types_producer::expected_for_case(&text, &parsed);
+    if types_baseline::assertion_count(&expected) == 0 {
+        return out;
+    }
     let arena = tsr_core::Arena::new();
     let (_program, ours, _ids) =
         types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
