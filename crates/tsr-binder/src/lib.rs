@@ -152,6 +152,9 @@ pub struct BindResult<'a> {
     /// `(target, source)` for every merge the excludes masks forbade; see
     /// [`BindResult::merge_conflicts`].
     merge_conflicts: Vec<(SymbolId, SymbolId)>,
+    /// `(alias target, source)` merges declined pending alias resolution; see
+    /// [`BindResult::alias_merges`].
+    alias_merges: Vec<(SymbolId, SymbolId)>,
     /// Non-global module augmentations not yet merged; see
     /// [`BindResult::merge_module_augmentations`].
     module_augmentations: Vec<ModuleAugmentation<'a>>,
@@ -234,6 +237,7 @@ impl<'a> BindResult<'a> {
             globals: SymbolTable::default(),
             merged: FxHashMap::default(),
             merge_conflicts: Vec::new(),
+            alias_merges: Vec::new(),
             module_augmentations: Vec::new(),
             pattern_ambient_module_augmentations: FxHashMap::default(),
             undefined_symbol: None,
@@ -1199,6 +1203,29 @@ impl<'a> BindResult<'a> {
                 }
                 return Some(self.merged_symbol(found));
             }
+            // **A class's type parameters are not in scope in its base class
+            // expression** (`nameresolver.go:196-208`): coming up from the
+            // expression of an `extends` clause's `ExpressionWithTypeArguments`
+            // of a class, a name the class's members table holds as a type
+            // resolves to nothing. Upstream also reports TS2562 when the caller
+            // passed a not-found message; the checker owns that report.
+            if nodes.kind(node) == SyntaxKind::ExpressionWithTypeArguments
+                && let Some(tsr_ast::Node::ExpressionWithTypeArguments(with_arguments)) =
+                    node_map.get(node)
+                && last.is_some()
+                && with_arguments.expression.and_then(|expression| expression.node_id()) == last
+                && let Some(clause) = nodes.parent(node)
+                && matches!(node_map.get(clause), Some(tsr_ast::Node::HeritageClause(heritage))
+                    if heritage.token.kind == SyntaxKind::ExtendsKeyword)
+                && let Some(container) = nodes.parent(clause)
+                && matches!(
+                    nodes.kind(container),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+                && self.lookup_type_member(container, name, meaning).is_some()
+            {
+                return None;
+            }
             // A named class expression's own name, in its body
             // (`nameresolver.go:189-195`): reached only when the members
             // lookup missed (a type parameter declared elsewhere `break`s out
@@ -1460,6 +1487,20 @@ impl<'a> BindResult<'a> {
     #[must_use]
     pub fn merge_conflicts(&self) -> &[(SymbolId, SymbolId)] {
         &self.merge_conflicts
+    }
+
+    /// Every merge into an **alias** target, as `(target, source)`, that the
+    /// excludes masks did not refuse on the alias's own flags.
+    ///
+    /// Upstream's `mergeSymbol` resolves such a target (`checker.go:14153`)
+    /// and either merges into the resolved symbol or reports
+    /// `reportMergeSymbolError`. The binder follows no aliases, so it declines
+    /// the merge and records the pair; `Checker::report_merge_conflicts`
+    /// resolves the alias and reports the error arm. The merge arm stays a
+    /// decline (`bd tsr-y4u.12`). `docs/parity/notes/misc-checks.md` §19.
+    #[must_use]
+    pub fn alias_merges(&self) -> &[(SymbolId, SymbolId)] {
+        &self.alias_merges
     }
 
     /// The synthesised `undefined` symbol, if this bind created one.

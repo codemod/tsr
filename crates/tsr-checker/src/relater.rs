@@ -79,16 +79,18 @@
 //!   cache no longer closes — so the two guards are not interchangeable: the
 //!   cache buys the answer, the cap buys termination.
 //!
-//! **Divergence, recorded:** upstream's `Relation` lives on the `Checker` and so
-//! persists across every call. Here it is created per top-level
-//! `is_type_assignable_to` call, because `checker.rs` is not this module's to add
-//! a field to. Recursive proof publication follows native within each walk;
-//! extending results across calls additionally requires native key/context and
-//! checker-local metadata-lifetime contracts (tsr-1yb.4.1.3).
+//! Completed results persist for the checker's lifetime, as upstream's
+//! `Relation.results` does on the `Checker` (`tsr-2zk.902`,
+//! [`crate::relation_cache`]); active assumptions stay per walk. Until
+//! `tsr-2zk.902` they were per top-level call, and TypeScript's own
+//! `src/jsTyping` never finished because every narrowing query repeated the
+//! same deep walk. The key, lifetime and frame exclusions are recorded in
+//! `docs/architecture/checker-relation-publication.md`.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use tsr_binder::{SymbolFlags, SymbolId};
 
+use crate::relation_cache::{CachedRelation, RelationKey};
 use crate::{checker::Checker, flags::TypeFlags, types::TypeData, types::TypeId};
 
 /// How deep the structural walk goes before giving up.
@@ -426,17 +428,21 @@ pub enum Relation {
     Comparable,
 }
 
-/// One relation check, carrying the cache and the depth cap.
+/// One relation check, carrying the active assumptions and the depth cap.
 ///
 /// Upstream splits this state between the `Checker` (the persistent `Relation`
 /// results map) and a per-check `Relater` struct holding `sourceStack`,
-/// `targetStack` and `relationCount`. Both halves are per-check here; see the
-/// module docs for why, and for what is lost.
+/// `targetStack` and `relationCount`. The port splits it the same way:
+/// completed results live in [`Checker::relation_results`]
+/// ([`crate::relation_cache`]) for the checker's lifetime, except in a walk
+/// opened inside a context frame (see [`Relater::new`]), whose results stay
+/// in [`Relater::local_results`].
 struct Relater<'c, 'a, 'n> {
     checker: &'c mut Checker<'a, 'n>,
     relation: Relation,
-    /// Completed results only, scoped to this checker-local relation walk.
-    results: FxHashMap<RelationKey, RelationResult>,
+    /// Completed results of a walk that may not read or publish the
+    /// checker-lifetime store; `None` for an ordinary walk.
+    local_results: Option<FxHashMap<RelationKey, CachedRelation>>,
     /// Native maybeKeys/maybeKeysSet: active and assumption-dependent proofs.
     maybe_keys: Vec<RelationKey>,
     maybe_keys_set: FxHashSet<RelationKey>,
@@ -457,11 +463,6 @@ struct Relater<'c, 'a, 'n> {
     diagnostic_pair: Option<(TypeId, TypeId)>,
     signature_error: Option<(usize, usize)>,
 }
-
-/// A walk-local relation result key: the ordered pair and whether it was
-/// related under `IntersectionStateTarget` (native `getRelationKey`'s
-/// intersection-state suffix).
-type RelationKey = (TypeId, TypeId, bool);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RecursionIdentity {
@@ -705,20 +706,12 @@ impl Checker<'_, '_> {
         relation: Relation,
         report_errors: bool,
     ) -> (Ternary, Option<tsr_diagnostics::Diagnostic>) {
-        let mut relater = Relater {
-            checker: self,
-            relation,
-            results: FxHashMap::default(),
-            maybe_keys: Vec::new(),
-            maybe_keys_set: FxHashSet::default(),
-            depth: 0,
-            source_stack: Vec::new(),
-            target_stack: Vec::new(),
-            expanding: (false, false),
-            intersection_target: false,
-            diagnostic_pair: report_errors.then_some((source, target)),
-            signature_error: None,
-        };
+        if !report_errors
+            && let Some(answer) = self.cached_object_relation(source, target, relation)
+        {
+            return (answer, None);
+        }
+        let mut relater = Relater::new(self, relation, report_errors.then_some((source, target)));
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
         let answer = relater.is_related_to(source, target).public_answer();
@@ -735,6 +728,52 @@ impl Checker<'_, '_> {
             None
         };
         (answer, diagnostic)
+    }
+
+    /// `isTypeRelatedTo`'s completed-result read for two object types
+    /// (`relater.go:193`): before opening a walk, an object pair answers from
+    /// the relation's results under `IntersectionStateNone`.
+    ///
+    /// Equivalent to the walk it skips: `recursive_type_related_to` is the
+    /// only writer, it is reached only after `is_related_to_with_flags`'
+    /// arms decline the pair, and those arms read nothing but the pair, the
+    /// relation and the options [`crate::relation_cache::RelationResults`]
+    /// validates. For two object types that walk's normalizations reduce to
+    /// `get_regular_type_of_literal_type`, applied here; the variance-marker
+    /// pairs it answers first never reach the store. A framed walk
+    /// ([`Relater::new`]) does not read the store, and neither does this.
+    fn cached_object_relation(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        relation: Relation,
+    ) -> Option<Ternary> {
+        if !self.alias_evaluation_bindings.is_empty() || self.mapped_template_depth != 0 {
+            return None;
+        }
+        let source = self.get_regular_type_of_literal_type(source);
+        let target = self.get_regular_type_of_literal_type(target);
+        if source == target
+            || !self.type_of(source).flags.contains(TypeFlags::OBJECT)
+            || !self.type_of(target).flags.contains(TypeFlags::OBJECT)
+        {
+            return None;
+        }
+        self.relation_results.validate(self.relation_options());
+        Some(match self.relation_results.get(relation, (source, target, false))? {
+            CachedRelation::Succeeded => Ternary::Related,
+            CachedRelation::Failed => Ternary::NotRelated,
+        })
+    }
+
+    /// The options [`crate::relation_cache::RelationOptions`] names.
+    fn relation_options(&self) -> crate::relation_cache::RelationOptions {
+        [
+            self.strict_null_checks,
+            self.strict_function_types,
+            self.exact_optional_property_types,
+            self.no_implicit_any,
+        ]
     }
 
     /// The missing-property message `checkTypeRelatedToEx` would leave at the
@@ -839,20 +878,7 @@ impl Checker<'_, '_> {
         }
         let names = self.get_property_names_of_type(target)?;
         self.get_property_names_of_type(source)?;
-        let mut relater = Relater {
-            checker: self,
-            relation: Relation::Assignable,
-            results: FxHashMap::default(),
-            maybe_keys: Vec::new(),
-            maybe_keys_set: FxHashSet::default(),
-            depth: 0,
-            source_stack: Vec::new(),
-            target_stack: Vec::new(),
-            expanding: (false, false),
-            intersection_target: false,
-            diagnostic_pair: None,
-            signature_error: None,
-        };
+        let mut relater = Relater::new(self, Relation::Assignable, None);
         let mut missing = Vec::new();
         for name in names {
             if relater.checker.get_type_of_property_of_type(source, &name).is_some() {
@@ -1017,10 +1043,39 @@ impl Checker<'_, '_> {
         source: &crate::signatures::Signature,
         target: &crate::signatures::Signature,
     ) -> Option<Ternary> {
-        let mut relater = Relater {
-            checker: self,
-            relation: Relation::Assignable,
-            results: FxHashMap::default(),
+        let mut relater = Relater::new(self, Relation::Assignable, None);
+        relater
+            .one_signature_related_to(source, target, false, false, false)
+            .map(RelationResult::public_answer)
+    }
+}
+
+impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
+    /// A walk with no active assumptions, as `checkTypeRelatedToEx` starts
+    /// one (`relater.go:257`).
+    ///
+    /// A walk opened while a conditional-alias evaluation frame
+    /// (`alias_evaluation_bindings`) or a mapped-template frame
+    /// (`mapped_template_depth`) is active reads member and template types
+    /// through that frame, so its answers are not the frame-free pair's.
+    /// Native has neither frame (it instantiates instead); such a walk keeps
+    /// its completed results walk-local, as every walk did before
+    /// `tsr-2zk.902`, and neither reads nor publishes the checker store.
+    fn new(
+        checker: &'c mut Checker<'a, 'n>,
+        relation: Relation,
+        diagnostic_pair: Option<(TypeId, TypeId)>,
+    ) -> Self {
+        let framed =
+            !checker.alias_evaluation_bindings.is_empty() || checker.mapped_template_depth != 0;
+        if !framed {
+            let options = checker.relation_options();
+            checker.relation_results.validate(options);
+        }
+        Relater {
+            checker,
+            relation,
+            local_results: framed.then(FxHashMap::default),
             maybe_keys: Vec::new(),
             maybe_keys_set: FxHashSet::default(),
             depth: 0,
@@ -1028,12 +1083,27 @@ impl Checker<'_, '_> {
             target_stack: Vec::new(),
             expanding: (false, false),
             intersection_target: false,
-            diagnostic_pair: None,
+            diagnostic_pair,
             signature_error: None,
-        };
-        relater
-            .one_signature_related_to(source, target, false, false, false)
-            .map(RelationResult::public_answer)
+        }
+    }
+
+    /// `relation.get(id)` (`relater.go:3068`).
+    fn cached_result(&self, key: RelationKey) -> Option<CachedRelation> {
+        match &self.local_results {
+            Some(local) => local.get(&key).copied(),
+            None => self.checker.relation_results.get(self.relation, key),
+        }
+    }
+
+    /// `relation.set(id, ...)` (`relater.go:3162`, `:3173`).
+    fn publish_result(&mut self, key: RelationKey, result: CachedRelation) {
+        match &mut self.local_results {
+            Some(local) => {
+                local.insert(key, result);
+            }
+            None => self.checker.relation_results.set(self.relation, key, result),
+        }
     }
 }
 
@@ -1265,6 +1335,9 @@ impl Relater<'_, '_, '_> {
         // properties are compared one by one, and only a definite failure is
         // taken from that walk here.
         if let Some(result) = self.non_array_source_tuple_target(source, target) {
+            return result;
+        }
+        if let Some(result) = self.tuple_source_non_array_target(source, target) {
             return result;
         }
         // Nothing fired. That is an **answer** only where the simple arms above
@@ -2588,8 +2661,15 @@ impl Relater<'_, '_, '_> {
         flags: RecursionFlags,
     ) -> RelationResult {
         let key = (source, target, self.intersection_target);
-        if let Some(&cached) = self.results.get(&key) {
-            return cached;
+        match self.cached_result(key) {
+            Some(CachedRelation::Succeeded) => return RelationResult::Related,
+            // Native re-runs a cached failure when it elaborates errors
+            // (`relater.go:3069`). This port elaborates only the direct pair's
+            // signature arity, so only that pair is re-run.
+            Some(CachedRelation::Failed) if self.diagnostic_pair != Some((source, target)) => {
+                return RelationResult::NotRelated;
+            }
+            _ => {}
         }
         if self.maybe_keys_set.contains(&key) {
             return RelationResult::Maybe;
@@ -2642,7 +2722,7 @@ impl Relater<'_, '_, '_> {
             }
             RelationResult::NotRelated => {
                 // Failure under assumptions also fails without them.
-                self.results.insert(key, RelationResult::NotRelated);
+                self.publish_result(key, CachedRelation::Failed);
                 self.reset_maybe_stack(maybe_start, false);
             }
             RelationResult::Unknown => {
@@ -2657,12 +2737,14 @@ impl Relater<'_, '_, '_> {
     /// resetMaybeStack (internal/checker/relater.go). Publish dependent keys
     /// only when the surrounding proof discharges their assumptions.
     fn reset_maybe_stack(&mut self, start: usize, succeeded: bool) {
-        for key in self.maybe_keys.drain(start..) {
+        for index in start..self.maybe_keys.len() {
+            let key = self.maybe_keys[index];
             self.maybe_keys_set.remove(&key);
             if succeeded {
-                self.results.insert(key, RelationResult::Related);
+                self.publish_result(key, CachedRelation::Succeeded);
             }
         }
+        self.maybe_keys.truncate(start);
     }
 
     /// Union and intersection dispatch.
@@ -3516,6 +3598,54 @@ impl Relater<'_, '_, '_> {
         Some(RelationResult::Unknown)
     }
 
+    /// propertiesRelatedTo (relater.go:4100) for a tuple source and an
+    /// object target that is neither an array nor a tuple: a required target
+    /// property the tuple does not have (`getPropertyOfObjectType(source,
+    /// name) == nil`, relater.go:4146) is `false` under every relation.
+    /// `[] -> RegExpMatchArray` fails on `0`. Only that definite negative is
+    /// taken; every other pair keeps the undecided fallthrough.
+    fn tuple_source_non_array_target(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        let source_properties = self.checker.tuple_target_properties(source)?;
+        if !self.checker.type_of(target).flags.contains(TypeFlags::OBJECT)
+            || self.tuple_relation_elements(target).is_some()
+            || self.checker.tuple_spread_array_element(target).is_some()
+            || self.checker.mapped_types.contains_key(&target)
+        {
+            return None;
+        }
+        // The target's OWN declared members suffice for a negative: an
+        // inherited requirement can only add failures, never remove one.
+        let TypeData::Named { members: Some(owner), .. } = self.checker.type_of(target).data else {
+            return None;
+        };
+        let owner = self.checker.binder.merged_symbol(owner);
+        let members: Vec<_> = self
+            .checker
+            .binder
+            .symbols()
+            .get(owner)
+            .members
+            .iter()
+            .map(|(name, &symbol)| ((*name).to_string(), symbol))
+            .collect();
+        let missing = members.into_iter().any(|(name, symbol)| {
+            self.checker
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::PROPERTY | tsr_binder::SymbolFlags::METHOD)
+                && !self.checker.property_is_optional(symbol)
+                && !source_properties.iter().any(|(property, _)| *property == name)
+                && self.checker.get_property_of_type(source, &name).is_none()
+        });
+        missing.then_some(RelationResult::NotRelated)
+    }
+
     fn tuple_relation_elements(
         &self,
         id: TypeId,
@@ -3943,7 +4073,6 @@ impl Relater<'_, '_, '_> {
 #[cfg(test)]
 mod variance_recursion_tests {
     use super::{Checker, RecursionFlags, Relater, Relation, RelationResult, Ternary};
-    use rustc_hash::{FxHashMap, FxHashSet};
     use tsr_ast::Statement;
     use tsr_core::Arena;
 
@@ -3976,25 +4105,16 @@ mod variance_recursion_tests {
         let symbol = checker.type_reference_targets[&types[0]].0;
         checker.variance_in_progress.insert(symbol);
         {
-            let mut relater = Relater {
-                checker: &mut checker,
-                relation: Relation::Assignable,
-                results: FxHashMap::default(),
-                maybe_keys: Vec::new(),
-                maybe_keys_set: FxHashSet::default(),
-                depth: 0,
-                source_stack: Vec::new(),
-                target_stack: Vec::new(),
-                expanding: (false, false),
-                intersection_target: false,
-                diagnostic_pair: None,
-                signature_error: None,
-            };
+            let mut relater = Relater::new(&mut checker, Relation::Assignable, None);
             let circular =
                 relater.recursive_type_related_to(types[0], types[1], RecursionFlags::BOTH);
             assert_eq!(circular, RelationResult::CircularVariance);
             assert_eq!(circular.public_answer(), Ternary::Related);
-            assert!(relater.results.is_empty(), "circular variance must not publish a proof");
+            assert_eq!(
+                relater.checker.relation_results.len(Relation::Assignable),
+                0,
+                "circular variance must not publish a proof"
+            );
             assert!(relater.maybe_keys.is_empty());
             assert!(relater.maybe_keys_set.is_empty());
         }
@@ -4022,5 +4142,117 @@ mod variance_recursion_tests {
         assert_eq!(RelationResult::any([NotRelated, CircularVariance]), CircularVariance);
         assert_eq!(RelationResult::any([Unknown, NotRelated]), Unknown);
         assert_eq!(Unknown.public_answer(), Ternary::Unknown);
+    }
+}
+
+#[cfg(test)]
+mod relation_cache_tests {
+    use super::{Checker, Relation, Ternary};
+    use crate::relation_cache::CachedRelation;
+    use tsr_ast::Statement;
+    use tsr_core::Arena;
+
+    fn with_annotations(source: &str, test: impl FnOnce(&mut Checker<'_, '_>, &[crate::TypeId])) {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "relation-cache.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let mut types = Vec::new();
+        for statement in parsed.source_file.statements {
+            let Statement::VariableStatement(statement) = statement else { continue };
+            let annotation = statement
+                .declaration_list
+                .and_then(|list| list.declarations.first().copied())
+                .and_then(|declaration| declaration.r#type)
+                .expect("type annotation");
+            types.push(checker.get_type_from_type_node(annotation));
+        }
+        test(&mut checker, &types);
+    }
+
+    const RECURSIVE: &str = "interface A { next: B; value: string }
+        interface B { next: A; value: string }
+        interface C { next: D; value: string }
+        interface D { next: C; value: string }
+        interface E { next: E; value: number }
+        let a: A; let c: C; let e: E;";
+
+    /// Native `recursiveTypeRelatedTo` publishes a completed proof, with the
+    /// assumptions it discharged, to the checker's `Relation.results`; a
+    /// failure is published on its own. Both outlive the walk.
+    #[test]
+    fn completed_results_outlive_the_walk() {
+        with_annotations(RECURSIVE, |checker, types| {
+            let (a, c, e) = (types[0], types[1], types[2]);
+            assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
+            let results = &checker.relation_results;
+            assert_eq!(
+                results.get(Relation::Assignable, (a, c, false)),
+                Some(CachedRelation::Succeeded)
+            );
+            // B -> D was assumed while A -> C was active and published with it.
+            assert!(results.len(Relation::Assignable) >= 2);
+            assert_eq!(results.get(Relation::Comparable, (a, c, false)), None);
+            assert_eq!(checker.relate_ternary(a, e, Relation::Assignable), Ternary::NotRelated);
+            assert_eq!(
+                checker.relation_results.get(Relation::Assignable, (a, e, false)),
+                Some(CachedRelation::Failed)
+            );
+            // A repeat answers from the store, before a walk opens.
+            assert_eq!(
+                checker.cached_object_relation(a, c, Relation::Assignable),
+                Some(Ternary::Related)
+            );
+            assert_eq!(
+                checker.cached_object_relation(a, e, Relation::Assignable),
+                Some(Ternary::NotRelated)
+            );
+            assert_eq!(checker.cached_object_relation(c, a, Relation::Assignable), None);
+            assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
+            assert_eq!(checker.relate_ternary(a, e, Relation::Assignable), Ternary::NotRelated);
+        });
+    }
+
+    /// A walk opened inside a conditional-alias evaluation frame reads
+    /// members through that frame: it neither reads nor publishes the store.
+    #[test]
+    fn framed_walks_stay_walk_local() {
+        with_annotations(RECURSIVE, |checker, types| {
+            let (a, c) = (types[0], types[1]);
+            checker.alias_evaluation_bindings.push(rustc_hash::FxHashMap::default());
+            assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
+            checker.alias_evaluation_bindings.pop();
+            assert_eq!(checker.relation_results.len(Relation::Assignable), 0);
+            checker.mapped_template_depth += 1;
+            assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
+            checker.mapped_template_depth -= 1;
+            assert_eq!(checker.relation_results.len(Relation::Assignable), 0);
+            // Nor does a framed entry read a frame-free result.
+            assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
+            checker.mapped_template_depth += 1;
+            assert_eq!(checker.cached_object_relation(a, c, Relation::Assignable), None);
+            checker.mapped_template_depth -= 1;
+        });
+    }
+
+    /// Results computed under one set of relation options are discarded when
+    /// a walk starts under another.
+    #[test]
+    fn option_changes_discard_results() {
+        with_annotations(RECURSIVE, |checker, types| {
+            let (a, c) = (types[0], types[1]);
+            assert_eq!(checker.relate_ternary(a, c, Relation::Assignable), Ternary::Related);
+            assert!(checker.relation_results.len(Relation::Assignable) > 0);
+            checker.strict_function_types = !checker.strict_function_types;
+            assert_eq!(checker.cached_object_relation(a, c, Relation::Assignable), None);
+            assert_eq!(checker.relate_ternary(c, c, Relation::Assignable), Ternary::Related);
+            assert_eq!(checker.relation_results.len(Relation::Assignable), 0);
+        });
     }
 }

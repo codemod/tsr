@@ -98,6 +98,85 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(&messages::ENUM_MEMBER_MUST_HAVE_INITIALIZER, span));
     }
 
+    /// TS18055 / TS18056 — the `isolatedModules` arms of
+    /// `computeConstantEnumMemberValue` (`checker.go:24009`) and
+    /// `computeEnumMemberValue` (`checker.go:23985`). A member whose
+    /// initializer evaluates to a string not built from string syntax
+    /// (`IsSyntacticallyString`) reports `'{0}' has a string type, but must
+    /// have syntactically recognizable string syntax…` at the initializer; an
+    /// initializer-less member after an initialized one whose value is not a
+    /// number or was resolved through another file reports TS18056 at its
+    /// name. `docs/parity/notes/r4-templates.md` §5.
+    pub(crate) fn check_enum_member_isolated_modules(&mut self, node: NodeId) {
+        if !self.isolated_modules {
+            return;
+        }
+        let Some(Node::EnumMember(member)) = self.node_map.get(node) else { return };
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let Some(Node::EnumDeclaration(declaration)) = self.node_map.get(parent) else { return };
+        if let Some(initializer) = member.initializer.and_then(|e| e.node_id()) {
+            let result = self.evaluate_constant_result(initializer, node);
+            if !matches!(result.value, Some(EnumConstant::String(_))) || result.syntactically_string
+            {
+                return;
+            }
+            let enum_name = declaration.name.map_or("", |name| name.text);
+            let member_name = self
+                .binder
+                .symbol_of(node)
+                .map(|symbol| self.binder.symbols().get(symbol).name.to_string())
+                .unwrap_or_default();
+            let Some(file) = self.source_file_of_for_diagnostics(initializer) else { return };
+            let span = self.error_span(initializer);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_HAS_A_STRING_TYPE_BUT_MUST_HAVE_SYNTACTICALLY_RECOGNIZABLE_STRING_SYNTAX_WHEN_ISOLATEDMODULES_IS_ENABLED,
+                    span,
+                    [format!("{enum_name}.{member_name}")],
+                ),
+            );
+            return;
+        }
+        let is_const = declaration.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == SyntaxKind::ConstKeyword)
+        });
+        if !is_const && self.is_ambient_declaration(parent) {
+            return;
+        }
+        let Some(index) = declaration.members.iter().position(|m| m.node_id == Some(node)) else {
+            return;
+        };
+        let Some(previous) = index.checked_sub(1).and_then(|i| declaration.members[i].node_id)
+        else {
+            return;
+        };
+        // `autoValue == nil` is TS1061's arm, which returns first.
+        if !matches!(self.enum_member_value_of(previous, 0), Some(EnumConstant::Number(_))) {
+            return;
+        }
+        let Some(Node::EnumMember(previous_member)) = self.node_map.get(previous) else { return };
+        let Some(previous_initializer) = previous_member.initializer.and_then(|e| e.node_id())
+        else {
+            return;
+        };
+        let result = self.evaluate_constant_result(previous_initializer, previous);
+        if matches!(result.value, Some(EnumConstant::Number(_))) && !result.resolved_other_files {
+            return;
+        }
+        let Some(at) = member.name.node_id() else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::ENUM_MEMBER_FOLLOWING_A_NON_LITERAL_NUMERIC_MEMBER_MUST_HAVE_AN_INITIALIZER_WHEN_ISOLATEDMODULES_IS_ENABLED,
+                span,
+            ),
+        );
+    }
+
     /// `enumMemberLinks.value` of one member declaration
     /// (`computeEnumMemberValue`'s result): the published declared literal
     /// type's value for a member the binder named, and for a member it
@@ -186,9 +265,9 @@ impl Checker<'_, '_> {
         else {
             return;
         };
-        let mut reports = Some(Vec::new());
-        self.evaluate_enum_constant(initializer, node, 0, &mut reports);
-        for report in reports.unwrap_or_default() {
+        let mut sink = EvaluationSink { reports: Some(Vec::new()), flags: false };
+        self.evaluate_enum_constant(initializer, node, 0, &mut sink);
+        for report in sink.reports.unwrap_or_default() {
             let (at, diagnostic) = match report {
                 EnumMemberReport::UsedBeforeAssigned(at, symbol) => {
                     // `symbolToString(symbol)` of an enum member: its name
@@ -240,6 +319,38 @@ impl EnumConstant {
             EnumConstant::String(value) => value.clone(),
         }
     }
+}
+
+/// `evaluator.Result` (`evaluator.go:11`), with the value narrowed to the
+/// kinds an enum member holds.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Evaluation {
+    pub(crate) value: Option<EnumConstant>,
+    pub(crate) syntactically_string: bool,
+    pub(crate) resolved_other_files: bool,
+    pub(crate) has_external_references: bool,
+}
+
+impl Evaluation {
+    fn value(value: EnumConstant) -> Self {
+        Evaluation { value: Some(value), ..Evaluation::default() }
+    }
+
+    fn syntactic_string(text: String) -> Self {
+        Evaluation {
+            value: Some(EnumConstant::String(text)),
+            syntactically_string: true,
+            ..Evaluation::default()
+        }
+    }
+}
+
+/// What one evaluation collects besides its value: the `evaluateEnumMember`
+/// reports (when the member check asks), and whether member reads need their
+/// own `Result` bits (only the `isolatedModules` reports read them).
+pub(crate) struct EvaluationSink {
+    reports: Option<Vec<EnumMemberReport>>,
+    flags: bool,
 }
 
 /// A report `evaluateEnumMember` (`checker.go:24077`) makes while evaluating.
@@ -311,13 +422,24 @@ impl Checker<'_, '_> {
 
     /// `c.evaluate(expr, location)` (`checker.go:931`): the checker's
     /// constant evaluator, entry for every consumer (enum member values,
-    /// `checkTemplateExpression`).
+    /// `checkTemplateExpression`). The value only; the `Result` bits are
+    /// [`Checker::evaluate_constant_result`]'s.
     pub(crate) fn evaluate_constant(
         &mut self,
         expr: NodeId,
         location: NodeId,
     ) -> Option<EnumConstant> {
-        self.evaluate_enum_constant(expr, location, 0, &mut None)
+        let mut sink = EvaluationSink { reports: None, flags: false };
+        self.evaluate_enum_constant(expr, location, 0, &mut sink).value
+    }
+
+    /// `c.evaluate(expr, location)` with the whole `evaluator.Result`: an
+    /// enum member read carries that member's own bits, which are
+    /// recomputed from its initializer (`enumMemberLinks.value` holds them
+    /// upstream; this port publishes only the value, §1).
+    fn evaluate_constant_result(&mut self, expr: NodeId, location: NodeId) -> Evaluation {
+        let mut sink = EvaluationSink { reports: None, flags: true };
+        self.evaluate_enum_constant(expr, location, 0, &mut sink)
     }
 
     /// The checker's evaluator (`c.evaluate`, built by
@@ -328,48 +450,64 @@ impl Checker<'_, '_> {
         expr: NodeId,
         location: NodeId,
         depth: u32,
-        reports: &mut Option<Vec<EnumMemberReport>>,
-    ) -> Option<EnumConstant> {
+        sink: &mut EvaluationSink,
+    ) -> Evaluation {
+        let none = Evaluation::default();
         if depth > EVALUATE_DEPTH_LIMIT {
-            return None;
+            return none;
         }
         let mut expr = expr;
         while let Some(Node::ParenthesizedExpression(wrapper)) = self.node_map.get(expr) {
-            expr = wrapper.expression?.node_id()?;
+            let Some(inner) = wrapper.expression.and_then(|e| e.node_id()) else { return none };
+            expr = inner;
         }
-        match self.node_map.get(expr)? {
+        let Some(node) = self.node_map.get(expr) else { return none };
+        match node {
             Node::PrefixUnaryExpression(unary) => {
-                let operand = unary.operand?.node_id()?;
-                let EnumConstant::Number(value) =
-                    self.evaluate_enum_constant(operand, location, depth + 1, reports)?
-                else {
-                    return None;
+                let Some(operand) = unary.operand.and_then(|e| e.node_id()) else { return none };
+                let result = self.evaluate_enum_constant(operand, location, depth + 1, sink);
+                let flags = Evaluation {
+                    value: None,
+                    syntactically_string: false,
+                    resolved_other_files: result.resolved_other_files,
+                    has_external_references: result.has_external_references,
                 };
-                match unary.operator.kind {
-                    SyntaxKind::PlusToken => Some(EnumConstant::Number(value)),
-                    SyntaxKind::MinusToken => Some(EnumConstant::Number(-value)),
-                    SyntaxKind::TildeToken => {
-                        Some(EnumConstant::Number(f64::from(!to_int32(value))))
-                    }
-                    _ => None,
-                }
+                let Some(EnumConstant::Number(value)) = result.value else { return flags };
+                let value = match unary.operator.kind {
+                    SyntaxKind::PlusToken => value,
+                    SyntaxKind::MinusToken => -value,
+                    SyntaxKind::TildeToken => f64::from(!to_int32(value)),
+                    _ => return flags,
+                };
+                Evaluation { value: Some(EnumConstant::Number(value)), ..flags }
             }
             Node::BinaryExpression(binary) => {
                 // Both operands are evaluated whatever the operator: an enum
-                // member read on either side is an evaluation (and TS2651's
-                // visit, `collect_enum_forward_references`).
-                let left = binary
-                    .left
-                    .and_then(|e| e.node_id())
-                    .and_then(|at| self.evaluate_enum_constant(at, location, depth + 1, reports));
-                let right = binary
-                    .right
-                    .and_then(|e| e.node_id())
-                    .and_then(|at| self.evaluate_enum_constant(at, location, depth + 1, reports));
-                let operator = binary.operator_token?.kind;
-                match (left?, right?) {
+                // member read on either side is an evaluation (and a TS2651
+                // visit).
+                let left = match binary.left.and_then(|e| e.node_id()) {
+                    Some(at) => self.evaluate_enum_constant(at, location, depth + 1, sink),
+                    None => Evaluation::default(),
+                };
+                let right = match binary.right.and_then(|e| e.node_id()) {
+                    Some(at) => self.evaluate_enum_constant(at, location, depth + 1, sink),
+                    None => Evaluation::default(),
+                };
+                let Some(operator) = binary.operator_token.map(|token| token.kind) else {
+                    return none;
+                };
+                let flags = Evaluation {
+                    value: None,
+                    syntactically_string: (left.syntactically_string || right.syntactically_string)
+                        && operator == SyntaxKind::PlusToken,
+                    resolved_other_files: left.resolved_other_files || right.resolved_other_files,
+                    has_external_references: left.has_external_references
+                        || right.has_external_references,
+                };
+                let (Some(left), Some(right)) = (left.value, right.value) else { return flags };
+                let value = match (left, right) {
                     (EnumConstant::Number(a), EnumConstant::Number(b)) => {
-                        let value = match operator {
+                        EnumConstant::Number(match operator {
                             SyntaxKind::BarToken => f64::from(to_int32(a) | to_int32(b)),
                             SyntaxKind::AmpersandToken => f64::from(to_int32(a) & to_int32(b)),
                             SyntaxKind::GreaterThanGreaterThanToken => {
@@ -393,53 +531,69 @@ impl Checker<'_, '_> {
                             SyntaxKind::MinusToken => a - b,
                             SyntaxKind::PercentToken => a % b,
                             SyntaxKind::AsteriskAsteriskToken => exponentiate(a, b),
-                            _ => return None,
-                        };
-                        Some(EnumConstant::Number(value))
+                            _ => return flags,
+                        })
                     }
                     (left, right) if operator == SyntaxKind::PlusToken => {
-                        Some(EnumConstant::String(left.render() + &right.render()))
+                        EnumConstant::String(left.render() + &right.render())
                     }
-                    _ => None,
-                }
+                    _ => return flags,
+                };
+                Evaluation { value: Some(value), ..flags }
             }
-            Node::StringLiteral(literal) => Some(EnumConstant::String(literal.text.to_string())),
+            Node::StringLiteral(literal) => Evaluation::syntactic_string(literal.text.to_string()),
             Node::NoSubstitutionTemplateLiteral(literal) => {
-                Some(EnumConstant::String(literal.text.to_string()))
+                Evaluation::syntactic_string(literal.text.to_string())
             }
             // `evaluateTemplateExpression` (`evaluator.go:118`).
             Node::TemplateExpression(template) => {
-                let mut text = template.head?.text.to_string();
+                let unfolded = Evaluation { syntactically_string: true, ..Evaluation::default() };
+                let Some(head) = template.head else { return unfolded };
+                let mut text = head.text.to_string();
+                let mut resolved_other_files = false;
+                let mut has_external_references = false;
                 for span in template.template_spans {
-                    let inner = span.expression?.node_id()?;
-                    let value = self.evaluate_enum_constant(inner, location, depth + 1, reports)?;
+                    let Some(inner) = span.expression.and_then(|e| e.node_id()) else {
+                        return unfolded;
+                    };
+                    let result = self.evaluate_enum_constant(inner, location, depth + 1, sink);
+                    let Some(value) = result.value else { return unfolded };
                     text.push_str(&value.render());
-                    text.push_str(match span.literal? {
+                    let Some(literal) = span.literal else { return unfolded };
+                    text.push_str(match literal {
                         tsr_ast::TemplateMiddleOrTail::TemplateMiddle(part) => part.text,
                         tsr_ast::TemplateMiddleOrTail::TemplateTail(part) => part.text,
                     });
+                    resolved_other_files |= result.resolved_other_files;
+                    has_external_references |= result.has_external_references;
                 }
-                Some(EnumConstant::String(text))
-            }
-            Node::NumericLiteral(literal) => {
-                Some(EnumConstant::Number(tsr_core::jsnum::numeric_value(literal.text)))
-            }
-            Node::Identifier(_) => self.evaluate_enum_entity(expr, location, depth, reports),
-            Node::PropertyAccessExpression(access) => {
-                let root = access.expression?.node_id()?;
-                if !self.is_entity_name_expression(root) {
-                    return None;
+                Evaluation {
+                    value: Some(EnumConstant::String(text)),
+                    syntactically_string: true,
+                    resolved_other_files,
+                    has_external_references,
                 }
-                self.evaluate_enum_entity(expr, location, depth, reports)
             }
-            Node::ElementAccessExpression(access) => {
-                let root = access.expression?.node_id()?;
-                if !self.is_entity_name_expression(root) {
-                    return None;
+            Node::NumericLiteral(literal) => Evaluation::value(EnumConstant::Number(
+                tsr_core::jsnum::numeric_value(literal.text),
+            )),
+            Node::Identifier(_) => self.evaluate_enum_entity(expr, location, depth, sink),
+            Node::PropertyAccessExpression(tsr_ast::PropertyAccessExpression {
+                expression,
+                ..
+            })
+            | Node::ElementAccessExpression(tsr_ast::ElementAccessExpression {
+                expression, ..
+            }) => {
+                if !expression
+                    .and_then(|e| e.node_id())
+                    .is_some_and(|root| self.is_entity_name_expression(root))
+                {
+                    return none;
                 }
-                self.evaluate_enum_entity(expr, location, depth, reports)
+                self.evaluate_enum_entity(expr, location, depth, sink)
             }
-            _ => None,
+            _ => none,
         }
     }
 
@@ -449,8 +603,18 @@ impl Checker<'_, '_> {
         expr: NodeId,
         location: NodeId,
         depth: u32,
-        reports: &mut Option<Vec<EnumMemberReport>>,
-    ) -> Option<EnumConstant> {
+        sink: &mut EvaluationSink,
+    ) -> Evaluation {
+        self.evaluate_enum_entity_inner(expr, location, depth, sink).unwrap_or_default()
+    }
+
+    fn evaluate_enum_entity_inner(
+        &mut self,
+        expr: NodeId,
+        location: NodeId,
+        depth: u32,
+        sink: &mut EvaluationSink,
+    ) -> Option<Evaluation> {
         if let Some(Node::ElementAccessExpression(access)) = self.node_map.get(expr) {
             let name = match access.argument_expression? {
                 tsr_ast::Expression::StringLiteral(literal) => literal.text,
@@ -464,18 +628,20 @@ impl Checker<'_, '_> {
                 return None;
             }
             let member = *self.binder.symbols().get(root_symbol).exports.get(name)?;
-            return self.evaluate_enum_member_reference(expr, member, location, reports);
+            return Some(self.evaluate_enum_member_reference(expr, member, location, depth, sink));
         }
         let symbol = self.resolve_entity_name_expression_value(expr, SymbolFlags::VALUE)?;
         if let Some(Node::Identifier(identifier)) = self.node_map.get(expr)
             && matches!(identifier.text, "Infinity" | "NaN")
             && self.binder.global(identifier.text) == Some(symbol)
         {
-            return Some(EnumConstant::Number(tsr_core::jsnum::numeric_value(identifier.text)));
+            return Some(Evaluation::value(EnumConstant::Number(tsr_core::jsnum::numeric_value(
+                identifier.text,
+            ))));
         }
         let flags = self.binder.symbols().get(symbol).flags;
         if flags.intersects(SymbolFlags::ENUM_MEMBER) {
-            return self.evaluate_enum_member_reference(expr, symbol, location, reports);
+            return Some(self.evaluate_enum_member_reference(expr, symbol, location, depth, sink));
         }
         if self.is_constant_variable(symbol) {
             let declaration = self.binder.symbols().get(symbol).value_declaration?;
@@ -489,13 +655,24 @@ impl Checker<'_, '_> {
                 return None;
             }
             let initializer = variable.initializer?.node_id()?;
-            return self.evaluate_enum_constant(initializer, declaration, depth + 1, reports);
+            let result = self.evaluate_enum_constant(initializer, declaration, depth + 1, sink);
+            if self.source_file_of_for_diagnostics(location)
+                != self.source_file_of_for_diagnostics(declaration)
+            {
+                return Some(Evaluation {
+                    value: result.value,
+                    syntactically_string: false,
+                    resolved_other_files: true,
+                    has_external_references: true,
+                });
+            }
+            return Some(Evaluation { has_external_references: true, ..result });
         }
         None
     }
 
     /// `Checker.evaluateEnumMember` (`checker.go:24077`). Its TS2565/TS2651
-    /// reports are collected into `reports` when the caller asks
+    /// reports are collected into the sink when the caller asks
     /// ([`Checker::check_enum_member_forward_references`], the member check);
     /// the declared-type computation evaluates with no sink, so each report
     /// is made once, by the member's own check.
@@ -504,24 +681,41 @@ impl Checker<'_, '_> {
         expr: NodeId,
         symbol: SymbolId,
         location: NodeId,
-        reports: &mut Option<Vec<EnumMemberReport>>,
-    ) -> Option<EnumConstant> {
+        depth: u32,
+        sink: &mut EvaluationSink,
+    ) -> Evaluation {
         let symbol = self.binder.merged_symbol(symbol);
         let declaration = self.binder.symbols().get(symbol).value_declaration;
-        if declaration.is_none_or(|declaration| declaration == location) {
-            if let Some(reports) = reports {
+        let Some(declaration) = declaration.filter(|&declaration| declaration != location) else {
+            if let Some(reports) = &mut sink.reports {
                 reports.push(EnumMemberReport::UsedBeforeAssigned(expr, symbol));
             }
-            return None;
-        }
-        let declaration = declaration?;
+            return Evaluation::default();
+        };
         if !self.enum_evaluation_declared_before_use(declaration, location) {
-            if let Some(reports) = reports {
+            if let Some(reports) = &mut sink.reports {
                 reports.push(EnumMemberReport::DeclaredAfter(expr));
             }
-            return Some(EnumConstant::Number(0.0));
+            return Evaluation::value(EnumConstant::Number(0.0));
         }
-        self.enum_member_constant(symbol)
+        let value = self.enum_member_constant(symbol);
+        // The member's own `Result` bits, recomputed from its initializer
+        // (an auto-valued member's are all false).
+        let mut result = Evaluation { value, ..Evaluation::default() };
+        if sink.flags
+            && let Some(Node::EnumMember(member)) = self.node_map.get(declaration)
+            && let Some(initializer) = member.initializer.and_then(|e| e.node_id())
+        {
+            let mut own = EvaluationSink { reports: None, flags: true };
+            let bits = self.evaluate_enum_constant(initializer, declaration, depth + 1, &mut own);
+            result.syntactically_string = bits.syntactically_string;
+            result.resolved_other_files = bits.resolved_other_files;
+            result.has_external_references = bits.has_external_references;
+        }
+        if self.nodes.parent(location) != self.nodes.parent(declaration) {
+            result.has_external_references = true;
+        }
+        result
     }
 
     /// `Checker.getEnumMemberValue` (`checker.go:23930`) for a member symbol:

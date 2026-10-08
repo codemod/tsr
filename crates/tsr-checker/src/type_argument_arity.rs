@@ -121,7 +121,9 @@ impl Checker<'_, '_> {
         };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        let printed = self.written_type_name(name);
+        // `typeStr`: the declared type, `C<T>`, not the written name.
+        let declared = self.get_declared_type_of_symbol(symbol);
+        let printed = self.type_to_string(declared);
         self.report(
             file,
             Diagnostic::with_args(
@@ -349,7 +351,9 @@ impl Checker<'_, '_> {
                 identifier.text,
                 SymbolFlags::TYPE,
             )?,
-            Node::QualifiedName(_) => self.qualified_type_name_symbol(name)?,
+            Node::QualifiedName(_) | Node::PropertyAccessExpression(_) => {
+                self.qualified_type_name_symbol(name)?
+            }
             _ => return None,
         };
         let mut symbol = self.binder.merged_symbol(symbol);
@@ -445,8 +449,9 @@ impl Checker<'_, '_> {
     }
 
     /// Does a class `extends` expression resolve, as a value, to a class
-    /// symbol? Unresolvable or non-identifier expressions answer `true`, which
-    /// leaves the existing type-side resolution to decide.
+    /// symbol? An identifier with no value answers `false`; a
+    /// non-identifier expression answers `true`, which leaves the existing
+    /// type-side resolution to decide.
     fn class_extends_entry_names_a_class(&mut self, name: NodeId) -> bool {
         let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return true };
         let Some(symbol) = self.binder.resolve_name(
@@ -456,7 +461,10 @@ impl Checker<'_, '_> {
             identifier.text,
             SymbolFlags::VALUE,
         ) else {
-            return true;
+            // No value: `checkExpression` reports it (TS2304/TS2689) and the
+            // base constructor type is the error type, so
+            // `resolveBaseTypesOfClass` never reaches the arity arm.
+            return false;
         };
         let mut symbol = self.binder.merged_symbol(symbol);
         for _ in 0..8u8 {
@@ -511,7 +519,7 @@ impl Checker<'_, '_> {
             // namespace — `have` reaches `want` at 174 — but five of the eight
             // lines it adds are wrong and `extraonly` rises by one, with **no
             // case moving either way**. Measured and declined; §1040.
-            SymbolFlags::NAMESPACE_MODULE | SymbolFlags::TYPE,
+            SymbolFlags::NAMESPACE,
         )?;
         let namespace = self.binder.merged_symbol(namespace);
         let exported = *self.binder.symbols().get(namespace).exports.get(member.as_str())?;
