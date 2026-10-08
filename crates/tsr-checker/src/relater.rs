@@ -3861,6 +3861,7 @@ impl Relater<'_, '_, '_> {
                 // (`symbolProperty13`). An unfollowable source keeps the
                 // Unknown.
                 if self.checker.get_type_of_property_of_type(source, &name).is_none()
+                    && target_metadata.is_some()
                     && intersection_names
                         .clone()
                         .unwrap_or_else(|| self.checker.get_property_names_of_type(source))
@@ -4036,12 +4037,19 @@ impl Relater<'_, '_, '_> {
         let flags = if let Some(source) = source {
             self.property_flags(source, name)
         } else {
-            self.checker.get_property_of_type(receiver, name).map(|property| {
-                (
-                    self.checker.property_is_optional(property),
-                    self.checker.is_readonly_property(property),
-                )
-            })
+            // A member inherited through a generic base has no symbol on the
+            // ordinary road; its declaring symbol carries the same modifiers.
+            self.checker
+                .get_property_of_type(receiver, name)
+                .or_else(|| {
+                    self.checker.generic_heritage_property_symbol(receiver, name, &mut Vec::new())
+                })
+                .map(|property| {
+                    (
+                        self.checker.property_is_optional(property),
+                        self.checker.is_readonly_property(property),
+                    )
+                })
         };
         flags.map(|(optional, readonly)| {
             let (mapped_optional, mapped_readonly) = modifiers.unwrap_or_default();
