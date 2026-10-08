@@ -1,0 +1,90 @@
+diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
+index 3093b599..20c44b25 100644
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -104,7 +104,7 @@ impl<'a> Checker<'a, '_> {
+         binary: &BinaryExpression<'_>,
+         ambient: bool,
+     ) {
+-        if ambient || self.file_has_parse_errors {
++        if ambient {
+             return;
+         }
+         let (Some(left), Some(right), Some(operator)) =
+@@ -203,7 +203,7 @@ impl<'a> Checker<'a, '_> {
+     /// right operand does relate, `hasEmptyObjectIntersection` still rejects a
+     /// `{}` that may be a primitive (TS2638).
+     pub(crate) fn check_in_expression(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+@@ -276,7 +276,7 @@ impl<'a> Checker<'a, '_> {
+     /// The left-hand type comes from [`Checker::assignment_target_type`], the
+     /// same declared-type reader (and declines) the `=` arm uses.
+     pub(crate) fn check_for_of_reference_assignment(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+@@ -321,9 +321,7 @@ impl<'a> Checker<'a, '_> {
+         declaration: &tsr_ast::VariableDeclaration<'a>,
+         ambient: bool,
+     ) {
+-        if ambient
+-            || (self.file_has_parse_errors && !self.has_complete_source_variable_initializer(node))
+-        {
++        if ambient {
+             return;
+         }
+         let annotation = declaration.r#type.or_else(|| self.jsdoc_type_annotation(node));
+@@ -711,10 +709,7 @@ impl<'a> Checker<'a, '_> {
+     /// parameter's default is compared against the type *without* `undefined`
+     /// (`checker.go:9993`), which this port does not strip.
+     pub(crate) fn check_annotated_initializer(&mut self, node: NodeId, ambient: bool) {
+-        if ambient
+-            || self.in_js_file(node)
+-            || (self.file_has_parse_errors && !self.has_complete_source_parameter_initializer(node))
+-        {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let (annotation, initializer) = match self.node_map.get(node) {
+@@ -754,7 +749,7 @@ impl<'a> Checker<'a, '_> {
+     /// type-node position (`isInAmbientOrTypeNode`). An element named by a
+     /// nested pattern takes the binding-pattern arm, which is not this one.
+     pub(crate) fn check_binding_element_initializer(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+@@ -827,7 +822,7 @@ impl<'a> Checker<'a, '_> {
+     /// iterated type, `checkIteratedTypeOrElementType`) and async generators
+     /// (the yielded type is awaited first, `getAwaitedType`).
+     pub(crate) fn check_yield_expression_assignability(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::YieldExpression(expression)) = self.node_map.get(node) else { return };
+@@ -893,7 +888,7 @@ impl<'a> Checker<'a, '_> {
+     /// from the very returns being checked, so a mismatch against it is not a
+     /// diagnostic upstream would ever report.
+     pub(crate) fn check_return_statement(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ReturnStatement(statement)) = self.node_map.get(node) else { return };
+@@ -1044,7 +1039,7 @@ impl<'a> Checker<'a, '_> {
+     /// annotation. The error node is the body itself. An async arrow relates
+     /// against the annotation's `getAwaitedTypeNoAlias`, as a statement does.
+     pub(crate) fn check_arrow_expression_body(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ArrowFunction(arrow)) = self.node_map.get(node) else { return };

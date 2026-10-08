@@ -315,3 +315,16 @@ These need machinery outside the reporter:
 - the union-of-array elaboration in `objectLiteralExcessProperties`, which is
   bucket B3 (tsr-2zk.975).
 Perf (21 samples, new/old): domain-model 0.959, generic-imports 0.997.
+
+## 6. Whole-file parse-error gate (tsr-2zk.981): measured diff only
+
+The integrator reassigned `assignreport.rs` to r5-report2 before this item
+landed. [r5-report-parse-error-gate.diff](r5-report-parse-error-gate.diff)
+drops `file_has_parse_errors` from the nine report sites in `assignreport.rs`
+(native's `checkSourceFile` has no such gate). It leaves the
+`has_complete_source_*` helpers unused, so whoever applies it must delete them
+or the build warns about dead code. Measured on top of `23945665`:
+`privateNameInInExpressionTransform` ×3 targets WRONG → RIGHT; zero losses on
+both dumps; no case worse; positions 5004/1287 → 4975/1292. Not run for this
+diff: perf, tests and clippy. The `calls.rs`/`call_arity.rs` sites are not
+included.
