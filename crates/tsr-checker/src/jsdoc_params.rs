@@ -489,6 +489,45 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// The `Type` `reparseHosted`'s `KindJSDocTypeTag` arm
+    /// (`parser/reparser.go:356`) gives a declaration from its **own**
+    /// comment, for the hosts `jsdoc_type_annotation`'s statement walk does
+    /// not reach: an unannotated class property (`#private` and computed
+    /// names included), an object-literal property assignment and a
+    /// catch-clause variable. The first `@type` with a
+    /// type expression in the last comment wins (`reparseTags`' `isLast`;
+    /// a later tag fails `parent.Type() == nil`).
+    ///
+    /// No cache: one `jsdoc_entries` probe that almost always misses, then
+    /// one comment's tags, and only in a JS file.
+    #[expect(
+        dead_code,
+        reason = "read by docs/parity/notes/r5-jsdoc3-hosted-declaration-types.diff"
+    )]
+    pub(crate) fn jsdoc_self_hosted_type(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+        let doc = self.jsdoc_entries.get(&declaration)?.last()?;
+        if !self.in_js_file(declaration) {
+            return None;
+        }
+        match self.node_map.get(declaration)? {
+            Node::PropertyDeclaration(property) if property.r#type.is_none() => {}
+            Node::PropertyAssignment(property) if property.r#type.is_none() => {}
+            Node::VariableDeclaration(variable)
+                if variable.r#type.is_none()
+                    && self.nodes.parent(declaration).is_some_and(|parent| {
+                        self.nodes.kind(parent) == SyntaxKind::CatchClause
+                    }) => {}
+            _ => return None,
+        }
+        doc.tags.iter().find_map(|tag| match tag {
+            JSDocTag::JSDocTypeTag(tag) => match tag.type_expression {
+                Some(Node::JSDocTypeExpression(expression)) => expression.r#type,
+                _ => None,
+            },
+            _ => None,
+        })
+    }
+
     /// Whether `makeQuestionIfOptional` (`parser/reparser.go`) gave
     /// `parameter` a reparsed `?`: its function's last comment has a
     /// matching `@param [x]` or `@param {T=} x`, and nothing wrote a `?`.

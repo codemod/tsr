@@ -1,0 +1,120 @@
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -2478,7 +2478,9 @@
+         // (`checker.go:29921`). A `PropertyAssignment` cannot be an object
+         // literal method, so the second half of upstream's test is the pattern
+         // match above rather than a check here.
+-        if let Some(annotation) = assignment.r#type {
++        // In JS, `element.Type()` is the reparsed `@type`.
++        if let Some(annotation) = assignment.r#type.or_else(|| self.jsdoc_self_hosted_type(element))
++        {
+             return Some(self.get_type_from_type_node(annotation));
+         }
+         self.contextual_type_for_object_literal_named_element(element, assignment.name)
+diff --git a/crates/tsr-checker/src/jsdoc_params.rs b/crates/tsr-checker/src/jsdoc_params.rs
+--- a/crates/tsr-checker/src/jsdoc_params.rs
++++ b/crates/tsr-checker/src/jsdoc_params.rs
+@@ -500,10 +500,6 @@
+     ///
+     /// No cache: one `jsdoc_entries` probe that almost always misses, then
+     /// one comment's tags, and only in a JS file.
+-    #[expect(
+-        dead_code,
+-        reason = "read by docs/parity/notes/r5-jsdoc3-hosted-declaration-types.diff"
+-    )]
+     pub(crate) fn jsdoc_self_hosted_type(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
+         let doc = self.jsdoc_entries.get(&declaration)?.last()?;
+         if !self.in_js_file(declaration) {
+diff --git a/crates/tsr-checker/src/objects.rs b/crates/tsr-checker/src/objects.rs
+--- a/crates/tsr-checker/src/objects.rs
++++ b/crates/tsr-checker/src/objects.rs
+@@ -1974,6 +1974,14 @@
+                     tsr_ast::Expression::Identifier(identifier),
+                 ),
+             };
++            // `checkPropertyAssignment`'s `node.Type()` arm
++            // (`checker.go:13681`): a JS property assignment's reparsed
++            // `@type` is the member's type, after its initializer is checked.
++            let member_type = match property_node_id.and_then(|id| self.jsdoc_self_hosted_type(id))
++            {
++                Some(annotation) => self.get_type_from_type_node(annotation),
++                None => member_type,
++            };
+             if let PropertyValue::Initializer(initializer) = value
+                 && self.is_context_sensitive_argument(&initializer)
+                 && let Some(id) = initializer.node_id()
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -5014,6 +5014,15 @@
+                 else {
+                     return self.intrinsics.error;
+                 };
++                // `checkPropertyAssignment`'s `node.Type()` arm
++                // (`checker.go:13681`): in JS the reparsed `@type` is the
++                // member's type (the initializer is checked against it).
++                if let Some(annotation) = self.jsdoc_self_hosted_type(declaration) {
++                    if let Some(initializer) = assignment.initializer {
++                        self.check_expression_for_mutable_location(initializer);
++                    }
++                    return self.get_type_from_type_node(annotation);
++                }
+                 match assignment.initializer {
+                     // §105 slice 2a: const context beats retention — the
+                     // member symbol's type is the initializer's REGULAR type
+@@ -5248,12 +5257,29 @@
+         // An annotation-less catch variable is `unknown` under
+         // `useUnknownInCatchVariables` and `any` without it — never the
+         // ordinary implicit-any road (`checker-notes-narrow.md` §21).
+-        if self.type_annotation_of(declaration).is_none()
+-            && self
+-                .nodes
+-                .parent(declaration)
+-                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+-        {
++        if self
++            .nodes
++            .parent(declaration)
++            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
++        {
++            // `getTypeForVariableLikeDeclaration`'s catch arm
++            // (`checker.go:16678`): an annotation — in JS the reparsed `@type`
++            // — is accepted only when it is `any` or `unknown`.
++            if let Some(annotation) = self
++                .type_annotation_of(declaration)
++                .or_else(|| self.jsdoc_type_annotation(declaration))
++            {
++                let declared = self.get_type_from_type_node(annotation);
++                return if self
++                    .type_of(declared)
++                    .flags
++                    .intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
++                {
++                    declared
++                } else {
++                    self.intrinsics.error
++                };
++            }
+             return if self.use_unknown_in_catch_variables {
+                 self.intrinsics.unknown
+             } else {
+@@ -6709,8 +6735,16 @@
+         if !self.in_js_file(declaration) {
+             return None;
+         }
+-        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
+-            return None;
++        // `reparseHosted`'s property and catch-variable hosts read their own
++        // comment (`jsdoc_self_hosted_type`); every other variable is the
++        // statement walk below.
++        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration
++            || self
++                .nodes
++                .parent(declaration)
++                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
++        {
++            return self.jsdoc_self_hosted_type(declaration);
+         }
+         let list_id = self.nodes.parent(declaration)?;
+         let current = self.nodes.parent(list_id)?;

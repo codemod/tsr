@@ -180,3 +180,64 @@ rule.
 - **jsdocImportType**: §1.4's `isCommonJSRequire` ambient arm.
 - A JSDoc reference to an undeclared name in a module now resolves nothing
   and reports nothing until §3 lets diagnostics out of comments.
+
+## 2. A declaration's own `@type` (`.16.98`)
+
+**Native.** `reparseHosted`'s `KindJSDocTypeTag` arm (`parser/reparser.go:356`)
+sets `Type` on a `PropertyDeclaration`, `PropertyAssignment` or
+`VariableDeclaration` from the first typed `@type` of that node's own last
+comment. TSR read hosted `@type` only through variable statements
+(`jsdoc_type_annotation`'s statement walk), so three hosts were untyped:
+
+- **class properties** (r4-jsdoc §2.3's diff, `#private` and computed names
+  included);
+- **catch-clause variables** (r4-jsdoc §5): `catch (/** @type {unknown} */ e)`;
+- **object-literal property assignments** (`typeTagOnPropertyAssignment`).
+
+**Port.** One owned query, `jsdoc_self_hosted_type(declaration)`, answers
+all three. Consumers (`r5-jsdoc3-hosted-declaration-types.diff`, applies on
+top of §1's four):
+
+| Site | Native | Change |
+|---|---|---|
+| `symbols.rs` `jsdoc_type_annotation` | `declaration.Type()` | non-statement hosts (property, catch variable) ask the query instead of returning `None` |
+| `symbols.rs` `get_widened_type_for_variable_like_declaration` | `getTypeForVariableLikeDeclaration`'s catch arm (`checker.go:16678`) | an annotated catch variable (written or `@type`) is its type when `any`/`unknown`, else `errorType`; only the unannotated case was ported |
+| `symbols.rs` `PropertyAssignment` arm | `checkPropertyAssignment`'s `node.Type()` arm (`checker.go:13681`) | the reparsed type is the member's type, after checking the initializer |
+| `objects.rs` member loop | same | the literal's member takes the reparsed type |
+| `contextual.rs` `contextual_type_for_object_literal_element` | `element.Type()` (`checker.go:29921`) | reads the reparsed type |
+
+The catch arm's `errorType` for a non-`any`/`unknown` annotation is
+native's for TypeScript too: catchClauseWithTypeAnnotation (4 lines) and
+parserCatchClauseWithTypeAnnotation1 (1) convert with it.
+
+**Not ported here.** `checkPropertyAssignment`'s assignability check of the
+initializer against the reparsed type (no measured case reports it), and
+TS1196 for a JSDoc-typed catch variable (`grammar.rs`
+`check_catch_clause_declaration` reads the written type only; its
+diagnostic is anchored inside the comment, so it waits on §3).
+
+### 2.1 Measured
+
+All five diffs (§1's four and this one) against the frozen base:
+
+- **types 544,047 → 544,145 RIGHT (+98; +52 over §1)**, wrong 7,492 → 7,394.
+- **diagnostics RIGHT 5,350 → 5,355** (§1's four plus
+  jsDeclarationsInheritedTypes); EMPTY_RIGHT unchanged.
+- **Zero** RIGHT→non-RIGHT lines, zero RIGHT/EMPTY_RIGHT rows moved.
+- Lines converted by this item: typeTagOnPropertyAssignment 11 (case fully
+  RIGHT), jsdocCatchClauseWithTypeAnnotation 10,
+  typeFromPrivatePropertyAssignmentJs 9, lateBoundAssignmentCandidateJS1 8,
+  jsDeclarationsClasses(target=es2015) 5, catchClauseWithTypeAnnotation 4,
+  jsDeclarationsInheritedTypes 3, jsdocPrivateName1 1,
+  parserCatchClauseWithTypeAnnotation1 1.
+- typedefOnSemicolonClassElement (r4's reason to hold the property diff)
+  stays RIGHT: the hop resolves its typedef.
+- **Perf.** Ir domain-model 1,200,511,535 (+0.08% over base, +0.001% over
+  §1), generic-imports 343,391,784 (+0.005%). Median child CPU, 41 samples:
+  domain-model 1.006, generic-imports 0.997; `diagnostics_match` true. (A
+  21-sample run read 1.051 / 1.038 while the base binary's own median moved
+  0.369 → 0.378 s; Ir is the deterministic check and did not move.)
+- `cargo test --workspace --release` passes with all five applied.
+
+The object-literal consumer adds one `jsdoc_entries` probe per member of
+every object literal, TypeScript included; the Ir above includes it.
