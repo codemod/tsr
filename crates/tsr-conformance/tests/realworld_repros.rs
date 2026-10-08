@@ -306,13 +306,13 @@ export function g(b: boolean): C | undefined { return b ? undefined : { kind: K.
 }
 
 #[test]
-#[ignore = "tsr-2zk.938: index infos of an intersection skip a primitive constituent's apparent type"]
 fn branded_string_intersection_has_string_number_index() {
     // Native `getIndexInfosOfType` reads `getReducedApparentType`, and
     // `getApparentTypeOfIntersectionType` maps `string` to `String`, whose
     // `[index: number]: string` applies. TSR `get_index_infos_of_type`
-    // (index_signatures.rs) recurses into the raw `string` constituent and
-    // finds none; r4-index's TS7053 arm then reports it (compiler `Path`).
+    // (index_signatures.rs) recursed into the raw `string` constituent and
+    // found none; r4-index's TS7053 arm then reported it (compiler `Path`).
+    // Fixed by r4-index3 (tsr-2zk.946).
     check(
         "type Path = string & { __pathBrand: any };
 declare const p: Path;

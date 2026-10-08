@@ -98,9 +98,16 @@ impl<'a> Checker<'a, '_> {
                 return self.union_index_infos(&types);
             }
             // resolveIntersectionTypeMembers / appendIndexInfo (checker.go).
+            // Native resolves the members of the intersection's apparent type,
+            // `getApparentTypeOfIntersectionType` (`checker.go:21796`), whose
+            // `getTypeWithThisArgument(.., needApparentType)` reads every
+            // constituent through `getApparentType`: the `string` of
+            // `string & { brand }` contributes `String`'s number index.
+            // `docs/parity/notes/r4-index3.md` §2.
             TypeData::Intersection { types, .. } => {
                 let mut infos: Vec<IndexInfo> = Vec::new();
                 for ty in types {
+                    let ty = self.apparent_type(ty);
                     for next in self.get_index_infos_of_type(ty)? {
                         if let Some(info) = infos.iter_mut().find(|info| info.key == next.key) {
                             info.value =
