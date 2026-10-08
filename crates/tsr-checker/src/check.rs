@@ -479,6 +479,7 @@ impl Checker<'_, '_> {
             Node::BindingElement(_) => {
                 self.check_outer_scoped_variable(node);
                 self.check_renamed_binding_element_in_signature(node);
+                self.check_parameter_initializer_needs_body(node);
                 self.check_binding_element_initializer(node, ambient);
                 self.check_binding_element_accessibility(node, ambient);
                 self.check_subsequent_declaration_type(node);
@@ -10298,19 +10299,53 @@ impl Checker<'_, '_> {
     /// TS2371 — `A parameter initializer is only allowed in a function or
     /// constructor implementation.`
     ///
-    /// `checkVariableLikeDeclaration` (`checker.go:5851`): a parameter with an
-    /// initializer whose containing function has **no body**. An overload
-    /// signature and an ambient declaration are both that. Reported on the
-    /// **parameter**. §181.
+    /// `checkVariableLikeDeclaration` (`checker.go:5851`): a parameter, or a
+    /// binding element inside one, with an initializer whose containing
+    /// function has **no body**. An overload signature, an index signature
+    /// and an ambient declaration are all that. Reported on the parameter or
+    /// the element. §181; `docs/parity/notes/r5-vardecl.md` §4.
     fn check_parameter_initializer_needs_body(&mut self, node: NodeId) {
         if self.file_has_parse_errors {
             return;
         }
-        let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
-        if parameter.initializer.is_none() {
-            return;
-        }
-        let Some(owner) = self.nodes.parent(node) else { return };
+        // `IsPartOfParameterDeclaration(node)`: the parameter itself, or a
+        // binding element nested in its pattern (`type Foo = ({ first = 0 }:
+        // …) => unknown`, `defaultValueInFunctionTypes`). A renamed element
+        // with an identifier name exits before this arm upstream
+        // (`renamedBindingElementsInTypes`, `checker.go:5818`).
+        let parameter = match self.node_map.get(node) {
+            Some(Node::ParameterDeclaration(parameter)) => {
+                if parameter.initializer.is_none() {
+                    return;
+                }
+                node
+            }
+            Some(Node::BindingElement(element)) => {
+                if element.initializer.is_none()
+                    || (element.property_name.is_some()
+                        && matches!(element.name, Some(tsr_ast::BindingName::Identifier(_))))
+                {
+                    return;
+                }
+                let mut at = self.nodes.parent(node);
+                while let Some(current) = at {
+                    match self.nodes.kind(current) {
+                        SyntaxKind::BindingElement
+                        | SyntaxKind::ObjectBindingPattern
+                        | SyntaxKind::ArrayBindingPattern => at = self.nodes.parent(current),
+                        _ => break,
+                    }
+                }
+                match at {
+                    Some(parameter) if self.nodes.kind(parameter) == SyntaxKind::Parameter => {
+                        parameter
+                    }
+                    _ => return,
+                }
+            }
+            _ => return,
+        };
+        let Some(owner) = self.nodes.parent(parameter) else { return };
         // `NodeIsMissing(GetContainingFunction(node).Body())`. An arrow and a
         // function expression always have a body, so only the declaration forms
         // can reach the report.
@@ -10327,6 +10362,7 @@ impl Checker<'_, '_> {
                 Node::MethodSignatureDeclaration(_)
                 | Node::CallSignatureDeclaration(_)
                 | Node::ConstructSignatureDeclaration(_)
+                | Node::IndexSignatureDeclaration(_)
                 | Node::FunctionTypeNode(_)
                 | Node::ConstructorTypeNode(_),
             ) => true,
