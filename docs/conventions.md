@@ -2189,6 +2189,10 @@ The reason is that `SymbolTable` is an `FxHashMap`, `FxHash` is **unseeded**, an
 the fixture `{ z, m, a }` happens to hash *into* declaration order. So the
 mutation produced the correct output, and a hash-order bug of this shape is
 **deterministically right for some key sets and wrong for others**.
+(2026-10-08: the binder's `SymbolTable` now iterates in insertion order —
+[ADR-0049](adr/0049-symbol-table-insertion-order.md). Where a mutation reads
+one, the fixture that discriminates is one whose insertion order differs from
+declaration order, such as a merge; the lesson below is unchanged.)
 
 That is worse than flaky. A flaky test announces itself; this one is green on
 every run, on every machine, forever — for the fixture it was given.

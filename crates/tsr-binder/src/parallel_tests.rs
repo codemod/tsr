@@ -13,16 +13,21 @@ fn assert_equivalent(actual: &BindResult<'_>, expected: &BindResult<'_>) {
         );
         for (a, e) in [(&a.members, &e.members), (&a.exports, &e.exports)] {
             assert_eq!(a.is_present(), e.is_present());
-            assert_eq!(
-                a.iter().collect::<FxHashMap<_, _>>(),
-                e.iter().collect::<FxHashMap<_, _>>()
-            );
+            // Insertion order is the table's iteration order (ADR-0049), so a
+            // parallel bind must reproduce the serial insert sequence.
+            assert_eq!(a.iter().collect::<Vec<_>>(), e.iter().collect::<Vec<_>>());
         }
     }
     assert_eq!(actual.node_symbols, expected.node_symbols);
     assert_eq!(actual.locals, expected.locals);
+    for (container, table) in &expected.locals {
+        let ordered = |table: &SymbolTable<'_>| format!("{table:?}");
+        assert_eq!(ordered(&actual.locals[container]), ordered(table), "locals of {container:?}");
+    }
     assert_eq!(actual.global_exports, expected.global_exports);
+    assert_eq!(format!("{:?}", actual.global_exports), format!("{:?}", expected.global_exports));
     assert_eq!(actual.globals, expected.globals);
+    assert_eq!(format!("{:?}", actual.globals), format!("{:?}", expected.globals));
     assert_eq!(actual.merged, expected.merged);
     assert_eq!(actual.merge_conflicts, expected.merge_conflicts);
     assert_eq!(
