@@ -1,0 +1,18 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index ad40738..ea295cb 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -751,9 +751,10 @@ impl<'a> Checker<'a, '_> {
+                     // same-name test can see. Taking the three is the better
+                     // trade at 208:1, and the guard is recorded rather than kept.
+                     Some(text) => {
+-                        let flags = if self.mapped_template_depth > 0
+-                            && matches!(node, TypeNode::ConditionalTypeNode(_))
+-                        {
++                        // A deferred conditional is not an object type
++                        // (getConditionalType's deferred result carries
++                        // TypeFlagsConditional), inside a mapped template or not.
++                        let flags = if matches!(node, TypeNode::ConditionalTypeNode(_)) {
+                             TypeFlags::CONDITIONAL
+                         } else {
+                             TypeFlags::OBJECT

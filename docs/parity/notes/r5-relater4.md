@@ -237,3 +237,53 @@ loaded box read 1.059 / 0.955, and the base binary's own median moved by 8%
 between the two runs. `Ir` over §1's binary is +0.036% after `is_conditional`
 was gated on flags. The first draft read three hash maps per relation entry,
 +0.13%.
+
+### 2a. Held diff: inline conditional mints carry CONDITIONAL (`declared.rs`)
+
+[`r5-relater4-inline-conditional-flags.diff`](r5-relater4-inline-conditional-flags.diff)
+gives every deferred inline conditional mint CONDITIONAL flags, not only those
+inside a mapped template. Native's deferred conditional is never an object
+type. This would retire §2's OBJECT-flagged decline. Measured on top of
+`691c38d`: diagnostics +3 cases, all to RIGHT/EMPTY_RIGHT:
+`distributiveConditionalTypeConstraints`,
+`inlineConditionalHasSimilarAssignability` and `propTypeValidatorInference`.
+It also costs one type line,
+`distributiveConditionalTypeConstraints:0:71`. There `typeof y == 'string'`
+narrowing of `y: T extends B ? string : number` prints
+`T extends B ? string : number & string` where native prints `never`.
+The narrowing consumer is in `flow.rs`, which is main's active file. A loss
+is never accepted, so the diff is held for the integrator (`declared.rs`
+belongs to r5-typeparams2) together with a `flow.rs` fix for narrowing a
+deferred conditional by `typeof`.
+
+## 3. Not started, and what each waits on
+
+- **`tsr-2zk.977`, generic mapped arms (X6, 42 lines, ≤19 cases).** Not
+  started. Per the census: `is_generic_mapped_target` reads only the
+  direct-written `mapped_types` image, so `Record<K, T>` reached through an
+  alias is missed. The mapped target's default False (relater.go:3805) is not
+  reached, and only the modifier gate of `mappedTypeRelatedTo` is ported. §2's
+  mapped-template conditional decline is related: the `keyof` base constraint
+  of a filtering mapped type is the full key domain in this port.
+- **`tsr-2zk.983`, Unknown on decidable pairs (M4, 55 lines).** Not started.
+  `S[K]`→`T[J]` and primitive→`keyof U` reach the worker's terminal Unknown
+  (the `CompositeShape` site, mislabelled as r5-triage2322 found). Native's
+  worker returns False at relater.go:3900. The faithful fix makes the
+  terminal answer False once each arm before it is complete for the shape, so
+  it needs a per-shape audit of the arms above it.
+- **Union-target fallthrough for type variables (`.976`'s B12, 3 lines).**
+  §2 lets a conditional source past a failed union/intersection target.
+  Native lets every instantiable source through (relater.go:3380), so `E[K]`
+  should reach its constraint against the whole union
+  (`quickinfoTypeAtReturnPositionsInaccurate`). Not done, because the port's
+  type-variable arms are three separate blocks of the worker.
+- **`.976` producer gaps (`declared.rs`).** These are needed for the declines
+  in §2 to become decisions:
+  - getConditionalFlowTypeOfType for true branches;
+  - the distributive constraint of inline conditionals, and getConditionalType's
+    `forConstraint` extra in `capture_conditional_alias_branches`;
+  - operands for a deferred conditional whose extends type is generic and whose
+    check is not (`conditional_inference_operands` requires a generic check);
+  - permissive instantiation on the infer road of
+    `evaluate_conditional_inference` (:8345);
+  - §2a's flags diff.
