@@ -2333,10 +2333,13 @@ impl<'a> Checker<'a, '_> {
             };
             let built = self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true);
             self.signature_types.insert(built, vec![signature]);
-            if alias.is_some() {
+            if let Some(alias) = alias {
                 // The alias name is the print; the site re-render that
                 // collapses the signature applies to an unaliased literal.
                 self.alias_named_signature_types.insert(built);
+                // ADR-0045 rule 2: the type-literal constructor records the
+                // alias `getAliasSymbolForTypeNode` answered (`Type.alias`).
+                self.alias_of.insert(built, (alias, Vec::new()));
             }
             return built;
         }
