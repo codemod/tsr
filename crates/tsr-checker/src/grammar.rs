@@ -1119,27 +1119,29 @@ impl Checker<'_, '_> {
     /// file with parse diagnostics; otherwise the range of the token at the
     /// node's start (`scanner.GetRangeOfTokenAtPosition`). Scans one token on
     /// this error path only; a host without source text cannot supply the
-    /// range and reports nothing.
-    fn grammar_error_on_first_token(
+    /// range and reports nothing. Returns whether it reported, as upstream's
+    /// callers record that result (`hasReportedStatementInAmbientContext`).
+    pub(crate) fn grammar_error_on_first_token(
         &mut self,
         node: NodeId,
         message: &'static tsr_diagnostics::Message,
-    ) {
+    ) -> bool {
         if self.file_has_parse_errors {
-            return;
+            return false;
         }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return false };
         let start = self.nodes.span(node).start;
         let Some(rest) = self
             .module_host
             .and_then(|host| host.source_text(file, self.nodes))
             .and_then(|text| text.get(start as usize..))
         else {
-            return;
+            return false;
         };
         let token = tsr_scanner::Scanner::new(rest).scan().span;
         let span = tsr_core::Span::new(start + token.start, start + token.end);
         self.report(file, Diagnostic::new(message, span));
+        true
     }
 
     /// The grammar arms of `Checker.checkCatchClause` (`checker.go:4247`): a

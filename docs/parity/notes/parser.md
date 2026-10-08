@@ -479,3 +479,8 @@ per-file flag must become per-node.
 - Modifier nodes (`parseModifier` → `finishNode`): a modifier ends where its
   keyword ends, so TS1029/TS1042/TS1044-family spans on a modifier no longer
   include the trailing trivia up to the next token.
+- Ambient statements (`checkGrammarStatementInAmbientContext`): TS1036 and
+  TS1183 go through `grammarErrorOnFirstToken` (the one helper in
+  `grammar.rs`, which now returns whether it reported), so the span is the
+  statement's first token; the once-per-block flag records the report
+  result, as `hasReportedStatementInAmbientContext` does.
