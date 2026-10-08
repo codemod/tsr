@@ -166,3 +166,43 @@ Types unchanged. Perf (41 samples): `domain-model` 1.008,
 Still unported: `checkDecorators`' `__setFunctionName` / `__propKey` arms,
 `checkClassExpressionExternalHelpers`, and `markDecoratorAliasReferenced`'s
 `__metadata` request.
+
+## §4. An alias matches a meaning by its target's flags (`tsr-2zk.6.3`)
+
+### The forcing constraint
+
+`import Sammy = require("./m")` where `m` has `export = Sammy` and `Sammy`
+is an interface: `Sammy()` is TS2693 upstream and was TS2708 here.
+Upstream's `onFailedToResolveSymbol` cascade asks
+`resolveSymbol(resolveName(…, NamespaceModule))` first; `resolveName`'s
+`getSymbol` returns an alias only when `getSymbolFlags(alias)` — the flags of
+the whole alias chain — intersect the meaning (an interface does not), so
+the namespace arm declines and the type-as-value arm reports TS2693.
+This binder's `resolve_name` answers an alias for any meaning, so
+`resolve_symbol_under` returned the alias directly and the namespace arm
+fired. Verified against the pinned `tsgo` (TS2693 at the call).
+
+### What changed (`meaning_mismatch.rs`)
+
+- `resolve_symbol_under`: a found symbol that carries the meaning is
+  returned; an alias is returned (resolved, `resolveSymbol`) only when
+  `get_symbol_flags` intersects the meaning; anything else declines.
+- The type-as-value arm resolves through `resolve_symbol_under` too and reads
+  `get_symbol_flags` of the result, as upstream's `getSymbolFlags(symbol)`.
+
+**Accepted limitation.** Upstream's `getSymbol` miss continues the scope walk
+outward; this declines at the first scope that holds the alias. A shadowed
+outer namespace of the same name would be missed. The binder walk is not
+this lane's file; no corpus case has the shape.
+
+### Measured (box baseline `78bde77`, on top of §1-§3)
+
+Diagnostics **+2** (`typeUsedAsValueError2`,
+`exportAssignmentOfDeclaredExternalModule`), 0 lost; types unchanged.
+Line level: `es6ExportEqualsInterop` 4 wrong lines fewer (2 TS2708 → TS2693),
+`exportNamespace9` 2 fewer, `allowImportClausesToMergeWithTypes` 3 wrong
+lines → 1 — the remaining one is TS2749 where TS2709 was before, at
+`const x: zzz` whose type meaning (interface merged with an import alias
+re-exported as `default`) this port does not resolve; that miss predates
+this change. Perf (21 samples): `domain-model` 0.981, `generic-imports`
+1.019.

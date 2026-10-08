@@ -94,18 +94,34 @@ impl Checker<'_, '_> {
     /// `import modes = _modes` binds `modes` as an alias, whose own flags carry
     /// `ALIAS` and not `MODULE`, so asking `resolve_under` for `MODULE` finds
     /// nothing where upstream finds the alias and resolves it. §675.
+    ///
+    /// **An alias matches by its target's flags.** Upstream's `getSymbol`
+    /// (`checker.go`, reached from `resolveName`) returns an alias for
+    /// `meaning` only when `getSymbolFlags(alias)` — the flags along the whole
+    /// alias chain — intersect it. This binder's lookup answers an alias for
+    /// any meaning, so `import I = require("./m")` whose `export =` is an
+    /// interface matched `NAMESPACE_MODULE` and reported TS2708 where upstream
+    /// reports TS2693. r4-helpers notes §4.
     fn resolve_symbol_under(
         &mut self,
         node: NodeId,
         text: &str,
         meaning: SymbolFlags,
     ) -> Option<tsr_binder::SymbolId> {
-        if let Some(symbol) = self.resolve_under(node, text, meaning) {
+        let symbol = self
+            .resolve_under(node, text, meaning)
+            .or_else(|| self.resolve_under(node, text, SymbolFlags::ALIAS))?;
+        let flags = self.binder.symbols().get(symbol).flags;
+        if flags.intersects(meaning) {
             return Some(symbol);
         }
-        let alias = self.resolve_under(node, text, SymbolFlags::ALIAS)?;
-        let target = self.resolve_alias(alias)?;
-        self.binder.symbols().get(target).flags.intersects(meaning).then_some(target)
+        if !flags.intersects(SymbolFlags::ALIAS)
+            || !self.get_symbol_flags(symbol).intersects(meaning)
+        {
+            return None;
+        }
+        // `resolveSymbol`.
+        Some(self.resolve_alias_fully(symbol))
     }
 
     /// `checkAndReportErrorForMissingPrefix` (`checker.go:1532`): the first arm
@@ -403,11 +419,15 @@ impl Checker<'_, '_> {
         }
         // `resolveName(errorLocation, name, SymbolFlagsType &^ SymbolFlagsValue)`
         // — narrower than this port's ladder, and written upstream's way.
-        let Some(symbol) = self.resolve_under(node, text, SymbolFlags::TYPE - SymbolFlags::VALUE)
+        // `c.resolveSymbol(…)` then `getSymbolFlags`: an alias answers by its
+        // target (`resolve_symbol_under`), and the value test reads the
+        // resolved symbol's flags.
+        let Some(symbol) =
+            self.resolve_symbol_under(node, text, SymbolFlags::TYPE - SymbolFlags::VALUE)
         else {
             return false;
         };
-        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE) {
+        if self.get_symbol_flags(symbol).intersects(SymbolFlags::VALUE) {
             return false;
         }
         if self.is_export_assignment_expression_name(node) {
