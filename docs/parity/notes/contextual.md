@@ -526,3 +526,12 @@ or member typed `I | undefined` still supplies `I["x"]`:
 widens. The arm now reads `contextual_property_type` (the existing
 getTypeOfPropertyOfContextualType port). No state. Perf: domain-model has no
 class expressions; repeated 41-sample runs ranged 0.935–1.083 (noise).
+
+## 25. Optional object-literal methods print their question token (tsr-2zk.16.257)
+
+The binder gives `{ foo?() {} }` `SymbolFlagsOptional`
+(`getOptionalSymbolFlagForNode`), and the node builder's method signature
+carries the `?`: tsgo prints `{ foo?(): void; }` and `{ foo(): void; }`
+without it. `check_object_literal_members`' method arm already marked the
+captured property optional (`property_is_optional`); its printed member now
+spells the token too. No state.

@@ -1450,7 +1450,20 @@ impl Checker<'_, '_> {
                         Some(reference) => self.signature_member_text_at(&signature, reference),
                         None => signature_member_text(self, &signature),
                     };
-                    let printed = format!("{}{member_text}", classified_method_name(name));
+                    // The binder flags `foo?() {}` SymbolFlagsOptional
+                    // (`getOptionalSymbolFlagForNode`), so the member prints
+                    // `foo?(): void` (createTypeNodeFromObjectType's method
+                    // signature carries the question token).
+                    let question = if method
+                        .postfix_token
+                        .is_some_and(|token| token.kind == tsr_ast::SyntaxKind::QuestionToken)
+                    {
+                        "?"
+                    } else {
+                        ""
+                    };
+                    let printed =
+                        format!("{}{question}{member_text}", classified_method_name(name));
                     upsert_member(&mut members, Member::Method { name: name.to_owned(), printed });
                     capture_complete &= self.capture_checked_object_member(
                         property,
