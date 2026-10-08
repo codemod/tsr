@@ -202,3 +202,19 @@ measured diffs are landed by the integrator:
 Alias naming of single-constituent intersections, and alias references that
 enumerate as empty (`tsr-2zk.1010`), go to `r5-typeparams2` (`declared.rs`).
 The new box `r5-index4` takes the index-signature and index-access reports.
+
+### r5-iteration finished (+5 diagnostics cases); r5-tables dispatched (`tsr-2zk.1014`)
+
+r5-iteration ported:
+- checkNonNullExpression on for-of operands;
+- the error node through the slow iteration protocol (TS1320/TS2490/TS2767);
+- the sent-type check (TS2763–2766);
+- iteration over the reduced type.
+
+It also found that the two "known failing" workspace tests have passed since
+round 4.
+
+Its blockers are member lookups: inherited members through type-argument
+bases (`tsr-2zk.1013`, `members.rs`, main's), object-literal tables with
+computed names, and the destructuring parameter road. The new box `r5-tables`
+takes the last two (`member_completeness.rs`, `destructure.rs`).
