@@ -1170,6 +1170,73 @@ impl Relater<'_, '_, '_> {
         {
             return RelationResult::Related;
         }
+        // A deferred conditional type is not an object, whatever flags its
+        // print-only mint carries (`declared.rs` §906 mints an inline one as
+        // OBJECT). isSimpleTypeRelatedTo's only arms for it are the any,
+        // unknown and never ones; every other pair is structuredTypeRelatedTo's
+        // conditional arms (relater.go:3540, :3721).
+        // A conditional whose check type is not generic is not native's
+        // deferred type: native resolves every such conditional, so one
+        // reaching the relater is a conditional this port failed to evaluate
+        // (`StepSelection<QuickPickStep<QuickPickItem>>` in
+        // `generatorYieldContextualType`). The conditional arms do not apply
+        // to it; it keeps the relater's other roads.
+        if self.is_deferred_conditional(source) || self.is_deferred_conditional(target) {
+            // getNormalizedType's getSimplifiedType (checker.go:28006) on
+            // either side: `T extends U ? T : never` and its mirror reduce to
+            // `T` or `never` when the check is decided either way.
+            let simplified_source = self.simplified_conditional(source);
+            let simplified_target = self.simplified_conditional(target);
+            let (Some(simplified_source), Some(simplified_target)) =
+                (simplified_source, simplified_target)
+            else {
+                return RelationResult::Unknown;
+            };
+            if simplified_source != source || simplified_target != target {
+                return self.is_related_to_with_flags(simplified_source, simplified_target, flags);
+            }
+            let s = self.checker.type_of(source).flags;
+            let t = self.checker.type_of(target).flags;
+            if t.intersects(TypeFlags::ANY)
+                || s.intersects(TypeFlags::NEVER)
+                || (t.intersects(TypeFlags::UNKNOWN)
+                    && !(self.relation == Relation::StrictSubtype && s.intersects(TypeFlags::ANY)))
+                || (s.intersects(TypeFlags::ANY)
+                    && matches!(self.relation, Relation::Assignable | Relation::Comparable)
+                    && !t.intersects(TypeFlags::NEVER))
+            {
+                return RelationResult::Related;
+            }
+            // Stated decline: a conditional minted with OBJECT flags. Its
+            // consumers test genericity by flags (`declared.rs`'s
+            // conditional evaluator defers only an instantiable check;
+            // `indexed_access_index_is_generic`), so a decided answer about
+            // it is acted on as if it were concrete: `Distributive<[T]
+            // extends [never] ? X : never>` would evaluate to `X`. It stays
+            // undecided until the mint carries CONDITIONAL
+            // (`docs/parity/notes/r5-relater4.md` §2).
+            //
+            // Likewise a mapped template's conditional (an `as` clause such as
+            // `P extends \`_${string}\` ? P : never`): deciding it makes
+            // `mapped_indexed_access_constraint` treat the mapped type as
+            // filtering, and the base constraint this port then computes for
+            // `keyof Mapped<K>` is the whole key domain instead of the
+            // filtered keys (`mappedTypeConstraints2`).
+            if self.is_object_flagged_conditional(source)
+                || self.is_object_flagged_conditional(target)
+                || self.checker.mapped_conditionals.contains_key(&source)
+                || self.checker.mapped_conditionals.contains_key(&target)
+            {
+                return RelationResult::Unknown;
+            }
+            if !self.is_conditional(source)
+                && !s.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+                && self.is_simple_type_related_to(source, target) == Some(true)
+            {
+                return RelationResult::Related;
+            }
+            return self.recursive_type_related_to(source, target, flags);
+        }
         // `relater.go:181`/`:2661`: under the comparable relation the simple
         // arms are also tried REVERSED (target against source) first, unless
         // the target is `never`. §750.
@@ -3096,6 +3163,13 @@ impl Relater<'_, '_, '_> {
                 .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET));
             let result = RelationResult::all(parts);
             self.intersection_target = previous;
+            // unionOrIntersectionRelatedTo's failure falls through for an
+            // instantiable source (relater.go:3380): a conditional source
+            // still meets the whole target through its constraints.
+            if !result.is_success() && self.is_deferred_conditional(source) {
+                let conditional = self.conditional_source_related_to(source, target);
+                return RelationResult::any([result, conditional]);
+            }
             return result;
         }
         if let Some(constituents) = self.union_constituents(target) {
@@ -3106,6 +3180,14 @@ impl Relater<'_, '_, '_> {
                 .iter()
                 .map(|&c| self.is_related_to_with_flags(regular, c, RecursionFlags::TARGET));
             let result = RelationResult::any(parts);
+            // unionOrIntersectionRelatedTo's failure falls through for an
+            // instantiable source (relater.go:3380): `T extends B ? number :
+            // string` relates to `string | number` through its default
+            // constraint, not through either constituent.
+            if !result.is_success() && self.is_deferred_conditional(source) {
+                let conditional = self.conditional_source_related_to(source, target);
+                return RelationResult::any([result, conditional]);
+            }
             // structuredTypeRelatedToWorker (relater.go:3889): an object or
             // intersection source that failed every constituent may still
             // cover a discriminated union, one constituent per combination
@@ -3643,6 +3725,33 @@ impl Relater<'_, '_, '_> {
                 }
             }
         }
+        // The conditional arms (relater.go:3540, :3721), after alias variance
+        // as in native. A conditional source is never related structurally:
+        // its case of the source switch either relates or the worker answers
+        // False. A conditional target that its own arm did not relate admits
+        // no other arm for a source that is not a type variable (type
+        // variables took their constraint arms above).
+        let target_conditional = if self.is_deferred_conditional(target) {
+            let result = self.conditional_target_related_to(source, target);
+            if result.is_success() {
+                return result;
+            }
+            Some(result)
+        } else {
+            None
+        };
+        if self.is_deferred_conditional(source) {
+            let result = self.conditional_source_related_to(source, target);
+            return match target_conditional {
+                Some(RelationResult::Unknown) if result == RelationResult::NotRelated => {
+                    RelationResult::Unknown
+                }
+                _ => result,
+            };
+        }
+        if let Some(result) = target_conditional {
+            return result;
+        }
         // structuredTypeRelatedToWorker's structural arm (relater.go:3864)
         // against an intrinsic object with no members: propertiesRelatedTo
         // and indexSignaturesRelatedTo have nothing to require, and
@@ -3731,6 +3840,443 @@ impl Relater<'_, '_, '_> {
         // Nothing was compared, so nothing was decided.
         reasons::note(reasons::Site::CompositeShape);
         RelationResult::Unknown
+    }
+
+    /// Whether `id` is a deferred conditional type. The CONDITIONAL flag
+    /// marks a conditional alias reference and a mapped template's
+    /// conditional; an inline conditional elsewhere is minted with OBJECT
+    /// flags (`declared.rs` §906) and is known by its retained root.
+    fn is_conditional(&self, id: TypeId) -> bool {
+        // Mapped templates' conditionals carry CONDITIONAL; inline mints, the
+        // only `conditional_inference_nodes` keys, carry OBJECT. Testing the
+        // flags first keeps the hot relation entry to one load per side.
+        let flags = self.checker.type_of(id).flags;
+        flags.contains(TypeFlags::CONDITIONAL)
+            || (flags.contains(TypeFlags::OBJECT)
+                && self.checker.conditional_inference_nodes.contains_key(&id))
+    }
+
+    /// [`Self::is_conditional`] with a generic check type, the only kind
+    /// native defers (`conditional_inference_operands` answers `None`
+    /// otherwise).
+    fn is_deferred_conditional(&mut self, id: TypeId) -> bool {
+        self.is_conditional(id) && self.checker.conditional_inference_operands(id).is_some()
+    }
+
+    /// A deferred conditional whose print-only mint carries OBJECT flags
+    /// (`declared.rs` §906, an inline conditional outside a mapped template).
+    fn is_object_flagged_conditional(&self, id: TypeId) -> bool {
+        !self.checker.type_of(id).flags.contains(TypeFlags::CONDITIONAL) && self.is_conditional(id)
+    }
+
+    /// The written `ConditionalTypeNode` of a deferred conditional, where this
+    /// port retains one the relater can read: a mapped template's root, or
+    /// the body of the referenced conditional alias. `None` for an inline
+    /// conditional (its root is private to `declared.rs`) and for an alias
+    /// whose body is another alias reference. Answers `(node, has_infer,
+    /// distributive)`: `root.inferTypeParameters != nil` (the binder's type
+    /// parameter locals of the node) and `root.isDistributive` (a naked
+    /// type-parameter check type).
+    fn conditional_root(&self, id: TypeId) -> Option<(tsr_ast::NodeId, bool, bool)> {
+        let node = if let Some(info) = self.checker.mapped_conditionals.get(&id) {
+            match self.checker.node_map.get(info.declaration) {
+                Some(tsr_ast::Node::ConditionalTypeNode(node)) => node,
+                _ => return None,
+            }
+        } else {
+            let (symbol, _) = self.checker.type_reference_targets.get(&id)?;
+            let declaration = self.checker.type_alias_declaration_of(*symbol)?;
+            let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) =
+                self.checker.node_map.get(declaration)
+            else {
+                return None;
+            };
+            let tsr_ast::TypeNode::ConditionalTypeNode(node) = alias.r#type? else {
+                return None;
+            };
+            node
+        };
+        let id = node.node_id?;
+        let has_infer = self.checker.binder.locals(id).is_some_and(|locals| {
+            locals.values().any(|&symbol| {
+                self.checker
+                    .binder
+                    .symbols()
+                    .get(symbol)
+                    .flags
+                    .contains(SymbolFlags::TYPE_PARAMETER)
+            })
+        });
+        let distributive = node
+            .check_type
+            .and_then(|check| self.checker.distributive_conditional_parameter(check))
+            .is_some();
+        Some((id, has_infer, distributive))
+    }
+
+    /// getSimplifiedConditionalType (checker.go:28006) for a deferred
+    /// conditional `id`; any other type is returned unchanged. `None` when the
+    /// restrictive-instantiation test it needs is not decidable here.
+    fn simplified_conditional(&mut self, id: TypeId) -> Option<TypeId> {
+        if !self.is_conditional(id) {
+            return Some(id);
+        }
+        let Some([check, extends, yes, no]) = self.checker.conditional_inference_operands(id)
+        else {
+            return Some(id);
+        };
+        let never = self.checker.intrinsics.never;
+        let check_any = self.checker.type_of(check).flags.intersects(TypeFlags::ANY);
+        let no_never = self.checker.type_of(no).flags.contains(TypeFlags::NEVER);
+        let yes_never = self.checker.type_of(yes).flags.contains(TypeFlags::NEVER);
+        if no_never && yes == check {
+            if check_any || self.restrictive_assignable(check, extends)? {
+                return self.simplified_conditional(yes);
+            }
+            if self.intersection_is_empty(check, extends) {
+                return Some(never);
+            }
+        } else if yes_never && no == check {
+            if !check_any && self.restrictive_assignable(check, extends)? {
+                return Some(never);
+            }
+            if check_any || self.intersection_is_empty(check, extends) {
+                return self.simplified_conditional(no);
+            }
+        }
+        Some(id)
+    }
+
+    /// `isTypeAssignableTo(getRestrictiveInstantiation(check),
+    /// getRestrictiveInstantiation(extends))` where it reduces to flags: the
+    /// same type; a naked type parameter (unconstrained once restricted)
+    /// against a parameter-free extends type, which only a top type accepts.
+    fn restrictive_assignable(&mut self, check: TypeId, extends: TypeId) -> Option<bool> {
+        if check == extends {
+            return Some(true);
+        }
+        let check_is_parameter =
+            self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER);
+        if check_is_parameter && !self.checker.mentions_registered_type_parameter(extends) {
+            return Some(self.checker.type_of(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN));
+        }
+        // Two distinct restrictive parameters have no constraints to relate.
+        if check_is_parameter
+            && self.checker.type_of(extends).flags.contains(TypeFlags::TYPE_PARAMETER)
+        {
+            return Some(false);
+        }
+        None
+    }
+
+    /// isIntersectionEmpty (checker.go:28029).
+    fn intersection_is_empty(&mut self, left: TypeId, right: TypeId) -> bool {
+        let intersection = self.checker.get_intersection_type(&[left, right], None);
+        let union = self.checker.get_union_type(&[intersection, self.checker.intrinsics.never]);
+        self.checker.type_of(union).flags.contains(TypeFlags::NEVER)
+    }
+
+    /// getConditionalType's `forConstraint` extra (checker.go): instantiated
+    /// at the check type's constraint `C`, a check that is not assignable to
+    /// the extends type `E` still includes the true branch when some
+    /// constituent of `E` is assignable to `C` (`Foo<T extends string>` with
+    /// `T extends "abc" | 42 ? true : false` is `boolean`, not `false`).
+    /// `declared.rs`'s capture evaluates without it, so it is added here.
+    /// `None` where the permissive instantiations are not the written types
+    /// (a generic `E`) or the true branch mentions the check type.
+    fn for_constraint_extra(
+        &mut self,
+        captured: TypeId,
+        operands: Option<[TypeId; 4]>,
+    ) -> Option<TypeId> {
+        let [check, extends, yes, _] = operands?;
+        let constraint = if self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            self.checker.type_parameter_constraint(check)?
+        } else {
+            self.checker.base_constraint_of_type(check)?
+        };
+        if self.checker.mentions_registered_type_parameter(extends)
+            || self.checker.mentions_registered_type_parameter(constraint)
+        {
+            return None;
+        }
+        let forward = self.is_related_to(constraint, extends);
+        if forward.is_success() {
+            return Some(captured);
+        }
+        if forward == RelationResult::Unknown {
+            return None;
+        }
+        if self.checker.type_of(extends).flags.contains(TypeFlags::NEVER) {
+            return Some(captured);
+        }
+        let parts = self.union_constituents(extends).unwrap_or_else(|| vec![extends]);
+        let mut overlaps = RelationResult::NotRelated;
+        for part in parts {
+            overlaps = RelationResult::any([overlaps, self.is_related_to(part, constraint)]);
+            if overlaps.is_success() {
+                break;
+            }
+        }
+        match overlaps {
+            RelationResult::NotRelated => Some(captured),
+            RelationResult::Unknown => None,
+            _ if self.checker.mentions_type_parameter(yes, &[check], &[]) => None,
+            _ => Some(self.checker.get_union_type(&[captured, yes])),
+        }
+    }
+
+    /// The conditional-target arm of structuredTypeRelatedToWorker
+    /// (relater.go:3540). Applies when the root has no `infer` positions, is
+    /// not distribution dependent, and the source is not an instantiation of
+    /// the same root. `skipTrue`/`skipFalse` ask whether the permissive
+    /// (restrictive) instantiations of the check and extends types relate;
+    /// this port has neither instantiation, so they are computed only where
+    /// they reduce to flags: a naked type-parameter check against a
+    /// parameter-free extends type, or a naked type-parameter extends type.
+    /// Anything else, and a root the relater cannot read, is `Unknown`.
+    fn conditional_target_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
+        if self.checker.is_deeply_nested_type(target, &self.target_stack, 10) {
+            return RelationResult::Maybe;
+        }
+        let Some((root, has_infer, distributive)) = self.conditional_root(target) else {
+            return RelationResult::Unknown;
+        };
+        // Native skips the arm for a root with `infer` positions, and the
+        // worker then answers False. Stated divergence inside a
+        // conditional-alias evaluation frame: Unknown. The evaluator's infer
+        // road (`declared.rs` `evaluate_conditional_inference`) relates the
+        // raw check and extends types there and takes a False as "definitely
+        // false", where native relates their permissive instantiations;
+        // answering False collapses deferred recursive conditionals
+        // (`ramdaToolsNoInfinite`'s `Tail<Tail<T>>`). Elsewhere (narrowing
+        // by `a is A` against `ReturnType<T[M]>`) native's False stands.
+        if has_infer {
+            let framed = !self.checker.alias_evaluation_bindings.is_empty()
+                || self.checker.mapped_template_depth > 0;
+            return if framed { RelationResult::Unknown } else { RelationResult::NotRelated };
+        }
+        let Some([check, extends, yes, no]) = self.checker.conditional_inference_operands(target)
+        else {
+            return RelationResult::Unknown;
+        };
+        // isDistributionDependent (checker.go): a distributive root whose
+        // branches reference the check type parameter.
+        let check_is_parameter =
+            self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER);
+        if distributive {
+            if !check_is_parameter {
+                return RelationResult::Unknown;
+            }
+            if self.checker.mentions_type_parameter(yes, &[check], &[])
+                || self.checker.mentions_type_parameter(no, &[check], &[])
+            {
+                return RelationResult::NotRelated;
+            }
+        }
+        if self.is_conditional(source)
+            && self.conditional_root(source).is_some_and(|(source_root, ..)| source_root == root)
+        {
+            return RelationResult::NotRelated;
+        }
+        let extends_flags = self.checker.type_of(extends).flags;
+        let extends_is_parameter = extends_flags.contains(TypeFlags::TYPE_PARAMETER);
+        let (skip_true, skip_false) =
+            if check_is_parameter && !self.checker.mentions_registered_type_parameter(extends) {
+                // permissive(T) is the wildcard, assignable to all but never;
+                // restrictive(T) is unconstrained, assignable only to a top type.
+                let skip_true = extends_flags.contains(TypeFlags::NEVER);
+                let skip_false = !skip_true && extends_flags.intersects(TypeFlags::ANY_OR_UNKNOWN);
+                (skip_true, skip_false)
+            } else if extends_is_parameter && !check_is_parameter {
+                // permissive(U) is the wildcard: the true branch is live.
+                let check_flags = self.checker.type_of(check).flags;
+                if check_flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) {
+                    return RelationResult::Unknown;
+                }
+                (false, false)
+            } else if check_is_parameter && extends == check {
+                (false, true)
+            } else {
+                return RelationResult::Unknown;
+            };
+        let mut result = if skip_true {
+            RelationResult::Related
+        } else {
+            self.is_related_to_with_flags(source, yes, RecursionFlags::TARGET)
+        };
+        if result != RelationResult::NotRelated && !skip_false {
+            let false_result = self.is_related_to_with_flags(source, no, RecursionFlags::TARGET);
+            result = RelationResult::all([result, false_result]);
+        }
+        result
+    }
+
+    /// The conditional-source arm of structuredTypeRelatedToWorker
+    /// (relater.go:3721): conditional to conditional, then the default
+    /// constraint, then (for a non-conditional target) the distributive
+    /// constraint. A step this port cannot take answers `Unknown` rather than
+    /// False:
+    /// - getConditionalFlowTypeOfType is not applied to the true branch
+    ///   (`Extract<T, U>`'s true branch is `T & U` natively), so a failed
+    ///   default constraint whose true branch mentions the check type is no
+    ///   proof;
+    /// - the distributive constraint is known only where `declared.rs`
+    ///   captured it for an alias reference;
+    /// - a conditional-to-conditional pair whose source declares `infer`
+    ///   parameters needs inference this arm does not run.
+    fn conditional_source_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
+        if self.checker.is_deeply_nested_type(source, &self.source_stack, 10) {
+            return RelationResult::Maybe;
+        }
+        let mut undecided = false;
+        let operands = self.checker.conditional_inference_operands(source);
+        let target_conditional = self.is_conditional(target);
+        if target_conditional {
+            let source_infer = self.conditional_root(source).map(|(_, has_infer, _)| has_infer);
+            match (source_infer, operands) {
+                (Some(false), Some([source_check, source_extends, source_yes, source_no])) => {
+                    if let Some([target_check, target_extends, target_yes, target_no]) =
+                        self.checker.conditional_inference_operands(target)
+                    {
+                        // isTypeIdenticalTo(sourceExtends, targetExtends):
+                        // interned identity, or mutual relation as the
+                        // necessary condition this port can test.
+                        let identical = if source_extends == target_extends {
+                            RelationResult::Related
+                        } else {
+                            let forward = self.is_related_to(source_extends, target_extends);
+                            let reverse = self.is_related_to(target_extends, source_extends);
+                            match RelationResult::all([forward, reverse]) {
+                                RelationResult::NotRelated => RelationResult::NotRelated,
+                                _ => RelationResult::Unknown,
+                            }
+                        };
+                        let checks = if identical == RelationResult::NotRelated {
+                            RelationResult::NotRelated
+                        } else {
+                            let forward = self.is_related_to(source_check, target_check);
+                            if forward.is_success() {
+                                forward
+                            } else {
+                                RelationResult::any([
+                                    forward,
+                                    self.is_related_to(target_check, source_check),
+                                ])
+                            }
+                        };
+                        let gate = RelationResult::all([identical, checks]);
+                        if gate != RelationResult::NotRelated {
+                            let mut result = self.is_related_to(source_yes, target_yes);
+                            if result != RelationResult::NotRelated {
+                                result = RelationResult::all([
+                                    result,
+                                    self.is_related_to(source_no, target_no),
+                                ]);
+                            }
+                            let result = RelationResult::all([gate, result]);
+                            if result.is_success() {
+                                return result;
+                            }
+                            undecided |= result == RelationResult::Unknown;
+                        }
+                    } else {
+                        undecided = true;
+                    }
+                }
+                _ => undecided = true,
+            }
+        }
+        // getDefaultConstraintOfConditionalType.
+        match self.checker.default_constraint_of_conditional_type(source) {
+            Some(constraint) => {
+                let result =
+                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+                if result.is_success() {
+                    return result;
+                }
+                undecided |= result == RelationResult::Unknown;
+                // The true branch native relates is the flow type
+                // (getConditionalFlowTypeOfType), narrower than this one.
+                // getImpliedConstraint substitutes the check type variable
+                // where the true branch references it, and an element of a
+                // unary tuple check `[T] extends [U]`.
+                match operands {
+                    Some([check, _, yes, _]) => {
+                        let unary_tuple = self
+                            .checker
+                            .tuple_element_lists
+                            .get(&check)
+                            .is_some_and(|(elements, _)| elements.len() == 1);
+                        if self.checker.mentions_type_parameter(yes, &[check], &[])
+                            || (unary_tuple && self.checker.mentions_registered_type_parameter(yes))
+                        {
+                            undecided = true;
+                        }
+                    }
+                    None => undecided = true,
+                }
+            }
+            None => undecided = true,
+        }
+        // getConstraintOfDistributiveConditionalType, only for a
+        // non-conditional target.
+        if !target_conditional {
+            let check = operands.map(|[check, ..]| check);
+            let distributive = match self.conditional_root(source) {
+                Some((_, _, distributive)) => distributive,
+                None => check.is_some_and(|check| {
+                    self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER)
+                }),
+            };
+            let constrained = check.is_none_or(|check| {
+                !self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER)
+                    || self
+                        .checker
+                        .type_parameter_constraint(check)
+                        .is_some_and(|constraint| constraint != check)
+                    || self.declares_written_constraint(check)
+            });
+            if distributive && constrained {
+                // `declared.rs` captures the distributive instantiation of a
+                // conditional alias reference as a (constraint, constraint)
+                // pair alongside its base constraint.
+                let _ = self.checker.base_constraint_of_type(source);
+                let captured = match self.checker.conditional_constraint_branches.get(&source) {
+                    Some(&(yes, no)) if yes == no => Some(yes),
+                    _ => None,
+                };
+                match captured {
+                    Some(captured) => {
+                        // The forConstraint extra only adds a constituent, so
+                        // a failure without it is already a failure.
+                        let result =
+                            self.is_related_to_with_flags(captured, target, RecursionFlags::SOURCE);
+                        if result.is_success() {
+                            let result = match self.for_constraint_extra(captured, operands) {
+                                Some(distributive) if distributive == captured => result,
+                                Some(distributive) => self.is_related_to_with_flags(
+                                    distributive,
+                                    target,
+                                    RecursionFlags::SOURCE,
+                                ),
+                                None => RelationResult::Unknown,
+                            };
+                            if result.is_success() {
+                                return result;
+                            }
+                            undecided |= result == RelationResult::Unknown;
+                        } else {
+                            undecided |= result == RelationResult::Unknown;
+                        }
+                    }
+                    None => undecided = true,
+                }
+            } else if operands.is_none() {
+                undecided = true;
+            }
+        }
+        if undecided { RelationResult::Unknown } else { RelationResult::NotRelated }
     }
 
     /// Fixed and concrete-rest tuples in propertiesRelatedTo
