@@ -285,9 +285,10 @@ correctness observations, not performance or complete related-diagnostic gates.
 
 The private migration now carries `SymbolRef` in `Anonymous.symbol`, lifts twelve
 bound construction sites and gives module-copy values their fresh private owner.
-It is still uncompiled: 107 diagnostics remain across 21 consumer files, after
-119 at the initial field cutover. This is a current diagnostic set, not a work
-ceiling. Bound/anonymous combined patterns, signatures, declarations, member
+That initial migration is uncompiled: 107 diagnostics across 21 consumer files,
+after 119 at the field cutover. The signature continuation below reaches 98
+across 20 files; neither count is a work ceiling. Bound/anonymous combined
+patterns, signatures, declarations, member
 reads, printing, flow and cache identities must retain the real handle; do not
 collapse private owners to their source to satisfy those types. No runtime
 change or speed gain is retained. `tsr-1yb.7.7.2.1` remains in progress.
@@ -295,6 +296,44 @@ The [lossless progress receipt](checker-module-clone-progress.json) includes
 native control sources, worker observations, the tested private writer patch,
 failed gates and the parsed red control. Local continuation sources live under
 `target/native-optimization-goal/module-clone-current-85f/`.
+
+### Signature-owner continuation
+
+The frozen `85f9c4cb` private signature slice now accepts actual `SymbolRef`
+owners. Bound entry points remain compatibility wrappers; the worker validates
+before work and reads the selected record's ordered declarations. It retains
+the existing declaration/mapper signature keys and shape-versus-return demand
+split. No symbol-origin translation or new signature cache is introduced.
+Five Anonymous callable consumers use the existing type-signature accessor;
+cached call returns stay deferred until candidate selection, and completed
+empty lists remain authoritative.
+
+Four direct pinned-native observations distinguish these operations. A fresh
+copied function retains two raw overload signatures with the original
+signature/declaration identities, but its completed module value has no call
+or construct signatures. Appending a naturally parsed boolean declaration to
+the copy adds a third raw signature while the source remains two and the module
+value remains noncallable. These are direct operation controls, not alias-worker
+counts or ordinary CLI measurements.
+
+The private reader passes four ownership/overload tests. A compiling mutant
+that follows the source edge loses the copy-only declaration (two signatures
+instead of three); exact restoration passes 195 library, 16 ownership and 135
+affected integration tests. One existing test remains ignored, and the known
+red parsed import-owner regression is explicitly filtered from this isolated
+slice. The initial exact filter ran zero tests; its qualified rerun runs one.
+Missing-method API-red runs are separate from the behavioral mutation proof.
+Strict library Clippy still fails on the one unused module-copy writer in this
+slice; that writer is consumed by the broader uncompiled migration.
+
+The broader migration preserves actual owners through propagated and
+instantiated signatures, alias remints and module-value construction. Its latest
+library check has 98 diagnostics across 20 consumer files, down from 107.
+Merged owner reads, declarations, members, class signatures, naming and native
+cache/publication keys still require migration. This is private progress, with
+no canonical runtime, full-corpus qualification or speed gain. The existing
+[progress receipt](checker-module-clone-progress.json) carries the exact native
+sources, both Rust patches, source/binary hashes, failures and final logs.
 
 ## Consumer boundaries
 

@@ -22,6 +22,16 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Signature-owner continuation, frozen `85f9c4cb` / native `5b1047d`: private
+validated declaration reader and five callable consumer migrations pass 346
+debug tests (195 library, 16 domain, 135 integration), with one existing ignore
+and the known red parsed owner control filtered. Four native observations and
+a compiling source-fallback mutant prove the copy's own declaration channel.
+Cached callable return slots remain deferred. Broader Anonymous owner migration
+now has 98 compiler diagnostics across 20 files; strict slice Clippy fails on
+one unused writer. No canonical runtime, full corpus or speed claim.
+[Source-qualified continuation](docs/architecture/checker-symbol-completion-contract.md#signature-owner-continuation).
+
 Module-clone continuation, frozen `85f9c4cb` / native `5b1047d`: private
 no-redirect record copying passes 191 library and 16 domain controls; a compiling
 redirect mutant fails both new tests. Ten native cold/checked-first observations
@@ -3514,6 +3524,14 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Continue `tsr-1yb.7.7.2.1` from the existing owner-migration source. The
+validated raw-signature reader and five callable consumers are implemented
+privately; propagated/instantiated/alias signature mints retain actual handles.
+Next migrate merged owner reads and declared/member/class-signature/cache
+consumers (latest check: 98 diagnostics across 20 files), then execute parsed
+owner/alias-stack gates and requalify on advancing main. Completed module-value
+signature state must not be replaced with raw copied declarations.
 
 `tsr-1yb.7.7.2.1` is now claimed. Its private no-redirect writer is qualified,
 but the actual anonymous-owner control is red. Continue the existing handle
@@ -7145,6 +7163,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The frozen `85f9c4cb` signature slice's 346 passes are refused as full private
+owner migration: 98 compiler diagnostics across 20 files remain in that
+migration, and its parsed owner control is not executed by the green slice.
+Strict slice Clippy has one unused-writer error. A compiling source-fallback
+mutant fails the copy-only declaration control (two signatures versus three);
+API-red missing-method errors and the initial zero-test exact filter are setup
+receipts, not behavioral failures or passes. No full-corpus or speed claim.
 
 At frozen `85f9c4cb`, the private module-record writer's 191+16 passes are
 refused as full module-clone qualification: the parsed value-owner test still
@@ -13990,6 +14016,8 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+| 2026-10-08 | `85f9c4cb` / native `5b1047d` | — | — | **Signature-owner migration progress, tsr-1yb.7.7.2.1.** Actual validated declaration reader, five callable consumer sites and signature owner propagation implemented privately. Four native direct-operation observations qualify raw copied overloads versus completed empty module signatures. Source-fallback mutant fails; restoration/final debug suite passes 346 (one existing ignore, known red owner test filtered). Broader migration drops 107 -> 98 compiler diagnostics across 20 files; strict slice Clippy still has one unused writer. No canonical runtime, full corpus or speed claim. [Lossless progress](docs/architecture/checker-module-clone-progress.json). |
 
 | 2026-10-08 | `85f9c4cb` / native `5b1047d` | — | — | **Module-clone record and owner progress, tsr-1yb.7.7.2.1.** Private writer passes 191 library+16 domain controls; redirect mutant fails both new tests and restoration passes. Ten native cold/checked-first controls preserve clone fields/value owner and reuse. Rust parsed owner remains raw in both orders; valid indexed CLI has TS2322 versus native TS7053. Began actual Anonymous SymbolRef migration and lifted twelve bound constructors; 107 compiler diagnostics across 21 files remain. No canonical checker, full-corpus or speed retention. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
