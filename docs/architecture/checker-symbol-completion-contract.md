@@ -1192,3 +1192,27 @@ mutation, and pass after restoration. The bounded fixture is explicitly distinct
 from full Checker construction/evaluation. Ordinary/work-trace71 errors and the
 full lib-test no-run refusal keep canonical integration and all six goal tickets
 unfinished; native/corpus/performed-work and equivalent-work speed gates remain.
+
+The [alias-result continuation](checker-alias-result-continuation.json) after
+`822edfa4` carries selected symbols through the existing declaration/import/export
+and entity-name workers. Real binder results lift at the syntax/Program boundary;
+property and star results keep their private identity. Existing qualified generic
+reference keys now use that owner with their written spelling and ordered type
+arguments. Shallow missing-namespace/export diagnostics, spelling tables and
+emit-helper signatures read selected metadata. There is no extra alias/export
+memo; existing AliasTarget links own cycle/unknown completion, so the entity
+reader no longer imposes a 64-hop limit. The separate bound external-module
+lookup keeps its genuine Program contract, while semantic selected-module reads
+can follow a private export-equals edge.
+
+Two bounded extracted actual own-export tests preserve distinct private table
+edges, original/sibling independence, the unchanged bound entry and module guard.
+Separate compiling origin and guard mutations each fail one; restored two pass.
+Actual parser/binder/store and export/star reader bodies are used, but a bounded
+Checker constructor and opaque TypeId replace full Checker setup. External module
+resolution panics and is never entered; no star graph, alias/default/supplemental
+or type-only publication qualification follows. Setter/constructor setup errors
+are retained separately from semantic mutation failures. Final57 ordinary and
+work-trace errors/full-lib-test113 still refuse canonical runtime integration.
+Semantic naming and conformance query consumers remain unfinished, as do the
+native augmentation/combined-symbol gaps and all six goal acceptance gates.

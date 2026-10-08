@@ -22,6 +22,17 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Private alias-result continuation after `822edfa4`, native `5b1047d`: existing
+import/export/entity result channels and qualified generic reference keys now
+keep selected symbol handles. Shallow namespace/module diagnostics and emit-helper
+signature readers follow the same owner. Exact five-file replay covers 1,053
+inputs/1048 unchanged. Final ordinary/work-trace **57 errors**, down from 71;
+full lib-test no-run **113 errors**, down from 127. Two bounded actual export
+reader controls pass, detect two separate compiling mutations, and pass after
+restoration. Full Checker remains uncompilable; no runtime or speed qualification.
+[Source replay](docs/architecture/checker-alias-result-continuation.json).
+
+
 Selected binding-owner continuation after `bda345a6`, native `5b1047d`:
 existing alias frames, captured conditionals and default/constraint/type-literal
 keys now retain actual selected parameter identity. Delete/callee/heritage/index
@@ -3831,6 +3842,15 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+After the `822edfa4` alias-result continuation, finish semantic naming,
+qualified-alias/heritage/ancestor and remaining JSX/property result channels,
+then every full test-target expectation and the conformance query consumers.
+The recorded native property-augmentation mismatch also needs its correction and
+controls. **57 library errors** still refuse runtime acceptance. All six tasks
+remain in progress; full native/corpus/performed-work and equivalent-work speed
+gates follow compilation. [Replay](docs/architecture/checker-alias-result-continuation.json).
+
+
 Binding-key continuation leaves the actual entity/module/alias/naming and
 ancestor-result consumers as the next compile repairs. Finish all full library
 test expectations, then run the complete private checker/native/corpus gates
@@ -7612,6 +7632,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The private alias-result draft after `822edfa4` remains refused by **57 library
+errors** in both ordinary/work-trace modes and **113 lib-test no-run errors**.
+Own-export reader controls are bounded: two pass, each separate compiling
+origin-projection/module-guard mutant fails one, then two restored pass. Initial
+setter/constructor setup failed compilation and is recorded separately. Full
+Checker, external/star graphs, alias/default/type-only publication, native/corpus,
+conformance consumers and speed gates remain unqualified.
+[Exact evidence](docs/architecture/checker-alias-result-continuation.json).
+
 
 The binding-owner draft after `bda345a6` remains refused by **71 library errors**
 in ordinary and work-trace modes and **127 lib-test no-run errors**. Three
@@ -15946,3 +15976,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `c236a387` / native `5b1047d` | — | — | **Selected alias-consumer private continuation.** Existing declared dispatcher and alias link, type-parameter metadata/constraint/default/inference/recursion/render scopes, generic-reference worker, homomorphic variable and callable export/readonly/name reads retain actual selected identities. Exact 18-file replay verifies 1,053 inputs/1,035 unchanged; owned formatting passes and unrelated rustfmt child restored. Compiler 116→93→89→84; final ordinary/work-trace both84 E0308. AnonymousProperty.origin and conditional frame keys are real unresolved boundaries, with no source-ID projection or dropped targets. No compiling private checker, canonical Rust, native/runtime/corpus/performed-work or speed qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-alias-consumer-continuation.json). |
 
 | 2026-10-08 | `276f3419` / native `5b1047d` | — | — | **Selected member-origin private continuation.** Exact 19-file replay verifies 1,053 inputs/1034 unchanged. Existing member origins and spread/order/widening/inference/display/relation/report/JSX/signature consumers retain selected identity. Native-style per-record lazy IDs share bound publication across Checkers and give private copies fresh IDs; incorrect intermediate Checker-local slots removed. Binder21 and extracted reader3 pass; one compiling origin mutant detected, restored reader3 pass; two fresh native tests pass. Final ordinary/work-trace both84 E0308. Property-result producer and conditional bindings remain raw boundaries; no canonical Rust, full member runtime/corpus/performed-work or speed qualification. All six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-member-origin-continuation.json). |
+
+| 2026-10-08 | `822edfa4` plus recorded five-file private overlay / native `5b1047d` | — | — | **Alias-result ownership continuation, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Import/export/entity channels and existing generic qualified keys retain selected handles; shallow namespace/module diagnostics and emit-helper signatures use actual selected metadata. Exact1053 inputs/fivechanged/1048unchanged replay. Ordinary/work-trace57 compile errors, full-lib-test113; predecessor71/127. Bounded own-export2pass, compiling origin and module-guard mutations each1fail, restored2pass; setup compile failure preserved separately. No canonical Rust/runtime, full native/corpus/performed-work or speed acceptance; all six tickets in progress. [Replay](docs/architecture/checker-alias-result-continuation.json). |
