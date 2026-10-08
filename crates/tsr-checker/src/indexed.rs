@@ -1057,8 +1057,9 @@ impl Checker<'_, '_> {
         if self.store.get(object).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
             return true;
         }
-        match self.store.get(object).data.clone() {
+        match &self.store.get(object).data {
             TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
+                let types = types.clone();
                 return types.into_iter().any(|ty| self.indexed_access_object_is_generic(ty));
             }
             _ => {}

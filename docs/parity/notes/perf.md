@@ -619,3 +619,22 @@ mallocs 8,112,413 → **6,748,163** (−16.8%). Verified ratio:
 domain-model-large 0.971 → 0.942, domain-model 0.898 → 0.883,
 generic-imports 0.911 → 0.922 (noise band). CPU vs base: domain-model 1.015,
 generic-imports 0.999.
+
+### §16.2 Read type data in place instead of cloning it
+
+Rebased onto origin/main `34867e44` (round-5 close), where `r5-checkperf`
+and `r5-perf4` had already moved `get_index_infos_of_type`, the
+`constraints.rs` union/intersection tests and `get_property_of_type_ex`'s
+fallback list to in-place reads. What remained: `is_type_parameter_at_top_level_with_depth`
+(`inference.rs`) and `indexed_access_object_is_generic` (`indexed.rs`)
+cloned a whole `TypeData` to pattern-match it, and
+`instantiate_for_reference_with_this_worker` (`members.rs`) cloned the
+reference's argument list on every member read. They now match by
+reference, copy only a composite's constituent list when they recurse, and
+read the arguments in place (a non-reference receiver supplies its own
+parameters: an identity map, nothing to record).
+
+mallocs (`LD_PRELOAD` counter, release, default pool): domain-model-large
+4,212,942 → **4,165,069** (−1.1%), domain-model 897,448 → 887,256,
+generic-imports 80,181 → 80,076, jsTyping 49,698,849 → 49,202,720.
+Dumps byte-identical.

@@ -2251,28 +2251,28 @@ impl Checker<'_, '_> {
         declared: TypeId,
         this_argument: TypeId,
     ) -> (TypeId, bool) {
-        let arguments =
-            self.type_reference_targets.get(&receiver).map(|(_, arguments)| arguments.clone());
         let error = self.intrinsics.error;
         let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
             return (error, false);
         };
-        let arguments = arguments
-            .unwrap_or_else(|| parameters.iter().map(|(parameter, _)| *parameter).collect());
-        if parameters.len() != arguments.len() {
-            return (error, false);
-        }
         // instantiateSymbol (checker.go:20753) retains the complete receiver
         // mapper. A member's own same-named parameter has a distinct TypeId,
         // so it survives while an outer parameter in the same return is mapped.
+        // A non-reference receiver supplies its own parameters (an identity
+        // map, nothing to record). The arguments are read in place.
         let mut names: Vec<&str> = Vec::new();
         let mut types: Vec<TypeId> = Vec::new();
         let mut map: Vec<(TypeId, TypeId)> = Vec::new();
-        for (index, (parameter, name)) in parameters.iter().enumerate() {
-            if *parameter != arguments[index] {
-                names.push(name.as_str());
-                types.push(*parameter);
-                map.push((*parameter, arguments[index]));
+        if let Some((_, arguments)) = self.type_reference_targets.get(&receiver) {
+            if parameters.len() != arguments.len() {
+                return (error, false);
+            }
+            for ((parameter, name), &argument) in parameters.iter().zip(arguments) {
+                if *parameter != argument {
+                    names.push(name.as_str());
+                    types.push(*parameter);
+                    map.push((*parameter, argument));
+                }
             }
         }
         // resolveTypeReferenceMembers pads the type arguments with the
