@@ -888,9 +888,10 @@ impl Checker<'_, '_> {
             let Some(at) = argument_node.node_id() else { continue };
             let target = self.instantiate_type(constraint, &map, &parameter_types, &name_refs);
             let source = arguments[index];
+            let bare = self.bare_type_parameter_argument_is_decidable(at, source);
             if self.is_error(target)
-                || self.type_argument_node_is_generic(at)
-                || self.relation_undecidable_for_constraint(source)
+                || (!bare && self.type_argument_node_is_generic(at))
+                || (!bare && self.relation_undecidable_for_constraint(source))
                 || self.relation_undecidable_for_constraint(target)
                 || self.relate_ternary(source, target, crate::relater::Relation::Assignable)
                     != crate::relater::Ternary::NotRelated
@@ -968,8 +969,9 @@ impl Checker<'_, '_> {
             self.instantiate_type(constraint, &[(parameter, default)], &[parameter], &[&name]);
         if self.is_error(target)
             || self.constraint_needs_this_argument(target)
-            || self.type_argument_node_is_generic(at)
-            || self.relation_undecidable_for_constraint(default)
+            || (!self.bare_type_parameter_argument_is_decidable(at, default)
+                && (self.type_argument_node_is_generic(at)
+                    || self.relation_undecidable_for_constraint(default)))
             || self.relation_undecidable_for_constraint(target)
             || self.relate_ternary(default, target, crate::relater::Relation::Assignable)
                 != crate::relater::Ternary::NotRelated
@@ -1144,6 +1146,76 @@ impl Checker<'_, '_> {
             }
         }
         false
+    }
+
+    /// The one generic argument the declines above can let through: a
+    /// written argument that is exactly a reference to a declared type
+    /// parameter (`Foo<T>`, no type arguments of its own), whose type is that
+    /// parameter and whose `getConstraintOfType` is decided and itself
+    /// decidable. The relater's type-parameter source arm
+    /// (`structuredTypeRelatedToWorker`, `relater.go:3665`) then relates
+    /// that constraint, or `unknown` for none, to the target
+    /// (`docs/parity/notes/r5-constraints2.md` §6).
+    fn bare_type_parameter_argument_is_decidable(&mut self, node: NodeId, ty: TypeId) -> bool {
+        if !self.store.get(ty).flags.contains(TypeFlags::TYPE_PARAMETER)
+            || self.instantiated_type_parameters.contains_key(&ty)
+            || self.this_types.values().any(|&this| this == ty)
+            || !self.type_parameter_symbols.contains_key(&ty)
+        {
+            return false;
+        }
+        let Some(tsr_ast::Node::TypeReferenceNode(reference)) = self.node_map.get(node) else {
+            return false;
+        };
+        if !reference.type_arguments.is_empty()
+            || self.is_in_conditional_true_branch(node)
+            || self.type_parameter_has_merged_owner(ty)
+        {
+            return false;
+        }
+        match self.constraint_of_type(ty) {
+            ConstraintOfType::Nil => true,
+            ConstraintOfType::Constraint(constraint) => {
+                !self.is_error(constraint) && !self.relation_undecidable_for_constraint(constraint)
+            }
+            ConstraintOfType::Undecided => false,
+        }
+    }
+
+    /// Whether `node` lies in the true branch of an enclosing conditional
+    /// type. Upstream reads a type variable there through
+    /// `getConditionalFlowTypeOfType`, which substitutes the check's implied
+    /// constraint (a substitution type); this port's reference is the bare
+    /// parameter, so its relation is not upstream's.
+    fn is_in_conditional_true_branch(&self, node: NodeId) -> bool {
+        let mut child = node;
+        while let Some(parent) = self.nodes.parent(child) {
+            if let Some(tsr_ast::Node::ConditionalTypeNode(conditional)) = self.node_map.get(parent)
+                && conditional.true_type.and_then(|t| t.node_id()) == Some(child)
+            {
+                return true;
+            }
+            child = parent;
+        }
+        false
+    }
+
+    /// Whether the type parameter belongs to a class or interface declared
+    /// more than once. Upstream's `getConstraintDeclaration` reads the first
+    /// declaration of the merged parameter that writes a constraint; this
+    /// port's parameter symbols are per declaration, so a constraint written
+    /// on another declaration is not seen.
+    fn type_parameter_has_merged_owner(&self, ty: TypeId) -> bool {
+        let Some(&symbol) = self.type_parameter_symbols.get(&ty) else { return true };
+        let symbols = self.binder.symbols();
+        symbols.get(symbol).declarations.iter().any(|&declaration| {
+            self.nodes
+                .parent(declaration)
+                .and_then(|owner| self.binder.symbol_of(owner))
+                .is_some_and(|owner| {
+                    symbols.get(self.binder.merged_symbol(owner)).declarations.len() > 1
+                })
+        })
     }
 
     fn relation_undecidable_within(&mut self, ty: TypeId, depth: u8) -> bool {

@@ -48,7 +48,7 @@ Two halves:
   (`Indexed<Z_1>` for `Collection.Indexed<Z_1>`), the NB-SYMBOL-CHAIN
   printer limit `declared.rs` already records at its namespace-rooted mint.
   With the namespace stop the three lines stay RIGHT; measured numbers are in
-  §5.
+  §8.
 
 **How this would be wrong.** If a merged class/interface ever lists type
 parameters in a later declaration that differ from the first type
@@ -89,7 +89,7 @@ the image is identifiable. The decline is narrowed to:
 
 Converts `compiler/duplicateLocalVariable4` and
 `conformance/enumAssignabilityInInheritance` (messages identical to the
-baseline). Measured numbers in §5.
+baseline). Measured numbers in §8.
 
 **Falsifier.** A TS2403 that upstream does not report on an enum-vs-object
 pair means TSR built the object side wrong for some other reason; the fix is
@@ -110,7 +110,7 @@ EMPTY_RIGHT and 9 RIGHT turned WRONG by extra TS2344). The relater's
 `NotRelated` on these pairs is wrong more often than right, so the declines
 stay; the generic cases wait on relater arms (`relater.rs`, r5-relater4).
 
-## §6 TS2344: a type parameter's default against its constraint
+## §5 TS2344: a type parameter's default against its constraint
 
 `checkTypeParameter` checks a parameter that has both a constraint and a
 default: `checkTypeAssignableTo(defaultType, getTypeWithThisArgument(
@@ -136,7 +136,40 @@ Measured with the commits above, both dumps: 0 lost, no verdict changed;
 TS2706. Median child CPU against the baseline binary at 21 samples:
 domain-model 0.990, generic-imports 0.963.
 
-## §5 Measurements
+## §6 TS2344: a bare type-parameter argument with a decided constraint
+
+The §4 declines refuse every argument that names a type parameter. One shape
+is decidable here: a written argument that is exactly a reference to a
+declared type parameter (`F<U>`, no type arguments of its own) whose
+`getConstraintOfType` is decided (`constraint_of_type`: `Nil`, or a
+constraint that is itself not generic). The relater's type-parameter source
+arm (`relater.go:3665`) relates that constraint, or `unknown`, to the
+target; the target keeps its own decline.
+
+Two further declines came from the first measurement (6 cases lost to extra
+TS2344, all `EMPTY_RIGHT`/`RIGHT`):
+
+- **A reference in a conditional type's true branch.** Upstream reads it
+  through `getConditionalFlowTypeOfType`, which substitutes the check's
+  implied constraint; TSR's reference is the bare parameter
+  (`conditionalTypeClassMembers`, `privatePropertyInUnion`,
+  `recursiveConditionalTypes2`, `signatureCombiningRestParameters3`/`4`).
+- **A parameter of a class/interface with several declarations.**
+  `getConstraintDeclaration` reads the merged parameter's first constrained
+  declaration; TSR's parameter symbols are per declaration
+  (`interfaceMergedUnconstrainedNoErrorIrrespectiveOfOrder`).
+
+Measured with both, against the baseline, both dumps: 0 lost, no verdict
+changed; type lines unchanged. `genericDefaultsErrors` gains 4 more correct
+lines (4,59; 5,44; 27,52; 28,37). One wrong line is added in a case that was
+already WRONG: `compiler/ramdaToolsNoInfinite2` (564,95). There `F extends
+Function` resolves `Function` to the **global** interface instead of the
+module import, the same import-resolution failure behind that case's extra
+TS2552s, so the producer is the resolver, not this check. Median child CPU
+against the baseline binary at 21 samples: domain-model 0.965,
+generic-imports 0.977.
+
+## §8 Measurements
 
 Baseline: integration `2919d8c`, frozen dumps. Both loss checks empty unless
 stated.
@@ -146,6 +179,8 @@ stated.
 | baseline | 10,746 | 543,275 |
 | §1 committed + §2 | 10,747 (+`parameterListAsTupleType`) | 543,275 |
 | + §3 | 10,749 (+`duplicateLocalVariable4`, `enumAssignabilityInInheritance`) | 543,275 |
+| + §5 | 10,749 (+2 lines in `genericDefaultsErrors`) | 543,275 |
+| + §6 | 10,749 (+4 lines in `genericDefaultsErrors`, +1 wrong line in `ramdaToolsNoInfinite2`) | 543,275 |
 
 Diagnostics counts are over all dump keys (plain and configured). The §1
 diff measured with the full native skip (no namespace stop), on top of the
