@@ -112,6 +112,21 @@ case's diagnostic list changed.
   does. That step was written, changed nothing on `for-of58` or on a
   hand-written intersection probe, and was reverted, since nothing reaches
   it yet.
+- **Tuple iteration (`ES5For-of30`, TS2488 on `for ([a = 1, b = ""] of
+  tuple)`).** The engine declines `[number, string]` for the same reason:
+  a tuple's `[Symbol.iterator]` is inherited from `Array<T>` through a
+  type-argument base, and the lookup answers no symbol. The case also needs
+  `checkForOfStatement`'s `checkDestructuringAssignment(varExpr,
+  iteratedType)` source for an assignment-pattern initializer: a
+  `ForOfStatement` arm in `destructuring_assignment_source` was written and
+  measured (both dumps unfiltered against §5: no verdict, diagnostic list or
+  type line changed), and reverted, since every source it reaches is the
+  declined tuple. It is a few lines to restore once the lookup answers.
+- **`restElementWithNullInitializer` (TS2488 ×3).** `function f([...r] =
+  null)` and the `undefined`/`{}` twins: the pattern's parent type comes from
+  `destructure.rs`' parameter road (`pad_binding_parameter_type` over the
+  widened initializer), which answers no decidable type for these
+  initializers, so the iteration check is never reached. Owner: destructure.
 - **`asyncIteratorExtraParameters` (TS2504 ×2).** The for-await query
   declines on the sync fallback: `[Symbol.iterator]` is not *decidably*
   absent on an object-literal type whose members include a computed name
@@ -175,3 +190,26 @@ here.
 **Measured** (against §4): diagnostics +1 (`iterableWithNeverAsUnionMember`
 WRONG → RIGHT, all three TS2488), types unchanged, zero losses in both
 checks, and no other case's diagnostic list changed.
+
+## 6. The two "known failing" workspace tests
+
+`iteration::optional_tuple_check_types_preserve_named_enum_identity_and_reads`
+and `mapped_tuple_inference::tuple_slice_optional_arguments_follow_null_and_exact_optional_options`
+(r4-perf, r4-config and r4-arrays record them failing) **pass** at this
+round's base `ac56208`, and also at the round-4 wrap-up `f90fcef`, measured
+in a separate worktree and target directory (`cargo test --release -p
+tsr-conformance --test iteration --test mapped_tuple_inference`: 17/17 and
+5/5). The workspace run is 3239 passed, 0 failed at every commit of this
+lane. Something merged during round 4 fixed them; no root cause was left
+to find here, and neither test's expectation was touched.
+
+## 7. Round-5 totals
+
+Against the frozen baseline `ac56208`, at `ef489c7`:
+
+- Diagnostics: RIGHT 5070 → 5075 (+5: `omittedExpressionForOfLoop`,
+  `crashInYieldStarInAsyncFunction`, `for-of15`, `for-of30`,
+  `iterableWithNeverAsUnionMember`), plus 9 of `generatorAssignability`'s 11
+  lines. EMPTY_RIGHT 5551 unchanged.
+- Types: unchanged (543,119 RIGHT of 552,533 aligned lines).
+- Both loss checks empty at every commit.
