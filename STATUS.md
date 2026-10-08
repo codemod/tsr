@@ -54,7 +54,21 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
-Alias/relation owner continuation, frozen main `55dd4941` / native `5b1047d`:
+Selected metadata/heritage continuation, frozen main `27ec35b7` / native `5b1047d`:
+actual owner views now supply flags, declarations, reference names and raw
+member/export presence. Generic-alias, narrowing-completeness and heritage walks
+retain selected identities. The reader passes all 209 library tests; its
+strengthened parsed class control follows the declared base but rejects a
+different private base clone with the same name and declarations. Full checking
+remains uncompiled at 70 type mismatches across 19 files, down from 114. The
+parsed module-owner red still fails Head/raw `SymbolId(1)`. Both fmt checks pass;
+strict Clippy retains six library/five test errors after two new lint repairs.
+Each slice has 1,053 stable inputs. Canonical reconstruction verifies all 684
+Rust files per slice, including exact three/24-file continuation deltas. No fresh
+native, main runtime, full corpus or speed claim.
+[Evidence](docs/architecture/checker-symbol-completion-contract.md#selected-metadata-and-heritage-consumer-continuation).
+
+Earlier alias/relation owner continuation, frozen main `55dd4941` / native `5b1047d`:
 the existing alias-body cache and six declaration workers now accept selected
 handles. Relation targets and recursion identities, raw keyof tables, array-base
 and private-name walks retain their actual owners. The reader slice passes all
@@ -3670,7 +3684,15 @@ Round-4 parity follow-ups. Each is open in Beads with the lane's notes:
   template-optionality and keyof-generic-base (types dump unfinished); the
   r4-operators2 in-operand and TS18046 diffs (re-measure).
 
-Continue `tsr-1yb.7.7.2.1` from frozen `55dd4941`: consume the lossless
+Continue `tsr-1yb.7.7.2.1` from frozen `27ec35b7`: consume
+`selected_metadata_heritage_continuation` on the preceding owner draft. Remaining
+70 errors are type-domain mismatches: finish actual symbol/type/value, general
+alias/reference factory, member/static/index/signature and naming dispatch.
+Variance must use the actual factory and selected owner before its cache is
+migrated. Compile the complete draft, run its unfiltered factory/mapper/natural
+alias controls, then full previously-RIGHT and equivalent-work <=0.50 gates.
+
+Earlier checkpoint: Continue `tsr-1yb.7.7.2.1` from frozen `55dd4941`: consume the lossless
 `alias_relation_owner_continuation` delta on the preceding full owner draft.
 The existing alias-body cache, conditional workers, relation/recursion identities
 and selected declaration walks are migrated; 114 library errors still require
@@ -7351,6 +7373,13 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `27ec35b7`'s 209 reader passes and distinct private-base assertions are
+refused as full-owner, native-alias, corpus or speed completion. Full compilation
+still fails at 70 type mismatches across 19 files; the parsed module-owner red
+and strict Clippy remain red. General factory/variance dispatch and the full
+class/reference/this/mapper controls remain unfinished. All 33 preceding archive
+fields remain identical; the new source delta is private continuation work.
 
 Frozen `55dd4941`'s 209 reader passes are refused as full-owner, alias, corpus
 or speed completion. The full draft remains uncompiled at 114 errors; the
@@ -14270,6 +14299,8 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+| 2026-10-08 | `27ec35b7` / native `5b1047d` | — | — | **Private metadata/heritage consumer progress, tsr-1yb.7.7.2.1.** Actual metadata/reference readers and generic-alias/narrowing/heritage walks retain selected owners. Reader 209 library passes, including same-declaration private-base distinction; parsed module-owner red fails. Full 70 type mismatches/19 files, down from 114; full factory/mapper controls unexecuted. Strict Clippy six library/five test errors after two lint repairs; both fmt checks pass. Stable 1,053 inputs each; canonical runtime plus inherited sources/deltas reconstructs all 684 Rust files per slice, new three/24-file deltas exact. No fresh native, main runtime, corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
 | 2026-10-08 | `55dd4941` / native `5b1047d` | — | — | **Private alias/relation owner progress, tsr-1yb.7.7.2.1.** Existing alias-body cache and six workers retain selected handles; actual relation/recursion identities, raw keyof, array-base and private-name walks migrated. Reader 209 library passes; separate parsed owner red fails. Full draft 114 errors across 25 files (108 mismatches/six moves); factory/mapper controls unexecuted. Strict Clippy six library/five test errors after new wrapper lint repair; both fmt checks pass. Stable 1,053 inputs each; exact three/35-file source delta replay on canonical inherited sources. No fresh native, runtime, corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
