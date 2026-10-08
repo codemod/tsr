@@ -112,6 +112,10 @@ bitflags::bitflags! {
         const CONTAINS_THIS = 1 << 3;
         /// A `label:` that nothing `break`s or `continue`s to.
         const UNUSED_LABEL = 1 << 4;
+        /// A module declaration carrying the parser's `NodeFlagsAmbient`
+        /// context (declaration file, `declare`, or an ambient enclosing
+        /// module), which this parser does not publish on the node.
+        const AMBIENT_CONTEXT = 1 << 5;
     }
 }
 
@@ -1233,7 +1237,7 @@ impl<'a> BindResult<'a> {
             if (match node_map.get(node) {
                 Some(tsr_ast::Node::SourceFile(_)) => true,
                 Some(tsr_ast::Node::ModuleDeclaration(module)) => {
-                    nodes.flags(node).contains(tsr_ast::NodeFlags::AMBIENT)
+                    self.facts(node).contains(NodeFacts::AMBIENT_CONTEXT)
                         && module.keyword.kind != SyntaxKind::GlobalKeyword
                 }
                 _ => false,
@@ -1296,6 +1300,9 @@ impl<'a> BindResult<'a> {
                 _ => None,
             };
             if let Some(mask) = exported
+                // `if name != InternalSymbolNameDefault` (`nameresolver.go:134`):
+                // only the default-local arm above admits the `default` key.
+                && (mask == SymbolFlags::ENUM_MEMBER || name != binder::INTERNAL_DEFAULT)
                 && let Some(symbol) = self.symbol_of(node)
                 && let Some(&found) = self.symbols.get(self.merged_symbol(symbol)).exports.get(name)
                 && (self.symbols.get(self.merged_symbol(found)).flags != SymbolFlags::ALIAS

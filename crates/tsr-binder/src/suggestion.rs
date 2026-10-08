@@ -145,7 +145,7 @@ impl<'a> BindResult<'a> {
                         let exports = &self.symbols.get(self.merged_symbol(module)).exports;
                         let external = match typed {
                             Some(Node::ModuleDeclaration(module)) => {
-                                nodes.flags(location).contains(tsr_ast::NodeFlags::AMBIENT)
+                                self.facts(location).contains(crate::NodeFacts::AMBIENT_CONTEXT)
                                     && module.keyword.kind != SyntaxKind::GlobalKeyword
                             }
                             _ => true,

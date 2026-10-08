@@ -63,3 +63,17 @@ checker has no related-information producer yet.
 Native controls: `class C { nodeType = 1; m() { NodeType; } }` is TS2304;
 `var Abcde; function f() { var abcdx; abcde; }` suggests `abcdx` (base
 suggested `Abcde`). Converts `conformance/parserRealSource11` (56 TS2552 → TS2304).
+
+## Export-default local name in ambient modules (tsr-2zk.6)
+
+`NameResolver.Resolve`'s default arm runs for a source file or a module
+declaration with `NodeFlagsAmbient` that is not `declare global`; the exports
+arm then skips the internal `default` key (`if name != InternalSymbolNameDefault`).
+TSR's parser never sets `NodeFlags::AMBIENT`, so the arm never fired inside
+`declare module "foo"`. The binder now publishes the parser's ambient context
+for module declarations as `NodeFacts::AMBIENT_CONTEXT` (declaration file,
+`declare`, or an ambient enclosing module; a string-literal name alone does
+not set it), read by `resolve_name` and the suggestion walk. Fact keyed by the
+module declaration node, owned by the file bind, published once at bind.
+Converts `compiler/es5ExportDefaultClassDeclaration4` (target=es2015) and
+`compiler/defaultIsNotVisibleInLocalScope` (+2 type rows).
