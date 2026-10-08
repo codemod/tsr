@@ -93,3 +93,46 @@ generic-imports 0.985. `Ir` domain-model 1,345,715,425 → 1,353,496,633
 domain-model cost is the union-alias measurements and body relations that
 used to be skipped (an unmeasured alias answered covariant for free). It is
 inside the CPU gate.
+
+## 3. `tsr-2zk.917` — weak-type check under an intersection target: already ported
+
+`is_related_to_with_flags` computes `check_excess = !self.intersection_target`
+and gates both the excess-property arm and `fails_common_property_check` on it
+(native `isPerformingCommonPropertyChecks`, relater.go:2676). Main landed this
+in `9b381a8`. `{ a: number }` to `{ key?: string } & { a: number; b?: string }`
+reports nothing, as native does. The JSX witnesses (`checkJsxChildrenProperty2`,
+`tsxIntrinsicAttributeErrors`) are still WRONG for the other two r4-jsx causes:
+`jsx_attributes_inference_type` mints a `Named` with no members table
+(`jsx_intrinsic.rs`), and the TS2741 constituent descent is missing
+(`assignreport.rs`). Neither is in this lane.
+
+## 4. Protected target property — `isValidOverrideOf`
+
+`propertyRelatedTo`'s second privacy case (relater.go:4285) relates a
+protected target property only when `isValidOverrideOf(sourceProp,
+targetProp)` holds (checker.go:11928): the source property's declaring class
+has the target's declaring class as a base (`isPropertyInClassDerivedFrom`,
+`hasBaseType`). The arm answered `Unknown`. It is now ported as
+`Relater::is_valid_override_of`, built from two parts:
+
+- `declaring_class` stands in for `getDeclaringClass` (`prop.Parent` is a
+  class). It reads the value declaration's parent node: a class element, or a
+  constructor parameter property. Native reads the symbol parent. The node
+  read gives the same class for both shapes and needs no new binder fact.
+- `class_has_base` stands in for `hasBaseType` between class/interface
+  symbols, over `get_base_types`. `base_types.rs` has a private `has_base_type`
+  over types, but that file is not this lane's. The relater copy is ten lines.
+  The integrator may fold it into a `pub(crate)` `has_base_type`.
+
+Declines kept: an intersection source stays `Unknown`, because native ORs over
+the synthetic property's constituents (`forEachProperty`) and this loop ANDs.
+A target whose declaring class is not found also stays `Unknown`.
+
+Measured against the frozen base, with §1–§2 included: +6 diagnostics cases.
+All six go WRONG → RIGHT: `implementingAnInterfaceExtendingClassWithProtecteds`,
+`interfaceExtendingClassWithProtecteds`, `interfaceExtendingClassWithProtecteds2`,
+`derivedClassOverridesProtectedMembers`, `derivedClassOverridesProtectedMembers2`
+and `derivedClassTransitivity4`. Types are unchanged and both loss checks are
+empty. Perf (21 samples): domain-model 0.990, generic-imports 0.993. `Ir`
+against base is the same as §2's (+0.59% / +0.001%), so this arm adds nothing
+measurable.
