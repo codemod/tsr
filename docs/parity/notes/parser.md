@@ -497,3 +497,9 @@ per-file flag must become per-node.
 - `const` without initializer (`checkGrammarVariableDeclaration`): TS1155 is
   `grammarErrorOnNode(node)`, i.e. the declaration's error span (its name),
   not the whole declaration.
+- Entity names (`parseEntityName` → `parseRightSideOfDot`): the right side of
+  a dot in a type reference/query takes the same missing-name arm as
+  property access — a line break then `identifierOrKeyword
+  identifierOrKeyword` is TS1003 right after the dot with a missing
+  identifier, so `var x: M.` before `namespace N {` leaves the declaration
+  intact.

@@ -1310,7 +1310,15 @@ impl<'a> Parser<'a> {
             if self.at(SyntaxKind::LessThanToken) {
                 break;
             }
-            let right = self.parse_identifier_name();
+            // `parseRightSideOfDot`'s first arm: `A.` followed by a
+            // line break and `identifierOrKeyword identifierOrKeyword` is a
+            // missing name right after the dot, not a qualifier.
+            let right = if self.right_side_of_dot_is_missing() {
+                self.report_missing_right_side_of_dot();
+                self.missing_identifier()
+            } else {
+                self.parse_identifier_name()
+            };
             let node = self.finish_node(
                 QualifiedName::new(Some(name), Some(right)),
                 SyntaxKind::QualifiedName,
