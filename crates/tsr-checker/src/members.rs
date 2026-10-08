@@ -2020,39 +2020,136 @@ impl Checker<'_, '_> {
         self.instantiate_for_reference_with_this(receiver, declared, receiver)
     }
 
+    /// # Memoised like native's instantiated-symbol links
+    ///
+    /// Native computes an instantiated member's type once, in
+    /// `getTypeOfInstantiatedSymbol` (`checker.go:15987`), and keeps it in the
+    /// instantiated symbol's links. This port has no instantiated symbols, so
+    /// every read re-ran the substitution here.
+    /// [`PerfLinks::reference_member_types`](crate::perf_links::PerfLinks)
+    /// keeps the decided answers; key, publication and context are
+    /// `docs/parity/notes/r4-perf2.md` §2.
     fn instantiate_for_reference_with_this(
         &mut self,
         receiver: TypeId,
         declared: TypeId,
         this_argument: TypeId,
     ) -> TypeId {
-        // resolveTypeReferenceMembers also supplies a this argument for a
-        // non-generic class or interface. The port keeps those as Named types
-        // rather than entries in type_reference_targets.
-        let (symbol, arguments) =
-            if let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver) {
-                (*symbol, Some(arguments.clone()))
-            } else if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
-                && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
-                && self
-                    .binder
-                    .symbols()
-                    .get(symbol)
-                    .flags
-                    .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-            {
-                (symbol, None)
-            } else {
-                return declared;
-            };
+        let Some(symbol) = self.reference_target_symbol(receiver) else {
+            return declared;
+        };
+        let binder = self.binder;
+        let Some(frames) = self.memo_frames(&binder.symbols().get(symbol).declarations, None)
+        else {
+            return self
+                .instantiate_for_reference_with_this_worker(
+                    symbol,
+                    receiver,
+                    declared,
+                    this_argument,
+                )
+                .0;
+        };
+        let key = (receiver, declared, this_argument);
+        let this_type = self.polymorphic_this_of(symbol);
+        let result = match self.perf_links.reference_member_types.get(&key) {
+            Some(&(published_this, result)) if published_this == this_type => result,
+            _ => {
+                let (result, mapped) = self.instantiate_for_reference_with_this_worker(
+                    symbol,
+                    receiver,
+                    declared,
+                    this_argument,
+                );
+                // An error answer may be provisional (an unresolved parameter
+                // list, an arity mismatch, a pending return, the depth or
+                // count limit); an unchanged `declared` after a real
+                // substitution read `declared`'s current contents, which
+                // `TypeStore::complete_object` may still fill in place.
+                let decided = result != self.intrinsics.error
+                    && (!mapped || result != declared || self.is_leaf_type(declared));
+                if decided
+                    && self.signature_links_publishable()
+                    && self.polymorphic_this_of(symbol) == this_type
+                {
+                    self.perf_links.reference_member_types.insert(key, (this_type, result));
+                }
+                result
+            }
+        };
+        self.alias_evaluation_bindings = frames;
+        result
+    }
+
+    /// Whether `id` is a primitive, literal or enum type, or a union of them:
+    /// a type with no object, instantiable or intersection content, so no
+    /// later in-place completion can give it a type parameter to substitute.
+    fn is_leaf_type(&self, id: TypeId) -> bool {
+        let non_leaf = TypeFlags::OBJECT | TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION;
+        let ty = self.store.get(id);
+        match &ty.data {
+            TypeData::Union { types, .. } => types.iter().all(|&member| {
+                !self.store.get(member).flags.intersects(non_leaf | TypeFlags::UNION)
+            }),
+            _ => !ty.flags.intersects(non_leaf | TypeFlags::UNION),
+        }
+    }
+
+    /// The class or interface whose members `receiver` reads: a reference's
+    /// target, or a non-generic class/interface kept as a Named type
+    /// (`resolveTypeReferenceMembers` supplies a this argument for those too).
+    fn reference_target_symbol(&self, receiver: TypeId) -> Option<SymbolId> {
+        if let Some((symbol, _)) = self.type_reference_targets.get(&receiver) {
+            return Some(*symbol);
+        }
+        if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
+            && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return Some(symbol);
+        }
+        None
+    }
+
+    /// The target's polymorphic `this` type if one has been minted yet; it is
+    /// minted lazily on the first `this` reference, so the answer can change.
+    fn polymorphic_this_of(&self, symbol: SymbolId) -> Option<TypeId> {
+        self.this_types.get(&symbol).copied().or_else(|| {
+            self.binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .iter()
+                .find_map(|node| self.this_type_nodes.get(node).copied())
+        })
+    }
+
+    /// The substitution itself: `declared` with `receiver`'s arguments and
+    /// its this argument substituted for `symbol`'s parameters, and whether a
+    /// non-empty mapper was applied (an empty one answers `declared` whatever
+    /// `declared` holds).
+    fn instantiate_for_reference_with_this_worker(
+        &mut self,
+        symbol: SymbolId,
+        receiver: TypeId,
+        declared: TypeId,
+        this_argument: TypeId,
+    ) -> (TypeId, bool) {
+        let arguments =
+            self.type_reference_targets.get(&receiver).map(|(_, arguments)| arguments.clone());
         let error = self.intrinsics.error;
         let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
-            return error;
+            return (error, false);
         };
         let arguments = arguments
             .unwrap_or_else(|| parameters.iter().map(|(parameter, _)| *parameter).collect());
         if parameters.len() != arguments.len() {
-            return error;
+            return (error, false);
         }
         // instantiateSymbol (checker.go:20753) retains the complete receiver
         // mapper. A member's own same-named parameter has a distinct TypeId,
@@ -2069,15 +2166,7 @@ impl Checker<'_, '_> {
         }
         // resolveTypeReferenceMembers pads the type arguments with the
         // reference itself for the target's polymorphic this parameter.
-        let this_type = self.this_types.get(&symbol).copied().or_else(|| {
-            self.binder
-                .symbols()
-                .get(symbol)
-                .declarations
-                .iter()
-                .find_map(|node| self.this_type_nodes.get(node).copied())
-        });
-        if let Some(this_type) = this_type
+        if let Some(this_type) = self.polymorphic_this_of(symbol)
             && this_type != this_argument
         {
             types.push(this_type);
@@ -2085,9 +2174,9 @@ impl Checker<'_, '_> {
         }
         // A reference without type parameters or a polymorphic this needs no map.
         if map.is_empty() {
-            return declared;
+            return (declared, false);
         }
-        self.instantiate_type(declared, &map, &types, &names)
+        (self.instantiate_type(declared, &map, &types, &names), true)
     }
 
     /// `getPropertyOfTypeEx`'s union and intersection arms

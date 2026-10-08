@@ -35,6 +35,13 @@ pub(crate) struct PerfLinks {
     /// answer lands in `resolvedBaseTypes`. Holds only decided answers
     /// (`r4-perf.md` §3).
     pub(crate) heritage_bases: FxHashMap<HeritageBaseKey, TypeId>,
+    /// `(receiver, declared member type, this argument) -> (receiver
+    /// target's polymorphic this at publication, member type seen through
+    /// the receiver)`: native `getTypeOfInstantiatedSymbol` publishing the
+    /// instantiated member symbol's `links.resolvedType`. Holds only decided
+    /// answers (`r4-perf2.md` §2).
+    pub(crate) reference_member_types:
+        FxHashMap<(TypeId, TypeId, TypeId), (Option<TypeId>, TypeId)>,
     /// Reused buffer for [`Checker::memo_frames`]' scope owners.
     owners_scratch: Vec<NodeId>,
 }
