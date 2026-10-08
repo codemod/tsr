@@ -173,3 +173,17 @@ covering lines no producer switch reaches.
 `r5-errorsplit3` (`tsr-2zk.1009`) is now the single owner of the contract. It
 audits `Checker::is_error`'s 201 call sites and propagates `native_error`
 through access, spread and destructuring.
+
+### r5-jsx3 finished (+9 diagnostics cases); r5-constraints2 dispatched (`tsr-2zk.1011`)
+
+r5-jsx3 `fc25cec` ported:
+- namespaced JSX names;
+- a narrower hyphenated-attribute rule;
+- the freshness-gated excess check;
+- generic spreads.
+
+Its largest remaining blocker is outside JSX. Alias references such as
+`React.DetailedHTMLProps<…>` enumerate as empty objects, which leaves about 29
+lines (`tsr-2zk.1010`). TS2875 (`.988`) is back to open. The new box
+`r5-constraints2` takes TS2344 (`checkTypeArgumentConstraints`,
+`constraints.rs`) and TS2403 (`identity.rs`).
