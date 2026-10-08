@@ -1,0 +1,33 @@
+diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
+index 96612c9..d393191 100644
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -3217,7 +3217,7 @@ impl<'a> Checker<'a, '_> {
+     /// against `null`/`undefined` plus one other type is related to that
+     /// type. TS2560 when the source's first call (or construct) signature
+     /// returns a type related to the target. Answers whether it reported.
+-    fn report_weak_type_failure(
++    pub(crate) fn report_weak_type_failure(
+         &mut self,
+         at: NodeId,
+         span: tsr_core::Span,
+diff --git a/crates/tsr-checker/src/heritage_conformance.rs b/crates/tsr-checker/src/heritage_conformance.rs
+index 402a590..8a9200d 100644
+--- a/crates/tsr-checker/src/heritage_conformance.rs
++++ b/crates/tsr-checker/src/heritage_conformance.rs
+@@ -283,8 +283,14 @@ impl Checker<'_, '_> {
+         }
+         // `core.OrElse(node.Name(), node)`.
+         let at = self.declaration_name_of(node).unwrap_or(node);
+-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+         let span = self.error_span(at);
++        // `checkTypeAssignableTo(typeWithThis, baseWithThis, name, broadDiag)`:
++        // `isRelatedToEx`'s common-property check (`relater.go:2676`) fails a
++        // weak target first and reports TS2559 with no head message.
++        if self.report_weak_type_failure(at, span, source, target) {
++            return;
++        }
++        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+         let source_text = self.type_to_string(source);
+         let target_text = self.type_to_string(target);
+         self.report(file, Diagnostic::with_args(broad, span, [source_text, target_text]));

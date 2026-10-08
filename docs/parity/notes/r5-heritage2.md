@@ -141,7 +141,7 @@ a heuristic.
   `checkTypeAssignableTo(typeWithThis, baseWithThis, name, broadDiag)`, and
   `isRelatedToEx`'s common-property check reports TS2559 with no head
   message. The port's `report_weak_type_failure` is private to
-  `assignreport.rs` (r5-report2).
+  `assignreport.rs` (r5-report2), so this ships as the §5 diff.
 - **JSDoc `@implements` on an exported JS class** (`importTag23`). The tag's
   name resolves from inside the JSDoc comment, which keeps no parent edge
   (ADR-0003; the parser's `attach_jsdoc`), so `heritage_entity_symbol`
@@ -168,3 +168,53 @@ a heuristic.
   against `null`). Native's base list is non-empty only through the
   interface's `extends Base`. The static-side walk in `check.rs` is a
   property-by-property port that has no `null` target.
+
+## 5. Held diff: the broad report's weak-target arm (TS2559)
+
+[r5-heritage2-weak-broad-report.diff](r5-heritage2-weak-broad-report.diff)
+(`assignreport.rs` visibility, r5-report2's file; and this lane's
+`issue_member_specific_error`).
+
+When no member reports, `issueMemberSpecificError` ends with
+`checkTypeAssignableTo(typeWithThis, baseWithThis, name, broadDiag)`. The
+relation's first failure for a weak target with no common property is
+`isRelatedToEx`'s common-property check (`relater.go:2676`). It reports
+TS2559/TS2560 through `reportError`, not `reportRelationError`, so the head
+message is never applied and the whole diagnostic is TS2559 at the class
+name. The diff makes `report_weak_type_failure` `pub(crate)` and calls it
+before the broad diagnostic, as `report_relation_failure` already does for
+assignments.
+
+Measured on top of commit 1, both dumps unfiltered: diagnostics +1
+(`subtypingWithObjectMembers5`, three TS2420 → TS2559), types unchanged, no
+losses.
+
+The rest of `reportRelationError` is not ported for this report. Native's
+missing-property suppression (`relater.go:4816`) keeps the head for the
+implements messages (`isConversionOrInterfaceImplementationMessage`), but
+for TS2415 and TS2430 it gives way to the TS2741/TS2739 chain. No case in
+the population needs that yet.
+
+## 6. Interface bases through `getBaseTypes`
+
+`check_interface_heritage_conformance` resolved each `extends` entry itself
+and kept only class and interface symbols. Native loops
+`getBaseTypes(t)`, which also includes an alias of an object type, an
+intersection or an array (`resolveBaseTypesOfInterface`,
+`isValidBaseType`). The check now reads `get_base_types` (`base_types.rs`),
+which is the port of that function.
+
+That function drops an entry either because native would (an invalid or
+circular base) or because the port cannot resolve it, and the two cannot be
+told apart here. When fewer bases come back than entries are written, the
+`checkInheritedPropertiesAreIdentical` walk declines, and so does the base
+loop that upstream runs only after it. That keeps the earlier "an
+unresolved base declines" rule.
+
+Measured on top of commit 1, both dumps unfiltered: no verdict changes and
+no losses. `interfaceExtendsObjectIntersectionErrors` gains 7 of its 12
+missing TS2430 lines (`I1`, `I2`, `I3`, `I10`, `I12`, `I20`, `I21`). The
+other five still miss: `I4` (a tuple base), `I5` (a mapped alias), `I11`
+(`typeof` an enum), and `I22`/`I23` (a generic intersection alias). No line
+was removed in any case. Median child CPU over the frozen binary, 21 samples: domain-model
+0.987, generic-imports 1.023.
