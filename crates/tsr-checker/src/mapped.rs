@@ -217,7 +217,10 @@ impl<'a> Checker<'a, '_> {
 
     /// isGenericMappedType plus getHomomorphicTypeVariable for tuple context.
     pub(crate) fn is_generic_homomorphic_mapped_type(&self, id: TypeId) -> bool {
-        self.is_generic_homomorphic_mapped_type_inner(id, &mut Vec::new())
+        // The inner walk answers `false` for a type that is not mapped; ask
+        // that before allocating its cycle path (`r5-perf4.md` §5).
+        self.mapped_types.contains_key(&id)
+            && self.is_generic_homomorphic_mapped_type_inner(id, &mut Vec::new())
     }
 
     fn is_generic_homomorphic_mapped_type_inner(
