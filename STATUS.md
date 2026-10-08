@@ -22,6 +22,18 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Selected naming continuation after `b96ed671`, pinned native `5b1047d`: the
+existing best-name/alias/module naming and module property display workers now
+keep selected symbol identity. Exact two-file replay covers 1,053 inputs with
+1051 unchanged. Ordinary/work-trace **34 compile errors**, down from 57;
+full lib-test no-run **90 errors**, down from 113. A bounded actual direct-name
+control passes, rejects a compiling origin-substitution mutation, and passes
+after restoration. Native alias-only table caching remains absent and its cost/
+table publication boundary is tracked in `tsr-1yb.11.5`. Full Checker remains
+uncompilable; no canonical Rust integration or verified speed gain.
+[Replay and limits](docs/architecture/checker-semantic-naming-continuation.json).
+
+
 Private alias-result continuation after `822edfa4`, native `5b1047d`: existing
 import/export/entity result channels and qualified generic reference keys now
 keep selected symbol handles. Shallow namespace/module diagnostics and emit-helper
@@ -3842,6 +3854,15 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+After the `b96ed671` selected naming continuation, migrate symbol-chain,
+reference/accessibility/value-name and enum-owner consumers, then the remaining
+semantic readers and full test/conformance query consumers. **34 library errors**
+and **90 full test-target errors** still refuse runtime acceptance. Profiling
+native alias-only table selection is `tsr-1yb.11.5`; no extra cache is retained.
+All six goal tickets remain in progress, with full native/corpus/performed-work
+and equivalent complete-work speed gates outstanding.
+
+
 After the `822edfa4` alias-result continuation, finish semantic naming,
 qualified-alias/heritage/ancestor and remaining JSX/property result channels,
 then every full test-target expectation and the conformance query consumers.
@@ -7632,6 +7653,14 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The private selected naming continuation after `b96ed671` remains refused by
+**34 ordinary/work-trace library errors** and **90 full lib-test no-run errors**.
+A bounded direct lexical-name test passes, catches a compiling origin mutation,
+and passes restored; alias/export traversal and module serialization remain
+unqualified. Native/corpus/performed-work and complete-work timing gates remain.
+[Exact replay](docs/architecture/checker-semantic-naming-continuation.json).
+
 
 The private alias-result draft after `822edfa4` remains refused by **57 library
 errors** in both ordinary/work-trace modes and **113 lib-test no-run errors**.
@@ -15978,3 +16007,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `276f3419` / native `5b1047d` | — | — | **Selected member-origin private continuation.** Exact 19-file replay verifies 1,053 inputs/1034 unchanged. Existing member origins and spread/order/widening/inference/display/relation/report/JSX/signature consumers retain selected identity. Native-style per-record lazy IDs share bound publication across Checkers and give private copies fresh IDs; incorrect intermediate Checker-local slots removed. Binder21 and extracted reader3 pass; one compiling origin mutant detected, restored reader3 pass; two fresh native tests pass. Final ordinary/work-trace both84 E0308. Property-result producer and conditional bindings remain raw boundaries; no canonical Rust, full member runtime/corpus/performed-work or speed qualification. All six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-member-origin-continuation.json). |
 
 | 2026-10-08 | `822edfa4` plus recorded five-file private overlay / native `5b1047d` | — | — | **Alias-result ownership continuation, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Import/export/entity channels and existing generic qualified keys retain selected handles; shallow namespace/module diagnostics and emit-helper signatures use actual selected metadata. Exact1053 inputs/fivechanged/1048unchanged replay. Ordinary/work-trace57 compile errors, full-lib-test113; predecessor71/127. Bounded own-export2pass, compiling origin and module-guard mutations each1fail, restored2pass; setup compile failure preserved separately. No canonical Rust/runtime, full native/corpus/performed-work or speed acceptance; all six tickets in progress. [Replay](docs/architecture/checker-alias-result-continuation.json). |
+
+| 2026-10-08 | `b96ed671` plus exact two-file private overlay / native `5b1047d` | — | — | **Selected naming ownership continuation, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Best-name/alias/module naming and module property display retain actual selected identity; exact1053 inputs/twochanged/1051unchanged replay. Ordinary/work-trace34 compile errors, full-lib-test90; predecessor57/113. Bounded actual direct-name1pass, compiling origin mutation1fail, restored1pass. Native alias-only table scan/copy/publication profiling filed as tsr-1yb.11.5. No canonical Rust/runtime, full native/corpus/performed-work or speed acceptance; all six goals in progress. [Replay](docs/architecture/checker-semantic-naming-continuation.json). |

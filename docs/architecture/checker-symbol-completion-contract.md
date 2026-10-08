@@ -1216,3 +1216,31 @@ are retained separately from semantic mutation failures. Final57 ordinary and
 work-trace errors/full-lib-test113 still refuse canonical runtime integration.
 Semantic naming and conformance query consumers remain unfinished, as do the
 native augmentation/combined-symbol gaps and all six goal acceptance gates.
+
+
+The [selected naming continuation](checker-semantic-naming-continuation.json)
+after `b96ed671` migrates the existing best-name, immediate own-name alias, clone,
+module alias and export-equals naming consumers. Bound scope lookups lift at
+their Program boundary; targets, selected parents, export markers and export
+values keep actual `SymbolRef` identity. The native selected comparator orders
+actual candidates. Short-lived views release before recursive forcing. Existing
+AliasTarget links remain the sole publication owner; candidate tables are local
+to the query and introduce no memo. Module property display follows selected
+member edges and existing semantic type forcing, stack and rendering admission.
+
+Native `getSymbolTableAliases` caches alias-only globals/raw/resolved export
+tables by table identity, filters uncached locals and skips members tables.
+TSR still copies full naming tables; `tsr-1yb.11.5` owns actual scan/copy costs,
+table lifetime and mutation/publication controls before any cache implementation.
+The selected property comparator's traversal cost is likewise unmeasured. This
+ownership continuation establishes no allocation or speed benefit.
+
+A bounded extracted actual direct naming control keeps two same-named private
+copies inaccessible through the original class's lexical name. It passes,
+detects a compiling origin-substitution mutation, and passes after exact
+restoration. Actual parser/binder/store/worker are used, but the constructor is
+bounded and alias/qualification paths panic if entered. It does not certify
+alias/export traversal, module sorting/serialization or full Checker evaluation.
+Ordinary/work-trace34 errors and full-lib-test90 still refuse runtime integration.
+All six goals and full native/corpus/performed-work/median ratio<=0.50 gates remain
+unfinished; prior augmentation/combined-symbol and naming admission gaps persist.
