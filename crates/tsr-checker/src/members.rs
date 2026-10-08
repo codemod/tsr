@@ -3598,7 +3598,31 @@ impl Checker<'_, '_> {
 
     /// resolveEntityName for the expression-shaped names in heritage clauses.
     /// Intermediate namespaces and imported aliases are resolved before exports.
+    ///
+    /// Native publishes the answer in the name's `links.resolvedSymbol`; this
+    /// port keeps resolved answers in [`crate::perf_links::PerfLinks`]
+    /// (`docs/parity/notes/r4-perf.md` §3). An unresolved answer may come
+    /// from an alias still resolving, so it is recomputed.
     pub(crate) fn heritage_entity_symbol(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        let key = expression.node_id().map(|node| (node, meaning.bits()));
+        if let Some(key) = key
+            && let Some(&symbol) = self.perf_links.heritage_entity_symbols.get(&key)
+        {
+            return Some(symbol);
+        }
+        let symbol = self.heritage_entity_symbol_worker(expression, meaning)?;
+        if let Some(key) = key {
+            self.perf_links.heritage_entity_symbols.insert(key, symbol);
+        }
+        Some(symbol)
+    }
+
+    /// [`Self::heritage_entity_symbol`]'s resolution, without the memo.
+    fn heritage_entity_symbol_worker(
         &mut self,
         expression: tsr_ast::Expression<'_>,
         meaning: SymbolFlags,

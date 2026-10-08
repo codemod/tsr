@@ -177,7 +177,9 @@ impl Checker<'_, '_> {
         let Some(Node::BinaryExpression(assignment)) = self.node_map.get(parent) else {
             return false;
         };
-        if assignment.operator_token.is_none_or(|token| token.kind != SyntaxKind::EqualsToken) {
+        // `ast.IsAssignmentExpression(parent, false)`: compound assignments
+        // (`??=`, `+=`, …) count too.
+        if assignment.operator_token.is_none_or(|token| !token.kind.is_assignment_operator()) {
             return false;
         }
         let receiver = match assignment.left {
@@ -344,6 +346,60 @@ impl Checker<'_, '_> {
     fn report_this_error(&mut self, node: NodeId, message: &'static Message) {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.nodes.span(node);
+        self.report(file, Diagnostic::new(message, span));
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `checkIdentifier`'s first arm (`checker.go:11043`): an identifier
+    /// `this` heading a type query's entity name (`typeof this.x`,
+    /// `ast.IsThisInTypeQuery`) is checked as `checkThisExpression`.
+    pub(crate) fn check_this_in_type_query_diagnostics(&mut self, node: NodeId) {
+        if self.is_this_in_type_query(node) {
+            self.check_this_expression_diagnostics(node);
+        }
+    }
+
+    /// `checkParameter`'s `this`/`new` arm (`checker.go:2677`): TS2680 off
+    /// the first position, TS2681 on a constructor, construct signature or
+    /// constructor type, TS2730 on an arrow function and TS2784 on an
+    /// accessor, each at the parameter, in upstream's order.
+    ///
+    /// `ast.GetContainingFunction(node)` for a parameter is its parent.
+    pub(crate) fn check_this_parameter_position(&mut self, node: NodeId) {
+        let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
+        let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else { return };
+        if name.text != "this" && name.text != "new" {
+            return;
+        }
+        let Some(function) = self.nodes.parent(node) else { return };
+        // `slices.Index(fn.Parameters(), node) != 0`; a host whose list
+        // `parameters_of` does not enumerate is never reported.
+        let parameters = self.parameters_of(function);
+        if parameters.contains(&node) && parameters.first() != Some(&node) {
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+            let span = self.error_span(node);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::A_0_PARAMETER_MUST_BE_THE_FIRST_PARAMETER,
+                    span,
+                    [name.text.to_string()],
+                ),
+            );
+        }
+        let message = match self.nodes.kind(function) {
+            SyntaxKind::Constructor
+            | SyntaxKind::ConstructSignature
+            | SyntaxKind::ConstructorType => &messages::A_CONSTRUCTOR_CANNOT_HAVE_A_THIS_PARAMETER,
+            SyntaxKind::ArrowFunction => &messages::AN_ARROW_FUNCTION_CANNOT_HAVE_A_THIS_PARAMETER,
+            SyntaxKind::GetAccessor | SyntaxKind::SetAccessor => {
+                &messages::GET_AND_SET_ACCESSORS_CANNOT_DECLARE_THIS_PARAMETERS
+            }
+            _ => return,
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
         self.report(file, Diagnostic::new(message, span));
     }
 }

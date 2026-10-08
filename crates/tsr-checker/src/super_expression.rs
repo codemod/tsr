@@ -10,6 +10,7 @@
 //! the node's own ancestor chain.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_binder::{SymbolFlags, SymbolId};
 use tsr_diagnostics::{Diagnostic, Message, messages};
 
 use crate::checker::Checker;
@@ -104,14 +105,13 @@ impl Checker<'_, '_> {
     /// whose container is `constructor`.
     ///
     /// Upstream's test is `!isPostSuperFlowNode(node.FlowNode)`
-    /// (`flow.go:2611`): some flow path reaches the use without passing a
-    /// `super(...)` call. This port answers it without the flow graph where
-    /// the answer is certain in the reporting direction: a **parameter
-    /// initializer** (evaluated before the body), and otherwise
-    /// [`Checker::certainly_reached_before_super`]. §307; the structured walk
-    /// replaced its statement-index test, which reported a use sharing a
-    /// top-level statement with a `super()` before it
-    /// (`docs/parity/notes/misc-checks.md` §17).
+    /// ([`Checker::is_post_super_flow_node`]): some flow path reaches the use
+    /// without passing a `super(...)` call node. The binder records a flow
+    /// node for every `this` and `super` keyword and a `FlowFlags::CALL` node
+    /// after every `super(...)` call, so the walk runs on the graph itself; a
+    /// keyword with no flow node is in unreachable code, which upstream
+    /// treats as post-super. This replaced §307's statement-index test and
+    /// §17's structural walk (`docs/parity/notes/misc-checks.md` §21).
     pub(crate) fn check_this_before_super_in(
         &mut self,
         node: NodeId,
@@ -122,176 +122,11 @@ impl Checker<'_, '_> {
         if self.extends_clause_base(class).is_none() || self.class_declaration_extends_null(class) {
             return;
         }
-        let Some(Node::ConstructorDeclaration(declaration)) = self.node_map.get(constructor) else {
-            return;
-        };
-        let Some(body) = declaration.body.and_then(|body| body.node_id()) else { return };
-        let Some(Node::Block(_)) = self.node_map.get(body) else { return };
-        let in_parameter =
-            self.nodes.ancestors(node).take_while(|&it| it != constructor).any(|it| {
-                self.nodes.kind(it) == SyntaxKind::Parameter
-                    && self.nodes.parent(it) == Some(constructor)
-            });
-        if !in_parameter && !self.certainly_reached_before_super(node, body) {
+        let Some(flow) = self.binder.flow_of(node) else { return };
+        if self.is_post_super_flow_node(flow) {
             return;
         }
         self.report_super_error(node, message);
-    }
-
-    /// Is there certainly a flow path from the constructor body's start to
-    /// `node` that completes every statement before it without a `super()`
-    /// call? Walks the ancestor chain top-down. At a statement list (block,
-    /// case clause) every earlier sibling must have such a path
-    /// ([`Checker::super_free_completion`]); an `if` is entered through a
-    /// branch once its condition holds no `super()`; a `switch` clause is
-    /// entered by the dispatch jump once the discriminant and the case labels
-    /// hold none. Any other container is a leaf, certain when each of its
-    /// `super()` calls is evaluated after the use
-    /// ([`Checker::super_calls_follow`]).
-    /// `false` means "not certain", never "post-super".
-    fn certainly_reached_before_super(&self, node: NodeId, body: NodeId) -> bool {
-        let mut chain: Vec<NodeId> =
-            self.nodes.ancestors(node).take_while(|&it| it != body).collect();
-        chain.reverse();
-        if chain.iter().any(|&it| self.is_function_like_declaration(it)) {
-            return false;
-        }
-        let mut container = body;
-        for &child in chain.iter().chain(std::iter::once(&node)) {
-            match self.node_map.get(container) {
-                Some(Node::Block(_) | Node::CaseOrDefaultClause(_)) => {
-                    let mut earlier = Vec::new();
-                    if let Some(typed) = self.node_map.get(container) {
-                        tsr_ast::for_each_child_id(typed, |it| earlier.push(it));
-                    }
-                    for sibling in earlier.into_iter().take_while(|&it| it != child) {
-                        if !self.super_free_completion(sibling) {
-                            return false;
-                        }
-                    }
-                }
-                Some(Node::IfStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    if statement
-                        .expression
-                        .and_then(|e| e.node_id())
-                        .is_some_and(|condition| self.subtree_calls_super(condition))
-                    {
-                        return false;
-                    }
-                }
-                Some(Node::SwitchStatement(statement))
-                    if statement.expression.and_then(|e| e.node_id()) != Some(child) =>
-                {
-                    if statement
-                        .expression
-                        .and_then(|e| e.node_id())
-                        .is_some_and(|discriminant| self.subtree_calls_super(discriminant))
-                    {
-                        return false;
-                    }
-                }
-                Some(Node::CaseBlock(block)) => {
-                    if block.clauses.iter().any(|clause| {
-                        clause
-                            .expression
-                            .and_then(|e| e.node_id())
-                            .is_some_and(|label| self.subtree_calls_super(label))
-                    }) {
-                        return false;
-                    }
-                }
-                _ => return self.super_calls_follow(container, node),
-            }
-            container = child;
-        }
-        true
-    }
-
-    /// Every `super()` call in `container` (outside nested functions) is
-    /// evaluated after `node`: it encloses `node` (arguments are evaluated
-    /// before the call's flow node) or starts after `node` ends (expressions
-    /// evaluate left to right; a loop is entered through its entry edge,
-    /// which `isPostSuperFlowNode` follows alone at a loop label).
-    fn super_calls_follow(&self, container: NodeId, node: NodeId) -> bool {
-        let end = self.nodes.span(node).end;
-        let mut stack = vec![container];
-        while let Some(at) = stack.pop() {
-            if matches!(self.node_map.get(at), Some(Node::CallExpression(call))
-                if call.expression.and_then(|e| e.node_id())
-                    .is_some_and(|callee| self.nodes.kind(callee) == SyntaxKind::SuperKeyword))
-                && !self.nodes.ancestors(node).any(|it| it == at)
-                && self.nodes.span(at).start < end
-            {
-                return false;
-            }
-            if let Some(typed) = self.node_map.get(at) {
-                tsr_ast::for_each_child_id(typed, |child| {
-                    if !self.is_function_like_or_static_block(child) {
-                        stack.push(child);
-                    }
-                });
-            }
-        }
-        true
-    }
-
-    /// Does `node` certainly have a path that completes normally without a
-    /// `super()` call? Holds for a subtree with no `super()` call and no
-    /// `return`/`throw`/`break`/`continue` (outside nested functions), an
-    /// `if` whose condition holds no `super()` and one of whose branches
-    /// (a missing `else` counts) has such a path, and a block whose
-    /// statements all do. Anything else is uncertain.
-    fn super_free_completion(&self, node: NodeId) -> bool {
-        if !self.subtree_calls_super(node) {
-            return !self.subtree_has_jump(node);
-        }
-        match self.node_map.get(node) {
-            Some(Node::IfStatement(statement)) => {
-                let condition = statement.expression.and_then(|e| e.node_id());
-                if condition.is_some_and(|condition| self.subtree_calls_super(condition)) {
-                    return false;
-                }
-                let branch = |branch: Option<tsr_ast::Statement<'_>>| {
-                    branch.and_then(|b| b.node_id()).is_none_or(|b| self.super_free_completion(b))
-                };
-                branch(statement.else_statement)
-                    || statement
-                        .then_statement
-                        .and_then(|b| b.node_id())
-                        .is_some_and(|b| self.super_free_completion(b))
-            }
-            Some(Node::Block(_)) => {
-                let mut statements = Vec::new();
-                if let Some(typed) = self.node_map.get(node) {
-                    tsr_ast::for_each_child_id(typed, |it| statements.push(it));
-                }
-                statements.into_iter().all(|it| self.super_free_completion(it))
-            }
-            _ => false,
-        }
-    }
-
-    /// A `return`, `throw`, `break` or `continue` in the subtree, not
-    /// counting nested functions.
-    fn subtree_has_jump(&self, node: NodeId) -> bool {
-        if matches!(
-            self.nodes.kind(node),
-            SyntaxKind::ReturnStatement
-                | SyntaxKind::ThrowStatement
-                | SyntaxKind::BreakStatement
-                | SyntaxKind::ContinueStatement
-        ) {
-            return true;
-        }
-        let mut children = Vec::new();
-        if let Some(typed) = self.node_map.get(node) {
-            tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        }
-        children.into_iter().any(|child| {
-            !self.is_function_like_or_static_block(child) && self.subtree_has_jump(child)
-        })
     }
 
     /// `ast.GetSuperContainer` (`ast/utilities.go:1825`).
@@ -472,5 +307,185 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.nodes.span(node);
         self.report(file, Diagnostic::new(message, span));
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `checkPropertyAccessibilityAtLocation`'s `isSuper` arm
+    /// (`checker.go:11788`): a `super.x` access may not name an abstract
+    /// member (TS2513) or a class field of the base (TS2855). Answers the
+    /// message and its arguments, or `None` when the arm passes and the
+    /// accessibility checks that follow decide.
+    ///
+    /// The flags are `getDeclarationModifierFlagsFromSymbolEx(prop, writing)`
+    /// (`utilities.go:717`): the setter when writing, else the getter, else
+    /// the value declaration; a symbol with no value declaration carries no
+    /// `abstract`/`static` flag, so it passes.
+    pub(crate) fn super_property_accessibility_error(
+        &mut self,
+        property: SymbolId,
+        writing: bool,
+        name: &str,
+    ) -> Option<(&'static Message, Vec<String>)> {
+        let entry = self.binder.symbols().get(property);
+        let value_declaration = entry.value_declaration?;
+        let accessor = |kind: SyntaxKind| {
+            entry
+                .declarations
+                .iter()
+                .copied()
+                .find(|&declaration| self.nodes.kind(declaration) == kind)
+        };
+        let declaration = writing
+            .then(|| accessor(SyntaxKind::SetAccessor))
+            .flatten()
+            .or_else(|| {
+                entry
+                    .flags
+                    .intersects(SymbolFlags::GET_ACCESSOR)
+                    .then(|| accessor(SyntaxKind::GetAccessor))
+                    .flatten()
+            })
+            .unwrap_or(value_declaration);
+        let declarations = entry.declarations.clone();
+        let parent = entry.parent;
+        if self.has_effective_modifier(declaration, SyntaxKind::AbstractKeyword) {
+            // `getDeclaringClass(prop)`: the declared type of the parent class.
+            let class = parent
+                .filter(|&parent| {
+                    self.binder.symbols().get(parent).flags.intersects(SymbolFlags::CLASS)
+                })
+                .map(|parent| self.get_declared_type_of_symbol(parent));
+            let class = class.map(|class| self.type_to_string(class)).unwrap_or_default();
+            return Some((
+                &messages::ABSTRACT_METHOD_0_IN_CLASS_1_CANNOT_BE_ACCESSED_VIA_SUPER_EXPRESSION,
+                vec![name.to_string(), class],
+            ));
+        }
+        if !self.has_effective_modifier(declaration, SyntaxKind::StaticKeyword)
+            && declarations.iter().any(|&declaration| self.is_class_instance_property(declaration))
+        {
+            return Some((
+                &messages::CLASS_FIELD_0_DEFINED_BY_THE_PARENT_CLASS_IS_NOT_ACCESSIBLE_IN_THE_CHILD_CLASS_VIA_SUPER,
+                vec![name.to_string()],
+            ));
+        }
+        None
+    }
+
+    /// `isClassInstanceProperty` (`checker/utilities.go:1017`): a property
+    /// declaration of a class without `accessor`, or in JS an expando
+    /// assignment that is neither a prototype assignment nor a static one
+    /// (`this.x = …` is an instance field).
+    fn is_class_instance_property(&self, node: NodeId) -> bool {
+        if let Some(Node::BinaryExpression(binary)) = self.node_map.get(node)
+            && self.in_js_file(node)
+        {
+            let Some(left) = binary.left.and_then(|left| left.node_id()) else { return false };
+            let receiver = self.access_receiver(left);
+            return (!self.is_bindable_static_access_expression(left, false)
+                || !receiver.is_some_and(|receiver| self.is_prototype_access(receiver)))
+                && !self.is_bindable_static_name_expression(left, true);
+        }
+        self.nodes.kind(node) == SyntaxKind::PropertyDeclaration
+            && self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            })
+            && !self.has_effective_modifier(node, SyntaxKind::AccessorKeyword)
+    }
+
+    /// The `Expression()` of a property or element access.
+    fn access_receiver(&self, node: NodeId) -> Option<NodeId> {
+        match self.node_map.get(node)? {
+            Node::PropertyAccessExpression(access) => access.expression?.node_id(),
+            Node::ElementAccessExpression(access) => access.expression?.node_id(),
+            _ => None,
+        }
+    }
+
+    /// `ast.IsBindableStaticAccessExpression` (`ast/utilities.go:1371`).
+    fn is_bindable_static_access_expression(&self, node: NodeId, exclude_this: bool) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                let Some(receiver) = access.expression.and_then(|e| e.node_id()) else {
+                    return false;
+                };
+                (!exclude_this && self.nodes.kind(receiver) == SyntaxKind::ThisKeyword)
+                    || (matches!(access.name, Some(tsr_ast::MemberName::Identifier(_)))
+                        && self.is_bindable_static_name_expression(receiver, true))
+            }
+            Some(Node::ElementAccessExpression(_)) => {
+                self.is_bindable_static_element_access_expression(node, exclude_this)
+            }
+            _ => false,
+        }
+    }
+
+    /// `ast.IsBindableStaticElementAccessExpression` (`ast/utilities.go:1377`).
+    fn is_bindable_static_element_access_expression(
+        &self,
+        node: NodeId,
+        exclude_this: bool,
+    ) -> bool {
+        let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else {
+            return false;
+        };
+        let literal = access
+            .argument_expression
+            .and_then(|argument| argument.node_id())
+            .is_some_and(|argument| self.is_string_or_numeric_literal_like(argument));
+        let Some(receiver) = access.expression.and_then(|e| e.node_id()) else { return false };
+        literal
+            && ((!exclude_this && self.nodes.kind(receiver) == SyntaxKind::ThisKeyword)
+                || self.is_entity_name_expression(receiver)
+                || self.is_bindable_static_access_expression(receiver, true))
+    }
+
+    /// `ast.IsBindableStaticNameExpression` (`ast/utilities.go:1397`).
+    fn is_bindable_static_name_expression(&self, node: NodeId, exclude_this: bool) -> bool {
+        self.is_entity_name_expression(node)
+            || self.is_bindable_static_access_expression(node, exclude_this)
+    }
+
+    /// `ast.IsPrototypeAccess` (`ast/utilities.go:1384`), with
+    /// `GetElementOrPropertyAccessName`'s parenthesis skip.
+    fn is_prototype_access(&self, node: NodeId) -> bool {
+        if !self.is_bindable_static_access_expression(node, false) {
+            return false;
+        }
+        match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                matches!(access.name, Some(tsr_ast::MemberName::Identifier(name)) if name.text == "prototype")
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                let mut argument = access.argument_expression.and_then(|a| a.node_id());
+                while let Some(Node::ParenthesizedExpression(inner)) =
+                    argument.and_then(|a| self.node_map.get(a))
+                {
+                    argument = inner.expression.and_then(|e| e.node_id());
+                }
+                match argument.and_then(|a| self.node_map.get(a)) {
+                    Some(Node::StringLiteral(literal)) => literal.text == "prototype",
+                    Some(Node::NoSubstitutionTemplateLiteral(literal)) => {
+                        literal.text == "prototype"
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// `ast.IsStringOrNumericLiteralLike`.
+    fn is_string_or_numeric_literal_like(&self, node: NodeId) -> bool {
+        matches!(
+            self.nodes.kind(node),
+            SyntaxKind::StringLiteral
+                | SyntaxKind::NoSubstitutionTemplateLiteral
+                | SyntaxKind::NumericLiteral
+        )
     }
 }
