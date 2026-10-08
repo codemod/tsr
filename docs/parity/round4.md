@@ -449,3 +449,15 @@ is the existing `.16.264`; the remaining wall is the cost of checking
 checker.ts, not duplicated work). This lane takes N1 and N2 in the index files.
 Also: integration missed 3 workspace test failures (intrinsic count 26 -> 29
 after the interned `""`/`0`/`0n`); fixed, and gates now run the workspace tests.
+
+### r4-relater2 (`tsr-2zk.952`; `.927`, `.929`, `.934`)
+
+Dispatched when `r4-rwfix` finished (cd52046: `??=`/`||=`/`&&=` are flow
+assignments, jsTyping TS18048 79 -> 18; f189af3: missing-import suggestions
+spell against getExportsOfModule, all 17 TS2724 converted; the TS2591 patch
+`docs/parity/notes/r4-rwfix-ts2591.diff` goes in through batch G; findings filed
+as `tsr-2zk.953`-`.955`). Takes real-world causes 7, 11 and 16 in the relation
+arms of `relater.rs` and `variances.rs`; main has not touched either file in
+the last 18 hours. Also routed: main's 9ab8ce81 ports
+getPropertyTypeForIndexType's TS7053 in `nonexistent_property.rs`/`indexed.rs`,
+which r4-index3 must not duplicate.
