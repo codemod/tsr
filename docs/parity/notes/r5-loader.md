@@ -189,3 +189,46 @@ half of Go's time. Levers, by size:
 
 Not available as a lever: lib parse caching. Native's CLI re-parses every
 lib per run (§1), so TSR doing the same is equivalent work.
+
+## §6 Measured and refused (on top of §2–§3, commit `ec62ee2`)
+
+Same method as §1 (scratch knobs, interleaved fresh processes, medians).
+Identical binaries in two slots measured 180.5 vs 175.2 ms on domain-model
+(21 samples), so differences under ~6 ms there are noise.
+
+1. **Root parse preparation off** (`prepare_root_parses`, the ≥128 KiB /
+   ≥8-root barrier): domain-model 167.9 → 171.2 ms (21 samples), CPU
+   335.3 → 334.2; domain-model-large 625.7 → 622.4 ms (21 samples), CPU
+   1464.9 → 1436.1 (0.98). Neutral on wall; kept. It cannot do more here
+   because the walk then parses `lib.dom.d.ts` serially on the coordinator
+   anyway, and root publication costs ~0.3 of the parse it moved.
+2. **`lib.dom.d.ts` parsed on a two-worker side pool from loader start**,
+   consumed at its canonical visit (the text borrowed as static, so one
+   AST publication is the only copy). `front_end_costs` on lib.dom alone:
+   private parse 48.7 ms, publication 15.3 ms (0.31), private bind 13.0 ms,
+   merge 5.9 ms. Measured, 21 samples each:
+
+   | project | without | with | CPU without → with |
+   |---|---:|---:|---:|
+   | generic-imports | 71.7 | **80.6** | 71.6 → 91.6 |
+   | domain-model | 166.2 | 164.0 | 337.0 → 347.7 |
+   | domain-model-large | 616.3 | 606.9 | 1475.3 → 1510.4 |
+
+   generic-imports loses because there is too little other work to hide
+   lib.dom behind before its visit (the other libs are 17% of its bytes),
+   and the 15 ms publication lands on the critical path. Larger projects
+   gain ≤9 ms (noise level) for +2–3% CPU. Making it pay would need the
+   publication copy gone, i.e. the shared-table redesign of §5.2. Refused.
+
+## §7 Phase inventory asked by the lane brief
+
+| item | finding |
+|---|---|
+| thread spawn | at most 4 dependency-pool threads + 4 per `ordered` call (root prep, bind); `strace -c` on generic-imports: 7 `clone3`, all syscalls together < 11 ms of *traced* time; not the cost |
+| queue contention | the pool's job receiver is a `Mutex<Receiver>`; 5 jobs per run on the benches; not measurable |
+| per-file parse | lib.dom 48.7 ms private (probe); 83% of the lib bytes |
+| bind | serial generic-imports ~14.5 ms; lib.dom 13 ms of it |
+| lib loading | embedded `&'static str`, borrowed on the serial path; copied twice on a pool job (§2, fixed) |
+| resolution | generic-imports 5 requests, < 1 ms; domain-model-large 1,384 requests, 1 ms |
+| serial joins | AST publication ~0.31 of parse, bind publication ~0.45 of bind (lib.dom probe); the §3 gate encodes this |
+| allocator / sys | sys time is first-touch page faults (5,682 minor faults on generic-imports after §2); each extra worker adds its own glibc arena |
