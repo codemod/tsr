@@ -547,3 +547,48 @@ both escape these characters, so the change is correct for every caller.
   The change adds three `match` arms to a function that runs only while
   printing.
 - **Tests:** `printing::tests` pins the three escapes.
+
+## 9. Needed changes outside this lane's files
+
+1. **`declared.rs`, enum-member element-access names (r5-declared).**
+   Native builds `(typeof E)["…"]` with a plain string literal
+   (`nodebuilderimpl.go:3276-3278`), which has no `NoAsciiEscaping` flag
+   (compare `:3291` for literal types). Its non-ASCII text therefore prints
+   through `escapeNonAsciiString`. The two `format!("(typeof {name})[…]")`
+   sites in the enum-literal mint should call `printing::quote_ascii`.
+   - Diff: `docs/parity/notes/r5-typetriage-enum-member-ascii-escape.diff`,
+     4 lines, fmt-clean.
+   - Measured on top of §8.1 and §8.2, unfiltered: +1 RIGHT line, and
+     `compiler/enumWithUnicodeEscape1` flips. Both loss checks are empty.
+2. **`inference.rs` `rename_type_parameters_for_site` (main `.9`, file not
+   ownable here).** The `T_1` shadow renaming is the cause with the
+   largest unclaimed sole-blocked count that belongs to a printer
+   (21 cases, §5 item 2). Its decision lives in this function, not in
+   `printing.rs`. `printing.rs` only allocates the names
+   (`allocate_type_parameter_name`). No diff is shipped. Two witness shapes
+   need different repairs:
+   - `computedPropertyNames33_ES6:0:8` needs a shadow found from the print
+     site (`<T_1>() => string` inside `class C<T>`);
+   - `chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2:0:146`
+     needs the rename applied inside constraints (`<S extends S_1>`).
+
+   Port `typeParameterShadowsOtherTypeParameterInScope` against
+   `ctx.enclosingDeclaration` for both, as open roots `.16.65` and `.16.363`
+   describe.
+3. **Symbol-chain printer (main `.39`).** Fix 8.1 is a prerequisite for
+   these lines. They then wait only on the chain:
+   - `typeof stuff.klass` (16 lines,
+     `spreadExpressionContextualTypeWithNamespace`);
+   - `typeof mod2` (`nodeModules{,AllowJs}SynchronousCallErrors`, 4 lines × 8
+     configurations, once r5-modexports' two diffs land).
+
+## 10. Final numbers for this lane
+
+At `ccb48e7` + §8.1 + §8.2:
+- **`checker_types`:** 8,238/9,538 (base 8,236 by `casequery --list`).
+  Assertion lines are 471,372/478,855.
+- **`checker_types_configured`:** 1,644/1,928, which includes
+  `sourceMap-LineBreaks(target=es2015)` from §8.2.
+- **`diagnostics`:** 4,531/5,502, unchanged (the verdict dump is
+  byte-identical).
+- **Type verdict dump:** 544,166 → 544,179 RIGHT, with no losses.
