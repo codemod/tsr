@@ -47,6 +47,28 @@ fn bigint_zero_truthiness_uses_semantic_digits() {
 }
 
 #[test]
+fn template_literal_facts_are_nonempty_string_facts() {
+    for template in ["`prefix${string}`", "`${number}`"] {
+        let source = format!("declare let x: {template}; if (!x) {{ x; }}");
+        assert_eq!(narrowed_type(&source, true), "never", "strict {template}");
+        assert_eq!(narrowed_type(&source, false), template, "loose {template}");
+    }
+}
+
+#[test]
+fn loose_scalar_literals_keep_falsy_nullish_possibilities() {
+    for scalar in ["'text'", "1", "true"] {
+        let source = format!("declare let x: {scalar}; if (!x) {{ x; }}");
+        assert_eq!(narrowed_type(&source, true), "never", "strict {scalar}");
+        assert_eq!(
+            narrowed_type(&source, false),
+            if scalar == "'text'" { "\"text\"" } else { scalar },
+            "loose {scalar}"
+        );
+    }
+}
+
+#[test]
 fn nonzero_bigints_remain_truthy() {
     for nonzero in ["1n", "0x100000000000000000000000000000000n"] {
         assert_eq!(

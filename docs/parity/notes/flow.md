@@ -430,3 +430,15 @@ nullish bits; loose bigint facts likewise. Native control: `b && "x"` on
 `0n | 1n | 0x0n` prints `"x" | 0n` in both; truthy branch `1n`, falsy `0n`.
 Gate vs `6539256c`: +7 type lines (`uniqueSymbols*`, `numberVsBigIntOperations`),
 0 losses. CPU 1.013 / 1.000.
+
+## 17. Template and loose scalar facts (`getTypeFactsWorker`)
+
+Native checks `String|StringMapping` before `StringLiteral|TemplateLiteral`;
+only an empty string literal is falsy, every template literal uses
+`NonEmptyStringFacts`. Every loose `Base*Facts` aggregate adds `Falsy` and the
+three nullish `EQ` bits. `flow_object_facts_tests` held the old loose values
+for `"left"` and `string & {..}`; they now read native `NonEmptyStringFacts` /
+`StringFacts` (16 776 705). Native control (strict): `u: \`a${string}\` | 0`
+falsy branch is `0` in both (was `0 | \`a${string}\``); loose keeps both.
+Gate vs `5f8a7638`: +7 type lines, cases `stringLiteralTypesInUnionTypes04`,
+`templateLiteralTypesPatterns`; 0 losses. CPU (21) 1.017 / 0.990.

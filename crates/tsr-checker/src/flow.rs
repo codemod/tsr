@@ -8439,6 +8439,13 @@ impl Checker<'_, '_> {
         // half. The one type that must not reach here is `any`, which is
         // undecidable on both axes and falls to the default.
         let truthiness = match &ty.data {
+            // getTypeFactsWorker checks STRING/STRING_MAPPING before
+            // STRING_LITERAL/TEMPLATE_LITERAL. Only a string literal can be
+            // empty; every template literal uses NonEmptyStringFacts.
+            _ if flags.intersects(TypeFlags::STRING | TypeFlags::STRING_MAPPING) => {
+                TypeFacts::TRUTHY | TypeFacts::FALSY
+            }
+            _ if flags.intersects(TypeFlags::TEMPLATE_LITERAL) => TypeFacts::TRUTHY,
             TypeData::StringLiteral(value)
             | TypeData::EnumLiteral {
                 value: crate::types::EnumLiteralValue::String(value), ..
@@ -8492,15 +8499,10 @@ impl Checker<'_, '_> {
             // is decidable, so every bit — see the note on `both`.
             _ => return both,
         };
-        // Native bigint and enum facts admit falsy nullish values in loose
-        // mode. Other ordinary primitive domains retain their existing limit.
-        let truthiness = if !self.strict_null_checks
-            && flags.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::BIG_INT_LIKE)
-        {
-            truthiness | TypeFacts::FALSY
-        } else {
-            truthiness
-        };
+        // Every native Base*Facts aggregate adds falsy nullish possibilities
+        // in loose mode, including nonempty strings/templates and true.
+        let truthiness =
+            if self.strict_null_checks { truthiness } else { truthiness | TypeFacts::FALSY };
         // The `typeof` half of the `Base*StrictFacts` aggregate the arm above
         // belongs to, decided by the same flags that decided the arm.
         let typeof_family = if flags.intersects(TypeFlags::STRING_LIKE) {
@@ -8517,10 +8519,10 @@ impl Checker<'_, '_> {
             both
         };
         let facts = truthiness | nullable_never | typeof_family;
-        if !self.strict_null_checks && flags.intersects(TypeFlags::BIG_INT_LIKE) {
-            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
-        } else {
+        if self.strict_null_checks {
             facts
+        } else {
+            facts | TypeFacts::EQ_UNDEFINED | TypeFacts::EQ_NULL | TypeFacts::EQ_UNDEFINED_OR_NULL
         }
     }
 

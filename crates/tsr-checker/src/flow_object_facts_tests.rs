@@ -82,8 +82,8 @@ fn object_and_function_facts_select_only_the_null_mode() {
 fn empty_primitive_composite_and_inherited_category_boundaries_stay_held() {
     for (prefix, body, strict, loose) in [
         ("", "{}", 16_318_463, 16_777_215),
-        ("", r#""left""#, 7_929_345, 7_929_345),
-        ("", r#"string & {p: "left"}"#, 16_317_953, 16_317_953),
+        ("", r#""left""#, 7_929_345, 16_776_705),
+        ("", r#"string & {p: "left"}"#, 16_317_953, 16_776_705),
         ("", r#"{p: "left"} | {q: 17}"#, 7_888_800, 16_736_160),
         ("", r#"{p: "left"} & {q: 17}"#, 7_888_800, 16_736_160),
         (r#"type F = (p: "left") => 17;"#, r#"F & {q: "right"}"#, 7_880_640, 16_728_000),
