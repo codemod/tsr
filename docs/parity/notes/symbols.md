@@ -39,3 +39,27 @@ shadowed by another symbol, reaches the specifier. No cache; one extra
 Converts 9 rows: enumAssignmentCompat6 (3), exportInterfaceClassAndValue,
 giant, importedEnumMemberMergedWithExportedAliasIsError, mergedDeclarationExports,
 moduleDuplicateIdentifiers, privacyImportParseErrors.
+
+## Spelling suggestions walk the resolver (tsr-2zk.6)
+
+Native `getSuggestedSymbolForNonexistentSymbol` is `resolveNameForSymbolSuggestion`:
+`NameResolver.Resolve` with `Lookup = getSuggestionForSymbolNameLookup`
+(`getSymbol`, else `getSpellingSuggestionForName` over that one table). Every
+arm keeps its meaning mask and acceptance rules (`useResult`, type parameter
+container, static/heritage/computed declines), and the first table yielding a
+near-miss ends the walk; globals come last with the primitive alias extras.
+`names_in_scope_with_meaning` collected every table at once, including class
+property members (native looks there at `meaning & Type`), and took the
+globally closest name with a lexical tie-break. It is replaced by
+`BindResult::resolve_name_for_suggestion` (binder walk, `SuggestionHost` for the
+checker's lookup and `requiresScopeChange`) and
+`Checker::suggested_symbol_for_nonexistent_symbol` (`name_suggestion.rs`;
+`compareSymbols` tie-break, `tryResolveAlias` for alias candidates). Value
+sites pass `Value | ExportValue`, type sites `Type`, the JSX factory its own
+flags. A `declare global` symbol is native `InternalSymbolNameGlobal`, never a
+candidate. No cache or side table; error path only (native caches only
+`declarationRequiresScopeChange`). Related info (TS2728) is not emitted; the
+checker has no related-information producer yet.
+Native controls: `class C { nodeType = 1; m() { NodeType; } }` is TS2304;
+`var Abcde; function f() { var abcdx; abcde; }` suggests `abcdx` (base
+suggested `Abcde`). Converts `conformance/parserRealSource11` (56 TS2552 → TS2304).

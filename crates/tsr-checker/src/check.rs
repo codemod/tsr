@@ -4497,7 +4497,9 @@ impl Checker<'_, '_> {
         // precisely because a near neighbour makes TS2304 a wrong code at a
         // right position; with the algorithm already exact, reporting the code
         // it selects costs one message and converts its own row.
-        if let Some(suggestion) = self.spelling_suggestion_for(node, text) {
+        if let Some(suggestion) =
+            self.spelling_suggestion_for(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
+        {
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -5005,20 +5007,8 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        // The suggestion arm, over the names in scope **with the TYPE
-        // meaning**. §55 refused it outright because `names_in_scope` was
-        // meaning-blind and answered a missing *type* with a nearby
-        // *variable* — `parserRealSource13` was 105 wrong TS2552 lines for one
-        // `AST`. `names_in_scope_with_meaning` is that refusal's named unlock
-        // (§57).
-        let candidates = self.binder.names_in_scope_with_meaning(
-            self.nodes,
-            self.node_map,
-            node,
-            SymbolFlags::TYPE,
-        );
-        if let Some(suggestion) = spelling_suggestion(text, &candidates) {
-            let suggestion = suggestion.to_string();
+        // The suggestion arm at `resolveTypeReferenceName`'s meaning, `Type`.
+        if let Some(suggestion) = self.spelling_suggestion_for(node, text, SymbolFlags::TYPE) {
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -5182,39 +5172,6 @@ impl Checker<'_, '_> {
             tsr_ast::for_each_child_id(typed, |child| children.push(child));
         }
         children.into_iter().any(|child| self.constructor_body_declares(child, text))
-    }
-
-    /// Would `getSuggestedSymbolForNonexistentSymbol` (`checker.go:1591`) find
-    /// something, so that upstream reports TS2552 rather than TS2304?
-    ///
-    /// The **whole** of TS2304 turns on this. `onFailedToResolveSymbol`
-    /// (`checker.go:1564`) tries a spelling suggestion immediately before its
-    /// fallthrough, so every name with a near neighbour in scope is a TS2552 and
-    /// reporting TS2304 there is a wrong code at a right position. A first
-    /// attempt used a hand-rolled within-one-edit test and
-    /// `conformance/parserS7.6_A4.2_T1` alone produced **20 wrong lines** from
-    /// it: `$ERROR` against `Error` is one deletion plus five case differences,
-    /// which upstream's weighted distance accepts and a plain edit count does
-    /// not. The algorithm is ported instead — see [`spelling_suggestion`].
-    pub(crate) fn spelling_suggestion_for(&self, node: NodeId, text: &str) -> Option<String> {
-        let candidates = self.binder.names_in_scope_with_meaning(
-            self.nodes,
-            self.node_map,
-            node,
-            SymbolFlags::VALUE,
-        );
-        // **A quoted name is not a candidate for an identifier.** This port's
-        // `names_in_scope_with_meaning` returns an ambient module's symbol name
-        // verbatim — `"foobar"`, quotes included — and two inserted quotes is
-        // a Levenshtein distance of 2, inside the threshold for a six-character
-        // name. Upstream's value lookup never sees those symbols at all, so
-        // `declare module "foobar"; foobar;` is its TS2304 and was this port's
-        // TS2552. §859.
-        let candidates: Vec<&str> = candidates
-            .into_iter()
-            .filter(|candidate| !candidate.starts_with('"') && !candidate.starts_with('\''))
-            .collect();
-        spelling_suggestion(text, &candidates).map(ToString::to_string)
     }
 
     /// Is this identifier in a slot where upstream would call
