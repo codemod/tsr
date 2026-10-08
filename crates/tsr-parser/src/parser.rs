@@ -565,7 +565,10 @@ impl<'a> Parser<'a> {
         self.scanner.restore(saved.scanner);
         self.token = saved.token;
         self.token_value = saved.token_value;
-        self.diagnostics.truncate(saved.diagnostics);
+        // Guarded like `Scanner::restore`'s truncate (r5-binperf.md §5).
+        if saved.diagnostics < self.diagnostics.len() {
+            self.diagnostics.truncate(saved.diagnostics);
+        }
         // Nodes registered during the abandoned attempt stay in the table but
         // are unreachable from the tree. Truncating is safe only because ids are
         // handed out sequentially and nothing else holds one yet.

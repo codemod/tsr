@@ -39,17 +39,23 @@
 //! sorts the results by position, which yields the same specifiers in the same
 //! order.
 //!
-//! One upstream guard is deliberately dropped: the walk is gated on
-//! `NodeFlagsPossiblyContainsDynamicImport`, a flag the parser sets exactly when
-//! it parses an `import(` call or an `import` type. A file without the flag has
-//! neither node, so the walk over it finds nothing — the flag is an optimisation,
-//! and this port does not track source flags. The `|| IsInJSFile(file)` half of
-//! the same condition *is* load-bearing (`require()` calls set no flag) and is
-//! preserved as [`CollectOptions::is_js_file`].
+//! The walk is gated as upstream gates it: on
+//! `NodeFlagsPossiblyContainsDynamicImport`, which the parser sets on the
+//! source file when it parses an `import` keyword expression or an `import`
+//! type, `|| IsInJSFile(file)` (`require()` calls set no flag, so a JavaScript
+//! file is always walked; [`CollectOptions::is_js_file`]). A file without the
+//! flag has neither node, so the walk over it would find nothing.
+//!
+//! *Corrected record:* this guard was first dropped as "only an
+//! optimisation". It is upstream's work shape, and dropping it made this the
+//! loader's costliest whole-tree pass — with [`is_file_probably_external_module`]'s
+//! ungated `import.meta` walk, ~14 M Ir of generic-imports' 373 M, almost all of
+//! it over `lib.dom.d.ts`, which names no module at all
+//! (`docs/parity/notes/r5-binperf.md` §2).
 
 use tsr_ast::{
-    CallExpression, ImportAttributes, ModifierLike, ModuleBody, ModuleName, Node, NodeTable,
-    SourceFile, Statement, SyntaxKind, push_children,
+    CallExpression, ImportAttributes, ModifierLike, ModuleBody, ModuleName, Node, NodeFlags,
+    NodeTable, SourceFile, Statement, SyntaxKind, push_children,
 };
 use tsr_path::is_external_module_name_relative;
 
@@ -137,8 +143,19 @@ pub fn collect_external_module_references(
     for statement in file.statements {
         collect_module_references(*statement, false, nodes, options, &mut result);
     }
-    result.imports.extend(collect_dynamic_imports(file, nodes, options.is_js_file));
+    // `file.Flags&ast.NodeFlagsPossiblyContainsDynamicImport != 0 ||
+    // ast.IsInJSFile(file.AsNode())` (`parser/references.go:16`).
+    if options.is_js_file
+        || has_source_flag(file, nodes, NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT)
+    {
+        result.imports.extend(collect_dynamic_imports(file, nodes, options.is_js_file));
+    }
     result
+}
+
+/// Whether the parser recorded `flag` on `file`'s source-file node.
+fn has_source_flag(file: &SourceFile<'_>, nodes: &NodeTable, flag: NodeFlags) -> bool {
+    file.node_id.is_some_and(|id| nodes.flags(id).contains(flag))
 }
 
 /// §269: the specifiers JSDoc `@import` tags name, so the loader resolves
@@ -375,31 +392,33 @@ fn dynamic_call_specifier(
 /// Whether the file is an external module on syntax alone
 /// (`isFileProbablyExternalModule`).
 ///
-/// The `import.meta` arm is checked by walking the tree rather than by reading
-/// `NodeFlagsPossiblyContainsImportMeta`, for the reason given in the module
-/// docs: this port does not track source flags, and the walk gives the same
-/// answer.
+/// The `import.meta` arm is `getImportMetaIfNecessary`
+/// (`ast/parseoptions.go:101`): gated, as upstream gates it, on the parser's
+/// `PossiblyContainsImportMeta` flag on the source-file node, so the tree is
+/// walked only for a file that wrote `import.<name>` with a name other than
+/// `defer`. The binder's `is_external_module_in` reads the same flag.
 ///
 /// The parser builds `import.meta` as a `MetaProperty` (bd tsr-9or.4, closed
 /// by tsr-2zk.990), so this arm is live: a file whose only module indicator is
 /// `import.meta` reads as a module, as upstream's does.
 #[must_use]
-pub fn is_file_probably_external_module(file: &SourceFile<'_>) -> bool {
+pub fn is_file_probably_external_module(file: &SourceFile<'_>, nodes: &NodeTable) -> bool {
     for statement in file.statements {
         if is_an_external_module_indicator(*statement) {
             return true;
         }
     }
-    contains_node(
-        file,
-        // `ast.IsImportMeta` (`ast/utilities.go:1275`): `import.meta` only,
-        // not `import.defer`, which is a `MetaProperty` too.
-        |node| {
-            matches!(node, Node::MetaProperty(meta)
-            if meta.keyword_token.kind == SyntaxKind::ImportKeyword
-                && meta.name.is_some_and(|name| name.text == "meta"))
-        },
-    )
+    has_source_flag(file, nodes, NodeFlags::POSSIBLY_CONTAINS_IMPORT_META)
+        && contains_node(
+            file,
+            // `ast.IsImportMeta` (`ast/utilities.go:1275`): `import.meta` only,
+            // not `import.defer`, which is a `MetaProperty` too.
+            |node| {
+                matches!(node, Node::MetaProperty(meta)
+                if meta.keyword_token.kind == SyntaxKind::ImportKeyword
+                    && meta.name.is_some_and(|name| name.text == "meta"))
+            },
+        )
 }
 
 /// Whether the file contains a JSX tag (`isFileModuleFromUsingJSXTag`).
@@ -539,7 +558,10 @@ mod tests {
             CollectOptions {
                 is_declaration_file: false,
                 is_js_file,
-                is_external_module: is_file_probably_external_module(parsed.source_file),
+                is_external_module: is_file_probably_external_module(
+                    parsed.source_file,
+                    &parsed.nodes,
+                ),
             },
         )
     }
@@ -669,21 +691,21 @@ mod tests {
         for source in ["import \"a\";", "export {};", "export = 1;"] {
             let parsed = parse(&arena, source);
             assert!(
-                is_file_probably_external_module(parsed.source_file),
+                is_file_probably_external_module(parsed.source_file, &parsed.nodes),
                 "expected an external module: {source}"
             );
         }
         let parsed = parse(&arena, "const x = 1;");
-        assert!(!is_file_probably_external_module(parsed.source_file));
+        assert!(!is_file_probably_external_module(parsed.source_file, &parsed.nodes));
 
         // `getImportMetaIfNecessary`: `import.meta` anywhere in the file makes
         // it a module, now that the parser builds the `MetaProperty` upstream
         // does (bd tsr-9or.4, tsr-2zk.990).
         let import_meta = parse(&arena, "const u = import.meta.url;");
-        assert!(is_file_probably_external_module(import_meta.source_file));
+        assert!(is_file_probably_external_module(import_meta.source_file, &import_meta.nodes));
         // `ast.IsImportMeta` names `meta` only: `import.defer` is a
         // `MetaProperty` too, and is no module indicator.
         let import_defer = parse(&arena, "const d = import.defer;");
-        assert!(!is_file_probably_external_module(import_defer.source_file));
+        assert!(!is_file_probably_external_module(import_defer.source_file, &import_defer.nodes));
     }
 }
