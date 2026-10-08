@@ -218,3 +218,18 @@ Its blockers are member lookups: inherited members through type-argument
 bases (`tsr-2zk.1013`, `members.rs`, main's), object-literal tables with
 computed names, and the destructuring parameter road. The new box `r5-tables`
 takes the last two (`member_completeness.rs`, `destructure.rs`).
+
+### r5-modfmt finished (+59 diagnostics rows); r5-sigs dispatched (`tsr-2zk.1021`)
+
+r5-modfmt ported:
+- the module-format grammar checks gated on each file's emit format
+  (`module_format.rs`, `.985`);
+- readers for `allowUmdGlobalAccess`, `erasableSyntaxOnly` and
+  `noFallthroughCasesInSwitch` (`.993`).
+
+Its `moduleDetection: force` diff touches the same once-per-file module
+indicator as r5-modules' `import.meta` work, so it goes to `r5-modules` and the
+indicator keeps a single owner. Its remainder is filed as `.1018`–`.1020`. The
+new box `r5-sigs` takes `.1016`, written-annotation reuse under type-parameter
+renaming, which unblocks r5-typeparams2's +148 lines, and `.1015`,
+async-generator `next` inference.
