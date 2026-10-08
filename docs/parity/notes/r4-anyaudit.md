@@ -162,6 +162,22 @@ measured on the merged head `512083b` against its own dumps. Patch:
   during the outer's return inference and loses its `as`-typed return there
   — a return-inference defect in `signatures.rs`, not in the arm.
 
-**Next step.** Root-cause the inner-signature rebuild in
-`conditionalTypeDoesntSpinForever`; with it fixed, both arms ship together
-(+29) and P1's `nestedRecursiveLambda` losses (11 of 30) disappear with them.
+**Root cause of the 16 losses (instrumented, `DBG` prints in
+`return_type_of`).** With the arm, the member arrow `name: <TYPE>(…) => …`
+can show no context, so `defer_object_member_return` (`signatures.rs`,
+called from `objects.rs`) leaves its return `LazyReturnState::Pending`, as
+native leaves an uncontextual return lazy (`checker.go:10166`). The outer
+arrow's return inference then reads that member's signature while it is
+still `Pending` — `return_type_of` answers the sentinel `error` eight times in
+the case, never a cycle — and the outer's aggregate (normalised into
+`{ name?: undefined } | { name: … }`) keeps the sentinel, printing
+`=> error`. The consumer that must complete pending returns before copying a
+signature (`complete_pending_signature_returns_of_type`, today called only
+from `inference.rs`) is not called on the return-aggregate / object-literal
+normalisation road. That road is main's lazy-return work
+(`prepare_uncontextual_callable` / `defer_object_member_return`, tsr-2zk.17
+family), so the fix is routed there, not made here.
+
+**Next step.** Complete pending member returns before the return aggregate
+copies an object type; then both arms ship together (+29) and P1's
+`nestedRecursiveLambda` losses (11 of 30) go with them.
