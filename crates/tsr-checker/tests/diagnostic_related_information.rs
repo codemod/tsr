@@ -128,3 +128,33 @@ fn unconstrained_type_parameter_source_suggests_target_constraint() {
         ]
     );
 }
+
+#[test]
+fn relation_chain_links_are_located_at_the_reported_diagnostic() {
+    let source = "declare let q: { p: { a: number } };\nlet r: { p: { a: string } } = q;";
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse(&arena, source);
+    let root = parsed.source_file.node_id.unwrap();
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "/a.ts", text: source },
+    );
+    let host = OneFile { root, text: source };
+    let mut checker =
+        Checker::with_module_host(&bound, &parsed.nodes, &parsed.node_map, Some(&host));
+    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
+    let [(_, head)] = checker.diagnostics() else { panic!("{:?}", checker.diagnostics()) };
+    let mut link = head;
+    let mut depth = 0;
+    while let [child] = link.message_chain() {
+        assert_eq!(
+            (child.span, child.file().map(tsr_diagnostics::DiagnosticFile::file_name)),
+            (head.span, Some("/a.ts"))
+        );
+        link = child;
+        depth += 1;
+    }
+    assert_eq!(depth, 2);
+}

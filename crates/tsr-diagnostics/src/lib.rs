@@ -333,6 +333,22 @@ impl Diagnostic {
         self
     }
 
+    /// `ast.NewDiagnosticChain` (5b1047d `ast/diagnostic.go:152`) for a chain
+    /// built top-down: every link is located where the reported diagnostic is,
+    /// in `file`, as each native parent copies its child's file and location.
+    pub fn locate_message_chain(&mut self, file: &std::sync::Arc<DiagnosticFile>) -> &mut Self {
+        fn locate(diagnostic: &mut Diagnostic, file: &std::sync::Arc<DiagnosticFile>, span: Span) {
+            for child in diagnostic.message_chain_mut() {
+                child.span = span;
+                child.set_file(file.clone());
+                locate(child, file, span);
+            }
+        }
+        let span = self.span;
+        locate(self, file, span);
+        self
+    }
+
     /// `createDiagnosticChainFromErrorChain` (5b1047d `checker/relater.go:402`)
     /// for a chain built top-down: the relation walk's related information,
     /// gathered from every link in walk order (children before their parent,

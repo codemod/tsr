@@ -666,3 +666,15 @@ conditional and substitution targets decline. The unconstrained source's
 constraint retry now marks the pair's own link as its explanation
 (`simple_error`), as native relates the `unknown` constraint without
 `reportErrors`; `nested_relation_link` no longer declines such sources.
+
+## Relation chain link locations — tsr-2zk.1
+
+Native chain links are built bottom-up by `ast.NewDiagnosticChain`
+(ast/diagnostic.go:152), each copying its child's file and location, so every
+link of a reported relation chain sits at the error node in its file (the
+exact oracle compares these records). TSR builds chains top-down with no file
+on links; `report_relation_chain` now calls `Diagnostic::locate_message_chain`
+with the reported file's image (`Checker::diagnostic_file`, the same
+`diagnostic_files` table). Chains reported by other lanes' sites (calls'
+TS2769, declarations' TS2416/TS2430 heads, JSX) need the same call at their
+report site.

@@ -1695,6 +1695,11 @@ impl<'a> Checker<'a, '_> {
     /// (`relater.go:396`): every link shares the walk's related information.
     fn report_relation_chain(&mut self, file: NodeId, mut diagnostic: Diagnostic) {
         diagnostic.publish_chain_related_information();
+        if !diagnostic.message_chain().is_empty()
+            && let Some(image) = self.diagnostic_file(file)
+        {
+            diagnostic.locate_message_chain(&image);
+        }
         self.report(file, diagnostic);
     }
 
@@ -1710,20 +1715,28 @@ impl<'a> Checker<'a, '_> {
         args: impl IntoIterator<Item = String>,
     ) -> Option<Diagnostic> {
         let file = self.source_file_of_for_diagnostics(node)?;
-        let image = if let Some(image) = self.diagnostic_files.get(&file) {
-            image.clone()
-        } else {
-            let image = self.module_host.and_then(|host| {
-                let name = host.file_path(file)?;
-                let text = host.source_text(file, self.nodes)?;
-                Some(std::sync::Arc::new(tsr_diagnostics::DiagnosticFile::new(name, text)))
-            });
-            self.diagnostic_files.insert(file, image.clone());
-            image
-        }?;
+        let image = self.diagnostic_file(file)?;
         let mut diagnostic = Diagnostic::with_args(message, self.error_span(node), args);
         diagnostic.set_file(image);
         Some(diagnostic)
+    }
+
+    /// The `*SourceFile` a native diagnostic stores, for the `SourceFile` node
+    /// `file` (see `Checker::diagnostic_files`).
+    fn diagnostic_file(
+        &mut self,
+        file: NodeId,
+    ) -> Option<std::sync::Arc<tsr_diagnostics::DiagnosticFile>> {
+        if let Some(image) = self.diagnostic_files.get(&file) {
+            return image.clone();
+        }
+        let image = self.module_host.and_then(|host| {
+            let name = host.file_path(file)?;
+            let text = host.source_text(file, self.nodes)?;
+            Some(std::sync::Arc::new(tsr_diagnostics::DiagnosticFile::new(name, text)))
+        });
+        self.diagnostic_files.insert(file, image.clone());
+        image
     }
 
     /// The `reportUnmatchedProperty` message for `properties` (`relater.go:4345`).
