@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8122/9538 (85.15%)
-Assertion lines: 470235/478855 (98.20%)  — a gradient, not a pass rate
-Failed         : 1416
+Passed         : 8175/9538 (85.71%)
+Assertion lines: 470755/478855 (98.31%)  — a gradient, not a pass rate
+Failed         : 1363
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1416 failures:
+First 100 of 1363 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -73,10 +73,6 @@ compiler/arrowFunctionsMissingTokens
   arrowFunctionsMissingTokens.ts: >c : any — expected >c : (x: any) => void
 compiler/assignmentToInstantiationExpression
   assignmentToInstantiationExpression.ts: >obj.fn<number> : any — expected >obj.fn<number> : (() => number) | undefined
-compiler/asyncFunctionContextuallyTypedReturns
-  asyncFunctionContextuallyTypedReturns.ts: >v => v ? [0] : Promise.reject() : (v: boolean) => Promise<[0]> | [number] — expected >v => v ? [0] : Promise.reject() : (v: boolean) => Promise<[0]> | [0]
-compiler/asyncFunctionReturnType
-  asyncFunctionReturnType.ts: >[1, true] : [number, boolean] — expected >[1, true] : [number, true]
 compiler/asyncImportNestedYield
   asyncImportNestedYield.ts: >foo : error — expected >foo : () => AsyncGenerator<string, void, string>
 compiler/augmentExportEquals3
@@ -147,8 +143,6 @@ compiler/checkJsdocTypeTagOnExportAssignment8
   a.js: >{    a: 'a',    b: 'b'} : { a: string; b: string; } — expected >{    a: 'a',    b: 'b'} : { a: string; b: "b"; }
 compiler/checkMergedGlobalUMDSymbol
   test.ts: >m : typeof THREE — expected >m : typeof import("./three")
-compiler/checkSuperCallBeforeThisAccess
-  checkSuperCallBeforeThisAccess.ts: >e1 : { w: void | 0; } — expected >e1 : { w: void | number; }
 compiler/checkerInitializationCrash
   /node_modules/@fullcalendar/core/index.d.ts: >VNode : any — expected >VNode : VNode
 compiler/checkingObjectWithThisInNamePositionNoCrash
@@ -173,8 +167,6 @@ compiler/circularlySimplifyingConditionalTypesNoCrash
   circularlySimplifyingConditionalTypesNoCrash.ts: >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<unknown, unknown> — expected >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<TStateProps, Omit<P, Extract<keyof TStateProps, keyof P>> & TOwnProps>
 compiler/classAccessorInitializationInferenceWithElementAccess1
   classAccessorInitializationInferenceWithElementAccess1.ts: >x : any — expected >x : number[]
-compiler/classExpressionNames
-  ts.ts: >({ B: undefined }) : { B: undefined; } — expected >({ B: undefined }) : { B?: undefined; }
 compiler/classFieldSuperAccessible
   classFieldSuperAccessible.ts: >super.name : error — expected >super.name : string
 compiler/classFieldSuperAccessibleJs1
@@ -213,3 +205,11 @@ compiler/computedPropertyNameWithImportedKey
   /b.ts: >fn : error — expected >fn : ({ [a]: value }: any) => string
 compiler/computedTypesKeyofNoIndexSignatureType
   computedTypesKeyofNoIndexSignatureType.ts: >Compute : Compute<A> — expected >Compute : { [K in keyof A]: A[K] extends infer T ? { [K_1 in keyof T]: T[K_1] extends infer T_1 ? { [K_2 in keyof T_1]: T_1[K_2] extends infer T_2 ? { [K_3 in keyof T_2]: T_2[K_3] extends infer T_3 ? { [K_4 in keyof T_3]: T_3[K_4] extends infer T_4 ? { [K_5 in keyof T_4]: T_4[K_5] extends infer T_5 ? { [K_6 in keyof T_5]: T_5[K_6] extends infer T_6 ? { [K_7 in keyof T_6]: T_6[K_7] extends infer T_7 ? { [K_8 in keyof T_7]: T_7[K_8] extends infer T_8 ? { [K_9 in keyof T_8]: T_8[K_9] extends infer T_9 ? { [K_10 in keyof T_9]: any; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; }
+compiler/concatTuples
+  concatTuples.ts: >[[3, 4], [5, 6]] : number[][] — expected >[[3, 4], [5, 6]] : [number, number][]
+compiler/conditionalEqualityTestingNullability
+  conditionalEqualityTestingNullability.ts: >ShouldBe0 : error — expected >ShouldBe0 : 0
+compiler/conditionalTypeAssignabilityWhenDeferred
+  conditionalTypeAssignabilityWhenDeferred.ts: >x1 : any — expected >x1 : [T] extends [number] ? [T] extends [string] ? { y: number; } : { a: number; } : [T] extends [string] ? { y: number; } : { b: number; }
+compiler/conditionalTypeBasedContextualTypeReturnTypeWidening
+  conditionalTypeBasedContextualTypeReturnTypeWidening.ts: >useState1 : error — expected >useState1 : <S>(initialState: (S extends (() => any) ? never : S) | (() => S)) => S

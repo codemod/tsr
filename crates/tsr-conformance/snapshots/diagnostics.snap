@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4343/5502 (78.93%)
-Failed         : 1159
+Passed         : 4372/5502 (79.46%)
+Failed         : 1130
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1159 failures:
+First 100 of 1130 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -82,8 +82,6 @@ compiler/awaitedTypeStrictNull
   2 missing (first TS2589 at awaitedTypeStrictNull.ts(22,12))
 compiler/badArrayIndex
   1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 1 missing
-compiler/baseCheck
-  2 missing (first TS2554 at baseCheck.ts(17,53))
 compiler/baseConstraintOfDecorator
   1 unexpected (first TS2322 at baseConstraintOfDecorator.ts(12,5)), 2 missing
 compiler/baseExpressionTypeParameters
@@ -112,8 +110,6 @@ compiler/capturedParametersInInitializers1
   2 missing (first TS2373 at capturedParametersInInitializers1.ts(22,26))
 compiler/castOfYield
   2 unexpected (first TS2304 at castOfYield.ts(4,14)), 1 missing
-compiler/catchClauseWithInitializer1
-  2 unexpected (first TS1005 at catchClauseWithInitializer1.ts(3,10)), 1 missing
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter
   2 missing (first TS2741 at chainedCallsWithTypeParameterConstrainedToOtherTypeParameter.ts(19,64))
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
@@ -170,8 +166,6 @@ compiler/classUpdateTests
   2 missing (first TS2415 at classUpdateTests.ts(63,7))
 compiler/classWithEmptyTypeParameter
   1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
-compiler/classWithMultipleBaseClasses
-  1 missing (first TS2420 at classWithMultipleBaseClasses.ts(18,7))
 compiler/clodulesDerivedClasses
   1 missing (first TS2417 at clodulesDerivedClasses.ts(9,7))
 compiler/coAndContraVariantInferences5
@@ -180,8 +174,6 @@ compiler/coAndContraVariantInferences6
   1 missing (first TS2322 at coAndContraVariantInferences6.ts(34,42))
 compiler/collisionExportsRequireAndAlias
   2 missing (first TS2441 at collisionExportsRequireAndAlias_file2.ts(1,8))
-compiler/commonMissingSemicolons
-  1 missing (first TS1003 at commonMissingSemicolons.ts(26,18))
 compiler/commonSourceDirectory_dts
   1 missing (first TS5011 at /app/tsconfig.json(3,9))
 compiler/commonjsAccessExports
@@ -199,7 +191,7 @@ compiler/computedPropertyBindingElementDeclarationNoCrash1
 compiler/conditionalTypeAssignabilityWhenDeferred
   6 missing (first TS2322 at conditionalTypeAssignabilityWhenDeferred.ts(39,3))
 compiler/conditionalTypeDoesntSpinForever
-  3 unexpected (first TS2322 at conditionalTypeDoesntSpinForever.ts(94,42)), 1 missing
+  1 missing (first TS2769 at conditionalTypeDoesntSpinForever.ts(96,41))
 compiler/conflictMarkerTrivia3
   9 unexpected (first TS17008 at conflictMarkerTrivia3.tsx(1,12)), 3 missing
 compiler/conflictingDeclarationsImportFromNamespace1
@@ -212,3 +204,11 @@ compiler/constEnumErrors
   6 missing (first TS2476 at constEnumErrors.ts(22,13))
 compiler/constraintWithIndexedAccess
   9 missing (first TS2344 at constraintWithIndexedAccess.ts(23,90))
+compiler/constructorOverloads1
+  1 missing (first TS2769 at constructorOverloads1.ts(17,18))
+compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny
+  1 missing (first TS7006 at contextualOverloadListFromUnionWithPrimitiveNoImplicitAny.ts(13,20))
+compiler/contextualPropertyOfGenericFilteringMappedType
+  3 missing (first TS2353 at contextualPropertyOfGenericFilteringMappedType.ts(38,5))
+compiler/contextualSignatureInArrayElementLibEs2015
+  1 missing (first TS7006 at contextualSignatureInArrayElementLibEs2015.ts(8,4))

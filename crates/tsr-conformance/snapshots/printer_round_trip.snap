@@ -2,14 +2,14 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 printer_round_trip Summary:
 What a pass means: every unit of the case parses, prints, and reparses to the same tree
-Passed         : 11822/11831 (99.92%)
+Passed         : 11827/11836 (99.92%)
 Failed         : 6
 Unsupported    : 3
-Skipped        : 613 (excluded from the denominator)
+Skipped        : 608 (excluded from the denominator)
 
   1  printer does not implement JSDocNonNullableType
   2  printer does not implement JSDocNullableType
-  613  skipped: the case does not parse cleanly, so there is no tree to preserve
+  608  skipped: the case does not parse cleanly, so there is no tree to preserve
 
 compiler/accessorBodyInTypeContext
   tree differs at node 4: Block became TypeAliasDeclaration
