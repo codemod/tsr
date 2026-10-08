@@ -1,0 +1,118 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index c0c756e..a27c7db 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -3053,6 +3053,10 @@ impl Checker<'_, '_> {
+         let declarations: Vec<tsr_ast::NodeId> =
+             self.binder.symbols().get(owner).declarations.iter().copied().collect();
+         let mut out = Vec::new();
++        // `lateBindMember`'s `lateSymbols` table: the flags and declarations
++        // gathered so far under each late-bound name.
++        let mut late_symbols: rustc_hash::FxHashMap<String, (SymbolFlags, Vec<tsr_ast::NodeId>)> =
++            rustc_hash::FxHashMap::default();
+         for declaration in declarations {
+             let member_ids: Vec<tsr_ast::NodeId> = match self.node_map.get(declaration) {
+                 Some(Node::ClassDeclaration(class)) => {
+@@ -3116,10 +3120,27 @@ impl Checker<'_, '_> {
+                 }
+                 let Some(expression) = computed.expression else { continue };
+                 let name_type = self.check_expression(expression);
+-                let name = self.property_name_from_index(name_type).or_else(|| {
++                let literal_name = self.property_name_from_index(name_type);
++                let name_is_literal = literal_name.is_some();
++                let name = literal_name.or_else(|| {
+                     self.late_bound_symbol_member_name(computed).map(|(spelled, _)| spelled)
+                 });
++                // `isTypeUsableAsPropertyName`: a literal or a unique symbol;
++                // a plain `symbol` name is an index-info component, not a
++                // late-bound member.
++                let usable = name_is_literal
++                    || self
++                        .type_of(name_type)
++                        .flags
++                        .intersects(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL);
+                 if let Some(name) = name {
++                    if usable
++                        && let Some(symbol) = self.binder.symbol_of(member)
++                        && expression.node_id().is_some_and(|id| self.is_entity_name_expression(id))
++                    {
++                        let flags = self.binder.symbols().get(symbol).flags;
++                        self.late_bind_member_conflict(&mut late_symbols, &name, member, flags);
++                    }
+                     out.push((name, member));
+                 }
+             }
+@@ -3129,6 +3150,29 @@ impl Checker<'_, '_> {
+         out
+     }
+ 
++    /// `lateBindMember`'s conflict arm (`checker.go:16033`): a late-bound
++    /// name already holding a declaration whose flags this member's excludes
++    /// reject reports TS2300 at every gathered declaration and at this one,
++    /// then starts a fresh late symbol for the name.
++    fn late_bind_member_conflict(
++        &mut self,
++        late_symbols: &mut rustc_hash::FxHashMap<String, (SymbolFlags, Vec<tsr_ast::NodeId>)>,
++        name: &str,
++        member: tsr_ast::NodeId,
++        flags: SymbolFlags,
++    ) {
++        let entry =
++            late_symbols.entry(name.to_string()).or_insert((SymbolFlags::empty(), Vec::new()));
++        if entry.0.intersects(flags.excludes()) {
++            let mut at: Vec<tsr_ast::NodeId> = std::mem::take(&mut entry.1);
++            at.push(member);
++            entry.0 = SymbolFlags::empty();
++            self.report_late_bound_duplicates(&at, member, name);
++        }
++        entry.0 |= flags;
++        entry.1.push(member);
++    }
++
+     /// resolveAnonymousTypeMembers (checker.go): class values own a static side.
+     pub(crate) fn class_static_symbol(&self, id: TypeId) -> Option<tsr_binder::SymbolId> {
+         if self.module_value_clones.contains_key(&id) {
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -7805,6 +7805,41 @@
+         }
+     }
+ 
++    /// `lateBindMember`'s report (`checker.go:16045`): TS2300 at each
++    /// declaration's name. The argument is the late-bound property name, or
++    /// for a unique-symbol name `scanner.DeclarationNameToString` of the
++    /// declaration being bound (`current`).
++    pub(crate) fn report_late_bound_duplicates(
++        &mut self,
++        declarations: &[NodeId],
++        current: NodeId,
++        member_name: &str,
++    ) {
++        let Some(current_name) = self.declaration_name_of(current) else { return };
++        let unique = match self.node_map.get(current_name) {
++            Some(Node::ComputedPropertyName(computed)) => computed.expression.is_some_and(|e| {
++                let name_type = self.check_expression(e);
++                self.type_of(name_type).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL)
++            }),
++            _ => false,
++        };
++        let name = if unique {
++            let Some(spelled) = self.overload_name_to_string(current_name) else { return };
++            spelled
++        } else {
++            member_name.to_string()
++        };
++        for &declaration in declarations {
++            let at = self.declaration_name_of(declaration).unwrap_or(declaration);
++            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
++            let span = self.error_span(at);
++            self.report(
++                file,
++                Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [name.clone()]),
++            );
++        }
++    }
++
+     /// The late-bound symbol identity of a member named `name`, when
+     /// `hasLateBindableName` holds (`checker.go:13290`): a computed name whose
+     /// expression is an entity name (`ast.IsEntityNameExpression`) and whose

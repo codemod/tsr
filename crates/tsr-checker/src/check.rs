@@ -1656,11 +1656,10 @@ impl Checker<'_, '_> {
     /// variable, a mixin-constructor constraint. The type-variable arm is not
     /// ported and declines; a type whose construct signatures this port cannot
     /// enumerate (`None`) declines too. An intrinsic primitive has no construct
-    /// signature under any structural reading (§436).
+    /// signature under any structural reading (§436), and neither has
+    /// `undefined`. Upstream has no parse-error gate here.
+    /// `docs/parity/notes/r5-decls.md` §2.
     fn check_extends_primitive(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let clauses = match self.node_map.get(node) {
             Some(Node::ClassDeclaration(class)) => class.heritage_clauses,
             Some(Node::ClassExpression(class)) => class.heritage_clauses,
@@ -1686,7 +1685,9 @@ impl Checker<'_, '_> {
             return;
         }
         let widened = self.get_base_type_of_literal_type(base_type);
-        if !self.is_decidable_primitive(widened) {
+        let undefined =
+            widened == self.intrinsics.undefined || widened == self.intrinsics.undefined_widening;
+        if !undefined && !self.is_decidable_primitive(widened) {
             // An alias reference is read through its body, as native's alias
             // is its structural type.
             let body = self.binding_type_alias_body(base_type);
@@ -7731,45 +7732,115 @@ impl Checker<'_, '_> {
     fn check_object_type_for_duplicate_declarations(&mut self, node: NodeId) {
         // (member name node, symbol, kind: 1 property / 2 accessor / 0 other, static)
         let entries = self.object_type_member_entries(node);
-        let mut instance_names: std::collections::HashMap<tsr_binder::SymbolId, u8> =
+        // `getSymbolOfDeclaration(member)` is `getLateBoundSymbol` of the
+        // member's own symbol: a late-bindable computed name answers the
+        // late-bound symbol `lateBindMember` gathered by its property name.
+        let keys: Vec<DuplicateMemberKey> = entries
+            .iter()
+            .map(|&(name, symbol, _, _)| match self.late_bound_duplicate_key(name) {
+                Some(key) => key,
+                None => DuplicateMemberKey::Early(symbol),
+            })
+            .collect();
+        let declaration_count = |index: usize| -> usize {
+            match &keys[index] {
+                DuplicateMemberKey::Early(symbol) => {
+                    self.binder.symbols().get(*symbol).declarations.len()
+                }
+                late @ DuplicateMemberKey::Late(..) => entries
+                    .iter()
+                    .zip(&keys)
+                    .filter(|((_, _, _, is_static), key)| {
+                        *key == late && *is_static == entries[index].3
+                    })
+                    .count(),
+            }
+        };
+        let counts: Vec<usize> = (0..entries.len()).map(declaration_count).collect();
+        let mut instance_names: std::collections::HashMap<&DuplicateMemberKey, u8> =
             std::collections::HashMap::new();
-        let mut static_names: std::collections::HashMap<tsr_binder::SymbolId, u8> =
+        let mut static_names: std::collections::HashMap<&DuplicateMemberKey, u8> =
             std::collections::HashMap::new();
-        let mut reported: Vec<(tsr_binder::SymbolId, bool)> = Vec::new();
-        for &(_, symbol, kind, is_static) in &entries {
-            if kind == 0 || self.binder.symbols().get(symbol).declarations.len() <= 1 {
+        let mut reported: Vec<(&DuplicateMemberKey, bool)> = Vec::new();
+        for (index, &(_, _, kind, is_static)) in entries.iter().enumerate() {
+            if kind == 0 || counts[index] <= 1 {
                 continue;
             }
             let names = if is_static { &mut static_names } else { &mut instance_names };
             // Upstream keys the table by `symbol.Name`; a members table holds
             // one symbol per name, so the symbol is the same key.
-            let state = names.get(&symbol).copied().unwrap_or(0);
+            let key = &keys[index];
+            let state = names.get(key).copied().unwrap_or(0);
             if state == 0 {
-                names.insert(symbol, kind);
+                names.insert(key, kind);
             } else if state == 1 || (state == 2 && kind != 2) {
-                names.insert(symbol, 3);
-                reported.push((symbol, is_static));
+                names.insert(key, 3);
+                reported.push((key, is_static));
             }
         }
-        for (symbol, is_static) in reported {
-            let name = self.binder.symbols().get(symbol).name.to_string();
-            for &(name_node, member_symbol, _, member_static) in &entries {
+        let mut diagnostics = Vec::new();
+        for (key, is_static) in reported {
+            // `symbolToString(symbol)`: a late-bound symbol prints its first
+            // declaration's written name.
+            let name = match key {
+                DuplicateMemberKey::Early(symbol) => {
+                    self.binder.symbols().get(*symbol).name.to_string()
+                }
+                DuplicateMemberKey::Late(..) => {
+                    let Some(first) = entries
+                        .iter()
+                        .zip(&keys)
+                        .find(|((_, _, _, member_static), member_key)| {
+                            *member_key == key && *member_static == is_static
+                        })
+                        .and_then(|((name, ..), _)| self.overload_name_to_string(*name))
+                    else {
+                        continue;
+                    };
+                    first
+                }
+            };
+            for (&(name_node, _, _, member_static), member_key) in entries.iter().zip(&keys) {
                 // `checkStatic` is true for this message: a parameter property
                 // is an instance member, so `isStatic == ast.IsStatic(member)`
                 // holds for it exactly when the duplicate is an instance one.
-                if member_symbol != symbol || member_static != is_static {
+                if member_key != key || member_static != is_static {
                     continue;
                 }
-                let Some(file) = self.source_file_of_for_diagnostics(name_node) else { continue };
-                let span = self.error_span(name_node);
-                self.report(
-                    file,
-                    Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [name.clone()]),
-                );
+                diagnostics.push((name_node, name.clone()));
             }
+        }
+        for (name_node, name) in diagnostics {
+            let Some(file) = self.source_file_of_for_diagnostics(name_node) else { continue };
+            let span = self.error_span(name_node);
+            self.report(
+                file,
+                Diagnostic::with_args(&messages::DUPLICATE_IDENTIFIER_0, span, [name]),
+            );
         }
     }
 
+    /// The late-bound symbol identity of a member named `name`, when
+    /// `hasLateBindableName` holds (`checker.go:13290`): a computed name whose
+    /// expression is an entity name (`ast.IsEntityNameExpression`) and whose
+    /// type `isTypeUsableAsPropertyName` — a string, number or enum literal,
+    /// keyed by its property name, or a unique symbol, keyed by the type.
+    /// `docs/parity/notes/r5-decls.md` §3.
+    fn late_bound_duplicate_key(&mut self, name: NodeId) -> Option<DuplicateMemberKey> {
+        let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
+            return None;
+        };
+        let expression = computed.expression?;
+        self.computed_name_spelling(name)?;
+        let name_type = self.check_expression(expression);
+        if let Some(name) = self.property_name_from_index(name_type) {
+            return Some(DuplicateMemberKey::Late(name, None));
+        }
+        self.type_of(name_type)
+            .flags
+            .intersects(TypeFlags::UNIQUE_ES_SYMBOL)
+            .then_some(DuplicateMemberKey::Late(String::new(), Some(name_type)))
+    }
     /// The members `checkObjectTypeForDuplicateDeclarations` walks, in source
     /// order: each member's name node, its symbol, its kind for that walk
     /// (1 property, 2 accessor or auto-accessor, 0 anything else) and whether
@@ -12987,7 +13058,7 @@ impl Checker<'_, '_> {
                 }
             } else if let Some(earlier) = previous
                 && self.nodes.parent(earlier) == self.nodes.parent(declaration)
-                && self.next_sibling(earlier) != Some(declaration)
+                && !self.declaration_follows_immediately(earlier, declaration)
             {
                 self.report_implementation_expected(earlier, is_constructor);
             }
@@ -13280,9 +13351,9 @@ impl Checker<'_, '_> {
 
     /// `reportImplementationExpectedError` (`checker.go:3549`).
     ///
-    /// The subsequent-node scan: when the declaration's next sibling (upstream
-    /// tests `subsequentNode.Pos() == node.End()`; see [`Self::next_sibling`])
-    /// is of the same kind, either the names match — then a method whose
+    /// The subsequent-node scan: when the declaration's next sibling follows
+    /// it immediately (`subsequentNode.Pos() == node.End()`, see
+    /// [`Self::declaration_follows_immediately`]) and is of the same kind, either the names match — then a method whose
     /// `static`-ness differs from the next one's is TS2387/TS2388 at the next
     /// one's name, and otherwise nothing is said, since the binder already
     /// reported whatever kept them from merging — or the next one carries a
@@ -13299,6 +13370,7 @@ impl Checker<'_, '_> {
             return;
         }
         if let Some(next) = self.next_sibling(node)
+            && self.declaration_follows_immediately(node, next)
             && self.nodes.kind(next) == self.nodes.kind(node)
         {
             let subsequent = self.declaration_name_of(next);
@@ -13512,6 +13584,32 @@ impl Checker<'_, '_> {
             }
         });
         next
+    }
+
+    /// Upstream's `previous.End() == node.Pos()` (`checker.go:3628`, and the
+    /// subsequent-node test at `checker.go:3565`): `node` is `previous`'s next
+    /// sibling **and** only trivia lies between them.
+    ///
+    /// [`Self::next_sibling`] alone is not the test. `Pos()` is the full
+    /// start, the end of the preceding token; a token the parser skipped
+    /// (`function f1(), function f1();`, `m1(), m1();` in a class) belongs to
+    /// no node, so the two declarations are siblings with nothing parsed
+    /// between them, yet the `,` makes `End() != Pos()` upstream
+    /// (`compiler/overloadConsecutiveness`). Comments and whitespace are
+    /// trivia on both sides. Without source text the sibling test stands.
+    /// `docs/parity/notes/r5-decls.md` §1.
+    fn declaration_follows_immediately(&self, previous: NodeId, node: NodeId) -> bool {
+        if self.next_sibling(previous) != Some(node) {
+            return false;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(previous) else { return true };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return true;
+        };
+        let (end, start) = (self.nodes.span(previous).end, self.nodes.span(node).start);
+        let Some(gap) = text.get(end as usize..start as usize) else { return true };
+        is_trivia_only(gap)
     }
 
     fn is_function_or_method_or_constructor(&self, node: NodeId) -> bool {
@@ -15049,4 +15147,40 @@ impl Checker<'_, '_> {
             !self.is_gap(argument)
         })
     }
+}
+
+/// Whether `text` is whitespace and comments only — the scanner's trivia
+/// (`scanner.SkipTrivia`), so the token after it starts where `text` ends.
+fn is_trivia_only(text: &str) -> bool {
+    let mut rest = text;
+    loop {
+        rest = rest.trim_start_matches(|c: char| {
+            tsr_scanner::is_whitespace_single_line(c) || tsr_scanner::is_line_break(c)
+        });
+        if rest.is_empty() {
+            return true;
+        }
+        if let Some(after) = rest.strip_prefix("//") {
+            match after.find(tsr_scanner::is_line_break) {
+                Some(line_end) => rest = &after[line_end..],
+                None => return true,
+            }
+        } else if let Some(after) = rest.strip_prefix("/*") {
+            match after.find("*/") {
+                Some(close) => rest = &after[close + 2..],
+                None => return true,
+            }
+        } else {
+            return false;
+        }
+    }
+}
+
+/// The `symbol.Name` key of `checkObjectTypeForDuplicateDeclarations`: the
+/// binder's symbol for an early-bound member, the property name (or the
+/// unique-symbol type) for a late-bound one.
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum DuplicateMemberKey {
+    Early(tsr_binder::SymbolId),
+    Late(String, Option<TypeId>),
 }
