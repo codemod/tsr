@@ -239,3 +239,29 @@ of its 34 lines are values natively.
 
 None costs zero, so none is narrowed (§5). The residual fell 5,158 → 4,557.
 
+
+### 2026-10-08 — step 5, commit 1: `+` over a nullable operand; no rewrite narrowed
+
+r5-errorsplit5 (tsr-2zk.1038) re-ran the step-4 probe over the whole corpus
+(notes [r5-errorsplit5](../parity/notes/r5-errorsplit5.md) §1). It found that
+the `FUNCTION_SCOPED_VARIABLE` producer row is not a producer: each variable
+gaps through its initializer (§2), so the row is switched at the expressions.
+
+The first such switch is `checkNonNullType`'s `errorType` exits as `+`
+operands (`checker.go:7411`/`:7429`/`:12436`). All 256 lines it moves are
+`errorType` natively (§3).
+
+**Measured** (unfiltered, both dumps, against `22a5e1a`): zero transitions;
+credited gap 4,056 → **3,802**.
+
+**Narrowing**, per rewrite:
+
+| rewrite | RIGHT→GAP |
+|---|---:|
+| `HadErrorBaseline` | 3,184 |
+| `AtLocation` | 732 |
+| `StatementName` | 312 |
+| `AccessOrQualifiedParent` | 62 |
+| `GlobalAugmentation` | 23 |
+
+None costs zero, so none is narrowed. The residual fell 4,504 → 4,313.

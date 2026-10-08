@@ -270,8 +270,12 @@ impl Checker<'_, '_> {
             Ternary::NotRelated => {}
         }
         if self.is_type_any(left) || self.is_type_any(right) {
-            return if self.is_error(left) || self.is_error(right) {
+            // `isErrorType` either side answers upstream's `errorType`
+            // (`checker.go:12436`); a gap operand keeps the gap (ADR-0048).
+            return if self.is_gap(left) || self.is_gap(right) {
                 error
+            } else if self.is_error(left) || self.is_error(right) {
+                self.intrinsics.native_error
             } else {
                 self.intrinsics.any
             };
