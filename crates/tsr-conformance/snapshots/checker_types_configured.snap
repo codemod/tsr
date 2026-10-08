@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1591/1928 (82.52%)
-Assertion lines: 72448/78552 (92.23%)  — a gradient, not a pass rate
-Failed         : 337
+Passed         : 1614/1928 (83.71%)
+Assertion lines: 72616/78552 (92.44%)  — a gradient, not a pass rate
+Failed         : 314
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 337 failures:
+First 100 of 314 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -122,10 +122,6 @@ compiler/es5ModuleInternalNamedImports(target=es2015)
   es5ModuleInternalNamedImports.ts: >M_A : any — expected >M_A : typeof M_M
 compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)
   client.ts: >c : typeof c — expected >c : typeof import("./server").c
-compiler/esmNoSynthesizedDefault(module=esnext)
-  /index.ts: >mdast2 : any — expected >mdast2 : typeof import("mdast-util-to-string")
-compiler/esmNoSynthesizedDefault(module=preserve)
-  /index.ts: >mdast2 : any — expected >mdast2 : typeof import("mdast-util-to-string")
 compiler/functionLikeInParameterInitializer(target=es2015)
   functionLikeInParameterInitializer.ts: >bar : (func?: () => string) => void — expected >bar : (func?: () => any) => void
 compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)
@@ -141,19 +137,11 @@ compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
 compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
   intersectionsAndOptionalProperties3.ts: >ab_disabled_read : boolean — expected >ab_disabled_read : boolean | undefined
 compiler/iterableWithNeverAsUnionMember(target=esnext)
-  iterableWithNeverAsUnionMember.ts: >o1 : { a: "foo"; } & { a: "bar"; } — expected >o1 : never
+  iterableWithNeverAsUnionMember.ts: >el1 : any — expected >el1 : never
 compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=preserve)
   /index.tsx: >Comp : () => EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
 compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=react-jsx)
   /index.tsx: >Comp : () => EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
-compiler/jsxRuntimePragma(jsx=preserve)
-  index.ts: >one : typeof import("./one") — expected >one : typeof import("./one.js")
-compiler/jsxRuntimePragma(jsx=react)
-  index.ts: >one : typeof import("./one") — expected >one : typeof import("./one.js")
-compiler/jsxRuntimePragma(jsx=react-jsx)
-  index.ts: >one : typeof import("./one") — expected >one : typeof import("./one.js")
-compiler/jsxRuntimePragma(jsx=react-jsxdev)
-  index.ts: >one : typeof import("./one") — expected >one : typeof import("./one.js")
 compiler/jsxSpreadTag(target=es2015)
   /a.tsx: >{ wrong: <div>x</div>} : any — expected >{ wrong: <div>x</div>} : { wrong: any; }
 compiler/jsxSpreadTag(target=esnext)
@@ -228,3 +216,15 @@ compiler/strictNullEmptyDestructuring(target=es2015)
   strictNullEmptyDestructuring.ts: >({} = null) : null — expected >({} = null) : any
 compiler/taggedTemplateStringsWithCurriedFunction(target=es2015)
   taggedTemplateStringsWithCurriedFunction.ts: >f : (_: any) => any — expected >f : (_: any) => (..._: any[]) => string
+compiler/taggedTemplateWithoutDeclaredHelper(target=es2015)
+  foo.ts: >result : error — expected >result : TemplateStringsArray
+compiler/taggedTemplatesInModuleAndGlobal(target=es2015)
+  global.ts: >templateObjectFactory : () => any — expected >templateObjectFactory : () => TemplateStringsArray
+compiler/trailingCommasES5(target=es2015)
+  trailingCommasES5.ts: >a6 : undefined[] — expected >a6 : any[]
+compiler/transformNestedGeneratorsWithTry(target=es2015)
+  main.ts: >Bluebird : PromiseConstructor — expected >Bluebird : { all<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>[]>; all<T extends readonly unknown[] | []>(values: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]>; }>; race<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>>; race<T extends readonly unknown[] | []>(values: T): Promise<Awaited<T[number]>>; prototype: Promise<any>; reject<T = never>(reason?: any): Promise<T>; resolve(): Promise<void>; resolve<T>(value: T): Promise<Awaited<T>>; resolve<T>(value: T | PromiseLike<T>): Promise<Awaited<T>>; [Symbol.species]: PromiseConstructor; default: PromiseConstructor; }
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=commonjs)
+  arbitraryModuleNamespaceIdentifiers_module.ts: >valueX : any — expected >valueX : "someValue"
+conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2020)
+  arbitraryModuleNamespaceIdentifiers_module.ts: >valueX : any — expected >valueX : "someValue"
