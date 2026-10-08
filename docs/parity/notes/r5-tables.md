@@ -62,11 +62,90 @@ member on a widened object literal that native finds: through an expando
 assignment (JS literals stay declined), a spread (declined) or a computed
 name this port late-binds under a different spelling.
 
-## 2. Measured
+## 2. A parameter's binding parent is the unwidened initializer type
 
-§1 alone, against the frozen baseline `f4ae684`: diagnostics +1 case
-(`asyncIteratorExtraParameters` WRONG → RIGHT), zero losses on both dumps.
+**Forcing constraint.** `restElementWithNullInitializer(target=es2015)`
+(TS2488 ×3) is `@strict: false`:
 
-## 3. Remaining, with the blocker each was traced to
+```ts
+function foo1([...r] = null) {}       // TS2488 'null', r: any[]
+function foo3([...r] = {}) {}         // TS2488 '{}',   r: any[]
+```
 
-See the lane's final report.
+`getTypeForBindingElementParent` (`checker.go:17695`) reads
+`getTypeForVariableLikeDeclaration` with `includeOptionality` false. For an
+uncontextual parameter with an initializer, that is
+`widenTypeInferredFromInitializer(checkDeclarationInitializer(..))`
+(`:16749`): literal widening only, never `getWidenedType`. So the parent is
+`null`, which is not iterable. This port's parameter road answered
+`get_widened_type_for_variable_like_declaration`, the declared type, and
+under non-strict that is `any`. `any` short-circuits the iteration check and
+makes `r` `any`.
+
+**What is ported** (`get_type_for_binding_element_parent`, the admitted
+parameter arm). An initializer is checked, padded
+(`pad_binding_pattern_initializer`, `checkDeclarationInitializer`'s
+`padObjectLiteral`/`padTupleType`), and widened with
+`widen_type_inferred_from_initializer`. That helper also folds in
+`getWidenedTypeWithContext`'s nullable arm, which this road must not run, so
+a purely nullable type returns as is under non-strict.
+
+Two consequences follow, both upstream's:
+
+- **The rest element on a failed protocol.** `checkIteratedTypeOrElementType`
+  answers `anyType` when iteration fails (`checker.go:6103`), and the rest
+  element is `createArrayType` of it (`:17766`). The array arm now builds
+  `any[]` when `get_iteration_types_of_iterable` answers an empty, decided
+  result.
+- **The symbol road widens.** Now that a parent can hold widening
+  nullables, the element's declared type needs
+  `getWidenedTypeForVariableLikeDeclaration`'s `getWidenedType`
+  (`checker.go:16647`). With `function foo4([...r] = [])`, `r` is
+  `undefinedWidening[]` → `any[]`. `get_type_for_binding_element` (the
+  symbol entry) applies `widen_object_literal_freshness` (this port's
+  `getWidenedTypeWithContext`). The nested-pattern parent road calls the
+  unwidened worker, as `getTypeForBindingElementParent` does.
+
+**Falsifier.** A pattern parameter whose element type now prints a fresh
+or widening type where native prints the widened one. That would mean the
+symbol entry is bypassed somewhere.
+
+## 3. Measured
+
+Against the frozen baseline `f4ae684`, all measurements unfiltered:
+
+| | diagnostics | types | losses |
+|---|---|---|---|
+| §1 alone | +1 case (`asyncIteratorExtraParameters`) | ±0 | none on either dump |
+| §1 + §2 | +2 cases (adds `restElementWithNullInitializer(target=es2015)`) | +7 lines | none on either dump |
+
+No other case's diagnostic list changed. Median child CPU for §1 + §2
+against the baseline binary, at 21 samples: domain-model 1.014,
+generic-imports 1.006, and diagnostics match. callgrind Ir
+(`tsr -p tsconfig.json`): domain-model 1,318,764,032 → 1,319,533,864
+(+0.06%), generic-imports 400,842,815 → 400,845,447 (+0.0007%).
+
+## 4. Remaining, with the blocker each was traced to
+
+- **Binding-pattern props (`tsxStatelessFunctionComponents1` 29:15,
+  31:15).** `function Meet({name = 'world'})`: the props type is
+  `binding_pattern_object` (`binding_patterns.rs`) with `owner: None`. Its
+  `anonymous_properties` list is complete, but nothing distinguishes it
+  from the other producers that publish `(properties, true)`; the `bool`
+  means "synthetic lookup", not completeness. Certifying it needs a marker
+  at the producer, which is not this lane's file. Even with the marker,
+  29:15 (`name={42}`) also needs the relater's structural arm to relate
+  against a members-less `Named` (`relater.rs`).
+  **Probed:** with a `binding_pattern_object_types` set (field in
+  `checker.rs`, inserted by `binding_pattern_object` when there is no rest
+  index, read by `declared_property_table_worker` like a fresh literal's
+  captured list), `relation_members_are_complete` answers `true` for
+  `{ name?: string | undefined; }`, but the case's diagnostics do not
+  change. The JSX attributes report still declines downstream
+  (`jsx_component.rs` / `assignreport.rs` / `relater.rs`), so the marker
+  alone converts nothing. It was reverted and is not shipped.
+- **Spread and binding-initializer object literals.**
+  `object_literal_property_table` still declines a literal with a spread
+  (its properties live only in the `getSpreadType` result) and the
+  initializer of an object binding pattern (padding adds members). Neither
+  was traced to a converting case in this lane.
