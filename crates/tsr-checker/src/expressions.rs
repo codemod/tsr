@@ -642,11 +642,9 @@ impl Checker<'_, '_> {
                 // `errorType` (`checker.go:11048`) — deterministically, so the
                 // §31 "the port might be the one failing to resolve it" gate
                 // below does not apply (the same reasoning as its §475 arm).
-                // ADR-0048: still the `any` stand-in. `native_error` is the
-                // faithful answer, held until `signatures.rs`' `yield*` arm
-                // accepts it (`docs/parity/notes/r5-errorsplit2.md` §2).
+                // ADR-0048: upstream's own error identity, not the gap.
                 if node.text.is_empty() {
-                    return self.intrinsics.any;
+                    return self.intrinsics.native_error;
                 }
                 let resolved =
                     self.resolve_name_with_export_alias(id, node.text, SymbolFlags::VALUE);

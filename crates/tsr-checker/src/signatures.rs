@@ -2770,7 +2770,13 @@ impl<'a> Checker<'a, '_> {
                     // `operand?`; it measured zero because the operand is
                     // PRESENT and is the placeholder. Printing it — which §641's
                     // own note demanded — took one run.
-                    if operand_type == self.intrinsics.any {
+                    // ADR-0048: `IsTypeAny` holds for upstream's `errorType`
+                    // too (the parse-recovery operand below answers it), and
+                    // `getIterationTypesOfIterable` answers `anyIterationTypes`
+                    // for both (`checker.go:20343`).
+                    if operand_type == self.intrinsics.any
+                        || operand_type == self.intrinsics.native_error
+                    {
                         let any = self.intrinsics.any;
                         if !operand_types.contains(&any) {
                             operand_types.push(any);
