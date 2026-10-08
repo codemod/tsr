@@ -223,7 +223,7 @@ including the step from an empty table's first allocation. Step 1's table
 grows by `realloc` with no rehash below 9 names, and 92–99% of tables never
 pass 8 names (§3), most never pass the first 4-slot allocation. What remains
 of the symbol-table cost on generic-imports is a malloc per non-empty table
-(~10.5 K tables), `push_new` (2.8 M inclusive for 26,679 inserts) and lookups
+(7,624: §3's tables less the empty ones), `push_new` (2.8 M inclusive for 26,679 inserts) and lookups
 (`position`, 2.6 M for 52,728 calls) — about 1.9% of Ir, none of it
 capacity. **Refused:** a 0.06% Ir change does not pay for ~120 lines and a
 second source of truth about which node owns which table. The measured diff
@@ -253,11 +253,12 @@ interface, or many files with hundreds of top-level statements), where
    partition by `compareSymbols`) at `nonexistent_property.rs`
    `collect_property_names` and `members.rs` `property_names_of_type`.
    Those files are other lanes'; not done here.
-2. **Per-table first allocations** (~10.5 K mallocs per generic-imports
-   run, ~1.3 M Ir with their frees): one shared slab per file would remove
-   them, at the cost of a table that can no longer grow independently
-   after binding (the checker's merges insert into binder tables). Not
-   measured.
+2. **Per-table first allocations** (7,624 non-empty tables on
+   generic-imports, so as many mallocs and frees; estimated, not measured,
+   at under 1 M Ir): one shared slab per file would remove them, at the
+   cost of tables that cannot grow independently after their file is bound,
+   which later binder merges need (`publish_file`, module augmentations).
+   Not built.
 3. The symbol-table share of generic-imports' Ir is ~1.9% after step 1;
    the binder items above it are r5-binperf §7's (per-node dispatch,
    `push_children`, `NodeTable::push`).
