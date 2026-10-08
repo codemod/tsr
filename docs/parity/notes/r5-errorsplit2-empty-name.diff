@@ -1,0 +1,37 @@
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index ee07d42..04504d7 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -642,11 +642,9 @@ impl Checker<'_, '_> {
+                 // `errorType` (`checker.go:11048`) — deterministically, so the
+                 // §31 "the port might be the one failing to resolve it" gate
+                 // below does not apply (the same reasoning as its §475 arm).
+-                // ADR-0048: still the `any` stand-in. `native_error` is the
+-                // faithful answer, held until `signatures.rs`' `yield*` arm
+-                // accepts it (`docs/parity/notes/r5-errorsplit2.md` §2).
++                // ADR-0048: upstream's own error identity, not the gap.
+                 if node.text.is_empty() {
+-                    return self.intrinsics.any;
++                    return self.intrinsics.native_error;
+                 }
+                 let resolved =
+                     self.resolve_name_with_export_alias(id, node.text, SymbolFlags::VALUE);
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index 42761f3..3d49af7 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -2770,7 +2770,13 @@ impl<'a> Checker<'a, '_> {
+                     // `operand?`; it measured zero because the operand is
+                     // PRESENT and is the placeholder. Printing it — which §641's
+                     // own note demanded — took one run.
+-                    if operand_type == self.intrinsics.any {
++                    // ADR-0048: `IsTypeAny` holds for upstream's `errorType`
++                    // too (the parse-recovery operand below answers it), and
++                    // `getIterationTypesOfIterable` answers `anyIterationTypes`
++                    // for both (`checker.go:20343`).
++                    if operand_type == self.intrinsics.any
++                        || operand_type == self.intrinsics.native_error
++                    {
+                         let any = self.intrinsics.any;
+                         if !operand_types.contains(&any) {
+                             operand_types.push(any);
