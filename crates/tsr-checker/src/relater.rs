@@ -1202,22 +1202,20 @@ impl Relater<'_, '_, '_> {
         {
             let apparent = self.checker.apparent_type(source);
             if apparent != source {
-                if self
+                let result = if self
                     .checker
                     .get_index_infos_of_type(target)
                     .is_some_and(|infos| !infos.is_empty())
                 {
-                    return if self.has_members(apparent)
-                        && self.has_members(target)
-                        && self.properties_related_to(apparent, target)
-                            == RelationResult::NotRelated
-                    {
-                        RelationResult::NotRelated
-                    } else {
-                        RelationResult::Unknown
-                    };
-                }
-                return self.is_related_to(apparent, target);
+                    self.primitive_structured_related_to(apparent, target)
+                } else {
+                    self.is_related_to(apparent, target)
+                };
+                // reportStructuralErrors needs !sourceIsPrimitive: the failed
+                // pair's own reportRelationError link is the explanation.
+                self.simple_error |= result == RelationResult::NotRelated
+                    && self.diagnostic_pair == Some((source, target));
+                return result;
             }
         }
         // structuredTypeRelatedTo compares the non-primitive `object` through
@@ -2486,10 +2484,42 @@ impl Relater<'_, '_, '_> {
 
     /// indexSignaturesRelatedTo / typeRelatedToIndexInfo (relater.go:4578).
     /// Semantic target infos apply independently of properties and signatures.
+    /// structuredTypeRelatedToWorker (relater.go:3864) for a primitive source
+    /// read as its `apparent` type against an object `target` with index
+    /// signatures: the pair key stays the primitive's, and
+    /// indexSignaturesRelatedTo (`sourceIsPrimitive`) drops the any-valued
+    /// string-index shortcut.
+    fn primitive_structured_related_to(
+        &mut self,
+        apparent: TypeId,
+        target: TypeId,
+    ) -> RelationResult {
+        if !self.has_members(apparent) || !self.has_members(target) {
+            return RelationResult::Unknown;
+        }
+        let properties = self.properties_related_to(apparent, target);
+        if properties == RelationResult::NotRelated {
+            return properties;
+        }
+        let signatures = if self.declares_call_or_construct(target) {
+            self.related_signatures(apparent, target).unwrap_or(RelationResult::Unknown)
+        } else {
+            RelationResult::Related
+        };
+        if signatures == RelationResult::NotRelated {
+            return signatures;
+        }
+        let indexes = self
+            .related_index_signatures(apparent, target, true)
+            .unwrap_or(RelationResult::Unknown);
+        RelationResult::all([properties, signatures, indexes])
+    }
+
     fn related_index_signatures(
         &mut self,
         source: TypeId,
         target: TypeId,
+        source_is_primitive: bool,
     ) -> Option<RelationResult> {
         let target_infos = self.checker.get_index_infos_of_type(target)?;
         if target_infos.is_empty() {
@@ -2500,6 +2530,7 @@ impl Relater<'_, '_, '_> {
         let mut parts = Vec::with_capacity(target_infos.len());
         for info in &target_infos {
             if self.relation != Relation::StrictSubtype
+                && !source_is_primitive
                 && target_has_string
                 && self.checker.type_of(info.value).flags.contains(TypeFlags::ANY)
             {
@@ -2966,7 +2997,7 @@ impl Relater<'_, '_, '_> {
             let mut pass = self.properties_related_to(source, target);
             if pass.is_success() && self.checker.fresh_object_literal_types.contains(&source) {
                 let index = self
-                    .related_index_signatures(source, target)
+                    .related_index_signatures(source, target, false)
                     .unwrap_or(RelationResult::Unknown);
                 pass = RelationResult::all([pass, index]);
             }
@@ -3745,8 +3776,9 @@ impl Relater<'_, '_, '_> {
                     source_intersection_result.into_iter().chain([signatures]),
                 );
             }
-            let indexes =
-                self.related_index_signatures(source, target).unwrap_or(RelationResult::Unknown);
+            let indexes = self
+                .related_index_signatures(source, target, false)
+                .unwrap_or(RelationResult::Unknown);
             let result = RelationResult::all([properties, signatures, indexes]);
             // Only a completed comparison widens the generic source boundary.
             // Unsupported members (e.g. protected-target checks) must not turn

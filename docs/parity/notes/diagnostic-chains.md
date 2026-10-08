@@ -678,3 +678,15 @@ with the reported file's image (`Checker::diagnostic_file`, the same
 `diagnostic_files` table). Chains reported by other lanes' sites (calls'
 TS2769, declarations' TS2416/TS2430 heads, JSX) need the same call at their
 report site.
+
+## Primitive source against index signatures — tsr-2zk.1
+
+`structuredTypeRelatedToWorker` (relater.go:3864) relates a primitive source
+through its apparent type but keeps the primitive pair key and passes
+`sourceIsPrimitive` to `indexSignaturesRelatedTo`, which then skips the
+any-valued string-index shortcut: `string -> { [k: string]: any }` fails on the
+missing string index of `String`, `"x" -> { [n: number]: any }` holds through
+`String`'s number index. The arm previously answered Unknown unless a property
+failed (`primitive_structured_related_to`). With `reportStructuralErrors`
+false for a primitive source, a failed primitive pair's own reportRelationError
+link is its whole explanation (`simple_error`), so nested chains now carry it.
