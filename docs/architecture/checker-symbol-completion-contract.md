@@ -747,6 +747,51 @@ inputs/binaries, native control source, failed controls, private two-file delta
 replays and all remaining compiler diagnostics; the preceding historical
 module-clone archive remains unchanged.
 
+### Template alias owner integration
+
+Frozen main `835ef559` plus the two Rust overlays in
+[the evidence](checker-template-alias-owner.json) moves the existing template
+alias worker and its active set to actual `SymbolRef` owners. Bound callers
+lift their existing input at the Program boundary and use the same worker.
+The selected view supplies flags and declarations; it never substitutes a
+clone's origin. Shared syntax parameter symbols still key the temporary
+argument bindings, and each evaluation restores its own binding frame.
+
+At native `5b1047d`, `getTypeAliasInstantiation` reads the selected owner's
+declared type and alias links before mapping its ordered parameters.
+`getTypeFromTemplateTypeNode` and `getTemplateLiteralType` retain structural
+template/literal reuse. Fresh native cold and checked-first controls, in both
+query orders, confirm distinct alias links and a still-uncomputed private
+owner while its original and sibling are forced under its `DeclaredType`
+frame. Equal completed string literals share identity. That does not authorize
+sharing alias completion state.
+
+Rust's existing template-only active set remains an evaluation guard, **not**
+native `DeclaredType` or `AliasTarget` publication. Unsupported body/arity
+returns do not enter it; reentry leaves the outer entry intact; an evaluated
+result removes only its own entry. No completed instantiation cache, member
+image or semantic forcing is added. Full general reference-factory and native
+alias-stack integration remain under `tsr-1yb.7.7.3` and `tsr-1yb.33.1`.
+
+The two Rust controls pass; an actual compiling origin-substitution mutant
+fails the clone control. The workspace passes 3,243 tests with 19 existing
+ignores before test-module relocation, and the final library passes all 197
+tests. Strict workspace Clippy reproduces the same seven inherited errors as
+the corrected characterization baseline, with only template line offsets;
+fmt passes. All 552,533 eligible type rows and 12,238 unfiltered diagnostic
+cases are byte identical to the previously qualified `835ef559` baseline.
+This is expected-driven preservation, not a fresh full-native parity proof.
+
+The complete private owner draft now has 60 type mismatches, down from 69.
+An intermediate pass exposed 13 borrow/move errors; cloning just the owner
+handle and borrowing reference targets removed them. Binding-object owners,
+class construction and global array/Promise comparisons retain actual owner
+identity. Exact continuation patches, compiler diagnostics and failed setup
+attempts are retained in the evidence. Its wider factory/mapper/natural alias
+controls remain unexecuted. This ownership prerequisite claims no speed or
+coverage gain; the equivalent complete-work TSR/native median <=0.50 remains
+unverified.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |

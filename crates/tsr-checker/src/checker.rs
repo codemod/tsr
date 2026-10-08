@@ -1041,7 +1041,7 @@ pub struct Checker<'a, 'n> {
     /// self reference such as `Spec<T[P]>` inside `Spec<T>` still has them.
     pub(crate) deferred_mapped_aliases: FxHashMap<TypeId, (SymbolId, Vec<TypeId>)>,
     pub(crate) mapped_members_in_progress: rustc_hash::FxHashSet<TypeId>,
-    pub(crate) template_alias_in_progress: rustc_hash::FxHashSet<SymbolId>,
+    pub(crate) template_alias_in_progress: rustc_hash::FxHashSet<crate::symbol_access::SymbolRef>,
     pub(crate) template_literal_parts: FxHashMap<TypeId, crate::templates::TemplateLiteralParts>,
     pub(crate) string_mapping_types: FxHashMap<TypeId, (SymbolId, TypeId)>,
     pub(crate) string_mapping_cache: FxHashMap<(SymbolId, TypeId), TypeId>,

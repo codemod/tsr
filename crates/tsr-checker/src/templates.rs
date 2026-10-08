@@ -9,16 +9,30 @@ pub(crate) struct TemplateLiteralParts {
     pub(crate) texts: Vec<String>,
     pub(crate) types: Vec<TypeId>,
 }
+
 impl Checker<'_, '_> {
     pub(crate) fn instantiate_template_alias(
         &mut self,
         symbol: tsr_binder::SymbolId,
         arguments: &[TypeId],
     ) -> Option<TypeId> {
-        if !self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS) {
+        let selected = self.symbols.bound(symbol).expect("alias owner belongs to this Program");
+        self.instantiate_template_alias_ref(&selected, arguments)
+    }
+
+    /// The alias owner is the actual checker-local symbol, as in native
+    /// getTypeAliasInstantiation. Parameters still name shared syntax symbols;
+    /// the active-owner set is not a completed instantiation cache.
+    pub(crate) fn instantiate_template_alias_ref(
+        &mut self,
+        symbol: &crate::symbol_access::SymbolRef,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        let owner = self.symbols.view(symbol).expect("alias owner belongs to this Checker");
+        if !owner.flags().contains(tsr_binder::SymbolFlags::TYPE_ALIAS) {
             return None;
         }
-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let declaration = owner.declarations().first().copied()?;
         let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
         else {
             return None;
@@ -27,7 +41,7 @@ impl Checker<'_, '_> {
             return None;
         };
         if alias.type_parameters.len() != arguments.len()
-            || !self.template_alias_in_progress.insert(symbol)
+            || !self.template_alias_in_progress.insert(symbol.clone())
         {
             return None;
         }
@@ -41,7 +55,7 @@ impl Checker<'_, '_> {
         self.alias_evaluation_bindings.push(bindings);
         let result = self.get_type_from_type_node(body);
         self.alias_evaluation_bindings.pop();
-        self.template_alias_in_progress.remove(&symbol);
+        self.template_alias_in_progress.remove(symbol);
         Some(result)
     }
 
@@ -265,5 +279,121 @@ impl Checker<'_, '_> {
         ty.flags
             .intersects(TypeFlags::ANY | TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::BIG_INT)
             || self.is_pattern_template(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_alias_selected_owners_keep_independent_active_state() {
+        let arena = tsr_core::Arena::new();
+        let source = "type Owner<T extends string> = `owner-${T}`; \
+                      type Extra<U extends string> = `extra-${U}`; \
+                      type Plain<V> = V;";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "template.ts", text: source },
+        );
+        let owners: Vec<_> = parsed
+            .source_file
+            .statements
+            .iter()
+            .map(|statement| {
+                let tsr_ast::Statement::TypeAliasDeclaration(alias) = statement else {
+                    panic!("alias fixture");
+                };
+                bound.symbol_of(alias.node_id.unwrap()).unwrap()
+            })
+            .collect();
+        for reverse in [false, true] {
+            let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+            let original = checker.symbols.bound(owners[0]).unwrap();
+            let head = checker.symbols.clone_symbol(&original).unwrap();
+            let twin = checker.symbols.clone_symbol(&original).unwrap();
+            let extra = checker.symbols.bound(owners[1]).unwrap();
+            let extra = checker.symbols.clone_symbol(&extra).unwrap();
+            let plain = checker.symbols.bound(owners[2]).unwrap();
+            let plain = checker.symbols.clone_symbol(&plain).unwrap();
+            assert_ne!(head, twin);
+            assert_ne!(head, original);
+            let argument = checker.store.intern_literal(
+                TypeFlags::STRING_LITERAL,
+                TypeData::StringLiteral("value".to_owned()),
+                false,
+            );
+            let mut order = [&original, &head, &twin];
+            if reverse {
+                order.reverse();
+            }
+            for active in order {
+                assert!(checker.template_alias_in_progress.insert(active.clone()));
+                let captured = checker.alias_evaluation_bindings.clone();
+                assert_eq!(checker.instantiate_template_alias_ref(active, &[argument]), None);
+                for other in [&original, &head, &twin].into_iter().filter(|other| *other != active)
+                {
+                    let result =
+                        checker.instantiate_template_alias_ref(other, &[argument]).unwrap();
+                    assert_eq!(checker.type_to_string(result), "\"owner-value\"");
+                }
+                assert_eq!(checker.template_alias_in_progress.len(), 1);
+                assert!(checker.template_alias_in_progress.contains(active));
+                assert_eq!(checker.alias_evaluation_bindings, captured);
+                assert!(checker.template_alias_in_progress.remove(active));
+                let result = checker.instantiate_template_alias_ref(active, &[argument]).unwrap();
+                assert_eq!(checker.type_to_string(result), "\"owner-value\"");
+                assert_eq!(
+                    checker.instantiate_template_alias_ref(active, &[argument]),
+                    Some(result)
+                );
+                assert!(checker.template_alias_in_progress.is_empty());
+            }
+            let result = checker.instantiate_template_alias_ref(&extra, &[argument]).unwrap();
+            assert_eq!(checker.type_to_string(result), "\"extra-value\"");
+            assert_eq!(checker.instantiate_template_alias_ref(&head, &[]), None);
+            assert_eq!(checker.instantiate_template_alias_ref(&plain, &[argument]), None);
+            assert!(checker.template_alias_in_progress.is_empty());
+            assert!(checker.alias_evaluation_bindings.is_empty());
+        }
+    }
+
+    #[test]
+    fn template_alias_bound_evaluation_restores_captured_bindings() {
+        let arena = tsr_core::Arena::new();
+        let source = "type Owner<T extends string> = `owner-${T}`;";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "template.ts", text: source },
+        );
+        let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0]
+        else {
+            panic!("template alias fixture");
+        };
+        let owner = bound.symbol_of(alias.node_id.unwrap()).unwrap();
+        let parameter = bound.symbol_of(alias.type_parameters[0].node_id.unwrap()).unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let argument = checker.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral("value".to_owned()),
+            false,
+        );
+        let captured: rustc_hash::FxHashMap<_, _> =
+            [(parameter, checker.intrinsics.number)].into_iter().collect();
+        checker.alias_evaluation_bindings.push(captured.clone());
+        for _ in 0..2 {
+            let result = checker.instantiate_template_alias(owner, &[argument]).unwrap();
+            assert_eq!(checker.type_to_string(result), "\"owner-value\"");
+            assert_eq!(checker.alias_evaluation_bindings, vec![captured.clone()]);
+            assert!(checker.template_alias_in_progress.is_empty());
+        }
     }
 }
