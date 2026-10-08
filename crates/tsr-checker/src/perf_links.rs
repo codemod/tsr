@@ -68,6 +68,32 @@ pub(crate) struct PerfLinks {
     /// Reused `visiting` path for a property walk started from an empty path
     /// (`r5-perf4.md` §4).
     pub(crate) visiting_scratch: Vec<SymbolId>,
+
+    // ---- r5-typeparams2 (`tsr-2zk.966`): kept apart from the r4-perf
+    // tables above so the two lanes' edits do not interleave. ----
+    /// A class's, interface's or type alias's local type-parameter list,
+    /// indexed by the symbol whose declarations are read (dense: the hot
+    /// reader, `global_type_symbol_with_arity`, probes it ~300k times on
+    /// domain-model-large, where a hash probe measured +0.3% Ir): native
+    /// `getDeclaredTypeOfClassOrInterface` / `getDeclaredTypeOfTypeAlias`
+    /// storing `getLocalTypeParametersOfClassOrInterfaceOrTypeAlias` on the
+    /// declared type (`localTypeParameters`) and alias links
+    /// (`typeParameters`). A pure function of the bound tree, so every entry is
+    /// a completed answer. Probed only for a symbol with two or more
+    /// declarations or parameters (`r5-typeparams2.md` §2). Interior-mutable
+    /// because the reader, `Checker::local_type_parameters_of`, takes `&self`.
+    pub(crate) local_type_parameters: std::cell::RefCell<Vec<Option<LocalTypeParametersLink>>>,
+}
+
+/// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
+/// `Declared` names the one declaration whose own list is the whole answer
+/// (re-read through the node map), `Merged` the parameter declarations of a
+/// list several declarations contributed to, in order.
+#[derive(Clone)]
+pub(crate) enum LocalTypeParametersLink {
+    Empty,
+    Declared(NodeId),
+    Merged(std::rc::Rc<[NodeId]>),
 }
 
 /// [`PerfLinks::heritage_bases`]' key: base symbol, reference location, the

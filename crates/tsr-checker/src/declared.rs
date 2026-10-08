@@ -8,10 +8,15 @@
 //! Not to be confused with [`crate::symbols`], which answers what type a
 //! *value* symbol has.
 
+use std::borrow::Cow;
+
 use tsr_ast::{Expression, Node, NodeId, Statement, SyntaxKind, TypeNode};
 use tsr_binder::{SymbolFlags, SymbolId};
 
-use crate::{checker::Checker, flags::TypeFlags, resolution::PropertyName, types::TypeId};
+use crate::{
+    checker::Checker, flags::TypeFlags, perf_links::LocalTypeParametersLink,
+    resolution::PropertyName, types::TypeId,
+};
 
 /// Native resolvedDefaultType belongs to a private type-parameter identity.
 /// This port also evaluates AST nodes under outer alias frames and mapped
@@ -4287,7 +4292,7 @@ impl<'a> Checker<'a, '_> {
                 self.type_alias_declaration_of(symbol)
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type.and_then(Self::skip_type_parentheses)
-            && let [parameter_declaration] = self.local_type_parameters_of(symbol)
+            && let [parameter_declaration] = *self.local_type_parameters_of(symbol)
             && let Some(parameter_owner) = parameter_declaration.node_id.and_then(|id| self.binder.symbol_of(id))
             && let Some(mapped_parameter) = mapped.type_parameter
             && let Some(key_owner) = mapped_parameter.node_id.and_then(|id| self.binder.symbol_of(id))
@@ -6133,7 +6138,7 @@ impl<'a> Checker<'a, '_> {
             let local = self.local_type_parameters_of(symbol);
             let mut parameters = Vec::with_capacity(local.len());
             let mut parameter_names = Vec::with_capacity(local.len());
-            for parameter in local {
+            for parameter in local.iter() {
                 let Some(owner) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
                     return self.intrinsics.error;
                 };
@@ -6963,7 +6968,7 @@ impl<'a> Checker<'a, '_> {
                         // parameter instantiation only after successful resolution.
                         let local = self.local_type_parameters_of(symbol);
                         let mut arguments = Vec::with_capacity(local.len());
-                        for parameter in local {
+                        for parameter in local.iter() {
                             let Some(owner) =
                                 parameter.node_id.and_then(|id| self.binder.symbol_of(id))
                             else {
@@ -8918,6 +8923,130 @@ impl<'a> Checker<'a, '_> {
         Some(keys)
     }
 
+    /// `getLocalTypeParametersOfClassOrInterfaceOrTypeAlias` /
+    /// `appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias`
+    /// (`checker.go:23806`): the type parameters of **every** class,
+    /// interface or type-alias declaration of `symbol`, appended in
+    /// declaration order with `appendTypeParameters`' `AppendIfUnique` on the
+    /// parameter's type (`checker.go:23822`). Merged declarations share their
+    /// type-parameter symbols (a class or interface files its parameters in its
+    /// own members table), so `class C<P, S>` merged with
+    /// `interface C<P = {}, S = {}, SS = any>` answers `P, S, SS` — the
+    /// parameter's first declaration stands for it.
+    ///
+    /// Borrowed while one declaration contributes the whole list, which is
+    /// every unmerged symbol; owned only when a second declaration or a second
+    /// JSDoc `@template` tag has to be appended
+    /// (`docs/parity/notes/r4-typeparams.md` §1).
+    pub(crate) fn local_type_parameters_of(&self, symbol: SymbolId) -> LocalTypeParameters<'a> {
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        match declarations.as_slice() {
+            [] => Cow::Borrowed(&[]),
+            // One declaration with at most one parameter needs neither merging
+            // nor de-duplication (`class C<T, T>` answers `C<T>`), and reading
+            // it is cheaper than a probe.
+            [declaration] => {
+                let parameters = self.declared_type_parameters_of(*declaration);
+                if parameters.len() <= 1 {
+                    return parameters;
+                }
+                self.merged_local_type_parameters(symbol, declarations)
+            }
+            _ => self.merged_local_type_parameters(symbol, declarations),
+        }
+    }
+
+    /// [`Self::local_type_parameters_of`] for a symbol with several
+    /// declarations or parameters, through the per-symbol memo.
+    fn merged_local_type_parameters(
+        &self,
+        symbol: SymbolId,
+        declarations: &[NodeId],
+    ) -> LocalTypeParameters<'a> {
+        // Native computes the list once, in `getDeclaredTypeOfClassOrInterface`
+        // / `getDeclaredTypeOfTypeAlias`, and keeps it on the symbol's links
+        // (`r5-typeparams2.md` §2).
+        let index = symbol.index();
+        if let Some(Some(link)) = self.perf_links.local_type_parameters.borrow().get(index) {
+            return self.local_type_parameters_from_link(link);
+        }
+        let link = self.compute_local_type_parameters(declarations);
+        let parameters = self.local_type_parameters_from_link(&link);
+        let mut memo = self.perf_links.local_type_parameters.borrow_mut();
+        if memo.len() <= index {
+            memo.resize(index + 1, None);
+        }
+        memo[index] = Some(link);
+        parameters
+    }
+
+    /// Decode a [`LocalTypeParametersLink`] back to the arena's declarations.
+    fn local_type_parameters_from_link(
+        &self,
+        link: &LocalTypeParametersLink,
+    ) -> LocalTypeParameters<'a> {
+        match link {
+            LocalTypeParametersLink::Empty => Cow::Borrowed(&[]),
+            LocalTypeParametersLink::Declared(declaration) => {
+                self.declared_type_parameters_of(*declaration)
+            }
+            LocalTypeParametersLink::Merged(parameters) => Cow::Owned(
+                parameters
+                    .iter()
+                    .filter_map(|&id| match self.node_map.get(id) {
+                        Some(Node::TypeParameterDeclaration(parameter)) => Some(parameter),
+                        _ => None,
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
+    /// The worker behind [`Self::local_type_parameters_of`]'s memo:
+    /// `appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias` over every
+    /// declaration, encoded without the arena lifetime — the one declaration
+    /// whose own list is the whole answer, or the merged parameters' nodes.
+    fn compute_local_type_parameters(&self, declarations: &[NodeId]) -> LocalTypeParametersLink {
+        let mut result: LocalTypeParameters<'a> = Cow::Borrowed(&[]);
+        let mut sole_contributor = None;
+        for &declaration in declarations {
+            let parameters = self.declared_type_parameters_of(declaration);
+            if parameters.is_empty() {
+                continue;
+            }
+            if result.is_empty() && self.type_parameters_are_unique(&parameters) {
+                result = parameters;
+                sole_contributor = Some(declaration);
+                continue;
+            }
+            // `appendTypeParameters` (`checker.go:23822`): `core.AppendIfUnique`
+            // on `getDeclaredTypeOfTypeParameter(getSymbolOfDeclaration(...))`.
+            for &parameter in parameters.iter() {
+                if !result.iter().any(|&existing| self.same_type_parameter(existing, parameter)) {
+                    result.to_mut().push(parameter);
+                    sole_contributor = None;
+                }
+            }
+        }
+        match sole_contributor {
+            Some(declaration) => LocalTypeParametersLink::Declared(declaration),
+            None if result.is_empty() => LocalTypeParametersLink::Empty,
+            None => LocalTypeParametersLink::Merged(
+                result.iter().filter_map(|parameter| parameter.node_id).collect(),
+            ),
+        }
+    }
+
+    /// Whether no two entries of one list declare the same type parameter.
+    fn type_parameters_are_unique(
+        &self,
+        parameters: &[&'a tsr_ast::TypeParameterDeclaration<'a>],
+    ) -> bool {
+        parameters.iter().enumerate().all(|(index, &parameter)| {
+            !parameters[..index].iter().any(|&earlier| self.same_type_parameter(earlier, parameter))
+        })
+    }
+
     /// The type-alias declaration of `symbol`: `getDeclaredTypeOfTypeAlias`'s
     /// `core.Find(symbol.Declarations, ast.IsEitherTypeAliasDeclaration)`
     /// (`checker.go:23845`). Not the first declaration — a type alias merges
@@ -8945,34 +9074,61 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
-    pub(crate) fn local_type_parameters_of(
-        &self,
-        symbol: SymbolId,
-    ) -> &'a [&'a tsr_ast::TypeParameterDeclaration<'a>] {
-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
-        else {
-            return &[];
-        };
+    /// One declaration's own type-parameter list, as the reparsed native tree
+    /// holds it on `node.TypeParameters()`; empty for a declaration kind
+    /// `appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias` skips.
+    fn declared_type_parameters_of(&self, declaration: NodeId) -> LocalTypeParameters<'a> {
         match self.node_map.get(declaration) {
-            Some(Node::ClassDeclaration(node)) => node.type_parameters,
-            Some(Node::ClassExpression(node)) => node.type_parameters,
-            Some(Node::InterfaceDeclaration(node)) => node.type_parameters,
-            Some(Node::TypeAliasDeclaration(node)) => node.type_parameters,
-            // `gatherTypeParameters(jsDoc, typedefOrCallback=true)`
-            // (`parser/reparser.go:293`): the comment's `@template` tags.
-            Some(Node::JSDocTypedefTag(_) | Node::JSDocCallbackTag(_)) => self
-                .jsdoc_alias_doc(symbol)
-                .and_then(|doc| {
-                    doc.tags.iter().find_map(|tag| match tag {
-                        tsr_ast::JSDocTag::JSDocTemplateTag(template) => {
-                            Some(template.type_parameters)
-                        }
-                        _ => None,
-                    })
-                })
-                .unwrap_or(&[]),
-            _ => &[],
+            Some(Node::ClassDeclaration(node)) if !node.type_parameters.is_empty() => {
+                Cow::Borrowed(node.type_parameters)
+            }
+            Some(Node::ClassExpression(node)) if !node.type_parameters.is_empty() => {
+                Cow::Borrowed(node.type_parameters)
+            }
+            // `reparseHosted`'s `KindJSDocTemplateTag` class arms
+            // (`parser/reparser.go:459-470`): an unparameterised JS class
+            // takes `gatherTypeParameters(jsDoc, false)` of its last comment.
+            Some(Node::ClassDeclaration(_) | Node::ClassExpression(_)) => {
+                if !self.in_js_file(declaration) {
+                    return Cow::Borrowed(&[]);
+                }
+                self.jsdoc_entries
+                    .get(&declaration)
+                    .and_then(|docs| docs.last())
+                    .map_or(Cow::Borrowed(&[]), |doc| gather_jsdoc_type_parameters(doc, false))
+            }
+            Some(Node::InterfaceDeclaration(node)) => Cow::Borrowed(node.type_parameters),
+            Some(Node::TypeAliasDeclaration(node)) => Cow::Borrowed(node.type_parameters),
+            // The reparsed `JSTypeAliasDeclaration` (`isTypeAlias`): its
+            // parameters are `gatherTypeParameters(jsDoc, typedefOrCallback=true)`
+            // (`parser/reparser.go:293`) over the comment holding the tag.
+            Some(Node::JSDocTypedefTag(_) | Node::JSDocCallbackTag(_)) => {
+                match self.nodes.parent(declaration).and_then(|doc| self.node_map.get(doc)) {
+                    Some(Node::JSDoc(doc)) => gather_jsdoc_type_parameters(doc, true),
+                    _ => Cow::Borrowed(&[]),
+                }
+            }
+            _ => Cow::Borrowed(&[]),
         }
+    }
+
+    /// Whether two type-parameter declarations declare one type parameter:
+    /// the same node, or the same merged symbol.
+    fn same_type_parameter(
+        &self,
+        left: &'a tsr_ast::TypeParameterDeclaration<'a>,
+        right: &'a tsr_ast::TypeParameterDeclaration<'a>,
+    ) -> bool {
+        if std::ptr::eq(left, right) {
+            return true;
+        }
+        let symbol = |parameter: &tsr_ast::TypeParameterDeclaration<'a>| {
+            parameter
+                .node_id
+                .and_then(|id| self.binder.symbol_of(id))
+                .map(|symbol| self.binder.merged_symbol(symbol))
+        };
+        symbol(left).is_some_and(|left| Some(left) == symbol(right))
     }
 
     /// The JSDoc comment whose `@typedef`/`@callback` tag declares `symbol` —
@@ -9035,7 +9191,7 @@ impl<'a> Checker<'a, '_> {
     ) -> Option<Vec<(TypeId, String)>> {
         let declarations = self.local_type_parameters_of(symbol);
         let mut parameters = Vec::with_capacity(declarations.len());
-        for declaration in declarations {
+        for declaration in declarations.iter() {
             let name = declaration.name?.text.to_string();
             let parameter = declaration.node_id.and_then(|id| self.binder.symbol_of(id))?;
             let declared = self.get_declared_type_of_symbol(parameter);
@@ -9046,6 +9202,39 @@ impl<'a> Checker<'a, '_> {
         }
         Some(parameters)
     }
+}
+
+/// A symbol's local type-parameter declarations
+/// ([`Checker::local_type_parameters_of`]).
+pub(crate) type LocalTypeParameters<'a> = Cow<'a, [&'a tsr_ast::TypeParameterDeclaration<'a>]>;
+
+/// `gatherTypeParameters` (`parser/reparser.go:293`): every `@template` tag's
+/// parameters of one comment, in order. Outside a typedef or callback, a
+/// comment that declares one gives the host nothing — its templates belong to
+/// the alias. Borrowed while a single tag carries the parameters.
+fn gather_jsdoc_type_parameters<'a>(
+    doc: &'a tsr_ast::JSDoc<'a>,
+    typedef_or_callback: bool,
+) -> LocalTypeParameters<'a> {
+    let mut result: LocalTypeParameters<'a> = Cow::Borrowed(&[]);
+    for tag in doc.tags {
+        match tag {
+            tsr_ast::JSDocTag::JSDocTypedefTag(_) | tsr_ast::JSDocTag::JSDocCallbackTag(_)
+                if !typedef_or_callback =>
+            {
+                return Cow::Borrowed(&[]);
+            }
+            tsr_ast::JSDocTag::JSDocTemplateTag(template) => {
+                if result.is_empty() {
+                    result = Cow::Borrowed(template.type_parameters);
+                } else {
+                    result.to_mut().extend_from_slice(template.type_parameters);
+                }
+            }
+            _ => {}
+        }
+    }
+    result
 }
 
 /// Whether a printed type has a `=>` outside any brackets.
