@@ -35,3 +35,20 @@ r5-operators3 (docs only, a5d6c35) found no operator-side remainder:
 
 `r5-intersections` takes `.971` and owns `intersections.rs`. Main has not
 touched that file in 36 hours.
+
+### r5-triage2322 census → issues; r5-jsx3 dispatched (`tsr-2zk.982`)
+
+r5-triage2322 bucketed 863 TS2322/TS2345 lines in 351 plain cases; 259 of the
+lines are false positives (`docs/parity/notes/r5-triage2322.md`). Its buckets
+are filed as `tsr-2zk.974`–`.984` and routed to the lane that owns each file:
+
+- `r5-report` (`assignreport.rs`): excess properties (`.974`), literal
+  elaboration (`.975`), the parse-error gate (`.981`).
+- `r5-relater3` (`relater.rs`): conditional arms (`.976`), generic mapped arms
+  (`.977`), discriminated targets (`.978`), Unknown on decidable pairs (`.983`).
+- `r5-typeparams2` (`declared.rs`): qualified alias/enum references (`.979`).
+- `r5-variants2` (harness): `@noCheck` (`.984`).
+- Main's calls lane (`calls.rs`, active): chooseOverload applicability (`.980`,
+  the largest at 154 lines). It is not dispatched.
+
+The new box `r5-jsx3` takes `.982` (52 lines, `jsx_component.rs`).
