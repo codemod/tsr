@@ -300,7 +300,7 @@ impl Checker<'_, '_> {
     /// `resolveQualifiedName` — the left at `Namespace` meaning with its alias
     /// followed, then the right in the namespace's exports, accepted when its
     /// own flags or its alias target's carry `meaning`.
-    fn resolve_entity_name_expression(
+    pub(crate) fn resolve_entity_name_expression(
         &mut self,
         node: NodeId,
         meaning: SymbolFlags,

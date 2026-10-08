@@ -811,24 +811,33 @@ impl Checker<'_, '_> {
     /// No cache or side table: the type node, constraint and relation queries
     /// are the checker's existing memoised ones.
     pub(crate) fn check_type_argument_constraints(&mut self, node: NodeId) {
-        let Some(tsr_ast::Node::TypeReferenceNode(reference)) = self.node_map.get(node) else {
-            return;
-        };
-        if reference.type_arguments.is_empty() {
-            return;
-        }
-        let Some(type_name) = reference.type_name else { return };
-        let Ok(type_node) =
-            tsr_ast::TypeNode::try_from(tsr_ast::Node::TypeReferenceNode(reference))
-        else {
-            return;
-        };
-        let resolved = self.get_type_from_type_node(type_node);
-        if self.is_error(resolved) {
-            return;
-        }
-        let Some(mut symbol) = self.resolve_entity_name(type_name, SymbolFlags::TYPE) else {
-            return;
+        let (mut symbol, type_arguments) = match self.node_map.get(node) {
+            Some(tsr_ast::Node::TypeReferenceNode(reference)) => {
+                if reference.type_arguments.is_empty() {
+                    return;
+                }
+                let Some(type_name) = reference.type_name else { return };
+                let Ok(type_node) =
+                    tsr_ast::TypeNode::try_from(tsr_ast::Node::TypeReferenceNode(reference))
+                else {
+                    return;
+                };
+                let resolved = self.get_type_from_type_node(type_node);
+                if self.is_error(resolved) {
+                    return;
+                }
+                let Some(symbol) = self.resolve_entity_name(type_name, SymbolFlags::TYPE) else {
+                    return;
+                };
+                (symbol, reference.type_arguments)
+            }
+            Some(tsr_ast::Node::ExpressionWithTypeArguments(reference)) => {
+                let Some(symbol) = self.heritage_type_argument_symbol(node, reference) else {
+                    return;
+                };
+                (symbol, reference.type_arguments)
+            }
+            _ => return,
         };
         for _ in 0..8u8 {
             symbol = self.binder.merged_symbol(symbol);
@@ -848,7 +857,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(parameters) = self.constraint_check_type_parameters(symbol) else { return };
-        if parameters.is_empty() || reference.type_arguments.len() > parameters.len() {
+        if parameters.is_empty() || type_arguments.len() > parameters.len() {
             return;
         }
         let parameter_types: Vec<TypeId> = parameters.iter().map(|p| p.ty).collect();
@@ -863,7 +872,7 @@ impl Checker<'_, '_> {
         // getEffectiveTypeArguments: the written arguments, then
         // fillMissingTypeArguments' defaults instantiated over the prefix.
         let mut arguments: Vec<TypeId> = Vec::with_capacity(parameter_types.len());
-        for &argument in reference.type_arguments {
+        for &argument in type_arguments {
             arguments.push(self.get_type_from_type_node(argument));
         }
         for (index, parameter) in parameters.iter().enumerate().skip(arguments.len()) {
@@ -883,7 +892,7 @@ impl Checker<'_, '_> {
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
         for (index, constraint) in constraints.into_iter().enumerate() {
             let Some(constraint) = constraint else { continue };
-            let Some(&argument_node) = reference.type_arguments.get(index) else { continue };
+            let Some(&argument_node) = type_arguments.get(index) else { continue };
             let Some(at) = argument_node.node_id() else { continue };
             let target = self.instantiate_type(constraint, &map, &parameter_types, &name_refs);
             let source = arguments[index];
@@ -916,6 +925,35 @@ impl Checker<'_, '_> {
             // the first failing argument ends the check.
             return;
         }
+    }
+
+    /// The symbol `checkTypeReferenceNode` (`checker.go:2982`) resolves for a
+    /// heritage clause entry: interface `extends` (`checker.go:5022`) and
+    /// class `implements` (`checker.go:4371`) are type references; a class
+    /// `extends` entry checks `checkTypeArgumentConstraints` against each of
+    /// `getConstructorsForTypeArguments`' signatures (`checker.go:4326`),
+    /// whose type parameters are the class's own when the base expression
+    /// names a class. Any other base constructor (a value with construct
+    /// signatures, `extends Array<T>`) declines. An instantiation expression
+    /// (no heritage clause parent) is not a type reference.
+    fn heritage_type_argument_symbol(
+        &mut self,
+        node: NodeId,
+        reference: &tsr_ast::ExpressionWithTypeArguments<'_>,
+    ) -> Option<tsr_binder::SymbolId> {
+        if reference.type_arguments.is_empty() {
+            return None;
+        }
+        let parent = self.nodes.parent(node)?;
+        if self.nodes.kind(parent) != SyntaxKind::HeritageClause {
+            return None;
+        }
+        let expression = reference.expression?.node_id()?;
+        if self.is_class_extends_entry(node) && !self.class_extends_entry_names_a_class(expression)
+        {
+            return None;
+        }
+        self.resolve_entity_name_expression(expression, SymbolFlags::TYPE)
     }
 }
 

@@ -451,7 +451,7 @@ impl Checker<'_, '_> {
 
     /// Is `node` an entry of a class declaration's or expression's `extends`
     /// clause?
-    fn is_class_extends_entry(&self, node: NodeId) -> bool {
+    pub(crate) fn is_class_extends_entry(&self, node: NodeId) -> bool {
         let Some(clause) = self.nodes.parent(node) else { return false };
         let Some(Node::HeritageClause(heritage)) = self.node_map.get(clause) else {
             return false;
@@ -469,7 +469,7 @@ impl Checker<'_, '_> {
     /// symbol? An identifier with no value answers `false`; a
     /// non-identifier expression answers `true`, which leaves the existing
     /// type-side resolution to decide.
-    fn class_extends_entry_names_a_class(&mut self, name: NodeId) -> bool {
+    pub(crate) fn class_extends_entry_names_a_class(&mut self, name: NodeId) -> bool {
         let Some(Node::Identifier(identifier)) = self.node_map.get(name) else { return true };
         let Some(symbol) = self.binder.resolve_name(
             self.nodes,
