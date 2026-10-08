@@ -335,7 +335,7 @@ impl<'a> Checker<'a, '_> {
     /// resolving its constraint (getHomomorphicTypeVariable reads only the
     /// constraint declaration's operand).
     fn mapped_alias_homomorphic_parameter(&mut self, symbol: SymbolId) -> Option<SymbolId> {
-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let declaration = self.type_alias_declaration_of(symbol)?;
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
             return None;
         };
@@ -411,8 +411,7 @@ impl<'a> Checker<'a, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return;
         }
-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
-        else {
+        let Some(declaration) = self.type_alias_declaration_of(symbol) else {
             return;
         };
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
@@ -941,7 +940,7 @@ impl<'a> Checker<'a, '_> {
             Some(info) => info.homomorphic_symbol?,
             None => self.mapped_alias_homomorphic_parameter(symbol)?,
         };
-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let declaration = self.type_alias_declaration_of(symbol)?;
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
             return None;
         };
@@ -1287,7 +1286,7 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
             let (symbol, mut arguments) = self.type_reference_targets.get(&id)?.clone();
-            let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+            let declaration = self.type_alias_declaration_of(symbol)?;
             let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
                 return None;
             };

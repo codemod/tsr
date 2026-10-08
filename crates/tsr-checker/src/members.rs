@@ -3499,7 +3499,7 @@ impl Checker<'_, '_> {
         if *target != owner {
             return None;
         }
-        let declaration = self.binder.symbols().get(owner).declarations.first().copied()?;
+        let declaration = self.type_alias_declaration_of(owner)?;
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
             return None;
         };

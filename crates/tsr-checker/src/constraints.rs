@@ -693,8 +693,7 @@ impl Checker<'_, '_> {
         {
             return false;
         }
-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
-        else {
+        let Some(declaration) = self.type_alias_declaration_of(symbol) else {
             return false;
         };
         let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)

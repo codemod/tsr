@@ -5247,7 +5247,7 @@ impl<'a> Checker<'a, '_> {
         if let TypeNode::TypeReferenceNode(reference) = annotation
             && let Some(symbol) = reference.type_name
                 .and_then(|name| self.resolve_entity_name(name, tsr_binder::SymbolFlags::TYPE))
-            && self.binder.symbols().get(symbol).declarations.first().copied()
+            && self.type_alias_declaration_of(symbol)
                 .and_then(|id| self.node_map.get(id))
                 .is_some_and(|node| matches!(node, Node::TypeAliasDeclaration(alias) if matches!(alias.r#type,Some(TypeNode::MappedTypeNode(mapped)) if mapped.name_type.is_none())))
         {
@@ -5265,7 +5265,7 @@ impl<'a> Checker<'a, '_> {
         // signature annotation in serializeTypeForDeclaration.
         if let TypeNode::TypeReferenceNode(reference)=annotation
             && let Some(symbol)=reference.type_name.and_then(|name|self.resolve_entity_name(name,tsr_binder::SymbolFlags::TYPE))
-            && self.binder.symbols().get(symbol).declarations.first().copied().and_then(|id|self.node_map.get(id))
+            && self.type_alias_declaration_of(symbol).and_then(|id|self.node_map.get(id))
                 .is_some_and(|node|matches!(node,Node::TypeAliasDeclaration(alias) if matches!(alias.r#type,Some(TypeNode::TemplateLiteralTypeNode(_)))))
         {
             let resolved=self.get_type_from_type_node(annotation);
@@ -5434,8 +5434,7 @@ impl<'a> Checker<'a, '_> {
                 tsr_binder::SymbolFlags::TYPE,
             )
             && self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
-            && let Some(declaration) =
-                self.binder.symbols().get(symbol).declarations.first().copied()
+            && let Some(declaration) = self.type_alias_declaration_of(symbol)
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && matches!(alias.r#type, Some(TypeNode::TemplateLiteralTypeNode(_)))
         {

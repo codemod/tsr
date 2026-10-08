@@ -18,7 +18,7 @@ impl Checker<'_, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS) {
             return None;
         }
-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+        let declaration = self.type_alias_declaration_of(symbol)?;
         let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
         else {
             return None;

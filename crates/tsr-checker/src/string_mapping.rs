@@ -12,8 +12,7 @@ impl Checker<'_, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return false;
         }
-        let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
-        else {
+        let Some(declaration) = self.type_alias_declaration_of(symbol) else {
             return false;
         };
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
