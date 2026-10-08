@@ -334,7 +334,7 @@ impl Checker<'_, '_> {
         if !require_or_exports && !object {
             return;
         }
-        if !self.need_collision_check_for_identifier(node, ambient) {
+        if !self.need_collision_check_for_identifier_in_module(node, ambient) {
             return;
         }
         // Uninstantiated modules do not emit a binding.
@@ -463,10 +463,14 @@ impl Checker<'_, '_> {
     }
 
     /// `needCollisionCheckForIdentifier` (`checker.go:10500`) after its name
+    /// test, as the module-collision checks call it. `class_fields.rs` holds a
+    /// second port of the same function for the class-field checks; the two
+    /// are to be unified (`tsr-2zk.1022`).
+    ///
     /// test: no member kinds reach here; an ambient declaration and a
     /// type-only import have no emit; an overload parameter has none either
     /// but has no source-file container, so it never reaches the reports.
-    fn need_collision_check_for_identifier(&self, node: NodeId, ambient: bool) -> bool {
+    fn need_collision_check_for_identifier_in_module(&self, node: NodeId, ambient: bool) -> bool {
         if ambient {
             return false;
         }
