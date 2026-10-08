@@ -48,3 +48,53 @@ and 10, among them).
 **Falsifier.** A `??=` target whose declared union keeps `undefined` after
 assignment where native narrows, or a TS18048 that native reports after
 `&&=` and TSR drops.
+
+### Re-measured after merging the integration head `5ad60b1`
+
+The merged head alone gives jsTyping TSR 898 (TSR-only 842): +24 TS7053
+(`expression of type 'string' can't be used to index type 'CompilerOptions'`
+/ `'OptionsBase'`, e.g. `compiler/builder.ts(1449,21)`), none of which native
+reports. They arrived with the merge, not with this lane, and are reported to
+the integrator. Cause 2 on that head: 898 → 802 (TSR-only 842 → 746), the
+same −96; the corpus result is unchanged (`logicalAssignment11`, +1 type
+line, no loss).
+
+## Cause 12 — missing-import suggestion sees `export *` members (`tsr-2zk.930`)
+
+**Forcing constraint.** `import { Diagnostics } from "./_namespaces/ts.js"`
+where the barrel re-exports `Diagnostic` through `export *`. Native reports
+TS2724 `… Did you mean 'Diagnostic'?`; TSR reported TS2305 because
+`report_missing_module_export` spelled against the target's **own** export
+table only. Native `getSuggestedSymbolForNonexistentModule`
+(`checker.go:15909`) spells against `getExportsOfModule(targetSymbol)`, whose
+worker (`getExportsOfModuleWorker`, `checker.go:16148`) folds in every
+`export *` target recursively.
+
+**Port.** Two new functions in `symbols.rs`:
+`module_exports_with_stars` mirrors the worker's `visit` — own exports first,
+then each `export *` target's table (recursively, a visited module
+contributing nothing), merged with `extendExportSymbols`' rules (`default`
+never re-exported, the first name wins).
+`module_member_spelling_candidates` applies `getSpellingSuggestionForName`'s
+candidate filter (`checker.go:1800`): names that are empty, quoted or
+internal (`export=`, `__export`, upstream's `\xFE` names) are dropped, and the
+symbol must carry `SymbolFlagsModuleMember`. That mask contains `Alias`, so
+upstream's `tryResolveAlias` fallback never decides here and is not written.
+
+**Not ported, deliberately.** The worker's TS2308 collision diagnostics and
+type-only bookkeeping (they do not change which names exist); the CommonJS
+`export =` typedef arm (the `export =` path keeps declining as before); and
+`compareSymbols` as the distance tie-break, which `spelling_suggestion` has
+never ported. The table is rebuilt per missing specifier, uncached: it runs on
+the error path only, once per reported name.
+
+**Alternative rejected.** Reusing `get_export_from_star` (a by-name lookup)
+cannot enumerate candidates; building a cached `getExportsOfModule` table on
+the module symbol would be the faithful home for every caller, but it is a
+new side table with publication rules (export-star resolution can run while
+module resolution is open) for one error-path consumer. If a second consumer
+needs the full table, that cache is the right move.
+
+**Measured.** jsTyping on the merged head: 802 → 802 diagnostics, common
+56 → 73, TSR-only 746 → 729, native-only 107 → 90 (all 17 TS2724
+converted).

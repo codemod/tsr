@@ -234,7 +234,6 @@ export const b = { a: [1] } as { a?: number[]; c: number };
 }
 
 #[test]
-#[ignore = "tsr-2zk.914: spelling suggestion for a missing import ignores `export *` members"]
 fn missing_import_suggests_re_exported_name() {
     // compiler/*.ts import `Diagnostics` from the `_namespaces/ts` barrel;
     // native TS2724 suggests `Diagnostic` found through `export *`.
