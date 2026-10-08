@@ -467,6 +467,125 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// `resolveCallExpression`'s `super` arm (`checker.go:8471`): the callee's
+    /// type is `checkSuperExpression`'s (`any` or `errorType` resolve without
+    /// a report); otherwise the candidates are
+    /// `getInstantiatedConstructorsForTypeArguments(superType,
+    /// baseTypeNode.TypeArguments(), baseTypeNode)` (`checker.go:19275`) and
+    /// `resolveCall` runs its arity and argument reports over them
+    /// ([`Checker::check_candidates_arity`]). A JS file, a generic surviving
+    /// candidate and an uninstantiable constructor report nothing.
+    fn check_super_call_diagnostics(&mut self, node: tsr_ast::NodeId, callee: Expression<'a>) {
+        let super_type = self.check_expression(callee);
+        if self.is_error(super_type)
+            || self.store.get(super_type).flags.intersects(TypeFlags::ANY)
+            || self.in_js_file(node)
+        {
+            return;
+        }
+        // `checkSuperExpression` answered a constructor type, so the
+        // container is the class's constructor and the class extends.
+        let Some(constructor) = self
+            .nodes
+            .ancestors(node)
+            .find(|&id| self.nodes.kind(id) == tsr_ast::SyntaxKind::Constructor)
+        else {
+            return;
+        };
+        let heritage =
+            match self.nodes.parent(constructor).and_then(|class| self.node_map.get(class)) {
+                Some(tsr_ast::Node::ClassDeclaration(class)) => class.heritage_clauses,
+                Some(tsr_ast::Node::ClassExpression(class)) => class.heritage_clauses,
+                _ => return,
+            };
+        let Some(base) = heritage
+            .iter()
+            .find(|clause| clause.token.kind == tsr_ast::SyntaxKind::ExtendsKeyword)
+            .and_then(|clause| clause.types.first())
+        else {
+            return;
+        };
+        let Some(signatures) =
+            self.instantiated_constructors_for_type_arguments(super_type, base.type_arguments)
+        else {
+            return;
+        };
+        if signatures.is_empty() {
+            return;
+        }
+        match self.check_candidates_arity(node, signatures) {
+            CallArity::Applicable(Some(signature)) => {
+                self.check_single_candidate_arguments(node, &signature);
+            }
+            CallArity::ApplicableOverloads(candidates) => {
+                self.check_overload_candidates_arguments(node, &candidates);
+            }
+            CallArity::Reported
+            | CallArity::Applicable(None)
+            | CallArity::ApplicableGeneric(_)
+            | CallArity::Undecided => {}
+        }
+    }
+
+    /// `getInstantiatedConstructorsForTypeArguments` (`checker.go:19275`):
+    /// the construct signatures whose type-parameter window admits the written
+    /// count (`getConstructorsForTypeArguments`), each generic one
+    /// instantiated through `getSignatureInstantiation` with the written
+    /// arguments and `fillMissingTypeArguments`' defaults (`unknown` without
+    /// one). `None` when a signature list or an instantiation is unresolved.
+    fn instantiated_constructors_for_type_arguments(
+        &mut self,
+        constructor: TypeId,
+        type_arguments: &[tsr_ast::TypeNode<'a>],
+    ) -> Option<Vec<Signature>> {
+        let signatures = self.signatures_of_type_kind(constructor, SignatureKind::Construct)?;
+        let count = type_arguments.len();
+        let written: Vec<TypeId> =
+            type_arguments.iter().map(|&argument| self.get_type_from_type_node(argument)).collect();
+        let mut result = Vec::with_capacity(signatures.len());
+        for signature in signatures {
+            if count < Self::min_type_argument_count(&signature.type_parameters)
+                || count > signature.type_parameters.len()
+            {
+                continue;
+            }
+            if signature.type_parameters.is_empty() {
+                result.push(signature);
+                continue;
+            }
+            let parameters = self.type_parameter_types(&signature)?;
+            let names: Vec<String> =
+                signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            let mut arguments = written.clone();
+            for index in count..parameters.len() {
+                let map: Vec<_> =
+                    parameters.iter().copied().zip(arguments.iter().copied()).collect();
+                let filled = match signature.type_parameters[index].default {
+                    Some(default) => self.instantiate_type(default, &map, &parameters, &names),
+                    None => self.intrinsics.unknown,
+                };
+                arguments.push(filled);
+            }
+            let map: Vec<_> = parameters.iter().copied().zip(arguments).collect();
+            let mut instantiated =
+                self.instantiate_signature(signature, &map, &parameters, &names)?;
+            instantiated.type_parameters.clear();
+            result.push(instantiated);
+        }
+        Some(result)
+    }
+
+    /// The written type arguments of a call, `new` or tagged template.
+    fn call_type_arguments(&self, node: tsr_ast::NodeId) -> &'a [tsr_ast::TypeNode<'a>] {
+        match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => call.type_arguments,
+            Some(tsr_ast::Node::NewExpression(new)) => new.type_arguments,
+            Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) => tagged.type_arguments,
+            _ => &[],
+        }
+    }
+
     /// `getGlobalTemplateStringsArrayType` (`checker.go`): the global
     /// non-generic `TemplateStringsArray` interface; `None` when no lib
     /// declares it.
@@ -618,6 +737,13 @@ impl Checker<'_, '_> {
         if self.file_has_parse_errors {
             return;
         }
+        if let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node)
+            && let Some(Expression::KeywordExpression(keyword)) = call.expression
+            && keyword.kind == tsr_ast::SyntaxKind::SuperKeyword
+        {
+            self.check_super_call_diagnostics(node, Expression::KeywordExpression(keyword));
+            return;
+        }
         match self.check_call_expression_head(node) {
             CallHead::Done => {}
             CallHead::Resolve(apparent) => {
@@ -677,21 +803,6 @@ impl Checker<'_, '_> {
         apparent: TypeId,
         kind: SignatureKind,
     ) -> CallArity {
-        let Some(written) = self.written_call_arguments(node) else {
-            return CallArity::Undecided;
-        };
-        let (type_arguments, callee, is_call) = match self.node_map.get(node) {
-            Some(tsr_ast::Node::CallExpression(call)) => {
-                (call.type_arguments, call.expression, true)
-            }
-            Some(tsr_ast::Node::NewExpression(new)) => (new.type_arguments, new.expression, false),
-            Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) => {
-                (tagged.type_arguments, None, false)
-            }
-            _ => return CallArity::Undecided,
-        };
-        let tagged = written.template.is_some();
-        let arguments: &[Expression<'_>] = &written.arguments;
         if self.in_js_file(node) {
             return CallArity::Undecided;
         }
@@ -716,6 +827,10 @@ impl Checker<'_, '_> {
         // indexed access keeps `never[]`), and the composite parameters of an
         // unreduced union are not upstream's.
         if self.store.get(apparent).flags.intersects(TypeFlags::UNION) {
+            let Some(written) = self.written_call_arguments(node) else {
+                return CallArity::Undecided;
+            };
+            let type_arguments = self.call_type_arguments(node);
             if !type_arguments.is_empty() {
                 return self.check_type_argument_arity_only(node, type_arguments, &signatures);
             }
@@ -732,6 +847,32 @@ impl Checker<'_, '_> {
                 return CallArity::Undecided;
             }
         }
+        self.check_candidates_arity(node, signatures)
+    }
+
+    /// [`Checker::check_resolve_call_arity`] over a resolved candidate list:
+    /// the callee's signatures, or a `super` call's instantiated base
+    /// constructors.
+    fn check_candidates_arity(
+        &mut self,
+        node: tsr_ast::NodeId,
+        signatures: Vec<Signature>,
+    ) -> CallArity {
+        let Some(written) = self.written_call_arguments(node) else {
+            return CallArity::Undecided;
+        };
+        let (type_arguments, callee, is_call) = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => {
+                (call.type_arguments, call.expression, true)
+            }
+            Some(tsr_ast::Node::NewExpression(new)) => (new.type_arguments, new.expression, false),
+            Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) => {
+                (tagged.type_arguments, None, false)
+            }
+            _ => return CallArity::Undecided,
+        };
+        let tagged = written.template.is_some();
+        let arguments: &[Expression<'_>] = &written.arguments;
         // `getTypeFromBindingPattern` gives an array-pattern rest parameter a
         // tuple type; this port's signature carries `any[]` there, so its
         // parameter count is not upstream's.

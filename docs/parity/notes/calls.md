@@ -94,3 +94,22 @@ diagnosed tagged template. Converts
 `taggedTemplateStringsWithIncompatibleTypedTags(ES6)`. Native control:
 `` foo `${1}${2}${3}` `` → TS2554 at the third substitution, `` foo `${1}${true}` ``
 → TS2769 at `true`, `` foo `${1}${"2"}` `` stays clean, as tsgo.
+
+## `super(...)` calls resolve against the instantiated base constructors (tsr-2zk.16.58)
+
+A `super` callee answered `CallHead::Unknown`, so no arity or argument error
+was reported. `check_super_call_diagnostics` follows `resolveCallExpression`'s
+super arm: `checkSuperExpression`'s type (the existing `check_super_expression`;
+`any`/`errorType` report nothing), then
+`getInstantiatedConstructorsForTypeArguments` (`instantiated_constructors_for_type_arguments`:
+the type-argument window filter, `getSignatureInstantiation` with written
+arguments and instantiated defaults, `unknown` without one), then the shared
+candidate arity and argument walks (`check_candidates_arity`, split out of
+`check_resolve_call_arity`; error node the `super` keyword). JS files and a
+generic surviving candidate report nothing. No cache or traversal; the
+instantiation runs once per diagnosed super call. Converts `baseCheck`,
+`superCallArgsMustMatch`. Native control: `super(1)` against
+`(x: number, y: number)` → TS2554 at `super`, `super("a")` against
+`G<number>`'s `(x: T)` → TS2345, `super(true)` against overloads
+`(x: number)`/`(x: string, y: number)` → TS2345 (one arity survivor),
+`super(0, x)` stays clean.
