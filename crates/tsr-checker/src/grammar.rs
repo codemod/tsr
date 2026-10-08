@@ -215,6 +215,9 @@ impl Checker<'_, '_> {
         if let Some(module_name) = module_name {
             self.check_external_module_name_is_string_literal(module_name);
         }
+        if let Node::ClassDeclaration(_) = typed {
+            self.check_class_declaration_has_name(typed);
+        }
         // `Checker.checkIfStatement` (`checker.go:3808`): TS1313 on an empty
         // `then` statement.
         if let Node::IfStatement(statement) = typed
@@ -1206,5 +1209,45 @@ impl Checker<'_, '_> {
             }
             _ => None,
         }
+    }
+}
+
+impl Checker<'_, '_> {
+    /// TS1211 — `checkClassDeclaration` (`checker.go:4285`): a class
+    /// declaration with no name and no `default` modifier,
+    /// `grammarErrorOnFirstToken` — the declaration's first token, which is its
+    /// first modifier or decorator when it has one (`export class {}` reports
+    /// on `export`), behind `!hasParseDiagnostics`.
+    ///
+    /// `docs/parity/notes/r4-unused-grammar.md` §4.
+    fn check_class_declaration_has_name(&mut self, typed: Node<'_>) {
+        let Node::ClassDeclaration(class) = typed else { return };
+        if class.name.is_some()
+            || tsr_ast::has_syntactic_modifier(class.modifiers, SyntaxKind::DefaultKeyword)
+            || self.file_has_parse_errors
+        {
+            return;
+        }
+        let Some(node) = class.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let start = self.nodes.span(node).start;
+        // `scanner.GetRangeOfTokenAtPosition(file, node.Pos())`. Without
+        // source text (unit hosts) the node's own start stands for the token,
+        // one character wide; line and column are the same.
+        let span = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(start as usize..))
+            .map(|rest| tsr_scanner::Scanner::new(rest).scan().span)
+            .map_or(tsr_core::Span::new(start, start + 1), |token| {
+                tsr_core::Span::new(start + token.start, start + token.end)
+            });
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_CLASS_DECLARATION_WITHOUT_THE_DEFAULT_MODIFIER_MUST_HAVE_A_NAME,
+                span,
+            ),
+        );
     }
 }

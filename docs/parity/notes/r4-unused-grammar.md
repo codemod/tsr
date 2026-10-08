@@ -91,3 +91,16 @@ making that one `pub(crate)` is the smaller change but is outside this lane.
 
 **Falsifier.** A TS1355 at a node this predicate accepts, or an `as const`
 in an ambient or never-checked position that native does not report.
+
+## §4 TS1211: a class declaration without a name
+
+**Native.** `checkClassDeclaration` (`checker.go:4285`):
+`node.Name() == nil && !HasSyntacticModifier(node, Default)` →
+`grammarErrorOnFirstToken(node, …)`. No producer existed.
+
+**Choice.** Reported from `check_parser_lane_statement` (`grammar.rs`, the
+lane's per-node statement dispatcher), so no hub edit. The first token is
+scanned from the node's start, which includes its modifiers and decorators
+as upstream's `node.Pos()` does (`export class {}` reports on `export`).
+
+Case converted: `compiler/exportClassWithoutName`.
