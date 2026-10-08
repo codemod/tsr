@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4264/5502 (77.50%)
-Failed         : 1238
+Passed         : 4287/5502 (77.92%)
+Failed         : 1215
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1238 failures:
+First 100 of 1215 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -29,7 +29,7 @@ compiler/aliasDoesNotDuplicateSignatures
 compiler/aliasErrors
   3 missing (first TS2503 at aliasErrors.ts(11,12))
 compiler/allowImportClausesToMergeWithTypes
-  2 unexpected (first TS2709 at index.ts(3,10)), 1 missing
+  1 unexpected (first TS2749 at index.ts(3,10)), 0 missing
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
   1 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
 compiler/anyMappedTypesError
@@ -72,8 +72,6 @@ compiler/augmentExportEquals1
   2 missing (first TS2671 at file2.ts(5,16))
 compiler/augmentExportEquals5
   1 missing (first TS2454 at consumer.ts(4,11))
-compiler/autoLift2
-  2 missing (first TS2693 at autoLift2.ts(5,19))
 compiler/awaitCallExpressionInSyncFunction
   1 unexpected (first TS2304 at awaitCallExpressionInSyncFunction.ts(2,16)), 1 missing
 compiler/awaitedType
@@ -83,7 +81,7 @@ compiler/awaitedTypeNoLib
 compiler/awaitedTypeStrictNull
   2 missing (first TS2589 at awaitedTypeStrictNull.ts(22,12))
 compiler/badArrayIndex
-  1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 2 missing
+  1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 1 missing
 compiler/baseCheck
   2 missing (first TS2554 at baseCheck.ts(17,53))
 compiler/baseConstraintOfDecorator
@@ -91,7 +89,7 @@ compiler/baseConstraintOfDecorator
 compiler/baseExpressionTypeParameters
   1 missing (first TS2562 at baseExpressionTypeParameters.ts(10,27))
 compiler/bases
-  3 missing (first TS2693 at bases.ts(7,17))
+  1 missing (first TS2420 at bases.ts(11,7))
 compiler/betterErrorForUnionCall
   1 missing (first TS2349 at betterErrorForUnionCall.ts(8,1))
 compiler/bigintArbirtraryIdentifier
@@ -164,8 +162,6 @@ compiler/classExpressionExtendingAbstractClass
   1 missing (first TS2653 at classExpressionExtendingAbstractClass.ts(5,9))
 compiler/classExpressionWithDecorator1
   1 unexpected (first TS2304 at classExpressionWithDecorator1.ts(1,10)), 0 missing
-compiler/classExtendsInterfaceInExpression
-  1 missing (first TS2693 at classExtendsInterfaceInExpression.ts(7,25))
 compiler/classExtendsNull2
   1 missing (first TS2417 at classExtendsNull2.ts(5,7))
 compiler/classFieldSuperAccessibleJs1
@@ -176,8 +172,6 @@ compiler/classFieldSuperNotAccessibleJs
   2 missing (first TS2855 at index.js(20,22))
 compiler/classImplementsClass4
   1 unexpected (first TS2741 at classImplementsClass4.ts(16,1)), 1 missing
-compiler/classMemberWithMissingIdentifier2
-  1 missing (first TS2693 at classMemberWithMissingIdentifier2.ts(2,19))
 compiler/classTypeParametersInStatics
   2 missing (first TS2345 at classTypeParametersInStatics.ts(20,52))
 compiler/classUpdateTests
@@ -212,3 +206,9 @@ compiler/computedPropertyBindingElementDeclarationNoCrash1
   1 missing (first TS2739 at computedPropertyBindingElementDeclarationNoCrash1.ts(12,21))
 compiler/conditionalTypeAssignabilityWhenDeferred
   6 missing (first TS2322 at conditionalTypeAssignabilityWhenDeferred.ts(39,3))
+compiler/conditionalTypeDoesntSpinForever
+  3 unexpected (first TS2322 at conditionalTypeDoesntSpinForever.ts(94,42)), 1 missing
+compiler/conflictMarkerTrivia3
+  9 unexpected (first TS17008 at conflictMarkerTrivia3.tsx(1,12)), 3 missing
+compiler/conflictingDeclarationsImportFromNamespace1
+  2 missing (first TS2440 at index.ts(1,13))
