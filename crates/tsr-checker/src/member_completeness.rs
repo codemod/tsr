@@ -195,6 +195,7 @@ impl Checker<'_, '_> {
     /// the two questions shared one predicate.
     pub(crate) fn declared_property_table(&mut self, id: TypeId) -> Option<Vec<(String, bool)>> {
         self.declared_property_table_worker(id, 0, false)
+            .or_else(|| self.object_literal_property_table(id))
     }
 
     /// The property table the relation reporters (TS2741/TS2739/TS2353) read:
@@ -255,24 +256,46 @@ impl Checker<'_, '_> {
         }) {
             return None;
         }
-        if self.in_js_file(declaration)
-            || !literal.properties.iter().all(|property| match property {
+        if self.in_js_file(declaration) {
+            return None;
+        }
+        // `checkObjectLiteral` (checker.go): a computed name whose type is
+        // `isTypeUsableAsPropertyName` (a string/number literal or a unique
+        // symbol) becomes a named member, the same late-bound name
+        // `lateBindMember` gives a class or interface member
+        // (`late_bound_members_of`); any other computed name contributes an
+        // index signature or nothing, and the table declines.
+        let mut computed = 0usize;
+        for property in literal.properties {
+            let name = match property {
                 tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
-                    self.name_is_written(assignment.name)
+                    assignment.name
                 }
-                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_) => true,
-                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
-                    self.name_is_written(method.name)
-                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_) => continue,
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => method.name,
                 tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
-                    self.name_is_written(accessor.name)
+                    accessor.name
                 }
                 tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
-                    self.name_is_written(accessor.name)
+                    accessor.name
                 }
-                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => false,
-            })
-        {
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return None,
+            };
+            if self.name_is_written(name) {
+                continue;
+            }
+            let tsr_ast::PropertyName::ComputedPropertyName(name) = name else { return None };
+            if !matches!(
+                self.computed_member_index_key(name),
+                crate::objects::ComputedNameKey::LateBound
+            ) {
+                return None;
+            }
+            computed += 1;
+        }
+        let late_bound =
+            if computed == 0 { Vec::new() } else { self.late_bound_members_of(owner, false) };
+        if late_bound.len() != computed {
             return None;
         }
         let mut members: Vec<(u32, String)> = self
@@ -295,6 +318,15 @@ impl Checker<'_, '_> {
                 (start, (*name).to_string())
             })
             .collect();
+        for (name, member) in late_bound {
+            let start = self.nodes.span(member).start;
+            match members.iter_mut().find(|(_, seen)| *seen == name) {
+                // A written and a late-bound declaration of one name are one
+                // property (the duplicate is reported elsewhere).
+                Some(entry) => entry.0 = entry.0.min(start),
+                None => members.push((start, name)),
+            }
+        }
         members.sort_unstable();
         Some(members.into_iter().map(|(_, name)| (name, false)).collect())
     }

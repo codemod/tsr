@@ -750,3 +750,254 @@ impl Checker<'_, '_> {
             == 1
     }
 }
+
+const PROPERTY: u8 = 1;
+const ACCESSOR: u8 = 2;
+const METHOD: u8 = 4;
+
+/// What `checkKindsOfPropertyMemberOverrides` reads off one side's member
+/// symbol, gathered from the declarations that make it up.
+#[derive(Clone, Copy)]
+struct OverrideMember {
+    /// `symbol.Flags & SymbolFlagsPropertyOrAccessor` (an auto-accessor
+    /// binds as an accessor, `bindPropertyWorker`, `binder.go:747`), plus the
+    /// method bit for `isPrototypeProperty`: [`PROPERTY`] | [`ACCESSOR`] |
+    /// [`METHOD`].
+    kinds: u8,
+    /// `getDeclarationModifierFlagsFromSymbol`: the get accessor's modifiers
+    /// when there is one, else the value declaration's.
+    private: bool,
+    abstract_: bool,
+    /// `isPropertyAbstractOrInterface` holds for every declaration given
+    /// the symbol's own abstract flag: none is a property with an initializer.
+    no_initialized_property: bool,
+    /// `GetNameOfDeclaration(derived.ValueDeclaration)`.
+    name_at: NodeId,
+}
+
+/// One non-static member declaration of a class: its name, kind bits,
+/// modifiers' private/abstract bits, whether it is a property with an
+/// initializer, and its name node. Parameter properties are members.
+fn instance_member_declarations<'a>(
+    members: &'a [tsr_ast::ClassElement<'a>],
+) -> Vec<(&'a str, u8, bool, bool, bool, bool, NodeId)> {
+    let mut out = Vec::new();
+    for member in members {
+        let (name, kind, modifiers, initialized, getter) = match *member {
+            tsr_ast::ClassElement::PropertyDeclaration(p) => {
+                let auto =
+                    tsr_ast::has_syntactic_modifier(p.modifiers, SyntaxKind::AccessorKeyword);
+                (
+                    p.name,
+                    if auto { ACCESSOR } else { PROPERTY },
+                    p.modifiers,
+                    !auto && p.initializer.is_some(),
+                    false,
+                )
+            }
+            tsr_ast::ClassElement::GetAccessorDeclaration(a) => {
+                (a.name, ACCESSOR, a.modifiers, false, true)
+            }
+            tsr_ast::ClassElement::SetAccessorDeclaration(a) => {
+                (a.name, ACCESSOR, a.modifiers, false, false)
+            }
+            tsr_ast::ClassElement::MethodDeclaration(m) => {
+                (m.name, METHOD, m.modifiers, false, false)
+            }
+            tsr_ast::ClassElement::ConstructorDeclaration(constructor) => {
+                for parameter in constructor.parameters {
+                    let modifiers = parameter.modifiers;
+                    let is_parameter_property = [
+                        SyntaxKind::PublicKeyword,
+                        SyntaxKind::PrivateKeyword,
+                        SyntaxKind::ProtectedKeyword,
+                        SyntaxKind::ReadonlyKeyword,
+                    ]
+                    .into_iter()
+                    .any(|keyword| tsr_ast::has_syntactic_modifier(modifiers, keyword));
+                    if !is_parameter_property {
+                        continue;
+                    }
+                    let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else {
+                        continue;
+                    };
+                    let Some(at) = name.node_id else { continue };
+                    let private =
+                        tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PrivateKeyword);
+                    out.push((name.text, PROPERTY, private, false, false, false, at));
+                }
+                continue;
+            }
+            _ => continue,
+        };
+        if tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword) {
+            continue;
+        }
+        let tsr_ast::PropertyName::Identifier(identifier) = name else { continue };
+        let Some(at) = identifier.node_id else { continue };
+        out.push((
+            identifier.text,
+            kind,
+            tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PrivateKeyword),
+            tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AbstractKeyword),
+            initialized,
+            getter,
+            at,
+        ));
+    }
+    out
+}
+
+/// Folds a class's declarations of `name` into the member symbol upstream
+/// would see; `None` when the class declares no instance member of that name.
+fn override_member_named(
+    declarations: &[(&str, u8, bool, bool, bool, bool, NodeId)],
+    name: &str,
+) -> Option<OverrideMember> {
+    let mut found: Option<OverrideMember> = None;
+    let mut flags_from_getter = false;
+    for &(seen, kind, private, abstract_, initialized, getter, at) in declarations {
+        if seen != name {
+            continue;
+        }
+        let member = found.get_or_insert(OverrideMember {
+            kinds: 0,
+            private,
+            abstract_,
+            no_initialized_property: true,
+            name_at: at,
+        });
+        member.kinds |= kind;
+        member.no_initialized_property &= !initialized;
+        if getter && !flags_from_getter {
+            flags_from_getter = true;
+            member.private = private;
+            member.abstract_ = abstract_;
+        }
+    }
+    found
+}
+
+impl Checker<'_, '_> {
+    /// TS2610 / TS2611 and the three method-kind mismatches —
+    /// `checkKindsOfPropertyMemberOverrides` (`checker.go:4536`), the
+    /// property-kind half; the abstract-member half is TS2515's own check.
+    ///
+    /// Upstream walks `getPropertiesOfType(baseType)` and compares each with
+    /// `getPropertyOfObjectType(t, name)`. The condition is about the
+    /// **declarations** that make up the two symbols, so this port reads them
+    /// from the tree: the derived class's own instance members, and for each
+    /// the nearest class up the `extends` chain that declares an instance
+    /// member of the same name (§309, §708). `docs/parity/notes/r5-classfields.md` §1.
+    pub(crate) fn check_kinds_of_property_member_overrides(&mut self, node: NodeId) {
+        let (clauses, members, derived_name) = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => {
+                (class.heritage_clauses, class.members, class.name.map(|name| name.text))
+            }
+            _ => return,
+        };
+        let Some(base_at) = self.override_base_class(clauses) else { return };
+        let derived = instance_member_declarations(members);
+        let mut reported: Vec<&str> = Vec::new();
+        for &(name, ..) in &derived {
+            if reported.contains(&name) {
+                continue;
+            }
+            reported.push(name);
+            let Some(derived_member) = override_member_named(&derived, name) else { continue };
+            let Some(base) = self.override_base_member(base_at, name) else { continue };
+            // `either base or derived property is private - not override`.
+            if base.private || derived_member.private {
+                continue;
+            }
+            let base_property_or_accessor = base.kinds & (PROPERTY | ACCESSOR) != 0;
+            let derived_property_or_accessor = derived_member.kinds & (PROPERTY | ACCESSOR) != 0;
+            let message = if base_property_or_accessor && derived_property_or_accessor {
+                // `arePropertiesAbstractOrInterface`: an abstract base whose
+                // declarations are not initialized properties need not match.
+                if base.abstract_ && base.no_initialized_property {
+                    continue;
+                }
+                let base_is_property = base.kinds & (PROPERTY | ACCESSOR) == PROPERTY;
+                let derived_is_property = derived_member.kinds & (PROPERTY | ACCESSOR) == PROPERTY;
+                if !base_is_property && derived_is_property {
+                    &messages::_0_IS_DEFINED_AS_AN_ACCESSOR_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_INSTANCE_PROPERTY
+                } else if base_is_property && !derived_is_property {
+                    &messages::_0_IS_DEFINED_AS_A_PROPERTY_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_ACCESSOR
+                } else {
+                    // TS2612 (`GetUseDefineForClassFields`) needs
+                    // `isPropertyInitializedInConstructor`; not ported. §1.
+                    continue;
+                }
+            } else if base.kinds & METHOD != 0 {
+                if derived_member.kinds & (METHOD | PROPERTY) != 0 {
+                    continue;
+                }
+                &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_FUNCTION_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_ACCESSOR
+            } else if base.kinds & ACCESSOR != 0 {
+                &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_ACCESSOR_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_FUNCTION
+            } else {
+                &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_PROPERTY_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_FUNCTION
+            };
+            let at = derived_member.name_at;
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
+            let span = self.nodes.span(at);
+            let base_text = self.override_class_text(base_at);
+            let derived_text = derived_name.unwrap_or_default().to_string();
+            let args = if base_property_or_accessor && derived_property_or_accessor {
+                [name.to_string(), base_text, derived_text]
+            } else {
+                [base_text, name.to_string(), derived_text]
+            };
+            self.report(file, Diagnostic::with_args(message, span, args));
+        }
+    }
+
+    /// The declaration of the class an `extends` clause names, when it is an
+    /// identifier resolving to a class declaration.
+    fn override_base_class(&mut self, clauses: &[&tsr_ast::HeritageClause<'_>]) -> Option<NodeId> {
+        let extends =
+            clauses.iter().find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)?;
+        let Some(tsr_ast::Expression::Identifier(name)) = extends.types.first()?.expression else {
+            return None;
+        };
+        let at = name.node_id?;
+        let symbol = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            at,
+            name.text,
+            SymbolFlags::CLASS,
+        )?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let declaration = self.binder.symbols().get(symbol).value_declaration?;
+        matches!(self.node_map.get(declaration), Some(Node::ClassDeclaration(_)))
+            .then_some(declaration)
+    }
+
+    /// `getPropertyOfObjectType(baseType, name)` read from declarations: the
+    /// nearest class up the chain that declares an instance member `name`.
+    /// Bounded, because the corpus contains cyclic heritage. §708.
+    fn override_base_member(&mut self, base: NodeId, name: &str) -> Option<OverrideMember> {
+        let mut at = Some(base);
+        for _ in 0..8 {
+            let Some(Node::ClassDeclaration(class)) = self.node_map.get(at?) else { return None };
+            if let Some(member) =
+                override_member_named(&instance_member_declarations(class.members), name)
+            {
+                return Some(member);
+            }
+            at = self.override_base_class(class.heritage_clauses);
+        }
+        None
+    }
+
+    fn override_class_text(&self, class: NodeId) -> String {
+        match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(class)) => {
+                class.name.map(|name| name.text.to_string()).unwrap_or_default()
+            }
+            _ => String::new(),
+        }
+    }
+}

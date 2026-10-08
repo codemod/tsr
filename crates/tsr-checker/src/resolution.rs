@@ -324,6 +324,78 @@ pub trait ModuleHost {
     fn import_helpers_module(&self, _file: NodeId) -> ImportHelpersModule {
         ImportHelpersModule::NotRequested
     }
+
+    /// `ModuleSpecifierGenerationHost.GetPackageJsonInfo(dir/package.json)`
+    /// (`modulespecifiers/types.go`), for `tryDirectoryWithPackageJson`
+    /// (`modulespecifiers/specifiers.go:832`): the `package.json` in
+    /// `package_directory`, reduced to the fields specifier generation
+    /// reads. `None` when there is none. Defaulted to `None`, which makes
+    /// every `node_modules` directory answer "no package.json" — the
+    /// `index.*`-only arm. r5-modules §5.
+    fn package_json_for_specifiers(&self, _package_directory: &str) -> Option<&PackageJsonView> {
+        None
+    }
+
+    /// The compiler options `tryGetModuleNameAsNodeModule` reads, and
+    /// `module.GetConditions(options, mode)` for its `exports` matching.
+    /// Defaulted to a host that does not resolve `exports`.
+    fn specifier_options(&self, _mode: ResolutionMode) -> SpecifierOptions {
+        SpecifierOptions::default()
+    }
+
+    /// `module.IsApplicableVersionedTypesKey`: a `types@<range>` condition
+    /// whose range admits this compiler's version. Defaulted to `false`.
+    fn is_applicable_versioned_types_key(&self, _key: &str) -> bool {
+        false
+    }
+}
+
+/// A `package.json` as module-specifier generation reads it
+/// ([`ModuleHost::package_json_for_specifiers`]).
+///
+/// Plain data so the checker does not depend on `tsr-module`; the program
+/// converts its parsed `tsr_module::package_json::PackageJson`.
+#[derive(Debug, Clone, Default)]
+pub struct PackageJsonView {
+    /// `type`, when it is a string.
+    pub package_type: Option<String>,
+    /// `typings`, `types`, `main`, when each is a string.
+    pub typings: Option<String>,
+    /// See [`PackageJsonView::typings`].
+    pub types: Option<String>,
+    /// See [`PackageJsonView::typings`].
+    pub main: Option<String>,
+    /// `exports`; `None` when the field is absent.
+    pub exports: Option<SpecifierJson>,
+    /// The `paths` of the `typesVersions` entry that matches this compiler
+    /// (`GetVersionPaths`), when `typesVersions` is an object and one matched.
+    pub types_versions_paths: Option<tsr_core::OrderedMap<Vec<String>>>,
+}
+
+/// A JSON value, for `exports` matching.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpecifierJson {
+    /// `null`.
+    Null,
+    /// A string.
+    String(String),
+    /// An array.
+    Array(Vec<SpecifierJson>),
+    /// An object, in declaration order.
+    Object(Vec<(String, SpecifierJson)>),
+    /// A boolean or number: matches nothing.
+    Other,
+}
+
+/// [`ModuleHost::specifier_options`]'s answer.
+#[derive(Debug, Clone, Default)]
+pub struct SpecifierOptions {
+    /// `GetResolvePackageJsonExports()`.
+    pub resolve_package_json_exports: bool,
+    /// `moduleResolution` is `node16`..`nodenext`.
+    pub module_resolution_is_node_next: bool,
+    /// `module.GetConditions(options, mode)`.
+    pub conditions: Vec<String>,
 }
 
 /// [`ModuleHost::import_helpers_module`]'s answer.

@@ -338,6 +338,21 @@ upstream function that has none.
 | `grammar.rs:1164` | `check_catch_clause_declaration` | ANY | `checker.go:4254` | `is_type_any` | AnyOrUnknown (flag test beside) |
 | `variances.rs:188` | `create_variance_marker_type` | BOTH | `relater.go:1416` | `is_error` | isErrorType(declared) |
 
+### §2.7 Sites added by the merge of the integration branch (`a1e453dc`)
+
+r5-relater4's `type_related_to_discriminated_type` (`relater.go:1077`) and
+its `is_discriminant_property_of` (`relater.go:1087`) brought three new calls;
+r5-intersections' `reduce_constrained_intersection` rewrite removed one
+(DECLINE, already `is_gap`). The merge conflict in `iteration.rs`
+(`get_iteration_types_of_iterable_ex`) took r5-iteration's
+`iteration_reduced_type` step and this lane's `is_type_any` arm.
+
+| site | function | class | native | predicate now | reason |
+|---|---|---|---|---|---|
+| `relater.rs:4474` | `type_related_to_discriminated_type` | DECLINE | `relater.go:1077` | `is_gap` | the discriminant's source property type has no native test; only the gap is undecidable |
+| `relater.rs:4636` | `is_discriminant_property_of` | ERRORTYPE | `checker.go:21469` | `is_error` | `createUnionOrIntersectionProperty` skips `isErrorType` constituents |
+| `relater.rs:4645` | `is_discriminant_property_of` | DECLINE | `checker.go:21469` | `is_gap` | no native test on the member type |
+
 ## §3 Measurements
 
 ### §3.1 Commit 1: the audit and the propagation arms
@@ -387,6 +402,33 @@ Perf (median child CPU, new/old, the frozen base binary in the `--tsgo`
 slot): domain-model 1.002 (21 samples); generic-imports 1.070 at 21 samples,
 **0.990 at 41** (its check phase is about 1 ms of an ~80 ms run, r5-perf4).
 `diagnostics_match: true` on both.
+
+### §3.2 Rebased on the integration branch (`a1e453dc`): the flow leak closes
+
+The integrator landed r5-errorsplit2's flow, P4 and empty-name diffs. The
+base re-frozen there: types 543,727 RIGHT / 1,026 GAP / 7,780 WRONG;
+diagnostics 5,304 RIGHT / 5,576 EMPTY_RIGHT / 1,287 WRONG / 71 EMPTY_WRONG.
+`ceiling`: credited gap **14,715**, `native_error` lines 10,892, wholesale
+narrowing cost 15,385 — the flow diff's 10,000 `largeControlFlowGraph`
+`data[0]` lines, whose `native_error` receiver answered the gap through the
+element-access road, exactly as r5-errorsplit2 §7 predicted.
+
+This lane's tree merged onto it (plus §2.7's three sites), unfiltered, both
+dumps: **zero transitions**, both loss checks empty. `ceiling`:
+
+| | base `a1e453dc` | this lane |
+|---|---:|---:|
+| credited gap (matched lines whose type is the gap) | 14,715 | **4,710** |
+| `native_error` lines (matched) | 10,892 (10,851) | 20,895 (20,854) |
+| wholesale narrowing, RIGHT→GAP | 15,385 | 5,380 |
+
+The 10,005 lines left the gap through `check_element_access_type`'s
+`errorType` receiver arm (`checker.go:8152`): the element access now answers
+upstream's identity and the SS180 rewrite prints it `any` as upstream's
+writer does, so the line is matched by computation rather than credited.
+
+Tests pass; perf (median child CPU against the `a1e453dc` binary, 21
+samples): domain-model 0.954, generic-imports 1.007.
 
 ## §4 Held diffs
 

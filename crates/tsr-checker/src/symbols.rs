@@ -501,7 +501,9 @@ impl<'a> Checker<'a, '_> {
             // §31 first pair's 4 adverse lines. Findability alone decides.
             let unresolvable = self.module_specifier_unfindable(specifier);
             if unresolvable {
-                let any = self.intrinsics.any;
+                // ADR-0048: upstream's `errorType` (`resolveExternalModuleName` ->
+                // `unknownSymbol`), verified natively (r5-errorsplit2 notes §6).
+                let any = self.intrinsics.native_error;
                 let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
                 self.symbol_types.insert(symbol, any);
                 return any;
@@ -528,7 +530,9 @@ impl<'a> Checker<'a, '_> {
             && let Some(specifier) = self.import_declaration_specifier(declaration)
             && self.module_specifier_unfindable(specifier)
         {
-            let any = self.intrinsics.any;
+            // ADR-0048: upstream's `errorType` (`resolveExternalModuleName` ->
+            // `unknownSymbol`), verified natively (r5-errorsplit2 notes §6).
+            let any = self.intrinsics.native_error;
             let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
             self.symbol_types.insert(symbol, any);
             return any;
@@ -544,7 +548,9 @@ impl<'a> Checker<'a, '_> {
             && self.nodes.kind(declaration) == SyntaxKind::ImportSpecifier
             && self.missing_import_export_established(declaration)
         {
-            let any = self.intrinsics.any;
+            // ADR-0048: upstream's `errorType` (`resolveExternalModuleName` ->
+            // `unknownSymbol`), verified natively (r5-errorsplit2 notes §6).
+            let any = self.intrinsics.native_error;
             let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
             self.symbol_types.insert(symbol, any);
             return any;
@@ -560,7 +566,9 @@ impl<'a> Checker<'a, '_> {
             && self.nodes.kind(declaration) == SyntaxKind::ImportClause
             && self.missing_default_established(declaration)
         {
-            let any = self.intrinsics.any;
+            // ADR-0048: upstream's `errorType` (`resolveExternalModuleName` ->
+            // `unknownSymbol`), verified natively (r5-errorsplit2 notes §6).
+            let any = self.intrinsics.native_error;
             let any = if self.resolutions.pop() { any } else { self.intrinsics.error };
             self.symbol_types.insert(symbol, any);
             return any;
@@ -2735,7 +2743,11 @@ impl<'a> Checker<'a, '_> {
     /// one, else its own export table (no `export *` walk, unlike
     /// [`Checker::get_export_of_module`]). Upstream's property read skips the
     /// global Object/Function augment; no name this is asked for can meet it.
-    fn resolve_export_by_name(&mut self, module: SymbolId, name: &str) -> Option<SymbolId> {
+    pub(crate) fn resolve_export_by_name(
+        &mut self,
+        module: SymbolId,
+        name: &str,
+    ) -> Option<SymbolId> {
         let export_equals = self.binder.symbols().get(module).exports.get("export=").copied();
         match export_equals {
             Some(export_equals) => {

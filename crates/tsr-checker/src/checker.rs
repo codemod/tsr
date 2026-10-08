@@ -703,6 +703,8 @@ pub struct Checker<'a, 'n> {
     /// `CompilerOptions.GetIsolatedModules()` (`isolatedModules` or
     /// `verbatimModuleSyntax`): the enum member reports TS18055/TS18056.
     pub(crate) isolated_modules: bool,
+    /// The options `module_format.rs` reads (`tsr-2zk.985`).
+    pub(crate) module_format_options: crate::module_format::ModuleFormatOptions,
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
     /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
     /// unused-identifier family off for every case that does not ask for it.
@@ -1185,6 +1187,9 @@ pub struct Checker<'a, 'n> {
     /// getReducedType's discriminant-conflict result, computed before reading
     /// intersection signatures without changing written annotation identity.
     pub(crate) never_intersection_types: FxHashMap<TypeId, bool>,
+    /// `emptyTypeLiteralType` (checker.go:22939): the one type every
+    /// member-less, unaliased type literal resolves to. Minted on first use.
+    pub(crate) empty_type_literal_type: Option<TypeId>,
     /// The values of [`Checker::instantiated_signatures`], for the O(1)
     /// membership test the call resolver makes.
     pub(crate) minted_signature_types: rustc_hash::FxHashSet<TypeId>,
@@ -1492,6 +1497,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             unreachable_code_is_error: false,
             preserve_const_enums: false,
             isolated_modules: false,
+            module_format_options: crate::module_format::ModuleFormatOptions::default(),
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
             lib_includes_dom: false,
@@ -1608,6 +1614,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),
             never_intersection_types: FxHashMap::default(),
+            empty_type_literal_type: None,
             minted_signature_types: rustc_hash::FxHashSet::default(),
             contextual_prefers_uninstantiated: false,
             uninstantiated_context_node: None,
@@ -1776,6 +1783,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `GetIsolatedModules`, `verbatimModuleSyntax` too.
         self.preserve_const_enums = options.should_preserve_const_enums();
         self.isolated_modules = options.get_isolated_modules();
+        self.module_format_options =
+            crate::module_format::ModuleFormatOptions::from_options(options);
 
         // `IsTrueOrUnknown` (`checker.go:5321`): on unless explicitly off.
         self.no_unchecked_side_effect_imports =
@@ -2035,6 +2044,8 @@ impl<'a, 'n> Checker<'a, 'n> {
     }
 
     fn type_to_string_at_worker(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
+        // typeToTypeNodeHelper reduces before printing (nodebuilderimpl.go:3228).
+        let id = self.get_reduced_type(id);
         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
             return Some(self.type_parameter_name_at(id, symbol, reference));
         }
@@ -2380,24 +2391,55 @@ impl<'a, 'n> Checker<'a, 'n> {
             .iter()
             .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
         {
-            let paths = self
-                .module_host
-                .zip(self.source_file_of(reference))
-                .and_then(|(host, from)| Some((host.file_path(from)?, host.file_path(file)?)));
-            let Some((from, to)) = paths else {
+            // `computeModuleSpecifiers`' existing-import arm comes before
+            // any computed path (r5-modules §4).
+            if let Some(from) = self.source_file_of(reference)
+                && let Some(existing) = self.existing_import_specifier(from, file)
+            {
+                return Some(crate::printing::quote(&existing));
+            }
+            let paths =
+                self.module_host.zip(self.source_file_of(reference)).and_then(|(host, from)| {
+                    Some((host.file_path(from)?, host.file_path(file)?, from, host))
+                });
+            let Some((from, to, from_file, host)) = paths else {
                 let relative = symbol.name.strip_prefix('/')?;
                 return (!relative.contains('/') && !relative.is_empty())
                     .then(|| format!("\"./{relative}\""));
             };
-            if to.contains("/node_modules/") {
-                return None;
+            // `computeModuleSpecifiers`' node_modules arm
+            // (`tryGetModuleNameAsNodeModule`, `crate::module_specifiers`);
+            // when it names nothing, the relative specifier below is
+            // upstream's fallback too (r5-modules §5).
+            if to.contains("/node_modules/")
+                && let Some(name) =
+                    self.node_module_specifier(from_file, tsr_path::get_directory_path(&from), &to)
+            {
+                return Some(crate::printing::quote(&name));
             }
-            let stem = [".d.ts", ".tsx", ".ts", ".jsx", ".js"]
-                .iter()
-                .find_map(|extension| to.strip_suffix(extension))?;
-            // `moduleSpecifiers`' `index` stripping: `./dir/index` is spelled
-            // `./dir`, and the importing directory's own index `.`.
-            let (stem, index) = match stem.strip_suffix("/index") {
+            // `processEnding` (`modulespecifiers/specifiers.go:636`) under the
+            // node builder's ending choice (r5-modules §4).
+            let js_ending = self.module_specifier_uses_js_ending(
+                from_file,
+                host.default_resolution_mode_for_file(from_file),
+            )?;
+            let (input, output) = self.js_extension_for_file(&to)?;
+            let base = &to[..to.len() - input.len()];
+            let keeps_extension =
+                matches!(input, ".mjs" | ".cjs" | ".mts" | ".cts" | ".d.mts" | ".d.cts");
+            let spelled;
+            let stem = if js_ending || keeps_extension {
+                spelled = format!("{base}{output}");
+                spelled.as_str()
+            } else {
+                base
+            };
+            // `moduleSpecifiers`' `index` stripping (the minimal ending only):
+            // `./dir/index` is spelled `./dir`, and the importing directory's
+            // own index `.`.
+            let stripped =
+                (!js_ending && !keeps_extension).then(|| stem.strip_suffix("/index")).flatten();
+            let (stem, index) = match stripped {
                 Some("") => ("/", true),
                 Some(directory) => (directory, true),
                 None => (stem, false),
@@ -3151,6 +3193,19 @@ impl<'a, 'n> Checker<'a, 'n> {
                         .is_none();
                 if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
                     return Some(format!("import(\"./{stem}\")."));
+                }
+                // A module under `node_modules` takes `getSpecifierForModuleSymbol`'s
+                // whole answer — an existing import, the package name
+                // (`tryGetModuleNameAsNodeModule`) or the relative fallback —
+                // where the flat arm above declines (r5-modules §5). The
+                // relative-module gates above are left as they are.
+                if !unresolved_export
+                    && !same_file
+                    && !imported_here
+                    && stem.contains("node_modules/")
+                    && let Some(specifier) = self.module_specifier_for_symbol(parent, reference)
+                {
+                    return Some(format!("import({specifier})."));
                 }
             }
             return None;

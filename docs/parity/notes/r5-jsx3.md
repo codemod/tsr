@@ -147,6 +147,10 @@ excess `offspring` now fails the relation first, §3). Right lines added in
 still-WRONG cases: `jsxElementType` 110:6 and 111:19,
 `contextuallyTypedStringLiteralsInJsxAttributes02` 37:57 and 40:44.
 
+**Coverage run** (`--bin coverage`): `checker_types` 8183/9538 (unchanged:
+no type line moved), `diagnostics` 4404 → 4413/5502, `diagnostics_configured`
+672 → 674/1089.
+
 **Performance** (median child CPU against the frozen binary; the bench
 projects contain no JSX): domain-model 0.981 (21 samples), generic-imports
 1.053 at 21 → 0.946 at 41; diagnostics match. No cache, side table or
@@ -167,10 +171,37 @@ before the relation instead of after a failed one.
   or `declared.rs` minting the body with an alias attached) — not this
   lane's files. This is the same producer shape `r4-jsx.md` §2 met for
   signatures.
+- **Binding-pattern props (J6, `tsxStatelessFunctionComponents1` 29:15,
+  31:15).** `function Meet({name = 'world'})`: the props target
+  `IntrinsicAttributes & { name?: string | undefined; }` relates `Unknown`
+  and its pattern-implied member table is not certified
+  (`relation_members_are_complete` false), so neither the relation nor the
+  excess override decides. Producer: the binding-pattern parameter type
+  (`getTypeFromObjectBindingPattern`, `destructure.rs`/`declared.rs`).
+- **Discriminated union props (J6, `tsxSpreadAttributesResolution6` 15:10).**
+  The props target is a union (the intersection distributes over
+  `TextProps`), so `hasExcessProperties` needs `findMatchingDiscriminantType`.
+  The port exists but is private to `assignreport.rs`
+  (`find_matching_discriminant_type`); making it `pub(crate)` lets
+  `jsx_excess_attribute`'s union arm call it. The final report would then
+  still meet `report_relation_failure`'s union-target decline (r5-report).
+- **Children split against `Iterable` (J5,
+  `jsxChildrenIndividualErrorElaborations` 63:3, 67:16, 73:9, 74:9).**
+  `Cb | Cb[]` with `type Cb = (x: number) => string`: relating `Cb` to
+  `Iterable<any, void, undefined>` answers `Unknown`, and `Cb` enumerates no
+  property names (`get_property_names_of_type` → `None`; an aliased function
+  type is `Anonymous { signature: false }`). Upstream's answer is `false`
+  (no `[Symbol.iterator]`). Relater / function-alias producer (M4).
+- **TS2741 inside an intersection target** (`jsxElementType` 34:2 …59:2):
+  `report_relation_failure` prints TS2322 where upstream descends to the
+  failing constituent — `tsr-2zk.918`, r5-report.
 - **Fragments (J5, `jsxFragmentWrongType` 6:28).** `getJSXFragmentType`
   (`jsx.go:500`) → `resolveCall` on `React.Fragment`'s signatures with a
   children-only attributes type, error node the opening fragment. Not
-  ported here.
+  ported: in the one corpus case the props target is `React.Fragment`'s
+  managed conditional (`string extends keyof P ? P : Pick<…>`), which relates
+  `Unknown` (traced on the `<React.Fragment>` element of the same file, 7:47),
+  so a faithful port converts nothing yet.
 - **Children elaboration against intersection/union children types**
   (`checkJsxChildrenProperty4`, `jsxChildrenIndividualErrorElaborations`):
   `r4-jsx2.md` §5's declines (union children target needs
@@ -179,3 +210,53 @@ before the relation instead of after a failed one.
 - **Message text.** Optional members print without `| undefined` in some
   heads (`tsxAttributeResolution7`: native `"data-foo"?: string | undefined`);
   the printer, not this lane.
+
+## 7. TS2875: the automatic runtime's module does not resolve (`tsr-2zk.988`)
+
+**Forcing constraint.** `getJsxNamespaceContainerForImplicitImport`
+(`jsx.go:1451-1486`) resolves `getJSXRuntimeImportSpecifier`'s module
+reference through `resolveExternalModule` with TS2875 as the not-found
+message and `firstJSXTagInFile` as the error node, and caches the answer in
+the file's links. 17 configured rows in 7 cases (`jsx=react-jsx` /
+`react-jsxdev` keys, `docs/parity/notes/r5-variants2.md` §4.1 row 4) missed
+exactly that line.
+
+**Two halves.**
+
+1. *The specifier is per file* (`tsr-compiler/src/loader.rs`,
+   `jsx_runtime_import`). Upstream's loader adds the synthetic import from
+   `GetJSXRuntimeImport(GetJSXImplicitImportBase(options, file))`
+   (`fileloader.go:551`), so `@jsxImportSource` and `@jsxRuntime` choose
+   it. The loader read only the options, so a pragma's module was never
+   resolved; the parser has extracted both pragmas into `FileReferences` for
+   a while (the host's `jsx_implicit_import_base` already read them). The
+   function now takes the file's pragmas and mirrors
+   `GetJSXImplicitImportBase` line for line. This is outside the lane's
+   checker files (r5-loader's crate, a different function from its
+   fan-out change); it is the faithful home, and the report says so.
+2. *The report* (`jsx_factory.rs`, `check_jsx_runtime_module`, asked from
+   `check_jsx_component_bound` for every opening element, self-closing
+   element and opening fragment). It reports when no ambient module, no
+   resolution (`module_resolution_found`) and no pattern ambient module
+   answers, on the file's first JSX tag only. Upstream's per-file cache is
+   replaced by asking from the tag itself: `first_jsx_tag_in` walks the
+   file pre-order, entering only subtrees that start no later than the tag,
+   so the walk stops at the tag and runs only in a file whose runtime is
+   unresolved. The span is the tag node's own (a whole `JsxElement`, as
+   upstream's squiggle shows).
+
+**Not ported.** `resolveExternalModule`'s found-but-untyped arm (TS7016) and
+the alternate-result chain: any found resolution is silent.
+
+**Measured** (frozen baseline: integration head `2919d8c` merged into this
+branch). All 17 rows WRONG → RIGHT:
+`commentsOnJSXExpressionsArePreserved` ×6, `jsxFragmentFactoryReference` ×2,
+`jsxImportSourceNonPragmaComment`, `jsxJsxsCjsTransformCustomImport` ×2,
+`…CustomImportPragma` ×2, `…KeyPropCustomImport` ×2,
+`…KeyPropCustomImportPragma` ×2; `tsxSpreadChildrenInvalidType`
+(`jsx=react-jsx,target=es2015`) gains its TS2875 line and stays WRONG on its
+TS7026 lines. Every other row unchanged; no new wrong line; type lines
+unchanged (543,275 RIGHT). Perf against the frozen binary (median child CPU,
+21 samples): domain-model 0.929, generic-imports 0.773 (noise; no JSX in
+either project). `member_completeness::tests::parameter_properties_need_certified_optionality_for_a_complete_table`
+fails on the baseline too.

@@ -1,0 +1,54 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 6323fd9..58258ab 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -2035,6 +2035,8 @@ impl<'a, 'n> Checker<'a, 'n> {
+     }
+ 
+     fn type_to_string_at_worker(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
++        // typeToTypeNodeHelper reduces before printing (nodebuilderimpl.go:3228).
++        let id = self.get_reduced_type(id);
+         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
+             return Some(self.type_parameter_name_at(id, symbol, reference));
+         }
+--- a/crates/tsr-checker/src/intersections.rs	2026-10-08 10:43:29.425636393 +0000
++++ b/crates/tsr-checker/src/intersections.rs	2026-10-08 10:48:20.285826376 +0000
+@@ -271,6 +271,38 @@
+         result
+     }
+ 
++    /// `getReducedType` (`checker.go:21819`) and `getReducedUnionType`
++    /// (`:21843`): an intersection with a never-reduced property
++    /// (`isNeverReducedProperty`, `:21856`) is `never`, and a union containing
++    /// intersections is rebuilt from its reduced constituents. Native's node
++    /// builder applies it to every type it prints (`nodebuilderimpl.go:3228`).
++    pub(crate) fn get_reduced_type(&mut self, t: TypeId) -> TypeId {
++        match &self.store.get(t).data {
++            TypeData::Union { types, .. } => {
++                if !types
++                    .iter()
++                    .any(|&id| self.store.get(id).flags.contains(TypeFlags::INTERSECTION))
++                {
++                    return t;
++                }
++                let types = types.clone();
++                let reduced: Vec<_> = types.iter().map(|&id| self.get_reduced_type(id)).collect();
++                if reduced == types {
++                    return t;
++                }
++                self.get_union_type(&reduced)
++            }
++            TypeData::Intersection { .. } => {
++                if self.intersection_has_never_discriminant(t) {
++                    self.intrinsics.never
++                } else {
++                    t
++                }
++            }
++            _ => t,
++        }
++    }
++
+     /// The identity `removeConstrainedTypeVariables` (`checker.go:25881`)
+     /// compares a constraining intersection's primitive side by.
+     ///

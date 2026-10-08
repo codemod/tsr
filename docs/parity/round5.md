@@ -129,3 +129,107 @@ that ratio is per-file front-end speed: lazy JSDoc (`tsr-2zk.17.1`, main) and a
 pipelined bind (`tsr-2zk.1003`, an ADR-0003-level change). The new box
 `r5-classfields` takes the target- and useDefineForClassFields-gated class
 checks (`.987`).
+
+### r5-relater3 finished (+22 diagnostics cases); r5-relater4 dispatched (`tsr-2zk.1008`)
+
+r5-relater3 landed:
+- comparable optional-property arms;
+- the alias-variance gate;
+- isValidOverrideOf for protected targets;
+- inherited signatures as structural requirements;
+- namespace object types related over their exports.
+
+On the real-world projects it cleared every SearchResult and TracingNode
+false positive. It refused UNIQUE_ES_SYMBOL decidability at −3 cases, because
+unique-symbol identity is minted per node (`tsr-2zk.1005`). It also filed
+`.1006` and `.1007`. The new box `r5-relater4` keeps `relater.rs` for the
+census buckets `.976`, `.977`, `.978` and `.983`.
+
+### r5-errorsplit2 finished; decision on the gap rewrites; r5-errorsplit3 dispatched
+
+r5-errorsplit2 delivered:
+- `8d7a436`: checkIdentifier's deterministic errorType arms and requireSymbol
+  answer `native_error`, each verified against a native probe;
+- ADR-0048, which supersedes ADR-0038;
+- three landable diffs (empty-name, P4 alias symbols, flow TS2563), landed by
+  the integrator.
+
+**Decision.** The writer's gap→`any` rewrites are not narrowed wholesale. That
+would turn 5,063 RIGHT lines in 1,028 cases into GAP. They are narrowed per
+producer instead: when a producer is switched to `native_error`, its lines stop
+needing the rewrite. The gradient becomes honest step by step, and each step
+costs zero RIGHT lines.
+
+Why not narrow wholesale? The "no previously passing test regresses" rule is
+written against verdicts, and some of those 5,063 lines may be right for the
+right reason in places nobody has audited. Wholesale narrowing would discard
+those along with the falsely credited ones. Per-producer narrowing keeps the
+gate meaningful.
+
+How we would know this is wrong: the credited-gap count (`ceiling.rs`) stops
+falling while producers are being switched. That would mean the rewrites are
+covering lines no producer switch reaches.
+
+`r5-errorsplit3` (`tsr-2zk.1009`) is now the single owner of the contract. It
+audits `Checker::is_error`'s 201 call sites and propagates `native_error`
+through access, spread and destructuring.
+
+### r5-jsx3 finished (+9 diagnostics cases); r5-constraints2 dispatched (`tsr-2zk.1011`)
+
+r5-jsx3 `fc25cec` ported:
+- namespaced JSX names;
+- a narrower hyphenated-attribute rule;
+- the freshness-gated excess check;
+- generic spreads.
+
+Its largest remaining blocker is outside JSX. Alias references such as
+`React.DetailedHTMLProps<…>` enumerate as empty objects, which leaves about 29
+lines (`tsr-2zk.1010`). TS2875 (`.988`) is back to open. The new box
+`r5-constraints2` takes TS2344 (`checkTypeArgumentConstraints`,
+`constraints.rs`) and TS2403 (`identity.rs`).
+
+### r5-intersections finished (+122 type lines); r5-index4 dispatched (`tsr-2zk.1012`)
+
+r5-intersections `cd9cc81` handles a constraint's own `{}` for a constrained
+type variable. TSR mints one `{}` per written literal where native shares one
+`emptyTypeLiteralType`, so the constraint's `{}` has to be recorded. Its four
+measured diffs are landed by the integrator:
+- getReducedType on printed types (+94);
+- union-with-intersection-origin instantiation (+13);
+- the base-constraint reduction with the getStringMappingType arm (+4);
+- the shared empty type literal (+3).
+
+Alias naming of single-constituent intersections, and alias references that
+enumerate as empty (`tsr-2zk.1010`), go to `r5-typeparams2` (`declared.rs`).
+The new box `r5-index4` takes the index-signature and index-access reports.
+
+### r5-iteration finished (+5 diagnostics cases); r5-tables dispatched (`tsr-2zk.1014`)
+
+r5-iteration ported:
+- checkNonNullExpression on for-of operands;
+- the error node through the slow iteration protocol (TS1320/TS2490/TS2767);
+- the sent-type check (TS2763–2766);
+- iteration over the reduced type.
+
+It also found that the two "known failing" workspace tests have passed since
+round 4.
+
+Its blockers are member lookups: inherited members through type-argument
+bases (`tsr-2zk.1013`, `members.rs`, main's), object-literal tables with
+computed names, and the destructuring parameter road. The new box `r5-tables`
+takes the last two (`member_completeness.rs`, `destructure.rs`).
+
+### r5-modfmt finished (+59 diagnostics rows); r5-sigs dispatched (`tsr-2zk.1021`)
+
+r5-modfmt ported:
+- the module-format grammar checks gated on each file's emit format
+  (`module_format.rs`, `.985`);
+- readers for `allowUmdGlobalAccess`, `erasableSyntaxOnly` and
+  `noFallthroughCasesInSwitch` (`.993`).
+
+Its `moduleDetection: force` diff touches the same once-per-file module
+indicator as r5-modules' `import.meta` work, so it goes to `r5-modules` and the
+indicator keeps a single owner. Its remainder is filed as `.1018`–`.1020`. The
+new box `r5-sigs` takes `.1016`, written-annotation reuse under type-parameter
+renaming, which unblocks r5-typeparams2's +148 lines, and `.1015`,
+async-generator `next` inference.

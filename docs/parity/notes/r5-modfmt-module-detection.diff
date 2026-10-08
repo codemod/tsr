@@ -1,0 +1,287 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index d6da683e..bbb14680 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -250,6 +250,14 @@ pub(crate) struct Binder<'a, 'n> {
+     /// *parser* recorded; see [`is_external_module`] for why the binder computes
+     /// it instead.
+     is_module: bool,
++    /// `ExternalModuleIndicatorOptions.Force` (`ast/parseoptions.go:19`):
++    /// the program's `moduleDetection` makes this non-declaration file a
++    /// module whatever its statements.
++    force_module: bool,
++    /// `ExternalModuleIndicator == file`: module-ness came from `Force`,
++    /// which does not stop a CommonJS indicator (`setCommonJSModuleIndicator`,
++    /// `binder.go:927`).
++    module_indicator_is_file: bool,
+     /// Names a UMD module claims globally (`export as namespace N`).
+     ///
+     /// Upstream's `file.GlobalExports`. Separate from the module's exports
+@@ -371,6 +379,19 @@ impl<'a, 'n> Binder<'a, 'n> {
+         info: FileInfo<'a>,
+         jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
+         range: std::ops::Range<u32>,
++    ) -> crate::FileBindResult<'a, 'n> {
++        Self::bind_independent_forcing(names, nodes, file, info, jsdoc, range, false)
++    }
++
++    /// [`Binder::bind_independent`] with the parser's `Force` indicator option.
++    pub(crate) fn bind_independent_forcing(
++        names: &'n crate::PreparedNames<'a>,
++        nodes: &'n NodeTable,
++        file: &'a SourceFile<'a>,
++        info: FileInfo<'a>,
++        jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
++        range: std::ops::Range<u32>,
++        force_module: bool,
+     ) -> crate::FileBindResult<'a, 'n> {
+         assert!(
+             range.start <= range.end && range.end as usize <= nodes.len(),
+@@ -387,6 +408,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             range.start as usize,
+             (range.end - range.start) as usize,
+         )
++        .forcing_module(force_module)
+         .bind_file_body(file, info, jsdoc);
+         assert!(binder.global_exports.is_empty(), "UMD alias declarations require ordered binding");
+         let root = file.node_id.expect("registered source file");
+@@ -610,6 +632,8 @@ impl<'a, 'n> Binder<'a, 'n> {
+             expando_assignments: Vec::new(),
+             expando_initializers: rustc_hash::FxHashMap::default(),
+             is_module: false,
++            force_module: false,
++            module_indicator_is_file: false,
+             global_exports,
+             globals,
+             merged,
+@@ -655,6 +679,12 @@ impl<'a, 'n> Binder<'a, 'n> {
+         self.bind_source_file_with_jsdoc(file, info, &[])
+     }
+ 
++    /// Set the `Force` external-module-indicator option for the next file.
++    pub(crate) fn forcing_module(mut self, force_module: bool) -> Self {
++        self.force_module = force_module;
++        self
++    }
++
+     pub(crate) fn bind_source_file_with_jsdoc(
+         self,
+         file: &'a SourceFile<'a>,
+@@ -697,7 +727,14 @@ impl<'a, 'n> Binder<'a, 'n> {
+         self.in_declaration_file = is_declaration_file(file_name);
+         self.export_context = self.in_declaration_file && !file_has_export_declarations(file);
+         self.in_js_file = is_javascript_file(file_name);
+-        self.is_module = is_external_module(file);
++        // `getExternalModuleIndicator` (`ast/parseoptions.go:60`): module
++        // syntax, else — not for a declaration or JSON file — `Force`.
++        let syntactic_module = is_external_module(file);
++        self.module_indicator_is_file = !syntactic_module;
++        self.is_module = syntactic_module
++            || (self.force_module
++                && !self.in_declaration_file
++                && !file_name.to_ascii_lowercase().ends_with(".json"));
+         self.file_node = root_id;
+         self.file_symbol_name = remove_file_extension(file_name);
+         if self.is_module {
+@@ -3543,13 +3580,17 @@ impl<'a, 'n> Binder<'a, 'n> {
+     /// `module.exports` entirely — it is an ordinary assignment to a global
+     /// there — so the first test is that the file is not already one.
+     fn set_commonjs_module_indicator(&mut self) -> bool {
+-        if self.is_module {
++        if self.is_module && !self.module_indicator_is_file {
+             return false;
+         }
+         if !self.commonjs_module {
+             self.commonjs_module = true;
+-            let file = self.file_node;
+-            self.bind_source_file_as_external_module(file);
++            // `if b.file.ExternalModuleIndicator == nil`: a forced module
++            // already has its file symbol.
++            if !self.is_module {
++                let file = self.file_node;
++                self.bind_source_file_as_external_module(file);
++            }
+         }
+         true
+     }
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index ff57ad96..56907662 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -210,6 +210,30 @@ pub fn bind_file<'a, 'n>(
+     binder::Binder::bind_independent(names, nodes, file, info, jsdoc, node_range)
+ }
+ 
++/// [`bind_file`] under `moduleDetection`'s `Force` indicator option
++/// (`ast.GetExternalModuleIndicatorOptions`): a non-declaration file binds as
++/// a module whatever its statements.
++#[allow(clippy::too_many_arguments)]
++pub fn bind_file_forcing_module<'a, 'n>(
++    names: &'n PreparedNames<'a>,
++    nodes: &'n NodeTable,
++    file: &'a SourceFile<'a>,
++    info: FileInfo<'a>,
++    jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
++    node_range: std::ops::Range<u32>,
++    force_module: bool,
++) -> FileBindResult<'a, 'n> {
++    binder::Binder::bind_independent_forcing(
++        names,
++        nodes,
++        file,
++        info,
++        jsdoc,
++        node_range,
++        force_module,
++    )
++}
++
+ impl<'a> BindResult<'a> {
+     /// Publish one completed file in program order, including the ordered
+     /// global merge and first-file synthetic undefined boundary.
+@@ -1646,6 +1670,22 @@ pub fn bind_into_with_jsdoc<'a>(
+     binder::Binder::resuming(arena, nodes, previous).bind_source_file_with_jsdoc(file, info, jsdoc)
+ }
+ 
++/// [`bind_into_with_jsdoc`] under the `Force` indicator option
++/// ([`bind_file_forcing_module`]).
++pub fn bind_into_with_jsdoc_forcing_module<'a>(
++    previous: BindResult<'a>,
++    arena: &'a tsr_core::Arena,
++    file: &'a SourceFile<'a>,
++    nodes: &NodeTable,
++    info: FileInfo<'a>,
++    jsdoc: &[(NodeId, &'a [&'a tsr_ast::JSDoc<'a>])],
++    force_module: bool,
++) -> BindResult<'a> {
++    binder::Binder::resuming(arena, nodes, previous)
++        .forcing_module(force_module)
++        .bind_source_file_with_jsdoc(file, info, jsdoc)
++}
++
+ #[cfg(test)]
+ mod ambient_lookup_tests {
+     use super::{BindResult, SymbolFlags};
+diff --git a/crates/tsr-compiler/src/lib.rs b/crates/tsr-compiler/src/lib.rs
+index 61c03649..a083173f 100644
+--- a/crates/tsr-compiler/src/lib.rs
++++ b/crates/tsr-compiler/src/lib.rs
+@@ -466,6 +466,13 @@ impl<'a> Program<'a> {
+         program
+     }
+ 
++    /// `GetExternalModuleIndicatorOptions(fileName, options, metadata).Force`
++    /// (`ast/parseoptions.go:19`) for the file at `index`.
++    fn force_module_indicator(&self, index: usize) -> bool {
++        let Some(metadata) = self.meta_datas.get(index) else { return false };
++        loader::force_module_indicator(&self.options, self.files[index].file_name(), metadata)
++    }
++
+     /// Bind every file that is not bound (`Program.BindSourceFiles`).
+     ///
+     /// Workers bind independent files into private symbols and flow graphs.
+@@ -485,6 +492,10 @@ impl<'a> Program<'a> {
+             front_end::workers(&self.options, files.len())
+         };
+         if workers > 1 {
++            let force: Vec<bool> = (self.bound_file_count..self.files.len())
++                .map(|index| self.force_module_indicator(index))
++                .collect();
++            let files = &self.files[self.bound_file_count..];
+             let names = tsr_binder::PreparedNames::new(arena, &self.node_map);
+             let nodes = &self.nodes;
+             let node_map = &self.node_map;
+@@ -494,7 +505,7 @@ impl<'a> Program<'a> {
+                 files,
+                 workers,
+                 front_end::Lookahead::All,
+-                |_, file| {
++                |index, file| {
+                     // UMD declarations can reuse an earlier file's alias while
+                     // declaring it. Keep that small ordered subset on the caller.
+                     let ordered = file.node_range().any(|id| {
+@@ -507,13 +518,14 @@ impl<'a> Program<'a> {
+                         return None;
+                     }
+                     let jsdoc: Vec<_> = file.jsdoc().iter().collect();
+-                    Some(tsr_binder::bind_file(
++                    Some(tsr_binder::bind_file_forcing_module(
+                         &names,
+                         nodes,
+                         file.source_file(),
+                         FileInfo { name: file.file_name(), text: file.text() },
+                         &jsdoc,
+                         file.node_range(),
++                        force[index],
+                     ))
+                 },
+                 |index, local| {
+@@ -523,13 +535,14 @@ impl<'a> Program<'a> {
+                     } else {
+                         let file = &files[index];
+                         let jsdoc: Vec<_> = file.jsdoc().iter().collect();
+-                        tsr_binder::bind_into_with_jsdoc(
++                        tsr_binder::bind_into_with_jsdoc_forcing_module(
+                             previous,
+                             arena,
+                             file.source_file(),
+                             nodes,
+                             FileInfo { name: file.file_name(), text: file.text() },
+                             &jsdoc,
++                            force[index],
+                         )
+                     };
+                     diagnostic_ends.push(binder.diagnostics().len());
+@@ -543,13 +556,15 @@ impl<'a> Program<'a> {
+             let file = &self.files[index];
+             let previous = std::mem::replace(&mut self.binder, BindResult::empty());
+             let jsdoc: Vec<_> = file.jsdoc().iter().collect();
+-            self.binder = tsr_binder::bind_into_with_jsdoc(
++            let force_module = self.force_module_indicator(index);
++            self.binder = tsr_binder::bind_into_with_jsdoc_forcing_module(
+                 previous,
+                 arena,
+                 file.source_file(),
+                 &self.nodes,
+                 FileInfo { name: file.file_name(), text: file.text() },
+                 &jsdoc,
++                force_module,
+             );
+             self.bind_diagnostic_ends.push(self.binder.diagnostics().len());
+         }
+diff --git a/crates/tsr-compiler/src/loader.rs b/crates/tsr-compiler/src/loader.rs
+index 8edc7fff..2d38003b 100644
+--- a/crates/tsr-compiler/src/loader.rs
++++ b/crates/tsr-compiler/src/loader.rs
+@@ -1968,6 +1968,31 @@ pub(crate) fn implied_node_format_for_emit(
+     ModuleKind::None
+ }
+ 
++/// `ast.GetExternalModuleIndicatorOptions(...).Force` (`ast/parseoptions.go:19`):
++/// under `moduleDetection: force` every non-declaration file is a module; under
++/// `auto`, one `isFileForcedToBeModuleByFormat` (`:46`). The `JSX` option arm
++/// is not ported: it asks the parser whether the file contains a JSX tag.
++pub(crate) fn force_module_indicator(
++    options: &CompilerOptions,
++    file_name: &str,
++    metadata: &SourceFileMetaData,
++) -> bool {
++    if tsr_path::is_declaration_file_name(file_name) {
++        return false;
++    }
++    match options.emit_module_detection_kind() {
++        tsr_core::ModuleDetectionKind::Force => true,
++        tsr_core::ModuleDetectionKind::Auto => {
++            implied_node_format_for_emit(options, file_name, metadata) == ModuleKind::ESNext
++                || file_extension_is_one_of(
++                    file_name,
++                    &[EXTENSION_CJS, EXTENSION_CTS, EXTENSION_MJS, EXTENSION_MTS],
++                )
++        }
++        _ => false,
++    }
++}
++
+ /// `ast.GetEmitModuleFormatOfFileWorker`.
+ fn emit_module_format_of_file(
+     options: &CompilerOptions,

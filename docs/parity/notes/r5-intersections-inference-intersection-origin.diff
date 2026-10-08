@@ -1,0 +1,30 @@
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 9b01307..cc9e2ed 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5619,6 +5619,25 @@ impl<'a> Checker<'a, '_> {
+         if self.mapped_types.contains_key(&id) {
+             return self.instantiate_mapped_type(id, map, parameters, names);
+         }
++        // instantiateTypeWorker (checker.go): a union whose origin is an
++        // intersection instantiates the origin's constituents and rebuilds
++        // with getIntersectionType, so `T & ({} | undefined)` re-reduces
++        // under the mapper instead of keeping its distributed form.
++        if matches!(self.store.get(id).data, TypeData::Union { symbol: None, .. })
++            && let Some([origin]) = self.union_origin.get(&id).map(Vec::as_slice)
++            && let TypeData::Intersection { types, symbol: None, .. } =
++                self.store.get(*origin).data.clone()
++        {
++            let mut substituted = Vec::with_capacity(types.len());
++            for constituent in types {
++                let image = self.instantiate_type(constituent, map, parameters, names);
++                if image == error {
++                    return error;
++                }
++                substituted.push(image);
++            }
++            return self.get_intersection_type(&substituted, None);
++        }
+         if let TypeData::Union { types, .. } = &self.store.get(id).data {
+             let types = types.clone();
+             let mut substituted = Vec::with_capacity(types.len());

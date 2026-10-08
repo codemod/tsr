@@ -1,0 +1,312 @@
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index bd5b7c3..d587dc2 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -3105,7 +3105,40 @@ impl Relater<'_, '_, '_> {
+             let parts = constituents
+                 .iter()
+                 .map(|&c| self.is_related_to_with_flags(source, c, RecursionFlags::TARGET));
+-            return RelationResult::any(parts);
++            let result = RelationResult::any(parts);
++            // structuredTypeRelatedToWorker's tail (relater.go:3889-3897): an
++            // object or intersection source that no single constituent
++            // admits may still relate to the target's object-only part
++            // (extractTypesOfKind, a union only with two or more members)
++            // through its discriminant combinations.
++            if !result.is_success()
++                && self
++                    .checker
++                    .type_of(source)
++                    .flags
++                    .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION)
++            {
++                let object_only: Vec<_> = constituents
++                    .iter()
++                    .copied()
++                    .filter(|&c| {
++                        self.checker.type_of(c).flags.intersects(
++                            TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::SUBSTITUTION,
++                        )
++                    })
++                    .collect();
++                if object_only.len() > 1 {
++                    let discriminated =
++                        self.type_related_to_discriminated_type(source, &object_only);
++                    if discriminated.is_success() {
++                        return discriminated;
++                    }
++                    if discriminated == RelationResult::Unknown {
++                        return RelationResult::Unknown;
++                    }
++                }
++            }
++            return result;
+         }
+         let source_intersection_result = if let Some(constituents) =
+             self.intersection_constituents(source)
+@@ -4106,7 +4139,21 @@ impl Relater<'_, '_, '_> {
+         target: TypeId,
+         optionals_only: bool,
+     ) -> RelationResult {
+-        let Some(names) = self.checker.get_property_names_of_type(target) else {
++        self.properties_related_to_excluding(source, target, optionals_only, &[])
++    }
++
++    /// `propertiesRelatedTo`'s `excludedProperties` parameter
++    /// (relater.go:4110): target properties named in `excluded` are skipped,
++    /// as `typeRelatedToDiscriminatedType` skips the discriminants it has
++    /// already matched.
++    fn properties_related_to_excluding(
++        &mut self,
++        source: TypeId,
++        target: TypeId,
++        optionals_only: bool,
++        excluded: &[String],
++    ) -> RelationResult {
++        let Some(mut names) = self.checker.get_property_names_of_type(target) else {
+             // Row 1 of `checker-notes-assign.md` §2: the target's inherited
+             // requirements could not be *enumerated*, so no verdict about them
+             // is available in either direction.
+@@ -4155,6 +4202,7 @@ impl Relater<'_, '_, '_> {
+                 return RelationResult::NotRelated;
+             }
+         }
++        names.retain(|name| !excluded.contains(name));
+         let mut parts = Vec::with_capacity(names.len());
+         for name in names {
+             let target_metadata = self.property_flags(target, &name);
+@@ -4446,6 +4494,234 @@ impl Relater<'_, '_, '_> {
+     /// The clone is what ADR-0013 buys: nothing may hold a borrow of the store
+     /// across the recursive call that follows, and a constituent list is a
+     /// handful of 4-byte handles.
++    /// `typeRelatedToDiscriminatedType` (relater.go:3989): `source` relates
++    /// to the union of `targets` when every combination of its discriminant
++    /// property types (those `isDiscriminantProperty` of the target, at most
++    /// 25 combinations) matches some constituent, and every matched
++    /// constituent's remaining properties, signatures and indexes relate.
++    /// `Unknown` when a member this port cannot read stands in the way.
++    fn type_related_to_discriminated_type(
++        &mut self,
++        source: TypeId,
++        targets: &[TypeId],
++    ) -> RelationResult {
++        let Some(source_names) = self.checker.get_property_names_of_type(source) else {
++            return RelationResult::Unknown;
++        };
++        let mut discriminants = Vec::new();
++        for name in source_names {
++            match self.is_discriminant_of(targets, &name) {
++                Some(true) => discriminants.push(name),
++                Some(false) => {}
++                None => return RelationResult::Unknown,
++            }
++        }
++        if discriminants.is_empty() {
++            return RelationResult::NotRelated;
++        }
++        let mut combinations_count = 1usize;
++        let mut discriminant_types = Vec::with_capacity(discriminants.len());
++        for name in &discriminants {
++            let Some(property_type) = self.checker.get_type_of_property_of_type(source, name) else {
++                return RelationResult::Unknown;
++            };
++            // getNonMissingTypeOfSymbol, then Distributed().
++            let property_type = self.checker.remove_missing_type(property_type);
++            let types = self.union_constituents(property_type).unwrap_or_else(|| vec![property_type]);
++            combinations_count *= types.len();
++            if combinations_count > 25 || combinations_count == 0 {
++                return RelationResult::NotRelated;
++            }
++            discriminant_types.push(types);
++        }
++        // Stated divergence (`docs/parity/notes/r5-relater3.md` §10): with a
++        // single combination every discriminant is one type, and the walk
++        // repeats the per-constituent relation the union arm has just made.
++        // Native's isDeeplyNestedType cuts that repetition on expanding
++        // generic recursion (`Either<L, (a: A) => B>`); this port's stack does
++        // not, and the repetition doubled at every level
++        // (`varianceProblingAndZeroOrderIndexSignatureRelationsAlign` ran out
++        // of memory). Only a union discriminant is decomposed.
++        if combinations_count == 1 {
++            return RelationResult::NotRelated;
++        }
++        let mut matching = Vec::new();
++        let mut unknown = false;
++        for index in 0..combinations_count {
++            let mut combination: Vec<TypeId> = discriminant_types.iter().map(|types| types[0]).collect();
++            let mut n = index;
++            for (slot, types) in discriminant_types.iter().enumerate().rev() {
++                combination[slot] = types[n % types.len()];
++                n /= types.len();
++            }
++            let mut has_match = false;
++            'targets: for &target in targets {
++                for (name, &discriminant) in discriminants.iter().zip(&combination) {
++                    let Some(target_property) = self.checker.get_property_of_type(target, name)
++                    else {
++                        continue 'targets;
++                    };
++                    let Some(source_property) = self.checker.get_property_of_type(source, name)
++                    else {
++                        unknown = true;
++                        continue 'targets;
++                    };
++                    if source_property == target_property {
++                        continue;
++                    }
++                    match self.discriminant_property_related_to(
++                        source,
++                        target,
++                        name,
++                        source_property,
++                        target_property,
++                        discriminant,
++                    ) {
++                        RelationResult::NotRelated => continue 'targets,
++                        RelationResult::Unknown => {
++                            unknown = true;
++                            continue 'targets;
++                        }
++                        _ => {}
++                    }
++                }
++                if !matching.contains(&target) {
++                    matching.push(target);
++                }
++                has_match = true;
++            }
++            if !has_match {
++                return if unknown { RelationResult::Unknown } else { RelationResult::NotRelated };
++            }
++        }
++        let source_tuple = self.is_tuple_type(source);
++        let mut parts = Vec::new();
++        for target in matching {
++            let properties =
++                self.properties_related_to_excluding(source, target, false, &discriminants);
++            if properties == RelationResult::NotRelated {
++                return properties;
++            }
++            let signatures = if self.call_or_construct_bearing(target) {
++                self.related_signatures(source, target).unwrap_or(RelationResult::Unknown)
++            } else {
++                RelationResult::Related
++            };
++            if signatures == RelationResult::NotRelated {
++                return signatures;
++            }
++            let indexes = if source_tuple && self.is_tuple_type(target) {
++                RelationResult::Related
++            } else {
++                self.related_index_signatures(source, target).unwrap_or(RelationResult::Unknown)
++            };
++            if indexes == RelationResult::NotRelated {
++                return indexes;
++            }
++            parts.extend([properties, signatures, indexes]);
++        }
++        RelationResult::all(parts)
++    }
++
++    /// `propertyRelatedTo` (relater.go:4270) with the source property read
++    /// as one discriminant type, `skipOptional` under strictNullChecks or
++    /// comparability, as `typeRelatedToDiscriminatedType` calls it.
++    fn discriminant_property_related_to(
++        &mut self,
++        source: TypeId,
++        target: TypeId,
++        name: &str,
++        source_property: SymbolId,
++        target_property: SymbolId,
++        discriminant: TypeId,
++    ) -> RelationResult {
++        let private = tsr_ast::SyntaxKind::PrivateKeyword;
++        let protected = tsr_ast::SyntaxKind::ProtectedKeyword;
++        if self.checker.property_has_modifier(source_property, private)
++            || self.checker.property_has_modifier(target_property, private)
++        {
++            let symbols = self.checker.binder.symbols();
++            let source_declaration = symbols.get(source_property).value_declaration;
++            if source_declaration.is_none()
++                || source_declaration != symbols.get(target_property).value_declaration
++            {
++                return RelationResult::NotRelated;
++            }
++        } else if self.checker.property_has_modifier(target_property, protected) {
++            let valid = self.is_valid_override_of(source_property, target_property);
++            if valid != RelationResult::Related {
++                return valid;
++            }
++        } else if self.checker.property_has_modifier(source_property, protected) {
++            return RelationResult::NotRelated;
++        }
++        let source_flags = self.property_flags(source, name);
++        let target_flags = self.property_flags(target, name);
++        if self.relation == Relation::StrictSubtype
++            && source_flags.is_some_and(|flags| flags.1)
++            && target_flags.is_some_and(|flags| !flags.1)
++        {
++            return RelationResult::NotRelated;
++        }
++        let Some(target_type) = self.checker.get_type_of_property_of_type(target, name) else {
++            return RelationResult::Unknown;
++        };
++        let target_type = self.checker.remove_missing_type(target_type);
++        let related = self.is_related_to(discriminant, target_type);
++        if related == RelationResult::NotRelated {
++            return related;
++        }
++        let skip_optional =
++            self.checker.strict_null_checks || self.relation == Relation::Comparable;
++        if !skip_optional && target_flags.is_some_and(|flags| !flags.0) {
++            match source_flags {
++                Some((true, _)) => return RelationResult::NotRelated,
++                None => return RelationResult::Unknown,
++                Some(_) => {}
++            }
++        }
++        related
++    }
++
++    /// `isDiscriminantProperty` (relater.go:1087) over the constituents of
++    /// a union: the (possibly partial) union property has non-uniform types,
++    /// at least one of them a literal, and is not generic. `None` when a
++    /// constituent's property type cannot be read.
++    fn is_discriminant_of(&mut self, targets: &[TypeId], name: &str) -> Option<bool> {
++        let mut first = None;
++        let mut non_uniform = false;
++        let mut has_literal = false;
++        for &target in targets {
++            let Some(property_type) = self.checker.get_type_of_property_of_type(target, name)
++            else {
++                continue;
++            };
++            if self.checker.is_error(property_type) {
++                return None;
++            }
++            match first {
++                None => first = Some(property_type),
++                Some(first) if first != property_type => non_uniform = true,
++                Some(_) => {}
++            }
++            if self.checker.is_literal_type(property_type)
++                || self.checker.is_pattern_template(property_type)
++            {
++                has_literal = true;
++            }
++            if self.checker.type_of(property_type).flags.intersects(TypeFlags::TYPE_PARAMETER) {
++                return Some(false);
++            }
++        }
++        Some(first.is_some() && non_uniform && has_literal)
++    }
++
++    /// `isTupleType`: a tuple type reference.
++    fn is_tuple_type(&self, id: TypeId) -> bool {
++        self.checker.tuple_element_lists.contains_key(&id)
++            || self.checker.variadic_tuple_elements.contains_key(&id)
++    }
++
+     fn union_constituents(&self, id: TypeId) -> Option<Vec<TypeId>> {
+         match &self.checker.type_of(id).data {
+             TypeData::Union { types, .. } => Some(types.clone()),

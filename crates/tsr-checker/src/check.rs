@@ -59,8 +59,8 @@ use crate::relater::{Relation, Ternary};
 use crate::types::TypeId;
 
 /// The written name of a class member, for the kinds an `abstract` member can
-/// take. Wider than [`class_member_shape`], which omits methods because its own
-/// caller asks a property-versus-accessor question. §761.
+/// take. Wider than the member reader TS2610's `class_member_shape` used, which
+/// omitted methods because its caller asked a property-versus-accessor question. §761.
 fn member_name_text(member: &tsr_ast::ClassElement<'_>) -> Option<String> {
     let name = match member {
         tsr_ast::ClassElement::PropertyDeclaration(p) => p.name,
@@ -298,6 +298,7 @@ impl Checker<'_, '_> {
                 self.check_members_for_override_modifier(node, ambient);
                 self.check_index_constraints(node);
                 self.check_object_type_for_duplicate_declarations(node);
+                self.check_class_static_property_names(node, declaration.members);
                 // `checkClassOrInterfaceForDuplicateIndexSignatures`
                 // (`checker.go:4389`), from `checkClassLikeDeclaration`.
                 self.check_duplicate_index_signatures(node);
@@ -773,6 +774,8 @@ impl Checker<'_, '_> {
                 self.check_identifier_assignment_target(node, ambient);
                 self.check_readonly_identifier_assignment(node, ambient);
                 self.check_parameter_self_reference(node, identifier.text);
+                self.check_parameter_reference_to_body_declaration(node, identifier.text);
+                self.check_reflect_collision(node, identifier.text);
                 self.check_value_identifier(node, identifier.text);
                 self.check_type_reference_name(node, identifier.text);
                 self.check_await_as_binding_name(node);
@@ -799,6 +802,7 @@ impl Checker<'_, '_> {
             _ => ambient,
         };
         self.check_unreachable(node, ambient);
+        self.check_module_format(node, typed, ambient);
         // `checkGrammarModifiers` runs on the declaration that carries the
         // list. Bounded to class elements and parameters — `defaultKeywordWithoutExport1`
         // is the statement-level shape and is declined, §103.
@@ -929,7 +933,7 @@ impl Checker<'_, '_> {
             self.check_modifier_order(node, modifiers);
         }
         self.check_grammar_heritage_clauses(typed);
-        self.check_override_kind(node, typed);
+        self.check_kinds_of_property_member_overrides(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
         }
@@ -1171,7 +1175,13 @@ impl Checker<'_, '_> {
     /// which is the only thing this rule adds to machinery already in place.
     /// §361.
     fn check_umd_global_reference(&mut self, node: NodeId, text: &str) {
-        if self.file_has_parse_errors || !self.is_value_reference(node) {
+        // `errorOrSuggestion(AllowUmdGlobalAccess != TSTrue, …)`
+        // (`checker.go:1846`): with the option on it is a suggestion, which
+        // no diagnostic list here carries (`r5-modfmt.md` §2).
+        if self.file_has_parse_errors
+            || self.module_format_options.allow_umd_global_access
+            || !self.is_value_reference(node)
+        {
             return;
         }
         // Upstream's guard is `meaning&SymbolFlagsValue == SymbolFlagsValue`
@@ -1595,30 +1605,10 @@ impl Checker<'_, '_> {
         }
         let Some(parent) = self.nodes.parent(node) else { return };
         let Some(Node::SourceFile(source)) = self.node_map.get(parent) else { return };
-        // TS1203: `export =` is not available when emitting ECMAScript modules.
-        // The fixtures set only `@target`, with no `@module` and no
-        // `package.json`, so `GetImpliedNodeFormatForEmit` answers the module
-        // kind itself and upstream's parenthesis reduces to the comparison
-        // below. §478.
-        // **The third conjunct.** Upstream (`checker.go:5671`) requires, for an
-        // **ambient** file, that the implied node format be `ESNext`; a
-        // `.d.cts` is CommonJS by extension and `export =` is what it is for.
-        // This port has no `impliedNodeFormat`, so an ambient file is declined
-        // outright — a strict subset of upstream, and silence rather than the
-        // four wrong lines `extraonly` was carrying. §783.
-        if self.module_kind >= tsr_core::ModuleKind::ES2015
-            && self.module_kind != tsr_core::ModuleKind::Preserve
-            && !self.file_is_ambient
-            && let Some(file) = self.source_file_of_for_diagnostics(node)
-        {
-            let span = self.nodes.span(node);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::EXPORT_ASSIGNMENT_CANNOT_BE_USED_WHEN_TARGETING_ECMASCRIPT_MODULES_CONSIDER_USING_EXPORT_DEFAULT_OR_ANOTHER_MODULE_FORMAT_INSTEAD,
-                    span,
-                ),
-            );
+        // TS1203 / TS1218: `checkExportAssignment`'s module-format tail
+        // (`checker.go:5669`), which reads the file's implied format for emit.
+        // §478, §783; `docs/parity/notes/r5-modfmt.md` §2.
+        if self.check_export_equals_module_format(node, parent, ambient) {
             return;
         }
         let exports_a_value = source.statements.iter().any(|statement| {
@@ -2937,16 +2927,21 @@ impl Checker<'_, '_> {
         };
         let symbol = self.binder.merged_symbol(symbol);
         let exports = &self.binder.symbols().get(symbol).exports;
-        if exports.is_empty()
-            || exports.contains_key("default")
-            || exports.contains_key(text.as_str())
-        {
+        if exports.is_empty() || exports.contains_key(text.as_str()) {
+            return;
+        }
+        // `exportDefaultSymbol = resolveExportByName(moduleSymbol, "default", …)`
+        // (`checker.go:14551`): through an `export =` value's properties, as
+        // `canHaveSyntheticDefault` below reads it.
+        if self.resolve_export_by_name(symbol, "default").is_some() {
             return;
         }
         // `exportDefaultSymbol == nil && !hasSyntheticDefault && !hasDefaultOnly`
         // (`checker.go:14566`) — the report is the **third** conjunct, and only
-        // the first was ported.
-        if self.can_have_synthetic_default(symbol) {
+        // the first was ported. `canHaveSyntheticDefault` is asked with the
+        // specifier as its usage, so the file formats decide under
+        // `node16`..`nodenext` (`r5-modfmt.md` §2.5).
+        if self.can_have_synthetic_default_for_usage(symbol, specifier) {
             return;
         }
         let printed = self.binder.symbols().get(symbol).name.to_string();
@@ -5220,6 +5215,13 @@ impl Checker<'_, '_> {
         node: NodeId,
         text: &str,
     ) -> Option<String> {
+        // `checkAndReportErrorForInvalidInitializer` (`checker.go:1514`) is a
+        // no-op under `GetEmitStandardClassFields`: the initializer is
+        // evaluated in the class scope, not the constructor's, so resolution
+        // goes on as usual. `docs/parity/notes/r5-classfields.md` §4.
+        if self.get_emit_standard_class_fields() {
+            return None;
+        }
         // Walk out to the property declaration, stopping at anything that
         // introduces its own `this` or its own scope boundary for this purpose.
         let mut at = self.nodes.parent(node)?;
@@ -7650,7 +7652,17 @@ impl Checker<'_, '_> {
                 Some(Node::StringLiteral(literal)) => literal.text.to_string(),
                 Some(Node::ComputedPropertyName(computed)) => match computed.expression {
                     Some(tsr_ast::Expression::StringLiteral(literal)) => literal.text.to_string(),
-                    _ => continue,
+                    // `tryGetNameFromType(getTypeOfExpression(node.Expression()))`:
+                    // a string or number literal type names the member
+                    // (`static [names.prototype]`). `r5-classfields.md` §5.
+                    Some(expression) => {
+                        let name_type = self.check_expression(expression);
+                        match self.property_name_from_index(name_type) {
+                            Some(text) => text,
+                            None => continue,
+                        }
+                    }
+                    None => continue,
                 },
                 _ => continue,
             };
@@ -9277,186 +9289,6 @@ impl Checker<'_, '_> {
     /// be optional`), so the rest test is the arm's guard rather than a bound
     /// this port chose — §103's rule that the `else if` order is the
     /// specification. §180.
-    /// The kind a base class or any of its own bases declares `name` as.
-    ///
-    /// `getPropertiesOfType(baseType)` includes inherited members; this walks
-    /// the `extends` chain to the same effect, bounded because the corpus
-    /// contains cyclic heritage. §708.
-    fn base_member_kind(&mut self, base: NodeId, name: &str) -> Option<MemberKind> {
-        let mut at = Some(base);
-        for _ in 0..MAX_ALIAS_HOPS {
-            let current = at?;
-            let Some(Node::ClassDeclaration(class)) = self.node_map.get(current) else {
-                return None;
-            };
-            if let Some((_, kind, _)) = class
-                .members
-                .iter()
-                .filter_map(|member| class_member_shape(*member))
-                .find(|(seen, _, _)| *seen == name)
-            {
-                return Some(kind);
-            }
-            let next = class
-                .heritage_clauses
-                .iter()
-                .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-                .and_then(|clause| clause.types.first())
-                .and_then(|base| base.expression)
-                .and_then(|expression| expression.node_id())
-                .and_then(|id| {
-                    let text = self.identifier_text(id).map(str::to_string)?;
-                    self.binder.resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        id,
-                        &text,
-                        SymbolFlags::CLASS,
-                    )
-                })
-                .and_then(|symbol| {
-                    self.binder.symbols().get(self.binder.merged_symbol(symbol)).value_declaration
-                });
-            at = next;
-        }
-        None
-    }
-
-    /// TS2610 / TS2611 — a member overridden as the *other* kind.
-    ///
-    /// `checkKindsOfPropertyMemberOverrides` (`checker.go:4626`). Upstream
-    /// reaches the pair through `getPropertiesOfType(baseType)`, but the
-    /// condition is about **declaration kinds** — a base property overridden by
-    /// a derived accessor, or the reverse — and both are in the tree once the
-    /// base class's declaration is resolved. §309.
-    fn check_override_kind(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let (clauses, members) = match typed {
-            Node::ClassDeclaration(class) => (class.heritage_clauses, class.members),
-            _ => return,
-        };
-        let Some(extends) =
-            clauses.iter().find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-        else {
-            return;
-        };
-        let Some(base) = extends.types.first() else { return };
-        let Some(tsr_ast::Expression::Identifier(name)) = base.expression else { return };
-        let Some(at) = name.node_id else { return };
-        let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, at, name.text, SymbolFlags::CLASS)
-        else {
-            return;
-        };
-        let symbol = self.binder.merged_symbol(symbol);
-        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else { return };
-        if !matches!(self.node_map.get(declaration), Some(Node::ClassDeclaration(_))) {
-            return;
-        }
-        let _ = node;
-        // **A `get`/`set` pair is one symbol upstream and two declarations
-        // here.** `accessorsOverrideProperty` wants one TS2611 per name and
-        // this reported one per accessor — six wrong lines, every one the
-        // second half of a pair. §310.
-        let mut reported: Vec<&str> = Vec::new();
-        // **A parameter property is a member.** `constructor(public p: string)`
-        // declares `p` on the class, and it is not in `members` — it is a
-        // parameter of a constructor that is. §708.
-        let mut shapes: Vec<(&str, MemberKind, NodeId)> =
-            members.iter().filter_map(|member| class_member_shape(*member)).collect();
-        for member in members {
-            let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = *member else {
-                continue;
-            };
-            for parameter in constructor.parameters {
-                let modifiers = parameter.modifiers;
-                let is_parameter_property =
-                    tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PublicKeyword)
-                        || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::PrivateKeyword)
-                        || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::ProtectedKeyword)
-                        || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::ReadonlyKeyword);
-                if !is_parameter_property {
-                    continue;
-                }
-                let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else { continue };
-                let Some(at) = name.node_id else { continue };
-                shapes.push((name.text, MemberKind::Property, at));
-            }
-        }
-        for (derived_name, derived_kind, derived_at) in shapes {
-            // `getPropertiesOfType(baseType)` includes **inherited** members,
-            // so the base chain is walked rather than the immediate base
-            // alone: `class C extends B extends A` finds `A`'s accessor with
-            // `B` empty. Bounded, because the corpus contains cyclic
-            // heritage. §708.
-            let Some(base_kind) = self.base_member_kind(declaration, derived_name) else {
-                continue;
-            };
-            // The method arms (`checker.go:4728-4740`): a method overridden by
-            // an accessor, or a property or accessor overridden by a method.
-            // Their arguments are ordered base class, member, derived class.
-            // A method overridden by a property is the one correct mixed case.
-            let (message, method_arm) = match (base_kind, derived_kind) {
-                (MemberKind::Property, MemberKind::Accessor) => (
-                    &messages::_0_IS_DEFINED_AS_A_PROPERTY_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_ACCESSOR,
-                    false,
-                ),
-                (MemberKind::Accessor, MemberKind::Property) => (
-                    &messages::_0_IS_DEFINED_AS_AN_ACCESSOR_IN_CLASS_1_BUT_IS_OVERRIDDEN_HERE_IN_2_AS_AN_INSTANCE_PROPERTY,
-                    false,
-                ),
-                (MemberKind::Method, MemberKind::Accessor) => (
-                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_FUNCTION_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_ACCESSOR,
-                    true,
-                ),
-                (MemberKind::Accessor, MemberKind::Method) => (
-                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_ACCESSOR_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_FUNCTION,
-                    true,
-                ),
-                (MemberKind::Property, MemberKind::Method) => (
-                    &messages::CLASS_0_DEFINES_INSTANCE_MEMBER_PROPERTY_1_BUT_EXTENDED_CLASS_2_DEFINES_IT_AS_INSTANCE_MEMBER_FUNCTION,
-                    true,
-                ),
-                _ => continue,
-            };
-            if reported.contains(&derived_name) {
-                continue;
-            }
-            reported.push(derived_name);
-            if method_arm {
-                let Some(file) = self.source_file_of_for_diagnostics(derived_at) else { continue };
-                let span = self.nodes.span(derived_at);
-                let derived_text = match typed {
-                    Node::ClassDeclaration(class) => class.name.map(|name| name.text.to_string()),
-                    _ => None,
-                };
-                let Some(derived_text) = derived_text else { continue };
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        message,
-                        span,
-                        [name.text.to_string(), derived_name.to_string(), derived_text],
-                    ),
-                );
-                continue;
-            }
-            let Some(file) = self.source_file_of_for_diagnostics(derived_at) else { continue };
-            let span = self.nodes.span(derived_at);
-            let base_text = name.text.to_string();
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    message,
-                    span,
-                    [derived_name.to_string(), base_text.clone(), base_text],
-                ),
-            );
-        }
-    }
-
     /// TS2481 — `Cannot initialize outer scoped variable '{0}' in the same
     /// scope as block scoped declaration '{1}'.`
     ///
@@ -14127,7 +13959,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(name) = class.name.and_then(|name| name.node_id) else { return };
-        // **A local enumeration, not `class_member_shape`.** That helper omits
+        // **A local enumeration, not `class_member_shape`.** That helper omitted
         // methods on purpose — it serves TS2610's property-versus-accessor
         // question — and widening it would move a measured rule to serve this
         // one. §686's lesson, applied before the measurement. §761.
@@ -14649,47 +14481,6 @@ const NODE_CORE_MODULES: &[&str] = &[
 /// `BigInt` arms (`grammarchecks.go:1978`).
 /// Every declaration kind that carries modifiers, for the grammar checks that
 /// scan them rather than asking about one. §280.
-/// Whether a class member is a plain property or an accessor, for §309.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum MemberKind {
-    Property,
-    Accessor,
-    Method,
-}
-
-/// A class member's name, kind and name-node, skipping `static` and `private`
-/// members — upstream skips a private on either side outright, and the rule is
-/// about instance members.
-fn class_member_shape(member: tsr_ast::ClassElement<'_>) -> Option<(&str, MemberKind, NodeId)> {
-    let (name, kind, modifiers) = match member {
-        tsr_ast::ClassElement::PropertyDeclaration(p) => {
-            (p.name, MemberKind::Property, p.modifiers)
-        }
-        tsr_ast::ClassElement::GetAccessorDeclaration(a) => {
-            (a.name, MemberKind::Accessor, a.modifiers)
-        }
-        tsr_ast::ClassElement::SetAccessorDeclaration(a) => {
-            (a.name, MemberKind::Accessor, a.modifiers)
-        }
-        tsr_ast::ClassElement::MethodDeclaration(m) => (m.name, MemberKind::Method, m.modifiers),
-        _ => return None,
-    };
-    if modifiers.iter().any(|modifier| {
-        matches!(
-            modifier,
-            tsr_ast::ModifierLike::Token(token)
-                if matches!(token.kind, SyntaxKind::StaticKeyword | SyntaxKind::PrivateKeyword)
-        )
-    }) {
-        return None;
-    }
-    let id = name.node_id()?;
-    match name {
-        tsr_ast::PropertyName::Identifier(identifier) => Some((identifier.text, kind, id)),
-        _ => None,
-    }
-}
-
 /// Types no signature resolution can make callable. §318.
 pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_>]> {
     Some(match typed {

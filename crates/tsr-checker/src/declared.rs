@@ -2065,6 +2065,15 @@ impl<'a> Checker<'a, '_> {
         if let Some(&ty) = self.type_literal_types.get(&key) {
             return ty;
         }
+        // getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode
+        // (checker.go:22938): a member-less literal no alias names is the one
+        // shared `emptyTypeLiteralType`, so every written `{}` is one identity.
+        let shared_empty =
+            node.members.is_empty() && self.type_alias_host_for_type_node(node_id).is_none();
+        if shared_empty && let Some(shared) = self.empty_type_literal_type {
+            self.type_literal_types.insert(key, shared);
+            return shared;
+        }
         // getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode installs the
         // object identity before member resolution. The current printer is
         // eager, so the reserved object carries the written recursive spelling.
@@ -2086,6 +2095,9 @@ impl<'a> Checker<'a, '_> {
         }
         self.store.complete_object(reserved, resolved);
         self.type_literal_origins.insert(reserved, node_id);
+        if shared_empty {
+            self.empty_type_literal_type = Some(reserved);
+        }
         if let Some(properties) = self.anonymous_properties.remove(&resolved) {
             self.anonymous_properties.insert(reserved, properties);
         }
@@ -8914,7 +8926,14 @@ impl<'a> Checker<'a, '_> {
     /// `type C<T> = ...; declare function C<T>(): C<T>;` lists the function
     /// first (`docs/parity/notes/r5-typeparams2.md` §4).
     pub(crate) fn type_alias_declaration_of(&self, symbol: SymbolId) -> Option<NodeId> {
-        self.binder.symbols().get(symbol).declarations.iter().copied().find(|&declaration| {
+        let data = self.binder.symbols().get(symbol);
+        // Every declaration the search can find binds `TYPE_ALIAS`; without
+        // the flag none exists, and the scan of a many-declaration lib symbol
+        // (`Array`) is skipped.
+        if !data.flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        data.declarations.iter().copied().find(|&declaration| {
             matches!(
                 self.node_map.get(declaration),
                 Some(

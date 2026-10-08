@@ -1,5 +1,5 @@
 diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
-index ad40738..3fc7d37 100644
+index ec66375..a461706 100644
 --- a/crates/tsr-checker/src/declared.rs
 +++ b/crates/tsr-checker/src/declared.rs
 @@ -8,10 +8,15 @@
@@ -46,7 +46,7 @@ index ad40738..3fc7d37 100644
                              let Some(owner) =
                                  parameter.node_id.and_then(|id| self.binder.symbol_of(id))
                              else {
-@@ -8906,6 +8911,110 @@ impl<'a> Checker<'a, '_> {
+@@ -8906,6 +8911,130 @@ impl<'a> Checker<'a, '_> {
          Some(keys)
      }
  
@@ -67,35 +67,55 @@ index ad40738..3fc7d37 100644
 +    /// (`docs/parity/notes/r4-typeparams.md` §1).
 +    pub(crate) fn local_type_parameters_of(&self, symbol: SymbolId) -> LocalTypeParameters<'a> {
 +        let declarations = &self.binder.symbols().get(symbol).declarations;
-+        // One declaration with at most one parameter needs neither merging nor
-+        // de-duplication: the declaration's own list is the answer, and reading
-+        // it is cheaper than the memo probe.
 +        match declarations.as_slice() {
-+            [] => return Cow::Borrowed(&[]),
++            [] => Cow::Borrowed(&[]),
++            // One declaration with at most one parameter needs neither merging
++            // nor de-duplication (`class C<T, T>` answers `C<T>`), and reading
++            // it is cheaper than a probe.
 +            [declaration] => {
 +                let parameters = self.declared_type_parameters_of(*declaration);
 +                if parameters.len() <= 1 {
 +                    return parameters;
 +                }
++                self.merged_local_type_parameters(symbol, declarations)
 +            }
-+            _ => {}
++            _ => self.merged_local_type_parameters(symbol, declarations),
 +        }
++    }
++
++    /// [`Self::local_type_parameters_of`] for a symbol with several
++    /// declarations or parameters, through the per-symbol memo.
++    fn merged_local_type_parameters(
++        &self,
++        symbol: SymbolId,
++        declarations: &[NodeId],
++    ) -> LocalTypeParameters<'a> {
 +        // Native computes the list once, in `getDeclaredTypeOfClassOrInterface`
 +        // / `getDeclaredTypeOfTypeAlias`, and keeps it on the symbol's links
 +        // (`r5-typeparams2.md` §2).
-+        let link = self.perf_links.local_type_parameters.borrow().get(&symbol).cloned();
-+        let link = match link {
-+            Some(link) => link,
-+            None => {
-+                let link = self.compute_local_type_parameters(declarations);
-+                self.perf_links.local_type_parameters.borrow_mut().insert(symbol, link.clone());
-+                link
-+            }
-+        };
++        let index = symbol.index();
++        if let Some(Some(link)) = self.perf_links.local_type_parameters.borrow().get(index) {
++            return self.local_type_parameters_from_link(link);
++        }
++        let link = self.compute_local_type_parameters(declarations);
++        let parameters = self.local_type_parameters_from_link(&link);
++        let mut memo = self.perf_links.local_type_parameters.borrow_mut();
++        if memo.len() <= index {
++            memo.resize(index + 1, None);
++        }
++        memo[index] = Some(link);
++        parameters
++    }
++
++    /// Decode a [`LocalTypeParametersLink`] back to the arena's declarations.
++    fn local_type_parameters_from_link(
++        &self,
++        link: &LocalTypeParametersLink,
++    ) -> LocalTypeParameters<'a> {
 +        match link {
 +            LocalTypeParametersLink::Empty => Cow::Borrowed(&[]),
 +            LocalTypeParametersLink::Declared(declaration) => {
-+                self.declared_type_parameters_of(declaration)
++                self.declared_type_parameters_of(*declaration)
 +            }
 +            LocalTypeParametersLink::Merged(parameters) => Cow::Owned(
 +                parameters
@@ -157,7 +177,7 @@ index ad40738..3fc7d37 100644
      /// The type-alias declaration of `symbol`: `getDeclaredTypeOfTypeAlias`'s
      /// `core.Find(symbol.Declarations, ast.IsEitherTypeAliasDeclaration)`
      /// (`checker.go:23845`). Not the first declaration — a type alias merges
-@@ -8926,36 +9035,63 @@ impl<'a> Checker<'a, '_> {
+@@ -8933,36 +9062,63 @@ impl<'a> Checker<'a, '_> {
          })
      }
  
@@ -247,7 +267,7 @@ index ad40738..3fc7d37 100644
      /// The JSDoc comment whose `@typedef`/`@callback` tag declares `symbol` —
      /// the tag's parent, as in native's tree, where the reparsed alias also
      /// gathers that comment's `@template` tags.
-@@ -9016,7 +9152,7 @@ impl<'a> Checker<'a, '_> {
+@@ -9023,7 +9179,7 @@ impl<'a> Checker<'a, '_> {
      ) -> Option<Vec<(TypeId, String)>> {
          let declarations = self.local_type_parameters_of(symbol);
          let mut parameters = Vec::with_capacity(declarations.len());
@@ -256,7 +276,7 @@ index ad40738..3fc7d37 100644
              let name = declaration.name?.text.to_string();
              let parameter = declaration.node_id.and_then(|id| self.binder.symbol_of(id))?;
              let declared = self.get_declared_type_of_symbol(parameter);
-@@ -9029,6 +9165,39 @@ impl<'a> Checker<'a, '_> {
+@@ -9036,6 +9192,39 @@ impl<'a> Checker<'a, '_> {
      }
  }
  
@@ -297,10 +317,10 @@ index ad40738..3fc7d37 100644
  ///
  /// A function type is parenthesised as an array element; an object type with a
 diff --git a/crates/tsr-checker/src/perf_links.rs b/crates/tsr-checker/src/perf_links.rs
-index 7349f2a..51beae1 100644
+index 7349f2a..0f36b49 100644
 --- a/crates/tsr-checker/src/perf_links.rs
 +++ b/crates/tsr-checker/src/perf_links.rs
-@@ -57,6 +57,31 @@ pub(crate) struct PerfLinks {
+@@ -57,6 +57,32 @@ pub(crate) struct PerfLinks {
      pub(crate) late_bound_active: FxHashSet<(SymbolId, bool)>,
      /// Reused buffer for [`Checker::memo_frames`]' scope owners.
      owners_scratch: Vec<NodeId>,
@@ -308,7 +328,9 @@ index 7349f2a..51beae1 100644
 +    // ---- r5-typeparams2 (`tsr-2zk.966`): kept apart from the r4-perf
 +    // tables above so the two lanes' edits do not interleave. ----
 +    /// A class's, interface's or type alias's local type-parameter list,
-+    /// keyed by the symbol whose declarations are read: native
++    /// indexed by the symbol whose declarations are read (dense: the hot
++    /// reader, `global_type_symbol_with_arity`, probes it ~300k times on
++    /// domain-model-large, where a hash probe measured +0.3% Ir): native
 +    /// `getDeclaredTypeOfClassOrInterface` / `getDeclaredTypeOfTypeAlias`
 +    /// storing `getLocalTypeParametersOfClassOrInterfaceOrTypeAlias` on the
 +    /// declared type (`localTypeParameters`) and alias links
@@ -316,8 +338,7 @@ index 7349f2a..51beae1 100644
 +    /// a completed answer. Probed only for a symbol with two or more
 +    /// declarations or parameters (`r5-typeparams2.md` §2). Interior-mutable
 +    /// because the reader, `Checker::local_type_parameters_of`, takes `&self`.
-+    pub(crate) local_type_parameters:
-+        std::cell::RefCell<FxHashMap<SymbolId, LocalTypeParametersLink>>,
++    pub(crate) local_type_parameters: std::cell::RefCell<Vec<Option<LocalTypeParametersLink>>>,
 +}
 +
 +/// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:

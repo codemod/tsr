@@ -231,25 +231,27 @@ impl Checker<'_, '_> {
             return set[0];
         }
         let mut constrained_variable = None;
-        // getIntersectionTypeEx reduces a primitive-constrained type variable
-        // against a primitive or {}. Unknown constraints keep the intersection.
-        if reduce_constraints
-            && set.len() == 2
-            && set.iter().any(|&id| self.store.get(id).flags.contains(TypeFlags::TYPE_PARAMETER))
-            && set.iter().any(|&id| {
-                self.store.get(id).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE)
-                    || includes.empty_object
-            })
-        {
+        // getIntersectionTypeEx (checker.go:26130): `T & P` or `P & T`, where T
+        // is a type variable and P a primitive type, the object type, or `{}`
+        // (`IncludesEmptyObject`), reduces against T's base constraint.
+        if reduce_constraints && set.len() == 2 {
+            let type_variable = TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS;
             let variable_index =
-                usize::from(!self.store.get(set[0]).flags.contains(TypeFlags::TYPE_PARAMETER));
+                usize::from(!self.store.get(set[0]).flags.intersects(type_variable));
             let variable = set[variable_index];
             let other = set[1 - variable_index];
-            match self.reduce_constrained_intersection(variable, other) {
-                Ok((Some(reduced), _)) => return reduced,
-                Ok((None, true)) => constrained_variable = Some((variable, other)),
-                Ok((None, false)) => {}
-                Err(()) => return self.intrinsics.error,
+            let other_flags = self.store.get(other).flags;
+            if self.store.get(variable).flags.intersects(type_variable)
+                && (other_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NON_PRIMITIVE)
+                    && !self.is_generic_string_like_type(other)
+                    || includes.empty_object)
+            {
+                match self.reduce_constrained_intersection(variable, other) {
+                    Ok((Some(reduced), _)) => return reduced,
+                    Ok((None, true)) => constrained_variable = Some((variable, other)),
+                    Ok((None, false)) => {}
+                    Err(()) => return self.intrinsics.error,
+                }
             }
         }
 
@@ -269,6 +271,38 @@ impl Checker<'_, '_> {
             self.constrained_type_variables.insert(result, (variable, primitive));
         }
         result
+    }
+
+    /// `getReducedType` (`checker.go:21819`) and `getReducedUnionType`
+    /// (`:21843`): an intersection with a never-reduced property
+    /// (`isNeverReducedProperty`, `:21856`) is `never`, and a union containing
+    /// intersections is rebuilt from its reduced constituents. Native's node
+    /// builder applies it to every type it prints (`nodebuilderimpl.go:3228`).
+    pub(crate) fn get_reduced_type(&mut self, t: TypeId) -> TypeId {
+        match &self.store.get(t).data {
+            TypeData::Union { types, .. } => {
+                if !types
+                    .iter()
+                    .any(|&id| self.store.get(id).flags.contains(TypeFlags::INTERSECTION))
+                {
+                    return t;
+                }
+                let types = types.clone();
+                let reduced: Vec<_> = types.iter().map(|&id| self.get_reduced_type(id)).collect();
+                if reduced == types {
+                    return t;
+                }
+                self.get_union_type(&reduced)
+            }
+            TypeData::Intersection { .. } => {
+                if self.intersection_has_never_discriminant(t) {
+                    self.intrinsics.never
+                } else {
+                    t
+                }
+            }
+            _ => t,
+        }
     }
 
     /// The identity `removeConstrainedTypeVariables` (`checker.go:25881`)
@@ -308,30 +342,10 @@ impl Checker<'_, '_> {
         variable: TypeId,
         other: TypeId,
     ) -> Result<(Option<TypeId>, bool), ()> {
-        let mut parameter = variable;
-        let mut seen = Vec::new();
-        let constraint = loop {
-            if seen.contains(&parameter) {
-                return Err(());
-            }
-            seen.push(parameter);
-            let Some(&symbol) = self.type_parameter_symbols.get(&parameter) else { return Err(()) };
-            let declaration =
-                self.binder.symbols().get(symbol).declarations.first().copied().ok_or(())?;
-            let Some(tsr_ast::Node::TypeParameterDeclaration(declaration)) =
-                self.node_map.get(declaration)
-            else {
-                return Ok((None, false));
-            };
-            let Some(annotation) = declaration.constraint else { return Ok((None, false)) };
-            let constraint = self.get_type_from_type_node(annotation);
-            if self.is_gap(constraint) {
-                return Err(());
-            }
-            if !self.store.get(constraint).flags.contains(TypeFlags::TYPE_PARAMETER) {
-                break constraint;
-            }
-            parameter = constraint;
+        // `getBaseConstraintOfType`; a missing or circular constraint is nil
+        // there, and the intersection is kept.
+        let Some(constraint) = self.base_constraint_of_type(variable) else {
+            return Ok((None, false));
         };
         let parts = match &self.store.get(constraint).data {
             TypeData::Union { types, .. } => types.clone(),
@@ -360,6 +374,12 @@ impl Checker<'_, '_> {
             return Ok((Some(self.intrinsics.never), false));
         }
         Ok((None, true))
+    }
+
+    /// `isGenericStringLikeType` (`checker.go:26523`).
+    fn is_generic_string_like_type(&self, id: TypeId) -> bool {
+        self.store.get(id).flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+            && !self.is_pattern_template(id)
     }
 
     fn primitive_or_empty_subtype(&mut self, source: TypeId, target: TypeId) -> bool {
