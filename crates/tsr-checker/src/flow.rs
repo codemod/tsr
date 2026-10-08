@@ -6957,12 +6957,13 @@ impl Checker<'_, '_> {
     /// no already-never constituent, and an intersection reducing to never.
     /// Keep this reduced view separate from the written intersection identity.
     pub(crate) fn intersection_has_never_discriminant(&mut self, ty: TypeId) -> bool {
-        let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() else {
+        let TypeData::Intersection { types, .. } = &self.store.get(ty).data else {
             return false;
         };
         if let Some(&reduced) = self.never_intersection_types.get(&ty) {
             return reduced;
         }
+        let types = types.clone();
         self.never_intersection_types.insert(ty, false);
         let mut parts = Vec::new();
         let mut names = Vec::new();
