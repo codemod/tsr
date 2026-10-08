@@ -203,6 +203,59 @@ record capacities on current source before choosing a compact production
 encoding. The layout proves safe ownership, not profitable reuse. `.7.7` must
 measure the integrated change against its unchanged whole-project gates.
 
+## Current alias-target qualification
+
+The 2026-10-08 audit uses TSR `59f6ce22` and pinned native `5b1047d1`.
+Main already memoizes alias targets; the earlier "intentionally unmemoized"
+description in the original contract and ticket is historical. Its separate
+circularity walk still stops at 64 hops, while native `resolveAlias`
+(`checker.go:16266`) marks every participating resolution frame as failed.
+A natural 70-alias cycle, with one leading alias outside the cycle, reports
+70 TS2303 diagnostics in native default and single modes and none in current
+TSR. The two-alias cycle and 70-link acyclic controls agree already.
+
+A private stack/indirection candidate produces byte-identical native CLI stdout
+for all six of those default/single controls and passes two new public controls
+plus all 37 cross-file alias tests. Its checker-library gate is **187 passed,
+two failed**, so the candidate is not integrated. These are debug correctness
+runs, not ordinary-release timing or whole-corpus preservation. Source-bound
+executables, native observations, original failed setups and immutable candidate
+snapshots are retained at
+`target/native-optimization-goal/alias-stack-current-59f/`.
+
+The module-copy test first fails on incorrect namespace-meaning admission;
+natural native controls also identify the private-symbol boundary that a full
+repair must preserve. Native `resolveESModuleSymbol` / `cloneTypeAsModuleType`
+(`checker.go:15568`, `:15721`) returns a fresh private symbol for each originating
+namespace import, preserving raw declarations, tables, flags and parent while
+publishing its completed module value separately. Natural native controls prove
+that `Head` and `Twin` remain distinct and differ from the bound class. When the
+class has namespace meaning, `Linked` and `Tail` retain `Head`'s clone and its
+filtered members; without namespace meaning their targets are native unknown.
+TSR's bound-only alias target loses this private identity. The existing
+`symbol_access::clone_symbol` also records a merge redirect; native's module-clone
+writer does not redirect its source, so that writer is not a substitute.
+`tsr-1yb.7.7.2.1` owns this concrete consumer migration and blocks `.7.7.3`.
+
+The other failed test expects the immediate `export=` alias from `resolve_alias`.
+Native has separate `getImmediateAliasedSymbol` and flattened `resolveAlias`
+operations: a natural `a0 -> a1 -> Target` control proves the former returns
+`a1` and the latter `Target`. Its first flattened query executes two alias
+workers; repeated queries execute none. A type-only re-export control retains
+the actual ExportSpecifier declaration as a backlink. Four seeded native
+stack controls separately verify nonmarking `tryResolveAlias`, all-participant
+failure, publication before the equality check, `resolutionStart`, and type-only
+backlink precedence. Seeded controls do not prove natural Rust query ordering.
+
+Before retaining the full port, carry private targets through the existing
+`SymbolRef` domain, preserve native unknown separately from unsupported work,
+wire nonmarking try and all represented publication facts, and migrate immediate
+consumers deliberately. Keep `alias_resolving`'s active-worker boundary for the
+current base-symbol cache. Complete diagnostic/related output, full oracle,
+previously RIGHT preservation, private-checker isolation and actual worker/copy
+counts remain required. No broader reuse or speed claim follows from these
+focused controls.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |
@@ -210,7 +263,7 @@ measure the integrated change against its unchanged whole-project gates.
 | Identifier expressions (`expressions.rs`) | Value symbol, including a local import alias when native keeps it. Continue class-field initialization checks, value typing, assignment/write handling and flow narrowing. Flow results cannot enter the static symbol memo. |
 | Type references (`declared.rs`) | Fully resolved type target; then apply current `alias_evaluation_bindings`, type arguments, arity/default checks and instantiation. Preserve written-reference and alias/origin presentation channels separately. |
 | Qualified entity names (`declared.rs::resolve_entity_name`) | Namespace/export traversal with native alias/meaning rules. Raw `meaning | Alias` acceptance is not complete target resolution. Export-equals retry, CommonJS redirects and alias-chain meaning checks remain unported branches. |
-| Alias targets (`symbols.rs::resolve_alias`) | Resolve declaration/import/export targets. This resolver is currently intentionally unmemoized; do not substitute the alias getter's nonpublishing fallback for native aliasTarget completion. |
+| Alias targets (`symbols.rs::resolve_alias`) | Current main memoizes a bound target or `None` with a per-alias circular flag. This is not yet native AliasTarget stack/publication; `None` also includes unsupported work. Flattened targets and immediate declaration targets require distinct native entry points. |
 | Heritage/member resolution (`members.rs`) | Resolved base/owner identity, followed by concrete arguments and receiver/member completion. A scope result is not a completed member image. |
 | Flow (`flow.rs`) | Static value selection followed by the current flow node and narrowing context. Do not cache the narrowed TypeId in a static symbol entry. |
 | Export target selection (`symbols.rs`) | Keep the local written symbol and exported/merged target roles distinct. Re-export and export-assignment callers are not automatically type-reference getter consumers. |
