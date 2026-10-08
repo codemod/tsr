@@ -322,3 +322,14 @@ r5-declemit3 landed:
 
 The new box `r5-mapped3` takes the mapped and keyof roots in `mapped.rs`:
 about 70 blocked cases, and 225 WRONG type lines mention `keyof`.
+
+### r5-relater4 finished; r5-relater5 dispatched (`tsr-2zk.1035`)
+
+r5-relater4 landed:
+- typeRelatedToDiscriminatedType (no OOM on the final code);
+- the conditional relation arms, with getSimplifiedConditionalType.
+
+That is +4 diagnostics cases and +17 type lines. Its conditional producers in
+`declared.rs` are filed as `tsr-2zk.1034`. The new box `r5-relater5` takes the
+generic mapped arms (`.977`), the decidable Unknowns (`.983`), and one shared
+isDiscriminantProperty.
