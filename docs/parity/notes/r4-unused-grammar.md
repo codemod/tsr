@@ -248,3 +248,28 @@ queries each resolve with a different meaning, and getting any of them wrong
 is a wrong line, not a missing one.
 
 Case converted: `compiler/noUnusedLocals_typeParameterMergedWithParameter`.
+
+## §10 Measured patch outside the lane: JSDoc on enum members
+
+`r4-unused-grammar-enum-member-jsdoc.diff` (parser, `declaration.rs`, not
+owned). `parseEnumMember` (`parser.go:2122`) is
+`withJSDoc(finishNode(...), jsdoc)`; this parser's `parse_enum_member` never
+attached leading JSDoc, so `checkJSDocComments` (`jsdoc_links.rs`) never saw
+`{@link A}` on an enum member and `import type { A }` reported TS6133
+(`conformance/jsdocLinkTag9`). Measured on the full dumps against this box's
+baseline: `jsdocLinkTag9` EMPTY_WRONG → EMPTY_RIGHT, both loss checks empty.
+Perf not measured (it adds one JSDoc range scan per enum member, the same
+call every class member already makes).
+
+## §11 Remaining clusters (not converted), with hypotheses
+
+| Cluster | Cases | Hypothesis | Blocked on |
+|---|---|---|---|
+| TS6133/6196 under parse errors | `unusedLocalsAndParameters` (21 lines) | `reportUnused` tests `NodeFlagsThisNodeOrAnySubNodesHasError` on the *location*; the port gates the whole file on `file_has_parse_errors` (`check_unused_identifiers`). Needs the parser's `ThisNodeHasError` (`finishNode`, `parser.go:5908`) and the binder's aggregation (`binder.go:725-742`). | parser + binder |
+| TS6196 on JSDoc `@template` in JS | `unusedTypeParameters_templateTag` | `checkUnusedTypeParameters` over a function's JSDoc `@template` type parameters (`getEffectiveTypeParameterDeclarations`); the JSDoc type parameters are not registered/reached by the unused walk. | r4-jsdoc lane (`jsdoc_*`) |
+| TS1238 decorator resolution | `constructableDecoratorOnClass01`, `decoratorCallGeneric`, `esDecorators-arguments` | `resolveDecorator` / `getDiagnosticHeadMessageForDecoratorResolution` are unported: decorators never go through call resolution. | calls lane (`calls.rs`) |
+| TS1320 awaited `then` | `crashInYieldStarInAsyncFunction`, `await_incorrectThisType` | `getAwaitedType`'s non-promise thenable report; not grammar. | awaited/iteration code |
+| TS1102 / TS2703 on a missing operand | `deleteOperatorInvalidOperations` | `delete ;` reports at the missing identifier's *full start* (`errorOnNode` on a missing node: `pos`, zero width); the port's spans are trimmed so it reports one column right. Same for the checker's TS2703. | shared error-span helper / parser missing-node spans |
+| TS1212 `yield` as identifier | `FunctionDeclaration8_es6`, `YieldExpression*_es6` (mixed with TS2304) | `checkContextualIdentifier`'s `YieldContext` arm and the parser's yield-context flag; the cases also miss TS2304. | parser (`YieldContext`) |
+| TS1101 in plain JS | `plainJSBinderErrors` (mixed) | TS1101 now reported for TS; the plain-JS case also misses TS18012. Unverified whether the JS host walk reaches `with`. | — |
+| TS1260/1262/1214 escaped keywords | `scannerUnicodeEscapeInKeyword2` | scanner escape handling. | scanner/parser |
