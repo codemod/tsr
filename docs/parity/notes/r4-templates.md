@@ -86,3 +86,25 @@ declarations when a caller asked with the per-file symbol, and in that type
 **Falsifier.** A case where an enum member's printed type differs from the
 baseline because a reference folds here and not upstream (or the reverse);
 the loss check over the corpus is the measurement.
+
+## §2 `checkTemplateExpression` shares the evaluator
+
+**Forcing constraint.** `checkTemplateExpression` (`checker.go:7992`) folds a
+template expression with the *same* `c.evaluate` as enum members. The port
+had a second, template-only copy (`evaluate_template_constant` over
+`evaluate_constant_expression_with`) whose `evaluateEntity` slice read only
+constant variables and the global `Infinity`/`NaN`, so
+`` `${AnimalType.cat}` `` (a string enum member) stayed `string` where
+upstream answers `"cat"` (`discriminatedUnionTypes4`: 9 lines, through the
+narrowing that `case` clause feeds).
+
+**What changed.** `evaluate_template_constant` now calls
+`Checker::evaluate_constant` (§1) with the template as `location`; its
+private `constant_entity_symbol` resolver is gone, replaced by §1's
+expression `resolveEntityName`. The before-use test is §1's, which adds
+upstream's deferred-use arm (a constant declared after a function that uses
+it) the template copy did not have. The symbol-free
+`evaluate_constant_expression` stays for its syntactic callers.
+
+**Falsifier.** A template expression whose folded literal differs from the
+baseline; the corpus loss check measures it.

@@ -493,7 +493,18 @@ impl Checker<'_, '_> {
         initializer: NodeId,
         member: NodeId,
     ) -> Option<EnumConstant> {
-        self.evaluate_enum_constant(initializer, member, 0)
+        self.evaluate_constant(initializer, member)
+    }
+
+    /// `c.evaluate(expr, location)` (`checker.go:931`): the checker's
+    /// constant evaluator, entry for every consumer (enum member values,
+    /// `checkTemplateExpression`).
+    pub(crate) fn evaluate_constant(
+        &mut self,
+        expr: NodeId,
+        location: NodeId,
+    ) -> Option<EnumConstant> {
+        self.evaluate_enum_constant(expr, location, 0)
     }
 
     /// The checker's evaluator (`c.evaluate`, built by
