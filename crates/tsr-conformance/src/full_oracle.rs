@@ -899,6 +899,230 @@ pub fn diagnostic_code_profile(
     out
 }
 
+/// Where a non-exact case first differs: the record a root-cause ranking
+/// attributes the case to. Diagnostic half first, as the primary class.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Blocker {
+    /// Primary class (`diag:missing`, `types:type-text`, ...).
+    pub class: &'static str,
+    /// `TSnnnn` of the differing record: the missing/extra/moved diagnostic,
+    /// or the first differing chain or related record (else the head).
+    pub code: String,
+    /// `TSnnnn` of the diagnostic the record belongs to.
+    pub head_code: String,
+    /// Which producer published the attributed record: `native` or `tsr`.
+    pub side: &'static str,
+    /// Printed file of the attributed location (empty when file-less).
+    pub file: String,
+    /// UTF-16 start and length, or `-`.
+    pub span: (String, String),
+    /// Type half: the row's index within its file's section.
+    pub row: Option<usize>,
+    /// Type half: `native type -> tsr type` of the first differing row.
+    pub types: Option<(String, String)>,
+}
+
+fn record_code(record: &str) -> String {
+    // `C`/`R` records: tag path file start len code ...
+    format!("TS{}", record.split('\t').nth(5).unwrap_or_default())
+}
+
+/// The [`Blocker`] of two complete streams that are not exact.
+#[must_use]
+pub fn blocker(native: &Stream<'_>, tsr: &Stream<'_>) -> Option<Blocker> {
+    let located = |class, g: &Group<'_>, code: String, side| Blocker {
+        class,
+        code,
+        head_code: g.code(),
+        side,
+        file: unhex(g.field(1)).unwrap_or_default(),
+        span: (g.field(2).to_string(), g.field(3).to_string()),
+        row: None,
+        types: None,
+    };
+    if let Some((class, _)) = diagnostic_class(&native.groups, &tsr.groups) {
+        let (n_loc, t_loc) = (
+            multiset(native.groups.iter().map(Group::location)),
+            multiset(tsr.groups.iter().map(Group::location)),
+        );
+        let missing = surplus(&n_loc, &t_loc);
+        let extra = surplus(&t_loc, &n_loc);
+        if let Some(m) = missing.first() {
+            let g = native.groups.iter().find(|g| g.location() == *m)?;
+            return Some(located(class, g, g.code(), "native"));
+        }
+        if let Some(e) = extra.first() {
+            let g = tsr.groups.iter().find(|g| g.location() == *e)?;
+            return Some(located(class, g, g.code(), "tsr"));
+        }
+        let (mut ns, mut ts) = (native.groups.clone(), tsr.groups.clone());
+        ns.sort_by(|a, b| a.location().cmp(&b.location()).then(a.cmp(b)));
+        ts.sort_by(|a, b| a.location().cmp(&b.location()).then(a.cmp(b)));
+        let Some((a, b)) = ns.iter().zip(&ts).find(|(a, b)| a != b) else {
+            let g = native.groups.first()?;
+            return Some(located(class, g, g.code(), "native"));
+        };
+        // The first differing detail record of the kind the class names.
+        let marker = match class {
+            "diag:chain" => Some("/C"),
+            "diag:related-info" => Some("/R"),
+            _ => None,
+        };
+        if let Some(marker) = marker {
+            let records = |g: &Group<'_>| -> Vec<String> {
+                g.details
+                    .iter()
+                    .filter(|d| d.split('\t').nth(1).is_some_and(|p| p.contains(marker)))
+                    .map(|d| (*d).to_string())
+                    .collect()
+            };
+            let (ra, rb) = (records(a), records(b));
+            let i = ra.iter().zip(&rb).position(|(x, y)| x != y).unwrap_or(ra.len().min(rb.len()));
+            if let Some(r) = ra.get(i) {
+                return Some(located(class, a, record_code(r), "native"));
+            }
+            if let Some(r) = rb.get(i) {
+                return Some(located(class, b, record_code(r), "tsr"));
+            }
+        }
+        return Some(located(class, a, a.code(), "native"));
+    }
+    let (class, _) = type_class(native, tsr)?;
+    let at = native.rows.iter().zip(&tsr.rows).position(|(x, y)| x != y);
+    let (row, side) = match at {
+        Some(at) => (native.rows[at], "native"),
+        None if native.rows.len() > tsr.rows.len() => (native.rows[tsr.rows.len()], "native"),
+        None => (*tsr.rows.get(native.rows.len())?, "tsr"),
+    };
+    let rows = if side == "native" { &native.rows } else { &tsr.rows };
+    let index = at.unwrap_or(if side == "native" { tsr.rows.len() } else { native.rows.len() });
+    let within = rows[..index].iter().filter(|r| r[0] == row[0]).count();
+    Some(Blocker {
+        class,
+        code: String::new(),
+        head_code: String::new(),
+        side,
+        file: unhex(row[0]).unwrap_or_default(),
+        span: ("-".into(), "-".into()),
+        row: Some(within),
+        types: first_type_text(native, tsr),
+    })
+}
+
+/// The syntactic context of a [`Blocker`]'s location in its case: the kind of
+/// the deepest node whose post-trivia span is the diagnostic's span (prefixed
+/// `~` when only an enclosing node exists) or the type walk's node for the row,
+/// and its parent's kind. `lib` for a bundled-library location, `-` for a
+/// file-less diagnostic. Read off the TSR parse of the native configuration,
+/// for ranking only; it never feeds a verdict.
+///
+/// # Errors
+///
+/// An unreadable source or a structurally invalid case.
+pub fn blocker_context(
+    source: &Path,
+    request: &Request,
+    blocker: &Blocker,
+) -> Result<(String, String)> {
+    if blocker.file.is_empty() {
+        return Ok(("-".into(), "-".into()));
+    }
+    if blocker.file.starts_with("lib.") && blocker.file.ends_with(".d.ts") {
+        return Ok(("lib".into(), "-".into()));
+    }
+    let raw = tsr_vfs::decode_bytes(&fs::read(source)?);
+    let base = source.file_name().context("basename")?.to_str().context("UTF-8 name")?;
+    let mut case = crate::TestCase::parse(&request.identity, base, &raw);
+    if let Some(error) = &case.error {
+        bail!("case structure: {error}");
+    }
+    for (k, v) in &request.options {
+        case.options.insert(k.clone(), v.clone());
+    }
+    let current_directory = tsr_path::get_normalized_absolute_path(
+        case.current_directory.as_deref().unwrap_or(""),
+        "/.src",
+    );
+    case.current_directory = Some(current_directory.clone());
+    let arena = tsr_core::Arena::new();
+    let (program, _) = crate::types_producer::program_and_config_for_case(&arena, &case);
+    let unknown = || Ok(("?".to_string(), "?".to_string()));
+    let Some(file) =
+        program.source_files().iter().find(|f| printed_path(f.file_name(), true) == blocker.file)
+    else {
+        return unknown();
+    };
+    let nodes = program.nodes();
+    let name = |id: tsr_ast::NodeId| format!("{:?}", nodes.kind(id));
+    let with_parent = |id: tsr_ast::NodeId, prefix: &str| {
+        let parent = nodes.parent(id).map_or_else(|| "-".to_string(), name);
+        (format!("{prefix}{}", name(id)), parent)
+    };
+    let text = file.text();
+    if let Some(row) = blocker.row {
+        let mut ids = Vec::new();
+        crate::types_producer::assertions_for_file(
+            &tsr_ast::Node::SourceFile(file.source_file()),
+            text,
+            nodes,
+            program.node_map(),
+            |id| {
+                ids.push(id);
+                String::new()
+            },
+        );
+        return ids.get(row).map_or_else(unknown, |&id| Ok(with_parent(id, "")));
+    }
+    let (Ok(start), Ok(len)) = (blocker.span.0.parse::<usize>(), blocker.span.1.parse::<usize>())
+    else {
+        return unknown();
+    };
+    // UTF-16 offsets to byte offsets.
+    let byte = |units: usize| {
+        let mut seen = 0;
+        for (i, ch) in text.char_indices() {
+            if seen >= units {
+                return i;
+            }
+            seen += ch.len_utf16();
+        }
+        text.len()
+    };
+    let (start, end) = (byte(start), byte(start + len));
+    let depth = |mut id: tsr_ast::NodeId| {
+        let mut d = 0;
+        while let Some(p) = nodes.parent(id) {
+            d += 1;
+            id = p;
+        }
+        d
+    };
+    let mut exact: Option<(usize, tsr_ast::NodeId)> = None;
+    let mut enclosing: Option<(usize, tsr_ast::NodeId)> = None;
+    for raw_id in file.node_range() {
+        let id = tsr_ast::NodeId::new(raw_id);
+        let span = nodes.span(id);
+        let (s, e) = (span.start as usize, span.end as usize);
+        if s > start || e < end {
+            continue;
+        }
+        let d = depth(id);
+        let slot = if crate::types_producer::skip_trivia(text, s) == start && e == end {
+            &mut exact
+        } else {
+            &mut enclosing
+        };
+        if slot.is_none_or(|(best, _)| d > best) {
+            *slot = Some((d, id));
+        }
+    }
+    Ok(match (exact, enclosing) {
+        (Some((_, id)), _) => with_parent(id, ""),
+        (None, Some((_, id))) => with_parent(id, "~"),
+        (None, None) => ("?".into(), "?".into()),
+    })
+}
+
 /// The full `(native, tsr)` type texts of the first row that differs only in its
 /// type, when the first type-half difference is of that kind.
 #[must_use]
@@ -1127,6 +1351,38 @@ mod tests {
             Some("types:line-placement")
         );
         assert_eq!(class(&base, ""), Some("types:no-sections"));
+    }
+
+    #[test]
+    fn blocker_attributes_the_first_differing_record() {
+        let a = d("a.ts", 1, 2322, "x");
+        let b = d("a.ts", 5, 2345, "y");
+        let attributed = |native: &str, tsr: &str| {
+            let (n, t) = (Stream::parse(native), Stream::parse(tsr));
+            blocker(&n, &t).map(|b| (b.class, b.code, b.side, b.span.0))
+        };
+        // Missing: the native diagnostic; extra: the TSR one.
+        assert_eq!(
+            attributed(&(a.clone() + &b), &a),
+            Some(("diag:missing", "TS2345".into(), "native", "5".into()))
+        );
+        assert_eq!(
+            attributed(&a, &(a.clone() + &b)),
+            Some(("diag:extra", "TS2345".into(), "tsr", "5".into()))
+        );
+        // Chain: the first differing chain record's code, not the head's.
+        let chain = |code: u32| {
+            format!(
+                "C\thead/C0\t{}\t1\t1\t{code}\t1\t{}\nM\thead/C0\tfalse\tfalse\tfalse\n",
+                hex("a.ts"),
+                hex("c")
+            )
+        };
+        assert_eq!(
+            attributed(&(a.clone() + &chain(2326)), &(a.clone() + &chain(2328))),
+            Some(("diag:chain", "TS2326".into(), "native", "1".into()))
+        );
+        assert_eq!(attributed(&a, &a), None);
     }
 
     #[test]
