@@ -1,0 +1,109 @@
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+index 040085a..5e0b550 100644
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -2513,6 +2513,7 @@ impl<'a> Checker<'a, '_> {
+         //
+         // Generic mapped targets substitute the property key before concrete
+         // lookup; other contexts retain the concrete/union lookup order.
++        let mut declared_property = None;
+         let property_type = if let Some(mapped) =
+             self.generic_mapped_contextual_property_type(contextual, &name)
+         {
+@@ -2532,7 +2533,10 @@ impl<'a> Checker<'a, '_> {
+                     // origins, but their semantic values are already substituted.
+                     self.get_type_of_property_of_type(contextual, &name)?
+                 }
+-                Some(property) => self.get_type_of_symbol(property),
++                Some(property) => {
++                    declared_property = Some(property);
++                    self.get_type_of_symbol(property)
++                }
+                 None => self.union_contextual_property_type(contextual, &name, object_literal)?,
+             }
+         };
+@@ -2541,7 +2545,15 @@ impl<'a> Checker<'a, '_> {
+         // target's own parameter).
+         let property_type = {
+             let image = self.instantiate_for_reference(contextual, property_type);
+-            if image == self.intrinsics.error { property_type } else { image }
++            let image = if image == self.intrinsics.error { property_type } else { image };
++            // A member inherited from a class or interface base reads its
++            // owner's `this` as the context (`getTypeWithThisArgument`).
++            match declared_property {
++                Some(property) => {
++                    self.inherited_member_with_this_argument(contextual, property, image, contextual)
++                }
++                None => image,
++            }
+         };
+         // SS135: a member of a literal re-checking under a serve memo reads
+         // its type through the pass-1 substitution - the object parameter
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index c0c756e..961daab 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1640,6 +1640,8 @@ impl Checker<'_, '_> {
+             let declared = self.get_type_of_symbol(property);
+             let instantiated =
+                 self.instantiate_for_reference_with_this(id, declared, this_argument);
++            let instantiated =
++                self.inherited_member_with_this_argument(id, property, instantiated, this_argument);
+             // §92: a property the symbol road FINDS but cannot type may
+             // still answer through the shape road (chain1's low reads — the
+             // alias symbol's table hands back a symbol whose declared type
+@@ -2197,6 +2199,54 @@ impl Checker<'_, '_> {
+         None
+     }
+ 
++    /// `resolveObjectTypeMembers` (`checker.go`) instantiates each base type
++    /// with the receiver's this argument
++    /// (`getTypeWithThisArgument(baseType, thisArgument)`), so a member
++    /// inherited from a class or interface base reads its declaring owner's
++    /// polymorphic `this` as `this_argument`. The receiver substitution
++    /// ([`Self::instantiate_for_reference_with_this`]) maps only the
++    /// receiver's own `this`; this maps the declaring owner's. Without it
++    /// `interface Y extends X {}` reads X's `a: (p: this) => void` as
++    /// `(p: X.this) => void` on `Y`, and `Y` is not assignable to `X`.
++    ///
++    /// No cache: one owner lookup, and an instantiation only when the
++    /// owner's `this` has been minted and is mentioned.
++    pub(crate) fn inherited_member_with_this_argument(
++        &mut self,
++        receiver: TypeId,
++        property: SymbolId,
++        instantiated: TypeId,
++        this_argument: TypeId,
++    ) -> TypeId {
++        let Some(owner) = self.binder.symbols().get(property).parent else {
++            return instantiated;
++        };
++        let owner = self.binder.merged_symbol(owner);
++        if self.reference_target_symbol(receiver) == Some(owner)
++            || !self
++                .binder
++                .symbols()
++                .get(owner)
++                .flags
++                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
++        {
++            return instantiated;
++        }
++        let Some(owner_this) = self.polymorphic_this_of(owner) else { return instantiated };
++        if owner_this == this_argument
++            || !self.mentions_type_parameter(instantiated, &[owner_this], &[])
++        {
++            return instantiated;
++        }
++        let image = self.instantiate_type(
++            instantiated,
++            &[(owner_this, this_argument)],
++            &[owner_this],
++            &["this"],
++        );
++        if image == self.intrinsics.error { instantiated } else { image }
++    }
++
+     /// The target's polymorphic `this` type if one has been minted yet; it is
+     /// minted lazily on the first `this` reference, so the answer can change.
+     fn polymorphic_this_of(&self, symbol: SymbolId) -> Option<TypeId> {

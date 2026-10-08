@@ -1883,7 +1883,12 @@ impl Checker<'_, '_> {
         };
         let base_symbol = self.binder.merged_symbol(base_symbol);
         let declarations = self.binder.symbols().get(base_symbol).declarations.clone();
-        let [declaration] = declarations.as_slice() else { return };
+        // One class declaration; a namespace merged with it (a clodule) only
+        // adds exports, which the walk below relates as static members.
+        let mut classes = declarations
+            .iter()
+            .filter(|&&declaration| self.nodes.kind(declaration) != SyntaxKind::ModuleDeclaration);
+        let (Some(declaration), None) = (classes.next(), classes.next()) else { return };
         let Some(Node::ClassDeclaration(base_class)) = self.node_map.get(*declaration) else {
             return;
         };

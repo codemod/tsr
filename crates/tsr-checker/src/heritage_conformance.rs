@@ -61,22 +61,28 @@ impl Checker<'_, '_> {
         };
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
-        // A **merged** declaration assembles its member table from several
-        // declarations, and upstream's merge is not this port's for private
-        // and inherited members (`mergedInterfacesWithInheritedPrivates3`).
-        if self.binder.symbols().get(symbol).declarations.len() > 1 {
+        // A class merged with an **interface** assembles its member table from
+        // several declarations, and upstream's merge is not this port's for
+        // private and inherited members (`mergedInterfacesWithInheritedPrivates3`).
+        // A merged namespace or function adds no instance member, so a
+        // clodule relates (`bluebirdStaticThis`; `docs/parity/notes/r5-heritage2.md` §1).
+        if !self.has_single_type_declaration(symbol) {
             return;
         }
         let source = self.get_declared_type_of_class_or_interface(symbol);
-        // The merged-declaration decline applies to the **base** as well:
-        // `class B extends Uint8Array` names a lib symbol merged across files.
+        // The base declines when the default library declares it:
+        // `class B extends Uint8Array` names a lib interface merged across
+        // files whose inherited signatures this port's member table does not
+        // carry (`subclassUint8Array`, `classExtendingBuiltinType`). A user
+        // base merged from a class and an interface relates
+        // (`interfaceClassMerging`; r5-heritage2 §1).
         let base_is_single = clauses
             .iter()
             .filter(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
             .flat_map(|clause| clause.types.iter())
             .next()
             .and_then(|entry| self.base_symbol_of_heritage_entry(entry, false))
-            .is_some_and(|base| self.has_single_type_declaration(base));
+            .is_some_and(|base| !self.has_default_library_declaration(base));
         // `checkClassLikeDeclaration` (`checker.go:4293`) relates against
         // `getBaseTypes(t)[0]` (`checker.go:19167`) and skips the arm when
         // that list is empty — a circular or otherwise invalid base.
@@ -130,9 +136,10 @@ impl Checker<'_, '_> {
         }
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
-        // A **merged** declaration assembles its member table from several
-        // declarations, and upstream's merge is not this port's.
-        if self.binder.symbols().get(symbol).declarations.len() > 1 {
+        // A class merged with an interface assembles its member table from
+        // several declarations, and upstream's merge is not this port's; a
+        // merged namespace adds no instance member (r5-heritage2 §1).
+        if !self.has_single_type_declaration(symbol) {
             return;
         }
         let source = self.get_declared_type_of_class_or_interface(symbol);
@@ -728,6 +735,17 @@ impl Checker<'_, '_> {
             Ternary::NotRelated => Some(false),
             Ternary::Unknown => None,
         }
+    }
+
+    /// Whether any of the symbol's declarations is in a bundled default
+    /// library file.
+    fn has_default_library_declaration(&self, symbol: SymbolId) -> bool {
+        self.binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .any(|&declaration| self.in_default_library(declaration))
     }
 
     /// One class or interface declaration among the symbol's declarations; a
