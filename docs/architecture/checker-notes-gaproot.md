@@ -1823,7 +1823,10 @@ declaration.
 - **Order comes from the declaration, never from the table.** `SymbolTable` is
   an `FxHashMap`, so iterating it yields hash order and the printed type would
   have been deterministically wrong for some member sets and right for others.
-  Members are sorted by declaration source position.
+  Members are sorted by declaration source position. (2026-10-08: since
+  [ADR-0049](../adr/0049-symbol-table-insertion-order.md) a `SymbolTable`
+  iterates in insertion order, not hash order; the sort stays, because it is
+  upstream's rule and insertion order differs from it across merges.)
 - **`upsert`, not `push`.** A later member of the same name replaces an earlier
   one **in place**: `{ ...{ a: 1, b: 2 }, a: "x" }` is `{ a: string; b: number; }`
   with `a` still first. A `push` prints `a` twice, which is not a type upstream
