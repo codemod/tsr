@@ -1842,19 +1842,36 @@ impl Relater<'_, '_, '_> {
             return Some(RelationResult::Related);
         }
         let source_signatures = self.checker.signature_shapes_of_type_kind(source, kind)?;
+        let reporting = self.diagnostic_pair == Some((source, target));
         if source_signatures.is_empty() {
+            // Native reports "Type 'S' provides no match for the signature
+            // 'T'" here, printing T with signatureToString's default
+            // (colon) style; this port's signature printer is arrow-style
+            // only, so the explanation is not published.
             return Some(RelationResult::NotRelated);
         }
         if kind == SignatureKind::Construct {
             if source_signatures[0].kind == SignatureKind::AbstractConstruct
                 && target_signatures[0].kind != SignatureKind::AbstractConstruct
             {
+                if reporting {
+                    self.property_error = Some(tsr_diagnostics::Diagnostic::new(
+                        &tsr_diagnostics::messages::CANNOT_ASSIGN_AN_ABSTRACT_CONSTRUCTOR_TYPE_TO_A_NON_ABSTRACT_CONSTRUCTOR_TYPE,
+                        tsr_core::Span::new(0, 0),
+                    ));
+                }
                 return Some(RelationResult::NotRelated);
             }
-            if !self.constructor_visibilities_are_compatible(
-                &source_signatures[0],
-                &target_signatures[0],
-            ) {
+            if let Some((source_visibility, target_visibility)) =
+                self.constructor_visibility_mismatch(&source_signatures[0], &target_signatures[0])
+            {
+                if reporting {
+                    self.property_error = Some(tsr_diagnostics::Diagnostic::with_args(
+                        &tsr_diagnostics::messages::CANNOT_ASSIGN_A_0_CONSTRUCTOR_TYPE_TO_A_1_CONSTRUCTOR_TYPE,
+                        tsr_core::Span::new(0, 0),
+                        [source_visibility.to_string(), target_visibility.to_string()],
+                    ));
+                }
                 return Some(RelationResult::NotRelated);
             }
         }
@@ -1961,11 +1978,13 @@ impl Relater<'_, '_, '_> {
     }
 
     /// constructorVisibilitiesAreCompatible (relater.go:4520).
-    fn constructor_visibilities_are_compatible(
+    /// constructorVisibilitiesAreCompatible (relater.go:4526): `None` when
+    /// compatible, else the source and target `visibilityToString` texts.
+    fn constructor_visibility_mismatch(
         &self,
         source: &crate::signatures::Signature,
         target: &crate::signatures::Signature,
-    ) -> bool {
+    ) -> Option<(&'static str, &'static str)> {
         use tsr_ast::{ModifierLike, Node, SyntaxKind};
         let visibility = |signature: &crate::signatures::Signature| {
             let modifiers = match self.checker.node_map.get(signature.declaration) {
@@ -1986,10 +2005,16 @@ impl Relater<'_, '_, '_> {
         };
         let source = visibility(source);
         let target = visibility(target);
-        target == Some(SyntaxKind::PrivateKeyword)
+        let compatible = target == Some(SyntaxKind::PrivateKeyword)
             || (target == Some(SyntaxKind::ProtectedKeyword)
                 && source != Some(SyntaxKind::PrivateKeyword))
-            || (target != Some(SyntaxKind::ProtectedKeyword) && source.is_none())
+            || (target != Some(SyntaxKind::ProtectedKeyword) && source.is_none());
+        let text = |kind: Option<SyntaxKind>| match kind {
+            Some(SyntaxKind::PrivateKeyword) => "private",
+            Some(SyntaxKind::ProtectedKeyword) => "protected",
+            _ => "public",
+        };
+        (!compatible).then(|| (text(source), text(target)))
     }
 
     /// hasExcessProperties' Object/empty-object exemption for assignability

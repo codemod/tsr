@@ -721,3 +721,14 @@ failure into Unknown). `relate_explained` is the shared "relate as the
 diagnostic pair, answer its nested link" step; walk-local state, no cache, the
 extra walk happens only on the reported pair. Publication requires every
 earlier part decided, as native could have failed there first.
+
+## Construct-signature compatibility explanations — tsr-2zk.1
+
+`signaturesRelatedTo` (relater.go:4441) reports "Cannot assign an abstract
+constructor type to a non-abstract constructor type" and
+`constructorVisibilitiesAreCompatible` (:4526) "Cannot assign a 'V' constructor
+type to a 'W' constructor type" on the reporting pair
+(`constructor_visibility_mismatch`). Not published: "Type 'S' provides no
+match for the signature 'T'" for a source without signatures, which needs
+`signatureToString`'s default colon style; `Checker::signature_to_string`
+(signatures.rs) prints arrow style only.
