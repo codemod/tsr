@@ -606,6 +606,18 @@ impl<'a> Checker<'a, '_> {
                 {
                     return keys;
                 }
+                // getIndexTypeEx: `keyof any` and `keyof never` are
+                // keyofConstraintType, `keyof unknown` is never.
+                if !self.is_error(target)
+                    && self
+                        .store
+                        .get(target)
+                        .flags
+                        .intersects(TypeFlags::ANY | TypeFlags::NEVER | TypeFlags::UNKNOWN)
+                    && let Some(keys) = self.resolved_keyof_type(target)
+                {
+                    return keys;
+                }
                 match self.keys_of(target) {
                     Some(keys) => {
                         let union = self.literal_key_union(&keys);
@@ -843,16 +855,23 @@ impl<'a> Checker<'a, '_> {
                 // getIndexTypeEx consumes an alias's instantiated body, not
                 // its display identity. Resolve the whole operand first so
                 // absorbing any/never constituents reduce before distribution.
-                if let Some(operand @ TypeNode::TypeReferenceNode(_)) = direct_operand {
+                if let Some(operand @ TypeNode::TypeReferenceNode(reference)) = direct_operand {
                     let target = self.get_type_from_type_node(operand);
-                    let alias_reference =
-                        self.type_reference_targets.get(&target).is_some_and(|(symbol, _)| {
-                            self.binder
-                                .symbols()
-                                .get(*symbol)
-                                .flags
-                                .contains(SymbolFlags::TYPE_ALIAS)
-                        });
+                    let is_alias = |checker: &Self, symbol: SymbolId| {
+                        checker.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+                    };
+                    // An instantiation that reduced to an existing type (`T | any`
+                    // is `any`) no longer carries the alias pair; the written
+                    // name still selects the alias-body arm.
+                    let alias_reference = self
+                        .type_reference_targets
+                        .get(&target)
+                        .is_some_and(|&(symbol, _)| is_alias(self, symbol))
+                        || !reference.type_arguments.is_empty()
+                            && reference
+                                .type_name
+                                .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                                .is_some_and(|symbol| is_alias(self, symbol));
                     if alias_reference && let Some(keys) = self.resolved_keyof_type(target) {
                         return keys;
                     }
@@ -6279,6 +6298,10 @@ impl<'a> Checker<'a, '_> {
                 return evaluated;
             }
         }
+        if let Some(reduced) = self.reduced_composite_alias_instantiation(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), reduced);
+            return reduced;
+        }
         // Ported from typescript-go's getTypeAliasInstantiation and
         // instantiateTypeWithAlias (internal/checker/checker.go): a literal
         // or keyword declared body is pre-existing and mapper-independent.
@@ -7297,6 +7320,38 @@ impl<'a> Checker<'a, '_> {
             ),
         );
         error
+    }
+
+    /// `instantiateTypeWorker`'s union/intersection arm for a generic alias
+    /// whose body is a union or intersection: `getUnionType`/
+    /// `getIntersectionType` drop the alias when the instantiated
+    /// constituents reduce to one type, which is then the instantiation
+    /// itself (`type U<T> = T | undefined` at `never` is `undefined`;
+    /// `type Id<T> = { [K in keyof T]: T[K] } & {}` is its mapped type).
+    /// The evaluation is the existing `alias_body_evaluations` entry keyed by
+    /// `(alias, ordered argument TypeIds)`; an unreduced or failed evaluation
+    /// answers `None` and keeps the alias-named route.
+    fn reduced_composite_alias_instantiation(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        let body = self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?;
+        if !matches!(body, TypeNode::UnionTypeNode(_) | TypeNode::IntersectionTypeNode(_))
+            || self.local_type_parameters_of(symbol).len() != arguments.len()
+        {
+            return None;
+        }
+        let evaluated = self.evaluate_alias_body(symbol, arguments)?;
+        // A mapped constituent built under the evaluation frame is not yet
+        // instantiated by it (`create_semantic_mapped_type` keeps the written
+        // parameters); its instantiation is `instantiateMappedType`'s, not
+        // this evaluator's, so that reduction keeps the alias-named route.
+        let reduced = !matches!(
+            self.store.get(evaluated).data,
+            crate::types::TypeData::Union { .. } | crate::types::TypeData::Intersection { .. }
+        ) && !self.mapped_types.contains_key(&evaluated);
+        (reduced && !self.is_error(evaluated)).then_some(evaluated)
     }
 
     /// A generic alias body whose type constructor never takes an alias
