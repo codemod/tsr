@@ -1,0 +1,61 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index ea306ba3..032c181c 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -9193,6 +9193,20 @@ impl Checker<'_, '_> {
+         if !flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+             return true;
+         }
++        // **A circular initializer's `any` is upstream's `any`.**
++        // `reportCircularityError` answers `anyType` for an unannotated
++        // variable or parameter that reaches itself, and this port's
++        // resolution frame answers the same at the same point
++        // (`docs/parity/notes/r5-constraints2.md` §7).
++        if ty == self.intrinsics.any
++            && self.circular_any_declarations.contains(&declaration)
++            && matches!(
++                self.nodes.kind(declaration),
++                SyntaxKind::VariableDeclaration | SyntaxKind::Parameter
++            )
++        {
++            return true;
++        }
+         let annotation = match self.node_map.get(declaration) {
+             // **No annotation and no initializer is a written `any` too.**
+             // `getTypeForVariableLikeDeclaration` answers `anyType` for a
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 937a0cd6..62d39ada 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -1159,6 +1159,11 @@ pub struct Checker<'a, 'n> {
+     /// and its failed pop both make; this set is that de-duplication only and
+     /// never certifies a type.
+     pub(crate) circularity_reported: rustc_hash::FxHashSet<NodeId>,
++    /// Unannotated declarations whose symbol type is `reportCircularityError`'s
++    /// `anyType` (checker.go:18822): the `any` upstream computes too, not a
++    /// fallback for an unported path. Read by TS2403's trusted-`any` rule
++    /// (`docs/parity/notes/r5-constraints2.md` §7).
++    pub(crate) circular_any_declarations: rustc_hash::FxHashSet<NodeId>,
+     /// resolveAnonymousTypeMembers / getDefaultConstructSignatures (checker.go).
+     /// None marks an active or unsupported class constructor resolution.
+     pub(crate) class_construct_signatures:
+@@ -1602,6 +1607,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             pending_signature_returns: FxHashMap::default(),
+             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
+             circularity_reported: rustc_hash::FxHashSet::default(),
++            circular_any_declarations: rustc_hash::FxHashSet::default(),
+             class_construct_signatures: FxHashMap::default(),
+             perf_links: crate::perf_links::PerfLinks::default(),
+             instantiated_signatures: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 6be41fcc..ace73e99 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -5206,6 +5206,7 @@ impl<'a> Checker<'a, '_> {
+                     ),
+                 );
+             }
++            self.circular_any_declarations.insert(declaration);
+             return self.intrinsics.any;
+         }
+         if let Some(file) = self.source_file_of_for_diagnostics(declaration)
