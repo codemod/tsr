@@ -526,3 +526,6 @@ per-file flag must become per-node.
 - `abstract` member outside an abstract class (`checkGrammarModifiers`):
   TS1244/TS1253 are `grammarErrorOnNode(modifier)`, spanning the `abstract`
   keyword rather than the member.
+- `'{0}' expected` arguments use `scanner.TokenToString`: the full inverted
+  `textToToken` table for punctuation (`...`, `</`, …) and keyword text,
+  never a `SyntaxKind` name.
