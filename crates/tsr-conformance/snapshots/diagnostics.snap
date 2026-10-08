@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4398/5502 (79.93%)
-Failed         : 1104
+Passed         : 4404/5502 (80.04%)
+Failed         : 1098
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1104 failures:
+First 100 of 1098 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -45,7 +45,7 @@ compiler/argumentsReferenceInFunction1_Js
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   11 missing (first TS2815 at argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts(3,10))
 compiler/arrayCast
-  2 unexpected (first TS2352 at arrayCast.ts(3,1)), 1 missing
+  1 unexpected (first TS2352 at arrayCast.ts(3,1)), 1 missing
 compiler/arrayConcatMap
   1 missing (first TS2769 at arrayConcatMap.ts(1,20))
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
@@ -152,8 +152,6 @@ compiler/classExtendsNull2
   1 missing (first TS2417 at classExtendsNull2.ts(5,7))
 compiler/classFieldSuperAccessibleJs1
   1 missing (first TS2565 at index.js(9,23))
-compiler/classImplementsClass4
-  1 unexpected (first TS2741 at classImplementsClass4.ts(16,1)), 1 missing
 compiler/classTypeParametersInStatics
   2 missing (first TS2345 at classTypeParametersInStatics.ts(20,52))
 compiler/classWithEmptyTypeParameter
@@ -212,3 +210,5 @@ compiler/contextualTypingOfGenericFunctionTypedArguments1
   1 missing (first TS2345 at contextualTypingOfGenericFunctionTypedArguments1.ts(17,32))
 compiler/contextualTypingWithGenericAndNonGenericSignature
   4 missing (first TS7006 at contextualTypingWithGenericAndNonGenericSignature.ts(8,7))
+compiler/contextuallyTypedParametersOptionalInJSDoc
+  2 missing (first TS2345 at index.js(17,15))
