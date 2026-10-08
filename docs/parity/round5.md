@@ -642,3 +642,30 @@ Integrator process note: in batch W the queue skipped `bmerge r5-declared`, so `
 lines at the index of the command that was currently running. The runner then re-ran
 that batch's gate and stepped over the inserted line. `e9d15e8` lands through r5-declared2's branch.
 The queue is append-only again, and inserts go strictly after the running line.
+
+### r5-errorsplit4 finished; r5-errorsplit5 dispatched (`tsr-2zk.1070`)
+
+r5-errorsplit4 built a per-line native identity probe: a go -overlay on the
+pinned tsgo runner that tags each `.types` line @@E (errorType) or @@A
+(anyType). The probe agreed on 24,307 of 24,310 lines already matched as
+native_error. With the probe, `4bf9119` switches checkIdentifier's unresolved
+exit to errorType wherever native does:
+- +7 lines;
+- credited gap 4,554 → 4,367;
+- narrowing cost 5,158 → 4,557.
+
+Its plain-JS diff adds native's resolveErrorCall arm in calls.rs (+7 lines,
+304 lines leave the gap). It lands with the two inert iteration diffs. No writer
+rewrite costs zero yet, so none is narrowed (ADR-0048 decision log).
+r5-errorsplit5 takes the declaration-name producers: ALIAS with no type (544
+lines) and FUNCTION_SCOPED_VARIABLE (350). The default-declared cache diff
+goes to r5-declared2.
+
+**Gate hole, found and fixed in batch X.** `bgate_core.sh` printed its loss
+counts but never stopped on them. Every batch up to W showed `losses=0`, so
+nothing slipped through. Batch X was the first with losses: 7 type lines in
+parsingDeepParenthensizedExpression. Resolving the r5-errorsplit4 merge
+conflict had kept the §31 gate's JS arm as the gap. The run was killed before
+its accept step, and the plain-JS patch was landed first, without its
+redundant calls.rs hunk. Both gate cores now end with
+`STOP: losses` when either count is non-zero.
