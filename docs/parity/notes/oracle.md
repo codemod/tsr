@@ -110,84 +110,97 @@ differing row → `type-text` (same node and line), `extra-row`/`missing-row`
 (one-row shift), `line-placement`, `node-selection`. Details carry the code or
 `native -> tsr` type text.
 
-## Measurement at `52c2759a` (2026-10-07, 12 workers, 60 s deadline)
+## Measurement at `c4bd3a6d` (origin/main `23711d1d` + oracle; 2026-10-08, 14 workers, 60 s deadlines)
 
-Identity: native `5b1047d1`, corpus `4d4f005c`, native binary
-`9703f9c2…5c279` (rebuilt byte-identically), TSR worker `bad836c0…ac707`,
-plan `83e5f41b…c8579`, results `f1bed3ba…285a4`. Wall ≈ 25 min.
+Native run: native `5b1047d1`, corpus `4d4f005c`, Go producer
+`decc2e4b…` / `59076d08…`, native binary `807a9a1e…`, plan `04db1d44…`
+(reproduced byte-identically by a second discovery), native results
+`83802b0f…`; 368 s wall, once. TSR report: worker `9ca79c73…`, results
+`af5af5cf…`.
 
-**Exact 7,698 / 12,797 = 60.15%.** Population 14,960 rows: 14,915 configured
-cases + 45 `skippedTests`; 2,118 configurations are `SkipUnsupportedCompilerOptions`
-skips (ES5 target, AMD/UMD/System, node10/classic resolution, `baseUrl`,
-`outFile`, `esModuleInterop`/`allowSyntheticDefaultImports`/`alwaysStrict` false).
-Both excluded sets have no native baseline. 0 discovery failures (the 8
-`module: none` sources are in `skippedTests`), 0 native failures.
+**Exact 7,884 / 12,797 = 61.61%** (7,698 at `52c2759a`; the gate against the
+report of origin/main `d779b044` lists 147 gains, 0 losses). Population 14,960
+rows: 14,915 configured cases + 45 `skippedTests`; 2,118 configurations are
+`SkipUnsupportedCompilerOptions` skips (ES5 target, AMD/UMD/System,
+node10/classic resolution, `baseUrl`, `outFile`, `esModuleInterop`/
+`allowSyntheticDefaultImports`/`alwaysStrict` false). Both excluded sets have
+no native baseline. 0 discovery failures, 0 native failures or timeouts.
 
 | outcome | cases |
 |---|---|
-| EXACT | 7698 |
-| WRONG | 5096 |
-| TSR_TIMEOUT | 2 |
-| TSR_FAILED | 1 |
+| EXACT | 7884 |
+| WRONG | 4910 |
+| TSR_TIMEOUT | 2 (`recursiveConditionalCrash3`, `relationComplexityError`) |
+| TSR_FAILED | 1 (`constructorWithIncompleteTypeAnnotation`: reversed span 6665..6663) |
 | NATIVE_SKIPPED (excluded) | 2118 |
 | LISTED_SKIP (excluded) | 45 |
 
-WRONG halves: diagnostics only 2,871, types only 1,135, both 1,090.
+WRONG halves: diagnostics only 2,738, types only 1,111, both 1,061.
 
-Primary class (diagnostic half first; details = first differing code / `native -> tsr` type):
+| primary class | cases | top details |
+|---|---|---|
+| diag:missing | 1684 | TS2322 177, TS2339 87, TS2345 68, TS2741 43 |
+| types:type-text | 1109 | any -> error 117, number -> any 42, number -> error 29 |
+| diag:chain | 520 | TS2322 286, TS2345 38, TS2430 32, TS2416 25 |
+| diag:related-info | 438 | TS2403 45, TS2741 41, TS2554 36, TS2322 35 |
+| diag:missing+extra | 339 | TS2322 37, TS2353 17, TS2345 15, TS2304 10 |
+| diag:extra | 307 | TS2304 68, TS2322 51, TS1254 44, TS18048 10 |
+| diag:span-only | 288 | TS2322 136, TS1163 12, TS1206 12, TS2390 10 |
+| diag:message-text-only | 180 | TS2339 46, TS2314 20, TS2411 18, TS2322 10 |
+| diag:code-at-same-span | 43 | TS2322 4, TS2741 4, TS1109 3, TS2693 3 |
+| types:section-set | 2 | `augmentExportEquals2`, `referenceTypesPreferedToPathIfPossible` |
 
-| class | cases | top details | examples |
-|---|---|---|---|
-| diag:missing | 1683 | TS2322 177, TS2339 86, TS2345 68, TS2741 43 | `compiler/TransportStream.ts`, `compiler/abstractClassUnionInstantiation.ts`, `compiler/abstractPropertyInConstructor.ts` |
-| types:type-text | 1133 | any -> error 121, number -> any 42, number -> error 29, string -> error 21 | `compiler/abstractClassInLocalScopeIsAbstract.ts`, `compiler/acceptSymbolAsWeakType.ts`, `compiler/accessorDeclarationEmitJs.ts` |
-| diag:chain | 516 | TS2322 283, TS2345 38, TS2430 32, TS2416 25 | `compiler/accessorAccidentalCallDiagnostic.ts (target=es2015)`, `compiler/addMoreOverloadsToBaseSignature.ts`, `compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1.ts` |
-| diag:related-info | 437 | TS2403 45, TS2741 41, TS2554 36, TS2322 35 | `compiler/anonymousClassExpression2.ts`, `compiler/anyIdenticalToItself.ts`, `compiler/arityErrorRelatedSpanBindingPattern.ts` |
-| diag:span-only | 430 | TS2322 136, TS1036 18, TS1029 17, TS1042 17 | `compiler/ClassDeclaration10.ts`, `compiler/ClassDeclaration11.ts`, `compiler/ClassDeclaration14.ts` |
-| diag:missing+extra | 358 | TS2322 38, TS2353 17, TS2345 15, TS2304 10 | `compiler/abstractPropertyNegative.ts (target=es2015)`, `compiler/allowImportClausesToMergeWithTypes.ts`, `compiler/ambientWithStatements.ts (alwaysstrict=true)` |
-| diag:extra | 308 | TS2304 68, TS2322 51, TS1254 44, TS18048 10 | `compiler/abstractPropertyBasics.ts (target=es2015)`, `compiler/ambientModuleWithTemplateLiterals.ts`, `compiler/arrowFunctionsMissingTokens.ts` |
-| diag:message-text-only | 182 | TS2339 45, TS2314 20, TS2411 18, TS2345 10 | `compiler/aliasBug.ts`, `compiler/allowSyntheticDefaultImports10.ts`, `compiler/arrayAssignmentTest2.ts` |
-| diag:code-at-same-span | 47 | TS2322 4, TS2741 4, TS1109 3, TS2693 3 | `compiler/awaitCallExpressionInSyncFunction.ts`, `compiler/classImplementsClass4.ts`, `compiler/declarationEmitInvalidReferenceAllowJs.ts` |
-| tsr:timeout | 2 | | `compiler/recursiveConditionalCrash3.ts`, `compiler/relationComplexityError.ts` |
-| types:section-set | 2 | | `compiler/augmentExportEquals2.ts`, `compiler/referenceTypesPreferedToPathIfPossible.ts` |
-| tsr:error | 1 | reversed span 6665..6663 | `compiler/constructorWithIncompleteTypeAnnotation.ts` |
-
-Type half over every WRONG case with a type difference (2,225): type-text
-2,190, node-selection 22 (parser recovery: `castOfYield`, `parseBigInt`),
-missing-row 7, extra-row 4, section-set 2. First type-text difference by
-answer: both print a type 1,279; TSR `any` where native has a type 458; TSR
-`error` 401; native `any`/`error`, TSR a type 44; same union members in another
-order 9.
-
-Codes in differences (cases per kind; same location = other text/chain/related):
+Type half (2,172 WRONG cases with a type difference): type-text 2,139,
+node-selection 22 (parser recovery), missing-row 5, extra-row 4, section-set 2.
+First type-text difference by answer: both print a type 1,239; TSR `any` where
+native has a type 455; TSR `error` 396; native `any`/`error`, TSR a type 39;
+same union members in another order 11.
 
 | code | missing | extra | same location |
 |---|---|---|---|
-| TS2322 | 425 | 285 | 471 |
-| TS2339 | 144 | 17 | 84 |
-| TS2345 | 120 | 34 | 91 |
-| TS2304 | 58 | 125 | 1 |
+| TS2322 | 424 | 283 | 470 |
+| TS2345 | 120 | 33 | 91 |
+| TS2339 | 141 | 15 | 84 |
+| TS2304 | 57 | 122 | 1 |
 | TS2741 | 73 | 9 | 68 |
-| TS2552 | 6 | 91 | 46 |
-| TS1005 | 34 | 30 | 41 |
+| TS2552 | 6 | 89 | 46 |
+| TS1005 | 33 | 24 | 41 |
 | TS2403 | 15 | 0 | 66 |
 | TS2554 | 29 | 7 | 45 |
 | TS2769 | 40 | 3 | 27 |
-| TS7006 | 56 | 10 | 4 |
+| TS7006 | 56 | 9 | 4 |
 | TS2353 | 55 | 2 | 8 |
-| TS1036/1029/1042/1183 | 25/25/19/19 | 25/23/18/18 | 0 |
 | TS1254 | 0 | 48 | 0 |
-| TS5055 | 35 | 0 | 0 |
 
-Every sampled class (TS2322 elaboration, grammar spans, TS1254, TS2552, parser
-recovery, `noLib` global TS2318/TS5053) is a TSR output difference, not an
-oracle artifact. Systemic next lanes, by cases: (1) assignability reporting —
-TS2322/TS2345/TS2741 missing heads and missing elaboration chains (`chain` 516,
-TS2322 283); (2) type answers — 859 first rows where TSR prints `any`/`error`;
-(3) related information (437; TS2403/TS2741/TS2554 "declared here"); (4)
-grammar-check spans (TS1036/1029/1042/1183 equal-count span shifts) and TS2322
-error-node spans; (5) program/option diagnostics TSR has no producer for
-(TS5053, TS5055, global TS2318).
+Systemic next lanes, by cases: (1) assignability reporting — missing
+TS2322/TS2345/TS2741 heads and elaboration chains; (2) type answers — 851
+first rows where TSR prints `any`/`error`; (3) related information (438); (4)
+TS2322 error-node spans (136 span-only); (5) TS2304/TS2552 extras (211) and
+program/option diagnostics TSR has no producer for (TS5053, TS5055, global
+TS2318).
 
-TSR worker medians (process wall, 12 concurrent): native 0.20 s, TSR 1.24 s
-per case. Not a performance certificate (unequal work: TSR re-parses and binds
-the bundled libraries per process).
+## Gate cost and mode identity
+
+`serve` and `--per-process` reports at the previous main (`d779b044` + oracle)
+are byte-identical on all 14,960 rows (outcome, classes, details, native and
+TSR artifact SHA-256); wall 954 s vs 1,529 s on 14 workers. Native artifacts
+are reused; the per-candidate cost is the TSR run alone: median 1.06 s per
+case, p99 1.55 s, about 13,200 worker-seconds; 910 s wall at `c4bd3a6d`.
+
+That cost is TSR checking the bundled libraries. The native harness never
+does: `CompileFiles` defaults `SkipDefaultLibCheck` to true
+(`harnessutil.go:99`), and `program_and_config_for_case` does not. With that
+default ported (plus `createProgram`'s `SingleThreaded`) the run takes 125 s
+wall at `c4bd3a6d` (0.1 s per case; serve/per-process byte-identical at the
+previous main), so a 16-core gate fits in 10 minutes. The port is **held**: it
+gains `genericPrototypeProperty2` and `plainJSReservedStrict` but loses
+`compiler/sliceResultCast.ts`, whose EXACT depends on checking `lib.es5.d.ts`
+first. For `x: [number, string] | [number, string, string]`, native prints
+`x.slice` as a union of two distinct instantiated signatures (also with
+`@skipDefaultLibCheck: false`); TSR prints that union only when
+`lib.es5.d.ts` was checked before the case, and one signature otherwise. The
+union projection (`get_type_of_property_with_this_argument`, `members.rs`) must
+keep one instantiation per tuple receiver (`getTypeWithThisArgument`)
+independent of check order; that is a checker fix outside this lane. The
+legacy dumps (`parity_gate.sh compare`) show no transition from the held
+port.
