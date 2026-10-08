@@ -447,12 +447,6 @@ pub struct Checker<'a, 'n> {
     /// with an empty entry installed while resolving to break recursive keys.
     pub(crate) late_bound_member_names:
         rustc_hash::FxHashMap<(SymbolId, bool), Vec<(String, tsr_ast::NodeId)>>,
-    /// How many `late_bound_members_of` workers are active, i.e. how many
-    /// `late_bound_member_names` entries are still the empty placeholder.
-    pub(crate) late_bound_active: u32,
-    /// Completed own-and-inherited property names of a declared interface,
-    /// class or type-literal owner, owned by `Checker::get_property_names_of_type`.
-    pub(crate) structured_property_names: FxHashMap<SymbolId, Vec<String>>,
     /// §469's other half of the signature-links table: DECLARATIONS whose
     /// inferred return type is currently consulting the contextual road.
     /// Upstream's `signatureLinks` is keyed per NODE and serves both the
@@ -573,6 +567,9 @@ pub struct Checker<'a, 'n> {
     /// used by `getVariancesWorker` (internal/checker/relater.go).
     pub(crate) variance_cache: FxHashMap<SymbolId, Option<Vec<crate::variances::Variance>>>,
     pub(crate) variance_in_progress: rustc_hash::FxHashSet<SymbolId>,
+    /// Native `Relation.results` for every relation kind, for the checker's
+    /// lifetime (`tsr-2zk.902`); see [`crate::relation_cache`].
+    pub(crate) relation_results: crate::relation_cache::RelationResults,
     pub(crate) variance_markers: Option<[TypeId; 3]>,
     pub(crate) variance_marker_types: rustc_hash::FxHashSet<TypeId>,
     /// Contextual signature instantiations and their recursion sentinel,
@@ -703,6 +700,9 @@ pub struct Checker<'a, 'n> {
     /// `CompilerOptions.ShouldPreserveConstEnums()` — see
     /// [`Checker::set_preserve_const_enums`].
     pub(crate) preserve_const_enums: bool,
+    /// `CompilerOptions.GetIsolatedModules()` (`isolatedModules` or
+    /// `verbatimModuleSyntax`): the enum member reports TS18055/TS18056.
+    pub(crate) isolated_modules: bool,
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
     /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
     /// unused-identifier family off for every case that does not ask for it.
@@ -722,6 +722,12 @@ pub struct Checker<'a, 'n> {
     /// `lib` list names the DOM lib (`"dom"` maps to `lib.dom.d.ts` in
     /// `tsoptions.LibMap`; both spellings, case-insensitively).
     pub(crate) lib_includes_dom: bool,
+    /// `c.compilerOptions.UsesWildcardTypes()` (`core/compileroptions.go:326`):
+    /// `types` contains `"*"`. Upstream then reports TS2580 rather than
+    /// TS2591 for an unresolved Node core module
+    /// (`getCannotResolveModuleNameErrorForSpecificModule`); this port
+    /// declines instead (`module_specifier_unfindable_for_diagnostics`).
+    pub(crate) uses_wildcard_types: bool,
     /// Object-literal types created in a JS file — upstream's
     /// `ObjectFlagsJSLiteral` (`utilities.go:1753`), carried in a side table
     /// per ADR-0003 rather than widening `TypeData`. Read by the element
@@ -1157,6 +1163,9 @@ pub struct Checker<'a, 'n> {
     /// None marks an active or unsupported class constructor resolution.
     pub(crate) class_construct_signatures:
         FxHashMap<SymbolId, Option<Vec<crate::signatures::Signature>>>,
+    /// Memo tables for answers native keeps in symbol/type links
+    /// (`crate::perf_links`; contracts in `docs/parity/notes/r4-perf.md`).
+    pub(crate) perf_links: crate::perf_links::PerfLinks,
     /// `(baked signature type, substitution map) -> the instantiated type`,
     /// upstream's per-mapper instantiation cache (`checker.go:22125`) reduced
     /// to the one key this port can build.
@@ -1423,8 +1432,6 @@ impl<'a, 'n> Checker<'a, 'n> {
             context_checked_arguments: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
             late_bound_member_names: rustc_hash::FxHashMap::default(),
-            late_bound_active: 0,
-            structured_property_names: FxHashMap::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_this_parameters: FxHashMap::default(),
             contextual_return_depth: 0,
@@ -1456,6 +1463,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             silent_never_type: None,
             variance_cache: FxHashMap::default(),
             variance_in_progress: rustc_hash::FxHashSet::default(),
+            relation_results: crate::relation_cache::RelationResults::default(),
             variance_markers: None,
             variance_marker_types: rustc_hash::FxHashSet::default(),
             signature_context_cache: FxHashMap::default(),
@@ -1483,9 +1491,11 @@ impl<'a, 'n> Checker<'a, 'n> {
             allow_unreachable_code: false,
             unreachable_code_is_error: false,
             preserve_const_enums: false,
+            isolated_modules: false,
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
             lib_includes_dom: false,
+            uses_wildcard_types: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             regular_object_literal_types: FxHashMap::default(),
@@ -1593,6 +1603,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
             circularity_reported: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),
+            perf_links: crate::perf_links::PerfLinks::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),
@@ -1706,6 +1717,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.use_unknown_in_catch_variables =
             options.strict_option_value(options.use_unknown_in_catch_variables);
         self.no_implicit_any = options.strict_option_value(options.no_implicit_any);
+        self.uses_wildcard_types =
+            options.types.as_ref().is_some_and(|types| types.iter().any(|t| t == "*"));
         self.lib_includes_dom = options
             .lib
             .iter()
@@ -1762,6 +1775,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `ShouldPreserveConstEnums`, which folds in `isolatedModules` — and, via
         // `GetIsolatedModules`, `verbatimModuleSyntax` too.
         self.preserve_const_enums = options.should_preserve_const_enums();
+        self.isolated_modules = options.get_isolated_modules();
 
         // `IsTrueOrUnknown` (`checker.go:5321`): on unless explicitly off.
         self.no_unchecked_side_effect_imports =
@@ -4413,8 +4427,28 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// Not a flag test: `errorType` and `anyType` share `TypeFlagsAny` and are
     /// distinguished only by identity, which is the whole point of them being
     /// separate types (`checker.go:979`).
+    ///
+    /// Both of the port's error identities answer true (ADR-0047): its gap
+    /// ([`Intrinsics::error`](crate::Intrinsics)) and upstream's own
+    /// `errorType` ([`Intrinsics::native_error`](crate::Intrinsics)).
     pub(crate) fn is_error(&self, id: TypeId) -> bool {
-        id == self.intrinsics.error || self.unresolved_types.contains(&id)
+        id == self.intrinsics.error
+            || id == self.intrinsics.native_error
+            || self.unresolved_types.contains(&id)
+    }
+
+    /// The error a union or intersection answers once `constituent`, an error
+    /// type, joins the error already `seen` (`IncludesError`,
+    /// `checker.go:25659` / `:26092`): upstream's `errorType` while every error
+    /// constituent was upstream's, the port's gap as soon as one was not — a
+    /// gap in a constituent is a gap in the whole (ADR-0047).
+    pub(crate) fn included_error(&self, seen: Option<TypeId>, constituent: TypeId) -> TypeId {
+        let native = self.intrinsics.native_error;
+        if constituent == native && seen.is_none_or(|seen| seen == native) {
+            native
+        } else {
+            self.intrinsics.error
+        }
     }
 
     /// Ported from `ast.GetCombinedNodeFlags` / `getCombinedFlags`

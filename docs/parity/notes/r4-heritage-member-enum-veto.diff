@@ -1,0 +1,14 @@
+diff --git a/crates/tsr-checker/src/heritage_conformance.rs b/crates/tsr-checker/src/heritage_conformance.rs
+index 1963fdb..2b91e5c 100644
+--- a/crates/tsr-checker/src/heritage_conformance.rs
++++ b/crates/tsr-checker/src/heritage_conformance.rs
+@@ -253,7 +253,8 @@ impl Checker<'_, '_> {
+             };
+             match self.relate_ternary(property, base_property, Relation::Assignable) {
+                 Ternary::Related => continue,
+-                Ternary::NotRelated if self.pair_is_reportable(property, base_property) => {}
++                Ternary::NotRelated
++                    if self.assignability_pair_is_reportable(property, base_property) => {}
+                 _ => {
+                     undecided = true;
+                     continue;

@@ -28,9 +28,8 @@ use crate::{
 impl Checker<'_, '_> {
     /// The heritage conformance checks for one class or interface declaration.
     pub(crate) fn check_heritage_conformance(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
+        // Neither `checkClassLikeDeclaration` nor `checkInterfaceDeclaration`
+        // has a parse-error gate: both run on parse-recovered trees.
         if self.in_js_file(node) {
             // The JS arm is the implemented-type loop over the `@implements`
             // tags `reparseHosted` moves into the class's implements clause;
@@ -205,6 +204,8 @@ impl Checker<'_, '_> {
         };
         let Some(class_symbol) = self.binder.symbol_of(node) else { return };
         let this_type = self.class_instance_this_type(class_symbol);
+        // The late-bound names of the class's own instance members.
+        let late_bound = self.late_bound_members_of(self.binder.merged_symbol(class_symbol), false);
         let mut issued = false;
         let mut undecided = false;
         for member in members {
@@ -217,13 +218,23 @@ impl Checker<'_, '_> {
                 continue;
             }
             // `declaredProp.Name != ast.InternalSymbolNameComputed`: a member
-            // without a name, or with a computed one, is skipped.
+            // without a name is skipped, and so is a computed one unless
+            // `lateBindMember` gave it a name (`[Symbol.toPrimitive]`,
+            // `["literal"]`; `symbolProperty24`).
             let Some(name_node) = self.declaration_name_of(member) else { continue };
-            let name = match self.node_map.get(name_node) {
-                Some(Node::Identifier(name)) => name.text.to_string(),
-                Some(Node::StringLiteral(name)) => name.text.to_string(),
-                Some(Node::NumericLiteral(name)) => name.text.to_string(),
-                Some(Node::PrivateIdentifier(name)) => name.text.to_string(),
+            let (name, printed) = match self.node_map.get(name_node) {
+                Some(Node::Identifier(name)) => (name.text.to_string(), None),
+                Some(Node::StringLiteral(name)) => (name.text.to_string(), None),
+                Some(Node::NumericLiteral(name)) => (name.text.to_string(), None),
+                Some(Node::PrivateIdentifier(name)) => (name.text.to_string(), None),
+                Some(Node::ComputedPropertyName(_)) => {
+                    let Some(name) = late_bound.iter().find_map(|(name, declaration)| {
+                        (*declaration == member).then(|| name.clone())
+                    }) else {
+                        continue;
+                    };
+                    (name, self.computed_member_name_text(member))
+                }
                 _ => continue,
             };
             if self.binder.symbol_of(member).is_none() {
@@ -239,7 +250,8 @@ impl Checker<'_, '_> {
             };
             match self.relate_ternary(property, base_property, Relation::Assignable) {
                 Ternary::Related => continue,
-                Ternary::NotRelated if self.pair_is_reportable(property, base_property) => {}
+                Ternary::NotRelated
+                    if self.assignability_pair_is_reportable(property, base_property) => {}
                 _ => {
                     undecided = true;
                     continue;
@@ -255,7 +267,7 @@ impl Checker<'_, '_> {
                 Diagnostic::with_args(
                     &messages::PROPERTY_0_IN_TYPE_1_IS_NOT_ASSIGNABLE_TO_THE_SAME_PROPERTY_IN_BASE_TYPE_2,
                     span,
-                    [name, source_text, target_text],
+                    [printed.unwrap_or(name), source_text, target_text],
                 ),
             );
         }
@@ -494,18 +506,22 @@ impl Checker<'_, '_> {
     /// Interface_0_incorrectly_extends_interface_1)` for each base type and
     /// `checkIndexConstraints`.
     ///
-    /// `links.interfaceChecked` is the symbol's first interface declaration
-    /// here, the one a file-order check reaches first.
+    /// `links.interfaceChecked` is set by the first interface declaration that
+    /// is **checked**, the one a file-order check reaches first. A bundled
+    /// default-library declaration is never checked, so a user augmentation
+    /// of a lib interface (`interface Object { … }`) runs the block even
+    /// though lib.es5's declaration is first in the merged symbol
+    /// (`objectTypeHidingMembersOfExtendedObject`).
     fn check_interface_heritage_conformance(&mut self, node: NodeId) {
         let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else { return };
         let Some(name) = interface.name.and_then(|n| n.node_id) else { return };
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
         let declarations = self.binder.symbols().get(symbol).declarations.clone();
-        let first = declarations
-            .iter()
-            .copied()
-            .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::InterfaceDeclaration);
+        let first = declarations.iter().copied().find(|&declaration| {
+            self.nodes.kind(declaration) == SyntaxKind::InterfaceDeclaration
+                && !self.in_default_library(declaration)
+        });
         if first != Some(node) {
             return;
         }
@@ -574,7 +590,9 @@ impl Checker<'_, '_> {
                 );
             }
         }
-        self.check_index_constraints(node);
+        // `c.checkIndexConstraints(t, symbol, false)` on the declared type.
+        let declared = self.get_declared_type_of_class_or_interface(symbol);
+        self.check_index_constraints_of_type(declared, symbol, false);
     }
 
     /// `checkInheritedPropertiesAreIdentical` (`checker.go`): two bases that

@@ -58,6 +58,16 @@ pub struct IndexInfo {
     pub readonly: bool,
 }
 
+/// One `propertySymbols` entry of `getIndexInfosOfIndexSymbol`: the member's
+/// `getTypeOfSymbol` and the name predicates `getObjectLiteralIndexInfo` asks.
+struct LateIndexProperty {
+    value: TypeId,
+    symbol_named: bool,
+    numeric_named: bool,
+    /// The declaration, when `isSymbolWithComputedName`.
+    component: Option<tsr_ast::NodeId>,
+}
+
 impl<'a> Checker<'a, '_> {
     /// The index signatures a type declares.
     ///
@@ -88,9 +98,16 @@ impl<'a> Checker<'a, '_> {
                 return self.union_index_infos(&types);
             }
             // resolveIntersectionTypeMembers / appendIndexInfo (checker.go).
+            // Native resolves the members of the intersection's apparent type,
+            // `getApparentTypeOfIntersectionType` (`checker.go:21796`), whose
+            // `getTypeWithThisArgument(.., needApparentType)` reads every
+            // constituent through `getApparentType`: the `string` of
+            // `string & { brand }` contributes `String`'s number index.
+            // `docs/parity/notes/r4-index3.md` §2.
             TypeData::Intersection { types, .. } => {
                 let mut infos: Vec<IndexInfo> = Vec::new();
                 for ty in types {
+                    let ty = self.apparent_type(ty);
                     for next in self.get_index_infos_of_type(ty)? {
                         if let Some(info) = infos.iter_mut().find(|info| info.key == next.key) {
                             info.value =
@@ -175,6 +192,9 @@ impl<'a> Checker<'a, '_> {
         {
             return self.index_infos_of_symbol(symbol, true, &mut Vec::new());
         }
+        if let Some(tuple) = self.tuple_index_infos(id) {
+            return tuple;
+        }
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
             return Some(Vec::new());
         };
@@ -199,6 +219,62 @@ impl<'a> Checker<'a, '_> {
                 })
                 .collect(),
         )
+    }
+
+    /// A tuple's index infos: the number index it inherits from its base.
+    ///
+    /// `getTupleBaseType` (`checker.go:19206`) makes a tuple target's base
+    /// `Array<E>` (`ReadonlyArray<E>` when readonly), where `E` is the union of
+    /// its element type arguments, a variadic element contributing
+    /// `T[number]`; `resolveObjectTypeMembers` copies the base's
+    /// `[n: number]: T` into the tuple's members, instantiated to `E`. An
+    /// optional element's argument already carries `undefined`
+    /// (`addOptionality` in `getTypeFromTupleTypeNode`), which this port keeps
+    /// in the optional mask instead, so it is added back here as
+    /// `variadic_tuple_index_union` does.
+    ///
+    /// `None` when `id` is not a tuple. `Some(None)` — a gap — for the
+    /// print-only shapes whose elements are resolved lazily
+    /// (`tuple_rest_tails`, `variadic_tuple_nodes`): answering "no index" for
+    /// them would be the confident wrong answer this function used to give
+    /// every tuple. No cache or side table: the element lists are the
+    /// existing tuple tables, read per call. `docs/parity/notes/r4-index2.md` §3.
+    fn tuple_index_infos(&mut self, id: TypeId) -> Option<Option<Vec<IndexInfo>>> {
+        let readonly;
+        let value = if let Some((elements, is_readonly)) = self.tuple_element_lists.get(&id) {
+            if self.tuple_rest_tails.contains_key(&id)
+                || self.variadic_tuple_nodes.contains_key(&id)
+            {
+                return Some(None);
+            }
+            readonly = *is_readonly;
+            let mut types = elements.clone();
+            if let Some(mask) = self.tuple_optional_masks.get(&id)
+                && mask.iter().any(|&optional| optional)
+            {
+                types.push(self.intrinsics.undefined);
+            }
+            self.get_union_type(&types)
+        } else if let Some((_, is_readonly)) = self.variadic_tuple_elements.get(&id) {
+            readonly = *is_readonly;
+            match self.variadic_tuple_index_union(id) {
+                Some(value) => value,
+                None => return Some(None),
+            }
+        } else if self.variadic_tuple_nodes.contains_key(&id)
+            || self.tuple_rest_tails.contains_key(&id)
+        {
+            return Some(None);
+        } else {
+            return None;
+        };
+        Some(Some(vec![IndexInfo {
+            components: None,
+            declaration: None,
+            key: self.intrinsics.number,
+            value,
+            readonly,
+        }]))
     }
 
     /// Pinned 5b1047d checker.go:23837/24115/25121 publishes the canonical array
@@ -382,7 +458,47 @@ impl<'a> Checker<'a, '_> {
     /// prints structurally can have an inherited index signature at all. If a
     /// structural printer for interfaces is ever added, this note is the one to
     /// re-read.
+    ///
+    /// # Memoised like native's resolved members
+    ///
+    /// Native resolves a structured type's index infos once
+    /// (`resolveObjectTypeMembers`, `checker.go:19106`, publishing
+    /// `indexInfos`; the static side through `resolveAnonymousTypeMembers`);
+    /// this port re-scanned every member of every declaration per query —
+    /// `String`'s, for each `string` constituent of a union.
+    /// [`PerfLinks::symbol_index_infos`](crate::perf_links::PerfLinks) keeps
+    /// the decided lists. A published list is exact for any `visiting`: it
+    /// met no cycle from an empty path, and every symbol on the path has
+    /// `owner` as a base, so none can recur in `owner`'s walk. Key,
+    /// publication and context: `docs/parity/notes/r4-perf3.md` §5.
     fn index_infos_of_symbol(
+        &mut self,
+        owner: SymbolId,
+        static_side: bool,
+        visiting: &mut Vec<SymbolId>,
+    ) -> Option<Vec<IndexInfo>> {
+        let binder = self.binder;
+        let Some(frames) = self.memo_frames(&binder.symbols().get(owner).declarations, None) else {
+            return self.index_infos_of_symbol_worker(owner, static_side, visiting);
+        };
+        let key = (owner, static_side);
+        if let Some(cached) = self.perf_links.symbol_index_infos.get(&key) {
+            let cached = cached.clone();
+            self.alias_evaluation_bindings = frames;
+            return Some(cached);
+        }
+        let mark = self.publication_mark();
+        let computed = self.index_infos_of_symbol_worker(owner, static_side, visiting);
+        self.alias_evaluation_bindings = frames;
+        let infos = computed?;
+        if self.publishable_since(mark) && infos.iter().all(|info| !self.is_error(info.value)) {
+            self.perf_links.symbol_index_infos.insert(key, infos.clone());
+        }
+        Some(infos)
+    }
+
+    /// [`Self::index_infos_of_symbol`]'s computation, without the memo.
+    fn index_infos_of_symbol_worker(
         &mut self,
         owner: SymbolId,
         static_side: bool,
@@ -468,6 +584,13 @@ impl<'a> Checker<'a, '_> {
                 _ => {}
             }
         }
+        // The late-bound declarations of `__index` follow the early ones
+        // (`lateBindIndexSignature` appends to a clone of the early symbol),
+        // so explicit signatures claim their keys first.
+        if !self.late_bound_index_infos(owner, static_side, &mut infos) {
+            visiting.pop();
+            return None;
+        }
         // resolveAnonymousTypeMembers inherits named properties from the base
         // constructor, not its __index export. Instance indexes instead
         // inherit independently by key in resolveObjectTypeMembers.
@@ -513,6 +636,375 @@ impl<'a> Checker<'a, '_> {
         Some(infos)
     }
 
+    /// `getIndexInfosOfIndexSymbol`'s `hasLateBindableIndexSignature` arm
+    /// (`checker.go:19662`) and its aggregation (`:19700-19716`).
+    ///
+    /// A member whose computed name is an entity-name expression
+    /// (`isLateBindableAST`) of a type that is not usable as a property name
+    /// but is assignable to `string | number | symbol` is late-bound into the
+    /// `__index` symbol (`getResolvedMembersOrExportsOfSymbol` ->
+    /// `lateBindIndexSignature`, `checker.go:15957`/`:16068`) instead of the
+    /// members table: `class C { [k]: number }` with `k: string` declares a
+    /// string index signature. Each such key kind gets ONE info whose value is
+    /// `getObjectLiteralIndexInfo` over the late-bound declarations followed
+    /// by every sibling member of the table (`:19720`), so the value is the
+    /// union of all applicable member types, not the annotated one.
+    ///
+    /// Port convention record (`docs/conventions.md`): no cache, side table or
+    /// mapper. The pinned operation is `getIndexInfosOfIndexSymbol` on the
+    /// owner's members (instance) or exports (static); the receiver context is
+    /// the uninstantiated declaration, exactly like the explicit-signature arm
+    /// above, and `get_index_infos_of_type` instantiates values afterwards.
+    /// Expensive work (the computed-name `check_expression`, sibling
+    /// `get_type_of_symbol`) runs only for a declaration that has a member with
+    /// an entity-name computed name; every other declaration costs one
+    /// syntactic member scan. `false` declines the whole symbol (a gap), for
+    /// the one sibling set this port cannot enumerate: a static side whose
+    /// `prototype` or inherited statics would need the base constructor.
+    /// `docs/parity/notes/r4-index.md` §1.
+    fn late_bound_index_infos(
+        &mut self,
+        owner: SymbolId,
+        static_side: bool,
+        infos: &mut Vec<IndexInfo>,
+    ) -> bool {
+        let declarations = self.binder.symbols().get(owner).declarations.clone();
+        let mut candidates: Vec<(tsr_ast::NodeId, tsr_ast::Expression<'a>)> = Vec::new();
+        for &declaration in &declarations {
+            let members: Vec<tsr_ast::NodeId> = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => {
+                    node.members.iter().filter_map(|m| Node::from(*m).node_id()).collect()
+                }
+                Some(Node::ClassExpression(node)) => {
+                    node.members.iter().filter_map(|m| Node::from(*m).node_id()).collect()
+                }
+                Some(Node::InterfaceDeclaration(node)) => {
+                    node.members.iter().filter_map(|m| Node::from(*m).node_id()).collect()
+                }
+                Some(Node::TypeLiteralNode(node)) => {
+                    node.members.iter().filter_map(|m| Node::from(*m).node_id()).collect()
+                }
+                _ => continue,
+            };
+            for member in members {
+                let Some(name) = self.declaration_name_of(member) else { continue };
+                let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
+                    continue;
+                };
+                let Some(expression) = computed.expression else { continue };
+                // `isStatic == ast.HasStaticModifier(member)`.
+                let is_static = self
+                    .node_map
+                    .get(member)
+                    .and_then(crate::check::modifiers_of)
+                    .is_some_and(|modifiers| {
+                        crate::check::has_modifier(modifiers, tsr_ast::SyntaxKind::StaticKeyword)
+                    });
+                if is_static != static_side
+                    || !expression.node_id().is_some_and(|id| self.is_entity_name_expression(id))
+                {
+                    continue;
+                }
+                candidates.push((member, expression));
+            }
+        }
+        if candidates.is_empty() {
+            return true;
+        }
+        let allowed = self.get_union_type(&[
+            self.intrinsics.string,
+            self.intrinsics.number,
+            self.intrinsics.es_symbol,
+        ]);
+        let mut has = [false; 3];
+        let mut readonly = [true; 3];
+        let mut late_declarations = Vec::new();
+        for (member, expression) in candidates {
+            let key = self.check_expression(expression);
+            // `hasLateBindableName` is asked first: a literal or unique symbol
+            // name is a late-bound MEMBER, not an index signature.
+            if self.type_of(key).flags.intersects(
+                TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL | TypeFlags::UNIQUE_ES_SYMBOL,
+            ) || !self.is_type_assignable_to(key, allowed)
+            {
+                continue;
+            }
+            // Explicit index for key type takes priority.
+            if infos.iter().any(|info| info.key == key) {
+                continue;
+            }
+            let kind = if self.is_type_assignable_to(key, self.intrinsics.number) {
+                1
+            } else if self.is_type_assignable_to(key, self.intrinsics.es_symbol) {
+                2
+            } else {
+                0
+            };
+            // A plain `symbol` key may be a `unique symbol` this port never
+            // minted: `widenTypeForVariableLikeDeclaration` (`checker.go:18246`,
+            // typescript-go#1212) turns a `symbol` member merged into the
+            // global `SymbolConstructor` into that member's unique symbol, and
+            // this port's widening lacks the arm. Such a key late-binds a
+            // MEMBER upstream, never an index (`symbolProperty61`), so it is
+            // declined until the producer is ported (r4-index report).
+            if kind == 2
+                && self.type_of(key).flags.contains(TypeFlags::ES_SYMBOL)
+                && self.symbol_constructor_declares_symbol_member()
+            {
+                continue;
+            }
+            has[kind] = true;
+            let is_readonly =
+                self.node_map.get(member).and_then(crate::check::modifiers_of).is_some_and(
+                    |modifiers| {
+                        crate::check::has_modifier(modifiers, tsr_ast::SyntaxKind::ReadonlyKeyword)
+                    },
+                );
+            if !is_readonly {
+                readonly[kind] = false;
+            }
+            late_declarations.push(member);
+        }
+        if !has.iter().any(|&kind| kind) {
+            return true;
+        }
+        let Some(properties) = self.late_index_properties(owner, static_side, &late_declarations)
+        else {
+            return false;
+        };
+        let keys = [self.intrinsics.string, self.intrinsics.number, self.intrinsics.es_symbol];
+        for kind in 0..3 {
+            if !has[kind] || infos.iter().any(|info| info.key == keys[kind]) {
+                continue;
+            }
+            // getObjectLiteralIndexInfo (checker.go:19720).
+            let mut values = Vec::new();
+            let mut components = Vec::new();
+            for property in &properties {
+                let applies = match kind {
+                    0 => !property.symbol_named,
+                    1 => property.numeric_named,
+                    _ => property.symbol_named,
+                };
+                if applies {
+                    values.push(property.value);
+                    components.extend(property.component);
+                }
+            }
+            let value = if values.is_empty() {
+                self.intrinsics.undefined
+            } else if let Some(&error) = values.iter().find(|&&value| self.is_error(value)) {
+                // getUnionType answers errorType when a constituent is one
+                // (`IncludesError`). A signature carrier's errorType is the
+                // NATIVE intrinsic, which prints `any` and is `IsTypeAny`;
+                // this port's `error` means "not computed" and prints as a
+                // gap, so the carrier's contribution is spelled `any`. A
+                // member whose own type this port could not compute stays
+                // `error`.
+                error
+            } else {
+                match self.union_with_subtype_reduction(&values) {
+                    Some(value) => value,
+                    None => return false,
+                }
+            };
+            let components = if components.is_empty() {
+                None
+            } else {
+                let id = IndexComponentsId(self.index_components.len());
+                self.index_components.push(components);
+                Some(id)
+            };
+            infos.push(IndexInfo {
+                components,
+                declaration: None,
+                key: keys[kind],
+                value,
+                readonly: readonly[kind],
+            });
+        }
+        true
+    }
+
+    /// Does any declaration of the global `SymbolConstructor` declare a
+    /// property signature written `symbol` — the members whose type
+    /// `widenTypeForVariableLikeDeclaration` makes unique upstream?
+    fn symbol_constructor_declares_symbol_member(&self) -> bool {
+        let Some(global) = self.global_type_symbol_with_arity("SymbolConstructor", 0) else {
+            return false;
+        };
+        let global = self.binder.merged_symbol(global);
+        self.binder.symbols().get(global).declarations.iter().any(|&declaration| {
+            let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration) else {
+                return false;
+            };
+            interface.members.iter().any(|member| {
+                matches!(member, TypeElement::PropertySignatureDeclaration(property)
+                    if matches!(property.r#type, Some(tsr_ast::TypeNode::KeywordTypeNode(keyword))
+                        if keyword.kind == tsr_ast::SyntaxKind::SymbolKeyword))
+            })
+        })
+    }
+
+    /// `propertySymbols` of `getIndexInfosOfIndexSymbol`: the late-bound index
+    /// declarations' own symbols, then every sibling in
+    /// `getMembersOfSymbol(symbol)` (instance) or the static side's members,
+    /// each with the three name predicates `getObjectLiteralIndexInfo` asks
+    /// (`isSymbolWithSymbolName`, `isSymbolWithNumericName`,
+    /// `isSymbolWithComputedName`) and `getTypeOfSymbol`.
+    ///
+    /// The members table upstream also holds the signature-carrying symbols
+    /// this binder does not declare there — `__constructor` on a class's
+    /// instance side, `__call`/`__new` on an interface or type literal. Their
+    /// `getTypeOfSymbol` falls through every flags arm to `errorType`
+    /// (`checker.go:16493`), and a name-less symbol is neither symbol- nor
+    /// numeric-named, so each contributes `errorType` to the string index.
+    fn late_index_properties(
+        &mut self,
+        owner: SymbolId,
+        static_side: bool,
+        late_declarations: &[tsr_ast::NodeId],
+    ) -> Option<Vec<LateIndexProperty>> {
+        let mut properties = Vec::new();
+        for &declaration in late_declarations {
+            let symbol = self.binder.symbol_of(declaration)?;
+            let property = self.late_index_property(symbol, None, declaration);
+            properties.push(property);
+        }
+        let entry = self.binder.symbols().get(owner);
+        let is_class = entry.flags.intersects(tsr_binder::SymbolFlags::CLASS);
+        let table = if static_side { &entry.exports } else { &entry.members };
+        let siblings: Vec<SymbolId> = table
+            .iter()
+            .filter(|(name, _)| **name != "__index")
+            .map(|(_, &symbol)| symbol)
+            .collect();
+        for symbol in siblings {
+            let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first() else {
+                continue;
+            };
+            let name = self.binder.symbols().get(symbol).name;
+            properties.push(self.late_index_property(symbol, Some(name), declaration));
+        }
+        for (_, member) in self.late_bound_members_of(owner, static_side) {
+            let Some(symbol) = self.binder.symbol_of(member) else { continue };
+            properties.push(self.late_index_property(symbol, None, member));
+        }
+        let declarations = self.binder.symbols().get(owner).declarations.clone();
+        if static_side {
+            // `prototype` (getTypeOfPrototypeProperty) and the base
+            // constructor's statics (addInheritedMembers) are siblings too.
+            // Only a non-generic class without `extends` is enumerable here.
+            for declaration in declarations {
+                let (parameters, heritage) = match self.node_map.get(declaration) {
+                    Some(Node::ClassDeclaration(node)) => {
+                        (node.type_parameters, node.heritage_clauses)
+                    }
+                    Some(Node::ClassExpression(node)) => {
+                        (node.type_parameters, node.heritage_clauses)
+                    }
+                    _ => continue,
+                };
+                if !parameters.is_empty()
+                    || heritage
+                        .iter()
+                        .any(|clause| clause.token.kind == tsr_ast::SyntaxKind::ExtendsKeyword)
+                {
+                    return None;
+                }
+            }
+            if is_class {
+                properties.push(LateIndexProperty {
+                    value: self.get_declared_type_of_class_or_interface(owner),
+                    symbol_named: false,
+                    numeric_named: false,
+                    component: None,
+                });
+            }
+            return Some(properties);
+        }
+        let signature_carrier =
+            declarations.iter().any(|&declaration| match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => node.members.iter().any(|member| {
+                    matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(_))
+                }),
+                Some(Node::ClassExpression(node)) => node.members.iter().any(|member| {
+                    matches!(member, tsr_ast::ClassElement::ConstructorDeclaration(_))
+                }),
+                Some(Node::InterfaceDeclaration(node)) => node.members.iter().any(|member| {
+                    matches!(
+                        member,
+                        TypeElement::CallSignatureDeclaration(_)
+                            | TypeElement::ConstructSignatureDeclaration(_)
+                    )
+                }),
+                Some(Node::TypeLiteralNode(node)) => node.members.iter().any(|member| {
+                    matches!(
+                        member,
+                        TypeElement::CallSignatureDeclaration(_)
+                            | TypeElement::ConstructSignatureDeclaration(_)
+                    )
+                }),
+                _ => false,
+            });
+        if signature_carrier {
+            properties.push(LateIndexProperty {
+                value: self.intrinsics.any,
+                symbol_named: false,
+                numeric_named: false,
+                component: None,
+            });
+        }
+        Some(properties)
+    }
+
+    /// One `propertySymbols` entry: `getTypeOfSymbol` and the name predicates
+    /// read off `symbol.Declarations[0].Name()` (`checker.go:19740-19786`).
+    /// `name` is the table name for an early-bound symbol; a late-bound one is
+    /// named by its computed expression's type alone.
+    fn late_index_property(
+        &mut self,
+        symbol: SymbolId,
+        name: Option<&str>,
+        declaration: tsr_ast::NodeId,
+    ) -> LateIndexProperty {
+        let value = self.get_type_of_symbol(symbol);
+        let name_node = self.declaration_name_of(declaration);
+        let computed = name_node.and_then(|node| match self.node_map.get(node) {
+            Some(Node::ComputedPropertyName(computed)) => Some(computed.expression),
+            _ => None,
+        });
+        let (symbol_named, numeric_named) = if let Some(expression) = computed {
+            let key = match expression {
+                Some(expression) => self.check_expression(expression),
+                None => self.intrinsics.error,
+            };
+            let key_flags = self.type_of(key).flags;
+            let symbol_named = key_flags.intersects(TypeFlags::ES_SYMBOL_LIKE)
+                || self.is_type_assignable_to(key, self.intrinsics.es_symbol);
+            let numeric_named = name.is_some_and(is_numeric_literal_name)
+                || key_flags.intersects(TypeFlags::NUMBER_LIKE)
+                || self.is_type_assignable_to(key, self.intrinsics.number);
+            (symbol_named, numeric_named)
+        } else {
+            let text = name_node.and_then(|node| match self.node_map.get(node) {
+                Some(Node::Identifier(identifier)) => Some(identifier.text),
+                Some(Node::NumericLiteral(literal)) => Some(literal.text),
+                Some(Node::StringLiteral(literal)) => Some(literal.text),
+                _ => None,
+            });
+            let numeric_named = name.is_some_and(is_numeric_literal_name)
+                || text.is_some_and(is_numeric_literal_name);
+            (false, numeric_named)
+        };
+        LateIndexProperty {
+            value,
+            symbol_named,
+            numeric_named,
+            component: computed.map(|_| declaration),
+        }
+    }
+
     /// getIndexInfosOfIndexSymbol splits union keys and retains each valid
     /// primitive, pattern or nongeneric intersection key (checker.go).
     pub(crate) fn index_infos_of_declaration(
@@ -520,14 +1012,18 @@ impl<'a> Checker<'a, '_> {
         signature: &tsr_ast::IndexSignatureDeclaration<'a>,
     ) -> Vec<IndexInfo> {
         let [parameter] = signature.parameters else { return Vec::new() };
-        let (Some(key), Some(value)) = (parameter.r#type, signature.r#type) else {
-            return Vec::new();
-        };
+        let Some(key) = parameter.r#type else { return Vec::new() };
         let key = self.get_type_from_type_node(key);
-        let value = self.get_type_from_type_node(value);
-        if value == self.intrinsics.error {
-            return Vec::new();
-        }
+        // `valueType := c.anyType` unless a type is written (`checker.go:19649`):
+        // `[k: string];` is a string index of `any`, not no index.
+        // An `errorType` value still declares the key (`:19656` builds the
+        // info whatever `getTypeFromTypeNode` answered), so an access through
+        // it answers that value and never reaches TS7053's "no applicable
+        // index" arm. `docs/parity/notes/r4-index3.md` §1.
+        let value = match signature.r#type {
+            Some(value) => self.get_type_from_type_node(value),
+            None => self.intrinsics.any,
+        };
         let keys = match &self.store.get(key).data {
             TypeData::Union { types, .. } => types.clone(),
             _ => vec![key],
@@ -830,7 +1326,27 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
-        let value_node = signature.r#type?;
+        // `getIndexInfosOfIndexSymbol` keeps only a valid key
+        // (`isValidIndexKeyType`, `checker.go:19655`); an invalid one
+        // contributes no member upstream, which the caller cannot yet say
+        // (`docs/parity/notes/r4-index.md` §4), so it still declines.
+        if !self.is_valid_index_key_type(key) {
+            return None;
+        }
+        let readonly = signature.modifiers.iter().any(|modifier| {
+            matches!(modifier, tsr_ast::ModifierLike::Token(token)
+                if token.kind == tsr_ast::SyntaxKind::ReadonlyKeyword)
+        });
+        // `valueType := c.anyType` without a written type (`checker.go:19649`):
+        // `{ [x: string]; }` prints `{ [x: string]: any; }`.
+        let Some(value_node) = signature.r#type else {
+            return Some(crate::objects::Member::Index {
+                readonly,
+                name: name.text.to_string(),
+                key: self.type_to_string(key),
+                value: "any".to_string(),
+            });
+        };
         let value = self.get_type_from_type_node(value_node);
         // §949, leg 1: §929's rule at the INDEX member. A value type this port
         // cannot resolve used to decline the member, and the caller turns a
@@ -845,10 +1361,6 @@ impl<'a> Checker<'a, '_> {
         } else {
             None
         };
-        let readonly = signature.modifiers.iter().any(|modifier| {
-            matches!(modifier, tsr_ast::ModifierLike::Token(token)
-                if token.kind == tsr_ast::SyntaxKind::ReadonlyKeyword)
-        });
         Some(crate::objects::Member::Index {
             readonly,
             name: name.text.to_string(),

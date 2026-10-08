@@ -37,10 +37,30 @@ use crate::{
 pub struct Intrinsics {
     /// `anyType` — `checker.go:975`.
     pub any: TypeId,
-    /// `errorType` — `checker.go:979`. Prints `any`, but is not `anyType`:
-    /// it marks a type that could not be computed, and suppresses follow-on
-    /// errors that `any` would not.
+    /// **The port's gap**: "this port could not compute the type". Prints
+    /// `error` everywhere, so every instrument can tell a gap from a wrong
+    /// answer. It is `TypeFlagsAny` and behaves as upstream's `errorType`
+    /// semantically (it suppresses follow-on errors that `any` would not),
+    /// because until ADR-0047 it was the port's only error type.
+    ///
+    /// Upstream's own `errorType` — the answer upstream *computes* — is
+    /// [`Intrinsics::native_error`]. Answering this one claims nothing about
+    /// upstream; answering that one claims upstream answers `errorType` there.
     pub error: TypeId,
+    /// `errorType` — `checker.go:979`, the type upstream computes for an
+    /// unresolved name or an abandoned computation. `TypeFlagsAny`, so
+    /// `IsTypeAny` holds, and [`Checker::is_error`](crate::Checker) answers
+    /// true for it as for the gap.
+    ///
+    /// Upstream's intrinsic name is `"error"`, but only the baseline writer's
+    /// intrinsic-name fast path ever prints that name
+    /// (`type_symbol_baseline.go:378`); the node builder renders every
+    /// `TypeFlagsAny` type as the `any` keyword. This type is therefore created
+    /// with the printed name `any`, which is what every rendering inside the
+    /// checker (and every nested position of a baseline line) shows, and the
+    /// writer's fast path restores `"error"` by identity
+    /// (`types_producer::render`). ADR-0047.
+    pub native_error: TypeId,
     /// Native unresolvedType: private unresolved aliases link to this distinct intrinsic.
     pub unresolved: TypeId,
     /// `unknownType` — `checker.go:983`.
@@ -135,6 +155,8 @@ impl Intrinsics {
         // the two regular boolean literal types, so those must exist first.
         let any = store.new_intrinsic(TypeFlags::ANY, "any");
         let error = store.new_intrinsic(TypeFlags::ANY, "error");
+        // ADR-0047: upstream's own `errorType`, beside the port's gap.
+        let native_error = store.new_intrinsic(TypeFlags::ANY, "any");
         let unresolved = store.new_intrinsic(TypeFlags::ANY, "unresolved");
         let unknown = store.new_intrinsic(TypeFlags::UNKNOWN, "unknown");
         let undefined = store.new_intrinsic(TypeFlags::UNDEFINED, "undefined");
@@ -154,6 +176,25 @@ impl Intrinsics {
         let regular_true = literal(store, true, false);
         let true_type = literal(store, true, true);
         let boolean = crate::unions::create_boolean_type(store, regular_false, regular_true);
+        // `emptyStringType`, `zeroType`, `zeroBigIntType` (`checker.go:1049`):
+        // upstream creates the three zero literals at checker construction, so
+        // they precede every literal of the program in type-id order (and so
+        // in union order). Interned here, regular form, for that order only.
+        store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            crate::types::TypeData::StringLiteral(String::new()),
+            false,
+        );
+        store.intern_literal(
+            TypeFlags::NUMBER_LITERAL,
+            crate::types::TypeData::NumberLiteral("0".to_owned()),
+            false,
+        );
+        store.intern_literal(
+            TypeFlags::BIG_INT_LITERAL,
+            crate::types::TypeData::BigIntLiteral("0".to_owned()),
+            false,
+        );
         let empty_object = store.new_named(TypeFlags::OBJECT, "{}".to_string(), None);
         let unknown_empty_object = store.new_named(TypeFlags::OBJECT, "{}".to_string(), None);
         let unknown_union = crate::unions::create_union(
@@ -168,6 +209,7 @@ impl Intrinsics {
             unknown_union,
             any,
             error,
+            native_error,
             unresolved,
             unknown,
             undefined,

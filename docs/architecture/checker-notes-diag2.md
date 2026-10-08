@@ -41203,6 +41203,9 @@ reading a filename**, and one refusal (TS1098) found the same way and priced.
 
 ## §819 — TS1066, and a `None` that means two different things
 
+> **Superseded (2026-10-08).** The guard described here was replaced by the
+> symbol-aware evaluator port; see `docs/parity/notes/r4-templates.md` §3.
+
 ```ts
 declare enum E1 { y = 4.23 }            // fine, a constant
 declare enum E2 { x = 'foo'.length }    // TS1066, on the initializer
@@ -41297,6 +41300,9 @@ gate has caught a cited path that was plausible and wrong, and it is the only
 gate that can: **`cargo test` cannot know that a doc comment lies.**
 
 ## §821 — TS2474, and §819's guard turned the right way round
+
+> **Superseded (2026-10-08).** The guard described here was replaced by the
+> symbol-aware evaluator port; see `docs/parity/notes/r4-templates.md` §3.
 
 ```ts
 const enum D {

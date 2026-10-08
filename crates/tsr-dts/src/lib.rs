@@ -25,6 +25,12 @@
 //! exist, and asserting it would make the drift tracker file issues against a
 //! fiction.
 //!
+//! **The exception is [`accessibility`]**, which *is* a port: upstream raises
+//! the accessibility errors for names written in declarations from a syntactic
+//! walk (`checkEntityNameVisibility`), so that module anchors to
+//! `transformers/declarations` and asks the checker through a resolver trait.
+//! See `docs/parity/notes/r4-declemit.md`.
+//!
 //! # Shape
 //!
 //! Two passes, both syntactic:
@@ -37,6 +43,7 @@
 //! 2. [`rules`] — walk the visible declarations and report where a type would have
 //!    had to be inferred.
 
+pub mod accessibility;
 pub mod rules;
 pub mod visibility;
 

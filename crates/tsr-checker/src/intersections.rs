@@ -60,8 +60,9 @@ use crate::{
 #[derive(Debug, Default, Clone, Copy)]
 struct Includes {
     flags: TypeFlags,
-    /// `TypeFlagsIncludesError`.
-    error: bool,
+    /// `TypeFlagsIncludesError`, as the error the intersection answers — see
+    /// [`Checker::included_error`].
+    error: Option<TypeId>,
     /// An empty anonymous object type `{}` was a constituent. Upstream tracks
     /// this as `IncludesEmptyObject` and gives it its own reduction rules
     /// (`{}` is removed beside a definitely-non-nullable type).
@@ -197,7 +198,7 @@ impl Checker<'_, '_> {
             // `checker.go:26092`, and the same "a gap in a constituent is a gap
             // in the whole" that unions get for free: `errorType` carries
             // `ANY`, and `IncludesError` wins.
-            return if includes.error { self.intrinsics.error } else { self.intrinsics.any };
+            return includes.error.unwrap_or(self.intrinsics.any);
         }
 
         // getIntersectionTypeEx preserves nullable types in non-strict mode,
@@ -572,7 +573,7 @@ impl Checker<'_, '_> {
         }
         if flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
             if self.is_error(id) {
-                includes.error = true;
+                includes.error = Some(self.included_error(includes.error, id));
             }
         } else if (self.strict_null_checks || !flags.intersects(TypeFlags::NULLABLE))
             && !set.contains(&id)

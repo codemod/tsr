@@ -1,0 +1,46 @@
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index 71e8c9a..f33d3a7 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -53,7 +53,7 @@ impl<'a> Checker<'a, '_> {
+         Some(ty)
+     }
+ 
+-    fn mapped_type_text(&self, info: &MappedTypeInfo) -> Option<String> {
++    fn mapped_type_text(&mut self, info: &MappedTypeInfo) -> Option<String> {
+         let Some(Node::MappedTypeNode(node)) = self.node_map.get(info.declaration) else {
+             return None;
+         };
+@@ -75,7 +75,16 @@ impl<'a> Checker<'a, '_> {
+             } else {
+                 self.type_to_string(info.constraint)
+             };
+-        let template = self.type_to_string(info.template);
++        // createMappedTypeNodeFromType (nodebuilderimpl.go:1471) prints
++        // removeMissingType(getTemplateTypeFromMappedType(t), isOptional): the
++        // template with `?`'s optionality, minus the missing type that exact
++        // optional properties add (r4-mapped.md §3).
++        let template = if self.exact_optional_property_types {
++            info.template
++        } else {
++            self.mapped_template_type(info)
++        };
++        let template = self.type_to_string(template);
+         let readonly = match node.readonly_token.map(|token| token.kind) {
+             None => "",
+             Some(SyntaxKind::ReadonlyKeyword) => "readonly ",
+@@ -711,8 +720,13 @@ impl<'a> Checker<'a, '_> {
+                 _ => None,
+             };
+             let Some(name) = name else {
++                // The index-signature arm instantiates templateType, which
++                // getTemplateTypeFromMappedType built with addOptionality
++                // (checker.go:22697): `Partial`-style `?` maps include
++                // undefined in the index value (r4-mapped.md §3).
++                let template = self.mapped_template_type(&info);
+                 let value = self.instantiate_type(
+-                    info.template,
++                    template,
+                     &[(info.parameter, key)],
+                     &[info.parameter],
+                     &[],

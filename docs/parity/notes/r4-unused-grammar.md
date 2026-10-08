@@ -1,0 +1,275 @@
+# r4-unused-grammar — lane notes
+
+Round-4 cloud lane (`tsr-2zk.903`): unused-declaration diagnostics
+(`checkUnusedIdentifiers`) and checker-side grammar codes. Pinned native
+source: `vendor/typescript-go` @ `5b1047d`. Owned files: `unused.rs`,
+`grammar.rs`, `strict_mode.rs`.
+
+## §1 `with` statements: TS1101 and TS2410
+
+**Forcing fact.** Neither code had a producer: the frozen baseline had 15
+cases expecting TS2410 and 16 expecting TS1101, every one WRONG, and no
+`messages::WITH_STATEMENTS_ARE_NOT_ALLOWED_IN_STRICT_MODE` or
+`THE_WITH_STATEMENT_IS_NOT_SUPPORTED_…` use anywhere in the checker.
+
+**Native.** Two producers, one per code:
+
+- `checkStrictModeWithStatement` (`binder.go:1428`) — a bare
+  `errorOnFirstToken`. Despite its name it has no `inStrictMode` test at the
+  pin (the binder has no such field; see `strict_mode.rs`'s module header for
+  the same finding on the eval/arguments rules), no ambient test and no
+  parse-error test.
+- `checkWithStatement` (`checker.go:4156`) — `grammarErrorAtPos` from
+  `SkipTrivia(node.Pos())` to `node.Statement().Pos()`, behind
+  `!hasParseDiagnostics`.
+
+**Choice.** Both live in one function, `check_with_statement_grammar`
+(`strict_mode.rs`), called from `check_node` beside the other binder-side
+strict-mode rules (a one-line dispatch in the hub). Putting TS1101 in the
+`tsr_binder` crate instead was rejected for the reason `strict_mode.rs`'s
+header gives: it needs nothing the binder has, and the binder rail stays out
+of the blast radius. Putting TS2410 in a separate checker function would be
+the more literal split; it was folded in because the two share the keyword
+span computation and fire on exactly the same node. If `checkWithStatement`
+ever grows a TSR counterpart (e.g. when TS1300 becomes portable), TS2410
+moves there.
+
+**Span of TS2410.** `node.Statement().Pos()` is the statement's full start,
+i.e. the end of the `)` token. This port has trimmed node spans, so the end
+is recovered by scanning one token from the expression's end. Under a unit
+host without source text it falls back to `expression end + 1`, which is the
+`)` when no trivia separates it; line/column (what the suite compares) do not
+depend on the end.
+
+**Not ported: TS1300** (`with` inside an async function block) — it reads
+`NodeFlagsAwaitContext`, which the parser declares and never sets. Owner:
+the parser's await-context tracking. No corpus case expects TS1300 at the
+baseline.
+
+**Falsifier.** A case whose baseline has TS1101 or TS2410 at a different
+line/column than this port, or a `with` statement under parse errors that
+native reports TS2410 for.
+
+Cases converted: `compiler/letDeclarations-scopes`,
+`compiler/letDeclarations-validContexts`,
+`compiler/sourceMapValidationStatements`, `compiler/superCallsInConstructor`,
+`compiler/withStatement`, `compiler/withStatementNestedScope`,
+`conformance/typedefOnStatements`. The other eight cases with these codes now
+match on them and stay WRONG on unrelated codes.
+
+## §3 TS1355: `as const` on an operand it cannot apply to
+
+**Forcing fact.** No producer: the baseline had two cases expecting TS1355
+(`compiler/constantEnumAssert`, `conformance/constAssertions`), both WRONG
+on that code alone.
+
+**Native.** `checkAssertion` (`checker.go:12303`): when the type node
+`isConstTypeReference`, report `c.error(node.Expression(), …)` unless
+`isValidConstAssertionArgument` (`checker.go:13623`) holds — a literal,
+array/object literal or template, a parenthesised valid argument, `-`/`+` on
+a numeric (or `-` on a bigint) literal, or a property/element access whose
+receiver, parentheses skipped, is an entity name expression resolving
+(`resolveEntityName`, `Value`, `ignoreErrors`) to an `Enum` symbol.
+
+**Choice.** `check_const_assertion_argument` (`grammar.rs`), dispatched from
+`check_node`'s `AsExpression | TypeAssertion` arm beside
+`check_assertion_overlap` — the port's existing home for the non-typing half
+of `checkAssertion` (TS2352). The alternative, reporting from
+`check_const_assertion` in `assertions.rs`, is the faithful call position but
+not this lane's file; and it would run once per *type* request of the
+expression, where the walk visits the node once — upstream dedups the
+repeated `c.error` in `SortAndDeduplicateDiagnostics`, this port does not.
+`isConstTypeReference` reuses `assertions::is_const_type_reference`, which
+already knows the parser's nameless encoding of `as const`. A first draft
+tested for an identifier `const` and reported nothing: the parser writes
+`as const` as a type reference with *no* name.
+
+The entity-name resolution is a local copy of
+`meaning_mismatch.rs`'s private `resolve_entity_name_expression` (same
+`resolveQualifiedName` shape) plus `resolveEntityName`'s final alias walk;
+making that one `pub(crate)` is the smaller change but is outside this lane.
+
+**Falsifier.** A TS1355 at a node this predicate accepts, or an `as const`
+in an ambient or never-checked position that native does not report.
+
+## §4 TS1211: a class declaration without a name
+
+**Native.** `checkClassDeclaration` (`checker.go:4285`):
+`node.Name() == nil && !HasSyntacticModifier(node, Default)` →
+`grammarErrorOnFirstToken(node, …)`. No producer existed.
+
+**Choice.** Reported from `check_parser_lane_statement` (`grammar.rs`, the
+lane's per-node statement dispatcher), so no hub edit. The first token is
+scanned from the node's start, which includes its modifiers and decorators
+as upstream's `node.Pos()` does (`export class {}` reports on `export`).
+
+Case converted: `compiler/exportClassWithoutName`.
+
+## §2 A private member read through `this` from its own body
+
+**Forcing fact.** `noUnusedLocals_selfReference` (`class P { private m() {
+this.m; } }`) and `noUnusedLocals_destructuringAssignment` (`private f() {
+({ f } = this); }`) each missed one TS6133: the by-name stand-in for
+`markPropertyAsReferenced` (`unused.rs`, `note_member_name_at`) marked the
+name on every read.
+
+**Native.** `markPropertyAsReferenced` (`checker.go:27718`): when
+`isSelfTypeAccess`, the nearest `IsFunctionLikeDeclaration` ancestor of the
+access whose symbol *is* the property leaves it unmarked. `isSelfTypeAccess`
+is true for a `this` receiver (`checker.go:27275`), and the destructuring
+path passes `rightIsThis` only for a top-level `{…} = this`
+(`checkBinaryLikeExpression`, `checker.go:12339`).
+
+**Choice.** The by-name form: the receiver is `this` (or the top-level
+destructuring source is `this`), and the nearest function-like ancestor is a
+class method or accessor whose name text is the member's. Inside such a body
+`this` is that class's instance, so the property `this.<name>` resolves to
+that declaration — the symbol identity native compares. An arrow or function
+expression in between is the nearest ancestor instead and the read counts,
+as upstream. The static `Class.member` receiver keeps its own key and
+`reference_is_inside_named_member` rule (§704 of the diag2 notes).
+
+**What would make it wrong.** A `this` whose type is not the enclosing class
+(a `this:` parameter on a method — methods cannot rebind `this` that way
+without a function-like in between) or a member inherited under the same name
+from a base class: `this.m` inside an override `m` reads the *derived* `m`,
+which is the same name and the same answer.
+
+Cases converted: `compiler/noUnusedLocals_destructuringAssignment`,
+`compiler/noUnusedLocals_selfReference`.
+
+## §5 `using _` is exempt like a `for…of` variable
+
+`isUnreferencedVariableDeclaration` (`checker.go:7221`) exempts an
+underscore-prefixed name on a parameter, on a `for…in`/`for…of` variable,
+**and on any declaration whose combined node flags carry `NodeFlagsUsing`**
+(`using` and `await using`, the latter being `Const | Using`). The port had
+the first two only, so `using _ = …` reported TS6133. The flag lives on the
+`VariableDeclarationList` in this parser (`tsr-parser/src/statement.rs`),
+the level `getCombinedNodeFlags` reaches for a declaration.
+
+Cases converted: `conformance/usingDeclarations.15`,
+`conformance/awaitUsingDeclarations.15` (both EMPTY_WRONG → EMPTY_RIGHT).
+
+## §6 TS1254: the enum-reference arm of the ambient initializer rule
+
+**Forcing fact.** `check_ambient_initializer` (`check.rs`, §259 of the diag2
+notes) declined every property access and identifier initializer because
+`isInitializerSimpleLiteralEnumReference` was unported, and treated element
+accesses and `true`/`false` as invalid. `ambientModuleWithTemplateLiterals`
+(`export const d = Bar['b'];` in a `declare namespace`) and
+`nodeModulesTypesVersionPackageExports` reported TS1254 where native reports
+nothing.
+
+**Native.** `checkGrammarVariableLikeDeclaration`'s ambient tail
+(`grammarchecks.go:1963`) accepts `isInitializerStringOrNumberLiteralExpression`
+(`:1978`), `isInitializerSimpleLiteralEnumReference` (`:1996` — a property
+access, or an element access with a literal argument on an entity name
+expression, whose `checkExpressionCached` type is `EnumLike`), `true`,
+`false`, and `isInitializerBigIntLiteralExpression` (`:1983`, including
+`-1n`).
+
+**Choice.** The whole predicate is `is_valid_ambient_const_initializer`
+(`grammar.rs`), and the decline is removed: an identifier initializer
+(`declare const x = y`) is invalid upstream and now reports. The type
+question is the checker's own `check_expression`, as upstream's
+`checkExpressionCached`; it runs only for a `const`/`readonly` ambient
+declaration without an annotation whose initializer is an access, so it is
+off every hot path (lib files annotate their declarations).
+
+Cases converted: `compiler/ambientModuleWithTemplateLiterals`,
+`conformance/nodeModulesTypesVersionPackageExports` (EMPTY_WRONG →
+EMPTY_RIGHT).
+
+## §7 A shorthand binding element reads the member it names
+
+`checkVariableLikeDeclaration` (`checker.go:5829-5839`) marks, for every
+binding element, the property of the parent type named by
+`PropertyNameOrName()` — the written property name, or the binding name when
+there is none (and it is not a nested pattern). The by-name stand-in noted
+only the property name, so `let { species } = this;` left a private
+constructor parameter property `species` unread and reported TS6138
+(`compiler/unusedLocalProperty`, EMPTY_WRONG → EMPTY_RIGHT). Like every other
+entry of the stand-in this marks by text, the over-approximating direction
+the module header fixes.
+
+## §8 Private members with a late-bound (unique symbol) name
+
+`checkUnusedClassMembers` (`checker.go:7115`) reports a private member whose
+symbol is unreferenced, with `symbolToString(symbol)` as the argument; for a
+member late-bound through a unique symbol that prints the written key in
+brackets (`'[x]' is declared but its value is never read.`). The by-name
+stand-in skipped every computed name, so
+`noUnusedLocals_writeOnlyProperty_dynamicNames` (`this[x] = 0` write-only,
+`this[y]` read) missed its line.
+
+The stand-in now keys such a member as `[<entity name text>]` and notes that
+key when a non-write element access's argument is an entity name expression
+of unique-symbol type — the same symbol identity upstream's
+`getPropertyOfType(t, getPropertyNameFromType(uniqueSymbol))` reaches, by
+text. Restricted on purpose: a computed name keyed by a *literal* type is
+named by the literal, a non-entity key has no stable text, and a static
+computed member is reached through the class (the §704 qualified keys, which
+do not cover element accesses with symbol keys); all three keep the old
+answer, no report — the missing-line direction.
+
+Case converted: `compiler/noUnusedLocals_writeOnlyProperty_dynamicNames`.
+
+## §9 The meaning of a reference, where its position fixes it
+
+**Forcing fact.** `noUnusedLocals_typeParameterMergedWithParameter`
+(`function useParam<T>(T: number) { return T; }` and
+`function useTypeParam<T>(T: T) {}`) missed a TS6196 and a TS6133: the
+marking pass resolved every identifier under Value, Type *and* Namespace, so
+`return T` marked the type parameter and the annotation `T` marked the
+parameter.
+
+**Native.** `referenceKinds` is written by the `resolveName` callback with
+the meaning that call asked for (`checker.go:1499`). An expression identifier
+is resolved by `getResolvedSymbol` with `Value | ExportValue`; a type
+reference's name by `resolveTypeReferenceName` with `Type` (with a value
+fallback only in JavaScript).
+
+**Choice.** `reference_position` narrows exactly those two positions and
+leaves every other one at all three meanings:
+
+- the name of a `TypeReference` in a TypeScript file → Type (+ Namespace);
+- a slot that only an expression can fill — return/throw/expression
+  statement, binary and conditional operands, unary operands, call/new callee
+  and arguments, a variable initializer, array elements and spreads,
+  `await`/`typeof`/`void` operands, template spans → Value (+ Namespace).
+
+The whitelist is deliberately short: a position missing from it keeps the
+old over-approximation (a missing line at worst). Namespace stays in both
+because dropping it could only add lines, and no corpus case needs it gone.
+Rejected: deriving the meaning from a general "is part of a type node" walk —
+heritage clauses, `export =`, export specifiers, decorators, JSDoc and type
+queries each resolve with a different meaning, and getting any of them wrong
+is a wrong line, not a missing one.
+
+Case converted: `compiler/noUnusedLocals_typeParameterMergedWithParameter`.
+
+## §10 Measured patch outside the lane: JSDoc on enum members
+
+`r4-unused-grammar-enum-member-jsdoc.diff` (parser, `declaration.rs`, not
+owned). `parseEnumMember` (`parser.go:2122`) is
+`withJSDoc(finishNode(...), jsdoc)`; this parser's `parse_enum_member` never
+attached leading JSDoc, so `checkJSDocComments` (`jsdoc_links.rs`) never saw
+`{@link A}` on an enum member and `import type { A }` reported TS6133
+(`conformance/jsdocLinkTag9`). Measured on the full dumps against this box's
+baseline: `jsdocLinkTag9` EMPTY_WRONG → EMPTY_RIGHT, both loss checks empty.
+Perf not measured (it adds one JSDoc range scan per enum member, the same
+call every class member already makes).
+
+## §11 Remaining clusters (not converted), with hypotheses
+
+| Cluster | Cases | Hypothesis | Blocked on |
+|---|---|---|---|
+| TS6133/6196 under parse errors | `unusedLocalsAndParameters` (21 lines) | `reportUnused` tests `NodeFlagsThisNodeOrAnySubNodesHasError` on the *location*; the port gates the whole file on `file_has_parse_errors` (`check_unused_identifiers`). Needs the parser's `ThisNodeHasError` (`finishNode`, `parser.go:5908`) and the binder's aggregation (`binder.go:725-742`). | parser + binder |
+| TS6196 on JSDoc `@template` in JS | `unusedTypeParameters_templateTag` | `checkUnusedTypeParameters` over a function's JSDoc `@template` type parameters (`getEffectiveTypeParameterDeclarations`); the JSDoc type parameters are not registered/reached by the unused walk. | r4-jsdoc lane (`jsdoc_*`) |
+| TS1238 decorator resolution | `constructableDecoratorOnClass01`, `decoratorCallGeneric`, `esDecorators-arguments` | `resolveDecorator` / `getDiagnosticHeadMessageForDecoratorResolution` are unported: decorators never go through call resolution. | calls lane (`calls.rs`) |
+| TS1320 awaited `then` | `crashInYieldStarInAsyncFunction`, `await_incorrectThisType` | `getAwaitedType`'s non-promise thenable report; not grammar. | awaited/iteration code |
+| TS1102 / TS2703 on a missing operand | `deleteOperatorInvalidOperations` | `delete ;` reports at the missing identifier's *full start* (`errorOnNode` on a missing node: `pos`, zero width); the port's spans are trimmed so it reports one column right. Same for the checker's TS2703. | shared error-span helper / parser missing-node spans |
+| TS1212 `yield` as identifier | `FunctionDeclaration8_es6`, `YieldExpression*_es6` (mixed with TS2304) | `checkContextualIdentifier`'s `YieldContext` arm and the parser's yield-context flag; the cases also miss TS2304. | parser (`YieldContext`) |
+| TS18012 in plain JS | `plainJSBinderErrors` | Its TS1101 line now matches (§1); the case stays WRONG on TS18012 alone, outside this lane's codes. | — |
+| TS1260/1262/1214 escaped keywords | `scannerUnicodeEscapeInKeyword2` | scanner escape handling. | scanner/parser |

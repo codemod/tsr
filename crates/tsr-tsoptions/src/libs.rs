@@ -80,6 +80,16 @@ pub fn lib_option_index(file_name: &str) -> Option<usize> {
 /// fewer libs, not different ones.
 #[must_use]
 pub fn lib_file_names(options: &tsr_core::CompilerOptions) -> Vec<&'static str> {
+    lib_file_names_with_index(options).into_iter().map(|(_, name)| name).collect()
+}
+
+/// [`lib_file_names`], each with the index of the `lib` entry that named it
+/// (`fileIncludeKindLibFile`'s `data`, `fileloader.go:158-170`): `None` for
+/// the default library, which no entry names.
+#[must_use]
+pub fn lib_file_names_with_index(
+    options: &tsr_core::CompilerOptions,
+) -> Vec<(Option<usize>, &'static str)> {
     if options.no_lib.is_true() {
         return Vec::new();
     }
@@ -90,9 +100,14 @@ pub fn lib_file_names(options: &tsr_core::CompilerOptions) -> Vec<&'static str> 
         // loads the default here and loads nothing upstream. Named as a
         // divergence in docs/architecture/program.md rather than papered over:
         // no corpus case writes `"lib": []`, checked.
-        return vec![options.default_lib_file_name()];
+        return vec![(None, options.default_lib_file_name())];
     }
-    options.lib.iter().filter_map(|lib| get_lib_file_name(lib)).collect()
+    options
+        .lib
+        .iter()
+        .enumerate()
+        .filter_map(|(index, lib)| get_lib_file_name(lib).map(|name| (Some(index), name)))
+        .collect()
 }
 
 #[cfg(test)]

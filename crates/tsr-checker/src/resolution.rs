@@ -397,7 +397,6 @@ struct Resolution<K> {
 /// **type** for `TypeSystemPropertyNameResolvedTypeArguments`. The checker uses
 /// `Resolutions<SymbolId>` today; the other keys arrive with the code that needs
 /// them.
-#[derive(Debug)]
 pub struct Resolutions<K> {
     stack: Vec<Resolution<K>>,
     /// Stack depths at which this port entered a type construct that native
@@ -420,11 +419,41 @@ pub struct Resolutions<K> {
     /// lost (`circularReferenceInReturnType`,
     /// `propertyAccessOnTypeParameterWithConstraints4/5`).
     start: usize,
+    /// Monotonic count of answers this stack gave that depend on its active
+    /// frames: every cycle [`Resolutions::push_with`] found (it marks frames
+    /// failed), and every read-only probe that answered `true`
+    /// ([`Resolutions::on_stack`], [`Resolutions::deferred_since`],
+    /// [`Resolutions::has_property_frame`], [`Resolutions::has_active_return`],
+    /// [`Resolutions::active_signature_keys`] yielding a frame). A probe that
+    /// answers `false` answers what an empty stack would. A computation during
+    /// which this did not move read nothing from the frames, so its answer
+    /// does not depend on which frames were open: the memo tables'
+    /// publication rule (`docs/parity/notes/r4-perf3.md` §2). A `Cell`
+    /// because the probes are `&self`; the stack is one checker's.
+    observations: std::cell::Cell<u64>,
+}
+
+/// `observations` is left out: it counts reads, so a read-only probe moves
+/// it, and the state snapshots tests take before and after a read-only
+/// probe compare this rendering.
+impl<K: std::fmt::Debug> std::fmt::Debug for Resolutions<K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Resolutions")
+            .field("stack", &self.stack)
+            .field("deferrals", &self.deferrals)
+            .field("start", &self.start)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<K> Default for Resolutions<K> {
     fn default() -> Self {
-        Self { stack: Vec::new(), deferrals: Vec::new(), start: 0 }
+        Self {
+            stack: Vec::new(),
+            deferrals: Vec::new(),
+            start: 0,
+            observations: std::cell::Cell::new(0),
+        }
     }
 }
 
@@ -441,9 +470,26 @@ impl<K: Clone + PartialEq> Resolutions<K> {
         self.stack.len()
     }
 
+    /// [`Resolutions::observations`]' current value: compare two reads to
+    /// learn whether anything between them depended on the open frames.
+    #[must_use]
+    pub(crate) fn observations(&self) -> u64 {
+        self.observations.get()
+    }
+
+    /// Count one frame-dependent answer and pass it through.
+    fn observed(&self, answer: bool) -> bool {
+        if answer {
+            self.observations.set(self.observations.get() + 1);
+        }
+        answer
+    }
+
     /// Return work is active even before a nested symbol/frame closes a cycle.
     pub(crate) fn has_active_return(&self) -> bool {
-        self.stack.iter().any(|frame| frame.property == PropertyName::ResolvedReturnType)
+        self.observed(
+            self.stack.iter().any(|frame| frame.property == PropertyName::ResolvedReturnType),
+        )
     }
 
     /// Whether `(target, property)` is currently resolving, WITHOUT marking
@@ -452,7 +498,7 @@ impl<K: Clone + PartialEq> Resolutions<K> {
     #[must_use]
     pub fn on_stack(&self, target: impl Into<K>, property: PropertyName) -> bool {
         let target = target.into();
-        self.stack.iter().any(|r| r.target == target && r.property == property)
+        self.observed(self.stack.iter().any(|r| r.target == target && r.property == property))
     }
 
     /// Enter a construct native resolves lazily; balance with
@@ -478,13 +524,13 @@ impl<K: Clone + PartialEq> Resolutions<K> {
         else {
             return false;
         };
-        self.deferrals.last().is_some_and(|&depth| depth > index)
+        self.observed(self.deferrals.last().is_some_and(|&depth| depth > index))
     }
 
     /// Whether any frame resolves `property`.
     #[must_use]
     pub(crate) fn has_property_frame(&self, property: PropertyName) -> bool {
-        self.stack.iter().any(|frame| frame.property == property)
+        self.observed(self.stack.iter().any(|frame| frame.property == property))
     }
 
     /// Begin resolving `property` of `symbol`.
@@ -522,6 +568,7 @@ impl<K: Clone + PartialEq> Resolutions<K> {
             }
         }
         if let Some(start) = cycle {
+            self.observed(true);
             for frame in &mut self.stack[start..] {
                 frame.succeeded = false;
             }
@@ -565,6 +612,10 @@ impl Resolutions<ResolutionTarget> {
         &self,
         declaration: NodeId,
     ) -> impl Iterator<Item = (&crate::declared::TypeLiteralKey, bool)> {
+        self.observed(self.stack.iter().any(|frame| {
+            frame.property == PropertyName::ResolvedReturnType
+                && matches!(&frame.target, ResolutionTarget::Signature(key) if key.node == declaration)
+        }));
         self.stack.iter().filter_map(move |frame| match &frame.target {
             ResolutionTarget::Signature(key)
                 if frame.property == PropertyName::ResolvedReturnType

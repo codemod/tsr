@@ -22,6 +22,38 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+### Current parity checkpoint — round 4 cloud boxes (tsr-2zk), session wrap
+
+Measured at integration **`405b55ce`** (`claude/beautiful-shannon-ar5gh0`),
+pinned native **`5b1047d`**, using the `coverage` bin and the
+`verdictdump`/`diagverdictdump` gates. Configuration-varied baselines are now
+judged per configuration (ADR-0047), so plain and configured numbers are
+reported separately.
+
+| Row | Round-4 start `458afd9e` | Now `405b55ce` |
+|---|---|---|
+| checker_types (plain cases) | 8,075/9,538 (84.66%) | **8,176/9,538 (85.72%)** |
+| plain type lines RIGHT | 469,946 | **470,766** (GAP 880, WRONG 6,464; 98.46%) |
+| diagnostics (plain cases) | 4,232/5,502 (76.92%) | **4,394/5,502 (79.86%)** |
+| checker_types_configured | not judged | 1,587/1,928 (82.31%); lines 72,280 RIGHT / 237 GAP / 1,906 WRONG |
+| diagnostics_configured | not judged | 670/1,089 RIGHT (+1,304 EMPTY_RIGHT) |
+
+- **No previously passing case or line was lost** across the round's
+  integrations. Every batch passed a zero-loss join on both dumps.
+- **Performance.** Against native tsgo at 21 samples, default mode, median:
+  - domain-model: wall **0.901**, CPU 0.548;
+  - generic-imports: wall **1.222**, CPU 0.676.
+
+  Both read `diagnostics_match` true. The 0.50 wall target is **not met**, and
+  generic-imports is slower than tsgo on wall. r4-perf3 measured that, on equal
+  single-threaded work, TSR's checker costs about 2.2× tsgo's
+  (`docs/parity/notes/perf-r3.md`, `r4-perf3` report in round4.md).
+- **99.9% is not reachable under the current error contract.** See
+  `docs/parity/round4.md`, "Round-4 wrap-up". r4-errorsplit has split upstream
+  `errorType` from the port's gap, but no producer uses the split yet.
+  Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
+  in `docs/parity/notes/r4-*.md`.
+
 Signature-owner continuation, frozen `85f9c4cb` / native `5b1047d`: private
 validated declaration reader and five callable consumer migrations pass 346
 debug tests (195 library, 16 domain, 135 integration), with one existing ignore
@@ -405,6 +437,27 @@ preserved; sixty public controls qualify both archived observer snapshots.
 Mixed native4/TSR0 still rejects equivalent-work throughput. Setup caching/API
 churn is not retained; lazy query ownership9.2.1 and deferral parent remainopen.
 [Disjoint costs, ownership and source-qualified limits](docs/architecture/jsdoc-setup.md).
+
+Parity epic (`tsr-2zk`), cloud integration round 2 merged to `main` as PR #5
+(`b3cd078d`, merging `main` at `cbca2803`), measured against native `5b1047d`:
+diagnostics RIGHT **4,160** cases (EMPTY_RIGHT 4,967) and **469,110** RIGHT
+type lines, from 3,998 / 467,631 on `main` at `cbca2803`. Every lane merge and held patch
+passed both zero-loss checks and the CPU-median perf gate, except the last
+held patch (r2-destructure's iteration signatures, `e15cc509`), which went in
+ungated when the queue was stopped and was then cleared by the merge gate. Against `main` the merge loses
+one type line, `reactDefaultPropsInferenceSuccess:0:81` (`tsr-2zk.901`:
+constructor signatures ignore a merged interface's type parameters, exposed by
+`main`'s new `base_types.rs`). Four `@pretty` diagnostics cases change verdict
+only because this branch's oracle reads `@pretty` headers that `main`'s scored
+as empty. Release wall, single runs, is unchanged across `d5b4fe56` (#4),
+`cbca2803` and `b3cd078d` on the three bench projects and a node_modules
+project (1.47 / 1.75 / 1.25 s on domain-model-large). TypeScript's own
+`jsTyping` and `typingsInstallerCore` never finish on all three, because relation
+results are not persistent (`tsr-2zk.902`). Not merged: r3-typerefs' last three
+commits and patch C, r3-names' emit-helpers patch, r3-perf's C1/C2/C5, and the
+final heads of r3-parser, r3-implicitany, r3-misc, r2-calls, r2-operators and
+r3-relate (their branches and reports are in place; r3-relate's weak-type commit
+duplicates `main`'s `132d7086`/`ac0eb2f0` and must be reconciled by measurement).
 
 Parity epic (`tsr-2zk`), cloud integration round 1 merged with `main`
 (`b8cbb92a`), measured on the integration head against native `5b1047d`:
@@ -3524,6 +3577,25 @@ rendering `any` for `errorType` (ADR-0038).
 ---
 
 ## 4. What is next — the scored board
+
+Round-4 parity follow-ups. Each is open in Beads with the lane's notes:
+- **Error contract, step 2** (`tsr-2zk.944`). Switch the deterministic
+  producers to `native_error` (checkIdentifier's unresolved arms, flow TS2563),
+  then decide whether the writer's gap→`any` rewrites narrow. The superseding
+  ADR is **0048**.
+- **TS2741 head swap** (`tsr-2zk.956`, `.918`, `.1.2`). 37 cases differ only in
+  2739/2740/2741. About 20 are head selection, which needs a `chainArgsMatch`
+  check (relater.go:4816). The rest are relater/member-table declines. The JSX
+  arm needs a JsxAttributes flag routed from `jsx_component.rs`
+  (`docs/parity/notes/r4-report.md`).
+- **Relation arms** (`tsr-2zk.927`, `.929`). An unmeasured candidate patch is in
+  `docs/parity/notes/r4-relater2.md`.
+- **Perf** (`tsr-2zk.943`). get_property_of_type_ex misses re-derive
+  signatures (15% inclusive), properties_related_to_with_optionals copies
+  names, and memo_frames admission is a cost (`r4-perf3` report).
+- **Held measured diffs** in `docs/parity/notes/`: r4-mapped
+  template-optionality and keyof-generic-base (types dump unfinished); the
+  r4-operators2 in-operand and TS18046 diffs (re-measure).
 
 Continue `tsr-1yb.7.7.2.1` from the existing owner-migration source. The
 validated raw-signature reader and five callable consumers are implemented
@@ -7163,6 +7235,22 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Round 4 (tsr-2zk), measured against the integration baseline of the day:
+- **r4-typeparams merged-parameter diff.** Held: +126 type lines, but 6 losses
+  and +3% Ir. It needs a per-symbol memo first.
+- **r4-unions array-literal subtype gate** (`.922`). +22/−10: 6 GAP from
+  relater Unknown and 4 enumBasics WRONG.
+- **r4-constraints, exact native relater form** (always relate
+  getConstraintOfType). It lost quickinfoTypeAtReturnPositionsInaccurate lines
+  68, 69 and 71 because getSimplifiedType is unported. The landed form keeps
+  the base constraint first.
+- **r4-operators2 indexed-access→unknown diff.** It lost
+  indexedAccessTypeConstraints, because TSR's `None` also means "not computed".
+  The r4-constraints patch supersedes it.
+- **r4-perf3 signatures-first in is_pure_signature_type.** −1.78% Ir, but it
+  lost mappedTypeRelationships TS2322 line 88, because it skips
+  resolve_mapped_type_members' side effect.
 
 The frozen `85f9c4cb` signature slice's 346 passes are refused as full private
 owner migration: 98 compiler diagnostics across 20 files remain in that
@@ -15023,6 +15111,8 @@ holds only the numbers.
 | 2026-10-06 | `2bf3601b` (measurement source) | — | — | **Allocation-origin refresh, tsr-1yb.16.3:** 40 output-preserving ordinary/probe comparisons, five allocator controls and two detected mutants. Default3.13M versus single1.38M instantiation worker entries; member walks request1.70GB/1.36GB cumulatively. Unclassified traffic and observer overhead remain explicit; reporter v1 rejected by64-byte self-allocation. All665 baseline source/manifest/lock files and ordinary binary restored exactly. No retained runtime optimization, corpus gain or verified native ratio. [Evidence](docs/architecture/checker-allocation-origins.md). |
 
 | 2026-10-06 | `4cfe2340` (measurement source) | — | — | **Intersection-clone attribution / restored rejection, tsr-1yb.16.3.6/.7:** 56 output-preserving probe controls and36 ordinary first-round public children; Next.js clone traffic2.20M/1.03M allocations,176.69MB/70.37MB. Default public gain fails; single RSS1.050321 exceeds1.05. Baseline corpora only; all665 source files/3binaries restored and ordinary CLI rebuild matches. Duplicate borrowed-name task5 closed; follow-up8 attributes anonymous prelookup copying. No runtime optimization or native ratio proof. [Evidence](docs/architecture/checker-intersection-clone.md). |
+| 2026-10-06 | `b3cd078d` (PR #5) | — | — | **Parity round 2 (tsr-2zk) merged:** diagnostics RIGHT 3,998 → 4,160 and type lines 467,631 → 469,110 against `main` at `cbca2803`; one type line lost (`tsr-2zk.901`); 4 `@pretty` verdicts are oracle changes. Release wall unchanged across #4/#5 on the bench projects; `jsTyping`/`typingsInstallerCore` hang predates both (`tsr-2zk.902`). Unmerged box work listed in §1. |
+| 2026-10-08 | `405b55ce` / native `5b1047d` | — | — | **Parity round 4 (tsr-2zk) wrap-up:** 30+ cloud lanes integrated through zero-loss gates. Plain checker_types 8,075 → 8,176 cases, plain type lines 469,946 → 470,766 RIGHT, diagnostics 4,232 → 4,394. Configured variants are now judged (ADR-0047). Upstream errorType is split from the gap (r4-errorsplit step 1). The relation-cache hang is fixed (jsTyping finishes). vs tsgo wall 0.90 (domain-model) / 1.22 (generic-imports); 0.50 not met. Main merged with four duplicated ports resolved (`docs/parity/notes/main-merge-r4.md`). Beads: 25 closed, 37 claims released. [Round record](docs/parity/round4.md). |
 
 ## 8. Updating this file
 

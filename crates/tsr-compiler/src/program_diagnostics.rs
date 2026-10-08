@@ -170,8 +170,9 @@ pub fn bind_and_check_diagnostics(
 /// diagnostics: [`bind_and_check_diagnostics`] over
 /// [`Program::bind_diagnostics_of`] and the `checker` diagnostics located in
 /// it, then [`include_processor_diagnostics`].
-/// `GetProgramDiagnostics` is empty here (every loader diagnostic names a
-/// file), and `GetGlobalDiagnostics` has no producer in this port.
+/// `GetProgramDiagnostics`' global half ([`global_program_diagnostics`]) is
+/// not part of this list, which can only name files; `GetGlobalDiagnostics`
+/// has no producer in this port.
 #[must_use]
 pub fn diagnostics_of_any_program(
     program: &Program<'_>,
@@ -213,16 +214,86 @@ pub fn include_processor_diagnostics(program: &Program<'_>, file_index: usize) -
         return Vec::new();
     }
     let file = &program.source_files()[file_index];
-    let found: Vec<Diagnostic> = program
+    let mut found: Vec<Diagnostic> = program
         .loader_diagnostics()
         .iter()
         .filter(|d| program.to_path(&d.file_name) == *file.path())
         .map(|d| Diagnostic::with_args(d.message, d.span, d.args.iter().cloned()))
         .collect();
+    let explaining = program.explaining_diagnostics();
+    let explained_here = explaining.iter().filter(|(located, _)| *located == Some(file_index));
+    let before = found.len();
+    found.extend(explained_here.map(|(_, d)| d.clone()));
     if found.is_empty() {
         return found;
     }
+    // `DiagnosticsCollection.GetDiagnosticsForFile` sorts its file's list
+    // (`ast/diagnostic.go:229`). Applied only when an explaining diagnostic
+    // joined the loader's, whose own order this port already reproduces.
+    if found.len() != before {
+        found.sort_by(tsr_diagnostics::compare_diagnostics);
+    }
     with_preceding_directives(file.text(), found).0
+}
+
+/// The composite file-list check of `Program.verifyCompilerOptions`
+/// (`internal/compiler/program.go:938-956`): under `composite`, every program
+/// file that may be emitted and is not one of the config's root files is
+/// TS6307, explained as `includeProcessor` explains any file
+/// ([`crate::file_include::diagnostic_explaining_file`]).
+///
+/// Returns `(file index the diagnostic is positioned in, diagnostic)`, in
+/// program-file order, as upstream appends them; `None` is a global
+/// diagnostic, for a file no written reference reached. The located ones are
+/// reported through [`include_processor_diagnostics`] of their file, the
+/// global ones through [`global_program_diagnostics`].
+///
+/// `rootPaths` is built from `opts.Config.FileNames()` with `toPath`; the
+/// project name is the config file's name as the program was given it
+/// (`configFilePath()`, the config source file's `FileName()`), which is
+/// `options.config_file_path` here and empty without a config.
+#[must_use]
+pub fn composite_file_list_diagnostics(program: &Program<'_>) -> Vec<(Option<usize>, Diagnostic)> {
+    let options = program.compiler_options();
+    if !options.composite.is_true() {
+        return Vec::new();
+    }
+    let root_paths: rustc_hash::FxHashSet<tsr_path::Path> =
+        program.root_file_names().iter().map(|name| program.to_path(name)).collect();
+    let mut out = Vec::new();
+    for (index, file) in program.source_files().iter().enumerate() {
+        if program.source_file_may_be_emitted(index) && !root_paths.contains(file.path()) {
+            out.push(crate::file_include::diagnostic_explaining_file(
+                program,
+                index,
+                &tsr_diagnostics::messages::FILE_0_IS_NOT_LISTED_WITHIN_THE_FILE_LIST_OF_PROJECT_1_PROJECTS_MUST_LIST_ALL_FILES_OR_USE_AN_INCLUDE_PATTERN,
+                vec![file.file_name().to_string(), options.config_file_path.clone()],
+            ));
+        }
+    }
+    out
+}
+
+/// The global half of `Program.GetProgramDiagnostics` (`program.go:698`):
+/// the include processor's diagnostics that name no file, sorted and
+/// deduplicated. Today only a TS6307 whose subject no written reference
+/// reached ([`composite_file_list_diagnostics`]); `programDiagnostics` itself
+/// (the option checks of `verifyCompilerOptions`) has no producer yet.
+///
+/// Upstream's `GetDiagnosticsOfAnyProgram` reports these before the semantic
+/// pass and skips that pass when there are any;
+/// [`diagnostics_of_any_program`] returns file-located diagnostics only, so a
+/// driver reports these itself.
+#[must_use]
+pub fn global_program_diagnostics(program: &Program<'_>) -> Vec<Diagnostic> {
+    tsr_diagnostics::sort_and_deduplicate_diagnostics(
+        program
+            .explaining_diagnostics()
+            .iter()
+            .filter(|(located, _)| located.is_none())
+            .map(|(_, d)| d.clone())
+            .collect(),
+    )
 }
 
 /// `Program.getDiagnosticsWithPrecedingDirectives` (`program.go:1386`) over
@@ -363,5 +434,140 @@ mod tests {
         // runtime would also raise; TS2322 is a type error plain JS never sees.
         assert!(is_plain_js_error(2451));
         assert!(!is_plain_js_error(2322));
+    }
+
+    // ---- TS6307: the composite file-list check -------------------------------
+
+    struct TestHost {
+        fs: tsr_vfs::InMemoryFileSystem,
+    }
+
+    impl tsr_module::types::ResolutionHost for TestHost {
+        fn fs(&self) -> &dyn tsr_vfs::FileSystem {
+            &self.fs
+        }
+
+        fn current_directory(&self) -> &'static str {
+            "/"
+        }
+    }
+
+    fn composite_program<'a>(
+        arena: &'a tsr_core::Arena,
+        files: &[(&str, &str)],
+        roots: &[&str],
+        composite: bool,
+    ) -> Program<'a> {
+        let host = TestHost {
+            fs: tsr_vfs::InMemoryFileSystem::new(
+                files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
+                [],
+                true,
+            ),
+        };
+        Program::from_root_files(
+            arena,
+            &host,
+            crate::LoadOptions {
+                compiler_options: CompilerOptions {
+                    no_lib: tsr_core::Tristate::True,
+                    composite: tsr_core::Tristate::from_bool(composite),
+                    config_file_path: "/p/tsconfig.json".to_string(),
+                    ..Default::default()
+                },
+                root_file_names: roots.iter().map(|root| (*root).to_string()).collect(),
+                ..Default::default()
+            },
+        )
+    }
+
+    fn rendered(program: &Program<'_>, index: usize) -> Vec<(String, u32, u32, Vec<String>)> {
+        include_processor_diagnostics(program, index)
+            .iter()
+            .map(|d| (d.message.key().to_string(), d.span.start, d.span.end, d.args.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn an_imported_file_outside_the_root_list_is_reported_at_its_import() {
+        let arena = tsr_core::Arena::new();
+        let main = "import { b } from \"../lib/b\";\nexport const a = b;\n";
+        let program = composite_program(
+            &arena,
+            &[("/p/a.ts", main), ("/lib/b.ts", "export const b = 1;"), ("/lib/c.d.ts", "")],
+            &["/p/a.ts"],
+            true,
+        );
+        let a = program.source_files().iter().position(|f| f.file_name() == "/p/a.ts").unwrap();
+        let found = rendered(&program, a);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let (key, start, end, args) = &found[0];
+        assert!(key.ends_with("_6307"), "{key}");
+        // `CreateDiagnosticForNodeInSourceFile` over the specifier literal.
+        assert_eq!(&main[*start as usize..*end as usize], "\"../lib/b\"");
+        assert_eq!(args, &["/lib/b.ts".to_string(), "/p/tsconfig.json".to_string()]);
+        // One written reason: no "The file is in the program because" chain.
+        let diagnostic = include_processor_diagnostics(&program, a).remove(0);
+        assert!(
+            diagnostic.message_chain().iter().all(|d| d.message.code() != 1430),
+            "{:?}",
+            diagnostic.message_chain()
+        );
+        assert!(diagnostic.related_information().is_empty());
+        assert!(global_program_diagnostics(&program).is_empty());
+    }
+
+    #[test]
+    fn several_reasons_chain_every_reason_and_relate_the_others() {
+        let arena = tsr_core::Arena::new();
+        let program = composite_program(
+            &arena,
+            &[
+                ("/p/a.ts", "import \"../lib/b\";\nimport \"./c\";\n"),
+                ("/p/c.ts", "/// <reference path=\"../lib/b.ts\" />\nexport {};\n"),
+                ("/lib/b.ts", "export const b = 1;"),
+            ],
+            &["/p/a.ts", "/p/c.ts"],
+            true,
+        );
+        let a = program.source_files().iter().position(|f| f.file_name() == "/p/a.ts").unwrap();
+        let c = program.source_files().iter().position(|f| f.file_name() == "/p/c.ts").unwrap();
+        // Positioned at the first reason in replay order, the import in a.ts.
+        assert_eq!(rendered(&program, a).len(), 1);
+        assert!(rendered(&program, c).is_empty());
+        let diagnostic = include_processor_diagnostics(&program, a).remove(0);
+        let chain = diagnostic.message_chain();
+        assert_eq!(chain[0].message.code(), 1430, "{chain:?}");
+        let reasons: Vec<String> = chain[0].message_chain().iter().map(Diagnostic::text).collect();
+        assert_eq!(
+            reasons,
+            [
+                "Imported via \"../lib/b\" from file '/p/a.ts'",
+                "Referenced via '../lib/b.ts' from file '/p/c.ts'",
+            ]
+        );
+        let related: Vec<(u32, String)> = diagnostic
+            .related_information()
+            .iter()
+            .map(|d| (d.message.code(), d.file().unwrap().file_name().to_string()))
+            .collect();
+        assert_eq!(related, [(1401, "/p/c.ts".to_string())]);
+    }
+
+    #[test]
+    fn root_files_declarations_and_non_composite_programs_are_not_reported() {
+        let arena = tsr_core::Arena::new();
+        let files = [
+            ("/p/a.ts", "import \"../lib/b\";\nimport \"../lib/d\";\n"),
+            ("/lib/b.ts", "export {};"),
+            ("/lib/d.d.ts", "export {};"),
+        ];
+        let program = composite_program(&arena, &files, &["/p/a.ts", "/lib/b.ts"], true);
+        assert!(composite_file_list_diagnostics(&program).is_empty());
+        let program = composite_program(&arena, &files, &["/p/a.ts"], false);
+        assert!(composite_file_list_diagnostics(&program).is_empty());
+        let program = composite_program(&arena, &files, &["/p/a.ts"], true);
+        let found = composite_file_list_diagnostics(&program);
+        assert_eq!(found.len(), 1, "only b.ts may be emitted: {found:?}");
     }
 }

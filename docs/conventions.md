@@ -1087,7 +1087,8 @@ did not. A rate computed over the corpus can be quoted; an absolute count cannot
 until it is reconciled against the suite's own denominator.
 
 This is the third time configuration-varied baselines have distorted a count
-here. `bd tsr-bb4.1` tracks them, and the stored `bd` memory about the 793
+here. `bd tsr-bb4.1` tracked them (since judged per configuration in rows of
+their own, ADR-0047 — the plain rows' denominators still exclude them), and the stored `bd` memory about the 793
 config-varied baselines and the 617 cases with no output of any kind records the
 same family: **the corpus directory is not the population, and file presence is
 not evidence of judgement.**

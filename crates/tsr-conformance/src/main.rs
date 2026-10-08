@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use tsr_conformance::{
     Corpus,
-    binder_suite::BinderSymbols,
-    diagnostics_suite::Diagnostics,
+    binder_suite::{BinderSymbols, BinderSymbolsConfigured},
+    diagnostics_suite::{Diagnostics, DiagnosticsConfigured},
     dts_emit_suite::DtsEmit,
     dts_shape_suite::DtsShape,
     dts_suite::IsolatedDeclarations,
@@ -22,7 +22,7 @@ use tsr_conformance::{
     snapshot,
     suite::Suite,
     suites::{BaselineResolution, CorpusIngest, Parser, ParserReachable},
-    types_suite::CheckerTypes,
+    types_suite::{CheckerTypes, CheckerTypesConfigured},
     upstream_commit,
 };
 
@@ -118,6 +118,7 @@ fn main() -> Result<()> {
         Box::new(ScannerCleanFiles),
         Box::new(Parser),
         Box::new(BinderSymbols),
+        Box::new(BinderSymbolsConfigured),
         Box::new(ModuleResolution),
         Box::new(FileLoaderRequests),
         Box::new(IsolatedDeclarations),
@@ -126,7 +127,9 @@ fn main() -> Result<()> {
         Box::new(DtsShape),
         Box::new(PrinterRoundTrip),
         Box::new(CheckerTypes),
+        Box::new(CheckerTypesConfigured),
         Box::new(Diagnostics),
+        Box::new(DiagnosticsConfigured),
     ];
     if !requested.is_empty() {
         let known: std::collections::BTreeSet<_> =
@@ -138,9 +141,18 @@ fn main() -> Result<()> {
         suites.retain(|suite| requested.contains(suite.name()));
     }
 
+    // Only built when a per-configuration suite is asked for: it reads every
+    // case's directives once more.
+    let configured = if suites.iter().any(|suite| suite.per_configuration()) {
+        tsr_conformance::Corpus::configured(&cases)
+    } else {
+        Vec::new()
+    };
+
     let mut rows = Vec::new();
     for suite in &suites {
-        let result = run_suite(suite.as_ref(), &cases);
+        let population = if suite.per_configuration() { &configured } else { &cases };
+        let result = run_suite(suite.as_ref(), population);
         let rendered = snapshot::render(&result, &commit);
 
         let path: PathBuf = snapshot_dir.join(format!("{}.snap", result.name));

@@ -618,8 +618,10 @@ impl Checker<'_, '_> {
     /// inferred or instantiated type), and replacing rather than extending would
     /// put those disagreements in play at the same time as the new coverage.
     ///
-    /// The tuple test is `tuple_element_lists`, the same membership every
-    /// annotated arm above uses.
+    /// The tuple test is upstream's `isTupleLikeType`
+    /// ([`Checker::is_tuple_like_type`]): a tuple, a `"0"` property, or an
+    /// array-like with a literal `length` — not only the `tuple_element_lists`
+    /// membership the annotated arms above use (`r4-arrays.md` §1).
     ///
     /// §889 supplies the `someType` half: upstream's predicate is applied to a
     /// union **constituent by constituent** (`someType` short-circuits on the
@@ -634,11 +636,10 @@ impl Checker<'_, '_> {
             crate::types::TypeData::Union { types, .. } => types.clone(),
             _ => vec![contextual],
         };
-        if contexts.iter().any(|t| {
-            self.tuple_element_lists.contains_key(t)
-                || self.variadic_tuple_elements.contains_key(t)
-                || (self.is_generic_homomorphic_mapped_type(*t)
-                    && self.mapped_types.get(t).is_some_and(|info| info.name_type.is_none()))
+        if contexts.iter().any(|&t| {
+            self.is_tuple_like_type(t)
+                || (self.is_generic_homomorphic_mapped_type(t)
+                    && self.mapped_types.get(&t).is_some_and(|info| info.name_type.is_none()))
         }) {
             return true;
         }

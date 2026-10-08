@@ -125,8 +125,47 @@ impl Checker<'_, '_> {
         self.template_literal_parts.insert(id, spans);
         id
     }
+    /// A template part's text as the printer writes it: `escapeStringWorker`
+    /// (`printer/utilities.go:77`) with `QuoteCharBacktick` and
+    /// `getLiteralTextFlagsNeverAsciiEscape` — the node builder marks every
+    /// part `EFNoAsciiEscaping` (`nodebuilderimpl.go:3482`). Escaped: `\`,
+    /// the backtick, `$` before `{`, CR (a CRLF pair as one `\r\n`), the
+    /// C0 controls other than LF (which a template keeps), and U+2028,
+    /// U+2029, U+0085. `docs/parity/notes/r4-templates.md` §6.
     pub(crate) fn escape_template_text(text: &str) -> String {
-        text.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${")
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars().peekable();
+        while let Some(ch) = chars.next() {
+            let next = chars.peek().copied();
+            match ch {
+                '\\' => out.push_str("\\\\"),
+                '`' => out.push_str("\\`"),
+                '$' if next == Some('{') => out.push_str("\\$"),
+                '\r' if next == Some('\n') => {
+                    chars.next();
+                    out.push_str("\\r\\n");
+                }
+                '\r' => out.push_str("\\r"),
+                '\n' => out.push('\n'),
+                '\t' => out.push_str("\\t"),
+                '\u{000B}' => out.push_str("\\v"),
+                '\u{000C}' => out.push_str("\\f"),
+                '\u{0008}' => out.push_str("\\b"),
+                '\0' => {
+                    out.push_str(if next.is_some_and(|c| c.is_ascii_digit()) {
+                        "\\x00"
+                    } else {
+                        "\\0"
+                    });
+                }
+                '\u{2028}' | '\u{2029}' | '\u{0085}' => {
+                    out.push_str(&format!("\\u{:04X}", u32::from(ch)));
+                }
+                c if u32::from(c) <= 0x1f => out.push_str(&format!("\\u{:04X}", u32::from(c))),
+                c => out.push(c),
+            }
+        }
+        out
     }
     fn add_template_spans(
         &mut self,
@@ -160,13 +199,7 @@ impl Checker<'_, '_> {
                         if !self.add_template_spans(&nested.texts, &nested.types, text, out) {
                             return false;
                         }
-                    } else if self.store.get(ty).flags.intersects(
-                        TypeFlags::TYPE_PARAMETER
-                            | TypeFlags::INDEX
-                            | TypeFlags::INDEXED_ACCESS
-                            | TypeFlags::SUBSTITUTION
-                            | TypeFlags::STRING_MAPPING,
-                    ) || self.deferred_keyof_operands.contains_key(&ty)
+                    } else if self.is_generic_index_type(ty)
                         || self.is_pattern_template_placeholder(ty)
                     {
                         out.types.push(ty);
@@ -179,6 +212,28 @@ impl Checker<'_, '_> {
             text.push_str(&texts[i + 1]);
         }
         true
+    }
+    /// `isGenericIndexType` (`checker.go:24876`): the `IsGenericIndexType`
+    /// bit of `getGenericObjectFlags` (`:24880`) — a union or intersection
+    /// has it when any constituent does; otherwise an instantiable
+    /// non-primitive, an index type (a deferred `keyof` here is
+    /// `deferred_keyof_operands`), or a generic string-like type (a template
+    /// literal or string mapping that is not a pattern literal).
+    ///
+    /// Port record: upstream memoises the union/intersection answer on the
+    /// type (`ObjectFlagsIsGenericTypeComputed`); this walks the
+    /// constituents per call. Its only caller is `addSpans`, which sees a
+    /// span after unions were distributed, so the walk is over one
+    /// intersection's members. `docs/parity/notes/r4-templates.md` §7.
+    pub(crate) fn is_generic_index_type(&self, id: TypeId) -> bool {
+        let ty = self.store.get(id);
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } = &ty.data {
+            return types.iter().any(|&member| self.is_generic_index_type(member));
+        }
+        ty.flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE | TypeFlags::INDEX)
+            || self.deferred_keyof_operands.contains_key(&id)
+            || (ty.flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING)
+                && !self.is_pattern_template(id))
     }
     pub(crate) fn is_pattern_template(&self, id: TypeId) -> bool {
         if let Some((_, target)) = self.string_mapping_types.get(&id) {

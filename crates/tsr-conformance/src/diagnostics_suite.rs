@@ -27,7 +27,10 @@
 //!   diagnostics through the same filter (`getSemanticDiagnosticsWithChecker`,
 //!   `program.go:1342`);
 //! - **declaration** — the `isolatedDeclarations` `TS9xxx` family from
-//!   `tsr_dts`, for each emitted file, when declarations are emitted.
+//!   `tsr_dts`, and the accessibility errors for names written in emitted
+//!   declarations (`tsr_dts::accessibility` over the checker's
+//!   `DeclarationEmitResolver`), for each emitted file, when declarations
+//!   are emitted.
 //!
 //! The global and options halves have no position, and the comparison below is
 //! positional: [`errors_baseline::parse`] does not read a line without one.
@@ -61,8 +64,11 @@
 //! `docs/architecture/checker-oracle.md` records for the two `.types`/`.symbols`
 //! suites:
 //!
-//! - **Configuration-varied** baselines, until `bd tsr-bb4.1` runs per
-//!   configuration. There is no single expected output to compare against.
+//! - **Configuration-varied** baselines. A case whose directives vary
+//!   (`@target: es2015, esnext`) is compiled by upstream only under each named
+//!   configuration, never as itself, so this row skips it and
+//!   [`DiagnosticsConfigured`] judges each configuration against its own
+//!   `case(target=es2015).errors.txt` (ADR-0047).
 //! - **Known divergences** (`.errors.txt.diff`): upstream records that its own
 //!   output differs from TypeScript's, so the baseline is not a specification.
 //! - **Cases upstream recorded no output for at all.** 617 of them. A missing
@@ -100,44 +106,102 @@ impl Suite for Diagnostics {
     }
 
     fn run(&self, case: &CaseEntry) -> Outcome {
-        if case.has_varied_errors() {
+        if case.configuration.is_none() && case.has_varied_errors() {
             return Outcome::Skipped {
-                reason: "configuration-varied baseline (bd tsr-bb4.1)".into(),
+                reason: "configuration-varied baseline, judged per configuration by \
+                         diagnostics_configured"
+                    .into(),
             };
         }
-        if case.has_known_divergence() {
-            return Outcome::Skipped {
-                reason: "upstream records a known divergence from TypeScript".into(),
-            };
-        }
-        // Absence is evidence only when something else proves the case ran.
-        if !case.has_any_baseline() {
-            return Outcome::Skipped { reason: "upstream recorded no output for this case".into() };
-        }
-        let Ok(baseline) = case.expected_errors() else {
-            return Outcome::Failed { reason: "baseline did not load".into() };
-        };
-        let mut expected: Vec<BaselineDiagnostic> =
-            baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
-        if expected.is_empty() {
-            return Outcome::Skipped {
-                reason: "the case expects no diagnostics (see parser_typescript)".into(),
-            };
-        }
-        expected.sort_unstable();
-
-        let Ok(test) = case.load() else {
-            return Outcome::Failed { reason: "case did not load".into() };
-        };
-
-        let mut actual = reported_for(&test);
-        actual.sort_unstable();
-
-        if actual == expected {
-            return Outcome::Passed;
-        }
-        Outcome::Failed { reason: summarise(&expected, &actual) }
+        judge_compilation(case)
     }
+}
+
+/// `diagnostics`, over each named configuration of a case whose directives
+/// vary ([`crate::Corpus::configured`]), against that configuration's own
+/// `case(<configuration>).errors.txt`.
+///
+/// The judgement is [`Diagnostics`]' exactly; only the population differs,
+/// and it is reported as its own row so the plain row's denominator does not
+/// move (ADR-0047).
+pub struct DiagnosticsConfigured;
+
+impl Suite for DiagnosticsConfigured {
+    fn name(&self) -> &'static str {
+        "diagnostics_configured"
+    }
+
+    fn describes(&self) -> &'static str {
+        "the diagnostics suite's judgement for each configuration upstream's runner \
+         compiles a configuration-varied case under (`// @target: es2015, esnext`), \
+         against that configuration's suffixed .errors.txt"
+    }
+
+    fn run(&self, case: &CaseEntry) -> Outcome {
+        if case.configuration.is_none() {
+            return Outcome::Skipped { reason: "not a named configuration".into() };
+        }
+        judge_compilation(case)
+    }
+
+    fn per_configuration(&self) -> bool {
+        true
+    }
+}
+
+/// Why upstream wrote nothing for a compilation: its runner skipped the
+/// options (`SkipUnsupportedCompilerOptions`, which the variants reach most
+/// often — `target=es5`, `module=system`), or it recorded no output for a
+/// reason this harness cannot see.
+///
+/// Shared with [`crate::types_suite`], so both per-configuration rows give
+/// a skipped configuration the same reason.
+#[must_use]
+pub fn no_output_reason(case: &CaseEntry) -> String {
+    if case.configuration.is_some()
+        && let crate::trace_case::CompilationSetup::Skip(reason) =
+            crate::trace_case::prepare_compilation(case)
+    {
+        return reason;
+    }
+    "upstream recorded no output for this case".into()
+}
+
+/// One compilation's judgement: the case as discovered, or one of its named
+/// configurations.
+fn judge_compilation(case: &CaseEntry) -> Outcome {
+    if case.has_known_divergence() {
+        return Outcome::Skipped {
+            reason: "upstream records a known divergence from TypeScript".into(),
+        };
+    }
+    // Absence is evidence only when something else proves the case ran.
+    if !case.has_any_baseline() {
+        return Outcome::Skipped { reason: no_output_reason(case) };
+    }
+    let Ok(baseline) = case.expected_errors() else {
+        return Outcome::Failed { reason: "baseline did not load".into() };
+    };
+    let mut expected: Vec<BaselineDiagnostic> =
+        baseline.as_deref().map(errors_baseline::parse).unwrap_or_default();
+    if expected.is_empty() {
+        return Outcome::Skipped {
+            reason: "the case expects no diagnostics (see parser_typescript)".into(),
+        };
+    }
+    expected.sort_unstable();
+
+    let Ok(test) = case.load() else {
+        return Outcome::Failed { reason: "case did not load".into() };
+    };
+
+    let mut actual = reported_for(&test);
+    actual.sort_unstable();
+
+    if actual == expected {
+        return Outcome::Passed;
+    }
+    Outcome::Failed { reason: summarise(&expected, &actual) }
 }
 
 /// Every diagnostic this port reports for a case, positioned as the baseline
@@ -331,14 +395,21 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
     }
 
     // `GetDeclarationDiagnostics` (`program.go:1329`) when
-    // `GetEmitDeclarations()` (`core/compileroptions.go:349`). Only the
-    // `isolatedDeclarations` family has a producer (`tsr_dts`, ADR-0021); the
-    // checker-backed accessibility errors (`TS4xxx`, `TS2883`) do not.
+    // `GetEmitDeclarations()` (`core/compileroptions.go:349`): the
+    // `isolatedDeclarations` family (`tsr_dts::analyze`, ADR-0021) and the
+    // accessibility errors for names written in emitted declarations
+    // (`tsr_dts::accessibility`, over the checker's `EmitResolver`). Errors the
+    // node builder's `SymbolTracker` raises for *inferred* types have no
+    // producer (`docs/parity/notes/r4-declemit.md` §3).
     let emit_declarations = options.declaration.is_true() || options.composite.is_true();
-    if emit_declarations && options.isolated_declarations.is_true() {
+    if emit_declarations {
+        let isolated = options.isolated_declarations.is_true();
         let analysis = tsr_dts::AnalysisOptions {
             strict_null_checks: options.strict_option_value(options.strict_null_checks),
         };
+        let mut resolver = EmitResolverAdapter(
+            tsr_checker::symbol_access::DeclarationEmitResolver::new(&mut checker),
+        );
         for (position, unit) in units.iter().enumerate() {
             // `getDeclarationDiagnostics` (`compiler/emitter.go:520`) over
             // `sourceFileMayBeEmitted` (`emitter.go:452`): neither declaration
@@ -347,8 +418,30 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
             if tsr_path::is_declaration_file_name(unit.file.file_name()) || is_json(unit) {
                 continue;
             }
-            let found =
-                tsr_dts::analyze_with_options(unit.file.source_file(), program.nodes(), analysis);
+            if isolated {
+                let found = tsr_dts::analyze_with_options(
+                    unit.file.source_file(),
+                    program.nodes(),
+                    analysis,
+                );
+                reported.extend(found.into_iter().map(|d| (position, d)));
+            }
+            // Declined, never invented: JavaScript declarations go through the
+            // node builder (`TryJSTypeNodeToTypeNode`), and a file under
+            // `node_modules` stands in for `IsSourceFileFromExternalLibrary`
+            // — skipping one that upstream emits loses its errors, never adds.
+            let javascript =
+                program.nodes().flags(unit.id).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+            if javascript || unit.file.file_name().contains("/node_modules/") {
+                continue;
+            }
+            let found = tsr_dts::accessibility::written_name_diagnostics(
+                unit.id,
+                program.nodes(),
+                program.node_map(),
+                unit.file.text(),
+                &mut resolver,
+            );
             reported.extend(found.into_iter().map(|d| (position, d)));
         }
     }
@@ -388,6 +481,42 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
         out.extend(config_file_parsing_diagnostics(test, config));
     }
     out
+}
+
+/// The checker's `EmitResolver` accessibility half as the declaration
+/// walk's resolver; the two result types mirror one another.
+struct EmitResolverAdapter<'c, 'a, 'n>(
+    tsr_checker::symbol_access::DeclarationEmitResolver<'c, 'a, 'n>,
+);
+
+impl tsr_dts::accessibility::AccessibilityResolver for EmitResolverAdapter<'_, '_, '_> {
+    fn precalculate_declaration_emit_visibility(&mut self, file: NodeId) {
+        self.0.precalculate_declaration_emit_visibility(file);
+    }
+
+    fn is_declaration_visible(&mut self, node: NodeId) -> bool {
+        self.0.is_declaration_visible(node)
+    }
+
+    fn is_entity_name_visible(
+        &mut self,
+        entity_name: NodeId,
+        enclosing: NodeId,
+    ) -> tsr_dts::accessibility::EntityNameVisibility {
+        use tsr_checker::symbol_access::EmitAccessibility as A;
+        use tsr_dts::accessibility::EntityNameVisibility as V;
+        match self.0.is_entity_name_visible(entity_name, enclosing) {
+            A::Accessible { aliases_to_make_visible } => V::Accessible(aliases_to_make_visible),
+            A::NotAccessible { error_symbol_name, error_node } => {
+                V::NotAccessible { symbol_name: error_symbol_name, error_node }
+            }
+            A::NotResolved => V::NotResolved,
+        }
+    }
+
+    fn is_implementation_of_overload(&mut self, node: NodeId) -> bool {
+        self.0.is_implementation_of_overload(node)
+    }
 }
 
 /// `sourceFile.BindDiagnostics()`, from binding the file on its own.

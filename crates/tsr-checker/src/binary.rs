@@ -204,184 +204,81 @@ impl Checker<'_, '_> {
         self.intrinsics.number
     }
 
-    /// The `+` arm of `checkBinaryLikeExpression` (`checker.go:12403`).
+    /// The type of the `+` / `+=` arm of `checkBinaryLikeExpressionWorker`
+    /// (`checker.go:12414`); its diagnostics are
+    /// `operator_operands.rs` `check_addition_operator`.
     ///
-    /// Upstream's order is load-bearing and is kept: both number-like → `number`,
-    /// both bigint-like → `bigint`, *either* string-like → `string`, either any
-    /// → `any` unless either is `errorType`, in which case `errorType`.
+    /// ```go
+    /// if !isTypeAssignableToKind(left, StringLike) && !isTypeAssignableToKind(right, StringLike) {
+    ///     left = checkNonNullType(left); right = checkNonNullType(right)
+    /// }
+    /// both isTypeAssignableToKindEx(NumberLike, strict)  → number
+    /// both isTypeAssignableToKindEx(BigIntLike, strict)  → bigint
+    /// either isTypeAssignableToKindEx(StringLike, strict) → string
+    /// either IsTypeAny → errorType if either isErrorType, else any
+    /// otherwise (TS2365 reported)                         → any
+    /// ```
     ///
-    /// **The order is upstream's and is currently unobservable here**, which is
-    /// stated rather than dressed up as a test: with only primitive types, a
-    /// type is string-like or number-like and never both, so swapping the two
-    /// arms turns nothing red. It starts to matter with the types that are
-    /// assignable to both kinds — enums, and unions of them — and it is kept in
-    /// upstream's order so that it is already right when they arrive.
+    /// `isTypeAssignableToKindEx` is the flag test **or** full assignability
+    /// to the kind's primitive ([`Checker::is_type_assignable_to_kind`]), so a
+    /// type parameter, an indexed access `T[K]` and a branded intersection
+    /// `string & { $Guid }` classify through the relation, as upstream's do.
+    /// The relater can still answer `Unknown`; a step that does stops the
+    /// cascade with `errorType` (a gap), never with a guessed answer
+    /// (`docs/parity/notes/r4-operators.md` §3). This replaced a flag test
+    /// with one-level union descent and a type-parameter-constraint read,
+    /// which declined `T[K]` and intersections.
     fn check_addition(&mut self, left: TypeId, right: TypeId) -> TypeId {
-        if self.is_error(left) || self.is_error(right) {
-            // §313's tail — upstream's ORDER, not a deviation: the string
-            // test precedes the any/error fallthrough
-            // (`checker.go:12430-12437`), so an error-typed operand beside a
-            // string-like one is STRING — `f += ''` on a class-named target
-            // records `>f += '' : string` beside `>f : any`
-            // (`concatClassAndString`, `arithAssignTyping`). Only a
-            // string-free pair keeps the error.
-            let other = if self.is_error(left) { right } else { left };
-            let other_is_string_like = !self.is_error(other)
-                && (self.store.get(other).flags.intersects(TypeFlags::STRING_LIKE)
-                    || matches!(
-                        &self.store.get(other).data,
-                        crate::types::TypeData::Union { types, .. }
-                            if !types.is_empty() && types.iter().all(|&c| {
-                                self.store.get(c).flags.intersects(TypeFlags::STRING_LIKE)
-                            })
-                    ));
-            if other_is_string_like {
-                return self.intrinsics.string;
+        use crate::operator_operands::{ternary_and, ternary_or};
+        use crate::relater::Ternary;
+        let error = self.intrinsics.error;
+        let either_string = ternary_or(
+            self.is_type_assignable_to_kind(left, TypeFlags::STRING_LIKE, false),
+            self.is_type_assignable_to_kind(right, TypeFlags::STRING_LIKE, false),
+        );
+        let (left, right) = match either_string {
+            Ternary::Related => (left, right),
+            Ternary::NotRelated => {
+                (self.non_null_operand_type(left), self.non_null_operand_type(right))
             }
-            return self.intrinsics.error;
+            Ternary::Unknown => return error,
+        };
+        let both = |checker: &mut Self, kind: TypeFlags| {
+            let l = checker.is_type_assignable_to_kind(left, kind, true);
+            if l == Ternary::NotRelated {
+                return l;
+            }
+            ternary_and(l, checker.is_type_assignable_to_kind(right, kind, true))
+        };
+        match both(self, TypeFlags::NUMBER_LIKE) {
+            Ternary::Related => return self.intrinsics.number,
+            Ternary::Unknown => return error,
+            Ternary::NotRelated => {}
         }
-        // §179 (`checker-notes-narrow.md`): upstream's `+` arm asks
-        // `isTypeAssignableToKind`, not `flags & Kind`, and assignability
-        // consults a type PARAMETER's constraint — `n + 1` for
-        // `n: T extends number` is `number`. This port tests raw flags, and
-        // a type parameter carries none, so such an operand fell through to
-        // the error tail. Only TYPE PARAMETERS are mapped to their
-        // constraint here: §178 measured that reading EVERY operand through
-        // its apparent type costs 4,400 lines, because a primitive's
-        // apparent form is an interface that carries no kind flags either.
-        let kind_source = |checker: &mut Self, id: TypeId| -> TypeId {
-            if checker.store.get(id).flags.intersects(TypeFlags::TYPE_PARAMETER) {
-                checker.type_parameter_constraint(id).unwrap_or(id)
+        match both(self, TypeFlags::BIG_INT_LIKE) {
+            Ternary::Related => return self.intrinsics.bigint,
+            Ternary::Unknown => return error,
+            Ternary::NotRelated => {}
+        }
+        let either_string = ternary_or(
+            self.is_type_assignable_to_kind(left, TypeFlags::STRING_LIKE, true),
+            self.is_type_assignable_to_kind(right, TypeFlags::STRING_LIKE, true),
+        );
+        match either_string {
+            Ternary::Related => return self.intrinsics.string,
+            Ternary::Unknown => return error,
+            Ternary::NotRelated => {}
+        }
+        if self.is_type_any(left) || self.is_type_any(right) {
+            return if self.is_error(left) || self.is_error(right) {
+                error
             } else {
-                id
-            }
-        };
-        let (left, right) = (kind_source(self, left), kind_source(self, right));
-        // §258. `isTypeAssignableToKind` descends a UNION — every constituent
-        // must match the kind — where a raw flags test sees only the union's
-        // own flags, which carry no kind at all. That is why `a + b` on two
-        // enum-typed operands gapped: `Choice.Yes | Choice.No` is a `UNION`,
-        // and `both(NUMBER_LIKE)` asked the wrong node.
-        //
-        //     enum Choice { Unknown, Yes, No }
-        //     var a: Choice, b: Choice;
-        //     var x = a + b;
-        //     >a + b : number
-        //
-        // Witness `conformance/enumLiteralTypes1`, whose eleven blocked lines
-        // §257 measured as the population its `any` fallback would have
-        // answered WRONGLY — this computes them instead, which is the repair
-        // that refusal named as its own reopening condition.
-        //
-        // Only unions are descended, and only one level. An intersection needs
-        // ANY constituent to match rather than all, which is a different rule
-        // and a different witness; it stays on flags until it has one.
-        let has_kind = |checker: &mut Self, id: TypeId, kind: TypeFlags| -> bool {
-            if checker.store.get(id).flags.intersects(kind) {
-                return true;
-            }
-            if let crate::types::TypeData::Union { types, .. } = &checker.store.get(id).data {
-                let constituents = types.clone();
-                return !constituents.is_empty()
-                    && constituents.iter().all(|&c| checker.store.get(c).flags.intersects(kind));
-            }
-            false
-        };
-        // §266 (renumbered from §265, which checker-2's resolve_name filter
-        // took in the same hour): upstream's first move in the `+` arm
-        // (`checker.go:12418`) —
-        // when NEITHER operand is string-like, both are put through
-        // `checkNonNullType` before classification. That is where
-        // `(number | undefined) + 1` becomes `number`: the TS2532 report is
-        // the diagnostic half, but the TYPE proceeds on the stripped operand.
-        // Without this, §263's now-correct `number | undefined` element reads
-        // turned their enclosing `+=` expressions from `number` to `any`.
-        // String-likeness is tested on the UNSTRIPPED types, as upstream does.
-        //
-        // A strip that EMPTIES an operand keeps the original instead: upstream's
-        // `checkNonNullType(undefinedType)` yields errorType, which *prints* as
-        // `any` in a baseline, but this port's errorType means "unported" and is
-        // scored as a gap — the first draft returned it and turned 16
-        // previously-right lines into gaps/wrongs (`ANY + ANY1` under `!`,
-        // `logicalNotOperatorWithAnyOtherType`), because the port's `!`
-        // propagates a gap where upstream's returns `boolean` regardless. With
-        // the original kept, an `any` operand still answers through the `any`
-        // arm below, and a bare `undefined + 1` falls to the tail's honest
-        // decline rather than a confident answer either way.
-        let strip = |checker: &mut Self, id: TypeId| -> TypeId {
-            let stripped = checker.check_non_null_type(id);
-            if checker.is_error(stripped) { id } else { stripped }
-        };
-        let (left, right) = if !has_kind(self, left, TypeFlags::STRING_LIKE)
-            && !has_kind(self, right, TypeFlags::STRING_LIKE)
-        {
-            (strip(self, left), strip(self, right))
-        } else {
-            (left, right)
-        };
-        let left_flags = self.store.get(left).flags;
-        let right_flags = self.store.get(right).flags;
-        let both = |kind: TypeFlags| left_flags.intersects(kind) && right_flags.intersects(kind);
-        if both(TypeFlags::NUMBER_LIKE)
-            || (has_kind(self, left, TypeFlags::NUMBER_LIKE)
-                && has_kind(self, right, TypeFlags::NUMBER_LIKE))
-        {
-            return self.intrinsics.number;
+                self.intrinsics.any
+            };
         }
-        // §260, and this is corollary 30 applied to §258 itself: §258 wired the
-        // union descent into ONE of this function's three kind tests, because
-        // `NUMBER_LIKE` was the one its witness needed. The other two ask the
-        // same question of the same nodes and were left on raw flags — the
-        // half-a-predicate shape, committed one commit after writing the rule
-        // against it.
-        if both(TypeFlags::BIG_INT_LIKE)
-            || (has_kind(self, left, TypeFlags::BIG_INT_LIKE)
-                && has_kind(self, right, TypeFlags::BIG_INT_LIKE))
-        {
-            return self.intrinsics.bigint;
-        }
-        if left_flags.intersects(TypeFlags::STRING_LIKE)
-            || right_flags.intersects(TypeFlags::STRING_LIKE)
-            || has_kind(self, left, TypeFlags::STRING_LIKE)
-            || has_kind(self, right, TypeFlags::STRING_LIKE)
-        {
-            return self.intrinsics.string;
-        }
-        if left_flags.intersects(TypeFlags::ANY) || right_flags.intersects(TypeFlags::ANY) {
-            return self.intrinsics.any;
-        }
-        // Upstream reports and answers `any` here; without diagnostics the honest
-        // answer is that nothing was computed.
-        //
-        // §257, ATTEMPTED TWICE AND REVERTED — the conclusion holds and the
-        // stated reason is not why. Upstream's line really is `return
-        // c.anyType` (`checker.go:12455`), deliberate error recovery with its
-        // own comment ("Otherwise, the result is of type Any"), so porting it
-        // is NOT ADR-0038's forbidden gap-wearing-`any`. The premise about
-        // diagnostics is beside the point. It still must not be ported, for a
-        // reason only measurement gives:
-        //
-        //   whole fallback -> any     +4 cases   GAP->RIGHT 10  WRONG->RIGHT 12
-        //                                        **GAP->WRONG 57**
-        //   narrowed to non-literal   +0 cases   WRONG->RIGHT 12
-        //                             operands   **GAP->WRONG 32**
-        //
-        // The adverse population is LITERAL and ENUM-LITERAL arithmetic
-        // (`enumLiteralTypes1/2` 11 lines each, `numericLiteralTypes1/2`,
-        // `stringLiteralTypesWithVariousOperators01`), where upstream computes
-        // a real `number`/`string` and this port cannot yet. Every line that
-        // reaches this fallback from that population is a gap THIS PORT OWNS,
-        // and answering `any` replaces it with a confident wrong answer.
-        //
-        // So the `error` here is load-bearing, and what it is bearing is not
-        // "we have no diagnostics" but **"the arithmetic above this line is
-        // incomplete"**. It should be revisited when literal arithmetic lands —
-        // at which point the adverse population stops reaching here at all and
-        // the port becomes free — and not before. Narrowing by flags does not
-        // rescue it: the second attempt kept 32 adverse lines and bought
-        // nothing, because enum-literal operands do not carry the flags the
-        // narrowing tested for.
-        self.intrinsics.error
+        // `resultType == nil`: upstream reports TS2365 and answers `anyType`
+        // (`checker.go:12455`, "Otherwise, the result is of type Any").
+        self.intrinsics.any
     }
 
     /// The `&&` arm of `checkBinaryLikeExpression` (`checker.go:12496`).

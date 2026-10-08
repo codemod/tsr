@@ -233,7 +233,10 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(call_signatures) = self.call_signatures_of_type(tested_type) else { return };
-        let Some(is_promise) = self.has_awaited_type_of_promise(tested_type) else { return };
+        let Some(is_promise) = self.awaited_type_of_promise(tested_type).map(|a| a.ty().is_some())
+        else {
+            return;
+        };
         if call_signatures.is_empty() && !is_promise {
             return;
         }
@@ -295,66 +298,6 @@ impl Checker<'_, '_> {
             return;
         }
         self.report(file, Diagnostic::with_args(message, span, args));
-    }
-
-    /// `getAwaitedTypeOfPromise(t) != nil` (`checker.go:31458`) — whether `t`
-    /// has a promised type (`getPromisedTypeOfPromiseEx`, `checker.go:28926`).
-    /// `None` where a step cannot be read, including `then` signatures with a
-    /// `this` parameter, whose subtype filter is not ported here.
-    fn has_awaited_type_of_promise(&mut self, t: TypeId) -> Option<bool> {
-        if self.type_of(t).flags.intersects(TypeFlags::ANY) {
-            return Some(false);
-        }
-        if let Some((target, arguments)) = self.type_reference_targets.get(&t).cloned()
-            && arguments.len() == 1
-            && self.global_type_symbol_with_arity("Promise", 1).is_some_and(|promise| {
-                self.binder.merged_symbol(promise) == self.binder.merged_symbol(target)
-            })
-        {
-            return Some(true);
-        }
-        // Primitives with a `then` member are not unwrapped. Only a type the
-        // flags already decide is answered; a generic constraint is not read.
-        if self.all_constituents_primitive(t) {
-            return Some(false);
-        }
-        if self.type_of(t).flags.intersects(TypeFlags::INSTANTIABLE) {
-            return None;
-        }
-        let Some(then) = self.get_type_of_property_of_type(t, "then") else { return Some(false) };
-        if then == self.intrinsics.error {
-            return None;
-        }
-        if self.type_of(then).flags.intersects(TypeFlags::ANY) {
-            return Some(false);
-        }
-        let signatures = self.call_signatures_of_type(then)?;
-        if signatures.is_empty() {
-            return Some(false);
-        }
-        let mut callbacks = Vec::new();
-        for signature in &signatures {
-            if signature
-                .this_parameter
-                .as_ref()
-                .is_some_and(|this| self.parameter_type(this) != self.intrinsics.void)
-            {
-                return None;
-            }
-            callbacks.push(
-                self.signature_type_at_position(signature, 0).unwrap_or(self.intrinsics.never),
-            );
-        }
-        if callbacks.contains(&self.intrinsics.error) {
-            return None;
-        }
-        let callbacks = self.get_union_type(&callbacks);
-        let callbacks =
-            self.get_type_with_facts(callbacks, crate::flow::TypeFacts::NE_UNDEFINED_OR_NULL);
-        if self.type_of(callbacks).flags.intersects(TypeFlags::ANY) {
-            return Some(false);
-        }
-        Some(!self.call_signatures_of_type(callbacks)?.is_empty())
     }
 
     /// Every constituent is a primitive (or `never`). Such a type has no call

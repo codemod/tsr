@@ -215,6 +215,9 @@ impl Checker<'_, '_> {
         if let Some(module_name) = module_name {
             self.check_external_module_name_is_string_literal(module_name);
         }
+        if let Node::ClassDeclaration(_) = typed {
+            self.check_class_declaration_has_name(typed);
+        }
         // `Checker.checkIfStatement` (`checker.go:3808`): TS1313 on an empty
         // `then` statement.
         if let Node::IfStatement(statement) = typed
@@ -1173,5 +1176,282 @@ impl Checker<'_, '_> {
                 &messages::CATCH_CLAUSE_VARIABLE_CANNOT_HAVE_AN_INITIALIZER,
             );
         }
+    }
+}
+
+impl Checker<'_, '_> {
+    /// TS1355 — the `isConstTypeReference` arm of `checkAssertion`
+    /// (`checker.go:12303`): `x as const` and `<const>x` require an operand
+    /// `isValidConstAssertionArgument` accepts, and report on the operand
+    /// otherwise.
+    ///
+    /// Not a grammar check upstream — `c.error`, so no parse-diagnostics gate —
+    /// but a purely local predicate of the assertion node and one entity-name
+    /// resolution, which is why it is dispatched from `check_node`'s assertion
+    /// arm beside `check_assertion_overlap` (`assertion_overlap.rs`, the
+    /// deferred half of the same `checkAssertion`) rather than from the
+    /// expression checker's `check_const_assertion`, which computes the type
+    /// and is not this lane's.
+    ///
+    /// `docs/parity/notes/r4-unused-grammar.md` §3.
+    pub(crate) fn check_const_assertion_argument(&mut self, node: NodeId) {
+        let (expression, annotation) = match self.node_map.get(node) {
+            Some(Node::AsExpression(assertion)) => (assertion.expression, assertion.r#type),
+            Some(Node::TypeAssertion(assertion)) => (assertion.expression, assertion.r#type),
+            _ => return,
+        };
+        let (Some(expression), Some(annotation)) = (expression, annotation) else { return };
+        // `isConstTypeReference` (`ast/utilities.go`): a type reference with
+        // no type arguments whose name is the identifier `const`.
+        if !crate::assertions::is_const_type_reference(annotation) {
+            return;
+        }
+        let Some(operand) = expression.node_id() else { return };
+        if self.is_valid_const_assertion_argument(operand) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(operand) else { return };
+        let span = self.error_span(operand);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_CONST_ASSERTION_CAN_ONLY_BE_APPLIED_TO_REFERENCES_TO_ENUM_MEMBERS_OR_STRING_NUMBER_BOOLEAN_ARRAY_OR_OBJECT_LITERALS,
+                span,
+            ),
+        );
+    }
+
+    /// `isValidConstAssertionArgument` (`checker.go:13623`), arm for arm.
+    fn is_valid_const_assertion_argument(&mut self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(
+                Node::StringLiteral(_)
+                | Node::NoSubstitutionTemplateLiteral(_)
+                | Node::NumericLiteral(_)
+                | Node::BigIntLiteral(_)
+                | Node::ArrayLiteralExpression(_)
+                | Node::ObjectLiteralExpression(_)
+                | Node::TemplateExpression(_),
+            ) => true,
+            _ if matches!(
+                self.nodes.kind(node),
+                SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword
+            ) =>
+            {
+                true
+            }
+            Some(Node::ParenthesizedExpression(parenthesized)) => parenthesized
+                .expression
+                .and_then(|e| e.node_id())
+                .is_some_and(|inner| self.is_valid_const_assertion_argument(inner)),
+            Some(Node::PrefixUnaryExpression(unary)) => {
+                let operand = unary.operand.and_then(|e| e.node_id()).map(|o| self.nodes.kind(o));
+                match unary.operator.kind {
+                    SyntaxKind::MinusToken => matches!(
+                        operand,
+                        Some(SyntaxKind::NumericLiteral | SyntaxKind::BigIntLiteral)
+                    ),
+                    SyntaxKind::PlusToken => operand == Some(SyntaxKind::NumericLiteral),
+                    _ => false,
+                }
+            }
+            Some(Node::PropertyAccessExpression(access)) => {
+                let receiver = access.expression.and_then(|e| e.node_id());
+                receiver.is_some_and(|receiver| self.is_enum_entity_name_expression(receiver))
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                let receiver = access.expression.and_then(|e| e.node_id());
+                receiver.is_some_and(|receiver| self.is_enum_entity_name_expression(receiver))
+            }
+            _ => false,
+        }
+    }
+
+    /// The access arm's tail: `SkipParentheses(expr)`, then, for an entity
+    /// name expression, `resolveEntityName(expr, Value, ignoreErrors=true)`
+    /// and `symbol.Flags & SymbolFlagsEnum`.
+    fn is_enum_entity_name_expression(&mut self, expression: NodeId) -> bool {
+        let mut expression = expression;
+        while let Some(Node::ParenthesizedExpression(parenthesized)) = self.node_map.get(expression)
+        {
+            let Some(inner) = parenthesized.expression.and_then(|e| e.node_id()) else {
+                return false;
+            };
+            expression = inner;
+        }
+        self.resolve_value_entity_name_expression(expression).is_some_and(|symbol| {
+            self.binder.symbols().get(symbol).flags.intersects(tsr_binder::SymbolFlags::ENUM)
+        })
+    }
+
+    /// `resolveEntityName(name, meaning, ignoreErrors=true,
+    /// dontResolveAlias=false)` (`checker.go:15772`) for an entity name
+    /// *expression* — an identifier, or a property access chain of them
+    /// (`IsEntityNameExpression`). The left of an access resolves at
+    /// `Namespace` meaning (`resolveQualifiedName`, `checker.go:15828`) with
+    /// its alias followed, the right in that namespace's exports; the result
+    /// is followed through its alias chain while it lacks `Value`
+    /// (`checker.go:15821`).
+    fn resolve_value_entity_name_expression(
+        &mut self,
+        node: NodeId,
+    ) -> Option<tsr_binder::SymbolId> {
+        use tsr_binder::SymbolFlags;
+        let mut symbol = self.resolve_entity_name_expression_at(node, SymbolFlags::VALUE)?;
+        let mut seen = 0;
+        while !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE)
+            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+        {
+            seen += 1;
+            if seen > 64 {
+                return None;
+            }
+            symbol = self.binder.merged_symbol(self.resolve_alias(symbol)?);
+        }
+        Some(symbol)
+    }
+
+    fn resolve_entity_name_expression_at(
+        &mut self,
+        node: NodeId,
+        meaning: tsr_binder::SymbolFlags,
+    ) -> Option<tsr_binder::SymbolId> {
+        use tsr_binder::SymbolFlags;
+        match self.node_map.get(node)? {
+            Node::Identifier(identifier) => {
+                let found = self.resolve_name_with_export_alias(node, identifier.text, meaning)?;
+                Some(self.binder.merged_symbol(found))
+            }
+            Node::PropertyAccessExpression(access) => {
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else { return None };
+                let left = access.expression?.node_id()?;
+                let mut namespace =
+                    self.resolve_entity_name_expression_at(left, SymbolFlags::NAMESPACE)?;
+                if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS) {
+                    namespace = self.resolve_alias(namespace)?;
+                }
+                let namespace = self.binder.merged_symbol(namespace);
+                let found = *self.binder.symbols().get(namespace).exports.get(name.text)?;
+                let found = self.binder.merged_symbol(found);
+                (self.binder.symbols().get(found).flags.intersects(meaning)
+                    || self.get_symbol_flags(found).intersects(meaning))
+                .then_some(found)
+            }
+            _ => None,
+        }
+    }
+}
+
+impl Checker<'_, '_> {
+    /// TS1211 — `checkClassDeclaration` (`checker.go:4285`): a class
+    /// declaration with no name and no `default` modifier,
+    /// `grammarErrorOnFirstToken` — the declaration's first token, which is its
+    /// first modifier or decorator when it has one (`export class {}` reports
+    /// on `export`), behind `!hasParseDiagnostics`.
+    ///
+    /// `docs/parity/notes/r4-unused-grammar.md` §4.
+    fn check_class_declaration_has_name(&mut self, typed: Node<'_>) {
+        let Node::ClassDeclaration(class) = typed else { return };
+        if class.name.is_some()
+            || tsr_ast::has_syntactic_modifier(class.modifiers, SyntaxKind::DefaultKeyword)
+            || self.file_has_parse_errors
+        {
+            return;
+        }
+        let Some(node) = class.node_id else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let start = self.nodes.span(node).start;
+        // `scanner.GetRangeOfTokenAtPosition(file, node.Pos())`. Without
+        // source text (unit hosts) the node's own start stands for the token,
+        // one character wide; line and column are the same.
+        let span = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(start as usize..))
+            .map(|rest| tsr_scanner::Scanner::new(rest).scan().span)
+            .map_or(tsr_core::Span::new(start, start + 1), |token| {
+                tsr_core::Span::new(start + token.start, start + token.end)
+            });
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_CLASS_DECLARATION_WITHOUT_THE_DEFAULT_MODIFIER_MUST_HAVE_A_NAME,
+                span,
+            ),
+        );
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `!isInvalidInitializer` of `checkGrammarVariableLikeDeclaration`'s
+    /// ambient tail (`grammarchecks.go:1963`): the initializers a `const` or
+    /// `readonly` declaration without an annotation may carry in an ambient
+    /// context —
+    /// `isInitializerStringOrNumberLiteralExpression` (`:1978`),
+    /// `isInitializerSimpleLiteralEnumReference` (`:1996`), `true`/`false`,
+    /// and `isInitializerBigIntLiteralExpression` (`:1983`), in that order.
+    ///
+    /// `docs/parity/notes/r4-unused-grammar.md` §6.
+    pub(crate) fn is_valid_ambient_const_initializer(
+        &mut self,
+        initializer: Expression<'_>,
+    ) -> bool {
+        let Some(node) = initializer.node_id() else { return false };
+        is_string_or_number_literal_initializer(self, node)
+            || self.is_initializer_simple_literal_enum_reference(initializer)
+            || matches!(self.nodes.kind(node), SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword)
+            || is_bigint_literal_initializer(self, node)
+    }
+
+    /// `isInitializerSimpleLiteralEnumReference` (`grammarchecks.go:1996`):
+    /// a property access, or an element access with a string/number literal
+    /// argument on an entity name expression, whose checked type
+    /// (`checkExpressionCached`) is enum-like.
+    fn is_initializer_simple_literal_enum_reference(&mut self, expression: Expression<'_>) -> bool {
+        match expression {
+            Expression::PropertyAccessExpression(_) => {}
+            Expression::ElementAccessExpression(access) => {
+                let argument = access.argument_expression.and_then(|a| a.node_id());
+                let receiver = access.expression.and_then(|e| e.node_id());
+                if !argument.is_some_and(|a| is_string_or_number_literal_initializer(self, a))
+                    || !receiver.is_some_and(|r| self.is_entity_name_expression(r))
+                {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+        let checked = self.check_expression(expression);
+        self.store.get(checked).flags.intersects(crate::flags::TypeFlags::ENUM_LIKE)
+    }
+}
+
+/// `isInitializerStringOrNumberLiteralExpression` (`grammarchecks.go:1978`):
+/// `IsStringOrNumericLiteralLike` — a string, no-substitution template or
+/// numeric literal — or `-` over a numeric literal.
+fn is_string_or_number_literal_initializer(checker: &Checker<'_, '_>, node: NodeId) -> bool {
+    match checker.nodes.kind(node) {
+        SyntaxKind::StringLiteral
+        | SyntaxKind::NoSubstitutionTemplateLiteral
+        | SyntaxKind::NumericLiteral => true,
+        SyntaxKind::PrefixUnaryExpression => matches!(
+            checker.node_map.get(node),
+            Some(Node::PrefixUnaryExpression(unary))
+                if unary.operator.kind == SyntaxKind::MinusToken
+                    && matches!(unary.operand, Some(Expression::NumericLiteral(_)))
+        ),
+        _ => false,
+    }
+}
+
+/// `isInitializerBigIntLiteralExpression` (`grammarchecks.go:1983`).
+fn is_bigint_literal_initializer(checker: &Checker<'_, '_>, node: NodeId) -> bool {
+    match checker.node_map.get(node) {
+        Some(Node::BigIntLiteral(_)) => true,
+        Some(Node::PrefixUnaryExpression(unary)) => {
+            unary.operator.kind == SyntaxKind::MinusToken
+                && matches!(unary.operand, Some(Expression::BigIntLiteral(_)))
+        }
+        _ => false,
     }
 }

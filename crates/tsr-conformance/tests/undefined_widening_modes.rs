@@ -24,9 +24,11 @@ fn real_program_options_select_the_slot_without_changing_global_or_shadowed_bind
         let mut checker = types_producer::configured_checker(&program);
         let i = *checker.intrinsics();
         assert_eq!(i.undefined_widening == i.undefined, strict, "{directives}");
-        assert_eq!(i.undefined_widening.index(), if strict { 4 } else { 5 });
-        // 26: `nullWideningType`'s loose twin occupies slot 8.
-        assert_eq!(checker.type_count(), 26);
+        assert_eq!(i.undefined_widening.index(), if strict { 5 } else { 6 });
+        // 30: upstream's `errorType` sits at slot 2 beside the port's gap,
+        // `nullWideningType`'s loose twin at slot 9, and the regular `""`, `0`
+        // and `0n` (`checker.go:1049`) follow `boolean`.
+        assert_eq!(checker.type_count(), 30);
         assert_eq!(checker.type_of(i.undefined_widening).flags, tsr_checker::TypeFlags::UNDEFINED);
         for other in [i.any, i.error, i.missing, i.null, i.never] {
             assert_ne!(i.undefined_widening, other);

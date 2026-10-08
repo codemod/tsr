@@ -99,7 +99,7 @@ impl Checker<'_, '_> {
         ty: TypeId,
         declaration: NodeId,
     ) -> TypeId {
-        if std::env::var("TSR_DEBUG_832").is_ok() {
+        if crate::debug_env::is_set("TSR_DEBUG_832") {
             eprintln!(
                 "832: add_optionality_for_declaration kind={:?} optional={}",
                 self.nodes.kind(declaration),

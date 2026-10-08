@@ -2,8 +2,11 @@
 //!
 //! Includes empty expected baselines so new false errors remain visible. Sorted
 //! diagnostic lists preserve duplicate occurrences, unlike a code or pass set.
-//! Configuration-varied, known-divergence and absent-baseline cases are excluded
-//! by the same eligibility checks as the diagnostics suite.
+//! Known-divergence and absent-baseline cases are excluded by the same
+//! eligibility checks as the diagnostics suite. A configuration-varied case is
+//! dumped once per named configuration upstream compiles it under, keyed
+//! `case(target=es2015)` (ADR-0047), and never as itself: its plain row would
+//! judge a compilation upstream does not run.
 //!
 //! ```text
 //! cargo run --release -p tsr-conformance --example diagverdictdump > before.tsv
@@ -17,7 +20,9 @@ fn main() {
         .stack_size(8 * 1024 * 1024)
         .build_global()
         .expect("sizing the corpus thread pool");
-    let cases = Corpus::from_repo_root(&repo_root()).discover().expect("corpus");
+    let mut cases = Corpus::from_repo_root(&repo_root()).discover().expect("corpus");
+    let configured = Corpus::configured(&cases);
+    cases.extend(configured);
     // `TSR_FILTER` (comma-separated case-name substrings), as `verdictdump`
     // takes it, for the inner loop; scoring runs stay unfiltered.
     let filter: Option<Vec<String>> = std::env::var("TSR_FILTER").ok().map(|value| {
@@ -31,7 +36,10 @@ fn main() {
                 .is_none_or(|parts| parts.iter().any(|part| case.name.contains(part.as_str())))
         })
         .filter(|case| {
-            !case.has_varied_errors() && !case.has_known_divergence() && case.has_any_baseline()
+            (case.configuration.is_some() || !case.has_varied_errors())
+                && !case.has_known_divergence()
+                && case.has_any_baseline()
+                && !case.is_expanded()
         })
         .map(|case| {
             let baseline = case.expected_errors().expect("baseline");

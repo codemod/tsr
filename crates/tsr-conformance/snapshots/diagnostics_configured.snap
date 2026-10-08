@@ -1,0 +1,228 @@
+commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
+
+diagnostics_configured Summary:
+What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
+Passed         : 670/1089 (61.52%)
+Failed         : 419
+Skipped        : 3079 (excluded from the denominator)
+
+  1333  skipped: the case expects no diagnostics (see parser_typescript)
+  36  skipped: upstream recorded no output for this case
+  68  skipped: upstream records a known divergence from TypeScript
+  52  skipped: upstream skips this case: alwaysStrict=false is unsupported
+  20  skipped: upstream skips this case: esModuleInterop=false is unsupported
+  2  skipped: upstream skips this case: unsupported baseUrl /.src
+  109  skipped: upstream skips this case: unsupported module kind AMD
+  151  skipped: upstream skips this case: unsupported module kind System
+  30  skipped: upstream skips this case: unsupported module kind UMD
+  13  skipped: upstream skips this case: unsupported module resolution kind Classic
+  1  skipped: upstream skips this case: unsupported module resolution kind Node10
+  4  skipped: upstream skips this case: unsupported outFile /.src/all.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/c.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/computedPropertyNames52-emit.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/d.js
+  8  skipped: upstream skips this case: unsupported outFile /.src/out.js
+  2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
+  1244  skipped: upstream skips this case: unsupported target ES5
+
+First 100 of 419 failures:
+compiler/abstractPropertyNegative(target=es2015)
+  1 unexpected (first TS2610 at abstractPropertyNegative.ts(34,5)), 5 missing
+compiler/accessorWithInitializer(target=es2015)
+  2 missing (first TS1052 at accessorWithInitializer.ts(2,9))
+compiler/ambientWithStatements(alwaysstrict=true)
+  2 missing (first TS1104 at ambientWithStatements.ts(3,5))
+compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)
+  1 missing (first TS2322 at argumentsBindsToFunctionScopeArgumentList.ts(3,5))
+compiler/bigintAmbientMinimal(target=es2015)
+  1 missing (first TS2737 at /main.ts(5,17))
+compiler/bigintWithoutLib(target=es2015)
+  18 missing (first TS2737 at bigintWithoutLib.ts(7,30))
+compiler/blockScopedEnumVariablesUseBeforeDef_isolatedModules(target=es2015)
+  2 missing (first TS2450 at blockScopedEnumVariablesUseBeforeDef_isolatedModules.ts(7,12))
+compiler/blockScopedEnumVariablesUseBeforeDef_verbatimModuleSyntax(target=es2015)
+  2 missing (first TS2450 at blockScopedEnumVariablesUseBeforeDef_verbatimModuleSyntax.ts(7,12))
+compiler/blockScopedVariablesUseBeforeDef(target=es2015)
+  3 unexpected (first TS2448 at blockScopedVariablesUseBeforeDef.ts(127,9)), 0 missing
+compiler/capturedParametersInInitializers2(target=es2015)
+  4 missing (first TS2373 at capturedParametersInInitializers2.ts(3,20))
+compiler/checkForObjectTooStrict(target=es2015)
+  1 missing (first TS2725 at checkForObjectTooStrict.ts(3,18))
+compiler/classStaticPropertyAccess(target=es2015)
+  2 missing (first TS2576 at classStaticPropertyAccess.ts(10,1))
+compiler/classUsedBeforeInitializedVariables(target=es2015)
+  1 missing (first TS2729 at classUsedBeforeInitializedVariables.ts(35,64))
+compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsx,module=commonjs,moduledetection=auto)
+  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
+compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsx,module=commonjs,moduledetection=force)
+  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
+compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsx,module=commonjs,moduledetection=legacy)
+  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
+compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsxdev,module=commonjs,moduledetection=auto)
+  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
+compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsxdev,module=commonjs,moduledetection=force)
+  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
+compiler/commentsOnJSXExpressionsArePreserved(jsx=react-jsxdev,module=commonjs,moduledetection=legacy)
+  1 missing (first TS2875 at commentsOnJSXExpressionsArePreserved.tsx(5,16))
+compiler/commonJsExportTypeDeclarationError(target=es2015)
+  1 unexpected (first TS1110 at types2.ts(3,1)), 2 missing
+compiler/complicatedPrivacy(target=es2015)
+  1 missing (first TS2694 at complicatedPrivacy.ts(73,55))
+compiler/constDeclarations-invalidContexts(alwaysstrict=true)
+  1 unexpected (first TS1156 at constDeclarations-invalidContexts.ts(16,5)), 0 missing
+compiler/declarationEmitUnknownImport(target=es2015)
+  4 missing (first TS2303 at declarationEmitUnknownImport.ts(1,1))
+compiler/declarationEmitUnknownImport2(target=es2015)
+  4 missing (first TS2303 at declarationEmitUnknownImport2.ts(1,1))
+compiler/decoratorMetadataWithImportDeclarationNameCollision4(target=es2015)
+  1 missing (first TS2613 at service.ts(1,8))
+compiler/decoratorMetadataWithImportDeclarationNameCollision7(target=es2015)
+  2 missing (first TS2702 at service.ts(7,9))
+compiler/deleteExpressionMustBeOptional(strict=false)
+  1 unexpected (first TS2339 at deleteExpressionMustBeOptional.ts(40,10)), 0 missing
+compiler/deleteExpressionMustBeOptional(strict=true)
+  1 unexpected (first TS2339 at deleteExpressionMustBeOptional.ts(40,10)), 0 missing
+compiler/deleteExpressionMustBeOptional_exactOptionalPropertyTypes(exactoptionalpropertytypes=false)
+  3 unexpected (first TS2790 at deleteExpressionMustBeOptional_exactOptionalPropertyTypes.ts(37,8)), 0 missing
+compiler/deleteExpressionMustBeOptional_exactOptionalPropertyTypes(exactoptionalpropertytypes=true)
+  3 unexpected (first TS2790 at deleteExpressionMustBeOptional_exactOptionalPropertyTypes.ts(37,8)), 2 missing
+compiler/destructureCatchClause(strict=false,useunknownincatchvariables=false)
+  7 missing (first TS2339 at destructureCatchClause.ts(26,17))
+compiler/destructureCatchClause(strict=false,useunknownincatchvariables=true)
+  14 missing (first TS2339 at destructureCatchClause.ts(2,17))
+compiler/destructureCatchClause(strict=true,useunknownincatchvariables=false)
+  7 missing (first TS2339 at destructureCatchClause.ts(26,17))
+compiler/destructureCatchClause(strict=true,useunknownincatchvariables=true)
+  14 missing (first TS2339 at destructureCatchClause.ts(2,17))
+compiler/discriminateWithOptionalProperty4(exactoptionalpropertytypes=false)
+  1 missing (first TS18048 at discriminateWithOptionalProperty4.ts(16,14))
+compiler/divergentAccessorsTypes3(target=es2015)
+  5 unexpected (first TS2322 at divergentAccessorsTypes3.ts(30,1)), 0 missing
+compiler/downlevelLetConst16(target=es2015)
+  2 missing (first TS2339 at downlevelLetConst16.ts(202,15))
+compiler/duplicateIdentifierBindingElementInParameterDeclaration1(target=es2015)
+  1 missing (first TS7006 at duplicateIdentifierBindingElementInParameterDeclaration1.ts(8,24))
+compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)
+  1 missing (first TS7006 at duplicateIdentifierBindingElementInParameterDeclaration2.ts(9,24))
+compiler/emitDecoratorMetadata_isolatedModules(module=esnext)
+  3 missing (first TS1272 at index.ts(9,23))
+compiler/es5-asyncFunctionWithStatements(alwaysstrict=true,target=es2015)
+  1 unexpected (first TS2410 at es5-asyncFunctionWithStatements.ts(25,9)), 4 missing
+compiler/es5-commonjs3(target=es2015)
+  1 missing (first TS1216 at es5-commonjs3.ts(2,12))
+compiler/es5-commonjs4(target=es2015)
+  1 missing (first TS1216 at es5-commonjs4.ts(13,12))
+compiler/es5-oldStyleOctalLiteralInEnums(target=es2015)
+  1 unexpected (first TS1121 at es5-oldStyleOctalLiteralInEnums.ts(2,8)), 1 missing
+compiler/es5ExportDefaultClassDeclaration3(target=es2015)
+  1 missing (first TS2449 at es5ExportDefaultClassDeclaration3.ts(1,21))
+compiler/es6ImportNamedImportNoNamedExports(target=es2015)
+  2 missing (first TS2616 at es6ImportNamedImportNoNamedExports_1.ts(1,10))
+compiler/esmNoSynthesizedDefault(module=esnext)
+  1 missing (first TS1192 at /index.ts(1,8))
+compiler/esmNoSynthesizedDefault(module=preserve)
+  1 missing (first TS1192 at /index.ts(1,8))
+compiler/functionLikeInParameterInitializer(target=es2015)
+  4 missing (first TS2304 at functionLikeInParameterInitializer.ts(2,34))
+compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)
+  9 missing (first TS2355 at functionsMissingReturnStatementsAndExpressions.ts(1,16))
+compiler/functionsWithImplicitReturnTypeAssignableToUndefined(strictnullchecks=true)
+  1 missing (first TS2366 at functionsWithImplicitReturnTypeAssignableToUndefined.ts(28,16))
+compiler/implicitAnyFromCircularInference(target=es2015)
+  2 unexpected (first TS7024 at implicitAnyFromCircularInference.ts(17,10)), 6 missing
+compiler/impliedNodeFormatEmit1(module=esnext)
+  3 missing (first TS1202 at /g.ts(2,1))
+compiler/impliedNodeFormatEmit2(module=esnext)
+  3 missing (first TS1202 at /g.ts(2,1))
+compiler/impliedNodeFormatEmit3(module=esnext)
+  3 missing (first TS1202 at /g.ts(2,1))
+compiler/impliedNodeFormatEmit4(module=esnext)
+  3 missing (first TS1202 at /g.ts(2,1))
+compiler/inKeywordTypeguard(strict=false)
+  6 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
+compiler/inKeywordTypeguard(strict=true)
+  7 missing (first TS2339 at inKeywordTypeguard.ts(27,11))
+compiler/instanceofOperator(target=es2015)
+  1 missing (first TS2725 at instanceofOperator.ts(7,11))
+compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
+  2 unexpected (first TS2322 at intersectionsAndOptionalProperties2.ts(21,1)), 2 missing
+compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
+  2 unexpected (first TS2322 at intersectionsAndOptionalProperties3.ts(19,1)), 2 missing
+compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=false,verbatimmodulesyntax=true)
+  5 missing (first TS1295 at bad.ts(1,10))
+compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=true,verbatimmodulesyntax=false)
+  2 missing (first TS2866 at bad.ts(1,10))
+compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=true,verbatimmodulesyntax=true)
+  7 missing (first TS1295 at bad.ts(1,10))
+compiler/isolatedModulesSketchyAliasLocalMerge(isolatedmodules=false,verbatimmodulesyntax=true)
+  2 missing (first TS1295 at bad.ts(1,10))
+compiler/isolatedModulesSketchyAliasLocalMerge(isolatedmodules=true,verbatimmodulesyntax=false)
+  1 missing (first TS2865 at bad.ts(1,10))
+compiler/isolatedModulesSketchyAliasLocalMerge(isolatedmodules=true,verbatimmodulesyntax=true)
+  3 missing (first TS1295 at bad.ts(1,10))
+compiler/iterableWithNeverAsUnionMember(target=esnext)
+  3 missing (first TS2488 at iterableWithNeverAsUnionMember.ts(2,7))
+compiler/jsFileCompilationBindReachabilityErrors(alwaysstrict=true)
+  2 missing (first TS7029 at a.js(3,9))
+compiler/jsxChildrenArrayWrongType(target=es2015)
+  2 missing (first TS2769 at index.tsx(12,9))
+compiler/jsxFragmentFactoryReference(jsx=react)
+  1 missing (first TS2879 at jsxFragmentFactoryReference.tsx(3,9))
+compiler/jsxFragmentFactoryReference(jsx=react-jsx)
+  1 missing (first TS2875 at jsxFragmentFactoryReference.tsx(3,9))
+compiler/jsxFragmentFactoryReference(jsx=react-jsxdev)
+  1 missing (first TS2875 at jsxFragmentFactoryReference.tsx(3,9))
+compiler/jsxNamespaceElementChildrenAttributeIgnoredWhenReactJsx(jsx=react-jsx)
+  1 unexpected (first TS2322 at /test.tsx(7,2)), 1 missing
+compiler/jsxNamespaceElementChildrenAttributeIgnoredWhenReactJsx(jsx=react-jsxdev)
+  1 unexpected (first TS2322 at /test.tsx(7,2)), 1 missing
+compiler/jsxSpreadTag(target=es2015)
+  4 missing (first TS2304 at /a.tsx(5,13))
+compiler/jsxSpreadTag(target=esnext)
+  4 missing (first TS2304 at /a.tsx(5,13))
+compiler/moduleAugmentationGlobal8_1(target=es2015)
+  1 missing (first TS2670 at moduleAugmentationGlobal8_1.ts(2,5))
+compiler/moduleNodeDefaultImports(module=node16)
+  6 missing (first TS2349 at b.mts(15,1))
+compiler/moduleNodeDefaultImports(module=node18)
+  6 missing (first TS2349 at b.mts(15,1))
+compiler/moduleNodeDefaultImports(module=node20)
+  6 missing (first TS2349 at b.mts(15,1))
+compiler/moduleNodeDefaultImports(module=nodenext)
+  6 missing (first TS2349 at b.mts(15,1))
+compiler/modulePreserveTopLevelAwait1(target=es2016)
+  2 missing (first TS1432 at modulePreserveTopLevelAwait1.ts(1,5))
+compiler/multipleBaseInterfaesWithIncompatibleProperties2(exactoptionalpropertytypes=true)
+  1 missing (first TS2320 at multipleBaseInterfaesWithIncompatibleProperties2.ts(19,11))
+compiler/noImplicitAnyMissingGetAccessor(target=es2015)
+  4 missing (first TS7032 at noImplicitAnyMissingGetAccessor.ts(3,25))
+compiler/noImplicitAnyMissingSetAccessor(target=es2015)
+  1 missing (first TS7033 at noImplicitAnyMissingSetAccessor.ts(3,25))
+compiler/optionalChainWithInstantiationExpression1(target=es2019)
+  1 missing (first TS2532 at optionalChainWithInstantiationExpression1.ts(12,1))
+compiler/optionalChainWithInstantiationExpression1(target=es2020)
+  1 missing (first TS2532 at optionalChainWithInstantiationExpression1.ts(12,1))
+compiler/optionalParamReferencingOtherParams2(target=es2015)
+  1 unexpected (first TS2454 at optionalParamReferencingOtherParams2.ts(2,29)), 1 missing
+compiler/readonlyMembers(target=es2015)
+  2 missing (first TS2540 at readonlyMembers.ts(16,14))
+compiler/regExpWithOpenBracketInCharClass(target=es2015)
+  2 missing (first TS1005 at regExpWithOpenBracketInCharClass.ts(4,7))
+compiler/regExpWithOpenBracketInCharClass(target=esnext)
+  1 missing (first TS1005 at regExpWithOpenBracketInCharClass.ts(4,7))
+compiler/regularExpressionScanning(target=es2015)
+  219 missing (first TS1501 at regularExpressionScanning.ts(3,7))
+compiler/regularExpressionScanning(target=esnext)
+  193 missing (first TS1502 at regularExpressionScanning.ts(3,10))
+compiler/regularExpressionUnicodePropertyValueExpressionSuggestions(target=es2015)
+  5 missing (first TS1529 at regularExpressionUnicodePropertyValueExpressionSuggestions.ts(1,19))
+compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)
+  1 unexpected (first TS18004 at shorthandPropertyAssignmentsInDestructuring.ts(111,12)), 5 missing
+compiler/sourceMapValidationDecorators(target=es2015)
+  4 missing (first TS1239 at sourceMapValidationDecorators.ts(12,8))
+compiler/strictNullEmptyDestructuring(target=es2015)
+  11 missing (first TS2531 at strictNullEmptyDestructuring.ts(3,5))
+compiler/superInLambdas(target=es2015)
+  2 missing (first TS2855 at superInLambdas.ts(47,49))
+compiler/templateStringsArrayTypeDefinedInES5Mode(target=es2015)
+  1 unexpected (first TS2345 at templateStringsArrayTypeDefinedInES5Mode.ts(7,3)), 1 missing

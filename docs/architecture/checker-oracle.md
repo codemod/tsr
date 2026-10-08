@@ -566,8 +566,13 @@ across a bucket.
 
 ## What is still missing for Phase 4
 
-- **Per-configuration runs** (`bd tsr-bb4.1`), which would return 1,397 cases to
-  `checker_types` and 793 to `diagnostics`.
+- ~~**Per-configuration runs** (`bd tsr-bb4.1`), which would return 1,397 cases to
+  `checker_types` and 793 to `diagnostics`.~~ **Built** (`bd tsr-2zk.940`,
+  [ADR-0047](../adr/0047-configuration-varied-cases-are-judged-per-configuration.md)):
+  each named configuration is judged against its own suffixed baseline, in
+  rows of their own — `checker_types_configured`, `diagnostics_configured`,
+  `binder_symbols_configured` — so the plain rows above keep their
+  denominators. Numbers in `docs/parity/notes/r4-variants.md`.
 - **Message text.** Both suites compare codes and positions, never the rendered
   message. Two diagnostics with the same code and different arguments are equal
   here, and `.errors.txt` records the full text. That is a real gap and a

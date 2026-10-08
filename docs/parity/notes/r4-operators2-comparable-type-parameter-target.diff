@@ -1,0 +1,24 @@
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 03bbbfb..14dbfbf 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -1438,6 +1438,19 @@ impl Relater<'_, '_, '_> {
+         {
+             return RelationResult::NotRelated;
+         }
++        // The same arm under comparability. isRelatedToEx's reverse simple
++        // check (relater.go:2607) relates an `unknown` source to any target
++        // (`isSimpleTypeRelatedTo(T, unknown)`), so only object and primitive
++        // sources are decided here; the comparable carve-out at
++        // relater.go:3435 concerns a type-parameter *source*.
++        if t.contains(TypeFlags::TYPE_PARAMETER)
++            && s.intersects(TypeFlags::OBJECT | TypeFlags::PRIMITIVE)
++            && !s.intersects(TypeFlags::UNKNOWN)
++            && self.relation == Relation::Comparable
++            && !self.checker.mapped_types.contains_key(&source)
++        {
++            return RelationResult::NotRelated;
++        }
+         // structuredTypeRelatedToWorker's indexed-access target arm
+         // (relater.go:3443) for a source that is not itself a type variable:
+         // under the assignable/comparable relations `S -> T[K]` relates only

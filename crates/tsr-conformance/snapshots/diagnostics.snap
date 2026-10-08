@@ -2,16 +2,16 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4221/5502 (76.72%)
-Failed         : 1281
+Passed         : 4394/5502 (79.86%)
+Failed         : 1108
 Skipped        : 6942 (excluded from the denominator)
 
-  793  skipped: configuration-varied baseline (bd tsr-bb4.1)
+  793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
   5068  skipped: the case expects no diagnostics (see parser_typescript)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1281 failures:
+First 100 of 1108 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -29,9 +29,7 @@ compiler/aliasDoesNotDuplicateSignatures
 compiler/aliasErrors
   3 missing (first TS2503 at aliasErrors.ts(11,12))
 compiler/allowImportClausesToMergeWithTypes
-  2 unexpected (first TS2709 at index.ts(3,10)), 1 missing
-compiler/ambientExportDefaultErrors
-  4 missing (first TS2714 at foo.d.ts(1,16))
+  1 unexpected (first TS2749 at index.ts(3,10)), 0 missing
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
   1 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
 compiler/anyMappedTypesError
@@ -46,8 +44,6 @@ compiler/argumentsReferenceInFunction1_Js
   2 missing (first TS7006 at index.js(1,25))
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   11 missing (first TS2815 at argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts(3,10))
-compiler/arithmeticOnInvalidTypes2
-  1 missing (first TS2365 at arithmeticOnInvalidTypes2.ts(2,14))
 compiler/arrayCast
   2 unexpected (first TS2352 at arrayCast.ts(3,1)), 1 missing
 compiler/arrayConcatMap
@@ -62,22 +58,16 @@ compiler/arrowFunctionsMissingTokens
   1 unexpected (first TS2304 at arrowFunctionsMissingTokens.ts(6,14)), 0 missing
 compiler/assignmentCompat1
   2 missing (first TS2322 at assignmentCompat1.ts(8,1))
-compiler/assignmentCompatability40
-  1 missing (first TS2322 at assignmentCompatability40.ts(9,1))
 compiler/assignmentToAnyArrayRestParameters
   1 missing (first TS2536 at assignmentToAnyArrayRestParameters.ts(18,16))
 compiler/assignmentToObjectAndFunction
   1 unexpected (first TS2322 at assignmentToObjectAndFunction.ts(8,5)), 2 missing
-compiler/asyncFunctionReturnExpressionErrorSpans
-  1 missing (first TS2322 at asyncFunctionReturnExpressionErrorSpans.ts(16,21))
 compiler/asyncIteratorExtraParameters
   2 missing (first TS2504 at asyncIteratorExtraParameters.ts(11,27))
 compiler/augmentExportEquals1
   2 missing (first TS2671 at file2.ts(5,16))
 compiler/augmentExportEquals5
   1 missing (first TS2454 at consumer.ts(4,11))
-compiler/autoLift2
-  2 missing (first TS2693 at autoLift2.ts(5,19))
 compiler/awaitCallExpressionInSyncFunction
   1 unexpected (first TS2304 at awaitCallExpressionInSyncFunction.ts(2,16)), 1 missing
 compiler/awaitedType
@@ -87,15 +77,11 @@ compiler/awaitedTypeNoLib
 compiler/awaitedTypeStrictNull
   2 missing (first TS2589 at awaitedTypeStrictNull.ts(22,12))
 compiler/badArrayIndex
-  1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 2 missing
-compiler/baseCheck
-  2 missing (first TS2554 at baseCheck.ts(17,53))
+  1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 1 missing
 compiler/baseConstraintOfDecorator
   1 unexpected (first TS2322 at baseConstraintOfDecorator.ts(12,5)), 2 missing
 compiler/baseExpressionTypeParameters
   1 missing (first TS2562 at baseExpressionTypeParameters.ts(10,27))
-compiler/bases
-  3 missing (first TS2693 at bases.ts(7,17))
 compiler/betterErrorForUnionCall
   1 missing (first TS2349 at betterErrorForUnionCall.ts(8,1))
 compiler/bigintArbirtraryIdentifier
@@ -118,8 +104,6 @@ compiler/capturedParametersInInitializers1
   2 missing (first TS2373 at capturedParametersInInitializers1.ts(22,26))
 compiler/castOfYield
   2 unexpected (first TS2304 at castOfYield.ts(4,14)), 1 missing
-compiler/catchClauseWithInitializer1
-  2 unexpected (first TS1005 at catchClauseWithInitializer1.ts(3,10)), 1 missing
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter
   2 missing (first TS2741 at chainedCallsWithTypeParameterConstrainedToOtherTypeParameter.ts(19,64))
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
@@ -136,10 +120,6 @@ compiler/checkJsdocTypeTagOnExportAssignment6
   1 missing (first TS2353 at a.js(8,30))
 compiler/checkJsxNotSetError
   3 missing (first TS6142 at /bar.jsx(1,17))
-compiler/checkMergedGlobalUMDSymbol
-  2 missing (first TS2451 at global.d.ts(3,21))
-compiler/checkSuperCallBeforeThisAccess
-  6 missing (first TS2855 at checkSuperCallBeforeThisAccess.ts(9,24))
 compiler/checkerInitializationCrash
   2 missing (first TS2300 at /node_modules/@fullcalendar/core/index.d.ts(4,10))
 compiler/circularAccessorAnnotations
@@ -168,47 +148,67 @@ compiler/classExpressionExtendingAbstractClass
   1 missing (first TS2653 at classExpressionExtendingAbstractClass.ts(5,9))
 compiler/classExpressionWithDecorator1
   1 unexpected (first TS2304 at classExpressionWithDecorator1.ts(1,10)), 0 missing
-compiler/classExtendsInterfaceInExpression
-  1 missing (first TS2693 at classExtendsInterfaceInExpression.ts(7,25))
 compiler/classExtendsNull2
   1 missing (first TS2417 at classExtendsNull2.ts(5,7))
 compiler/classFieldSuperAccessibleJs1
   1 missing (first TS2565 at index.js(9,23))
-compiler/classFieldSuperNotAccessible
-  1 missing (first TS2855 at classFieldSuperNotAccessible.ts(6,15))
-compiler/classFieldSuperNotAccessibleJs
-  2 missing (first TS2855 at index.js(20,22))
 compiler/classImplementsClass4
   1 unexpected (first TS2741 at classImplementsClass4.ts(16,1)), 1 missing
-compiler/classMemberWithMissingIdentifier2
-  1 missing (first TS2693 at classMemberWithMissingIdentifier2.ts(2,19))
 compiler/classTypeParametersInStatics
   2 missing (first TS2345 at classTypeParametersInStatics.ts(20,52))
-compiler/classUpdateTests
-  2 missing (first TS2415 at classUpdateTests.ts(63,7))
 compiler/classWithEmptyTypeParameter
   1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
-compiler/classWithMultipleBaseClasses
-  1 missing (first TS2420 at classWithMultipleBaseClasses.ts(18,7))
 compiler/clodulesDerivedClasses
   1 missing (first TS2417 at clodulesDerivedClasses.ts(9,7))
 compiler/coAndContraVariantInferences5
   1 missing (first TS2322 at coAndContraVariantInferences5.ts(9,9))
 compiler/coAndContraVariantInferences6
-  1 unexpected (first TS2345 at coAndContraVariantInferences6.ts(34,23)), 1 missing
+  1 missing (first TS2322 at coAndContraVariantInferences6.ts(34,42))
 compiler/collisionExportsRequireAndAlias
   2 missing (first TS2441 at collisionExportsRequireAndAlias_file2.ts(1,8))
-compiler/commonMissingSemicolons
-  1 missing (first TS1003 at commonMissingSemicolons.ts(26,18))
 compiler/commonSourceDirectory_dts
   1 missing (first TS5011 at /app/tsconfig.json(3,9))
 compiler/commonjsAccessExports
   1 missing (first TS7009 at /a.js(12,18))
-compiler/compareTypeParameterConstrainedByLiteralToLiteral
-  1 missing (first TS2367 at compareTypeParameterConstrainedByLiteralToLiteral.ts(5,5))
 compiler/complexRecursiveCollections
   8 missing (first TS2344 at immutable.ts(261,76))
 compiler/complicatedGenericRecursiveBaseClassReference
   2 missing (first TS2554 at complicatedGenericRecursiveBaseClassReference.ts(4,10))
 compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
   1 unexpected (first TS2322 at complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts(40,7)), 1 missing
+compiler/computedPropertyBindingElementDeclarationNoCrash1
+  1 missing (first TS2739 at computedPropertyBindingElementDeclarationNoCrash1.ts(12,21))
+compiler/conditionalTypeAssignabilityWhenDeferred
+  6 missing (first TS2322 at conditionalTypeAssignabilityWhenDeferred.ts(39,3))
+compiler/conditionalTypeDoesntSpinForever
+  1 missing (first TS2769 at conditionalTypeDoesntSpinForever.ts(96,41))
+compiler/conflictMarkerTrivia3
+  9 unexpected (first TS17008 at conflictMarkerTrivia3.tsx(1,12)), 3 missing
+compiler/conflictingDeclarationsImportFromNamespace1
+  2 missing (first TS2440 at index.ts(1,13))
+compiler/conflictingDeclarationsImportFromNamespace2
+  2 missing (first TS2440 at index.ts(1,13))
+compiler/consistentAliasVsNonAliasRecordBehavior
+  8 unexpected (first TS2322 at consistentAliasVsNonAliasRecordBehavior.ts(10,5)), 4 missing
+compiler/constEnumErrors
+  6 missing (first TS2476 at constEnumErrors.ts(22,13))
+compiler/constraintWithIndexedAccess
+  9 missing (first TS2344 at constraintWithIndexedAccess.ts(23,90))
+compiler/constructorOverloads1
+  1 missing (first TS2769 at constructorOverloads1.ts(17,18))
+compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny
+  1 missing (first TS7006 at contextualOverloadListFromUnionWithPrimitiveNoImplicitAny.ts(13,20))
+compiler/contextualPropertyOfGenericFilteringMappedType
+  3 missing (first TS2353 at contextualPropertyOfGenericFilteringMappedType.ts(38,5))
+compiler/contextualSignatureInArrayElementLibEs2015
+  1 missing (first TS7006 at contextualSignatureInArrayElementLibEs2015.ts(8,4))
+compiler/contextualSignatureInArrayElementLibEs5
+  1 missing (first TS7006 at contextualSignatureInArrayElementLibEs5.ts(8,4))
+compiler/contextualTypeFunctionObjectPropertyIntersection
+  2 missing (first TS2353 at contextualTypeFunctionObjectPropertyIntersection.ts(84,5))
+compiler/contextualTyping38
+  1 missing (first TS7006 at contextualTyping38.ts(1,38))
+compiler/contextualTypingOfGenericFunctionTypedArguments1
+  1 missing (first TS2345 at contextualTypingOfGenericFunctionTypedArguments1.ts(17,32))
+compiler/contextualTypingWithGenericAndNonGenericSignature
+  4 missing (first TS7006 at contextualTypingWithGenericAndNonGenericSignature.ts(8,7))

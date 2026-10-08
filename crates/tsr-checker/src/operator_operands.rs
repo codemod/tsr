@@ -31,21 +31,27 @@ use crate::{
 impl Checker<'_, '_> {
     /// The operand check for one `+`, `+=`, `<`, `>`, `<=`, `>=` or equality
     /// operator.
-    pub(crate) fn check_operator_operands(&mut self, node: NodeId, ambient: bool) {
+    ///
+    /// Returns whether upstream goes on to `checkAssignmentOperator` — `false`
+    /// only for a `+`/`+=` with no result type, which returns `anyType` after
+    /// TS2365 (`checker.go:12446`).
+    pub(crate) fn check_operator_operands(&mut self, node: NodeId, ambient: bool) -> bool {
         // **No `file_has_parse_errors` gate**, for the reason §892 removed the
         // one below: upstream's `checkBinaryLikeExpression` runs regardless, and
         // `1 > > 2` is TS2365 **and** TS1109 upstream while this port emitted
         // only the second — declining the semantic diagnostic *because it had
-        // emitted the parse error*. §895 measured the class as a whole at
-        // −1/+13 and closed it; this is one rule, measured on its own, which is
-        // the route it left open. §896.
+        // emitted the parse error*. §896.
         if ambient {
-            return;
+            return true;
         }
-        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
-        let Some(operator) = binary.operator_token.map(|token| token.kind) else { return };
-        // The equality arm's literal and NaN rules run in JS too (TS2839 only
-        // for `===`/`!==` there), so they precede the JS gate.
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return true };
+        let Some(operator) = binary.operator_token.map(|token| token.kind) else { return true };
+        let (Some(left), Some(right)) = (binary.left, binary.right) else { return true };
+        // **No JavaScript gate.** Upstream's arms run in every file; a plain JS
+        // file's semantic diagnostics are reduced to `plainJSErrors` by the
+        // program (`tsr_compiler::program_diagnostics`), and a `checkJs` file
+        // keeps them all (`plainJSRedeclare2`'s `1 + false` is TS2365).
+        // `docs/parity/notes/r4-operators2.md` §1.
         if matches!(
             operator,
             SyntaxKind::EqualsEqualsToken
@@ -53,183 +59,117 @@ impl Checker<'_, '_> {
                 | SyntaxKind::EqualsEqualsEqualsToken
                 | SyntaxKind::ExclamationEqualsEqualsToken
         ) {
-            if let (Some(left), Some(right)) = (binary.left, binary.right) {
-                self.check_equality_operator(node, operator, left, right);
-            }
-            return;
+            self.check_equality_operator(node, operator, left, right);
+            return true;
         }
-        if self.in_js_file(node) {
-            return;
-        }
-        // `+=` is upstream's arm too, and it is declined here with a named
-        // owner. A compound assignment's left operand goes through the
-        // assignment-target checks first, and those answer `errorType` when
-        // they fail — `f += 1` on a class is TS2629 and `IsTypeAny(errorType)`
-        // then supplies a result type, so TS2365 never fires. This port models
-        // neither TS2629 nor TS2364, so its left operand keeps a real type and
-        // the rule invents a diagnostic. `arithAssignTyping` (7 lines) and
-        // `parserStrictMode5` are exactly that — `checker-notes-diag2.md` §49.
-        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
-        if matches!(
-            operator,
+        match operator {
             SyntaxKind::LessThanToken
-                | SyntaxKind::GreaterThanToken
-                | SyntaxKind::LessThanEqualsToken
-                | SyntaxKind::GreaterThanEqualsToken
-        ) {
-            self.check_relational_operator(node, operator, left, right);
-            return;
+            | SyntaxKind::GreaterThanToken
+            | SyntaxKind::LessThanEqualsToken
+            | SyntaxKind::GreaterThanEqualsToken => {
+                self.check_relational_operator(node, operator, left, right);
+                true
+            }
+            SyntaxKind::PlusToken | SyntaxKind::PlusEqualsToken => {
+                self.check_addition_operator(node, operator, left, right)
+            }
+            _ => true,
         }
-        if operator != SyntaxKind::PlusToken {
-            return;
-        }
-        let source = self.check_expression(left);
-        let target = self.check_expression(right);
-        // `checkNonNullType` runs before both arms (`checker.go:12419`,
-        // `:12467`) and reports TS2531/TS2533 in place of this code, so a
-        // nullish operand is a different diagnostic rather than a missing one.
-        // …and a union *containing* `undefined` is the same case one level in:
-        // `C1M4A2?: number` is `number | undefined`, `checkNonNullType` strips
-        // it and reports TS18048 instead. `optionalParamArgsTest` is three
-        // lines of that.
-        //
-        // **…and only under `strictNullChecks`.** `checkNonNullType` strips and
-        // reports nothing when the flag is off, so the addition arm sees `null`
-        // directly and TS2365 is upstream's answer — `null.ts` sets
-        // `@strict: false` and expects it. A guard justified by another rule's
-        // behaviour inherits that rule's preconditions, including its flags.
-        // §429.
-        if self.strict_null_checks
-            && (self.operand_is_nullish(source) || self.operand_is_nullish(target))
-        {
-            return;
-        }
-        if !self.pair_is_reportable(source, target) {
-            return;
-        }
-        // A **type parameter** on either side. `areTypesComparable` and
-        // `isTypeAssignableTo` both reach a type parameter through its
-        // constraint (`getBaseConstraintOfType`), which this relater does not
-        // follow, so every unconstrained-looking `t < a` reads as a confident
-        // negative here and is not one upstream.
-        // `comparisonOperatorWithNoRelationshipTypeParameter` was 48 of this
-        // rule's first 58 wrong lines — `checker-notes-diag2.md` §49.
-        if self.type_of(source).flags.intersects(TypeFlags::TYPE_PARAMETER)
-            || self.type_of(target).flags.intersects(TypeFlags::TYPE_PARAMETER)
-        {
-            return;
-        }
-        // `checkForDisallowedESSymbolOperand` runs before both arms
-        // (`checker.go:12442`, `:12461`) and reports TS2469 — *"the '{0}'
-        // operator cannot be applied to type 'symbol'"* — in place of this
-        // code. `symbolType8` is five lines of it.
-        if self
-            .type_of(source)
-            .flags
-            .intersects(TypeFlags::ES_SYMBOL.union(TypeFlags::UNIQUE_ES_SYMBOL))
-            || self
-                .type_of(target)
-                .flags
-                .intersects(TypeFlags::ES_SYMBOL.union(TypeFlags::UNIQUE_ES_SYMBOL))
-        {
-            return;
-        }
-        if !self.addition_operands_have_no_result(source, target) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.error_span(node);
-        let source_text = self.type_to_string(source);
-        let target_text = self.type_to_string(target);
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::OPERATOR_0_CANNOT_BE_APPLIED_TO_TYPES_1_AND_2,
-                span,
-                [token_text(operator).to_string(), source_text, target_text],
-            ),
+    }
+
+    /// The `+` / `+=` arm of `checkBinaryLikeExpressionWorker`
+    /// (`checker.go:12403`), diagnostics only — the arm's type is
+    /// [`Checker::check_binary_expression`]'s.
+    ///
+    /// ```go
+    /// if !isTypeAssignableToKind(leftType, StringLike) && !isTypeAssignableToKind(rightType, StringLike) {
+    ///     leftType = c.checkNonNullType(leftType, left)
+    ///     rightType = c.checkNonNullType(rightType, right)
+    /// }
+    /// resultType: both NumberLike (strict) → number; both BigIntLike (strict) → bigint;
+    ///     either StringLike (strict) → string; either IsTypeAny → any/error; else nil
+    /// if resultType != nil && !checkForDisallowedESSymbolOperand(…) { return resultType }
+    /// if resultType == nil { reportOperatorError(…, closeEnough); return anyType }
+    /// ```
+    ///
+    /// Each kind test is a [`Ternary`]; a step whose answer is `Unknown`
+    /// stops the arm without a diagnostic (`docs/parity/notes/operators.md`
+    /// §1, §5). Returns whether `checkAssignmentOperator` runs.
+    fn check_addition_operator(
+        &mut self,
+        node: NodeId,
+        operator: SyntaxKind,
+        left: tsr_ast::Expression<'_>,
+        right: tsr_ast::Expression<'_>,
+    ) -> bool {
+        let left_type = self.assignment_operand_type(left, operator.is_assignment_operator());
+        let right_type = self.check_expression(right);
+        let string_like = TypeFlags::STRING_LIKE;
+        let either_string = ternary_or(
+            self.is_type_assignable_to_kind(left_type, string_like, false),
+            self.is_type_assignable_to_kind(right_type, string_like, false),
         );
-    }
-
-    /// `checkNonNullType` (`checker.go:12419`, `:12467`) runs before both arms
-    /// and reports TS2531/TS2533/TS18048 in place of this code, so a nullish
-    /// operand is a *different* diagnostic rather than a missing one — at the
-    /// top level or inside a union.
-    fn operand_is_nullish(&self, operand: TypeId) -> bool {
-        if self.type_of(operand).flags.intersects(TypeFlags::NULLABLE) {
-            return true;
+        let (left_type, right_type) = match either_string {
+            Ternary::Related => (left_type, right_type),
+            Ternary::NotRelated => (
+                self.check_non_null_type_reporting(left_type, left),
+                self.check_non_null_type_reporting(right_type, right),
+            ),
+            Ternary::Unknown => return true,
+        };
+        let has_result = self.addition_has_result_type(left_type, right_type);
+        match has_result {
+            Ternary::Related => {
+                self.check_for_disallowed_es_symbol_operand(
+                    left, right, left_type, right_type, operator,
+                );
+                true
+            }
+            Ternary::NotRelated => {
+                self.report_operator_error(
+                    left_type,
+                    operator,
+                    right_type,
+                    node,
+                    OperatorRelation::CloseEnough,
+                );
+                false
+            }
+            Ternary::Unknown => true,
         }
-        matches!(
-            &self.store.get(operand).data,
-            crate::types::TypeData::Union { types, .. }
-                if types.iter().any(|&constituent| {
-                    self.type_of(constituent).flags.intersects(TypeFlags::NULLABLE)
-                })
-        )
     }
 
-    /// `resultType == nil` for `+` (`checker.go:12422`): neither both
-    /// number-like, nor both bigint-like, nor either string-like, nor either
-    /// `any`.
-    fn addition_operands_have_no_result(&mut self, source: TypeId, target: TypeId) -> bool {
-        for side in [source, target] {
-            if self.type_of(side).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
-                return false;
+    /// `resultType != nil` in the `+` arm (`checker.go:12422`), as a
+    /// [`Ternary`]: both number-like, both bigint-like, either string-like
+    /// (each `strict`), or either `IsTypeAny`.
+    fn addition_has_result_type(&mut self, left: TypeId, right: TypeId) -> Ternary {
+        if self.is_type_any(left) || self.is_type_any(right) {
+            return Ternary::Related;
+        }
+        let mut answer = Ternary::NotRelated;
+        for kind in [TypeFlags::NUMBER_LIKE, TypeFlags::BIG_INT_LIKE] {
+            let left_kind = self.is_type_assignable_to_kind(left, kind, true);
+            if left_kind == Ternary::NotRelated {
+                continue;
+            }
+            let both = ternary_and(left_kind, self.is_type_assignable_to_kind(right, kind, true));
+            answer = ternary_or(answer, both);
+            if answer == Ternary::Related {
+                return answer;
             }
         }
-        let both = |checker: &mut Self, kind: TypeFlags, to: TypeId| {
-            checker.assignable_to_kind(source, kind, to)
-                && checker.assignable_to_kind(target, kind, to)
-        };
-        let number = self.intrinsics.number;
-        let bigint = self.intrinsics.bigint;
-        let string = self.intrinsics.string;
-        if both(self, TypeFlags::NUMBER_LIKE, number) || both(self, TypeFlags::BIG_INT_LIKE, bigint)
-        {
-            return false;
+        for side in [left, right] {
+            answer = ternary_or(
+                answer,
+                self.is_type_assignable_to_kind(side, TypeFlags::STRING_LIKE, true),
+            );
+            if answer == Ternary::Related {
+                return answer;
+            }
         }
-        // `||` and not `&&`: one string operand makes the whole expression a
-        // concatenation.
-        if self.assignable_to_kind(source, TypeFlags::STRING_LIKE, string)
-            || self.assignable_to_kind(target, TypeFlags::STRING_LIKE, string)
-        {
-            return false;
-        }
-        true
-    }
-
-    /// `isTypeAssignableToKindEx(source, kind, strict)`
-    /// (`checker.go:27645`): the flag test first, then assignability to the
-    /// kind's primitive — and **not a confident negative** rather than a
-    /// confident positive, per this module's header.
-    fn assignable_to_kind(&mut self, source: TypeId, kind: TypeFlags, primitive: TypeId) -> bool {
-        if self.type_of(source).flags.intersects(kind) {
-            return true;
-        }
-        // The `strict` short-circuit: `any`, `unknown`, `void`, `undefined`
-        // and `null` are never assignable to a kind they do not carry.
-        if self.type_of(source).flags.intersects(
-            TypeFlags::ANY_OR_UNKNOWN
-                .union(TypeFlags::VOID)
-                .union(TypeFlags::UNDEFINED)
-                .union(TypeFlags::NULL),
-        ) {
-            return false;
-        }
-        // §29's definite negative, asked here for the same reason it is asked
-        // there: `is_related_to` answers `Unknown` for an object source
-        // against a primitive target because its structural arm was never
-        // reached, and nothing structured is assignable to `number` or
-        // `string` whatever its shape turns out to be.
-        // `additionOperatorWithInvalidOperands`' `Object`, `Number`, `C`, `E`
-        // and function operands are twelve of its nineteen lines.
-        if self.object_against_primitive(source, primitive) {
-            return false;
-        }
-        self.relate_ternary(source, primitive, Relation::Assignable) != Ternary::NotRelated
+        answer
     }
 }
-
 impl Checker<'_, '_> {
     /// The arithmetic, shift and bitwise arm of
     /// `checkBinaryLikeExpressionWorker` (`checker.go:12358`), diagnostics
@@ -252,7 +192,7 @@ impl Checker<'_, '_> {
     pub(crate) fn check_arithmetic_operand_types(&mut self, node: NodeId, ambient: bool) -> bool {
         // **No `file_has_parse_errors` gate.** Upstream runs regardless.
         // §892.
-        if ambient || self.in_js_file(node) {
+        if ambient {
             return true;
         }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return true };
@@ -457,7 +397,7 @@ impl Checker<'_, '_> {
     /// (TS2357), *"to avoid reporting cascading errors"*. `true` for the
     /// operators that never reach it, whose caller does not ask.
     pub(crate) fn check_unary_operator_operands(&mut self, node: NodeId, ambient: bool) -> bool {
-        if ambient || self.in_js_file(node) {
+        if ambient {
             return true;
         }
         let (operator, operand) = match self.node_map.get(node) {
@@ -580,10 +520,14 @@ pub(crate) enum OperatorRelation {
     BothBigIntLike,
     /// The relational arm's closure (`checker.go:12469`).
     Relational,
+    /// The `+` arm's close-enough closure (`checker.go:12446`): both sides
+    /// `isTypeAssignableToKind` (not strict) number-, bigint-, string-like or
+    /// any/unknown.
+    CloseEnough,
 }
 
 /// Kleene conjunction over the port's three-valued relation answers.
-fn ternary_and(a: Ternary, b: Ternary) -> Ternary {
+pub(crate) fn ternary_and(a: Ternary, b: Ternary) -> Ternary {
     match (a, b) {
         (Ternary::NotRelated, _) | (_, Ternary::NotRelated) => Ternary::NotRelated,
         (Ternary::Related, Ternary::Related) => Ternary::Related,
@@ -592,7 +536,7 @@ fn ternary_and(a: Ternary, b: Ternary) -> Ternary {
 }
 
 /// Kleene disjunction.
-fn ternary_or(a: Ternary, b: Ternary) -> Ternary {
+pub(crate) fn ternary_or(a: Ternary, b: Ternary) -> Ternary {
     match (a, b) {
         (Ternary::Related, _) | (_, Ternary::Related) => Ternary::Related,
         (Ternary::NotRelated, Ternary::NotRelated) => Ternary::NotRelated,
@@ -668,6 +612,17 @@ impl Checker<'_, '_> {
         match relation {
             OperatorRelation::None => Ternary::NotRelated,
             OperatorRelation::BothBigIntLike => self.both_are_bigint_like(left, right),
+            OperatorRelation::CloseEnough => {
+                let close_enough = TypeFlags::NUMBER_LIKE
+                    | TypeFlags::BIG_INT_LIKE
+                    | TypeFlags::STRING_LIKE
+                    | TypeFlags::ANY_OR_UNKNOWN;
+                let left = self.is_type_assignable_to_kind(left, close_enough, false);
+                if left == Ternary::NotRelated {
+                    return left;
+                }
+                ternary_and(left, self.is_type_assignable_to_kind(right, close_enough, false))
+            }
             // ```go
             // if IsTypeAny(left) || IsTypeAny(right) { return true }
             // leftAssignableToNumber := c.isTypeAssignableTo(left, c.numberOrBigIntType)

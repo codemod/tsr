@@ -1,0 +1,146 @@
+diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
+index abbeace..6eac05b 100644
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -901,16 +901,19 @@ impl<'a> Checker<'a, '_> {
+             }
+             _ => {}
+         }
+-        let Some(target) = self.return_type_from_annotation(container) else { return };
++        let Some((return_type, target, is_async)) = self.return_type_from_annotation(container)
++        else {
++            return;
++        };
+         if !self.strict_null_checks
+             && expression.is_none()
+-            && !self.type_of(target).flags.contains(TypeFlags::NEVER)
++            && !self.type_of(return_type).flags.contains(TypeFlags::NEVER)
+         {
+             return;
+         }
+         if let Some(expression) = expression {
+             let source = self.check_expression_at_node(expression);
+-            self.check_return_expression(target, node, expression, source, false);
++            self.check_return_expression(target, node, expression, source, false, is_async);
+         } else {
+             let undefined = self.intrinsics().undefined;
+             self.report_assignability_failure(node, node, undefined, target);
+@@ -970,13 +973,13 @@ impl<'a> Checker<'a, '_> {
+     /// written annotation, or for an unannotated get accessor with a bindable
+     /// name its set accessor's parameter annotation (`getAnnotatedAccessorType`).
+     ///
+-    /// **Async and generator functions are declined**: their annotation is a
+-    /// `Promise<T>` or an `Iterator<…>` and the value returned is compared
+-    /// against `unwrapReturnType`'s unwrapped `T` after `checkAwaitedType`.
+-    /// The awaited type of a generic alias (`await (x as PromiseOrValue<U>)`)
+-    /// is not yet `Awaited<U>` here (`discriminateWithOptionalProperty2`), so
+-    /// relating it would be a wrong diagnostic on correct code.
+-    fn return_type_from_annotation(&mut self, container: NodeId) -> Option<TypeId> {
++    /// Answers `(returnType, unwrappedReturnType, isAsync)`. An async
++    /// function's target is `unwrapReturnType`'s `getAwaitedTypeNoAlias` of
++    /// its annotation (`checker.go:20388`); a gap, or native's `nil` (whose
++    /// `errorType` target relates to everything), declines. **Generators are
++    /// declined**: their annotation is an `Iterator<…>` whose return
++    /// iteration type is not read here.
++    fn return_type_from_annotation(&mut self, container: NodeId) -> Option<(TypeId, TypeId, bool)> {
+         let (annotation, generator, modifiers) = match self.node_map.get(container)? {
+             Node::FunctionDeclaration(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
+             Node::FunctionExpression(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
+@@ -985,14 +988,21 @@ impl<'a> Checker<'a, '_> {
+             Node::GetAccessorDeclaration(n) => (n.r#type, false, n.modifiers),
+             _ => return None,
+         };
+-        if generator || has_async(modifiers) {
++        if generator {
+             return None;
+         }
++        if has_async(modifiers) {
++            let return_type = self.get_type_from_type_node(annotation?);
++            let target = self.awaited_type_no_alias(return_type)?;
++            return Some((return_type, target, true));
++        }
+         if let Some(annotation) = annotation {
+-            return Some(self.get_type_from_type_node(annotation));
++            let return_type = self.get_type_from_type_node(annotation);
++            return Some((return_type, return_type, false));
+         }
+         let annotation = self.set_accessor_parameter_annotation(container)?;
+-        Some(self.get_type_from_type_node(annotation))
++        let return_type = self.get_type_from_type_node(annotation);
++        Some((return_type, return_type, false))
+     }
+ 
+     /// `getAnnotatedAccessorType` of the set accessor paired with an
+@@ -1023,8 +1033,8 @@ impl<'a> Checker<'a, '_> {
+     /// (`checker.go:10206`), the concise-body arm: an arrow function whose body
+     /// is an expression relates that expression, through
+     /// `checkReturnExpression`, to `unwrapReturnType` of its written return
+-    /// annotation. The error node is the body itself. Async arrows are declined
+-    /// with async functions (see [`Checker::enclosing_return_annotation`]).
++    /// annotation. The error node is the body itself. An async arrow relates
++    /// against the annotation's `getAwaitedTypeNoAlias`, as a statement does.
+     pub(crate) fn check_arrow_expression_body(&mut self, node: NodeId, ambient: bool) {
+         if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+             return;
+@@ -1035,19 +1045,21 @@ impl<'a> Checker<'a, '_> {
+         if self.nodes.kind(body_id) == SyntaxKind::Block {
+             return;
+         }
+-        if has_async(arrow.modifiers) {
+-            return;
++        let is_async = has_async(arrow.modifiers);
++        let mut target = self.get_type_from_type_node(annotation);
++        if is_async {
++            let Some(awaited) = self.awaited_type_no_alias(target) else { return };
++            target = awaited;
+         }
+-        let target = self.get_type_from_type_node(annotation);
+         let source = self.check_expression_at_node(body_id);
+-        self.check_return_expression(target, body_id, body_id, source, false);
++        self.check_return_expression(target, body_id, body_id, source, false, is_async);
+     }
+ 
+     /// `checkReturnExpression` (`checker.go:4131`). A conditional expression
+     /// (under parentheses) checks each branch on its own, reporting at the
+     /// branch. Otherwise the error node is the return statement, or the
+-    /// effective expression for a concise body or a conditional branch. Async
+-    /// containers (the `checkAwaitedType` arm) never reach here.
++    /// effective expression for a concise body or a conditional branch. An async
++    /// container relates the operand's `checkAwaitedType` (TS1058 at `node`).
+     fn check_return_expression(
+         &mut self,
+         target: TypeId,
+@@ -1055,16 +1067,32 @@ impl<'a> Checker<'a, '_> {
+         expression: NodeId,
+         source: TypeId,
+         in_conditional: bool,
++        is_async: bool,
+     ) {
+         let unwrapped = self.skip_outer_parentheses(expression);
+         if let Some(Node::ConditionalExpression(conditional)) = self.node_map.get(unwrapped) {
+             for branch in [conditional.when_true, conditional.when_false].into_iter().flatten() {
+                 let Some(branch_id) = branch.node_id() else { continue };
+                 let branch_type = self.check_expression_at_node(branch_id);
+-                self.check_return_expression(target, node, branch_id, branch_type, true);
++                self.check_return_expression(target, node, branch_id, branch_type, true, is_async);
+             }
+             return;
+         }
++        // `checkAwaitedType(exprType, false, node, TS1058)` for an async
++        // container; a gap declines, native's `nil` is `errorType`.
++        let source = if is_async {
++            let Some(awaited) = self.check_awaited_type(
++                source,
++                false,
++                node,
++                &messages::THE_RETURN_TYPE_OF_AN_ASYNC_FUNCTION_MUST_EITHER_BE_A_VALID_PROMISE_OR_MUST_NOT_CONTAIN_A_CALLABLE_THEN_MEMBER,
++            ) else {
++                return;
++            };
++            awaited
++        } else {
++            source
++        };
+         let effective = self.effective_check_node(expression);
+         let error_node = if self.nodes.kind(node) == SyntaxKind::ReturnStatement && !in_conditional
+         {

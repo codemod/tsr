@@ -1,0 +1,23 @@
+diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
+index abbeace..0d33b8d 100644
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -215,10 +215,16 @@ impl<'a> Checker<'a, '_> {
+             let (string, number, symbol) =
+                 (intrinsics.string, intrinsics.number, intrinsics.es_symbol);
+             let target = self.get_union_type(&[string, number, symbol]);
+-            let source = self.check_non_null_type(left_type);
++            let source = match binary.left {
++                Some(operand) => self.check_non_null_type_reporting(left_type, operand),
++                None => self.check_non_null_type(left_type),
++            };
+             self.report_assignability_failure(left, left, source, target);
+         }
+-        let source = self.check_non_null_type(right_type);
++        let source = match binary.right {
++            Some(operand) => self.check_non_null_type_reporting(right_type, operand),
++            None => self.check_non_null_type(right_type),
++        };
+         let non_primitive = self.intrinsics().non_primitive;
+         if self.report_assignability_failure(right, right, source, non_primitive)
+             || self.relate_ternary(source, non_primitive, crate::relater::Relation::Assignable)
