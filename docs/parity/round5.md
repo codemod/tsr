@@ -312,3 +312,13 @@ touches files other lanes own.
 
 The new box `r5-tuples` takes the tuple roots. About 428 WRONG plain type
 lines mention tuple shapes; `tuples.rs` and `spreads.rs` are quiet on main.
+
+### r5-declemit3 finished (+8 rows); r5-mapped3 dispatched (`tsr-2zk.1033`)
+
+r5-declemit3 landed:
+- a whole port of `symbolaccessibility.go` (`symbol_accessibility.rs`);
+- the SymbolTracker walk over inferred types (TS4023/4025/2527);
+- override-modifier checks for late-bound members (TS4113/4114).
+
+The new box `r5-mapped3` takes the mapped and keyof roots in `mapped.rs`:
+about 70 blocked cases, and 225 WRONG type lines mention `keyof`.
