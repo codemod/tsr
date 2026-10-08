@@ -475,10 +475,6 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::new(message, span));
     }
 }
-
-// Called from `property_accessibility_error` once
-// `docs/parity/notes/r4-classsyntax-super-accessibility.diff` is applied;
-// drop this attribute with that patch.
 #[allow(dead_code)]
 impl Checker<'_, '_> {
     /// `checkPropertyAccessibilityAtLocation`'s `isSuper` arm
