@@ -532,3 +532,22 @@ takes both, and also `.1053`.
 Box finding: varianceProblingAndZeroOrderIndexSignatureRelationsAlign peaks at
 about 13.6 GB RSS even on the base. This is the memory-headroom risk behind
 `tsr-2zk.1041`.
+
+### r5-symtab finished (ADR-0049); r5-checkperf dispatched
+
+r5-symtab replaced the FxHashMap SymbolTable with an insertion-ordered table:
+a Vec of entries, plus a boxed open-addressing index above 8 names. It is the
+same size and keeps the same method names, so no checker file changed. Ir fell
+0.15% on generic-imports and 0.73% on domain-model. The diagnostics dump is
+identical, and 13 type lines reorder toward tsgo, 3 of them WRONG→RIGHT.
+
+Pre-sizing was measured at about ±0.05% and refused. The rehash cost it was
+meant to remove came from hashbrown's doubling, which the Vec table does not do.
+
+The correction recorded by r5-symtab: TSR has 59 checker iteration sites over
+binder tables, not 97. Only 5 of them are order-observable. Porting
+getNamedMembers' sort at those sites is filed as `tsr-2zk.1057`.
+
+The freed slot went to r5-checkperf. Domain-model's wall is about half checker,
+and this round's three perf lanes were all front end. It takes `.967`, `.998`,
+`.997`, `.996` and `.935`, with byte-identical outputs.
