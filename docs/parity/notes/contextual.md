@@ -480,3 +480,16 @@ Blocked (reported): with an alias union argument (`type DooDad = 'S' | 'E'`)
 PromiseLike<DooDad>])` returns error at unions.rs's §53 origin slice gate (an
 alias-union entry beside an object entry); `g<D>()` for
 `g<R>(): R | PromiseLike<R>` prints `error` today.
+
+## 21. checkExpressionForMutableLocation always asks the contextual type (tsr-2zk.16.150)
+
+`checkExpressionForMutableLocation` (`checker.go:13878`) widens through
+`getWidenedLiteralLikeTypeForContextualType(t, instantiateContextualType(
+getContextualType(node)))` for every member. §890/§910 excluded members of a
+literal nested inside a call-argument literal because the contextual read
+re-entered an in-flight resolution and answered `any`; that re-entry no
+longer reaches `any`, and the exclusion was the defect:
+`f<T extends { a: { k: 'x' | 'y' } }>({ a: { k: 'x' } })` printed
+`{ a: { k: 'x' | 'y'; }; }`; it is now `{ a: { k: "x"; }; }`, and a
+`k: string` constraint still gives `{ a: { k: string; }; }` (tsgo
+diagnostics). Removed; no state, no new work boundary beyond upstream's.

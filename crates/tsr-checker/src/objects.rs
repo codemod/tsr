@@ -2689,47 +2689,12 @@ impl Checker<'_, '_> {
         {
             return self.get_regular_type_of_literal_type(id);
         }
-        // §890's call-argument exclusion, kept. §892 predicted the cache would
-        // retire it and **measured that it does not**: the recompute was never
-        // the only entry. The probe for member `x` runs *while* `x`'s type is
-        // being computed, so a cache written *after* that computation cannot be
-        // read by it — circular by construction. Removing the exclusion on top
-        // of §892 measures 122 W→R / 28 R→W, with the same 22
-        // `thislessFunctionsNotContextSensitive2` rows §890 declined.
-        // §910: the exclusion narrowed from "anywhere under a call" to "under a
-        // NESTED object literal in a call argument". Every row §890 lost was a
-        // member of `context: { tag: "A", value: 1 }` — a literal INSIDE the
-        // argument literal — and the re-entry needs that second level: checking
-        // the inner literal asks for its contextual type, which asks for the
-        // outer literal's, which is the argument whose signature is being
-        // resolved. A member of the argument literal ITSELF is one hop short of
-        // the cycle.
-        let in_call_argument = node_id.is_some_and(|n| {
-            let mut seen_literal = false;
-            for ancestor in self.nodes.ancestors(n) {
-                match self.nodes.kind(ancestor) {
-                    tsr_ast::SyntaxKind::ObjectLiteralExpression => {
-                        if seen_literal {
-                            // A second enclosing literal: this member is nested.
-                            return self.nodes.ancestors(ancestor).any(|a| {
-                                matches!(
-                                    self.nodes.kind(a),
-                                    tsr_ast::SyntaxKind::CallExpression
-                                        | tsr_ast::SyntaxKind::NewExpression
-                                )
-                            });
-                        }
-                        seen_literal = true;
-                    }
-                    tsr_ast::SyntaxKind::CallExpression | tsr_ast::SyntaxKind::NewExpression => {
-                        return false;
-                    }
-                    _ => {}
-                }
-            }
-            false
-        });
-        let keeps_literal = if !in_call_argument && self.maybe_type_of_kind(id, literalish) {
+        // §890's nested-call-argument exclusion is gone: upstream's
+        // `checkExpressionForMutableLocation` (`checker.go:13878`) always asks
+        // the contextual type, and the re-entry it guarded against no longer
+        // reaches an in-flight `any` (removing it measured +69 type rows, 0
+        // lost; tsr-2zk.16.150).
+        let keeps_literal = if self.maybe_type_of_kind(id, literalish) {
             let first = node_id
                 .and_then(|node| self.get_contextual_type(node))
                 .and_then(|contextual| self.is_literal_of_contextual_type(id, contextual));
