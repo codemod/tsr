@@ -54,6 +54,18 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
+Selected value-worker continuation after evidence delivery `640120e4`, native
+`5b1047d`: the existing accessor, callable and variable/property workers now
+retain selected cache/frame owners. Assignment declarations, constructor-flow
+classification and base-property lookup retain the same owner; the existing
+work observer reads selected declarations. Actual compiler counts are
+27→26→25; the final ordinary and work-trace checks each retain 25 E0308.
+Exact ten-file replay verifies 1,053 inputs, with 1,043 unchanged. The draft
+still cannot execute; no canonical Rust or runtime/native/corpus/performance
+result changed. Existing accessor/variable publication policies are retained,
+not certified as the native protocol. All six tickets remain unfinished.
+[Evidence](docs/architecture/checker-value-owner-continuation.json).
+
 Selected index/dispatcher continuation after evidence delivery `472c249f`, native
 `5b1047d`: the existing index memo, visited path, declaration and sibling readers
 now retain selected owners, as do the existing late-name cache and active keys.
@@ -3755,11 +3767,13 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-Owner continuation after evidence delivery `472c249f`: finish the selected
-dispatcher branches (accessor, variable/property, function/class/enum/module,
-alias), naming/alias, member/property/ordering and callable boundaries from the 26 compiler
-mismatches retained in
-[the index/dispatcher evidence](docs/architecture/checker-index-owner-continuation.json).
+Owner continuation after evidence delivery `640120e4`: finish the selected
+alias worker, naming/alias, member/property/ordering and callable-export
+boundaries from the 25 compiler mismatches retained in
+[the value-worker evidence](docs/architecture/checker-value-owner-continuation.json).
+Accessor, variable/property, function/class/enum/module and assignment workers
+now retain selected cache/frame/declaration owners. Their existing publication
+and inference policies still need independent native controls.
 Private general factory, variance, class/base, metadata walks and enum/union
 workers now retain selected owners, but do not compile or qualify the full
 execution path yet. Enum parent preparation and actual member publication remain
@@ -7488,6 +7502,13 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The value-worker draft after `640120e4` is refused for canonical runtime
+integration by **25 E0308** in both ordinary and work-trace compiler checks.
+The 27→26→25 progression verifies owner migration, not runtime correctness or
+a performance win. Native contextual-parameter publication, accessor failed-pop
+recovery, alias resolution and callable/member images remain unqualified.
+[Replay and actual compiler evidence](docs/architecture/checker-value-owner-continuation.json).
 
 After evidence delivery `472c249f`, the index/dispatcher private continuation is
 refused for production by 26 `E0308` mismatches. The unchanged error count hides
@@ -15752,3 +15773,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `26da4dd0` / native `5b1047d` | — | — | **Selected member/enum private continuation.** Exact13-file replay verifies1,053 inputs/1,040 unchanged. Metadata/completeness walks, rest/tuple iteration, enum literal/value/fresh/regular owners, one union worker and enum/printing consumers retain actual selected handles. Qualified terminal compiler errors38→34→37→26; five exposed iterator/borrow/move errors repaired. Draft remains uncompiled; no canonical Rust/runtime, fresh native enum/parent/member/factory/alias, corpus or performance gates. All six tickets and equivalent complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-member-enum-owner-continuation.json). |
 
 | 2026-10-08 | `472c249f` / native `5b1047d` | — | — | **Selected index/dispatcher private continuation.** Exact five-file replay verifies 1,053 inputs/1,048 unchanged. Existing index memo/visited paths/sibling reads and late-name keys retain selected owners; one flags dispatcher reuses enum/export links. Final compiler count remains 26 E0308: four resolved index boundaries expose four downstream raw workers. Step12 import/getter failures retained then repaired. No canonical Rust, private runtime/native/corpus/performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-index-owner-continuation.json). |
+
+| 2026-10-08 | `640120e4` / native `5b1047d` | — | — | **Selected value-worker private continuation.** Exact ten-file replay verifies 1,053 inputs/1,043 unchanged. Accessor/callable/variable cache and frame owners, assignment constructor-flow classification/base reads, completed callable identity and work observation retain actual selected symbols. Compiler 27→26→25; final ordinary/work-trace builds both retain25 E0308. No canonical Rust or runtime/native/corpus/performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-value-owner-continuation.json). |

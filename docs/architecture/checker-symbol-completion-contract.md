@@ -870,6 +870,36 @@ the equivalent complete-work median TSR/native <=0.50 target remain unfinished.
 
 ## Consumer boundaries
 
+The [value-worker private continuation](checker-value-owner-continuation.json)
+after `640120e4` carries selected owners into the existing accessor,
+function/class/enum/module and variable/property workers. Their type memo,
+resolution frames and anonymous payloads retain the actual selected symbol.
+The completed callable metadata and initializer/written-return comparisons also
+retain that identity; a private copy cannot qualify by its original declaration.
+Pinned native `5b1047d` supplies the operation boundaries, but this owner
+migration preserves the existing Rust inference and publication policies.
+It does not certify native accessor failed-pop recovery or the variable
+worker's contextual-parameter publication exception.
+
+Assignment-declaration classification keeps the existing `this_expando_kinds`
+cache keyed by selected owner. Constructor-flow and base-property readers use
+selected declarations and parent; the latter consumes the existing selected
+base worker. Property and element-access callers explicitly lift the genuine
+Program property they currently receive. Shared NodeId syntax still selects
+Program symbols; it does not justify demoting a private owner. One existing
+`trace_symbol_work` observes selected declaration files without asking for
+types, and all three existing callers use it. No duplicate producer/cache was
+introduced. Private declaration copying and worker counts still belong to
+`tsr-1yb.11`.
+
+Exact ten-file replay verifies 1,053 inputs with 1,043 unchanged. Actual checks
+move 27→26→25 E0308; final ordinary and work-trace builds report the same 25.
+The signature-result adapter is repaired, while assignment declaration
+migration resolves the downstream variable branch. Naming/alias, callable
+exports/property-origin images and member consumers still need owner migration.
+No private runtime/native/corpus/performance test executed; no canonical Rust
+changed. All six ticket gates remain unfinished.
+
 The [index/dispatcher private continuation](checker-index-owner-continuation.json)
 after `472c249f` carries selected owners in the existing index memo, visited
 path, declaration scan, sibling reads and late-name cache/active marker keys.
