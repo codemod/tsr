@@ -241,3 +241,93 @@ lines need the `Defaultize` mapped constituents (key-filtered mapped types,
 cross-file annotation reuse: native reuses `Id<…>` only where `Id` is
 accessible (createApi.ts). In index.ts it prints the structure. That is the
 printer's reuse rule, not this producer.
+
+## 3. `tsr-2zk.979` — qualified alias and enum references
+
+`qualified_type_reference` minted an OBJECT `Named` image for every
+argument-less qualified reference that the declared-type road could not print
+identically (§41). `N.T7` for an alias whose declared type carries the alias,
+and a namespace-rooted `First.E`, got that mint. The relater walked a member-less
+object: NotRelated as a source (dynamicNames' three extra TS2322 on
+`t* = t7`), Unknown as a target (`namespaceDisambiguationInUnion`,
+`enumAssignmentCompat3`/`6`).
+
+**Port.** getTypeReferenceType's answer is the declared type
+(getTypeFromTypeAliasReference, `:23580`; the enum's declared type). Native
+prints it as `N.T7` by qualifying the symbol chain. This port prints at
+creation and cannot qualify from the declared type (NB-SYMBOL-CHAIN,
+`tsr-e2u`); routing the declared type itself measured 36 R→W in §41. So
+`qualified_declared_type_twin` builds a twin that shares the declared type's
+semantics and carries the mint's exact text:
+
+- a declared union carrying the alias or enum symbol becomes the same
+  constituents and owner symbol (`create_union`), named with the qualified
+  text;
+- a declared type literal becomes the same member owner (`Named { members:
+  literal symbol }`), named with the qualified text. This applies only when no
+  TypeId-keyed side table (`anonymous_properties`, `signature_types`,
+  `object_literal_index_infos`) holds part of its meaning, because a twin would
+  not share it.
+
+Anything else keeps the mint. Twins are memoised in the existing
+`qualified_reference_types` table under the existing `(text, symbol)` key. No
+new table: the twin replaces the mint the same key held, with the same
+lifetime, and is created once per key.
+
+- **Stated divergence: a named union inside a union type node** keeps the
+  mint. `get_union_type` answers `errorType` for a union holding a named union,
+  because getUnionType's origin denormalisation (`checker.go:25705`) is
+  unported. `boolean | X.Foo` printed `any`. That is §41's recorded 3 R→W
+  (`enumLiteralAssignableToEnumInsideUnion` 28/35/68), reproduced by the first
+  draft.
+
+**Measured** (final code, unfiltered, against the frozen base; item 1
+included):
+
+| | after item 1 | after item 4 |
+|---|---|---|
+| diagnostics RIGHT + EMPTY_RIGHT | 10932 | 10933 (+1: `namespaceDisambiguationInUnion`) |
+| type lines RIGHT | 543954 | 543955 (+1: `styledComponentsInstantiaionLimitNotReached:0:82`) |
+| losses vs frozen base (diag / types) | 0 / 0 | 0 / 0 |
+
+Line-level, inside cases that stay WRONG:
+
+- `dynamicNames` loses its three extra TS2322 (main.ts 97:19/46/73).
+- `enumAssignmentCompat3` goes from no TS2322 to 18. Native reports 12. The six
+  extras are same-named enum pairs, which need isEnumTypeRelatedTo (§3.1).
+
+Ir: generic-imports 373,064,328 → 373,065,770 (+0.0004%); domain-model
+1,233,634,197 → 1,232,787,537 (−0.07%). Median child CPU vs the base binary,
+21 samples: domain-model 1.0015, generic-imports 0.981.
+
+### 3.1 isEnumTypeRelatedTo — held diff (`relater.rs`)
+
+[`r5-declared-enum-related.diff`](r5-declared-enum-related.diff) ports
+isEnumTypeRelatedTo (relater.go:282) into `is_simple_type_related_to`'s
+enum-literal arm (relater.go:238). There, two members of different enums with
+the same name answered `None` (undecidable). The arm now decides: equal values
+*and* related enums. That is same name, both regular enums, and every source
+member present in the target with an equal value. An unknown value on one side
+is numeric, so it mismatches a known string. Native's per-pair memo
+(`c.enumRelation`) is not ported. The walk runs only for same-named enum
+pairs, and it would need a `Checker` field (`checker.rs`). `relater.rs` belongs
+to r5-relater5, so this ships as a diff.
+
+Measured on top of this lane's final code, filtered on 248 cases (names
+containing `enum`/`Enum`, plus `dynamicNames` and
+`namespaceDisambiguationInUnion`), against the item-4 binaries:
+
+- `enumAssignmentCompat6` goes WRONG→RIGHT.
+- `enumAssignmentCompat3` goes from 18 reported TS2322 to 11. Native reports 12; the one still missing is line 70.
+- No verdict loss on either dump.
+
+The diff has not had an unfiltered run. The integrator's batch gate should
+give it one.
+
+## 4. Not run, and why
+
+- **The full `coverage` run** (box protocol §5.3) was not run. Both dumps were
+  run unfiltered for every commit, alone on the box. The integrator
+  regenerates snapshots after merging.
+- **(e) of `.1034`** and **getConditionalFlowTypeOfType** (§1.4) are open.
+  The substitution type is ADR-sized.
