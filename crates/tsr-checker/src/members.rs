@@ -4078,6 +4078,10 @@ impl Checker<'_, '_> {
                 Some(Node::MethodDeclaration(m)) => m.modifiers,
                 Some(Node::GetAccessorDeclaration(accessor)) => accessor.modifiers,
                 Some(Node::SetAccessorDeclaration(accessor)) => accessor.modifiers,
+                // A parameter property's modifiers sit on the parameter
+                // (`getDeclarationModifierFlagsFromSymbol` reads the value
+                // declaration, which is the parameter).
+                Some(Node::ParameterDeclaration(parameter)) => parameter.modifiers,
                 _ => return false,
             };
             modifiers.iter().any(|modifier| {
