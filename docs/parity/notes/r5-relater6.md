@@ -104,3 +104,151 @@ non-optional modifiers type that gains `undefined`.
 
 Test: `tests/generic_mapped_relations.rs`
 `indexed_access_of_a_generic_mapped_type_is_substituted`.
+
+## 2. `tsr-2zk.1049` — generic keys against `keyof`, and the TS2536 reporter
+
+### 2.0 Rebased baseline
+
+Before this commit the branch fast-forwarded to the integration head
+`617fd8d`. That head carries §1 (`2465ac0`) and batch W's relater change
+(r5-declared's `isEnumTypeRelatedTo`). The baseline was frozen again
+there ("base2"):
+- `diagverdictdump`: RIGHT 5374, EMPTY_RIGHT 5584, WRONG 1217, EMPTY_WRONG 63;
+- `verdictdump`: RIGHT 544661, WRONG 6907, GAP 965;
+- `Ir`: generic-imports 343,578,498; domain-model 1,233,235,307.
+
+### 2.1 Method
+
+`checkIndexedAccessIndexType` (checker.go:8220) was ported first, as
+r5-index4 had prototyped it ([`r5-index4.md`](r5-index4.md) §3). Every false
+TS2536 was then traced to the relation that answered NotRelated. On the
+`ccb48e7` base with §1, the first measurement gave 23 false reports in 17
+cases, and 5 of the 20 baseline lines. Each false report had one of five
+causes. Three are relater bugs, fixed in this commit (§2.2). Two belong to
+the reporter (§2.3).
+
+### 2.2 Relater fixes (this commit)
+
+1. **An alias-reference image is related as its body.** `declared.rs` gives
+   a type parameter constraint written `Keyof<Registry>` (`type Keyof<T> =
+   keyof T & string`) an OBJECT-flagged `Named` image whose symbol is the
+   alias. The gate's "object against a decidable primitive" arm (§357) then
+   answered `Keyof<Registry> → "a"` NotRelated. Native's alias
+   instantiation is its body, `"a" | "b"`
+   (`templateLiteralTypes6`, `S extends Keyof<Registry>` indexing
+   `Registry`). The gate now relates such an image as its evaluated body
+   (`non_object_alias_image_body`, from `evaluate_alias_body`'s
+   `(symbol, arguments)` cache).
+
+   **Stated divergence.** A body with an object, intersection or `object`
+   constituent keeps the image. The first version substituted every
+   non-object body. `Either<L, A> = Left<L, A> | Right<L, A>` then ran
+   `varianceProblingAndZeroOrderIndexSignatureRelationsAlign` past 8 GB
+   (base: 41 s), the unbounded expansion r5-relater4 §1 met in the same case.
+   The image keeps those pairs on the alias-variance road.
+
+   Also measured on the way: answering `Unknown` for every alias image
+   lost two `parenthesisDoesNotBlockAliasSymbolCreation` TS2352s and added a
+   `controlFlowFavorAssertedTypeThroughTypePredicate` TS18048. Both are
+   object-bodied aliases (`InvalidKeys<"a">`, `Record<string, unknown>`),
+   which the body test keeps.
+2. **The template-literal and string-mapping source cases after a failed
+   union or intersection walk** (`string_like_source_constraint`,
+   relater.go:3772, :3782). `unionOrIntersectionRelatedTo`'s failure falls
+   through for an instantiable source (relater.go:3380). `` `${T2}` `` with
+   `T2 extends "a" | "b"` relates to `keyof TypeMap` (`"a" | "b"`) through
+   its base constraint. No single constituent accepts it
+   (`templateLiteralTypes5`).
+3. **The same fallthrough for a type-parameter source.** This is
+   r5-relater5's held B12 ([`r5-relater5.md`](r5-relater5.md) §3), applied
+   to type parameters only. `S extends Keyof<Registry>` reaches `"a" | "b"`
+   whole, after (1) gives the constraint its body.
+
+   **Stated divergence.** An indexed-access source keeps the walk's answer.
+   Native falls through for it too, but that still loses the 6
+   `quickinfoTypeAtReturnPositionsInaccurate` type lines r5-relater5
+   measured (re-measured here: the same 6). Its narrowing reads an undecided
+   relation as a decision (`flow.rs`, main's).
+
+Measured against base2, both dumps unfiltered, both loss checks empty:
+- `stringMappingDeferralInConditionalTypes` EMPTY_WRONG → EMPTY_RIGHT (its
+  extra TS2322 at 18:5 is gone). Its type lines `:0:13` and `:0:15` go
+  WRONG → RIGHT; cause (2).
+- **Accepted extra lines, in a case already WRONG:**
+  `thislessFunctionsNotContextSensitive1` 163:3 and 176:3, TS2322. The
+  port infers `target: string` for the object literal argument of
+  `test55124<OptionsData extends SetType<OptionsData>>`. Native keeps the
+  literal `"$test4"`, so 163 is OK there, and 176 is TS2820 at the same
+  position. `string → ExtractFields<…> | undefined` was `Unknown` through
+  the alias image and is now native's NotRelated through its body. The
+  relation is right; the input is wrong. The literal inference belongs to
+  `inference.rs`/`contextual.rs` (main's).
+- `Ir`: generic-imports 343,578,498 → 343,574,526 (−0.001%); domain-model
+  1,233,235,307 → 1,232,346,522 (−0.07%). CLI output is identical.
+- Median child CPU, new/old: 21 samples gave domain-model 1.071 (with `Ir`
+  down) and generic-imports 1.005. The 41-sample re-run gave 0.991 and
+  0.996.
+
+Unit test: `relater.rs` `generic_key_tests`. On base2 it fails: `V →
+"a" | "b" | "c"` answers NotRelated.
+
+### 2.3 Held: the TS2536 reporter
+
+[`r5-relater6-ts2536-reporter.diff`](r5-relater6-ts2536-reporter.diff)
+ports `checkIndexedAccessIndexType` into `index_access_reports.rs`. It
+covers the type-node site (`checkIndexedAccessType`) and the element-access
+site (`checkElementAccessExpression`):
+- every index constituent must be assignable to `keyof T`, or applicable
+  to a number index of `T`'s apparent type (`getIndexInfoOfType` reads
+  `getReducedApparentType`);
+- a remapping `as` clause uses `getIndexTypeForMappedType`;
+- a constituent whose relation is `Unknown` declines;
+- a literal key into a generic object declines (TS4105's private-member
+  arm is not ported).
+
+The type-node site carries `getConditionalFlowTypeOfType`'s constraint
+walk (checker.go:24952, `getImpliedConstraint` :24989):
+- an index reference in a conditional's true branch relates as `K & C`;
+- an object reference with a constraint, or another node kind inside a
+  true branch, declines;
+- the homomorphic mapped-type arm declines.
+
+Without that walk, `conditionalTypeSubclassExtendsTypeParam`,
+`neverAsDiscriminantType` ×2 and `stringMappingReduction` each got a false
+report.
+
+**Measured** with §2.2, on the `ccb48e7` + §1 base:
+- 5 TS2536 lines converted: `constraintWithIndexedAccess` 29,
+  `intersectionsOfLargeUnions` 21, `intersectionsOfLargeUnions2` 31,
+  `mappedTypeErrors2` 13 and 15;
+- 2 false reports: `ramdaToolsNoInfinite2` 45:83 and 60:42;
+- no case verdict changes; no type changes.
+
+**Why held.** The bar is zero extra TS2536. Both false reports have one
+cause: imports inside an ambient module declaration in a script file do
+not resolve. Repro:
+
+```ts
+declare module "B/B" { export type Boolean = 0 | 1; export type Bit = 0 | 1; }
+declare module "U" { import { Boolean, Bit } from "B/B"; export const x: Boolean; export const y: Bit; }
+```
+
+The port reports `Cannot find name 'Bit'. Did you mean 'Bit'?` (TS2552),
+and `Boolean` resolves to the global `interface Boolean`. So `strict extends
+Boolean` indexes `{ 1: …; 0: … }` with a constraint native reads as `0 |
+1`. Native's `declareModuleMember` (binder.go:397) files such an import in
+the ambient module's locals, with an export symbol under ExportContext.
+The port's binder routes it through `export_context` into the module's
+exports only (`tsr-binder` `binder.rs`, the `exported` match near :3348),
+where name resolution declines it. That file is not this lane's. The
+reporter lands once that resolution is fixed, re-measured to zero extras.
+
+**Not reached by the reporter**, and why:
+- `mappedTypeRelationships` 20, 21, 25, 26 (`x[k]`, `T` indexed by `keyof
+  U`): the element-access producer answers `error` instead of minting
+  `T[keyof U]` (`members.rs`/`expressions.rs`, main's), so there is no
+  indexed access to check.
+- `keyofAndIndexedAccessErrors` 73/74, `infiniteConstraints`,
+  `circularIndexedAccessErrors`, `unknownControlFlow` 283,
+  `assignmentToAnyArrayRestParameters` 18 (a literal key into a generic
+  object, declined above): not traced.

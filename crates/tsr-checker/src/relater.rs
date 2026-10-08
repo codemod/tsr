@@ -1213,6 +1213,18 @@ impl Relater<'_, '_, '_> {
         // getNormalizedType's getSimplifiedIndexedAccessType (checker.go:27915),
         // reading on the source side and writing on the target side. The
         // simplified pair is normalized again, as native's loop does.
+        // `declared.rs` mints an OBJECT-flagged `Named` image for an alias
+        // reference whose symbol is the alias. Native's alias instantiation
+        // is its body (getTypeFromTypeAliasReference), so a body that is not
+        // an object is related in its place: `Keyof<Registry>` is `"a" | "b"`
+        // (`docs/parity/notes/r5-relater6.md` §2). An object body keeps the
+        // image, which the structural arms read.
+        if let Some(body) = self.non_object_alias_image_body(source) {
+            return self.is_related_to_with_flags(body, target, flags);
+        }
+        if let Some(body) = self.non_object_alias_image_body(target) {
+            return self.is_related_to_with_flags(source, body, flags);
+        }
         let simplified_source = self.simplified_indexed_access(source, false);
         let simplified_target = self.simplified_indexed_access(target, true);
         if simplified_source != source || simplified_target != target {
@@ -2526,6 +2538,40 @@ impl Relater<'_, '_, '_> {
         })
     }
 
+    /// The evaluated body of an alias-reference image (`is_qualified_alias_mint`)
+    /// when no constituent of that body is an object, intersection or
+    /// `object`; `None` otherwise, or when the body does not evaluate. The
+    /// body comes from `evaluate_alias_body`'s `(symbol, arguments)` cache.
+    ///
+    /// Stated divergence: native relates every alias instantiation as its
+    /// body. A body with object constituents keeps the image here, which the
+    /// alias-variance and structural roads read. Relating `Either<L, A> =
+    /// Left<L, A> | Right<L, A>` as its body instead ran
+    /// `varianceProblingAndZeroOrderIndexSignatureRelationsAlign` past 8 GB
+    /// (base: 41 s), the unbounded expansion r5-relater4 §1 met there.
+    fn non_object_alias_image_body(&mut self, id: TypeId) -> Option<TypeId> {
+        let TypeData::Named { members: Some(symbol), .. } = self.checker.type_of(id).data else {
+            return None;
+        };
+        if !self.checker.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        let (symbol, arguments) = self.checker.type_reference_targets.get(&id).cloned()?;
+        let body = self.checker.evaluate_alias_body(symbol, &arguments)?;
+        if body == id || body == self.checker.intrinsics.error {
+            return None;
+        }
+        let parts = self.union_constituents(body).unwrap_or_else(|| vec![body]);
+        parts
+            .iter()
+            .all(|&part| {
+                !self.checker.type_of(part).flags.intersects(
+                    TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::NON_PRIMITIVE,
+                )
+            })
+            .then_some(body)
+    }
+
     /// `declared.rs`'s `qualified_type_reference` mints an OBJECT-flagged
     /// `Named` image for every argument-less qualified reference, including a
     /// type alias whose declared type is not an object.
@@ -3758,6 +3804,35 @@ impl Relater<'_, '_, '_> {
         result
     }
 
+    /// The source switch's template-literal and string-mapping cases
+    /// (`relater.go:3772`, `:3782`), reached after a failed union or
+    /// intersection walk: `unionOrIntersectionRelatedTo`'s failure falls
+    /// through for an instantiable source (`relater.go:3380`). A template
+    /// source relates through its base constraint to a target that is
+    /// neither an object nor a template; a string mapping through its base
+    /// constraint to a target that is not a string mapping. `` `${T}` ``
+    /// with `T extends "a" | "b"` then relates to `"a" | "b"` whole, where
+    /// no single constituent accepts it. `None` when neither case applies.
+    fn string_like_source_constraint(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<RelationResult> {
+        let s = self.checker.type_of(source).flags;
+        let t = self.checker.type_of(target).flags;
+        let applies = (s.contains(TypeFlags::TEMPLATE_LITERAL)
+            && !t.intersects(TypeFlags::OBJECT | TypeFlags::TEMPLATE_LITERAL))
+            || (s.contains(TypeFlags::STRING_MAPPING) && !t.contains(TypeFlags::STRING_MAPPING));
+        if !applies {
+            return None;
+        }
+        let constraint = self.checker.base_constraint_of_type(source)?;
+        if constraint == source || self.checker.is_gap(constraint) {
+            return None;
+        }
+        Some(self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE))
+    }
+
     /// `isGenericObjectType` (`checker.go`) of a target intersection: some
     /// constituent is a type variable or other instantiable non-primitive, or
     /// a generic mapped type.
@@ -3854,6 +3929,24 @@ impl Relater<'_, '_, '_> {
                 let conditional = self.conditional_source_related_to(source, target);
                 return RelationResult::any([result, conditional]);
             }
+            if !result.is_success()
+                && let Some(constraint) = self.string_like_source_constraint(source, target)
+            {
+                return RelationResult::any([result, constraint]);
+            }
+            // The same fallthrough for a type parameter: `S extends "a" |
+            // "b"` relates to `"a" | "b"` through its constraint
+            // (relater.go:3652), not through either constituent. Stated
+            // divergence: an indexed-access source keeps the walk's answer
+            // until flow.rs stops reading an undecided narrowing relation
+            // as a decision (`docs/parity/notes/r5-relater5.md` §3; that
+            // case loses 6 `quickinfoTypeAtReturnPositionsInaccurate` lines).
+            if !result.is_success()
+                && self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+                && let Some(variable) = self.type_variable_source_related_to(source, target)
+            {
+                return RelationResult::any([result, variable]);
+            }
             return result;
         }
         if let Some(constituents) = self.union_constituents(target) {
@@ -3871,6 +3964,24 @@ impl Relater<'_, '_, '_> {
             if !result.is_success() && self.is_deferred_conditional(source) {
                 let conditional = self.conditional_source_related_to(source, target);
                 return RelationResult::any([result, conditional]);
+            }
+            if !result.is_success()
+                && let Some(constraint) = self.string_like_source_constraint(source, target)
+            {
+                return RelationResult::any([result, constraint]);
+            }
+            // The same fallthrough for a type parameter: `S extends "a" |
+            // "b"` relates to `"a" | "b"` through its constraint
+            // (relater.go:3652), not through either constituent. Stated
+            // divergence: an indexed-access source keeps the walk's answer
+            // until flow.rs stops reading an undecided narrowing relation
+            // as a decision (`docs/parity/notes/r5-relater5.md` §3; that
+            // case loses 6 `quickinfoTypeAtReturnPositionsInaccurate` lines).
+            if !result.is_success()
+                && self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+                && let Some(variable) = self.type_variable_source_related_to(source, target)
+            {
+                return RelationResult::any([result, variable]);
             }
             // structuredTypeRelatedToWorker (relater.go:3889): an object or
             // intersection source that failed every constituent may still
@@ -6317,6 +6428,69 @@ mod discriminated_target_tests {
             );
             assert_eq!(
                 checker.relate_ternary(rest, target, Relation::Assignable),
+                Ternary::NotRelated
+            );
+        });
+    }
+}
+
+#[cfg(test)]
+mod generic_key_tests {
+    use super::{Relation, Ternary};
+    use crate::checker::Checker;
+    use tsr_ast::Statement;
+    use tsr_core::Arena;
+
+    /// The declared types of the parameters of the source's one function.
+    fn with_parameters(source: &str, test: impl FnOnce(&mut Checker<'_, '_>, &[crate::TypeId])) {
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "keys.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let function = parsed
+            .source_file
+            .statements
+            .iter()
+            .find_map(|statement| match statement {
+                Statement::FunctionDeclaration(function) => Some(*function),
+                _ => None,
+            })
+            .expect("function");
+        let types: Vec<_> = function
+            .parameters
+            .iter()
+            .map(|parameter| {
+                checker.get_type_from_type_node(parameter.r#type.expect("parameter type"))
+            })
+            .collect();
+        test(&mut checker, &types);
+    }
+
+    /// `docs/parity/notes/r5-relater6.md` §2: a type parameter and a
+    /// template meet a literal union whole through their constraints
+    /// (relater.go:3380, :3652, :3772), and an alias image whose body is a
+    /// literal union relates as that body.
+    #[test]
+    fn generic_keys_meet_a_literal_union_through_their_constraints() {
+        let source = r#"type Keyof<T> = keyof T & string;
+            function f<V extends "a" | "b", T extends "a" | "b", S extends Keyof<{ a: 1; b: 2 }>, U extends "a" | "c">(
+                target: "a" | "b" | "c", v: V, t: `${T}`, s: S, u: U, narrow: "a" | "b") {}"#;
+        with_parameters(source, |checker, types| {
+            let [target, v, t, s, u, narrow] = types[..] else { panic!("six parameters") };
+            for source in [v, t, s] {
+                assert_eq!(
+                    checker.relate_ternary(source, target, Relation::Assignable),
+                    Ternary::Related
+                );
+            }
+            assert_eq!(
+                checker.relate_ternary(u, narrow, Relation::Assignable),
                 Ternary::NotRelated
             );
         });
