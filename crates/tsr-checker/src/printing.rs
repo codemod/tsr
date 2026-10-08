@@ -1052,7 +1052,10 @@ pub fn normalise_number(text: &str) -> String {
         if rest.is_empty() {
             Some(0.0)
         } else {
-            u128::from_str_radix(rest, radix).ok().map(|v| v as f64)
+            u128::from_str_radix(rest, radix)
+                .ok()
+                .map(|v| v as f64)
+                .or_else(|| tsr_core::jsnum::wide_radix_value(rest, radix))
         }
     };
     let value = if let Some(rest) =
