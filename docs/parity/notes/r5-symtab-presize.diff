@@ -1,0 +1,197 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index 35d8b88..27a97a4 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -188,6 +188,9 @@ pub(crate) struct Binder<'a, 'n> {
+     /// on: `module.exports =` nested inside a function, and the `module` and
+     /// `exports` locals declared once the file has been walked.
+     file_node: NodeId,
++    /// The file's statement count: the first-allocation size of its locals
++    /// and, for a module, its exports (`r5-symtab.md` §5).
++    file_statements: usize,
+     /// What the file's own symbol is called if it turns out to need one.
+     file_symbol_name: &'a str,
+     /// The file's own symbol, once it has one.
+@@ -632,6 +635,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             in_declaration_file: false,
+             in_js_file: false,
+             file_node: NodeId::ZERO,
++            file_statements: 0,
+             file_symbol_name: "",
+             module_symbol: None,
+             commonjs_module: false,
+@@ -753,6 +757,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+                 && !self.in_declaration_file
+                 && !file_name.to_ascii_lowercase().ends_with(".json"));
+         self.file_node = root_id;
++        self.file_statements = file.statements.len();
+         self.file_symbol_name = remove_file_extension(file_name);
+         if self.is_module {
+             // `bindSourceFileAsExternalModule` names the symbol after the path
+@@ -4471,6 +4476,68 @@ impl<'a, 'n> Binder<'a, 'n> {
+ 
+     /// Add `name` to the appropriate table, merging with an existing symbol where
+     /// TypeScript allows it and reporting a duplicate where it does not.
++    /// Size a table's first allocation from the node that owns it, just
++    /// before the insert that would allocate it (`r5-symtab.md` §5). The
++    /// owning node is found on the ancestor stack; a table whose owner is
++    /// not there (deferred expando bindings, merges) grows as before. Never
++    /// creates or publishes a table the insert would not, and order is the
++    /// insert order whatever the capacity (ADR-0049).
++    fn size_first_table(
++        &mut self,
++        destination: Destination,
++        table_owner: NodeId,
++        symbol_owner: Option<SymbolId>,
++    ) {
++        match destination {
++            Destination::Locals => {
++                let Some(table) = self.locals.get_mut(&table_owner) else { return };
++                if table.capacity() != 0 {
++                    return;
++                }
++                let hint = if table_owner == self.file_node {
++                    self.file_statements
++                } else if let Some(&(_, node)) =
++                    self.ancestors.iter().rev().find(|(id, _)| *id == table_owner)
++                {
++                    TableHints::of(node).locals
++                } else {
++                    return;
++                };
++                if hint > 0 {
++                    table.reserve(hint);
++                }
++            }
++            Destination::Members | Destination::Exports => {
++                let Some(owner) = symbol_owner else { return };
++                let members_table = matches!(destination, Destination::Members);
++                let symbol = self.symbols.get(owner);
++                let field = if members_table { &symbol.members } else { &symbol.exports };
++                if field.capacity() != 0 {
++                    return;
++                }
++                let Some(declaration) = symbol.declarations.last().copied() else { return };
++                let hints = if declaration == self.file_node {
++                    TableHints { exports: self.file_statements, ..TableHints::default() }
++                } else if let Some(&(_, node)) =
++                    self.ancestors.iter().rev().find(|(id, _)| *id == declaration)
++                {
++                    TableHints::of(node)
++                } else {
++                    return;
++                };
++                let hint = if members_table { hints.members } else { hints.exports };
++                if hint > 0 {
++                    let symbol = self.symbols.get_mut(owner);
++                    let field =
++                        if members_table { &mut symbol.members } else { &mut symbol.exports };
++                    // The insert that follows publishes the table anyway.
++                    field.initialize().reserve(hint);
++                }
++            }
++            Destination::GlobalExports => {}
++        }
++    }
++
+     fn declare_into(
+         &mut self,
+         destination: Destination,
+@@ -4676,6 +4743,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             }
+         } else {
+             let created = self.symbols.create(name, flags);
++            self.size_first_table(destination, table_owner, symbol_owner);
+             match destination {
+                 Destination::Locals => {
+                     self.locals.entry(table_owner).or_default().insert(name, created);
+@@ -5840,3 +5908,89 @@ fn export_name(name: tsr_ast::ModuleExportName<'_>) -> &str {
+         tsr_ast::ModuleExportName::StringLiteral(s) => s.text,
+     }
+ }
++
++/// Upper-bound-ish counts of what a container's children declare, read off
++/// the container node's own lists (`r5-symtab.md` §5). Zero means "no hint":
++/// the table grows as it always did.
++#[derive(Clone, Copy, Default)]
++struct TableHints {
++    members: usize,
++    exports: usize,
++    locals: usize,
++}
++
++impl TableHints {
++    fn of(node: Node<'_>) -> Self {
++        fn body(body: Option<&tsr_ast::Block<'_>>) -> usize {
++            body.map_or(0, |block| block.statements.len())
++        }
++        let members = |members| Self { members, ..Self::default() };
++        let locals = |locals| Self { locals, ..Self::default() };
++        match node {
++            Node::SourceFile(file) => locals(file.statements.len()),
++            Node::Block(block) => locals(block.statements.len()),
++            Node::ModuleBlock(block) => locals(block.statements.len()),
++            Node::ModuleDeclaration(module) => match module.body {
++                Some(tsr_ast::ModuleBody::ModuleBlock(block)) => {
++                    let n = block.statements.len();
++                    Self { exports: n, locals: n, ..Self::default() }
++                }
++                _ => Self::default(),
++            },
++            Node::ClassDeclaration(class) => {
++                members(class.members.len() + class.type_parameters.len())
++            }
++            Node::ClassExpression(class) => {
++                members(class.members.len() + class.type_parameters.len())
++            }
++            Node::InterfaceDeclaration(interface) => {
++                members(interface.members.len() + interface.type_parameters.len())
++            }
++            Node::TypeLiteralNode(literal) => members(literal.members.len()),
++            Node::ObjectLiteralExpression(literal) => members(literal.properties.len()),
++            Node::JsxAttributes(attributes) => members(attributes.properties.len()),
++            Node::EnumDeclaration(declaration) => {
++                Self { exports: declaration.members.len(), ..Self::default() }
++            }
++            Node::FunctionDeclaration(f) => locals(
++                f.type_parameters.len()
++                    + f.parameters.len()
++                    + body(f.body.map(|tsr_ast::FunctionBody::Block(b)| b)),
++            ),
++            Node::FunctionExpression(f) => locals(
++                f.type_parameters.len()
++                    + f.parameters.len()
++                    + body(f.body.map(|tsr_ast::FunctionBody::Block(b)| b)),
++            ),
++            Node::MethodDeclaration(f) => locals(
++                f.type_parameters.len()
++                    + f.parameters.len()
++                    + body(f.body.map(|tsr_ast::FunctionBody::Block(b)| b)),
++            ),
++            Node::ConstructorDeclaration(f) => locals(
++                f.type_parameters.len()
++                    + f.parameters.len()
++                    + body(f.body.map(|tsr_ast::FunctionBody::Block(b)| b)),
++            ),
++            Node::GetAccessorDeclaration(f) => locals(
++                f.type_parameters.len()
++                    + f.parameters.len()
++                    + body(f.body.map(|tsr_ast::FunctionBody::Block(b)| b)),
++            ),
++            Node::SetAccessorDeclaration(f) => locals(
++                f.type_parameters.len()
++                    + f.parameters.len()
++                    + body(f.body.map(|tsr_ast::FunctionBody::Block(b)| b)),
++            ),
++            Node::ArrowFunction(f) => locals(
++                f.type_parameters.len()
++                    + f.parameters.len()
++                    + body(match f.body {
++                        Some(tsr_ast::ConciseBody::Block(b)) => Some(b),
++                        _ => None,
++                    }),
++            ),
++            _ => Self::default(),
++        }
++    }
++}

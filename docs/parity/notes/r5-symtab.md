@@ -177,3 +177,87 @@ spread 1.9%. Step 1 is the correctness precondition for §5, not a speed win.
 **Full parity run** (`coverage`, step 1): `checker_types` 8,234/9,538,
 `diagnostics` 4,517/5,502 (snapshots not committed; the base was not run
 through `coverage`, the dumps above are the base comparison).
+
+## §5 Step 3: pre-sizing from node counts — measured and refused
+
+With order independent of capacity (§4), a table's first allocation can be
+sized from counts the parser already has: a class's or interface's members
+plus type parameters, a type literal's members, an object literal's or JSX
+attribute list's properties, an enum's members (exports), a namespace
+body's or a file's statements (exports and locals), a block's statements,
+and a function-like's type parameters + parameters + body statements
+(locals). Two variants were built and measured against step 1 (`f039913`);
+CLI output `cmp`-identical on all three bench projects for both.
+
+| variant | where the hint is computed | generic-imports Ir | domain-model Ir |
+|---|---|---:|---:|
+| step 1 | — | 342,843,469 | 1,190,788,008 |
+| A: eager | `TableHints::of(node)` at every `bind_container`, saved/restored with `owner`/`container`/`block` | 343,003,051 (+0.05%) | 1,190,217,813 (−0.05%) |
+| B: lazy (the diff kept) | at a table's first insert, the owning node found on the ancestor stack | 342,630,422 (−0.06%) | 1,190,386,226 (−0.03%) |
+
+Variant B removes the growth it targets — `rebuild_index` −0.53 M,
+`malloc`/`realloc`/`memcpy` −0.52 M, `push_new`'s growth calls — and pays
+nearly all of it back in `declare_into_with_excludes` (+0.99 M self: the
+inlined first-insert check, the ancestor walk, `declarations.last()`), plus
+`SymbolTable::reserve` (2,430 calls) and `TableHints::of` (7,555 calls).
+Variant A pays the hint on every container entered instead of every table
+created, which costs more than it saves.
+
+Interleaved (§1), B against step 1:
+
+| rounds | project | wall B/step 1 | CPU B/step 1 | RSS B/step 1 |
+|---:|---|---:|---:|---:|
+| 31 | generic-imports | 0.926 | 0.963 | 0.998 |
+| 31 | domain-model | 0.972 | 0.948 | 0.980 |
+| 41 | generic-imports | 1.012 | 1.004 | 0.998 |
+| 41 | domain-model | 1.020 | 1.016 | 0.996 |
+
+The 41-round session also ran the original base: base, step 1 and B were
+within 2% of each other on both projects (generic-imports wall 0.0659 /
+0.0660 / 0.0668 s; domain-model 0.1995 / 0.1998 / 0.2038 s), so the
+31-round gain was noise.
+
+**Why there is nothing to win.** The 4.7 M Ir of `reserve_rehash` that
+r5-binperf §6.1 saw was hashbrown re-hashing every key on each doubling,
+including the step from an empty table's first allocation. Step 1's table
+grows by `realloc` with no rehash below 9 names, and 92–99% of tables never
+pass 8 names (§3), most never pass the first 4-slot allocation. What remains
+of the symbol-table cost on generic-imports is a malloc per non-empty table
+(~10.5 K tables), `push_new` (2.8 M inclusive for 26,679 inserts) and lookups
+(`position`, 2.6 M for 52,728 calls) — about 1.9% of Ir, none of it
+capacity. **Refused:** a 0.06% Ir change does not pay for ~120 lines and a
+second source of truth about which node owns which table. The measured diff
+is kept at [`r5-symtab-presize.diff`](r5-symtab-presize.diff) (applies to
+`f039913`'s `binder.rs`). **What would change this:** a workload whose
+tables are large (a generated file with thousands of members per
+interface, or many files with hundreds of top-level statements), where
+`rebuild_index` and multi-step growth reappear in the profile.
+
+## §6 Measured and refused (summary)
+
+1. Pre-sizing per container kind, both variants (§5): ±0.06% Ir,
+   interleaved wall within the box's noise at 41 rounds.
+2. An unboxed index (`Vec<u64>`, then `Vec<u32>`, inline in the table):
+   same Ir, +3.1% / +3.2% RSS on generic-imports (§4).
+3. `indexmap`, a sorted `Vec`, and `FxHashMap` with sorting at the
+   observable sites: [ADR-0049](../../adr/0049-symbol-table-insertion-order.md)
+   "The alternatives".
+
+## §7 What is left
+
+1. **The 5 order-observable checker sites (§3)** follow insertion order now,
+   which is declaration order inside one container but not upstream's
+   `compareSymbols` order across merged declarations (the residual
+   `mappedTypeRecursiveInference` lines, §4). The faithful fix is porting
+   `getNamedMembers`' sort (own members first for a class/interface, each
+   partition by `compareSymbols`) at `nonexistent_property.rs`
+   `collect_property_names` and `members.rs` `property_names_of_type`.
+   Those files are other lanes'; not done here.
+2. **Per-table first allocations** (~10.5 K mallocs per generic-imports
+   run, ~1.3 M Ir with their frees): one shared slab per file would remove
+   them, at the cost of a table that can no longer grow independently
+   after binding (the checker's merges insert into binder tables). Not
+   measured.
+3. The symbol-table share of generic-imports' Ir is ~1.9% after step 1;
+   the binder items above it are r5-binperf §7's (per-node dispatch,
+   `push_children`, `NodeTable::push`).
