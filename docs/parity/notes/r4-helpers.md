@@ -229,3 +229,31 @@ Measured (on top of §4): diagnostics **+1** (`typeUsedAsTypeLiteralIndex`:
 three TS2690 and one TS2693, the two-member literal), 0 lost, no other line
 moved in any TS2690/2693/2708/2709/2749/2304 case; types unchanged. Perf
 (21 samples): `domain-model` 1.005, `generic-imports` 0.999.
+
+## §6. The value cascade in a class's `extends` expression (`tsr-2zk.6.3`)
+
+`report_meaning_mismatch_in_value_position` returned early for any name
+under a heritage clause. Its comment gave two reasons: `is_value_reference`
+admits the names of `interface I extends A` and `class C implements I` (type
+positions upstream, where reading a `TYPE` hit as a mismatch is wrong), and
+`class C1 extends M.I1` is TS2689 whose arm was unported. The second reason
+is gone — `check_and_report_error_for_extending_interface` runs ahead of
+the cascade. A class's `extends` expression is a value position upstream:
+`class C extends factory(A)` with `A` an interface is TS2693 at `A`. The
+bound now covers only `implements` clauses and interfaces' `extends`.
+
+Measured (on top of §5): diagnostics **+1** (`classExtendsInterfaceInExpression`),
+0 lost, types unchanged. Line level: `moduleAsBaseType` and
+`genericTypeReferenceWithoutTypeArgument2` one missing TS2708 each fixed;
+**4 new extra lines** — TS2693 at `class C<T> extends T` in
+`typeParameterAsBaseClass`, `inheritFromGenericTypeParameter`,
+`typeParameterAsBaseType` (×2), where upstream reports TS2304. Root cause is
+the binder: `resolveNameHelper`'s `ExpressionWithTypeArguments` arm
+(`binder/nameresolver.go:196-208`, "the type parameters of a class are not
+in scope in the base class expression") is unported in
+`resolve_name_excluding_with_export_alias` (`tsr-binder`, not this lane's),
+so `T` resolves as a type and the cascade reads it as a mismatch. The patch
+is `docs/parity/notes/r4-helpers-binder-base-class-type-parameters.diff`;
+with it the 4 extras are gone **and** the 4 missing TS2304 lines in those
+cases appear (filtered run). Perf (21 samples): `domain-model` 0.985,
+`generic-imports` 0.999.

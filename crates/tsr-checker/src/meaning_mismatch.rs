@@ -186,6 +186,25 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// Inside an `implements` clause or an interface's `extends` clause: the
+    /// heritage positions upstream resolves as types, never as values.
+    fn in_type_heritage_clause(&self, node: NodeId) -> bool {
+        let Some(clause) =
+            self.nodes.ancestors(node).find(|&a| self.nodes.kind(a) == SyntaxKind::HeritageClause)
+        else {
+            return false;
+        };
+        let class_extends = matches!(self.node_map.get(clause), Some(Node::HeritageClause(heritage))
+            if heritage.token.kind == SyntaxKind::ExtendsKeyword)
+            && self.nodes.parent(clause).is_some_and(|owner| {
+                matches!(
+                    self.nodes.kind(owner),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            });
+        !class_extends
+    }
+
     /// `checkAndReportErrorForExtendingInterface` (`checker.go:11666`): the
     /// second arm of `onFailedToResolveSymbol`. A value name that failed to
     /// resolve inside `class C extends X` is TS2689 when the heritage
@@ -370,22 +389,19 @@ impl Checker<'_, '_> {
         node: NodeId,
         text: &str,
     ) -> bool {
-        // **A heritage clause is not this cascade's position in this port**,
-        // and the bound goes FIRST rather than before the type-as-value arm.
-        // Two reasons, both measured:
-        //
-        // - `is_value_reference` admits the names of `interface I extends A, B`
-        //   and of `class C implements I` so that TS2304 still fires there — a
-        //   position §165 verified this port is *right* to visit, but not to
-        //   read a `TYPE` hit in as a meaning mismatch. §164 measured that at
-        //   232 of 238 wrong lines.
-        // - `class C1 extends M.I1` is upstream's **TS2689**,
-        //   `checkAndReportErrorForExtendingInterface` — the cascade's *second*
-        //   arm, which is not ported. It runs ahead of both namespace arms, so
-        //   reporting TS2708 there is a wrong code at a right position.
-        //   `classExtendsInterfaceInModule` is three of §169's wrong lines and
-        //   every one of them is that. **Owner: the TS2689 arm.**
-        if self.nodes.ancestors(node).any(|a| self.nodes.kind(a) == SyntaxKind::HeritageClause) {
+        // **The type heritage positions are not this cascade's.**
+        // `is_value_reference` admits the names of `interface I extends A, B`
+        // and of `class C implements I` so that TS2304 still fires there — a
+        // position §165 verified this port is *right* to visit, but not to
+        // read a `TYPE` hit in as a meaning mismatch (§164: 232 of 238 wrong
+        // lines). A class's `extends` expression *is* a value position
+        // upstream: `class C extends factory(A)` reports TS2693 at `A`.
+        // The bound once covered every heritage clause because TS2689
+        // (`checkAndReportErrorForExtendingInterface`, which runs ahead of the
+        // namespace arms for `class C1 extends M.I1`) was unported; it is now
+        // `check_and_report_error_for_extending_interface`, called before
+        // this cascade. r4-helpers notes §6.
+        if self.in_type_heritage_clause(node) {
             return false;
         }
         if self.report_exporting_primitive_type(node, text) {
