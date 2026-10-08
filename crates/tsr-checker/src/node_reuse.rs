@@ -838,7 +838,11 @@ impl<'a> Checker<'a, '_> {
             let mut current = declaration;
             loop {
                 match self.nodes.kind(current) {
-                    SyntaxKind::ImportEqualsDeclaration | SyntaxKind::ImportDeclaration => {
+                    // A JSDoc `@import` is native's reparsed
+                    // `JSImportDeclaration`, an `ImportDeclaration` kind.
+                    SyntaxKind::ImportEqualsDeclaration
+                    | SyntaxKind::ImportDeclaration
+                    | SyntaxKind::JSDocImportTag => {
                         import_statement = Some(current);
                         break;
                     }
@@ -854,10 +858,12 @@ impl<'a> Checker<'a, '_> {
             }
             if let Some(statement) = import_statement
                 && !self.has_export_keyword(statement)
-                && self
-                    .nodes
-                    .parent(statement)
-                    .is_some_and(|parent| self.is_declaration_visible(parent))
+                && if self.nodes.kind(statement) == SyntaxKind::JSDocImportTag {
+                    self.jsdoc_import_declaration_parent(statement)
+                } else {
+                    self.nodes.parent(statement)
+                }
+                .is_some_and(|parent| self.is_declaration_visible(parent))
             {
                 continue;
             }

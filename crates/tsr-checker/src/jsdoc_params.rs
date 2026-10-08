@@ -754,10 +754,6 @@ impl<'a> Checker<'a, '_> {
     /// statement of the nearest `SourceFile`, `Block` or `ModuleBlock`
     /// enclosing the comment's host. `getAnyImportSyntax`'s callers ask
     /// whether that parent is visible (`hasVisibleDeclarations`).
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc3-node-reuse-jsdoc-import.diff"
-    )]
     pub(crate) fn jsdoc_import_declaration_parent(&self, import_tag: NodeId) -> Option<NodeId> {
         let mut current = import_tag;
         while let Some(parent) = self.nodes.parent(current) {
