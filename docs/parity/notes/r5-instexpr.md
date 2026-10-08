@@ -147,3 +147,97 @@ projects and runs, which the flat Ir attributes to noise.
 - `selfReferentialFunctionType` 0:2 prints `any` for the `f` inside
   `typeof f<T>` (was the gap): the identifier is now checked, and `f`'s
   symbol type is mid-resolution there. GAP→WRONG, one line.
+
+## 3. Unique-symbol identity (tsr-2zk.1005)
+
+### 3.1 What was wrong
+
+`getESSymbolLikeTypeForNode` (`checker.go:22982`) keys
+`c.uniqueESSymbolTypes` on the **declaration's symbol**, and answers
+`esSymbolType` unless the declaration is valid (`isValidESSymbolDeclaration`,
+`utilities.go:961`: a `const` in a variable statement, a `static readonly`
+property, a `readonly` property signature). This port minted one type per
+written `unique symbol` node (`declared.rs`, `unique_symbol_nodes`) and one per
+`Symbol()` call evaluation (`calls.rs`), and kept the unique type in every
+position it could not recognise as invalid (`_ => true`), so
+`Box<unique symbol>`, `(unique symbol)[]`, `<T = unique symbol>`, `let x:
+unique symbol` and unions all printed `unique symbol` where native prints
+`symbol`.
+
+### 3.2 The port
+
+`crates/tsr-checker/src/unique_symbols.rs`: `get_es_symbol_like_type_for_node`
+with its three callers' entry points (type operator, call; the
+`SymbolConstructor` widening arm `checker.go:18247` has no caller in this port
+yet). Cache contract (`docs/conventions.md`):
+
+- Native operation: `c.uniqueESSymbolTypes[symbol]`.
+- Key identity and owner: the declaration's merged `SymbolId`, private to
+  the Checker (`Checker::unique_es_symbol_types`). The asking node is not in
+  the key.
+- Publication states: absent or completed (the mint reads nothing that can
+  be in progress).
+- Expensive work: none; a store push per declaration symbol.
+
+A JSDoc `@type {unique symbol}` is reparsed onto its host upstream
+(`reparser.go`, `KindJSDocTypeTag`): the first declaration of a variable
+statement without a type, else the host. The type operator's resolved type is
+also recorded in `unique_symbol_nodes` (upstream's
+`typeNodeLinks.resolvedType`), which `symbol_access.rs` reads to find
+`t.symbol` for TS2527; without that record
+`declarationEmitExpressionWithNonlocalPrivateUniqueSymbol` lost its TS2527.
+
+### 3.3 The decline that remains, and what retires it
+
+Inside a signature's parameter or return annotation, a type predicate or a
+type parameter's constraint, native's type is `symbol` but the signature
+prints `unique symbol`: the node builder reuses the written node when it lies
+inside the print's enclosing declaration (`nodecopy.go:596`). This port's
+reuser refuses `unique symbol` always (`node_reuse.rs`), and predicates and
+constraints print from their types (`signatures.rs`). Answering `symbol` in
+those slots measured **30 RIGHT→WRONG** in `uniqueSymbolsErrors`; those slots
+keep the old per-node mint (`unique_symbol_awaits_printer_reuse`). A default
+(`<T = unique symbol>`) is not reused natively and is not exempt.
+
+- With `r5-instexpr-node-reuse-unique-symbol.diff` (§3.4) the parameter and
+  return slots leave the exemption; predicates and constraints stay until
+  `signatures.rs` prints them through the reuser.
+
+How we would know the exemption is wrong: a corpus line where a parameter's
+own type (`>arg : …`) must print `unique symbol`; native never answers that.
+
+### 3.4 Measured, and the two diffs
+
+Against the item-1 commit's dumps, unfiltered: 14 WRONG→RIGHT type lines
+(`uniqueSymbolsErrors`: `let`/`var`, property, type-argument, tuple, index,
+default and union positions), no RIGHT line or RIGHT/EMPTY_RIGHT case lost.
+Ir: domain-model 1,285.2M → 1,288.1M (median of three; same-binary runs span
+1,284.4–1,289.3M), generic-imports 344.85M → 344.81M; CPU medians at 21
+samples 0.988 and 0.986.
+
+Shipped as measured diffs (each against this commit, unfiltered, zero
+losses on both dumps):
+
+- `r5-instexpr-node-reuse-unique-symbol.diff`: `node_reuse.rs`'s
+  `TypeOperatorNode` arm reuses `unique symbol` when the node is inside the
+  print site's enclosing declaration (`nodecopy.go:596`), and the exemption
+  in `unique_symbols.rs` narrows to predicates and constraints.
+  **+20 WRONG→RIGHT** (`uniqueSymbolsErrors` `>arg : symbol`, rest and
+  `this` lines, and the signatures that now print the reused node).
+- `r5-instexpr-calls-unique-symbol.diff`: `calls.rs`'s `Symbol()` arm mints
+  through `get_es_symbol_like_type_for_call`, so `const x = Symbol()` and
+  `declare const x: unique symbol` share the declaration's identity. **No
+  verdict change**: identity only. It is the prerequisite r5-relater3
+  named for UNIQUE_ES_SYMBOL decidability in `relater.rs` (refused at −3
+  cases while identity was per node); `uniqueSymbolJs2`'s TS2367
+  (`z == y`) waits on that relater arm, not on the mint.
+
+### 3.5 Remaining
+
+- Predicates and constraints print from their types (`signatures.rs`):
+  10 lines in `uniqueSymbolsErrors` keep the exemption.
+- `uniqueSymbols`/`uniqueSymbolsDeclarations` (15 WRONG each): method and
+  property *values* typed `unique symbol` where native widens to `symbol`
+  (`() => Promise<symbol>`), i.e. `getWidenedUniqueESSymbolType` on
+  inferred returns and object-literal members; inference/contextual, not
+  the mint.

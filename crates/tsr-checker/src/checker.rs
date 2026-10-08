@@ -175,6 +175,9 @@ pub struct Checker<'a, 'n> {
     /// One `unique symbol` per WRITTEN `unique symbol` type node
     /// (`checker-notes-callres.md` §27).
     pub(crate) unique_symbol_nodes: FxHashMap<NodeId, TypeId>,
+    /// `uniqueESSymbolTypes` (checker.go:22982): one `unique symbol` per
+    /// declaration symbol (`crate::unique_symbols`).
+    pub(crate) unique_es_symbol_types: FxHashMap<SymbolId, TypeId>,
     /// One `this` type per class/interface declaration — upstream's
     /// `d.thisType` for TYPE-POSITION `this` (`checker-notes-callres.md`
     /// §28).
@@ -1408,6 +1411,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             file_import_machinery: FxHashMap::default(),
             global_this_type: None,
             unique_symbol_nodes: FxHashMap::default(),
+            unique_es_symbol_types: FxHashMap::default(),
             this_type_nodes: FxHashMap::default(),
             qualified_reference_types: FxHashMap::default(),
             qualified_generic_reference_types: FxHashMap::default(),

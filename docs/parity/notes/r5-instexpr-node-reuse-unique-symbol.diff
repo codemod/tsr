@@ -1,0 +1,65 @@
+diff --git a/crates/tsr-checker/src/node_reuse.rs b/crates/tsr-checker/src/node_reuse.rs
+index a1f38e3..967dc40 100644
+--- a/crates/tsr-checker/src/node_reuse.rs
++++ b/crates/tsr-checker/src/node_reuse.rs
+@@ -1269,6 +1269,19 @@ impl<'a> Checker<'a, '_> {
+             TypeNode::ParenthesizedTypeNode(paren) => {
+                 format!("({})", self.emit_reused_type(paren.r#type?, LOWEST, false, cx))
+             }
++            TypeNode::TypeOperatorNode(operator)
++                if operator.operator.kind == SyntaxKind::UniqueKeyword
++                    && matches!(operator.r#type, Some(TypeNode::KeywordTypeNode(keyword))
++                        if keyword.kind == SyntaxKind::SymbolKeyword) =>
++            {
++                // `nodecopy.go:596`: `unique symbol` is reused only when the
++                // node lies inside the print's enclosing declaration (the
++                // `.types` writer's is the asserted node's parent); elsewhere
++                // it is serialized from its type.
++                let enclosing = cx.site.and_then(|site| self.nodes.parent(site))?;
++                let id = operator.node_id?;
++                self.is_ancestor_or_self(enclosing, id).then(|| "unique symbol".to_string())?
++            }
+             TypeNode::TypeOperatorNode(operator) => {
+                 let (keyword, operand_precedence) = match operator.operator.kind {
+                     SyntaxKind::KeyOfKeyword => ("keyof", Precedence::TypeOperator),
+--- a/crates/tsr-checker/src/unique_symbols.rs
++++ b/crates/tsr-checker/src/unique_symbols.rs
+@@ -38,11 +38,8 @@
+             if let Some(&existing) = self.unique_es_symbol_types.get(&symbol) {
+                 return existing;
+             }
+-            let minted = self.store.new_named(
+-                TypeFlags::UNIQUE_ES_SYMBOL,
+-                "unique symbol".to_string(),
+-                None,
+-            );
++            let minted =
++                self.store.new_named(TypeFlags::UNIQUE_ES_SYMBOL, "unique symbol".to_string(), None);
+             self.unique_es_symbol_types.insert(symbol, minted);
+             return minted;
+         }
+@@ -99,7 +96,8 @@
+         let mut current = self.nodes.parent(operator);
+         while let Some(node) = current {
+             match self.nodes.kind(node) {
+-                SyntaxKind::Parameter | SyntaxKind::TypePredicate => return true,
++                SyntaxKind::TypePredicate => return true,
++                SyntaxKind::Parameter => return false,
+                 SyntaxKind::TypeParameter => {
+                     return matches!(self.node_map.get(node),
+                         Some(Node::TypeParameterDeclaration(parameter))
+@@ -113,13 +111,7 @@
+                 | SyntaxKind::CallSignature
+                 | SyntaxKind::ConstructSignature
+                 | SyntaxKind::FunctionType
+-                | SyntaxKind::ConstructorType => {
+-                    // Its only direct type-node child is the return annotation.
+-                    return !matches!(
+-                        self.nodes.kind(child),
+-                        SyntaxKind::Parameter | SyntaxKind::TypeParameter
+-                    );
+-                }
++                | SyntaxKind::ConstructorType => return false,
+                 SyntaxKind::VariableDeclaration
+                 | SyntaxKind::PropertyDeclaration
+                 | SyntaxKind::PropertySignature
