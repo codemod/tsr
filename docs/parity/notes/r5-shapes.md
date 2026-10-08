@@ -232,3 +232,76 @@ Upstream binds the member as `""`, and the node builder quotes it. The
 skip removed, because their parse has no such member. Cases converted:
 `objectLiteralShorthandPropertiesErrorFromNotUsingIdentifier`,
 `objectLiteralShorthandPropertiesErrorWithModule`.
+
+## 5. Measured diffs for files other lanes own
+
+Each diff is measured on top of this branch's §4 commits, unfiltered,
+against the same frozen base. Both diffs below were measured in one run,
+and their witnesses are disjoint.
+
+### 5.1 `r5-shapes-late-bound-overloads.diff` (`symbols.rs`, `signatures.rs`)
+
+**Owner:** main (`symbols.rs`). The `signatures.rs` part is only
+`is_overload_implementation` becoming `pub(crate)` (r5-funcdecl's file).
+
+**What it ports.** The §383 late-bound sibling merge now applies
+`getSignaturesOfSymbol`'s implementation exclusion (`checker.go:19818`)
+over the siblings, using the same `is_overload_implementation` the ordinary
+road uses. It no longer collapses siblings by printed text.
+
+**Why the text rule was wrong.** The rule's own comment cited
+`overloadsWithComputedNames` as wanting `() => void`. The baseline says
+the opposite at the two `[uniqueSym]` lines (0:46, 0:48): it wants
+`{ (): void; (): void; }`, two identically spelled signatures that
+upstream keeps because the implementation is not adjacent to its
+overload. The text rule collapsed them, and those two lines were WRONG at
+base. `symbolProperty42` keeps both signatures for the same reason (a
+static member separates them). Upstream's rule decides both cases and the
+`symbolProperty39`–`41` cases; the text rule decided only the cases where
+the spelling happened to agree with adjacency. Corrected here, as the
+comment in the diff now says.
+
+**Measured:** types +17 lines (`symbolProperty39` 4, `symbolProperty40` 5,
+`symbolProperty41` 5, `symbolDeclarationEmit3` 3) and +2 in
+`overloadsWithComputedNames`, which flips too. Cases converted:
+`symbolProperty39`, `symbolProperty40`, `symbolProperty41`,
+`symbolDeclarationEmit3`, `overloadsWithComputedNames`. 0 lost on either
+dump. Median CPU new/old: 1.012 domain-model, 0.999 generic-imports, both
+within noise. The loop now does less work, since it no longer prints each
+sibling's signature.
+
+### 5.2 `r5-shapes-missing-declaration-name.diff` (`declared.rs`)
+
+**Owner:** r5-declared2.
+
+**What it ports.** `new_named_type` reads the declaration name through
+`scanner.DeclarationNameToString` (`scanner/utilities.go:76`): a zero-width
+name, which is the parser's missing identifier, prints `(Missing)`.
+
+**Measured:** types +3 lines (`reservedWords2`, `reservedWords3`,
+`parserEnumDeclaration4`). Cases converted: `reservedWords3`,
+`parserEnumDeclaration4`. 0 lost (same run as §5.1).
+
+### 5.3 `r5-shapes-implicit-return-undefined.diff` (`signatures.rs`)
+
+**Owner:** r5-funcdecl.
+
+**What it ports.** `getReturnTypeFromBody`'s empty-aggregate arm for a plain
+function (`checker.go:20175`–`:20188`). With no return expression, the
+inferred return is `undefinedType` when some constituent of the contextual
+return type is `undefined`, and `voidType` otherwise. The async arm already
+carried this rule. The plain arm answered `void` at its three empty exits:
+every return bare, no returns, and a reachable end. All three now call
+`empty_return_aggregate_type`. A contextual return type the port cannot
+decide keeps `void`, as before.
+
+**Measured** separately, on top of the §4 commits: types +14 lines,
+diagnostics +1 case (`functionsMissingReturnStatementsAndExpressionsStrictNullChecks`,
+whose TS2322 elaboration now names `undefined`), 0 lost. Cases converted:
+`functionsMissingReturnStatementsAndExpressions(target=es2015)`,
+`functionsMissingReturnStatementsAndExpressionsStrictNullChecks`,
+`inferenceDoesNotAddUndefinedOrNull`. Median CPU new/old: 0.966
+domain-model, 1.021 generic-imports, both under the 1.03 bar.
+
+The three diffs touch different files and each applies to this branch's
+head on its own.
