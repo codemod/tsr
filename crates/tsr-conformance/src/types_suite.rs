@@ -45,10 +45,11 @@
 //!
 //! # The exclusions, and why each is not a free pass
 //!
-//! - **Configuration-varied baselines** (2,032 of 12,155) are skipped, the same
-//!   way every other suite skips them, until `bd tsr-bb4.1` runs per configuration.
-//!   A `case(target=es5).types` records one of several compilations and matching
-//!   it against a single default run is not a comparison.
+//! - **Configuration-varied baselines** (2,032 of 12,155) are skipped by this
+//!   row: a `case(target=es2015).types` records one of several compilations,
+//!   and matching it against a single default run is not a comparison.
+//!   [`CheckerTypesConfigured`] judges each of those compilations against its
+//!   own suffixed baseline (ADR-0047).
 //! - **Known divergences** (`.types.diff`) are skipped: upstream itself records
 //!   that its output differs from TypeScript's there, so the baseline is not a
 //!   specification.
@@ -181,13 +182,19 @@ impl Suite for CheckerTypes {
         // sends all 2,032 of them into the "no baseline" bucket — the right
         // outcome under a reason that says something else, which is how a skip
         // count stops meaning anything.
-        if case.has_varied_types() {
-            return skip("configuration-varied baseline (bd tsr-bb4.1)");
+        if case.configuration.is_none() && case.has_varied_types() {
+            return skip(
+                "configuration-varied baseline, judged per configuration by \
+                 checker_types_configured",
+            );
         }
         if case.has_known_divergence() {
             return skip("upstream records a known divergence from TypeScript");
         }
         let Some(text) = case.expected_types() else {
+            if case.configuration.is_some() && !case.has_any_baseline() {
+                return skip(&crate::diagnostics_suite::no_output_reason(case));
+            }
             return skip("upstream recorded no .types baseline");
         };
 
@@ -224,6 +231,44 @@ impl Suite for CheckerTypes {
             },
             lines: Some(comparison.lines),
         }
+    }
+}
+
+/// `checker_types`, over each named configuration of a case whose directives
+/// vary ([`crate::Corpus::configured`]), against that configuration's own
+/// `case(<configuration>).types`.
+///
+/// [`CheckerTypes::judge`] unchanged; a row of its own so the plain row's
+/// denominator does not move (ADR-0047).
+pub struct CheckerTypesConfigured;
+
+impl Suite for CheckerTypesConfigured {
+    fn name(&self) -> &'static str {
+        "checker_types_configured"
+    }
+
+    fn describes(&self) -> &'static str {
+        "the checker_types judgement for each configuration upstream's runner compiles \
+         a configuration-varied case under (`// @target: es2015, esnext`), against that \
+         configuration's suffixed .types baseline"
+    }
+
+    fn run(&self, case: &CaseEntry) -> Outcome {
+        self.judge(case).outcome
+    }
+
+    fn judge(&self, case: &CaseEntry) -> Judgement {
+        if case.configuration.is_none() {
+            return Judgement {
+                outcome: Outcome::Skipped { reason: "not a named configuration".into() },
+                lines: None,
+            };
+        }
+        CheckerTypes.judge(case)
+    }
+
+    fn per_configuration(&self) -> bool {
+        true
     }
 }
 

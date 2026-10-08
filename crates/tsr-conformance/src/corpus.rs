@@ -29,6 +29,12 @@
 //! Missing that would silently resolve those cases to "expects no diagnostics",
 //! inflating any parser pass rate by up to 793 cases. The baseline index below
 //! therefore matches variants, not just exact names.
+//!
+//! The suites that judge per configuration (`diagnostics_configured`,
+//! `checker_types_configured`) enumerate the variants themselves with
+//! [`CaseEntry::configured`]: one [`CaseEntry`] per compilation upstream runs,
+//! named `suite/case(target=es5)` so that its [`CaseEntry::stem`] *is* the
+//! suffixed baseline stem. See [`crate::configuration`] and ADR-0047.
 
 use std::{
     collections::HashSet,
@@ -38,7 +44,10 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::case::TestCase;
+use crate::{
+    case::TestCase,
+    configuration::{self, Configuration, Configurations},
+};
 
 /// The file names present in one suite's baseline directory.
 ///
@@ -124,6 +133,10 @@ pub struct CaseEntry {
     pub path: PathBuf,
     /// Index of the baseline directory this case's outputs live in.
     pub baselines: Arc<BaselineIndex>,
+    /// The named configuration this entry compiles, for a variant of a case
+    /// whose directives vary (`name` then carries the `(…)` suffix); `None`
+    /// for the case as discovered.
+    pub configuration: Option<Arc<Configuration>>,
 }
 
 impl CaseEntry {
@@ -140,10 +153,73 @@ impl CaseEntry {
         let source = read_lossy(&self.path)
             .with_context(|| format!("reading case {}", self.path.display()))?;
         let mut parsed = TestCase::parse(&self.name, &self.default_unit_name(), &source);
+        // The settings the runner compiles this entry with: the variant's, or
+        // for an unvaried case its single configuration's normalised values
+        // (`@declaration: true;` compiles as `true`). A varied case loaded
+        // as itself keeps its raw directives; upstream never compiles it so.
+        let applied = match &self.configuration {
+            Some(configuration) => Some(configuration.values.clone()),
+            None => match configuration::file_based_test_configurations(&configuration::settings(
+                &parsed.options,
+            )) {
+                Configurations::Single(single) => Some(single.values),
+                _ => None,
+            },
+        };
+        if let Some(values) = applied {
+            for (name, value) in values {
+                if let Some(slot) = parsed.options.get_mut(&name) {
+                    *slot = value;
+                }
+            }
+        }
         // Upstream's `hadErrorBaseline` — see `TestCase::had_error_baseline`.
         parsed.had_error_baseline =
             self.has_varied_errors() || self.baselines.has_exact(self.stem(), "errors.txt");
         Ok(parsed)
+    }
+
+    /// How upstream's runner expands this case's directives
+    /// ([`configuration::file_based_test_configurations`]).
+    ///
+    /// For a variant entry this is the expansion of the case it came from.
+    /// A case that cannot be read has no configuration.
+    #[must_use]
+    pub fn configurations(&self) -> Configurations {
+        let Ok(source) = read_lossy(&self.path) else { return Configurations::None };
+        let parsed = TestCase::parse(&self.name, &self.default_unit_name(), &source);
+        configuration::file_based_test_configurations(&configuration::settings(&parsed.options))
+    }
+
+    /// Whether upstream compiles this case only under named configurations,
+    /// so that judging it as itself compares against a compilation upstream
+    /// never ran. Always `false` for a variant entry.
+    #[must_use]
+    pub fn is_expanded(&self) -> bool {
+        self.configuration.is_none() && matches!(self.configurations(), Configurations::Varied(_))
+    }
+
+    /// One entry per named configuration upstream compiles this case under,
+    /// in name order; empty for a case that varies nothing.
+    ///
+    /// Each is named `suite/case(<configuration>)` — upstream's
+    /// `configuredName` (`compiler_runner.go:254`) under the suite prefix —
+    /// so [`CaseEntry::stem`] and [`CaseEntry::baseline_path`] name the
+    /// suffixed baselines, and every existing key is untouched.
+    #[must_use]
+    pub fn configured(&self) -> Vec<CaseEntry> {
+        if self.configuration.is_some() {
+            return Vec::new();
+        }
+        let Configurations::Varied(list) = self.configurations() else { return Vec::new() };
+        list.into_iter()
+            .map(|configuration| CaseEntry {
+                name: format!("{}({})", self.name, configuration.name),
+                path: self.path.clone(),
+                baselines: Arc::clone(&self.baselines),
+                configuration: Some(Arc::new(configuration)),
+            })
+            .collect()
     }
 
     /// The case's basename, which is how baselines are keyed.
@@ -302,6 +378,21 @@ impl Corpus {
         entries.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(entries)
     }
+
+    /// Every named configuration of every case in `cases`
+    /// ([`CaseEntry::configured`]), sorted by name.
+    ///
+    /// Not part of [`Corpus::discover`]: the suites that judge a case as
+    /// itself must keep their population, so only a suite that judges per
+    /// configuration asks for these.
+    #[must_use]
+    pub fn configured(cases: &[CaseEntry]) -> Vec<CaseEntry> {
+        use rayon::prelude::*;
+        let mut entries: Vec<CaseEntry> =
+            cases.par_iter().flat_map_iter(CaseEntry::configured).collect();
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        entries
+    }
 }
 
 /// Recursively collect `.ts`/`.tsx` cases.
@@ -331,6 +422,7 @@ fn collect(
             name: format!("{suite}/{stem}"),
             path: path.clone(),
             baselines: Arc::clone(baselines),
+            configuration: None,
         });
     }
     Ok(())

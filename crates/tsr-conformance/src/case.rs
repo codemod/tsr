@@ -202,6 +202,11 @@ impl Directive {
         let (name, rest) = rest.split_at(name_end);
 
         let value = rest.trim_start().strip_prefix(':')?;
+        // `([^\r\n]*)`: a lone `\r` ends the value. Lines are split on
+        // `\r?\n`, so a file with bare-CR line endings is one line whose
+        // directive value would otherwise run to the end of the file
+        // (`conformance/templateStringMultiline3_ES6`).
+        let value = value.split('\r').next().unwrap_or(value);
 
         Some(Self { name: name.to_ascii_lowercase(), value: value.trim().to_string() })
     }
@@ -313,6 +318,12 @@ mod tests {
     fn leading_bom_does_not_hide_the_first_directive() {
         let case = TestCase::parse("c/x", "x.ts", "\u{feff}// @target: es5\nconst a = 1;\n");
         assert_eq!(case.options.get("target").map(String::as_str), Some("es5"));
+    }
+
+    #[test]
+    fn a_bare_carriage_return_ends_a_directive_value() {
+        let case = TestCase::parse("c/x", "x.ts", "// @target: es6\r\r// note\r`\r`");
+        assert_eq!(case.options.get("target").map(String::as_str), Some("es6"));
     }
 
     #[test]

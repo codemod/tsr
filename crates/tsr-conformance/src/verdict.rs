@@ -7,7 +7,9 @@
 //! `.types` baseline repeats a line like `>x : number` many times in one
 //! file and a text key would collapse them. The population and alignment
 //! shape are `wrongdelta`'s: same skips, same `has_varied_types` /
-//! known-divergence filter, same `assertions_for_case_with_ids` walk.
+//! known-divergence filter, same `assertions_for_case_with_ids` walk — plus
+//! one row set per named configuration of a varied case
+//! ([`crate::Corpus::configured`]), keyed by its suffixed name.
 
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
@@ -19,7 +21,12 @@ use crate::{Corpus, repo_root, types_baseline, types_producer};
 #[must_use]
 pub fn verdict_rows(filter: &[String]) -> Vec<String> {
     let corpus = Corpus::from_repo_root(&repo_root());
-    let cases = corpus.discover().expect("corpus");
+    let mut cases = corpus.discover().expect("corpus");
+    // Each named configuration of a varied case is its own population,
+    // keyed `case(target=es2015):file:position`, so no existing key moves
+    // (ADR-0047). The varied case as itself stays out, below.
+    let configured = Corpus::configured(&cases);
+    cases.extend(configured);
     let mut rows: Vec<String> = cases
         .par_iter()
         .flat_map_iter(|case| {
@@ -27,7 +34,9 @@ pub fn verdict_rows(filter: &[String]) -> Vec<String> {
             if !filter.is_empty() && !filter.iter().any(|needle| case.name.contains(needle)) {
                 return out;
             }
-            if case.has_varied_types() || case.has_known_divergence() {
+            if (case.configuration.is_none() && case.has_varied_types())
+                || case.has_known_divergence()
+            {
                 return out;
             }
             let Some(text) = case.expected_types() else { return out };

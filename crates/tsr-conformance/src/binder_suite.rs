@@ -77,6 +77,35 @@ use crate::{
 /// Does every symbol upstream found exist here, declared on the same lines?
 pub struct BinderSymbols;
 
+/// `binder_symbols`, over each named configuration of a case whose directives
+/// vary ([`crate::Corpus::configured`]), against that configuration's own
+/// `case(<configuration>).symbols`; a row of its own so the plain row's
+/// denominator does not move (ADR-0047).
+pub struct BinderSymbolsConfigured;
+
+impl Suite for BinderSymbolsConfigured {
+    fn name(&self) -> &'static str {
+        "binder_symbols_configured"
+    }
+
+    fn describes(&self) -> &'static str {
+        "the binder_symbols judgement for each configuration upstream's runner compiles \
+         a configuration-varied case under, against that configuration's suffixed \
+         .symbols baseline"
+    }
+
+    fn run(&self, case: &CaseEntry) -> Outcome {
+        if case.configuration.is_none() {
+            return Outcome::Skipped { reason: "not a named configuration".into() };
+        }
+        BinderSymbols.run(case)
+    }
+
+    fn per_configuration(&self) -> bool {
+        true
+    }
+}
+
 impl Suite for BinderSymbols {
     fn name(&self) -> &'static str {
         "binder_symbols"
@@ -94,12 +123,19 @@ impl Suite for BinderSymbols {
         // a plain and a varied baseline, so the pass *rate* was never affected;
         // only the skip breakdown was, and it overstated how much upstream had
         // recorded nothing for.
-        if case.has_varied_symbols() {
+        if case.configuration.is_none() && case.has_varied_symbols() {
             return Outcome::Skipped {
-                reason: "configuration-varied baseline (bd tsr-bb4.1)".into(),
+                reason: "configuration-varied baseline, judged per configuration by \
+                         binder_symbols_configured"
+                    .into(),
             };
         }
         let Some(baseline) = case.expected_symbols() else {
+            if case.configuration.is_some() && !case.has_any_baseline() {
+                return Outcome::Skipped {
+                    reason: crate::diagnostics_suite::no_output_reason(case),
+                };
+            }
             return Outcome::Skipped { reason: "upstream recorded no .symbols baseline".into() };
         };
         if case.has_known_divergence() {
