@@ -2380,11 +2380,18 @@ impl<'a, 'n> Checker<'a, 'n> {
             .iter()
             .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
         {
-            let paths = self
-                .module_host
-                .zip(self.source_file_of(reference))
-                .and_then(|(host, from)| Some((host.file_path(from)?, host.file_path(file)?)));
-            let Some((from, to)) = paths else {
+            // `computeModuleSpecifiers`' existing-import arm comes before
+            // any computed path (r5-modules §4).
+            if let Some(from) = self.source_file_of(reference)
+                && let Some(existing) = self.existing_import_specifier(from, file)
+            {
+                return Some(crate::printing::quote(&existing));
+            }
+            let paths =
+                self.module_host.zip(self.source_file_of(reference)).and_then(|(host, from)| {
+                    Some((host.file_path(from)?, host.file_path(file)?, from, host))
+                });
+            let Some((from, to, from_file, host)) = paths else {
                 let relative = symbol.name.strip_prefix('/')?;
                 return (!relative.contains('/') && !relative.is_empty())
                     .then(|| format!("\"./{relative}\""));
@@ -2392,12 +2399,29 @@ impl<'a, 'n> Checker<'a, 'n> {
             if to.contains("/node_modules/") {
                 return None;
             }
-            let stem = [".d.ts", ".tsx", ".ts", ".jsx", ".js"]
-                .iter()
-                .find_map(|extension| to.strip_suffix(extension))?;
-            // `moduleSpecifiers`' `index` stripping: `./dir/index` is spelled
-            // `./dir`, and the importing directory's own index `.`.
-            let (stem, index) = match stem.strip_suffix("/index") {
+            // `processEnding` (`modulespecifiers/specifiers.go:636`) under the
+            // node builder's ending choice (r5-modules §4).
+            let js_ending = self.module_specifier_uses_js_ending(
+                from_file,
+                host.default_resolution_mode_for_file(from_file),
+            )?;
+            let (input, output) = self.js_extension_for_file(&to)?;
+            let base = &to[..to.len() - input.len()];
+            let keeps_extension =
+                matches!(input, ".mjs" | ".cjs" | ".mts" | ".cts" | ".d.mts" | ".d.cts");
+            let spelled;
+            let stem = if js_ending || keeps_extension {
+                spelled = format!("{base}{output}");
+                spelled.as_str()
+            } else {
+                base
+            };
+            // `moduleSpecifiers`' `index` stripping (the minimal ending only):
+            // `./dir/index` is spelled `./dir`, and the importing directory's
+            // own index `.`.
+            let stripped =
+                (!js_ending && !keeps_extension).then(|| stem.strip_suffix("/index")).flatten();
+            let (stem, index) = match stripped {
                 Some("") => ("/", true),
                 Some(directory) => (directory, true),
                 None => (stem, false),

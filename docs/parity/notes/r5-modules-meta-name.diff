@@ -1,0 +1,30 @@
+diff --git a/crates/tsr-conformance/src/types_producer.rs b/crates/tsr-conformance/src/types_producer.rs
+index 7e37cc8..20a0129 100644
+--- a/crates/tsr-conformance/src/types_producer.rs
++++ b/crates/tsr-conformance/src/types_producer.rs
+@@ -615,6 +615,25 @@ pub fn type_id_at_location_tracking<'a>(
+         return computed;
+     }
+ 
++    // The meta-property arm of `IsRightSideOfQualifiedNameOrPropertyAccess`
++    // (`ast/utilities.go:3700`), which `getRegularTypeOfExpression` follows
++    // to the parent: the `meta` of `import.meta` types as `import.meta`.
++    // Upstream's writer never takes the intrinsic fast path under a
++    // meta-property parent (`!ast.IsMetaProperty(node.Parent)`,
++    // `type_symbol_baseline.go:386`), so an error answer prints `any`.
++    if let Some(parent) = nodes.parent(id)
++        && let Some(Node::MetaProperty(meta)) = map.get(parent)
++        && meta.name.and_then(|name| name.node_id) == Some(id)
++        && let Ok(expression) = tsr_ast::Expression::try_from(Node::MetaProperty(meta))
++    {
++        let computed = checker.check_expression(expression);
++        if computed == error {
++            *saw_checker_error = true;
++            return checker.intrinsics().any;
++        }
++        return computed;
++    }
++
+     // §841: the qualified half of `isRightSideOfQualifiedNameOrPropertyAccess`.
+     //
+     // Upstream's predicate is one function covering both spellings; the arm

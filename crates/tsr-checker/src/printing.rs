@@ -698,6 +698,185 @@ impl Checker<'_, '_> {
         self.render_type_parameter_names.allocations.truncate(names_depth);
         text
     }
+
+    /// `computeModuleSpecifiers`' first arm (`modulespecifiers/specifiers.go:369`):
+    /// the first entry of `importing`'s `Imports()` that resolves to `target`
+    /// names it with its own text — unless its usage mode and the file's
+    /// default resolution mode are both set and differ, in which case no
+    /// existing import is used at all (upstream `continue`s the module-path
+    /// loop rather than trying a later import).
+    ///
+    /// `Imports()` order is statement-level specifiers (import, export and
+    /// `import x = require` declarations) in source order, then dynamic
+    /// `import()` calls and literal import types by position
+    /// (`collectExternalModuleReferences`, mirrored by
+    /// `tsr_parser::collect_external_module_references`). The dynamic half
+    /// is a tree walk, taken only when no statement-level import matched; no
+    /// cache, since the question is asked only for a module the reference
+    /// cannot name through an alias. JS `require()` calls and JSDoc import
+    /// types are not read (a JS target reached only that way falls through to
+    /// the computed specifier). r5-modules §4.
+    pub(crate) fn existing_import_specifier(
+        &self,
+        importing: tsr_ast::NodeId,
+        target: tsr_ast::NodeId,
+    ) -> Option<String> {
+        use tsr_ast::{Expression, ModuleReference, Node, Statement};
+        let host = self.module_host?;
+        let Some(Node::SourceFile(source)) = self.node_map.get(importing) else {
+            return None;
+        };
+        let resolves = |usage: tsr_ast::NodeId, text: &str| {
+            let mode = host.mode_for_usage_location(importing, usage);
+            (host.resolved_module_in_mode(importing, text, mode) == Some(target)).then_some(mode)
+        };
+        let statement_level = source.statements.iter().find_map(|statement| {
+            let specifier = match statement {
+                Statement::ImportDeclaration(node) => node.module_specifier,
+                Statement::ExportDeclaration(node) => node.module_specifier,
+                Statement::ImportEqualsDeclaration(node) => match node.module_reference {
+                    Some(ModuleReference::ExternalModuleReference(external)) => external.expression,
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(Expression::StringLiteral(literal)) = specifier else { return None };
+            let usage = literal.node_id?;
+            resolves(usage, literal.text).map(|mode| (literal.text, mode))
+        });
+        let found = statement_level.or_else(|| {
+            let mut dynamic: Vec<(u32, tsr_ast::NodeId, &str)> = Vec::new();
+            let mut stack = vec![Node::from(source)];
+            let mut children = Vec::new();
+            while let Some(node) = stack.pop() {
+                let literal = match node {
+                    Node::CallExpression(call)
+                        if matches!(call.expression,
+                            Some(Expression::KeywordExpression(keyword))
+                                if keyword.kind == tsr_ast::SyntaxKind::ImportKeyword) =>
+                    {
+                        match call.arguments.first().map(|argument| Node::from(*argument)) {
+                            Some(Node::StringLiteral(literal)) => {
+                                literal.node_id.map(|id| (id, literal.text))
+                            }
+                            Some(Node::NoSubstitutionTemplateLiteral(literal)) => {
+                                literal.node_id.map(|id| (id, literal.text))
+                            }
+                            _ => None,
+                        }
+                    }
+                    Node::ImportTypeNode(import) => match import.argument {
+                        Some(tsr_ast::TypeNode::LiteralTypeNode(literal_type)) => {
+                            match literal_type.literal {
+                                Some(Node::StringLiteral(literal)) => {
+                                    literal.node_id.map(|id| (id, literal.text))
+                                }
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some((id, text)) = literal {
+                    dynamic.push((self.nodes.span(id).start, id, text));
+                }
+                children.clear();
+                tsr_ast::push_children(node, &mut children);
+                stack.extend(children.iter().copied());
+            }
+            dynamic.sort_by_key(|&(position, _, _)| position);
+            dynamic
+                .into_iter()
+                .find_map(|(_, usage, text)| resolves(usage, text).map(|mode| (text, mode)))
+        });
+        let (text, mode) = found?;
+        let target_mode = host.default_resolution_mode_for_file(importing);
+        let none = tsr_core::ModuleKind::None;
+        if mode != target_mode && mode != none && target_mode != none {
+            return None;
+        }
+        Some(text.to_string())
+    }
+
+    /// The node builder's ending choice for a computed relative specifier:
+    /// `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1301`) asks for the
+    /// `.js` ending when the resolution mode is ESM and for none otherwise;
+    /// `getModuleSpecifierEndingPreference` (`modulespecifiers/preferences.go`)
+    /// then answers `JsExtension` for an explicit `.js` request, and with no
+    /// preference `usesExtensionsOnImports(file) ? JsExtension : Minimal`.
+    /// `Some(true)` is the `.js` ending, `Some(false)` minimal; `None` where
+    /// `allowImportingTsExtensions` makes `inferPreference` (with its `.ts`
+    /// ending) the answer, which this port does not spell.
+    pub(crate) fn module_specifier_uses_js_ending(
+        &self,
+        importing: tsr_ast::NodeId,
+        mode: tsr_core::ModuleKind,
+    ) -> Option<bool> {
+        use tsr_ast::{Expression, ModuleReference, Statement};
+        if self.allow_importing_ts_extensions {
+            return None;
+        }
+        if mode == tsr_core::ModuleKind::ESNext {
+            return Some(true);
+        }
+        // `usesExtensionsOnImports`: the FIRST relative import whose extension
+        // is optional decides.
+        let Some(tsr_ast::Node::SourceFile(source)) = self.node_map.get(importing) else {
+            return Some(false);
+        };
+        let decided = source.statements.iter().find_map(|statement| {
+            let specifier = match statement {
+                Statement::ImportDeclaration(node) => node.module_specifier,
+                Statement::ExportDeclaration(node) => node.module_specifier,
+                Statement::ImportEqualsDeclaration(node) => match node.module_reference {
+                    Some(ModuleReference::ExternalModuleReference(external)) => external.expression,
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(Expression::StringLiteral(literal)) = specifier else { return None };
+            let text = literal.text;
+            if !tsr_path::path_is_relative(text)
+                || [".mjs", ".cjs", ".mts", ".cts", ".d.mts", ".d.cts"]
+                    .iter()
+                    .any(|extension| text.ends_with(extension))
+            {
+                return None;
+            }
+            Some(
+                [".ts", ".tsx", ".d.ts", ".js", ".jsx"]
+                    .iter()
+                    .any(|extension| text.ends_with(extension)),
+            )
+        });
+        Some(decided.unwrap_or(false))
+    }
+
+    /// `module.TryGetJSExtensionForFile` (`module/util.go:178`): the
+    /// extension a `.js`-ending specifier gives a file.
+    pub(crate) fn js_extension_for_file(&self, path: &str) -> Option<(&'static str, &'static str)> {
+        // (input extension, output extension), longest input first.
+        const TABLE: [(&str, &str); 11] = [
+            (".d.mts", ".mjs"),
+            (".d.cts", ".cjs"),
+            (".d.ts", ".js"),
+            (".mts", ".mjs"),
+            (".cts", ".cjs"),
+            (".tsx", ""),
+            (".ts", ".js"),
+            (".mjs", ".mjs"),
+            (".cjs", ".cjs"),
+            (".jsx", ".jsx"),
+            (".js", ".js"),
+        ];
+        let &(input, output) = TABLE.iter().find(|(input, _)| path.ends_with(input))?;
+        if input == ".tsx" {
+            let output = if self.jsx_emit == tsr_core::JsxEmit::Preserve { ".jsx" } else { ".js" };
+            return Some((input, output));
+        }
+        Some((input, output))
+    }
 }
 
 /// Render a type.
