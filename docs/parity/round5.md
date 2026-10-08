@@ -684,3 +684,27 @@ The freed slot went to r5-align, the largest cause left in unowned files: 52
 cases fail only on type lines that never align with the baseline (the types
 producer's walker). It also takes `.1069`, the timing pass for known-divergence
 cases.
+
+### r5-instexpr finished; r5-shapes dispatched (`tsr-2zk.1073`)
+
+r5-instexpr made two changes:
+- instantiation expressions (getInstantiationExpressionType and
+  checkExpressionWithTypeArguments, with a cache keyed (node, exprType)):
+  +91 type lines and +1 case; instantiationExpressionErrors is now fully RIGHT;
+- unique-symbol identity keyed on the declaration symbol: +14 lines.
+
+Its node-reuse diff (+20) and the call-site identity diff land with it. All are
+zero-loss, with Ir flat. The remainder is filed as `.1074`.
+
+The freed slot went to r5-shapes, which takes the typetriage's unowned mixed
+buckets: signature-differs (26 cases solely blocked), object-members-differ
+(17), partial-any (14), function-expression error (8) and others. It
+sub-clusters them by producer first, then fixes.
+
+r5-typetriage also left a held diff for the T_1 rename,
+`r5-typetriage-shadow-site-anchor.diff` (+27/−2 lines, +5 cases). It anchors the
+shadow test at the print site and ports the binder's computed-name rule
+(nameresolver.go:216-227). It is not lossless: rename_type_parameters_for_site
+renames by instantiation and re-resolves deferred conditional constraints, where
+native renames only at print time. It waits on a print-only rename in
+inference.rs (`.1072`, main `.9`).
