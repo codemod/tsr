@@ -1549,6 +1549,7 @@ impl Checker<'_, '_> {
         let in_parameter_initializer =
             self.is_in_parameter_initializer_before_containing_function(node);
         let mut current = self.nodes.parent(node);
+        let mut previous = Some(node);
         while let Some(id) = current {
             // getThisContainer skips object members when evaluating their
             // computed names. Class computed-name diagnostics use a separate
@@ -1558,6 +1559,7 @@ impl Checker<'_, '_> {
                     self.nodes.parent(id).and_then(|member| self.nodes.parent(member))
                 && self.nodes.kind(owner) == SyntaxKind::ObjectLiteralExpression
             {
+                previous = Some(owner);
                 current = self.nodes.parent(owner);
                 continue;
             }
@@ -1700,6 +1702,19 @@ impl Checker<'_, '_> {
                 | SyntaxKind::CallSignature
                 | SyntaxKind::ConstructSignature
                 | SyntaxKind::IndexSignature => return self.intrinsics.any,
+                // `ast.GetThisContainer` (`utilities.go:1790`) has no class
+                // arm: a class is reached only through one of its members. A
+                // `this` in the class's own `extends`/`implements` clause
+                // walks on to the enclosing container.
+                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                    if previous.is_some_and(|child| {
+                        self.nodes.kind(child) == SyntaxKind::HeritageClause
+                    }) =>
+                {
+                    previous = Some(id);
+                    current = self.nodes.parent(id);
+                    continue;
+                }
                 SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
                     let Some(symbol) = self.binder.symbol_of(id) else {
                         return self.intrinsics.error;
@@ -1818,6 +1833,7 @@ impl Checker<'_, '_> {
                 }
                 _ => {}
             }
+            previous = Some(id);
             current = self.nodes.parent(id);
         }
         self.intrinsics.error

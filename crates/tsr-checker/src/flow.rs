@@ -3012,6 +3012,12 @@ impl Checker<'_, '_> {
         if self.intersection_has_never_discriminant(t) {
             return Some(Vec::new());
         }
+        // `typeof globalThis` is the global value module's anonymous type
+        // (`resolveAnonymousTypeMembers` over a `ValueModule` symbol): no
+        // call or construct signatures. This port mints it without a symbol.
+        if self.global_this_type == Some(t) {
+            return Some(Vec::new());
+        }
         if let Some(signatures) = self.signature_types.get(&t).cloned() {
             return signatures
                 .into_iter()
