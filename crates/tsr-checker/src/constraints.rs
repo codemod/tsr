@@ -300,8 +300,8 @@ impl Checker<'_, '_> {
         if !self.active_inference_contexts.is_empty() {
             return ty;
         }
-        let parts = match self.store.get(ty).data.clone() {
-            TypeData::Union { types, .. } => types,
+        let parts = match &self.store.get(ty).data {
+            TypeData::Union { types, .. } => types.clone(),
             _ => vec![ty],
         };
         if !parts.iter().any(|&part| self.generic_type_with_union_constraint(part)) {
@@ -486,7 +486,8 @@ impl Checker<'_, '_> {
     }
 
     fn generic_type_with_union_constraint(&mut self, ty: TypeId) -> bool {
-        if let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() {
+        if let TypeData::Intersection { types, .. } = &self.store.get(ty).data {
+            let types = types.clone();
             return types.into_iter().any(|ty| self.generic_type_with_union_constraint(ty));
         }
         if self.instantiable_constraint_type(ty) {

@@ -619,3 +619,22 @@ mallocs 8,112,413 → **6,748,163** (−16.8%). Verified ratio:
 domain-model-large 0.971 → 0.942, domain-model 0.898 → 0.883,
 generic-imports 0.911 → 0.922 (noise band). CPU vs base: domain-model 1.015,
 generic-imports 0.999.
+
+### §16.2 Read type data in place instead of cloning it
+
+Hot readers cloned a whole `TypeData` (or a list) to pattern-match it:
+`get_index_infos_of_type` (`index_signatures.rs`), the two union/intersection
+tests in `constraints.rs`, `is_type_parameter_at_top_level_with_depth`
+(`inference.rs`) and `indexed_access_object_is_generic` (`indexed.rs`) now
+match by reference and copy only a composite's constituent list when they
+recurse. `instantiate_for_reference_with_this` reads the reference's
+arguments in place instead of cloning them, and `get_property_of_type_ex`'s
+miss path keeps its at-most-three global fallbacks in a fixed array.
+
+mallocs 6,748,163 → **6,339,063** (−6.1%; −21.9% vs base). Verified ratio:
+domain-model-large 0.942 → 0.966, domain-model 0.883 → 0.884,
+generic-imports 0.922 → 0.941 — all inside this box's ±3% wall noise for
+these pairs. Median-CPU ratios on domain-model swung 0.93–1.05 between runs
+of the same binaries; interleaved `perf stat -e task-clock -r 40` rounds put
+§16.2 at or below base (388.5 / 376.9 / 373.8 ms and 337.4 / 342.3 /
+330.1 ms for base / §16.1 / §16.2). Dumps byte-identical.

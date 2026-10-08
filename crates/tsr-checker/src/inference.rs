@@ -7477,8 +7477,9 @@ impl Checker<'_, '_> {
             return true;
         }
         if let crate::types::TypeData::Union { types, .. }
-        | crate::types::TypeData::Intersection { types, .. } = self.store.get(id).data.clone()
+        | crate::types::TypeData::Intersection { types, .. } = &self.store.get(id).data
         {
+            let types = types.clone();
             return types
                 .iter()
                 .any(|&t| self.is_type_parameter_at_top_level_with_depth(t, parameter, depth));

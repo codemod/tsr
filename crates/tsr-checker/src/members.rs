@@ -2052,42 +2052,43 @@ impl Checker<'_, '_> {
         // resolveTypeReferenceMembers also supplies a this argument for a
         // non-generic class or interface. The port keeps those as Named types
         // rather than entries in type_reference_targets.
-        let (symbol, arguments) =
-            if let Some((symbol, arguments)) = self.type_reference_targets.get(&receiver) {
-                (*symbol, Some(arguments.clone()))
-            } else if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
-                && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
-                && self
-                    .binder
-                    .symbols()
-                    .get(symbol)
-                    .flags
-                    .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
-            {
-                (symbol, None)
-            } else {
-                return declared;
-            };
+        let symbol = if let Some((symbol, _)) = self.type_reference_targets.get(&receiver) {
+            *symbol
+        } else if self.store.get(receiver).flags.contains(TypeFlags::OBJECT)
+            && let TypeData::Named { members: Some(symbol), .. } = self.store.get(receiver).data
+            && self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            symbol
+        } else {
+            return declared;
+        };
         let error = self.intrinsics.error;
         let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
             return error;
         };
-        let arguments = arguments
-            .unwrap_or_else(|| parameters.iter().map(|(parameter, _)| *parameter).collect());
-        if parameters.len() != arguments.len() {
-            return error;
-        }
         // instantiateSymbol (checker.go:20753) retains the complete receiver
         // mapper. A member's own same-named parameter has a distinct TypeId,
         // so it survives while an outer parameter in the same return is mapped.
+        // A non-reference receiver supplies its own parameters (an identity
+        // map, nothing to record). The arguments are read in place.
         let mut names: Vec<&str> = Vec::new();
         let mut types: Vec<TypeId> = Vec::new();
         let mut map: Vec<(TypeId, TypeId)> = Vec::new();
-        for (index, (parameter, name)) in parameters.iter().enumerate() {
-            if *parameter != arguments[index] {
-                names.push(name.as_str());
-                types.push(*parameter);
-                map.push((*parameter, arguments[index]));
+        if let Some((_, arguments)) = self.type_reference_targets.get(&receiver) {
+            if parameters.len() != arguments.len() {
+                return error;
+            }
+            for ((parameter, name), &argument) in parameters.iter().zip(arguments) {
+                if *parameter != argument {
+                    names.push(name.as_str());
+                    types.push(*parameter);
+                    map.push((*parameter, argument));
+                }
             }
         }
         // resolveTypeReferenceMembers pads the type arguments with the
@@ -2489,7 +2490,14 @@ impl Checker<'_, '_> {
             && !withheld
             && self.store.get(id).flags.contains(TypeFlags::OBJECT)
         {
-            let mut fallbacks: Vec<&str> = Vec::new();
+            // At most three globals; a fixed list keeps the miss path
+            // allocation-free.
+            let mut fallbacks: [&str; 3] = [""; 3];
+            let mut fallback_count = 0;
+            let mut push = |global: &'static str| {
+                fallbacks[fallback_count] = global;
+                fallback_count += 1;
+            };
             // §395: a CLASS's static side is a constructor function — its
             // misses fall through the Function interface before Object
             // (`Foo.name : string`, `deleteReadonlyInStrictNullChecks`).
@@ -2535,22 +2543,18 @@ impl Checker<'_, '_> {
                 // `ElementRef & Function` rows, via
                 // `narrow_type_by_type_facts`' third arm.
                 if self.strict_bind_call_apply {
-                    fallbacks.push(if all_construct {
-                        "NewableFunction"
-                    } else {
-                        "CallableFunction"
-                    });
+                    push(if all_construct { "NewableFunction" } else { "CallableFunction" });
                 }
-                fallbacks.push("Function");
+                push("Function");
             }
             // Resolved class constructors use NewableFunction before Function,
             // just as getPropertyOfTypeEx selects by signature kind. Retain the
             // previous fallback only when constructor resolution is unsupported.
             if class_static && !has_call && !has_construct {
-                fallbacks.push("Function");
+                push("Function");
             }
-            fallbacks.push("Object");
-            for global in fallbacks {
+            push("Object");
+            for &global in &fallbacks[..fallback_count] {
                 let Some(interface) = self.global_type_symbol_with_arity(global, 0) else {
                     continue;
                 };

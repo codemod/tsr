@@ -83,12 +83,19 @@ impl<'a> Checker<'a, '_> {
         }
         let id = self.apparent_mapped_type(id);
         self.resolve_mapped_type_members(id);
-        match self.store.get(id).data.clone() {
-            TypeData::Union { types, .. } => {
+        // Copy out only a composite's constituents; other shapes are read in
+        // place below without cloning their data.
+        let composite = match &self.store.get(id).data {
+            TypeData::Union { types, .. } => Some((types.clone(), true)),
+            TypeData::Intersection { types, .. } => Some((types.clone(), false)),
+            _ => None,
+        };
+        match composite {
+            Some((types, true)) => {
                 return self.union_index_infos(&types);
             }
             // resolveIntersectionTypeMembers / appendIndexInfo (checker.go).
-            TypeData::Intersection { types, .. } => {
+            Some((types, false)) => {
                 let mut infos: Vec<IndexInfo> = Vec::new();
                 for ty in types {
                     for next in self.get_index_infos_of_type(ty)? {
