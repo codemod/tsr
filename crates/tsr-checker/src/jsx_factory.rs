@@ -168,7 +168,7 @@ impl Checker<'_, '_> {
                 span,
                 [name.to_string(), lib.to_string()],
             )
-        } else if let Some(suggestion) = self.spelling_suggestion_for(location, name) {
+        } else if let Some(suggestion) = self.spelling_suggestion_for(location, name, flags) {
             Diagnostic::with_args(
                 &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
                 span,
