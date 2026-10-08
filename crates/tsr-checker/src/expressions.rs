@@ -3458,6 +3458,27 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `GetPromisedTypeOfPromise` (`checker.go:28920`): the type of the
+    /// `value` parameter of a promise's `onfulfilled` callback. `Some(Native::Nil)`
+    /// is native's `nil` (not a promise), `None` a gap.
+    pub(crate) fn promised_type_of_promise(&mut self, id: TypeId) -> Option<Native> {
+        self.promised_type_of_promise_worker(id, &mut None)
+    }
+
+    /// `getAwaitedTypeOfPromise` (`checker.go:31458`): the awaited type of
+    /// a promise's promised type, `Some(Native::Nil)` where native answers `nil`.
+    pub(crate) fn awaited_type_of_promise(&mut self, id: TypeId) -> Option<Native> {
+        let Native::Type(promised) = self.promised_type_of_promise(id)? else {
+            return Some(Native::Nil);
+        };
+        let Native::Type(awaited) =
+            self.awaited_type_no_alias_worker(promised, &mut Vec::new(), None)?
+        else {
+            return Some(Native::Nil);
+        };
+        self.create_awaited_type_if_needed(awaited).map(Native::Type)
+    }
+
     /// `getPromisedTypeOfPromiseEx` (`checker.go:28926`) without an error
     /// node: the global `Promise` short-circuit, the primitive exclusion,
     /// compatible `then` signatures (a rejected `this` goes to
