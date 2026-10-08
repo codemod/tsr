@@ -221,7 +221,7 @@ impl Checker<'_, '_> {
                         // (`checker.go:27187`). With no applicable signature
                         // the string signature answers, even for a symbol key
                         // (`checker.go:27077`; r5-shapes §2.7).
-                        if let Some(info) = self.index_info_for_property_key(parent_type, key) {
+                        if let Some(info) = self.destructuring_index_info(parent_type, key) {
                             let include = self.no_unchecked_indexed_access;
                             self.include_unchecked_undefined(info.value, include, parent_type, key)
                         } else {
@@ -1229,8 +1229,44 @@ impl Checker<'_, '_> {
         let Some(PropertyName::ComputedPropertyName(computed)) = property_name else {
             return None;
         };
-        let name = crate::indexed::late_bound_entity_name(computed.expression.as_ref()?)?;
+        let name = late_bound_entity_name(computed.expression.as_ref()?)?;
         self.get_type_of_property_of_type(parent_type, &name)
+    }
+
+    /// `getPropertyTypeForIndexType`'s index-signature choice
+    /// (`checker.go:27072`–`:27079`): the applicable signature, and when none
+    /// applies, *"we default to the string index signature. In effect, this
+    /// means the string index signature applies even when accessing with a
+    /// symbol-like type."* Upstream reaches the choice only for a non-null key
+    /// assignable to `string | number | symbol`, so the fallback carries that
+    /// gate. A destructuring key of type `symbol` against
+    /// `{ [k: string]: V }` is `V` (`lateBoundDestructuringImplicitAnyError`,
+    /// r5-shapes §2.7). `resolved_indexed_access_type` (`indexed.rs`) holds
+    /// the same rule inline; unifying the two is
+    /// `r5-shapes-indexed-never-and-shared-keys.diff`, because `indexed.rs`
+    /// belongs to another lane.
+    fn destructuring_index_info(
+        &mut self,
+        object: TypeId,
+        index: TypeId,
+    ) -> Option<crate::index_signatures::IndexInfo> {
+        if let Some(info) = self.get_applicable_index_info(object, index) {
+            return Some(info);
+        }
+        if self.store.get(index).flags.intersects(TypeFlags::NULLABLE) {
+            return None;
+        }
+        let keys = self.get_union_type(&[
+            self.intrinsics.string,
+            self.intrinsics.number,
+            self.intrinsics.es_symbol,
+        ]);
+        if !self.is_type_assignable_to(index, keys) {
+            return None;
+        }
+        self.get_index_infos_of_type(object)?
+            .into_iter()
+            .find(|info| info.key == self.intrinsics.string)
     }
 
     fn binding_element_property_name(
@@ -1329,4 +1365,31 @@ impl Checker<'_, '_> {
         let include = self.no_unchecked_indexed_access;
         self.include_unchecked_undefined(info.value, include, parent_type, key)
     }
+}
+
+/// The member key §381 (`indexed.rs`) gives a symbol-typed entity:
+/// `[Symbol.iterator]` for the expression `Symbol.iterator`. This port names
+/// a late-bound member by the entity it was declared with
+/// (`late_bound_members_of`, `members.rs`), where upstream names it by the
+/// unique symbol's `__@iterator@N` (`getPropertyNameFromType`). A reader that
+/// holds the key expression must therefore spell it the same way to find the
+/// member. The element-access arm in `indexed.rs` holds the same spelling
+/// inline; `r5-shapes-indexed-never-and-shared-keys.diff` makes it call this
+/// one. `None` for anything that is not an identifier or a property-access
+/// chain of identifiers.
+pub(crate) fn late_bound_entity_name(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+    fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+        match expression {
+            tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
+            tsr_ast::Expression::PropertyAccessExpression(access) => {
+                let base = chain_text(access.expression.as_ref()?)?;
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                    return None;
+                };
+                Some(format!("{base}.{}", name.text))
+            }
+            _ => None,
+        }
+    }
+    chain_text(expression).map(|chain| format!("[{chain}]"))
 }
