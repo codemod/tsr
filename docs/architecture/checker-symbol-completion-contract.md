@@ -478,6 +478,58 @@ The six goal tickets remain unfinished. Canonical runtime, full previously-RIGHT
 corpus, actual whole-project work and verified TSR/native median <=0.50 are
 unchanged and unproved by this checkpoint.
 
+### Declared class and reference owner continuation
+
+Frozen main `67440ffd` still has the `1cea3449` Rust runtime. The new private
+continuation migrates the actual class owner through local parameter and JSDoc
+readers and anonymous-class naming. Copies retain their declaration nodes and
+those parameters' Program-owned symbols; the copied class itself retains its
+private identity. Bound compatibility entries use validated handles.
+
+Pinned native `5b1047d` direct parsed-class controls now exercise
+`getDeclaredTypeOfClassOrInterface`,
+`appendLocalTypeParametersOfClassOrInterfaceOrTypeAlias` and
+`createTypeReferenceEx`. Cold and checked-first orders both pass all ten
+identity/reuse checks, with zero diagnostics: parameter types are shared,
+source/head/twin declared types and references remain distinct, references
+retain the selected owner, repeated arguments reuse the reference and reversed
+arguments stay distinct. The complete native source replay contains thirteen
+changed Go files, including eleven inherited control/instrumentation files;
+5,005 input hashes are unchanged through the qualified build and run.
+
+The full Rust draft changes `Named.members`, the existing instantiation keys
+and reference-target metadata to `SymbolRef`. Its selected class factory uses
+the existing declared-type link. A class-reference worker and common object
+reference publisher retain actual owners and ordered arguments in the existing
+stores; bound class reference calls delegate to that worker. Fifty-five bound
+writer arguments and four variable cache keys are lifted at their current
+writers. Alias preparation and many consumers remain bound-only. Native's early
+`this`/outer-parameter class publication is not implemented by this named-type
+factory, and the new private factory test has **not executed**.
+
+The separately compilable reader/key draft passes **1,570 checker-package
+tests**, including 209 library tests, with three existing ignores and one known
+import-owner red filtered. That red is separately executed and still fails:
+head and raw anonymous owners are both `SymbolId(1)`. All 1,053 inputs remain
+unchanged during the final package run; 114 actual executables have source-root
+and hash receipts. Strict Clippy remains six library errors versus the inherited
+runtime-equivalent baseline's five, and five library-test errors; the new
+readers add no reported lint errors. Formatter checks pass.
+
+Expanding the owner fields exposes additional consumer migrations: the full
+library reports **267 compiler errors across 37 files**, after observations of
+177, 317 and 271 during field/writer migration. These are unfinished type/API
+boundaries, not a speed result or a ceiling on the required work. Private
+symbol/type dispatch, members, bases, signatures, relations, flow, naming,
+alias/enum/`this` owners and native publication still need completion. The
+[receipt](checker-module-clone-progress.json)'s
+`declared_class_reference_continuation` preserves the lossless 26-file reader
+and 36-file full drafts, native replay, full compiler errors and raw gates.
+Historical qualified sources/fields remain immutable. No canonical runtime,
+full previously-RIGHT corpus or speed gain is claimed; all six goal tickets
+remain unfinished and the equivalent complete-work median <=0.50 target remains
+unmet and unverified.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |
