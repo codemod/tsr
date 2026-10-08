@@ -192,3 +192,25 @@ constructor parameter property `species` unread and reported TS6138
 (`compiler/unusedLocalProperty`, EMPTY_WRONG → EMPTY_RIGHT). Like every other
 entry of the stand-in this marks by text, the over-approximating direction
 the module header fixes.
+
+## §8 Private members with a late-bound (unique symbol) name
+
+`checkUnusedClassMembers` (`checker.go:7115`) reports a private member whose
+symbol is unreferenced, with `symbolToString(symbol)` as the argument; for a
+member late-bound through a unique symbol that prints the written key in
+brackets (`'[x]' is declared but its value is never read.`). The by-name
+stand-in skipped every computed name, so
+`noUnusedLocals_writeOnlyProperty_dynamicNames` (`this[x] = 0` write-only,
+`this[y]` read) missed its line.
+
+The stand-in now keys such a member as `[<entity name text>]` and notes that
+key when a non-write element access's argument is an entity name expression
+of unique-symbol type — the same symbol identity upstream's
+`getPropertyOfType(t, getPropertyNameFromType(uniqueSymbol))` reaches, by
+text. Restricted on purpose: a computed name keyed by a *literal* type is
+named by the literal, a non-entity key has no stable text, and a static
+computed member is reached through the class (the §704 qualified keys, which
+do not cover element accesses with symbol keys); all three keep the old
+answer, no report — the missing-line direction.
+
+Case converted: `compiler/noUnusedLocals_writeOnlyProperty_dynamicNames`.

@@ -330,6 +330,18 @@ impl Checker<'_, '_> {
                     for value in self.string_literal_values(indexed) {
                         self.note_member_name(&value);
                     }
+                    // A unique-symbol key reaches the late-bound member whose
+                    // computed name is the same entity name (§8).
+                    if self
+                        .store
+                        .get(indexed)
+                        .flags
+                        .intersects(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL)
+                        && let Some(text) =
+                            argument.node_id().and_then(|a| self.entity_name_expression_text(a))
+                    {
+                        self.note_member_name(&format!("[{text}]"));
+                    }
                 }
                 access.argument_expression.and_then(|e| e.node_id())
             }
@@ -907,6 +919,25 @@ impl Checker<'_, '_> {
         Some(name.text.to_string())
     }
 
+    /// The `symbolToString` text of a class member whose name is late-bound
+    /// through a unique symbol: `[` + the entity name expression + `]`.
+    /// `None` for any other name, including a computed name whose key is a
+    /// literal type (its symbol is named by the literal) — those keep the
+    /// pre-§8 answer of no report.
+    fn late_bound_member_name_text(&mut self, name: NodeId) -> Option<String> {
+        let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
+            return None;
+        };
+        let expression = computed.expression?;
+        let text = self.entity_name_expression_text(expression.node_id()?)?;
+        let key = self.check_expression(expression);
+        self.store
+            .get(key)
+            .flags
+            .intersects(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL)
+            .then(|| format!("[{text}]"))
+    }
+
     /// `checkUnusedClassMembers` (`checker.go:7115`).
     ///
     /// Reference marking here is by *name* rather than by symbol — see
@@ -935,6 +966,30 @@ impl Checker<'_, '_> {
                         .is_some_and(|m| has_keyword(m, SyntaxKind::PrivateKeyword))
                         || self.nodes.kind(name) == SyntaxKind::PrivateIdentifier;
                     if !private {
+                        continue;
+                    }
+                    // A late-bound computed name — `private [x]: number` with
+                    // `x` a unique symbol — is printed by `symbolToString` as
+                    // its written expression in brackets, and is read only by
+                    // an element access with the same entity name (§8).
+                    let computed = self.late_bound_member_name_text(name);
+                    if let Some(computed) = computed {
+                        let is_static = self
+                            .member_modifiers(id)
+                            .is_some_and(|m| has_keyword(m, SyntaxKind::StaticKeyword));
+                        if is_static || self.referenced_member_names.contains(&computed) {
+                            continue;
+                        }
+                        let span = self.error_span(name);
+                        self.report_unused(
+                            id,
+                            UnusedKind::Local,
+                            Diagnostic::with_args(
+                                &messages::_0_IS_DECLARED_BUT_ITS_VALUE_IS_NEVER_READ,
+                                span,
+                                [computed],
+                            ),
+                        );
                         continue;
                     }
                     let Some(text) = self.identifier_text_of(name) else { continue };
