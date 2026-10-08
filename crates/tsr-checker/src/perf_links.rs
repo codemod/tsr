@@ -4,7 +4,7 @@
 //! are recorded in `docs/parity/notes/r4-perf.md` (the checker port
 //! convention, `docs/conventions.md`).
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tsr_ast::{NodeId, SyntaxKind};
 use tsr_binder::SymbolId;
 
@@ -48,6 +48,14 @@ pub(crate) struct PerfLinks {
     /// `resolvedProperties`, read by name. Holds only decided answers
     /// (`r4-perf2.md` §3).
     pub(crate) structured_property_names: FxHashMap<SymbolId, Vec<String>>,
+    /// The `(owner, is_static)` entries of `Checker::late_bound_member_names`
+    /// whose `late_bound_members_of` computation is running: their parked
+    /// empty list is a placeholder, not a completed answer. Native resolves
+    /// late-bound members inside `getResolvedMembersOrExportsOfSymbol`, whose
+    /// in-progress state is the `lateSymbol` links; a reader that publishes
+    /// (`structured_property_names`) must not take the placeholder for the
+    /// answer (`r4-perf2.md` §3, `r4-perf3.md` §3).
+    pub(crate) late_bound_active: FxHashSet<(SymbolId, bool)>,
     /// Reused buffer for [`Checker::memo_frames`]' scope owners.
     owners_scratch: Vec<NodeId>,
 }

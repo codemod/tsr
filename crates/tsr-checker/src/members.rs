@@ -3045,6 +3045,7 @@ impl Checker<'_, '_> {
             return members.clone();
         }
         self.late_bound_member_names.insert(cache_key, Vec::new());
+        self.perf_links.late_bound_active.insert(cache_key);
         let declarations: Vec<tsr_ast::NodeId> =
             self.binder.symbols().get(owner).declarations.iter().copied().collect();
         let mut out = Vec::new();
@@ -3120,6 +3121,7 @@ impl Checker<'_, '_> {
             }
         }
         self.late_bound_member_names.insert(cache_key, out.clone());
+        self.perf_links.late_bound_active.remove(&cache_key);
         out
     }
 
@@ -3610,13 +3612,10 @@ impl Checker<'_, '_> {
             .collect();
         // Late-bound own declarations belong to this same ordered partition,
         // not an appended table. Instance and static identities stay separate.
-        // `late_bound_members_of` parks an empty list while it computes, so an
-        // empty answer for an owner that declares computed names may be that
-        // placeholder, and the walk's list is not published.
-        if walk.memoised
-            && self.late_bound_member_names.get(&(owner, false)).is_some_and(Vec::is_empty)
-            && self.declares_computed_member_name(owner)
-        {
+        // `late_bound_members_of` parks an empty list while it computes and
+        // marks the entry active; the placeholder's empty answer is not the
+        // owner's late-bound names, so the walk's list is not published.
+        if walk.memoised && self.perf_links.late_bound_active.contains(&(owner, false)) {
             walk.unsettled = true;
         }
         own.extend(self.late_bound_members_of(owner, false).into_iter().filter_map(
@@ -3632,69 +3631,6 @@ impl Checker<'_, '_> {
             return false;
         };
         bases.into_iter().all(|base| self.collect_structured_property_names(base, walk))
-    }
-
-    /// Whether one of `owner`'s class, interface or literal declarations
-    /// has a member named by a computed property name — the members
-    /// [`Self::late_bound_members_of`] considers.
-    fn declares_computed_member_name(&self, owner: SymbolId) -> bool {
-        use tsr_ast::PropertyName::ComputedPropertyName;
-        self.binder.symbols().get(owner).declarations.iter().any(|&declaration| {
-            let members: Vec<tsr_ast::NodeId> = match self.node_map.get(declaration) {
-                Some(Node::ClassDeclaration(class)) => {
-                    class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
-                }
-                Some(Node::ClassExpression(class)) => {
-                    class.members.iter().filter_map(|m| tsr_ast::Node::from(*m).node_id()).collect()
-                }
-                Some(Node::InterfaceDeclaration(interface)) => interface
-                    .members
-                    .iter()
-                    .filter_map(|m| tsr_ast::Node::from(*m).node_id())
-                    .collect(),
-                Some(Node::TypeLiteralNode(literal)) => literal
-                    .members
-                    .iter()
-                    .filter_map(|m| tsr_ast::Node::from(*m).node_id())
-                    .collect(),
-                Some(Node::ObjectLiteralExpression(literal)) => literal
-                    .properties
-                    .iter()
-                    .filter_map(|member| tsr_ast::Node::from(*member).node_id())
-                    .collect(),
-                _ => return false,
-            };
-            members.into_iter().any(|member| {
-                matches!(
-                    self.node_map.get(member),
-                    Some(
-                        Node::PropertyDeclaration(tsr_ast::PropertyDeclaration {
-                            name: ComputedPropertyName(_),
-                            ..
-                        }) | Node::PropertySignatureDeclaration(
-                            tsr_ast::PropertySignatureDeclaration {
-                                name: ComputedPropertyName(_),
-                                ..
-                            }
-                        ) | Node::MethodDeclaration(tsr_ast::MethodDeclaration {
-                            name: ComputedPropertyName(_),
-                            ..
-                        }) | Node::MethodSignatureDeclaration(
-                            tsr_ast::MethodSignatureDeclaration {
-                                name: ComputedPropertyName(_),
-                                ..
-                            }
-                        ) | Node::GetAccessorDeclaration(tsr_ast::GetAccessorDeclaration {
-                            name: ComputedPropertyName(_),
-                            ..
-                        }) | Node::SetAccessorDeclaration(tsr_ast::SetAccessorDeclaration {
-                            name: ComputedPropertyName(_),
-                            ..
-                        })
-                    )
-                )
-            })
-        })
     }
 
     pub(crate) fn late_bound_static_members_of(
@@ -4251,8 +4187,10 @@ mod property_name_tests {
                 let ty = checker.get_declared_type_of_symbol(owner);
                 // This is the marker late_bound_members_of publishes on re-entry.
                 checker.late_bound_member_names.insert((owner, false), Vec::new());
+                checker.perf_links.late_bound_active.insert((owner, false));
                 assert_eq!(checker.get_property_names_of_type(ty).unwrap(), ["early"]);
                 checker.late_bound_member_names.remove(&(owner, false));
+                checker.perf_links.late_bound_active.remove(&(owner, false));
                 let mut completed = checker.get_property_names_of_type(ty).unwrap();
                 completed.sort();
                 assert_eq!(completed, ["early", "late"]);
@@ -4710,10 +4648,12 @@ static readonly fixed = 29; static optional?: number; static #secret = 31;"#;
             |checker, root| {
                 let left = checker.binder.lookup_local(root, "Left").unwrap();
                 checker.late_bound_member_names.insert((left, false), Vec::new());
+                checker.perf_links.late_bound_active.insert((left, false));
                 let both = checker.binder.lookup_local(root, "Both").unwrap();
                 let both = checker.get_declared_type_of_symbol(both);
                 assert_eq!(checker.get_property_names_of_type(both), None);
                 checker.late_bound_member_names.remove(&(left, false));
+                checker.perf_links.late_bound_active.remove(&(left, false));
                 // The existing completion contract does not certify computed
                 // names even when a separate lookup has forced their value.
                 assert_eq!(checker.get_property_names_of_type(both), None);

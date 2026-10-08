@@ -102,3 +102,45 @@ differently.
 memoised member, signature list, base or name list whose first computation
 ran inside a resolution and differs from the same request made at depth 0
 in a fresh checker.
+
+## §3 A distinct in-progress marker for `late_bound_members_of`
+
+**Forcing constraint.** `late_bound_members_of` parks an empty list in
+`late_bound_member_names` while it computes, so a re-entrant walk reads no
+late-bound names. r4-perf2 §3's C2 had to tell that placeholder from a
+completed empty list without one, and approximated it: an entry present and
+empty, *and* an owner declaring a computed member name
+(`declares_computed_member_name`, a syntactic scan of every member of every
+declaration on each such read).
+
+**Native operation.** `getResolvedMembersOrExportsOfSymbol` binds late
+members under the symbol's links (`lateSymbol` / `resolvedMembers`);
+its in-progress state is distinct from its completed state.
+
+**Change.** `PerfLinks::late_bound_active: FxHashSet<(SymbolId, bool)>`
+holds the keys whose computation is running: inserted with the placeholder,
+removed when the completed list replaces it. C2's walk marks itself
+unsettled exactly when its owner's entry is active; `declares_computed_member_name`
+is deleted. The two unit tests that simulate the placeholder
+(`active_late_bound_entry_does_not_complete_the_outer_name_list`,
+`composite_enumeration_does_not_publish_active_late_bound_names`) now mark
+it active too.
+
+**Identity and owner.** Key `(owner, is_static)`, the same as
+`late_bound_member_names`, private `Checker`. The set lives in
+`PerfLinks` (this lane's file) rather than beside the cache in `checker.rs`
+(a hub file); moving it there, or turning the cache value into an
+`Active | Done(list)` enum, is the integrator's call.
+
+**Difference from the approximation.** A completed empty list for an owner
+with computed names (every computed name non-late-bindable) was refused
+before and publishes now; an active entry for an owner without computed
+names cannot occur (that computation does no re-entrant work). No answer
+changes.
+
+**Measured** (p100 Ir, on top of §2): see the table in §7. Cost of the set
+operations is within noise (+0.005% when measured on the full stack:
+3,012,115,892 → 3,012,266,004).
+
+**How we would know it is wrong.** A completed late-bound list missing from
+a published C2 name list — the unit tests above pin the active case.
