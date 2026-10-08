@@ -131,3 +131,49 @@ line 17's TS1058, which is the *inferred* return type's `checkAwaitedType`
 
 **Falsifier.** A TS1064 on an annotation native's `isReferenceToType`
 accepts, or a TS1058 on a function whose return type native awaits.
+
+## 4. A self-referential alias's placeholder awaits as the alias (`tsr-2zk.10.1`)
+
+**Forcing constraint.** In `type T1 = 1 | Promise<T1> | T1[]`, native's
+`Promise<T1>` argument is the alias's own (deferred) type, the `T1` union;
+`getAwaitedTypeNoAliasEx` on `T1` pushes the union, finds `Promise<T1>`'s
+promised type already on the stack, reports TS1062 and drops the
+constituent (`mapType`), answering `1 | T1[]`
+(`compiler/unresolvableSelfReferencingAwaitedUnion`). This port's mention is
+the memoized NAME placeholder (`alias_placeholders`,
+`get_declared_type_of_type_alias` §29), a distinct `Named` type with no
+members, so the stack test never matched and the placeholder was its own
+awaited type: `1 | T1[] | T1`, no TS1062.
+
+**Decision.** `completed_alias_placeholder_type` maps a placeholder to its
+owner's declared type, and the worker awaits that, keeping the placeholder
+when it comes back unchanged. Checker port convention record:
+
+- *Native operation:* the deferred alias mention resolving to the alias's
+  declared type (`getDeclaredTypeOfTypeAlias`, `:23837`), read inside
+  `getAwaitedTypeNoAliasEx`.
+- *Key identity and owner:* the placeholder `TypeId`, owned by
+  `alias_placeholders`[owner symbol]; exactly one owner or decline (the same
+  scan as `members.rs` `completed_array_placeholder_length_body`).
+- *Publication state:* only a published `declared_types`[owner] that is not
+  `errorType` and whose `DeclaredType` resolution is not on the stack; no
+  evaluation, insertion or cache.
+- *Expensive work boundary:* one scan of `alias_placeholders` per
+  member-less `Named` type reaching the worker, skipped when the map is
+  empty.
+
+The general "already on the stack → gap" entry test is narrowed to what
+native has: a union on the stack is TS1062; an alias reference or
+placeholder re-entered while its own projection is open is still a gap (no
+native counterpart — native has no projection step); every other repeat is
+caught at the promised type, as native catches it. That is what lets
+`EffectResult`'s narrowed `Promise<EffectResult>` reach TS1062 instead of a
+gap when it meets itself inside the union.
+
+**Converted.** Types `unresolvableSelfReferencingAwaitedUnion` lines 9, 10,
+29 (`1 | T1[]`, `() => EffectResult`). Its diagnostics now carry both TS1062;
+the case stays WRONG on an extra TS2349 at `result()` after
+`result instanceof Function` (narrowing, not this lane).
+
+**Falsifier.** A placeholder awaited as its declared type where native keeps
+the deferred reference, or a gap on a repeat native resolves.
