@@ -40,6 +40,7 @@ fn case_of(key: &str) -> &str {
 }
 
 fn main() {
+    tsr_conformance::case_guard::size_worker_pool();
     let accept = std::env::args().any(|a| a == "--accept");
     let filter: Vec<String> = std::env::var("TSR_FILTER")
         .unwrap_or_default()
@@ -98,6 +99,11 @@ fn main() {
     }
 
     println!("{summary}{}", if filter.is_empty() { "" } else { "   [PARTIAL: filtered run]" });
+    // A case that panicked is one `case:*:*` row (`case_guard`), which keys
+    // match nothing in the baseline: name it rather than let it vanish.
+    for row in rows.iter().filter(|row| verdict_of(row).1 == "PANIC") {
+        println!("PANIC  ⚠  {row}");
+    }
     if matrix.is_empty() {
         println!("no transitions vs baseline");
     }
