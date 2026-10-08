@@ -203,3 +203,84 @@ The remaining text difference is type printing: TSR prints
 `Iterator<string, undefined>` where native prints
 `Iterator<string, undefined, any>` (a defaulted type argument the printer
 drops).
+
+## 4. Triage: sole TS2353 (21 cases)
+
+| Cluster | Cases | Root cause | Where |
+|---|---|---|---|
+| K. `checkObjectLiteral`'s pattern arm | `checkDestructuringShorthandAssigment2`, `declarationEmitDestructuringObjectLiteralPattern`/`1`, `destructuredLateBoundNameHasCorrectTypes`, `missingAndExcessProperties` (5) | Not ported: a literal typed by a binding pattern's implied type, or by the left of a destructuring assignment, reports TS2353 per unnamed member (`checker.go:13250`). | **fixed, §4.1** |
+| L. Conditional / mapped / reverse-mapped targets | `excessPropertyCheckIntersectionWithRecursiveType` (×3), `reverseMappedTypeLimitedConstraint` (×2), `typeSatisfaction_propNameConstraining` (`Partial<Record<Keys, unknown>>`) | The target never resolves to an enumerable object: conditional alias (`tsr-2zk.976`), reverse-mapped inference, and `Partial<Record<…>>` over a union of keys. | `relater.rs`, `mapped.rs`, `inference.rs` |
+| M. Union targets | `excessPropertyErrorForFunctionTypes` (`{…} \| (() => any)`), `excessPropertyCheckWithMultipleDiscriminants` 131:5, `switchStatements` 35:20 | `union_object_literal_failure` declines: a function-type constituent is no excess-check target and has to be filtered out (`isExcessPropertyCheckTarget`). The other two are discriminant matching with more than one discriminant. | `assignreport.rs` (next item) |
+| N. Generic-reference / alias tables | `excessPropertyCheckWithEmptyObject` 4:58 (`PropertyDescriptor & ThisType<any>`), `objectLiteralExcessProperties` 45:76 (`T extends IFoo`) | Already in r5-report2's remainder. | integrator's table diff / relater |
+| O. Index-signature contextual target | `objectLitIndexerContextualType` 18:5 (`y = { s: … }` against a number index) | Not reached: `isKnownProperty` against a number-only index signature with a non-numeric name. | `assignreport.rs` (next item) |
+| P. Symbol-keyed generic argument | `symbolProperty21` 10:5 (`[Symbol.toPrimitive]` against `I<T, U>` during inference) | Call path (argument against an inferred generic interface). | `calls.rs` |
+| Q. JS / JSDoc | `checkJsdocTypeTagOnExportAssignment1`/`6`, `checkJsdocSatisfiesTag9`/`10` | `@type` on `export default` and `@satisfies` targets are not reported through. | r5-jsdoc3's files |
+| R. Extra TS2353 | `namespaceImportTypeQuery2`/`3` | `typeof ns` for a namespace import of a module with type-only exports: TSR lists `A` as a property of the module object type, native does not, so `{ A, B }` reports `A`. | namespace object types (`symbols.rs`/`members.rs`) |
+
+### 4.1 The `contextualTypeHasPattern` arm (cluster K)
+
+`checkObjectLiteral` (`checker.go:13250`): when the contextual type was
+recorded in `patternForType`, a property, shorthand or method member whose
+binder name the contextual type lacks is TS2353 at the member name. The type
+printed is the contextual type itself, and the member is printed by
+`symbolToString`. Two exceptions:
+- `ObjectLiteralPatternWithComputedProperties`: the pattern has a computed
+  name that is not a property-name literal;
+- a string index: a binding pattern with a rest element.
+
+There are two pattern sources:
+- **A binding pattern's implied type** (`getTypeFromObjectBindingPattern`,
+  `checker.go:17938`, with `includePatternInType`). This is the contextual
+  type of a declaration's own initializer only when the pattern has elements
+  (`getContextualTypeForInitializerExpression`, `checker.go:29431`). A nested
+  literal is typed by the implied property's own pattern type at any arity.
+- **An assignment target's literal type**: `checkObjectLiteral` records it for
+  `inDestructuringPattern` (`checker.go:13212`), so the right of
+  `({ x } = { x: 0, y: 0 })` is checked against `{ x: number; }`, and the
+  right of `({ } = …)` against `{}`. A spread on the left makes the left a
+  spread type with no pattern.
+
+`check_object_literal_binding_pattern_members` (`assignreport.rs`) finds the
+pattern syntactically with the two finders `objects.rs` already uses for
+optional-member copying:
+- `contextual_binding_pattern` (§489);
+- `contextual_assignment_pattern` (§897).
+
+Both were made `pub(crate)`: a visibility change only, in a file this lane
+does not own. The check runs once per literal from the check walk, beside the
+other `checkObjectLiteral` diagnostics (`check_duplicate_object_literal_names`
+and its siblings), because `checkObjectLiteral`'s result is cached natively.
+A member's binder name follows the binder:
+- written names give their text, and a numeric name is normalized;
+- a computed string, template or numeric literal gives its text, and a signed
+  numeric gives its sign and number;
+- any other computed name is `__computed`, which no property matches.
+
+A computed member prints as its written expression in brackets (`["x"]`,
+`[k]`), read from the module host's source text. Without source text the
+literal declines.
+
+Declines: an array-pattern element's nested literal (`var [{ t1 }] = [{ t1: 1,
+t2: 2 }]`; native reports `t2`), and whatever `contextual_binding_pattern`
+declines (parameter defaults needing explicit pattern context).
+
+Probed against native in both strict modes on 30 shapes: written, quoted,
+numeric, method, template, computed-literal, computed-entity and signed
+names; nested patterns; rest; parameter defaults with and without
+annotations; and assignment patterns with defaults, renames, spreads, nesting
+and computed const keys. Output is identical apart from the array-element
+decline.
+
+Measured against commit 3:
+- `checkDestructuringShorthandAssigment2`,
+  `declarationEmitDestructuringObjectLiteralPattern`/`1`,
+  `destructuredLateBoundNameHasCorrectTypes` and `missingAndExcessProperties`
+  go WRONG → RIGHT.
+- `declarationsAndAssignments` gains 4 right lines (still WRONG on other
+  codes).
+- 20 lines are added, all right.
+
+Both loss checks are empty and types RIGHT is unchanged. Perf, median child
+CPU new/old at 41 samples: domain-model 1.012, generic-imports 1.004 (21
+samples: 1.029 / 1.020). The hook costs one parent-kind lookup per object
+literal on the path that finds no pattern.

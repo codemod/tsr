@@ -677,6 +677,7 @@ impl Checker<'_, '_> {
                 self.check_duplicate_object_literal_accessors(node);
                 self.check_duplicate_object_literal_names(node);
                 self.check_private_name_in_object_literal(node);
+                self.check_object_literal_binding_pattern_members(node);
                 ambient
             }
             // `[...x = a] = a` — a spread element in a destructuring assignment
