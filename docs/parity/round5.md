@@ -129,3 +129,18 @@ that ratio is per-file front-end speed: lazy JSDoc (`tsr-2zk.17.1`, main) and a
 pipelined bind (`tsr-2zk.1003`, an ADR-0003-level change). The new box
 `r5-classfields` takes the target- and useDefineForClassFields-gated class
 checks (`.987`).
+
+### r5-relater3 finished (+22 diagnostics cases); r5-relater4 dispatched (`tsr-2zk.1008`)
+
+r5-relater3 landed:
+- comparable optional-property arms;
+- the alias-variance gate;
+- isValidOverrideOf for protected targets;
+- inherited signatures as structural requirements;
+- namespace object types related over their exports.
+
+On the real-world projects it cleared every SearchResult and TracingNode
+false positive. It refused UNIQUE_ES_SYMBOL decidability at −3 cases, because
+unique-symbol identity is minted per node (`tsr-2zk.1005`). It also filed
+`.1006` and `.1007`. The new box `r5-relater4` keeps `relater.rs` for the
+census buckets `.976`, `.977`, `.978` and `.983`.
