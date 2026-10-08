@@ -535,3 +535,12 @@ carries the `?`: tsgo prints `{ foo?(): void; }` and `{ foo(): void; }`
 without it. `check_object_literal_members`' method arm already marked the
 captured property optional (`property_is_optional`); its printed member now
 spells the token too. No state.
+
+## 26. A shorthand initializer outside a pattern types the member (tsr-2zk.16.385)
+
+`checkShorthandPropertyAssignment` (`checker.go:13689`) checks the
+`ObjectAssignmentInitializer` when the literal is not a destructuring target
+(TS1312 is reported separately), so `let a = { s = 5 }` is `{ s: number; }`;
+the shorthand name's own `.types` line still reads the unresolved value symbol
+(`s : any`), so the property symbol's type is not recorded from this path.
+The member previously gapped the literal. No state.
