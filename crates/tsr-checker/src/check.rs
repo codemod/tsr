@@ -1052,6 +1052,7 @@ impl Checker<'_, '_> {
                 self.check_element_access_tuple_bounds(node);
                 self.check_element_access_index_type(node);
             }
+            Node::PropertyAccessExpression(_) => self.check_global_this_property_access(node),
             Node::IndexedAccessTypeNode(_) => {
                 self.check_indexed_access_type_tuple_bounds(node);
                 self.check_indexed_access_type_index_type(node);

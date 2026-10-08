@@ -287,6 +287,73 @@ impl Checker<'_, '_> {
         );
     }
 
+    /// TS7017 for a dotted name `typeof globalThis` does not have: the
+    /// `leftType.symbol == c.globalThisSymbol` arm of
+    /// `checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11337`).
+    ///
+    /// Native reaches it when `getPropertyOfType(typeof globalThis, name)`
+    /// misses and no index info applies (`typeof globalThis` has none). Its
+    /// members are the non-block-scoped global exports
+    /// (`resolveAnonymousTypeMembers`), read through `symbolIsValue`; the
+    /// same lookup this port's member road performs for that receiver
+    /// (`get_type_of_property_of_type`'s `global_this_type` arm). A
+    /// block-scoped global is the arm's TS2339 half, reported by
+    /// `check_nonexistent_property`; every other miss is TS7017 at the name
+    /// under `noImplicitAny`, for reads and writes alike.
+    /// `docs/parity/notes/r5-index4.md` §1.
+    pub(crate) fn check_global_this_property_access(&mut self, node: NodeId) {
+        if !self.no_implicit_any {
+            return;
+        }
+        let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+        let (Some(receiver), Some(tsr_ast::MemberName::Identifier(name))) =
+            (access.expression, access.name)
+        else {
+            return;
+        };
+        // `right.Text() != ""` guards the sibling arm; a recovered empty name
+        // has no member to miss.
+        if name.text.is_empty() {
+            return;
+        }
+        let Some(name_id) = name.node_id else { return };
+        if self.identifier_in_non_emitting_heritage_clause(name_id) {
+            return;
+        }
+        let receiver_type = self.check_expression(receiver);
+        // The checker files `globalThisSymbol` (a value module) and
+        // `undefinedSymbol` (a property) in `globals` itself (`checker.go:964`,
+        // `addUndefinedToGlobalsOrErrorOnRedeclaration`), so both names are
+        // members; this binder's globals table carries neither.
+        if Some(receiver_type) != self.global_this_type
+            || matches!(name.text, "globalThis" | "undefined")
+        {
+            return;
+        }
+        if let Some(symbol) = self.binder.global(name.text) {
+            let flags = self.binder.symbols().get(symbol).flags;
+            if flags.intersects(
+                tsr_binder::SymbolFlags::BLOCK_SCOPED_VARIABLE
+                    | tsr_binder::SymbolFlags::CLASS
+                    | tsr_binder::SymbolFlags::ENUM,
+            ) || self.symbol_is_value(symbol)
+            {
+                return;
+            }
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
+        let span = self.error_span(name_id);
+        let printed = self.type_to_string(receiver_type);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::ELEMENT_IMPLICITLY_HAS_AN_ANY_TYPE_BECAUSE_TYPE_0_HAS_NO_INDEX_SIGNATURE,
+                span,
+                [printed],
+            ),
+        );
+    }
+
     /// `getTypeFromIndexedAccessTypeNode` (`checker.go:24164`): the access
     /// node is the type node, its index node the index type node.
     pub(crate) fn check_indexed_access_type_index_type(&mut self, node: NodeId) {
