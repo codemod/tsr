@@ -22,6 +22,29 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Selected workspace owner continuation measured after `18d77c9e`, pinned native
+`5b1047d`: historical43-source replay plus four exact continuation patches
+reproduce **1,056 inputs**, with **48 cumulative changed sources** from the prior
+conformance checkpoint and **91 files differing from frozen main**. The final
+private workspace passes **3279/0/19** (passed/failed/existing ignored, 308 result
+blocks), including Checker library **225/0/0**. Strict workspace Clippy, full
+formatting and CLI work-trace compilation pass. The property-valued export alias
+crash is repaired; native six property-target observations, ten diagnostic
+cold/warm observations and eight merged callable observations qualify these new
+boundaries. Existing links propagate type-only markers, and class/function call
+slots coexist with class constructors. No semantic cache is added.
+
+Both unfiltered legacy dumps now complete: **552,533 type assertions/12,238
+diagnostic cases**, with no missing keys. The first completed candidate lost
+**12 previously RIGHT type assertions/10 diagnostic cases**; alias diagnostic
+repair reduces that to12/2, and callable repair to **2/2**, with **124 type gains/9
+diagnostic gains** versus frozen main. Four losses still refuse runtime retention:
+exportDefaultProperty2, type-only generic, recursive-interface diagnostics and
+undefined-subtype class-member diagnostics. The failed(-6)/0row producer and
+historical formatting/lint failures remain recorded. Canonical runtime, full
+native exact corpus, work/allocation attribution and equivalent-work ratio<=0.50
+remain unfinished. [Source, failures and controls](docs/architecture/checker-workspace-owner-continuation.json).
+
 Conformance consumer continuation measured after `124ea18d`, pinned native
 `5b1047d`: exact **34-source** passive replay covers **1,053 inputs**, **1,019
 unchanged**. Actual full Checker library **224/0/0**, selected checker integration
@@ -3881,6 +3904,18 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Continue the selected-owner preservation repairs from frozen `18d77c9e`:
+private workspace3279/0/19 and strict Clippy/formatting/work-trace pass; both
+unfiltered dumps retain all552533 type/12238 diagnostic keys. The remaining
+**2 type/2 diagnostic losses** require selected property type/alias meaning and
+recursive/inherited member repairs before runtime retention. Property admission
+is tracked by `tsr-1yb.7.7.3.2`; diagnostic preservation by `tsr-1yb.7.7.3.3`,
+and callable/member work by `tsr-1yb.4.2.1`. Keep `tsr-1yb.1`, `tsr-1yb.11`,
+`tsr-1yb.4.2.1`, `tsr-1yb.33.1`, `tsr-1yb.7.7.3` and
+`tsr-1yb.16.3.10` in progress. No construction/allocation attribution or equivalent
+complete-work speed proof follows from these correctness repairs.
+[Replay](docs/architecture/checker-workspace-owner-continuation.json).
+
 After `124ea18d`, all selected conformance tests compile and **34 pass** alongside
 **224 library** and **23 selected checker integration** tests. Next: migrate the
 seven conformance examples with **25 observed ownership mismatches**, remove the
@@ -7696,6 +7731,28 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Selected workspace continuation at frozen `18d77c9e` still refuses runtime
+retention: the latest full legacy comparison loses **2 previously RIGHT type
+assertions/2 diagnostic cases**, although all552533 type/12238 diagnostic keys are
+retained and workspace3279/0/19, strict Clippy, formatting and work-trace compile
+pass. First complete step83 candidate lost12type/10diagnostic; step85 alias
+repairs restore8diagnostic cases, and step87 callable repair restores10type
+assertions. Remaining type losses are exportDefaultProperty2 and type-only generic;
+remaining diagnostic losses are interfaceThatInheritsFromItself and
+undefinedIsSubtypeOfEverything. Full native exact parity, actual performed work/
+allocation and median ratio<=0.50 are unverified.
+
+Historical failures remain source-qualified: step81 diagnostic abort(-6)/0rows
+at resolveAlias; step80 formatting exit1/three differences in two files; step82
+Clippy exit101/two duplicate doc ticks. These are repaired without weakening the
+alias invariant or suppressing lints. Earlier workspace3275/2/19 exposed a stale
+pure-namespace call expectation and actual lost Program merge in Array.find.
+Native20 call rows justify that expectation repair; borrowed Program redirects
+restore the unchanged Array.find expectation. Native parent probe v1 was
+invalidated by its own cloneSymbol publication; its failed source/log remain
+beside12 corrected parent rows and two isolated clone-publication observations.
+[Exact failures](docs/architecture/checker-workspace-owner-continuation.json).
 
 The conformance-consumer candidate after `124ea18d` is still refused for runtime
 retention by **25 observed example ownership mismatches** and **28 strict library
@@ -16076,3 +16133,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `af503f38` plus exact 40-source private overlay / native `5b1047d` | — | — | **Selected semantic consumers and module-copy publication, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Exact 1,053-input replay, 1,013 unchanged. Ordinary/work-trace library and workspace runtime compile; actual library 224/0/0, selected integration 23/0, native 8 rows. Canonical runtime retention refused by 141 strict lint errors and unmigrated conformance tests/examples; full corpus/work and ratio<=0.50 outstanding. [Replay](docs/architecture/checker-semantic-consumer-continuation.json). |
 
 | 2026-10-08 | `124ea18d` plus exact 34-source private overlay / native `5b1047d` | — | — | **Conformance consumers and native alias admission, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Exact 1,053-input replay, 1,019 unchanged. Actual library224/0/0, checker integration23/0, conformance34/0 and native78 rows; work-trace compiles. 121 compiler suggestions reduce strict lint141 to28; keep-going all-targets reports25 mismatches in seven examples. Canonical runtime, full corpus/work and ratio<=0.50 gates remain unfinished. [Replay](docs/architecture/checker-conformance-consumer-continuation.json). |
+
+| 2026-10-08 | `18d77c9e` plus exact48-source cumulative private overlay / native `5b1047d` | — | — | **Selected workspace/alias/callable continuation.** Exact1056-input phase replays;91 files differ from frozen main. Workspace3279/0/19, library225/0/0; strictClippy/fullfmt/work-trace pass. Native20 call/12 parent rows/two clone publications plus6 property,10 diagnostic and8 merged callable observations qualify scoped repairs. Both legacy dumps complete552533types/12238diagnostics: first12type/10diagnostic losses reduced to2/2,124type/9diagnostic gains,0missing. Failed alias abort and lint/formatting probes preserved. Remaining selected property/type-only and inherited-member losses stay under active tickets; no canonical runtime or speed proof. [Replay](docs/architecture/checker-workspace-owner-continuation.json). |

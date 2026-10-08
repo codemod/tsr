@@ -1310,3 +1310,96 @@ mismatches across seven examples, and later borrow checking can expose more afte
 those callers migrate. Canonical runtime acceptance remains refused. Full corpus,
 native recovery/member qualification, actual expensive-worker/allocation attribution
 and equivalent complete-work median ratio<=0.50 remain required for all six goals.
+
+The [selected workspace continuation](checker-workspace-owner-continuation.json)
+after `18d77c9e` closes the seven remaining example compilation gaps without
+replacing their independent naming forecasts with checker answers. `qualname`
+retains its raw comparison; `qualnamep` retains its merged comparison. Actual
+selected owner metadata remains the source for names, declarations and parents.
+The exact43-source delta replays all1056 inputs; three inputs arrive from current
+main's compiler-option work. This is a passive checkpoint, not runtime retention.
+
+The broad test run exposed a missing ownership boundary: array method fallback
+read a stale raw per-file parent after the selected-owner migration. The repair
+borrows the already-frozen `BindResult` in `CheckerSymbols`, resolves its existing
+Program redirects only for genuine bound handles, and leaves raw parent edges
+unchanged. Domain validation precedes access. An explicit checker-private merge
+entry wins as exactly one published redirect; private symbols do not inherit
+Program identity by name or declaration origin. No Program merge map is copied
+into every checker, and no new semantic cache or graph traversal is added.
+
+Pinned5b native12 array-parent observations verify that raw Array/ReadonlyArray
+owners differ from the global identity while their merged references match;
+a separately created same-name/same-declaration symbol remains distinct. The
+first native probe incorrectly used `cloneSymbol` as this distinct control:
+that operation publishes `mergedSymbols[source]=clone` and disturbed subsequent
+queries. Its failed source/log are retained. Two isolated actual clone observations
+now verify that publication separately, rather than denying the native redirect.
+Twenty native module-call rows also show that the certified-empty global Function
+admits calls through pure-namespace transitive aliases. Only those stale Tail/
+Linked expectations change; the other supported/unsupported Function controls
+remain, and the Array.find expected union is unchanged.
+
+Actual private workspace3278/0/19 and Checker library225/0/0 pass; strict workspace
+all-targets Clippy reports zero errors. Existing alias target states are expressed
+as Uncomputed/Unknown/Resolved, preserving published unknown versus uncomputed.
+Tuple index-info outcomes distinguish NotTuple, Unsupported and Complete.
+The56 removed internal wrappers were unused outside36 migrated unit calls; their
+selected workers and native semantics remain. At historical step80, full formatting
+refused three differences in two files. The frozen main legacy corpus completed
+552533 type rows/12238 diagnostic cases; step81 candidate diagnostics aborted
+(-6)/0rows at resolveAlias declaration admission. Filtered exportDefaultProperty reproduces this gap: native
+ExpressionIsAlias permits property entity chains that the Rust declaration
+selector rejects. The assertion remains intact; `tsr-1yb.7.7.3.2` tracks its
+selector/target repair. Full native/corpus/no-RIGHT-loss and actual expensive work/
+allocation attribution remain required. These correctness prerequisites establish
+no whole-CLI speed gain or verified equivalent-work median ratio<=0.50.
+
+
+The continuation through step87 repairs the property-valued alias invariant
+failure without relaxing `resolveAlias`. At pinned5b, `ExpressionIsAlias` admits
+identifier/property entity chains and class expressions. The existing declaration
+selector now admits those shapes; export assignment and CommonJS binary assignment
+share `getTargetOfAliasLikeExpression` behavior. Namespace entity resolution
+retains the terminal alias, then checked value-property fallback retains the
+actual receiver's selected member. Namespace-contained assignments still decline.
+The alternative of reusing the heritage entity cache was rejected: its terminal
+alias resolution changes the immediate target needed for publication. No new
+entity/property memo is added. One actual cross-file regression covers three
+shapes, two check/query orders and warm repeats; six matching native observations
+also distinguish namespace constants from property symbols. The failed native
+Property-bit guess and actual Rust invariant failure are preserved.
+
+The first completed unfiltered legacy comparison exposes12 RIGHT type losses and
+10 diagnostic losses, despite a green workspace. Five false TS2437 diagnostics
+read binder-only flags for an alias; native `checkImportEqualsDeclaration` instead
+uses the existing semantic entity resolver with Value|Namespace and alias
+indirection. Default-target lookup now retains its immediate alias, matching
+native `dontResolveAlias=true`. Ordinary indirection and namespace imports share
+one `resolveIndirectionAlias` worker: existing source-owned AliasTarget links
+propagate the first type-only declaration before completion, with the source's
+own marker taking precedence. The value diagnostic's
+`getTypeOnlyAliasDeclarationEx` follows mixed aliases until Value meaning; the
+non-transitive member-admission reader remains separate. Reusing one reader for
+both would erase a native semantic distinction. No second stack/cache or arbitrary
+hop bound is added. Ten independent native cold/warm diagnostic observations
+qualify namespace chains and default/namespace/mixed type-only imports. These
+repairs reduce diagnostic losses from10 to2; `tsr-1yb.7.7.3.3` owns preservation.
+
+Pinned `resolveAnonymousTypeMembers` resolves FUNCTION/METHOD calls and CLASS
+constructors independently. The existing selected signature reader now preserves
+both for merged class/function symbols; the diagnostic head's former refusal is
+removed after that shared reader is repaired. Plain classes remain non-callable.
+Eight actual native shape/query-order observations preserve call/construct counts,
+return types and warm stability. This fixes10 of12 type losses without adding a
+member image or signature cache. It does not certify the broader unified member
+publication contract under `tsr-1yb.4.2.1`.
+
+Final private workspace3279/0/19, strict workspace Clippy0, full formatting0 and
+work-trace compile0 are source-qualified. All552533 type assertions and12238
+legacy diagnostic keys remain, but **2 type/2 diagnostic losses** still refuse
+runtime retention. Native exact full-corpus parity, actual construction/allocation
+counts, eager-rendering handoff and equivalent complete-work median ratio<=0.50
+remain outstanding. Four exact continuation patches reproduce all1056 latest
+inputs, separately from the historical step80 patch; no later evidence is assigned
+to an earlier source. Canonical Rust remains unchanged.
