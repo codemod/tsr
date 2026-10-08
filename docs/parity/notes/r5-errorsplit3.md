@@ -433,14 +433,30 @@ samples): domain-model 0.954, generic-imports 1.007.
 ## §4 Held diffs
 
 - [`r5-errorsplit3-final-else.diff`](r5-errorsplit3-final-else.diff), applies
-  to `ca1e75a6`: `checkIdentifier`'s final `else` (a name absent in every
-  meaning in a file with no import machinery, `checker.go:11048`) answers
-  `native_error`, **together with** `check_property_access_expression`'s
-  `errorType` receiver arm (`members.rs`, `checker.go:11314-11320`: an
-  any-like receiver that `isErrorType` answers `errorType` whatever the
-  member). `members.rs` is main's active file (commits on `origin/main` in
-  the 24 hours before this lane, re-checked before shipping), so the pair is
-  a diff for the integrator. §5 has the measurements.
+  to `89f342f8`. It carries the producer switch and every consumer arm the
+  switch needs, all native-verified (§6):
+  - **`expressions.rs` `checkIdentifier`** (this lane's arm): the final
+    `else` answers `native_error` (`checker.go:11048`), and §784's JS clause
+    leaves the §31 gate (§6). `file_has_commonjs_machinery` and its memo
+    field lose their last caller and are removed.
+  - **`members.rs` `check_property_access_expression`**: an `errorType`
+    receiver answers `errorType` (`checker.go:11314-11320`).
+  - **`calls.rs` `check_call_expression_worker`**: an `errorType` callee is
+    `resolveErrorCall` (`checker.go:8516`, `unknownSignature` returns
+    `errorType`, `:1043`), before the untyped-call `any`.
+  - **`expressions.rs` `check_new_expression`**: the same for `new`
+    (`checker.go:8586`).
+  - **Four tests** that pinned the stand-in: `types.rs`
+    `an_unresolved_name_is_upstreams_any` (renamed `…_error_type`),
+    `unresolved_identifier_in_js.rs` (§784's split, superseded in its own
+    header), `narrowing.rs`'s helper, and `reader_error_any.rs`'s identity
+    classifier (both identities are the computed error-any).
+
+  `members.rs` and `calls.rs` are main's active files (commits on
+  `origin/main` in the 24 hours before this lane, re-checked before
+  shipping), and `check_new_expression` is outside this lane's arms, so the
+  set is a diff for the integrator. It is measured whole: without the
+  `members.rs` arm the switch loses (§5).
 
 ## §5 The final `else` switch, measured
 
@@ -483,3 +499,101 @@ Measured three ways, unfiltered, both dumps:
   the gap only, which is the native-verified rule (r5-errorsplit2 §6).
 - **P11/P12 are left alone**, per r5-errorsplit2 §6: natively they are the
   unresolved-reference type, not `errorType`.
+
+## §6 The §31 gate's JS clause, and the call/`new` arms
+
+**The JS clause.** §784 sent an unresolved name in a `.js` file *without*
+CommonJS machinery to the gap, because the final `else`'s `any` stand-in
+was wrong there: upstream reports TS2304 and its writer records `error`
+(`parsingDeepParenthensizedExpression`, `spellingUncheckedJS`: unchecked
+JS, no `.errors.txt`). The final `else` now answers `native_error`, which
+*is* that `errorType`, so the clause's reason is gone. A JS file with no ES
+import machinery is the final `else`'s case as much as a TS file is. The
+native probe (r5-errorsplit2 §1 method; source in §7) agrees:
+
+| fixture | native |
+|---|---|
+| `var x = nosuch;` in a plain `.js` | `nosuch`, `x`: `GetErrorType()` |
+| `var y = nosuch3;` in a `.js` with `require("fs")` / `module.exports` | `nosuch3`, `y`: `GetErrorType()`; `require`: `GetAnyType()` |
+| `nosuch2.foo`, `nosuch6.a.b`, `nosuch7[0]` | every node `GetErrorType()` |
+| `new Nosuch()` | `GetErrorType()` |
+| `function r() { return nosuch4; }; r()` | `r()` `GetErrorType()` (P10's aggregate) |
+
+**The call and `new` arms.** The JS clause alone measured **11 RIGHT→WRONG**
+(`parsingDeepParenthensizedExpression` ×6, `spellingUncheckedJS` ×5). All
+eleven are calls or `new` on an `errorType` callee
+(`inmodule.toFixed()`, `b(288)` inside `… && b(288)`), in cases with no
+`.errors.txt` where upstream prints `error`. The port's call road went
+straight to `resolveUntypedCall`'s `any`, while upstream asks
+`isErrorType(apparentType)` first and takes `resolveErrorCall`. With the
+call arm the eleven hold and nine more lines convert.
+
+**Measured** (the diff on `89f342f8`, against `a1e453dc`, unfiltered, both
+dumps):
+
+| | |
+|---|---|
+| type losses / diagnostics losses | **0 / 0** |
+| WRONG→RIGHT | 9 (`parsingDeepParenthensizedExpression` ×7, `jsFileCompilationExternalPackageError`, `typeofInObjectLiteralType`) |
+| WRONG→GAP | 3 |
+| credited gap | 4,710 → **4,243** |
+| `native_error` lines (matched) | 20,895 → 25,910 (25,828) |
+| wholesale narrowing, RIGHT→GAP | 5,380 → 5,105 |
+
+Tests pass with the diff applied. Clippy reports nothing on its lines.
+Perf (median child CPU against the `a1e453dc` binary, 21 samples):
+domain-model 1.023, generic-imports 0.967.
+
+**The three WRONG→GAP lines are false `native_error` claims**: port misses
+that reach the final `else`. Before they answered `any` (WRONG); now they
+print `error` (GAP).
+- `jsDeclarationsComputedNames(target=es2015):1:13`: JSDoc `typeof`
+  names (§5).
+- `dynamicImportsDeclaration:3:0`/`:3:1`: `import("./case0.js")` under
+  `module: nodenext` reaches the identifier road. That is the dynamic-import
+  call, which is r5-modules' area.
+
+## §7 Probe
+
+`/tmp/claude-0/probe/main.go`, built into the pinned module with
+`go build -modfile=$WORK/tsgo.mod -overlay overlay.json ./cmd/errprobe`, the
+overlay mapping `cmd/errprobe/main.go` to it (nothing tracked is touched;
+`$WORK` is `scripts/offline-cargo/build-tsgo.sh`'s). For a directory with a
+`tsconfig.json` it:
+1. builds the program single-threaded;
+2. prints each root file's semantic diagnostics;
+3. walks every identifier and expression node, printing whether
+   `GetTypeAtLocation` is `GetErrorType()`, `GetAnyType()` or another type
+   (with `TypeToString`).
+
+## §8 Narrowing (ADR-0048 decision log, question 1)
+
+After each step, `ceiling`'s narrowing table: the RIGHT lines that print
+`any` only because a writer rewrite spelled the port's gap that way.
+
+| step | credited gap | RIGHT→GAP if narrowed | by rewrite (HadErrorBaseline / AtLocation / StatementName / AccessOrQualifiedParent / GlobalAugmentation) |
+|---|---:|---:|---|
+| base `2919d8c` | 4,494 | 5,057 | 3,531 / 1,113 / 312 / 78 / 23 |
+| commit 1 on `2919d8c` | 4,494 | 5,057 | unchanged |
+| base `a1e453dc` (flow, P4, empty name landed) | 14,715 | 15,385 | — |
+| `ca1e75a6` (commit 1 merged) | 4,710 | 5,380 | 3,744 / 1,223 / 312 / 78 / 23 |
+| + final-else diff (§4, §6) | 4,243 | 5,105 | 3,549 / 1,146 / 312 / 75 / 23 |
+
+**No narrowing is landed.** Every rewrite still prints RIGHT gap lines, so
+narrowing any of them, even the smallest (`GlobalAugmentation`, 23), costs
+RIGHT lines, and the integrator's rule allows only zero-cost narrowing.
+Narrowing per producer happens through the switches themselves: each
+producer that moves to `native_error` leaves the table. That is the
+10,005 + 467 lines of §3.2 and §6.
+
+The residual's largest producer rows after the diff:
+- 838 lines, references the §31 gate keeps as the gap: a name that resolves
+  in another meaning, `arguments`, or a file with ES import machinery;
+- 544 lines, declaration names of aliases this port does not type;
+- 423 lines, `FUNCTION_SCOPED_VARIABLE` declaration names, whose
+  initializer gapped.
+
+The first is the next producer for this lane's arm. Its decidable
+sub-population is the name that resolves only to a type-like meaning that
+can never merge with a value. It needs per-meaning native verification and
+is not attempted here.
