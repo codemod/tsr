@@ -168,7 +168,8 @@ domain-model 1,198,132,683 → 1,195,416,613.
    keys in different slots even at the same bucket count). The checker has
    97 `.iter()`/`.values()` sites over member, export and local tables;
    auditing every one for order sensitivity is outside a performance-only
-   lane. **What would change this:** a `SymbolTable` with a defined
+   lane, and `docs/conventions.md` records a case where unseeded `FxHash`
+   order silently stood in for declaration order. **What would change this:** a `SymbolTable` with a defined
    iteration order (insertion-ordered, as upstream's consumers are written
    against `SymbolTable` maps they sort or never iterate for output), after
    which capacity is free to choose.
@@ -196,3 +197,30 @@ Callgrind, generic-imports after §5 (342.99 M Ir):
 4. `NodeTable::push` (~8 M Ir over four parallel `Vec`s) and
    `record_parent_of_children` (4.2 M): `tsr-ast`/parser layout, already
    reserved per file.
+
+## §8 Gates and whole-project wall
+
+**Outputs.** Both unfiltered dumps on `339d279` are `cmp`-identical to the
+base (`diagverdictdump` 12,238 rows; `verdictdump` 552,533 rows, right
+543,912). Every interleaved run below compared base and new stdout: equal.
+
+**Interleaved** (§1 method; base = `4960842` unless a row says otherwise;
+default mode). Wall noise on this box is about ±5% between sessions, so the
+domain-model rows are repeated.
+
+| step | project | samples | wall new/base | CPU new/base | wall/tsgo base → new |
+|---|---|---:|---:|---:|---|
+| §2 (`0e06bef`) vs base | generic-imports | 31 | 0.912 | 0.903 | 1.064 → 0.971 |
+| §2 vs base | domain-model | 31 | 0.983 | 0.934 | 0.765 → 0.752 |
+| §3–§4 (`484a6e4`) vs §2 | generic-imports | 31 | 0.970 | 0.952 | 0.917 → 0.889 |
+| §3–§4 vs §2 | domain-model | 31 / 41 | 1.005 / 0.951 | 1.029 / 1.001 | 0.772 → 0.776 / 0.771 → 0.733 |
+| §5 (`339d279`) vs §3–§4 | generic-imports | 31 | 0.968 | 0.946 | 0.885 → 0.857 |
+| §5 vs §3–§4 | domain-model | 31 | 0.986 | 0.986 | 0.818 → 0.807 |
+| all vs base | generic-imports | 31 | **0.915** | **0.921** | **0.984 → 0.901** |
+| all vs base | domain-model | 31 / 41 / 41 | 1.045 / 0.970 / 0.941 | 1.064 / 1.000 / 0.960 | 0.748 → 0.781 / 0.786 → 0.763 / 0.803 → 0.756 |
+
+generic-imports is front-end-bound and moves with the Ir; domain-model's
+Ir fell only 3.0% (half its wall is the checker) and its three whole-stack
+sessions straddle 1.0 within the box's noise, the median of the three being
+0.970 wall / 1.000 CPU.
+
