@@ -643,15 +643,20 @@ impl Checker<'_, '_> {
         if signatures.is_empty() {
             return CallArity::Undecided;
         }
-        // A union's composite signatures take the parameters of whichever
-        // member list matched first, and their return types subtype-reduce
-        // (`getReturnTypeOfSignature`, `checker.go:20013`); this port has no
-        // subtype reduction, so a receiver typed by such a return can reach a
-        // different member list than upstream's. The argument count decides
-        // nothing there. A sole composite signature of the right arity whose
-        // `this` arm fails (`isSignatureApplicable`, `checker.go:9260`) is
-        // `candidatesForArgumentError`'s only entry, reported by
-        // [`Checker::check_this_argument`].
+        // A union callee's list is `getUnionSignatures`' composite list
+        // (`union_signatures.rs`; composite returns subtype-reduce,
+        // `getReturnTypeOfSignature`, `checker.go:20013`) and runs the same
+        // arity and argument rules. Written type arguments keep the
+        // type-argument arity arm alone. A sole composite signature of the
+        // right arity whose `this` arm fails (`isSignatureApplicable`,
+        // `checker.go:9260`) is `candidatesForArgumentError`'s only entry,
+        // reported by [`Checker::check_this_argument`]. A union that could
+        // contain type variables is declined, the refusal of
+        // [`Checker::head_could_contain_type_variables`]: this port's
+        // producers leave such unions unreduced where upstream's
+        // `UnionReductionSubtype` removes a member (`a ?? []` over a generic
+        // indexed access keeps `never[]`), and the composite parameters of an
+        // unreduced union are not upstream's.
         if self.store.get(apparent).flags.intersects(TypeFlags::UNION) {
             if !type_arguments.is_empty() {
                 return self.check_type_argument_arity_only(node, type_arguments, &signatures);
@@ -665,7 +670,9 @@ impl Checker<'_, '_> {
             {
                 return CallArity::Reported;
             }
-            return CallArity::Undecided;
+            if self.head_could_contain_type_variables(apparent, 3) {
+                return CallArity::Undecided;
+            }
         }
         // `getTypeFromBindingPattern` gives an array-pattern rest parameter a
         // tuple type; this port's signature carries `any[]` there, so its
@@ -894,13 +901,12 @@ impl Checker<'_, '_> {
     /// one non-generic: those passing `hasCorrectArity`, in
     /// `reorderCandidates` (`checker.go:8958`) order.
     ///
-    /// `reorderCandidates` keeps declaration order when every signature
-    /// shares one declaration parent and none is specialized
-    /// (`SignatureFlagsHasLiteralTypes`, set for a `LiteralType` parameter
-    /// annotation in `getSignatureFromDeclaration`); anything else is
-    /// declined, as is a spread argument.
-    /// The literal test reads the parameter's type, a superset of the written
-    /// node test: it can only decline more.
+    /// The list is put in `reorderCandidates` order
+    /// ([`Checker::reorder_candidates`]; declaration groups of a union's
+    /// composite signatures stay in constituent order). A candidate with a
+    /// literal or `null` parameter type is declined, as is a spread
+    /// argument: the argument walk reads each argument's checked type, which
+    /// for such a parameter is not the one checked under it as context.
     fn non_generic_overload_candidates(
         &mut self,
         candidates: &[Signature],
@@ -914,10 +920,8 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        let parent = self.nodes.parent(candidates[0].declaration);
         for candidate in candidates {
             if !candidate.type_parameters.is_empty()
-                || self.nodes.parent(candidate.declaration) != parent
                 || candidate.parameters.iter().any(|parameter| {
                     let parameter_type = self.parameter_type(parameter);
                     self.store
@@ -930,9 +934,9 @@ impl Checker<'_, '_> {
             }
         }
         let mut matched = Vec::new();
-        for candidate in candidates {
-            if self.has_correct_arity(candidate, effective, no_argument_list)? {
-                matched.push(candidate.clone());
+        for candidate in self.reorder_candidates(candidates.to_vec()) {
+            if self.has_correct_arity(&candidate, effective, no_argument_list)? {
+                matched.push(candidate);
             }
         }
         Some(matched)
