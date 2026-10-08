@@ -124,11 +124,7 @@ impl Checker<'_, '_> {
             None
         } else {
             node.node_id.and_then(|location| {
-                self.evaluate_template_constant(
-                    &Expression::TemplateExpression(node),
-                    location,
-                    &mut Vec::new(),
-                )
+                self.evaluate_template_constant(&Expression::TemplateExpression(node), location)
             })
         };
         if let Some(EvaluatedValue::Text(value)) = folded {
@@ -326,98 +322,25 @@ impl Checker<'_, '_> {
         at
     }
 
-    /// Constant-variable/global-number slice of `evaluateEntity` (checker.go:24024).
-    /// Each initializer becomes the location for its recursive evaluation, so
-    /// forward references and self/dependent initializer cycles cannot fold.
+    /// `checkTemplateExpression`'s `c.evaluate(node, node)` (`checker.go:7992`):
+    /// the checker's evaluator, shared with enum member values
+    /// ([`Checker::evaluate_constant`], `evaluateEntity` at `checker.go:24024`).
+    /// Each constant variable's initializer is evaluated with its declaration
+    /// as the location, so forward references and self/dependent initializer
+    /// cycles cannot fold; an enum member reads its folded value.
     fn evaluate_template_constant(
         &mut self,
         expression: &Expression<'_>,
         location: NodeId,
-        active: &mut Vec<NodeId>,
     ) -> Option<EvaluatedValue> {
-        evaluate_constant_expression_with(expression, &mut |entity| {
-            let symbol = self.constant_entity_symbol(entity, SymbolFlags::VALUE)?;
-            let symbol = self.binder.merged_symbol(symbol);
-            // Pinned 5b1047d: evaluateEntity recognizes these numbers only
-            // through global-symbol identity, never a property's spelling or
-            // a shadowing/imported variable with the same name.
-            if let Expression::Identifier(identifier) = entity
-                && matches!(identifier.text, "Infinity" | "NaN")
-                && self.binder.global(identifier.text) == Some(symbol)
-            {
-                return Some(EvaluatedValue::Number(if identifier.text == "Infinity" {
-                    f64::INFINITY
-                } else {
-                    f64::NAN
-                }));
+        match self.evaluate_constant(expression.node_id()?, location)? {
+            crate::enum_initializer::EnumConstant::Number(value) => {
+                Some(EvaluatedValue::Number(value))
             }
-            if !self.is_constant_variable(symbol) {
-                return None;
+            crate::enum_initializer::EnumConstant::String(value) => {
+                Some(EvaluatedValue::Text(value))
             }
-            let declaration = self.binder.symbols().get(symbol).value_declaration?;
-            let Node::VariableDeclaration(variable) = self.node_map.get(declaration)? else {
-                return None;
-            };
-            if variable.r#type.is_some() || declaration == location || active.contains(&declaration)
-            {
-                return None;
-            }
-            if self.source_file_of_for_diagnostics(declaration)
-                == self.source_file_of_for_diagnostics(location)
-                && (self.nodes.span(declaration).start > self.nodes.span(location).start
-                    || self.nodes.ancestors(location).any(|id| id == declaration))
-            {
-                return None;
-            }
-            let initializer = variable.initializer?;
-            active.push(declaration);
-            let value = self.evaluate_template_constant(&initializer, declaration, active);
-            active.pop();
-            value
-        })
-    }
-
-    /// `resolveEntityName` (pinned 5b1047d checker.go:15772), ignoring errors.
-    /// Object properties are not namespace exports. Alias targets use the
-    /// existing checker-owned resolver (including its unresolved-chain bound),
-    /// not a value/type cache; the caller evaluates each terminal declaration
-    /// with its own location and evaluation-local active declaration stack.
-    fn constant_entity_symbol(
-        &mut self,
-        expression: &Expression<'_>,
-        meaning: SymbolFlags,
-    ) -> Option<tsr_binder::SymbolId> {
-        let symbol = match expression {
-            Expression::Identifier(identifier) => self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                identifier.node_id?,
-                identifier.text,
-                meaning,
-            ),
-            Expression::PropertyAccessExpression(access) => {
-                let owner =
-                    self.constant_entity_symbol(&access.expression?, SymbolFlags::NAMESPACE)?;
-                let name = match access.name? {
-                    tsr_ast::MemberName::Identifier(identifier) => identifier.text,
-                    tsr_ast::MemberName::PrivateIdentifier(_) => return None,
-                };
-                self.binder
-                    .symbols()
-                    .get(self.binder.merged_symbol(owner))
-                    .exports
-                    .get(name)
-                    .copied()
-            }
-            _ => None,
-        }?;
-        let symbol = self.binder.merged_symbol(symbol);
-        let symbol = if self.binder.symbols().get(symbol).flags.intersects(meaning) {
-            symbol
-        } else {
-            self.resolve_alias_fully(symbol)
-        };
-        self.binder.symbols().get(symbol).flags.intersects(meaning).then_some(symbol)
+        }
     }
 
     /// The §50 shape test + pseudo-narrow + re-projection
@@ -1455,103 +1378,34 @@ impl Checker<'_, '_> {
         self.intrinsics.number
     }
 
-    /// The `!` arm of `checkPrefixUnaryExpression` (`checker.go:10887`).
+    /// The `!` arm of `checkPrefixUnaryExpression` (`checker.go:10887`):
     ///
-    /// Upstream calls `getTypeFacts(operandType, TypeFactsTruthy|TypeFactsFalsy)`
-    /// and answers `false` when the operand can only be truthy, `true` when it
-    /// can only be falsy, and `boolean` when it could be either. `>!x : boolean`
-    /// is the common baseline line, but `!` on a literal is not `boolean` and
-    /// answering `boolean` everywhere would be a wrong line on each one.
+    /// ```go
+    /// facts := c.getTypeFacts(operandType, TypeFactsTruthy|TypeFactsFalsy)
+    /// switch {
+    /// case facts == TypeFactsTruthy: return c.falseType
+    /// case facts == TypeFactsFalsy:  return c.trueType
+    /// default:                       return c.booleanType
+    /// }
+    /// ```
     ///
-    /// # Only the decidable half of `getTypeFacts` is ported
-    ///
-    /// A unit type has one truthiness and the primitives have both, which is
-    /// enough for the corpus shapes. Everything else — unions, objects,
-    /// intersections, type parameters, `never` — is a gap. An object type is
-    /// *always* truthy upstream and so would answer `false`, but that holds only
-    /// once `TypeFacts` distinguishes an object from a possibly-`undefined` one,
-    /// and guessing it here would be a wrong line on every optional value.
+    /// The truthiness comes from [`Checker::get_type_facts`] (`flow.rs`,
+    /// `getTypeFacts`), which resolves an instantiable operand through its base
+    /// constraint and folds unions and intersections — the hand-built
+    /// unit/union table this replaced answered `error` for those
+    /// (`docs/parity/notes/r4-operators.md` §1). An `error`/`any`/`never` operand
+    /// is `boolean`, as upstream: `errorType` carries `AnyFacts` (both bits)
+    /// and `never`'s empty facts match neither single-bit case.
     fn negated_truthiness_type(&mut self, operand: TypeId) -> TypeId {
-        if operand == self.intrinsics.error {
-            return self.intrinsics.error;
+        let mask = crate::flow::TypeFacts::TRUTHY | crate::flow::TypeFacts::FALSY;
+        let facts = self.get_type_facts(operand) & mask;
+        if facts == crate::flow::TypeFacts::TRUTHY {
+            self.intrinsics.false_type
+        } else if facts == crate::flow::TypeFacts::FALSY {
+            self.intrinsics.true_type
+        } else {
+            self.intrinsics.boolean
         }
-        let (flags, data) = {
-            let t = self.store.get(operand);
-            (t.flags, t.data.clone())
-        };
-        // Always falsy: `!null`, `!undefined`, `!void` are all `true`.
-        if flags.intersects(TypeFlags::NULLABLE | TypeFlags::VOID) {
-            return self.intrinsics.true_type;
-        }
-        let falsy = match data {
-            TypeData::EnumLiteral { .. } => {
-                let facts = self.get_type_facts(operand);
-                let truthy = facts.contains(crate::flow::TypeFacts::TRUTHY);
-                let falsy = facts.contains(crate::flow::TypeFacts::FALSY);
-                return if truthy && falsy {
-                    self.intrinsics.boolean
-                } else if falsy {
-                    self.intrinsics.true_type
-                } else {
-                    self.intrinsics.false_type
-                };
-            }
-            TypeData::BooleanLiteral(value) => !value,
-            TypeData::StringLiteral(text) => text.is_empty(),
-            // The normalised text, so 0, 0.0 and 0x0 arrive as "0".
-            TypeData::NumberLiteral(text) | TypeData::BigIntLiteral(text) => text == "0",
-            // §291: a UNION folds its constituents' truthiness — all-truthy
-            // is `false`, all-falsy `true`, a mix `boolean`, and any
-            // undecidable constituent keeps the gap
-            // (`!abcOrXyzOrNumber : boolean`,
-            // `stringLiteralTypesWithVariousOperators01`).
-            TypeData::Union { types: constituents, .. } => {
-                let mut saw_true = false;
-                let mut saw_false = false;
-                let mut saw_boolean = false;
-                for constituent in constituents {
-                    let negated = self.negated_truthiness_type(constituent);
-                    if negated == self.intrinsics.error {
-                        return self.intrinsics.error;
-                    } else if negated == self.intrinsics.true_type {
-                        saw_true = true;
-                    } else if negated == self.intrinsics.false_type {
-                        saw_false = true;
-                    } else {
-                        saw_boolean = true;
-                    }
-                }
-                return if saw_boolean || (saw_true && saw_false) {
-                    self.intrinsics.boolean
-                } else if saw_true {
-                    self.intrinsics.true_type
-                } else {
-                    self.intrinsics.false_type
-                };
-            }
-            _ => {
-                // Both truthiness values are possible for the unit-less
-                // primitives, which is upstream's `Truthy|Falsy` and prints
-                // `boolean`.
-                return if flags.intersects(
-                    TypeFlags::STRING
-                        | TypeFlags::NUMBER
-                        | TypeFlags::BIG_INT
-                        | TypeFlags::BOOLEAN
-                        | TypeFlags::ANY_OR_UNKNOWN,
-                ) {
-                    self.intrinsics.boolean
-                } else if flags.intersects(TypeFlags::OBJECT | TypeFlags::ES_SYMBOL_LIKE) {
-                    // §291: an object or symbol operand is ALWAYS truthy
-                    // (upstream's TypeFacts), so its negation is the `false`
-                    // literal.
-                    self.intrinsics.false_type
-                } else {
-                    self.intrinsics.error
-                };
-            }
-        };
-        if falsy { self.intrinsics.true_type } else { self.intrinsics.false_type }
     }
 
     /// Ported from `Checker.checkThisExpression` (`checker.go:12077`), reduced to
@@ -2342,7 +2196,10 @@ impl Checker<'_, '_> {
     ///
     /// True for the primitives and the unit types: subtype relationships among
     /// them are exactly the literal-to-base-primitive ones that literal reduction
-    /// already handles. False for everything else — objects, type parameters,
+    /// already handles. `void` is excluded: subtype reduction alone drops
+    /// `undefined` beside it (`removeRedundantLiteralTypes`'
+    /// `reduceVoidUndefined`, `checker.go:25848`), so `c ? f() : undefined`
+    /// with `f(): void` is `void`, not `void | undefined`. False for everything else — objects, type parameters,
     /// intersections, and the enum types, whose reduction is [`crate::unions`]'s
     /// question rather than this one's.
     ///
@@ -2359,7 +2216,6 @@ impl Checker<'_, '_> {
             .union(TypeFlags::BOOLEAN_LITERAL)
             .union(TypeFlags::NULL)
             .union(TypeFlags::UNDEFINED)
-            .union(TypeFlags::VOID)
             .union(TypeFlags::NEVER);
         let t = self.store.get(id);
         if let TypeData::Union { types, symbol, .. } = &t.data {

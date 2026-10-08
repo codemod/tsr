@@ -10,15 +10,13 @@
 //!
 //! # `+` was excluded on an argument, and the measurement overturned it
 //!
-//! §32 declined `+` because it is overloaded with string concatenation, so its
-//! operand check runs after `checkBinaryLikeExpression` has chosen an overload —
-//! a different arm with a different message set. That reasoning is sound about
-//! *upstream's control flow* and wrong about the outcome: `null` and `undefined`
-//! are not string-like either, so the `+` arm reaches the same TS18050. Adding
-//! it is **+3 cases** (§40.5) with the gates green.
-//!
-//! An argument from upstream's structure is not a measurement. This one survived
-//! because it was never run.
+//! §32 declined `+` because it is overloaded with string concatenation; §40.5
+//! measured that `null` and `undefined` are not string-like either, so the `+`
+//! arm reaches the same TS18050. The `+` arm now reports through
+//! [`Checker::check_non_null_type_reporting`] from its own port
+//! (`crate::operator_operands`, `docs/parity/notes/operators.md` §5), as the
+//! relational, arithmetic and unary arms already did; this module keeps the
+//! reporter they share.
 
 use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Diagnostic, messages};
@@ -26,44 +24,6 @@ use tsr_diagnostics::{Diagnostic, messages};
 use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 
 impl Checker<'_, '_> {
-    /// The nullable-operand check for one binary expression.
-    pub(crate) fn check_nullable_operand(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || !self.strict_null_checks {
-            return;
-        }
-        let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
-        let Some(operator) = binary.operator_token else { return };
-        if !is_numeric_operator(operator.kind) {
-            return;
-        }
-        let (Some(left), Some(right)) = (binary.left, binary.right) else { return };
-        // **`+` is conditional and every other operator here is not.**
-        // `checkNonNullType` — the function that emits this code — runs for an
-        // addition only when NEITHER operand is string-like
-        // (`checker.go:12418`), because `null + d` with `d: string` is a
-        // concatenation and the `null` is fine. `isTypeAssignableToKind`
-        // without `strict` lets `any` satisfy `StringLike` too
-        // (`checker.go:27652`), so `null + a` is silent for the same reason.
-        // Sixteen wrong lines, all in `additionOperatorWith*Value*` and
-        // `operatorAddNullUndefined` — `checker-notes-diag2.md` §50.2.
-        if operator.kind == SyntaxKind::PlusToken {
-            let left_type = self.check_expression(left);
-            let right_type = self.check_expression(right);
-            if self.is_string_like_or_any(left_type) || self.is_string_like_or_any(right_type) {
-                return;
-            }
-        }
-        for operand in [left, right] {
-            self.report_nullable_operand(operand);
-        }
-    }
-
-    /// One operand of an arithmetic position, reported per
-    /// `reportObjectPossiblyNullOrUndefinedError` (`checker.go:7455`).
-    ///
-    /// Extracted so the prefix arm and the binary arm share it — the
-    /// spelling test that chooses TS18050 over TS18048 and the five
-    /// entity-name branches are the same for both. §759.
     /// Does the class enclosing this node have `extends null`? §910.
     fn enclosing_class_extends_null(&self, node: NodeId) -> bool {
         let Some(class) = self.nodes.ancestors(node).find(|&ancestor| {
@@ -92,11 +52,6 @@ impl Checker<'_, '_> {
                     })
                 })
         })
-    }
-
-    pub(crate) fn report_nullable_operand(&mut self, operand: tsr_ast::Expression<'_>) {
-        let ty = self.check_expression(operand);
-        self.report_nullable_operand_of_type(operand, ty);
     }
 
     /// The same report against a type the caller has already adjusted.
@@ -267,33 +222,4 @@ impl Checker<'_, '_> {
             _ => None,
         }
     }
-
-    /// `isTypeAssignableToKind(t, TypeFlagsStringLike)` **without** `strict`
-    /// (`checker.go:27645`): the flag test, then assignability to `string` —
-    /// which `any` and `unknown` satisfy, since the strict short-circuit is
-    /// what would have excluded them.
-    fn is_string_like_or_any(&mut self, ty: TypeId) -> bool {
-        if self
-            .type_of(ty)
-            .flags
-            .intersects(TypeFlags::STRING_LIKE.union(TypeFlags::ANY_OR_UNKNOWN))
-        {
-            return true;
-        }
-        // `Related` and not "not `NotRelated`". This test decides whether to
-        // **stay silent**, so an undecidable pair must not be read as
-        // string-like: an enum operand answers `Unknown` here and is not
-        // assignable to `string` upstream, and reading `Unknown` as a positive
-        // cost 28 correct lines in the first measurement.
-        let string = self.intrinsics.string;
-        self.relate_ternary(ty, string, crate::relater::Relation::Assignable)
-            == crate::relater::Ternary::Related
-    }
-}
-
-/// The binary operators this rule still reports for: `+` alone. The
-/// relational and arithmetic arms report through
-/// [`Checker::check_non_null_type_reporting`] from their own ports.
-fn is_numeric_operator(kind: SyntaxKind) -> bool {
-    kind == SyntaxKind::PlusToken
 }

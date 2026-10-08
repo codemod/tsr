@@ -1,8 +1,12 @@
 # Recursive relation proof publication
 
 This records correctness prerequisites `tsr-6.51` and `tsr-6.52`, plus
-bounded execution experiments under `tsr-1yb.15`. Relation-cache contract
-`tsr-1yb.4.1.3` remains unfinished. The comparison starts at TSR
+bounded execution experiments under `tsr-1yb.15`. Completed results became
+checker-lifetime under `tsr-2zk.902`; see
+[Checker-lifetime results](#checker-lifetime-results-tsr-2zk902), which
+supersedes the per-walk ownership recorded in the audit table below. The
+remaining relation-cache contract items of `tsr-1yb.4.1.3` (reliability flags,
+generic key equivalence) stay open. The comparison starts at TSR
 `738b1a797a65c62a418da34d27daad591b1599de`, against pinned tsgo
 `5b1047d10d32e7d5b446be4de56b126ff42f82bb`.
 
@@ -23,6 +27,10 @@ measurement. The historical experiments below retain their original sources.
 | Expensive work | A completed hit skips that walk's structured comparison; an active hit supplies only an assumption. Count executed structured/property/signature/variance work separately from repeated API calls. Historical counters with rejected property exits are not current production counts. |
 | Controls | `tests/relater.rs` covers both invalid union orders, a valid later recursive proof, depth-refusal assumption discard, generic variance and strict-function option changes. Internal circular-variance controls check that no top-level proof is published. These do not certify native persistent key equivalence or all metadata-forcing contexts. |
 
+*Correction (tsr-2zk.902):* the "Identity and owner" row describes `08f2487b`.
+`relate_ternary` and `compare_signature_ternary` no longer construct fresh
+result stores; completed results are checker-owned, below.
+
 The concrete omissions already have owners: `tsr-1yb.4.1.4` must specify generic
 key equivalence, constraints, direction and intersection context;
 `tsr-1yb.4.1.3` must settle persistent lifetime, metadata forcing,
@@ -32,6 +40,73 @@ progress. The audit creates no competing implementation task and selects no key
 encoding or cache lifetime. Repeated ordered pairs alone cannot discharge those
 obligations. Query/emit worker ownership remains `tsr-1yb.3.2`, while concrete
 receiver API coverage remains `tsr-1yb.4.1.5`.
+
+## Checker-lifetime results (tsr-2zk.902)
+
+Measured at integration head `b23dd3d` against pinned tsgo `5b1047d`.
+
+**Forcing constraint.** Until this change every `relate_ternary` call built a
+fresh `Relater` with an empty results map, so a repeated
+`(source, target, relation)` pair repeated its whole structural walk.
+TypeScript's own `src/jsTyping` and `src/typingsInstallerCore`
+(`vendor/typescript-go/_submodules/TypeScript/src`) never finished: still
+running at 120 s and 300 s, with three `gdb` stack samples of every thread at
+30-40 s all in `narrow_type_by_type_predicate`/`map_narrowing_type` →
+`relate_with_signature_diagnostic` → 23-30 nested `recursive_type_related_to`
+frames re-resolving inherited members. Each narrowing query re-walked the
+same deep declaration-type pairs (`Node`, `Declaration`, ... of
+`compiler/types.ts`).
+
+| Boundary | Decision |
+|---|---|
+| Native operation | `Relation` (`relater.go:99`) with `get`/`set`; `recursiveTypeRelatedTo` (`relater.go:3061`) reads it before the active-assumption check and publishes failures (`:3162`); `resetMaybeStack` (`:3169`) publishes discharged assumptions as succeeded. One map per relation kind on the `Checker`. |
+| Key identity | `crate::relation_cache::RelationKey` = `(source TypeId, target TypeId, IntersectionStateTarget)`, one map per [`Relation`](../../crates/tsr-checker/src/relater.rs) kind. Native's `getRelationKey` (`checker.go:17613`) additionally writes generic type references (`'g'` keys) with type parameters by position, so several TypeId pairs share one native key; a TypeId pair is strictly finer, so the port can miss a hit native takes but never shares a result native keeps apart. The `constrained`/broadest-equivalent `maybeKeys` probe (`relater.go:3097`) is therefore not ported (`tsr-1yb.4.1.4`). `IntersectionStateSource` remains unrepresented, as before. |
+| Owner and lifetime | `Checker::relation_results`, one private checker, its whole lifetime. TypeIds are never reused (the `TypeStore` has no rollback). Native fixes options at construction; the port's `apply_compiler_options` and its tests change them on a live checker, so the store records the options its results were computed under — `strictNullChecks`, `strictFunctionTypes`, `exactOptionalPropertyTypes`, `noImplicitAny` — and a walk that starts under different ones discards every result (`RelationResults::validate`). |
+| Publication | Unchanged from the per-walk rules above: `Related` and discharged `Maybe` scopes publish `Succeeded`; `NotRelated` publishes `Failed` ("false under assumptions is false without them"); `CircularVariance` and `Unknown` (unsupported work, depth refusal) never publish. A completed hit returns at once; an active assumption is still walk-local (`maybe_keys`). Native's `Reported`, `ComplexityOverflow`/`StackDepthOverflow` and `ReportsUnmeasurable`/`ReportsUnreliable` flags are not represented: the port has no `relationCount` budget, its depth refusal is an unpublished `Unknown`, and it propagates no reliability flags (`tsr-1yb.4.1.3`). |
+| Context frames | A walk opened while a conditional-alias evaluation frame (`alias_evaluation_bindings`) or a mapped-template frame (`mapped_template_depth`) is active reads member and template types through that frame, so its answers are not the frame-free pair's. Native has neither frame. Such a walk keeps a walk-local map (exactly the pre-change behavior) and neither reads nor publishes the checker store. Print frames (`render_type_parameter_*`) change names only and are not excluded. An open type resolution is not excluded either: native publishes under open resolutions too, and the corpus below is byte-identical. |
+| Diagnostics | Native re-runs a cached failure when it elaborates (`relater.go:3069`). The port elaborates only the direct pair's signature arity (`diagnostic_pair`), so a cached failure is re-run only for that pair; a cached success needs no elaboration. |
+| Entry read | Native `isTypeRelatedTo` (`relater.go:193`) reads the results of two object types under `IntersectionStateNone` before it opens a walk. `Checker::cached_object_relation` ports it at the `relate_ternary` entry (not for the diagnostic pair, not in a frame). It is equivalent to the walk it skips: `recursive_type_related_to` is the store's only writer and is reached only after `is_related_to_with_flags`' arms decline the pair; those arms read only the pair, the relation and the validated options, and for two object types the walk's normalizations reduce to `get_regular_type_of_literal_type`, applied before the read. Variance-marker pairs are answered before the store is ever written. |
+| Expensive work | A hit skips the structured walk (`structured_type_related_to` and everything below it); an entry hit also skips `is_related_to_with_flags`' arms. Callgrind on `scripts/generate_perf_project.py --modules 100`: 4,530,691,360 → 4,416,164,874 instructions (−2.5%) with the store, 4,405,146,014 (−2.8%) with the entry read. On `jsTyping` a temporary counter (not shipped) saw 8.8 million top-level relation calls, 1.28 million structured-walk entries, 1.03 million of them completed hits, and 66,048 structured results `Unknown` (recomputed every time, as they may not publish). |
+
+**Alternatives rejected.** (1) Keying by native's `getRelationKey` string:
+needs the generic-reference equivalence audit (`tsr-1yb.4.1.4`) and a hash
+per lookup, and buys hits only for structurally equal generic references;
+TypeId pairs already close the measured hang. Revisit if a profile shows
+repeated walks between distinct TypeIds of the same generic reference.
+(2) Refusing publication while any type resolution is open: more
+conservative, but every relation inside a variable's initializer inference
+would stay per-walk; native publishes there, and no corpus line moved
+without it. (3) Clearing the store from `apply_compiler_options`: misses
+the tests that assign option fields directly.
+
+**Accepted consequences.** A result now outlives the walk that computed it,
+so a TSR-specific context dependence that is not one of the two excluded
+frames would become a stale answer rather than a per-call one. None was
+found: the unfiltered corpus is byte-identical (types 477,985 lines,
+469,946 RIGHT; diagnostics 10,570 cases, 4,232 RIGHT + 4,968 EMPTY_RIGHT).
+Memory grows with distinct related pairs for the program's lifetime, as in
+native.
+
+**How we would know we were wrong.** A verdict that changes with the order
+in which files or expressions are checked (e.g. a single-file run that
+differs from the same file in a project), or a corpus line that changes
+when this store is replaced with the walk-local map. The controls are
+`relater.rs` `relation_cache_tests`: results outlive the walk (success with
+its discharged assumption, and a failure), framed walks stay walk-local,
+and an option change discards results.
+
+**Outcome.** `jsTyping` and `typingsInstallerCore` (with `types: []`,
+because the submodule has no `@types/node` and native otherwise stops at
+TS2688 before checking) finish in 25.1 s and 24.9 s; native tsgo takes
+1.50 s and 1.57 s. The entry read takes `jsTyping` from 27.1-28.8 s to
+24.6 s in an interleaved pair of runs on the same box (output
+byte-identical). TSR reports 875 diagnostics on each against native's 163
+and 169, with 56 location/code keys in common. TSR's largest extra codes are
+TS2339 (293), TS2345 (194), TS2769 (91) and TS18048 (79); native's largest
+code TSR lacks is TS6307 (77, project file list). The baseline never
+finished, so there is no before/after diagnostic comparison on these
+projects; the differences are not attributed to this change, and neither is
+the remaining wall gap.
 
 ## The failed proof
 

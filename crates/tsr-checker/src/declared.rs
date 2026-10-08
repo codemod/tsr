@@ -6395,7 +6395,34 @@ impl<'a> Checker<'a, '_> {
     /// enum reuse the first member's type. The sequential evaluator supports
     /// prior same-enum references; unsupported expressions retain computed-enum
     /// types. See docs/architecture/checker-99-enum-literals.md.
+    ///
+    /// Member values come from the checker's evaluator
+    /// ([`Checker::evaluate_enum_initializer`]), which reads other enums'
+    /// members through their declared types. The enum's `DeclaredType`
+    /// resolution frame, held for the member loop, is upstream's
+    /// `NodeCheckFlagsEnumValuesComputed` (`checker.go:23940`): a re-entrant
+    /// read of this enum sees the members published so far and does not
+    /// force it again. `docs/parity/notes/r4-templates.md` §1.
     fn get_declared_type_of_enum(&mut self, symbol: SymbolId) -> TypeId {
+        // Upstream reaches this through `getSymbolOfDeclaration`, which is
+        // always the merged symbol; a per-file symbol of a merged enum
+        // declares the merged enum's type, not one built from its own
+        // declarations alone.
+        let merged = self.binder.merged_symbol(symbol);
+        if merged != symbol {
+            return self.get_declared_type_of_symbol(merged);
+        }
+        if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+            return self.intrinsics.error;
+        }
+        let computed = self.get_declared_type_of_enum_values(symbol);
+        self.resolutions.pop();
+        computed
+    }
+
+    /// [`Checker::get_declared_type_of_enum`]'s member loop
+    /// (`computeEnumMemberValues` and `getDeclaredTypeOfEnum`'s union).
+    fn get_declared_type_of_enum_values(&mut self, symbol: SymbolId) -> TypeId {
         // §55 (`checker-notes-narrow.md`): the sequential constant folder.
         // `None` = computed; auto-increment dies after a string or computed
         // predecessor, per the language.
@@ -6403,140 +6430,6 @@ impl<'a> Checker<'a, '_> {
         enum MemberValue {
             Num(f64),
             Str(String),
-        }
-        // jsnum.Number.toInt32 (jsnum.go:52): truncate, then wrap modulo
-        // 2^32. Rust's float-to-int cast saturates instead and is not the
-        // language's conversion. Non-finite values map to zero.
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            clippy::cast_possible_wrap,
-            reason = "ECMAScript ToInt32 truncates, wraps modulo 2^32, and reinterprets the sign bit"
-        )]
-        fn to_int32(value: f64) -> i32 {
-            if !value.is_finite() {
-                return 0;
-            }
-            value.trunc().rem_euclid(4_294_967_296.0) as u32 as i32
-        }
-        // §55: fold the member's value. Identifier and same-enum
-        // qualified references reach PRIOR members only.
-        fn eval(
-            expr: &tsr_ast::Expression<'_>,
-            enum_name: &str,
-            folded: &[(String, Option<MemberValue>)],
-        ) -> Option<MemberValue> {
-            match expr {
-                tsr_ast::Expression::NumericLiteral(n) => {
-                    n.text.parse::<f64>().ok().map(MemberValue::Num)
-                }
-                tsr_ast::Expression::StringLiteral(s) => Some(MemberValue::Str(s.text.to_string())),
-                tsr_ast::Expression::NoSubstitutionTemplateLiteral(s) => {
-                    Some(MemberValue::Str(s.text.to_string()))
-                }
-                // evaluator.NewEvaluator always skips outer parentheses,
-                // but deliberately does not skip assertions/satisfies.
-                tsr_ast::Expression::ParenthesizedExpression(p) => {
-                    eval(p.expression.as_ref()?, enum_name, folded)
-                }
-                tsr_ast::Expression::PrefixUnaryExpression(u) => {
-                    let inner =
-                        u.operand.as_ref().and_then(|operand| eval(operand, enum_name, folded))?;
-                    match (&inner, u.operator.kind) {
-                        (MemberValue::Num(n), SyntaxKind::MinusToken) => Some(MemberValue::Num(-n)),
-                        (MemberValue::Num(n), SyntaxKind::PlusToken) => Some(MemberValue::Num(*n)),
-                        (MemberValue::Num(n), SyntaxKind::TildeToken) => {
-                            Some(MemberValue::Num(f64::from(!to_int32(*n))))
-                        }
-                        _ => None,
-                    }
-                }
-                tsr_ast::Expression::Identifier(identifier) => folded
-                    .iter()
-                    .rev()
-                    .find(|(n, _)| n == identifier.text)
-                    .and_then(|(_, v)| v.clone()),
-                // §667: upstream's enum constant evaluator folds the arithmetic
-                // and bitwise operators, not just literals and unary minus
-                // (`evaluate`, checker.go). `enum E2 { a = 1 << 0, b = 1 << 1 }`
-                // (`equalityWithEnumTypes`) has no value without this, so its
-                // members never enter `enum_value_types` and §666's
-                // comparability lookup cannot match them.
-                tsr_ast::Expression::BinaryExpression(binary) => {
-                    let left = binary.left.as_ref().and_then(|l| eval(l, enum_name, folded))?;
-                    let right = binary.right.as_ref().and_then(|r| eval(r, enum_name, folded))?;
-                    let token = binary.operator_token?;
-                    // String `+` concatenates; every other operator is numeric.
-                    if let (MemberValue::Str(a), MemberValue::Str(b)) = (&left, &right) {
-                        return (token.kind == SyntaxKind::PlusToken)
-                            .then(|| MemberValue::Str(format!("{a}{b}")));
-                    }
-                    let (MemberValue::Num(a), MemberValue::Num(b)) = (&left, &right) else {
-                        return None;
-                    };
-                    let (ia, ib) = (to_int32(*a), to_int32(*b));
-                    // The shift count is masked to 0..=31 first, so the `u32`
-                    // conversion cannot lose a sign. `>>>` reinterprets its
-                    // left operand as unsigned and retains the unsigned result.
-                    #[expect(
-                        clippy::cast_sign_loss,
-                        reason = "ECMAScript shift semantics: masked count and unsigned reinterpretation"
-                    )]
-                    let value = match token.kind {
-                        SyntaxKind::PlusToken => a + b,
-                        SyntaxKind::MinusToken => a - b,
-                        SyntaxKind::AsteriskToken => a * b,
-                        SyntaxKind::SlashToken => a / b,
-                        SyntaxKind::PercentToken => a % b,
-                        SyntaxKind::AsteriskAsteriskToken => a.powf(*b),
-                        SyntaxKind::AmpersandToken => f64::from(ia & ib),
-                        SyntaxKind::BarToken => f64::from(ia | ib),
-                        SyntaxKind::CaretToken => f64::from(ia ^ ib),
-                        SyntaxKind::LessThanLessThanToken => {
-                            f64::from(ia.wrapping_shl((ib & 31) as u32))
-                        }
-                        SyntaxKind::GreaterThanGreaterThanToken => {
-                            f64::from(ia.wrapping_shr((ib & 31) as u32))
-                        }
-                        SyntaxKind::GreaterThanGreaterThanGreaterThanToken => {
-                            f64::from((ia as u32) >> ((ib & 31) as u32))
-                        }
-                        _ => return None,
-                    };
-                    Some(MemberValue::Num(value))
-                }
-                tsr_ast::Expression::PropertyAccessExpression(access) => {
-                    let receiver = match access.expression {
-                        Some(tsr_ast::Expression::Identifier(r)) => r.text,
-                        _ => return None,
-                    };
-                    if receiver != enum_name {
-                        return None;
-                    }
-                    let member_name = match access.name {
-                        Some(tsr_ast::MemberName::Identifier(n)) => n.text,
-                        _ => return None,
-                    };
-                    folded.iter().rev().find(|(n, _)| n == member_name).and_then(|(_, v)| v.clone())
-                }
-                // evaluateEntity (checker.go:24060) accepts only a written
-                // string-literal-like element name, not a computed key value.
-                tsr_ast::Expression::ElementAccessExpression(access) => {
-                    let Some(tsr_ast::Expression::Identifier(receiver)) = access.expression else {
-                        return None;
-                    };
-                    if receiver.text != enum_name {
-                        return None;
-                    }
-                    let member_name = match access.argument_expression {
-                        Some(tsr_ast::Expression::StringLiteral(s)) => s.text,
-                        Some(tsr_ast::Expression::NoSubstitutionTemplateLiteral(s)) => s.text,
-                        _ => return None,
-                    };
-                    folded.iter().rev().find(|(n, _)| n == member_name).and_then(|(_, v)| v.clone())
-                }
-                _ => None,
-            }
         }
         let declarations =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
@@ -6565,7 +6458,6 @@ impl<'a> Checker<'a, '_> {
             MemberValue::Num(n) => format!("n:{n}"),
             MemberValue::Str(s) => format!("s:{s}"),
         };
-        let mut folded: Vec<(String, Option<MemberValue>)> = Vec::new();
         for declaration in declarations {
             let Some(Node::EnumDeclaration(node)) = self.node_map.get(declaration) else {
                 continue;
@@ -6649,13 +6541,27 @@ impl<'a> Checker<'a, '_> {
                 let value: Option<MemberValue> = match member.initializer {
                     None if no_auto => None,
                     None => auto.map(MemberValue::Num),
-                    Some(ref expr) => eval(expr, &name, &folded),
+                    // `computeConstantEnumMemberValue` (`checker.go:23994`):
+                    // the checker's symbol-aware evaluator, with the member
+                    // as `location`.
+                    Some(ref expr) => match (expr.node_id(), member.node_id) {
+                        (Some(at), Some(location)) => {
+                            self.evaluate_enum_initializer(at, location).map(|value| match value {
+                                crate::enum_initializer::EnumConstant::Number(n) => {
+                                    MemberValue::Num(n)
+                                }
+                                crate::enum_initializer::EnumConstant::String(s) => {
+                                    MemberValue::Str(s)
+                                }
+                            })
+                        }
+                        _ => None,
+                    },
                 };
                 auto = match &value {
                     Some(MemberValue::Num(n)) => Some(n + 1.0),
                     _ => None,
                 };
-                folded.push((member_name.clone(), value.clone()));
                 let literal_data = |text: String| match &value {
                     Some(MemberValue::Num(number)) => (
                         TypeFlags::ENUM_LITERAL | TypeFlags::NUMBER_LITERAL,
