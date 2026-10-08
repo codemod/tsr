@@ -54,7 +54,45 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
-Symbol-key continuation, frozen main `1cea3449` / native `5b1047d`: existing
+Reference/this/member continuation, frozen main `4a0ff849` / native `5b1047d`:
+the full private draft now preserves actual this-cache, receiver substitution,
+base-cache and completeness-walk owners, with selected raw member edges and
+53 metadata reader migrations. The reader slice passes all 209 library tests;
+the separate parsed owner red still fails. Native direct controls pass all 34
+assertions in two observations. Full owner compilation has 204 errors across
+36 files; its private factory/substitution test has not executed. Both format
+checks pass; strict Clippy remains six library/five library-test errors. Stable
+inputs and exact 26/40-file Rust plus 13-file native replays are archived.
+No main runtime change, full corpus or speed gain.
+[Evidence](docs/architecture/checker-symbol-completion-contract.md#reference-polymorphic-this-and-member-owner-continuation).
+
+Earlier declared class/reference continuation, frozen main `67440ffd` / native
+`5b1047d`: the private reader/key draft passes 1,570 checker-package tests (209
+library), with three existing ignores and the known parsed owner red filtered;
+its separate run still fails. Two actual native observations pass all twenty
+identity/reuse assertions: copies share parameter declaration types but keep
+separate declared/reference owners and ordered-argument caches. Full draft
+`Named` owners/reference metadata and factories now carry actual handles, but
+267 compiler errors across 37 files remain; the private factory test has not
+executed. Strict Clippy remains library six versus baseline five, library-test
+five. Lossless 26/36-file Rust and thirteen-file native replays are preserved.
+No canonical runtime, full corpus or speed gain.
+[Evidence](docs/architecture/checker-symbol-completion-contract.md#declared-class-and-reference-owner-continuation).
+
+Earlier constructor/naming continuation, frozen main `13da1cf0` / native `5b1047d`:
+private constructor keys/frames, raw module metadata, qualification targets and
+active-signature eligibility now preserve selected identities. The key slice
+passes 1,569 checker-package tests (208 library), with three existing ignores
+and the known parsed import-owner red filtered; its separate run still fails.
+Four native direct observations and two compiling origin-substitution mutants
+qualify the bounded readers. Full payload migration remains uncompiled: 52
+errors across eleven files, down from 69. Strict library Clippy six versus
+baseline five; library-test five on both, after fixing three import-order
+errors. Lossless 26/33-file patches and 1,053-input/114-executable receipts are
+preserved. No canonical runtime, full corpus or speed claim.
+[Evidence](docs/architecture/checker-symbol-completion-contract.md#constructor-and-naming-continuation-on-current-main).
+
+Earlier symbol-key continuation, frozen main `1cea3449` / native `5b1047d`: existing
 value/declared-type cache keys and symbol resolution frames now use validated
 identities privately. Current-main baseline passes 194 library tests; the final
 slice passes 453 debug tests (206 library, 16 domain, 231 integration), with one
@@ -3617,7 +3655,32 @@ Round-4 parity follow-ups. Each is open in Beads with the lane's notes:
   template-optionality and keyof-generic-base (types dump unfinished); the
   r4-operators2 in-operand and TS18046 diffs (re-measure).
 
-Continue `tsr-1yb.7.7.2.1` from frozen `1cea3449`: existing value/declared
+Continue `tsr-1yb.7.7.2.1` from frozen `4a0ff849`: preserve the full 40-file
+owner draft, its actual reference/this/base/member-reader migration and native
+34-assertion control. Migrate remaining ownership moves and symbol/type/member/
+name/signature consumers, then compile and execute the unfiltered private
+factory and natural import/alias controls. The full library still has 204
+errors; the reader's 209 library passes certify only that slice. Keep the
+original <=0.50 equivalent-work performance and previously-RIGHT gates.
+
+Earlier checkpoint: Continue `tsr-1yb.7.7.2.1` from frozen `67440ffd`: actual private class/reference
+factories and owner fields are drafted; selected parameter readers pass in the
+compiling slice. Migrate their remaining bound-only consumers and all private
+symbol/type dispatch and publication, compile the full 36-file draft (267
+library errors across 37 files), and execute the pending factory plus natural
+import-owner/alias controls. Preserve the 26-file reader draft and thirteen-file
+native replay. The 1,570 passes are not full-owner/corpus completion; equivalent
+whole-CLI TSR/native <=0.50 remains open.
+
+Earlier checkpoint: Continue `tsr-1yb.7.7.2.1` from frozen `13da1cf0`: the private constructor
+and naming/eligibility readers are verified in the compilable key slice.
+Finish private declared-type/type-reference factories and member/class/signature
+and alias/naming consumers; the full payload cutover still has 52 type errors
+across eleven files. Preserve the separate parsed import-owner failure and
+existing publication/error distinction. The 1,569-test slice is not full-owner
+or full-corpus completion; equivalent whole-CLI TSR/native <=0.50 remains open.
+
+Earlier checkpoint: Continue `tsr-1yb.7.7.2.1` from frozen `1cea3449`: existing value/declared
 cache and symbol resolution keys now carry validated identities privately.
 Finish type/declared/member/class/naming consumers, other owner caches and native
 merged publication. The full cutover has 69 compiler diagnostics across twelve
@@ -7264,6 +7327,31 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `4a0ff849`'s 209 library passes and 34 direct native assertions are
+refused as full-owner, alias, corpus or speed completion. The full draft remains
+uncompiled at 204 errors; the separate parsed import-owner test still fails.
+Class/reference/this/mapper Rust controls remain unexecuted, and strict Clippy
+is red. Actual this identity and raw member edges are prerequisite progress.
+No main runtime change is retained; failed gates and lossless sources survive.
+
+Frozen `67440ffd`'s 1,570-pass reader/key slice is refused as full-owner, alias
+or speed completion. The widened `Named`/reference-owner draft has 267 compiler
+errors across 37 files; its new factory test cannot execute. The separately
+run import-owner red still fails; three ignores and one filtered red remain
+explicit. Two native direct observations qualify the shared-parameter/distinct
+class-reference ownership boundary, not natural import completion or a
+previously-RIGHT/full-work/performance certificate. No runtime optimization is
+retained; lossless drafts and failed gates are preserved.
+
+Frozen `13da1cf0`'s 1,569-pass key slice is refused as full private-owner,
+alias or performance completion: the full payload cutover has 52 type errors
+across eleven files, and the separately executed import-owner test still fails
+with head/raw `SymbolId(1)`. Three ignores and one filtered red are explicit.
+Strict library Clippy remains six versus baseline five; the unintegrated writer
+is the extra error. Four direct native controls and two failing semantic mutants
+do not prove natural full-worker scope, no previously-RIGHT loss or the 0.50
+wall ratio. Full migration patches and failed gates remain preserved.
 
 Frozen `1cea3449`'s 453-pass key slice is refused as full private-owner or
 alias completion: the actual cutover still has 69 compiler errors across twelve
@@ -14150,6 +14238,11 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+| 2026-10-08 | `4a0ff849` / native `5b1047d` | — | — | **Private reference/this/member owner progress, tsr-1yb.7.7.2.1.** Existing this/base keys, receiver substitution, heritage cycles and completeness walks retain selected handles; raw member edges and 53 metadata reads migrated. Reader library 209 passes; separate parsed owner red fails. Native two observations/34 assertions pass. Full owner remains uncompiled at 204 errors; factory/mapper test unexecuted. Strict Clippy six library/five test errors; fmt passes. Stable 1,053 Rust inputs each/5,005 Go inputs and exact 26/40 Rust plus 13 Go replay. No runtime/corpus/speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
+| 2026-10-08 | `67440ffd` / native `5b1047d` | — | — | **Private declared class/reference owner progress, tsr-1yb.7.7.2.1.** Parameter/JSDoc and anonymous-class readers use selected handles; full draft Named owners, reference keys/metadata and factories carry private identities. Key package 1,570 passes (209 library), three ignores/one owner red filtered; separate red fails. Native two observations/twenty identity/reuse assertions pass with zero diagnostics. Full library remains uncompiled: 267 errors across 37 files after expanding owner fields; private factory test not executed. Strict Clippy library six versus baseline five/library-test five. Lossless 26/36-file Rust and thirteen-file native replay preserved. No canonical runtime, full corpus or speed gain. [Evidence](docs/architecture/checker-module-clone-progress.json). |
+
+| 2026-10-08 | `13da1cf0` / native `5b1047d` | — | — | **Private constructor and naming progress, tsr-1yb.7.7.2.1.** Actual constructor keys/frames, module metadata, qualification targets and active-signature eligibility migrated privately. Final checker package 1,569 passes/three existing ignores/one known owner red filtered; separate owner run fails. Four actual native controls match; two compiling source-origin mutants fail before restoration. Full payload compiler 69 -> 63 -> 55 -> 52 across eleven files. Library Clippy six versus baseline five; library-test five on both after correcting three import-order errors. Lossless 26/33-file patches, 1,053 inputs and 114 actual test executable identities preserved. No canonical runtime, full corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
 | 2026-10-08 | `1cea3449` / native `5b1047d` | — | — | **Validated symbol-key migration, tsr-1yb.7.7.2.1.** Prior patches replay without conflicts onto current main; baseline library 194 passes. Existing value/declared caches and symbol resolution frames use actual handles privately. Source-qualified final slice 453 passes (one ignore, known parsed owner red filtered); native two direct observations match private identity/property/publication, and compiling origin-key mutant fails one test before exact restoration. Twelve additional full-cutover consumers migrated; compiler gate 85 -> 89 -> 72 -> 69 across twelve files. Strict Clippy six versus baseline five. Lossless 26/32-file patches preserved. No canonical runtime, full corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
