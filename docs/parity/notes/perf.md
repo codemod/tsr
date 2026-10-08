@@ -652,3 +652,29 @@ every later query would compute).
 mallocs 6,339,063 → **6,246,910** (−1.5%; −23.0% vs base). Verified ratio:
 domain-model-large 0.922, domain-model 0.884, generic-imports 0.917.
 Dumps byte-identical.
+
+### §16.4 Pending-return completion reads before it snapshots
+
+`complete_pending_signature_returns_of_type` (`signatures.rs`, called from
+`instantiate_type` for every signature-bearing type) cloned the type's whole
+signature list (parameters' names included) before a walk that, in the
+common case, only reads: it mutates only when a slot's return is `Pending`.
+A borrowed read-only pass now answers whenever no slot is `Pending`; when
+one is, the original snapshot walk runs from the start (the read-only prefix
+changed nothing, so the replay is identical).
+
+mallocs 6,246,910 → **6,005,882** (−3.9%; −26.0% vs base). Verified ratio:
+domain-model-large 0.916, domain-model 0.879, generic-imports 0.936 (noise
+band). Dumps byte-identical.
+
+Remaining top allocation sites (dhat, share of all blocks after §16.4), all
+outside this lane's grant:
+
+| Site | Blocks | Owner |
+|---|---:|---|
+| `get_property_names_of_type` result clones for `is_pure_signature_type` / relater (only emptiness or membership is read) | 9.0% | `relater.rs` callers; needs a non-cloning query |
+| `intersection_has_never_discriminant` clones `TypeData` before matching | 6.8% | `flow.rs` |
+| `local_type_parameter_types_of` rebuilds `Vec<(TypeId, String)>` per call | 4.2% | `declared.rs` |
+| `Signature` clones in `signatures_of_type_kind` | ~2% | `flow.rs` |
+| `get_type_at_flow_branch_label` antecedent vectors | 3.1% | `flow.rs` |
+| `create_type_reference_with_display`, `instantiated_heritage_base`, `type_literal_key` | ~6% | `declared.rs` |

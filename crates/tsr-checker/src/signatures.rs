@@ -2030,6 +2030,13 @@ impl<'a> Checker<'a, '_> {
     /// from pending metadata. Direct mapper hits precede this demand. Active
     /// originals and unsupported completion decline without storing an image.
     pub(crate) fn complete_pending_signature_returns_of_type(&mut self, ty: TypeId) -> bool {
+        // The walk below only reads until it meets a `Pending` return it must
+        // complete. Answer from the borrowed list when no slot needs that;
+        // otherwise replay from the start on a snapshot (the read-only prefix
+        // changed nothing).
+        if let Some(answer) = self.pending_signature_returns_answer_without_completion(ty) {
+            return answer;
+        }
         let Some(signatures) = self.signature_types.get(&ty).cloned() else {
             return !matches!(self.store.get(ty).data,
                 crate::types::TypeData::Anonymous { symbol, .. }
@@ -2068,6 +2075,38 @@ impl<'a> Checker<'a, '_> {
             }
         }
         true
+    }
+
+    /// [`Checker::complete_pending_signature_returns_of_type`]'s answer when
+    /// it is reached without completing a `Pending` return; `None` when the
+    /// walk would complete one (or `ty` has no signature list).
+    fn pending_signature_returns_answer_without_completion(&self, ty: TypeId) -> Option<bool> {
+        let signatures = self.signature_types.get(&ty)?;
+        for signature in signatures {
+            if signature.target.is_some() || signature.non_inferrable {
+                continue;
+            }
+            let key = self.type_literal_key(signature.declaration);
+            match self.pending_signature_returns.get(&key) {
+                Some(LazyReturnState::Active) => return Some(false),
+                Some(LazyReturnState::Pending) => return None,
+                None if self
+                    .pending_signature_returns
+                    .keys()
+                    .any(|pending| pending.node == key.node) =>
+                {
+                    return Some(false);
+                }
+                None if self.signature_returns.get(&key).is_some_and(|returned| {
+                    returned.is_none_or(|ty| ty == self.intrinsics.error)
+                }) =>
+                {
+                    return Some(false);
+                }
+                None => {}
+            }
+        }
+        Some(true)
     }
 
     /// Native getSignatureFromDeclaration / getTypeOfParameter expose parameter
