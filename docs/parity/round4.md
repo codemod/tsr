@@ -212,3 +212,15 @@ Dispatched when `r4-declemit` finished (both chosen the same way as above;
 - **Owns.** `emit_helpers.rs`, `meaning_mismatch.rs`; new
   `check_construct_emit_helpers`-style functions it adds to `check.rs`, called
   from one line at the top of the walk.
+
+### r4-classsyntax — super/this expressions, computed names, type-argument arity (`tsr-2zk.912`)
+
+Dispatched when `r4-operators` finished. Owns `super_expression.rs`,
+`this_expression.rs`, `computed_name.rs`, `type_argument_arity.rs` (none
+touched by `main` since `b3cd078d`). Mirror `checkSuperExpression`,
+`checkThisExpression`, `checkComputedPropertyName`, `checkTypeReferenceNode`'s
+argument-count/constraint arms. Not TS2684/TS2558 (calls), not private names.
+
+- `r4-operators` (1e6d66b, 60d399b): `!` type facts (+24 type lines, 5 cases)
+  and the `+`/`+=` diagnostics arm (+10 cases). Its `+` type-cascade patch
+  (+24 lines, +8 cases) waits on `tsr-2zk.913` (TS2313 circular constraints).
