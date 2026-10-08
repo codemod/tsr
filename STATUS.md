@@ -54,7 +54,20 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
-Symbol-key continuation, frozen main `1cea3449` / native `5b1047d`: existing
+Constructor/naming continuation, frozen main `13da1cf0` / native `5b1047d`:
+private constructor keys/frames, raw module metadata, qualification targets and
+active-signature eligibility now preserve selected identities. The key slice
+passes 1,569 checker-package tests (208 library), with three existing ignores
+and the known parsed import-owner red filtered; its separate run still fails.
+Four native direct observations and two compiling origin-substitution mutants
+qualify the bounded readers. Full payload migration remains uncompiled: 52
+errors across eleven files, down from 69. Strict library Clippy six versus
+baseline five; library-test five on both, after fixing three import-order
+errors. Lossless 26/33-file patches and 1,053-input/114-executable receipts are
+preserved. No canonical runtime, full corpus or speed claim.
+[Evidence](docs/architecture/checker-symbol-completion-contract.md#constructor-and-naming-continuation-on-current-main).
+
+Earlier symbol-key continuation, frozen main `1cea3449` / native `5b1047d`: existing
 value/declared-type cache keys and symbol resolution frames now use validated
 identities privately. Current-main baseline passes 194 library tests; the final
 slice passes 453 debug tests (206 library, 16 domain, 231 integration), with one
@@ -3617,7 +3630,15 @@ Round-4 parity follow-ups. Each is open in Beads with the lane's notes:
   template-optionality and keyof-generic-base (types dump unfinished); the
   r4-operators2 in-operand and TS18046 diffs (re-measure).
 
-Continue `tsr-1yb.7.7.2.1` from frozen `1cea3449`: existing value/declared
+Continue `tsr-1yb.7.7.2.1` from frozen `13da1cf0`: the private constructor
+and naming/eligibility readers are verified in the compilable key slice.
+Finish private declared-type/type-reference factories and member/class/signature
+and alias/naming consumers; the full payload cutover still has 52 type errors
+across eleven files. Preserve the separate parsed import-owner failure and
+existing publication/error distinction. The 1,569-test slice is not full-owner
+or full-corpus completion; equivalent whole-CLI TSR/native <=0.50 remains open.
+
+Earlier checkpoint: Continue `tsr-1yb.7.7.2.1` from frozen `1cea3449`: existing value/declared
 cache and symbol resolution keys now carry validated identities privately.
 Finish type/declared/member/class/naming consumers, other owner caches and native
 merged publication. The full cutover has 69 compiler diagnostics across twelve
@@ -7264,6 +7285,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `13da1cf0`'s 1,569-pass key slice is refused as full private-owner,
+alias or performance completion: the full payload cutover has 52 type errors
+across eleven files, and the separately executed import-owner test still fails
+with head/raw `SymbolId(1)`. Three ignores and one filtered red are explicit.
+Strict library Clippy remains six versus baseline five; the unintegrated writer
+is the extra error. Four direct native controls and two failing semantic mutants
+do not prove natural full-worker scope, no previously-RIGHT loss or the 0.50
+wall ratio. Full migration patches and failed gates remain preserved.
 
 Frozen `1cea3449`'s 453-pass key slice is refused as full private-owner or
 alias completion: the actual cutover still has 69 compiler errors across twelve
@@ -14150,6 +14180,8 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+| 2026-10-08 | `13da1cf0` / native `5b1047d` | — | — | **Private constructor and naming progress, tsr-1yb.7.7.2.1.** Actual constructor keys/frames, module metadata, qualification targets and active-signature eligibility migrated privately. Final checker package 1,569 passes/three existing ignores/one known owner red filtered; separate owner run fails. Four actual native controls match; two compiling source-origin mutants fail before restoration. Full payload compiler 69 -> 63 -> 55 -> 52 across eleven files. Library Clippy six versus baseline five; library-test five on both after correcting three import-order errors. Lossless 26/33-file patches, 1,053 inputs and 114 actual test executable identities preserved. No canonical runtime, full corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
 | 2026-10-08 | `1cea3449` / native `5b1047d` | — | — | **Validated symbol-key migration, tsr-1yb.7.7.2.1.** Prior patches replay without conflicts onto current main; baseline library 194 passes. Existing value/declared caches and symbol resolution frames use actual handles privately. Source-qualified final slice 453 passes (one ignore, known parsed owner red filtered); native two direct observations match private identity/property/publication, and compiling origin-key mutant fails one test before exact restoration. Twelve additional full-cutover consumers migrated; compiler gate 85 -> 89 -> 72 -> 69 across twelve files. Strict Clippy six versus baseline five. Lossless 26/32-file patches preserved. No canonical runtime, full corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 

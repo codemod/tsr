@@ -424,6 +424,60 @@ boundary under `tsr-1yb.7.7.2` and `tsr-1yb.7.7.3`. The unfiltered parsed owner,
 alias-stack, full previously-RIGHT/diagnostic/performed-work and ordinary CLI
 performance gates still follow. No canonical runtime or speed win is retained.
 
+### Constructor and naming continuation on current main
+
+Frozen main `13da1cf0` has the same Rust runtime as `1cea3449`. The next private
+migration retains actual `SymbolRef` keys in the existing base-constructor
+cache and `ResolvedBaseConstructorType` frames, with bound compatibility
+entries. Module/ambient classification and module specifiers read the selected
+record. Qualification and shadowing retain the selected target; scope-table
+entries and their existing bound merge/alias lookup remain unchanged. Active
+parameter-only signature eligibility reads the actual value-cache key and
+compares declaration ownership by lifted identity. It does not accept a clone
+merely because it shares a declaration. No new semantic result cache is added.
+
+Four pinned `5b1047d` native parsed-class observations cover cold and
+checked-first orders. `getAccessibleSymbolChain` returns `[C]` for the source
+and no chain for either module copy; `needsQualification` is false/true/true.
+Native fresh declared class types have independent base-constructor slots:
+only the source is initially published, an active head returns `errorType`
+and pops false, and later head/twin queries complete. Rust's two new controls
+exercise real parsed owners, private record copying, qualification and actual
+constructor cache/frame operations. Compiling origin-substitution mutants
+fail both controls before exact restoration. Native's slots are type-owned;
+this port still uses its existing symbol-owned constructor links. The private
+declared-type factory and complete private accessibility/alias chains remain
+unported, so these direct controls do not qualify those natural consumers.
+
+The compilable key slice passes the checker package with **1,569 tests**,
+including 208 library tests, across 115 result blocks; three existing ignores
+remain and the known parsed import-owner red is explicitly filtered. A separate
+correctly targeted `cross_file_aliases` run fails that red: head and raw value
+owners are still `SymbolId(1)`. An earlier mistaken target executed zero tests
+and is retained as a failed verification attempt, not passing evidence. All
+1,053 input hashes remain unchanged during the final run; all 114 executed
+test binaries carry this source root and have recorded hashes.
+
+The full payload cutover additionally migrates negative `instanceof` and
+`Symbol.hasInstance` declaration scans, declaration-position ordering, module
+flag guards and anonymous constructor dispatch. Its compiler observations move
+**69 -> 63 -> 55 -> 52**, ending with 52 type mismatches across eleven files.
+That source still does not compile and is not qualified by the passing key
+slice. Strict all-target Clippy remains red: library six versus baseline five;
+library-test five on both. Three previously missed test import-order errors
+were corrected without suppression. Both snapshot formatter checks pass.
+
+The [receipt](checker-module-clone-progress.json)'s
+`constructor_naming_continuation` preserves lossless 26-file key and 33-file
+full-cutover patches, complete manifests, native changed sources, actual
+executable identities and raw passing/failing outputs. Historical receipt
+fields remain unchanged. Type/declared/member/class/signature and naming
+consumers, checker merged-table publication and the unsupported/computed-error
+boundary remain under `tsr-1yb.7.7.2` / `tsr-1yb.7.7.2.1` / `tsr-1yb.7.7.3`.
+The six goal tickets remain unfinished. Canonical runtime, full previously-RIGHT
+corpus, actual whole-project work and verified TSR/native median <=0.50 are
+unchanged and unproved by this checkpoint.
+
 ## Consumer boundaries
 
 | Consumer | Required result and work after static selection |
