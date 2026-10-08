@@ -8734,11 +8734,9 @@ impl Checker<'_, '_> {
     /// is legal, `declare const x: number = 1` is TS1039, and the difference is
     /// the presence of `typeNode` rather than anything about the initialiser.
     ///
-    /// `isInitializerSimpleLiteralEnumReference` is **not** ported: it resolves
-    /// the reference to a literal enum member, and without it a
-    /// `declare const x = E.A` takes the invalid-initialiser branch. A *wrong
-    /// line* rather than a missing one, so the enum-reference shape declines
-    /// instead — see the `QualifiedName`/`PropertyAccess` arm below. §259.
+    /// `isInitializerSimpleLiteralEnumReference` is
+    /// [`Self::is_initializer_simple_literal_enum_reference`]; it declines only
+    /// where this port's expression type is `errorType`. §259.
     fn check_ambient_initializer(
         &mut self,
         node: NodeId,
@@ -8771,17 +8769,20 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(initializer_id) else { return };
         let span = self.nodes.span(initializer_id);
         if is_const_or_readonly && annotation.is_none() {
-            // A reference — `E.A` — needs `isInitializerSimpleLiteralEnumReference`
-            // to judge, which is not ported. Declining is a missing line; the
-            // alternative is a wrong one.
-            if matches!(
-                initializer,
-                tsr_ast::Expression::PropertyAccessExpression(_)
-                    | tsr_ast::Expression::Identifier(_)
-            ) {
-                return;
-            }
-            if !is_simple_literal_initializer(initializer) {
+            let is_valid = is_initializer_string_or_number_literal(initializer)
+                || match self.is_initializer_simple_literal_enum_reference(initializer) {
+                    Some(is_enum) => is_enum,
+                    // The reference's type is this port's `errorType`
+                    // ("could not compute"): declining is a missing line,
+                    // reporting could be a wrong one.
+                    None => return,
+                }
+                || matches!(
+                    self.nodes.kind(initializer_id),
+                    SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword
+                )
+                || is_initializer_big_int_literal(initializer);
+            if !is_valid {
                 self.report(
                     file,
                     Diagnostic::new(
@@ -8796,6 +8797,37 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(&messages::INITIALIZERS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS, span),
         );
+    }
+
+    /// `Checker.isInitializerSimpleLiteralEnumReference`
+    /// (`grammarchecks.go:1996`): a property access, or an element access with
+    /// a string/numeric literal argument on an entity name, whose
+    /// `checkExpressionCached` type is enum-like. `None` when that type is this
+    /// port's `errorType`, which also stands for "could not compute".
+    fn is_initializer_simple_literal_enum_reference(
+        &mut self,
+        initializer: tsr_ast::Expression<'_>,
+    ) -> Option<bool> {
+        match initializer {
+            tsr_ast::Expression::PropertyAccessExpression(_) => {}
+            tsr_ast::Expression::ElementAccessExpression(access) => {
+                let argument_is_literal =
+                    access.argument_expression.is_some_and(is_initializer_string_or_number_literal);
+                let target_is_entity_name = access
+                    .expression
+                    .and_then(|expression| expression.node_id())
+                    .is_some_and(|expression| self.is_entity_name_expression(expression));
+                if !argument_is_literal || !target_is_entity_name {
+                    return Some(false);
+                }
+            }
+            _ => return Some(false),
+        }
+        let ty = self.check_expression(initializer);
+        if ty == self.intrinsics.error {
+            return None;
+        }
+        Some(self.type_of(ty).flags.intersects(crate::flags::TypeFlags::ENUM_LIKE))
     }
 
     /// `isDeclarationReadonly` — a `readonly` modifier on the declaration.
@@ -14513,17 +14545,30 @@ pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_
     })
 }
 
-fn is_simple_literal_initializer(initializer: tsr_ast::Expression<'_>) -> bool {
+/// `isInitializerStringOrNumberLiteralExpression` (`grammarchecks.go:1978`).
+fn is_initializer_string_or_number_literal(initializer: tsr_ast::Expression<'_>) -> bool {
     match initializer {
         tsr_ast::Expression::StringLiteral(_)
         | tsr_ast::Expression::NumericLiteral(_)
-        | tsr_ast::Expression::BigIntLiteral(_)
         | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_) => true,
         // `-1` is `isInitializerStringOrNumberLiteralExpression`'s second arm:
         // a prefix minus over a numeric literal, and nothing else.
         tsr_ast::Expression::PrefixUnaryExpression(unary) => {
             unary.operator.kind == SyntaxKind::MinusToken
                 && matches!(unary.operand, Some(tsr_ast::Expression::NumericLiteral(_)))
+        }
+        _ => false,
+    }
+}
+
+/// `isInitializerBigIntLiteralExpression` (`grammarchecks.go:1983`): a bigint
+/// literal, or a prefix minus over one.
+fn is_initializer_big_int_literal(initializer: tsr_ast::Expression<'_>) -> bool {
+    match initializer {
+        tsr_ast::Expression::BigIntLiteral(_) => true,
+        tsr_ast::Expression::PrefixUnaryExpression(unary) => {
+            unary.operator.kind == SyntaxKind::MinusToken
+                && matches!(unary.operand, Some(tsr_ast::Expression::BigIntLiteral(_)))
         }
         _ => false,
     }

@@ -488,3 +488,9 @@ per-file flag must become per-node.
   the node's first token rather than the whole node. The ambient once-per-block
   flag records the report result, as `hasReportedStatementInAmbientContext`
   does.
+- Ambient initializers (`checkAmbientInitializer`): the validity test is the
+  full native disjunction — string/numeric literal, `isInitializerSimpleLiteralEnumReference`
+  (property or entity-name element access whose `checkExpressionCached`
+  type is enum-like), `true`/`false`, and (negative) bigint. A bare
+  identifier is invalid (TS1254). The only decline left: an enum-reference
+  candidate whose port type is `errorType`.
