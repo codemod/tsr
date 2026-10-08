@@ -399,3 +399,19 @@ instead of 0; f1a82fc: composite TS6307 with native include-reason chains, all
 file only for laziness accessor routing, 39dd8de9): homomorphic mapped types
 over a union with a generic base and over an array intersection (real-world
 causes 5 and 8), and the template optionality/index arm.
+
+### Wave after r4-jsx2 / r4-subtype / r4-typeparams
+
+Outcomes (all in batch D): r4-jsx2 1d0f8ab + its relater/members prerequisite
+(+25 diagnostics cases); r4-subtype ba34b01..1a31445 (37 of 40 strict-subtype
+pairs decided, +34 type lines, +2 cases); r4-typeparams 8666fa6 (TS2313 via
+the mapped-type constraint step), which unblocks r4-operators' held `+`
+patches (batch E). r4-typeparams' merged-parameter diff (+126 lines) stays held
+on 6 losses and +3% Ir until a per-symbol memo exists.
+
+Dispatched:
+- `r4-variants` (`tsr-2zk.940`): configuration-varied baselines are skipped by
+  the diagnostics and types suites (793 / 2,032), so every parity number so
+  far excludes them. Per-variant scoring will change the denominators; plain
+  and varied counts are reported separately.
+- `r4-operators2` (`tsr-2zk.941`), `r4-constraints` (`tsr-2zk.942`).
