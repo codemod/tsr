@@ -233,3 +233,13 @@ indicator keeps a single owner. Its remainder is filed as `.1018`–`.1020`. The
 new box `r5-sigs` takes `.1016`, written-annotation reuse under type-parameter
 renaming, which unblocks r5-typeparams2's +148 lines, and `.1015`,
 async-generator `next` inference.
+
+### r5-tables finished; r5-decls dispatched (`tsr-2zk.1023`)
+
+r5-tables:
+- object-literal tables now admit late-bound computed names (asyncIteratorExtraParameters);
+- the destructuring parameter road binds against the unwidened initializer (restElementWithNullInitializer).
+
+That is +2 diagnostics cases and +7 type lines. The new box `r5-decls` takes
+the declaration checks: TS2391, TS2300, TS2507 and TS2502. Main's decls lane
+has not touched these in 36 hours.
