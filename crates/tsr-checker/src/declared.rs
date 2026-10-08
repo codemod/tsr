@@ -640,8 +640,16 @@ impl<'a> Checker<'a, '_> {
                 // NUMBER literal key (`getLiteralTypeFromPropertyName`,
                 // `checker.go:26773`) where `keys_of` spells every key as a
                 // string. Generic, unresolved and non-object operands keep
-                // the legacy road below.
-                if self.store.get(target).flags.contains(TypeFlags::OBJECT)
+                // the legacy road below. getIndexTypeEx's intersection and
+                // never arms (checker.go:26693/26701) take the same road: an
+                // intersection-bodied alias reference is its instantiated
+                // intersection, or the reduced constituent when it reduced
+                // (`Wrapped<T>` for `type Wrapped<T> = T & never` is `never`).
+                if self
+                    .store
+                    .get(target)
+                    .flags
+                    .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::NEVER)
                     && !self.unresolved_types.contains(&target)
                     && !self.mentions_any_type_parameter(target, 4)
                     && let Some(keys) = self.resolved_keyof_type(target)
@@ -887,8 +895,12 @@ impl<'a> Checker<'a, '_> {
                 // getIndexTypeEx consumes an alias's instantiated body, not
                 // its display identity. Resolve the whole operand first so
                 // absorbing any/never constituents reduce before distribution.
-                if let Some(operand @ TypeNode::TypeReferenceNode(_)) = direct_operand {
+                if let Some(operand @ TypeNode::TypeReferenceNode(reference)) = direct_operand {
                     let target = self.get_type_from_type_node(operand);
+                    // An intersection-bodied alias reference that reduced to
+                    // one constituent carries no alias (getIntersectionTypeEx,
+                    // checker.go:26127): `Wrapped<T>` for `type Wrapped<T> =
+                    // T & unknown` is `T`, and its keys are `keyof T`.
                     let alias_reference =
                         self.type_reference_targets.get(&target).is_some_and(|(symbol, _)| {
                             self.binder
@@ -896,7 +908,11 @@ impl<'a> Checker<'a, '_> {
                                 .get(*symbol)
                                 .flags
                                 .contains(SymbolFlags::TYPE_ALIAS)
-                        });
+                        }) || reference
+                            .type_name
+                            .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                            .and_then(|symbol| self.intersection_alias_body(symbol))
+                            .is_some();
                     if alias_reference && let Some(keys) = self.resolved_keyof_type(target) {
                         return keys;
                     }
@@ -3213,8 +3229,105 @@ impl<'a> Checker<'a, '_> {
                     true,
                     !no_supertype_reduction,
                 ),
+            // A generic alias's own body: getAliasForTypeNode's alias carries
+            // the alias's own type parameters as its arguments, and
+            // getIntersectionTypeEx attaches it only to a result that is still
+            // an intersection (checker.go:26127 returns the reduced singleton
+            // first).
+            Some(alias)
+                if self
+                    .intersection_alias_body(alias)
+                    .and_then(|body| Node::from(body).node_id())
+                    == node.node_id =>
+            {
+                let reduced = self.get_intersection_type_with_reduction(
+                    &types,
+                    None,
+                    true,
+                    !no_supertype_reduction,
+                );
+                let Some(parameters) = self.own_type_parameter_types(alias) else {
+                    return error;
+                };
+                self.attach_intersection_alias(reduced, alias, parameters, None)
+            }
             Some(_) => error,
         }
+    }
+
+    /// The declared types of a symbol's local type parameters, in order —
+    /// the type arguments of the alias getAliasForTypeNode attaches to the
+    /// alias's own body.
+    fn own_type_parameter_types(&mut self, symbol: SymbolId) -> Option<Vec<TypeId>> {
+        let local = self.local_type_parameters_of(symbol);
+        let mut parameters = Vec::with_capacity(local.len());
+        for parameter in local.iter() {
+            let owner = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            parameters.push(self.get_declared_type_of_symbol(owner));
+        }
+        Some(parameters)
+    }
+
+    /// getIntersectionTypeEx's alias attachment (checker.go:26164): `alias`
+    /// with `arguments` names `reduced` only when it is still an
+    /// intersection; a singleton, `never` or `any` is answered as built.
+    /// `shown` is the written arity a default-filled reference prints.
+    fn attach_intersection_alias(
+        &mut self,
+        reduced: TypeId,
+        alias: SymbolId,
+        arguments: Vec<TypeId>,
+        shown: Option<usize>,
+    ) -> TypeId {
+        if !matches!(
+            self.store.get(reduced).data,
+            crate::types::TypeData::Intersection { .. }
+                | crate::types::TypeData::Union { symbol: None, .. }
+        ) {
+            return reduced;
+        }
+        let written = arguments.len();
+        let shown = shown.unwrap_or(written).min(written);
+        let text = self.type_reference_text(alias, &arguments[..shown]);
+        let named = self.attach_intersection_alias_text(reduced, alias, arguments, text);
+        if shown < written {
+            self.reference_display_arity.insert(named, shown);
+        }
+        named
+    }
+
+    /// [`Self::attach_intersection_alias`] with the alias's printed spelling
+    /// supplied by the caller (a qualified reference prints its written path).
+    fn attach_intersection_alias_text(
+        &mut self,
+        reduced: TypeId,
+        alias: SymbolId,
+        arguments: Vec<TypeId>,
+        text: String,
+    ) -> TypeId {
+        let types = match self.store.get(reduced).data.clone() {
+            crate::types::TypeData::Intersection { types, .. } => types,
+            // getIntersectionTypeEx's cross-product arm (checker.go:26213)
+            // hands the alias to getUnionTypeEx: `keyof T & string` over a
+            // concrete `T` is a union named `Keyof<Registry>`.
+            crate::types::TypeData::Union { types, symbol: None, .. } => {
+                let named = crate::unions::create_union(
+                    &mut self.store,
+                    TypeFlags::empty(),
+                    types,
+                    Some((alias, text)),
+                );
+                self.type_reference_targets.insert(named, (alias, arguments));
+                return named;
+            }
+            _ => return reduced,
+        };
+        let named = self.store.intern_intersection(
+            self.store.get(reduced).flags,
+            crate::types::TypeData::Intersection { types, text, symbol: Some(alias) },
+        );
+        self.type_reference_targets.insert(named, (alias, arguments));
+        named
     }
 
     /// emptyTypeLiteralType's completed source identity (checker.go:22933).
@@ -5493,6 +5606,19 @@ impl<'a> Checker<'a, '_> {
             if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
                 return existing;
             }
+            // An intersection-bodied alias is its instantiated intersection
+            // (getTypeAliasInstantiation), named with the qualified spelling
+            // this mint would print, or the reduced singleton without it.
+            if let Some(instantiated) = self.instantiate_intersection_alias(resolved, &arguments) {
+                let result = self.attach_intersection_alias_text(
+                    instantiated,
+                    resolved,
+                    arguments.clone(),
+                    text,
+                );
+                self.qualified_generic_reference_types.insert(key, result);
+                return result;
+            }
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
             self.qualified_generic_reference_types.insert(key, minted);
             self.type_reference_targets.insert(minted, (resolved, arguments));
@@ -6363,6 +6489,27 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;
         }
+        let shown = display.unwrap_or(arguments.len()).min(arguments.len());
+        // getTypeAliasInstantiation over an INTERSECTION body
+        // (instantiateTypeWithAlias → getIntersectionTypeEx(…, alias),
+        // checker.go:26056): the body's constituents are instantiated and
+        // intersected, and the alias is attached to the result only when it is
+        // still an intersection. A body that reduces to one constituent
+        // answers that constituent with no alias (`:26127`, `typeSet[0]` is
+        // returned before the alias is considered); `never`/`any` carry none
+        // either. The print-only `Named` mint below has no member table of its
+        // own, so a reference such as `React.DetailedHTMLProps<…>` enumerated
+        // as an empty object and related to everything (`tsr-2zk.1010`).
+        if let Some(instantiated) = self.instantiate_intersection_alias(symbol, &arguments) {
+            let result = self.attach_intersection_alias(
+                instantiated,
+                symbol,
+                arguments.clone(),
+                Some(shown),
+            );
+            self.instantiations.insert((symbol, arguments), result);
+            return result;
+        }
         if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), template);
             return template;
@@ -6371,7 +6518,6 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
         }
-        let shown = display.unwrap_or(arguments.len()).min(arguments.len());
         let printed = self.type_reference_text(symbol, &arguments[..shown]);
         // §90 (`checker-notes-narrow.md`): a TYPE_ALIAS target with a
         // TypeLiteral body mints the BODY's symbol — §46's admission, one
@@ -6434,6 +6580,128 @@ impl<'a> Checker<'a, '_> {
             return mapped;
         }
         id
+    }
+
+    /// The body of a generic type alias whose declaration (parentheses
+    /// skipped) is an intersection, built once without a mapper and
+    /// instantiated with the alias's parameters mapped to `arguments` —
+    /// getTypeAliasInstantiation's `instantiateTypeWithAlias(declaredType,
+    /// mapper)` (checker.go:23659). `None` for any other alias, or when the
+    /// body cannot be built (the existing mint stands).
+    fn instantiate_intersection_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        self.intersection_alias_body(symbol)?;
+        let local = self.local_type_parameters_of(symbol);
+        if local.is_empty() || local.len() != arguments.len() {
+            return None;
+        }
+        // A reference met while the alias's own declared type is resolving
+        // (`type List<T> = T & { next: List<T> }`) is one native resolves
+        // lazily, inside the member it is written in; forcing the declared
+        // type here would report a circularity native never sees. The
+        // existing name mint stands in for that deferral, as it does for the
+        // other generic alias bodies (`deferred_since`).
+        if self.resolutions.on_stack(symbol, PropertyName::DeclaredType) {
+            return None;
+        }
+        // Stated divergence: a body that names its own alias
+        // (`type LinkedList<T> = T & { next: LinkedList<T> }`) keeps the name
+        // mint. Native's `next` reads `LinkedList<Entity>`; here the member
+        // read goes through the receiver's frame-bound body evaluation
+        // (`members.rs`, `evaluate_alias_body`), whose nested reference
+        // answers the alias-free body, so the instantiated intersection lost
+        // 12 RIGHT lines in `recursiveIntersectionTypes`
+        // (`docs/parity/notes/r5-declared.md` §2).
+        if self.intersection_alias_names_itself(symbol) {
+            return None;
+        }
+        let mut names = Vec::with_capacity(local.len());
+        for parameter in local.iter() {
+            names.push(parameter.name?.text);
+        }
+        let parameters = self.own_type_parameter_types(symbol)?;
+        let declared = self.get_declared_type_of_symbol(symbol);
+        if self.is_error(declared) {
+            return None;
+        }
+        // The declared type is the alias-carrying intersection itself; its
+        // constituents are what instantiateTypeWithAlias maps.
+        let constituents = match self.store.get(declared).data.clone() {
+            crate::types::TypeData::Intersection { types, .. } => types,
+            _ => vec![declared],
+        };
+        // Native relates an intersection structurally, constituent by
+        // constituent, and probes alias variance only for object and
+        // conditional types (relater.go:3389). A constituent that is an alias
+        // reference whose body this port cannot build (an instantiation
+        // expression `typeof Class<T>`, which getTypeFromTypeQueryNode answers
+        // as `error` until `tsr-2zk.1006` lands) is a member-less name mint, so
+        // the structural relation native takes is undecidable here. Keep the
+        // alias's own name mint, whose relation reads the alias's arguments,
+        // until that constituent has a real type.
+        for &constituent in &constituents {
+            if let Some((owner, owner_arguments)) =
+                self.type_reference_targets.get(&constituent).cloned()
+                && self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS)
+                && self.evaluate_alias_body(owner, &owner_arguments).is_none()
+            {
+                return None;
+            }
+        }
+        let mapper: Vec<_> = parameters.iter().copied().zip(arguments.iter().copied()).collect();
+        let mut instantiated = Vec::with_capacity(constituents.len());
+        for constituent in constituents {
+            let image = self.instantiate_type(constituent, &mapper, &parameters, &names);
+            if self.is_error(image) {
+                return None;
+            }
+            instantiated.push(image);
+        }
+        let result = self.get_intersection_type(&instantiated, None);
+        (!self.is_error(result)).then_some(result)
+    }
+
+    /// Whether the alias's written body contains a type reference that
+    /// resolves to the alias itself. A bounded walk over the body's nodes.
+    fn intersection_alias_names_itself(&self, symbol: SymbolId) -> bool {
+        let Some(body) = self.type_alias_body(symbol) else { return false };
+        let name = self.binder.symbols().get(symbol).name.to_string();
+        let mut pending: Vec<NodeId> = Node::from(body).node_id().into_iter().collect();
+        while let Some(id) = pending.pop() {
+            let Some(node) = self.node_map.get(id) else { continue };
+            if let Node::TypeReferenceNode(reference) = node
+                && let Some(tsr_ast::EntityName::Identifier(identifier)) = reference.type_name
+                && identifier.text == &*name
+                && let Some(site) = identifier.node_id
+                && self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    site,
+                    identifier.text,
+                    SymbolFlags::TYPE,
+                ) == Some(symbol)
+            {
+                return true;
+            }
+            tsr_ast::for_each_child_id(node, |child| pending.push(child));
+        }
+        false
+    }
+
+    /// The alias's written body when it is an intersection type node,
+    /// parentheses skipped (getTypeFromTypeNodeWorker is transparent to them).
+    fn intersection_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+        let mut body = self.type_alias_body(symbol)?;
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+            body = parenthesized.r#type?;
+        }
+        matches!(body, TypeNode::IntersectionTypeNode(_)).then_some(body)
     }
 
     /// `getGlobalNonNullableTypeInstantiation` (`checker.go:31207`). Preserve
@@ -7113,6 +7381,38 @@ impl<'a> Checker<'a, '_> {
             };
             if self.resolutions.deferred_since(symbol, PropertyName::DeclaredType) {
                 return mint(self);
+            }
+            // An INTERSECTION body is declared as built
+            // (getTypeFromIntersectionTypeNode with the alias's own
+            // parameters as the alias's arguments): the alias-carrying
+            // intersection, or the reduced singleton without the alias —
+            // `type Id<T> = { [K in keyof T]: T[K] } & {}` records
+            // `>Id : { [K in keyof T]: T[K]; }`
+            // (declarationEmitOptionalMappedTypePropertyNoStrictNullChecks1).
+            if let Some(body) = self.intersection_alias_body(symbol) {
+                if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+                    return error;
+                }
+                let resolved = self.get_type_from_type_node(body);
+                if !self.resolutions.pop() {
+                    return self.report_type_alias_circularity(symbol);
+                }
+                if resolved != error {
+                    // Resolved inside another alias's evaluation frame, the
+                    // node answers without its alias (§92); the declared
+                    // type is the node's type with the alias, wherever it is
+                    // first asked for.
+                    let unaliased = match &self.store.get(resolved).data {
+                        crate::types::TypeData::Intersection { symbol: owner, .. }
+                        | crate::types::TypeData::Union { symbol: owner, .. } => owner.is_none(),
+                        _ => false,
+                    };
+                    if !unaliased {
+                        return resolved;
+                    }
+                    let Some(own) = self.own_type_parameter_types(symbol) else { return error };
+                    return self.attach_intersection_alias(resolved, symbol, own, None);
+                }
             }
             if let Some(body) = self.type_alias_body(symbol) {
                 if !self.resolutions.push(symbol, PropertyName::DeclaredType) {

@@ -88,3 +88,23 @@ fn a_qualified_alias_reference_relates_as_its_declared_type() {
     );
     assert_eq!(codes(&right), Vec::<String>::new());
 }
+
+/// getTypeAliasInstantiation over an intersection body (instantiateTypeWithAlias
+/// → getIntersectionTypeEx with the alias, checker.go:26043): the reference is
+/// the alias-carrying intersection of its instantiated constituents, so its
+/// members are the constituents' members. A print-only mint enumerated no
+/// properties and accepted any object (`tsr-2zk.1010`).
+#[test]
+fn an_intersection_alias_reference_has_its_constituents_members() {
+    let prelude = "interface ClassAttributes<T> { ref?: T }\n\
+        interface HTMLAttributes<T> { className?: string; onClick?: (t: T) => void }\n\
+        type DetailedHTMLProps<E extends HTMLAttributes<T>, T> = ClassAttributes<T> & E;\n";
+    let excess = format!(
+        "{prelude}const y: DetailedHTMLProps<HTMLAttributes<number>, number> = {{ class: \"\" }};"
+    );
+    assert_eq!(codes(&excess), vec!["TS2353".to_string()]);
+    let known = format!(
+        "{prelude}const y: DetailedHTMLProps<HTMLAttributes<number>, number> = {{ className: \"\" }};"
+    );
+    assert_eq!(codes(&known), Vec::<String>::new());
+}
