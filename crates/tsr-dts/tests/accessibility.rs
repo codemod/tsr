@@ -180,3 +180,80 @@ fn an_import_kept_for_an_augmentation_reports_only_under_isolated_declarations()
     assert!(tracked("import * as ns from \"./m\";", true).is_empty());
     assert!(tracked("import \"./m\";", true).is_empty());
 }
+
+/// A resolver whose every inferred type tracks one symbol with a fixed
+/// `IsSymbolAccessible` answer.
+struct Accessibility(tsr_dts::accessibility::SymbolAccessibilityResult);
+
+impl AccessibilityResolver for Accessibility {
+    fn precalculate_declaration_emit_visibility(&mut self, _file: NodeId) {}
+
+    fn is_declaration_visible(&mut self, _node: NodeId) -> bool {
+        true
+    }
+
+    fn is_entity_name_visible(
+        &mut self,
+        _entity_name: NodeId,
+        _enclosing: NodeId,
+    ) -> EntityNameVisibility {
+        EntityNameVisibility::Accessible(Vec::new())
+    }
+
+    fn is_implementation_of_overload(&mut self, _node: NodeId) -> bool {
+        false
+    }
+
+    fn inferred_type_reports(&mut self, _node: NodeId) -> Vec<TrackerReport> {
+        vec![TrackerReport::TrackSymbol(self.0.clone())]
+    }
+}
+
+/// `(code, column, message text)` for one tracked answer.
+fn tracked_symbol(
+    source: &str,
+    accessibility: tsr_dts::accessibility::SymbolAccessibility,
+    module: &str,
+) -> Vec<(u32, u32, String)> {
+    let arena = tsr_core::Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut map = NodeMap::new();
+    let parsed = tsr_parser::parse_into(
+        &arena,
+        source,
+        tsr_parser::ParseOptions::default(),
+        &mut nodes,
+        &mut map,
+    );
+    let file = parsed.source_file.node_id.unwrap();
+    let mut resolver = Accessibility(tsr_dts::accessibility::SymbolAccessibilityResult {
+        accessibility,
+        aliases_to_make_visible: Vec::new(),
+        error_symbol_name: "Foo".into(),
+        error_module_name: module.into(),
+        error_node: None,
+    });
+    let options = WalkOptions { isolated_declarations: false };
+    declaration_walk_diagnostics(file, &nodes, &map, source, options, &mut resolver)
+        .into_iter()
+        .map(|d| (d.message.code(), d.span.start + 1, d.text()))
+        .collect()
+}
+
+#[test]
+fn a_tracked_symbol_selects_its_message_by_module_name() {
+    use tsr_dts::accessibility::SymbolAccessibility as A;
+    // `selectDiagnosticBasedOnModuleName` for a variable declaration, at its
+    // name.
+    let cannot = tracked_symbol("export const foo = f();", A::CannotBeNamed, "\"type\"");
+    assert_eq!(cannot.len(), 1);
+    assert_eq!((cannot[0].0, cannot[0].1), (4023, 14));
+    assert!(cannot[0].2.contains("'Foo' from external module \"type\""), "{}", cannot[0].2);
+    assert_eq!(tracked_symbol("export const foo = f();", A::NotAccessible, "\"m\"")[0].0, 4024);
+    assert_eq!(tracked_symbol("export const foo = f();", A::NotAccessible, "")[0].0, 4025);
+    // Accessible and unresolved symbols report nothing.
+    assert!(tracked_symbol("export const foo = f();", A::Accessible, "").is_empty());
+    assert!(tracked_symbol("export const foo = f();", A::NotResolved, "").is_empty());
+    // An export assignment's context has no module-name variant here.
+    assert!(tracked_symbol("export default f();", A::CannotBeNamed, "\"type\"").is_empty());
+}
