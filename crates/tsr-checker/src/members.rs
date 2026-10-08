@@ -966,7 +966,56 @@ impl Checker<'_, '_> {
         {
             return property_type;
         }
+        if self.declared_method_access_skips_flow(receiver_type, name, property_type) {
+            return property_type;
+        }
         self.get_flow_type_of_reference(id, None, property_type)
+    }
+
+    /// `getFlowTypeOfAccessExpression` (pinned 5b1047d, `checker.go:11400`):
+    /// only a variable, property or accessor, or a method whose type is a
+    /// union (an optional method), is narrowed by the flow reaching the
+    /// access; any other property answers its type without the flow walk.
+    ///
+    /// Applied only where this port's property symbol is the one native
+    /// reads: a member of a declared class or interface (or a reference to
+    /// one), whose instantiation keeps the declaration's flags
+    /// (`instantiateSymbol`). Union/intersection properties (native
+    /// synthesizes them as `Property`), mapped and reverse-mapped members and
+    /// object-literal images keep the walk, as before.
+    fn declared_method_access_skips_flow(
+        &mut self,
+        receiver_type: TypeId,
+        name: &str,
+        property_type: TypeId,
+    ) -> bool {
+        if self.store.get(property_type).flags.intersects(TypeFlags::UNION)
+            || self.mapped_identity_optionality.contains_key(&receiver_type)
+            || self.mapped_types.contains_key(&receiver_type)
+            || self.anonymous_properties.contains_key(&receiver_type)
+        {
+            return false;
+        }
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(receiver_type).data
+        else {
+            return false;
+        };
+        if !self
+            .binder
+            .symbols()
+            .get(owner)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return false;
+        }
+        self.get_property_of_type(receiver_type, name).is_some_and(|property| {
+            let flags = self.binder.symbols().get(property).flags;
+            flags.contains(SymbolFlags::METHOD)
+                && !flags.intersects(
+                    SymbolFlags::VARIABLE | SymbolFlags::PROPERTY | SymbolFlags::ACCESSOR,
+                )
+        })
     }
 
     /// The type whose members a property access should be looked up in.

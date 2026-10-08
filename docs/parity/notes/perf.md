@@ -546,3 +546,47 @@ original is the scan's answer; several distinct originals still run the scan,
 so its table-order choice is unchanged. Single-threaded check time −3%
 (1.105 → 1.074 s); four-checker CPU −0.4%. No native counterpart: native
 prints from the symbol table and never walks images back.
+
+### §15.9 A declared method access skips the flow walk, as natively
+
+Native op: `getFlowTypeOfAccessExpression` (pinned 5b1047d,
+`checker.go:11400`) returns the property type without
+`getFlowTypeOfReference` unless the property symbol is a variable, property
+or accessor, or a method whose type is a union (an optional method).
+TSR's `access_member_lookup` (`members.rs`) walked the flow graph for every
+property access; in domain-model-large's `run()` (200 sequential blocks)
+each `out.push`, `serviceN.create` and `serviceN.move` walked back to the
+function start. `declared_method_access_skips_flow` applies native's gate
+where this port's property symbol is the native one: a member of a declared
+class/interface receiver (instantiation keeps flags). Union/intersection,
+mapped, reverse-mapped and object-literal receivers keep the walk.
+
+Wall −6.5%, CPU −2.5% (21 pairs against §15.8). Dumps byte-identical.
+Native control (optional method narrowed on interface, class and union
+receivers; plain methods; function-typed property narrowed; `Array.push`;
+`String.toUpperCase`): base, new and tsgo print the same eight lines.
+
+### §15.10 Round result and what remains outside this lane's files
+
+Verified ratio against pinned tsgo (`work-trace` builds, 21 pairs, all
+`actual_checked_work_verified`): domain-model-large **1.184 → 0.972**,
+domain-model 0.971 → 0.895, generic-imports 0.905 → 0.910 (noise; median
+CPU vs base 1.011 at 41 pairs). Median CPU vs base: domain-model-large
+0.820, domain-model 0.882. All dumps byte-identical to base `5d8d97f3`.
+
+Checker 0 (domain-model-large) after §15.9, inclusive: flow walk 18.5%
+(`get_type_at_flow_node` 9% self), `get_effects_signature` 4.2%,
+`get_type_of_dotted_name` 3.4%, eager object-literal printing 6.2%. The
+remaining native-faithful cuts are in files this lane does not own:
+
+- `flow.rs` `get_effects_signature`: native memoises
+  `signatureLinks.effectsSignature` per call node (including the unknown
+  answer); TSR stores only completed negatives.
+- `flow.rs` `get_type_of_dotted_name`, `references_match`,
+  `contains_matching_reference`: call `binder.resolve_name` per visit
+  where native reads `getResolvedSymbol` (`links.resolvedSymbol`, one
+  resolution per identifier node); `resolve_name` is 9.7% of checker 0.
+- `flow.rs` `intersection_has_never_discriminant`: clones `TypeData`
+  before matching the intersection arm (allocates for every non-intersection
+  constituent).
+- §13 C5 (objects/printing representation) unchanged.
