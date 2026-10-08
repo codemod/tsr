@@ -179,7 +179,47 @@ it, the switch costs the 11 losses above.
 
 ## §4 The held predicate sites, ported (diffs)
 
-(filled in below)
+r5-errorsplit3 §2.3 held three sites because a predicate swap alone would send
+upstream's `errorType` down a road upstream never takes. Each is ported here
+as a diff against commit 2 (the files are main's or r5-typeparams2's), and
+measured unfiltered on both dumps against commit 2.
+
+| diff | file | sites | type / diag transitions | `ceiling` |
+|---|---|---|---|---|
+| [iteration-symbols](r5-errorsplit4-iteration-symbols.diff) + [iteration-array](r5-errorsplit4-iteration-array.diff) | `symbols.rs`, `array_literals.rs` | 4 + 2 | **none** | unchanged |
+| [default-declared](r5-errorsplit4-default-declared.diff) | `declared.rs` | 2 + its test | **none** | unchanged |
+
+**The iteration arms** (`semantic_iterable_yield_types_worker`,
+`array_spread_element_type`):
+
+- The decline becomes `is_gap`.
+- The adjacent `== any` test becomes `is_type_any`, and it answers the
+  `anyType` *intrinsic*, not the input. That is the part a swap would have
+  missed. `getIterationTypesOfIterableSlow` (`checker.go:6463`),
+  `getIterationTypesOfIteratorWorker` (`:6496`), `getIterationTypesOfMethod`
+  (`:6555`) and `getIterationTypesOfIteratorResult` (`:6650`) all return
+  `IterationTypes{anyType, anyType, anyType}` for an any-like type. The port
+  returned the type itself, which was `any` only because only `any` reached it.
+- The result arm reads `IsTypeAny` per union constituent, because a union
+  holding an any-flagged type *is* that type natively.
+
+Zero transitions is expected at this base: no `native_error` reaches a
+`[Symbol.iterator]` member. The arms matter once member producers switch
+(the P4 alias type, §32's twins in §6), and with them in place those switches
+cannot route `errorType` into the protocol-failure arm.
+
+**The default** (`get_resolved_type_parameter_default`): the guard becomes
+`is_gap`, so a default that is upstream's identity is published like any
+other. That covers `native_error` and the any-flagged unresolved reference
+`Missing<T>`. **Recommendation: cache.** Native caches the resolved default
+unconditionally (`getResolvedTypeParameterDefault`, `checker.go:22007`), and
+measured, caching changes no line. It also stops the port minting a fresh
+unresolved-reference identity on every read of the same default. The test
+that pinned "not published" is renamed and now asserts one published
+identity across reads (`…_and_is_published_once`). Only the gap and the
+OBJECT-flagged deferred placeholders stay unpublished. The cache key is
+unchanged (parameter, alias bindings, mapped-template depth), so no new
+ownership question arises.
 
 ## §5 Narrowing, re-measured after each switch
 
