@@ -8,6 +8,7 @@ use tsr_ast::{
     Expression, JsxAttributeLike, JsxAttributeName, JsxAttributeValue, JsxTagNameExpression, Node,
     NodeId,
 };
+use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -36,8 +37,9 @@ impl Checker<'_, '_> {
     ///
     /// - an intrinsic tag: its fake signature returns `JSX.Element`, which
     ///   the `Mixed` bound always accepts;
-    /// - a `JSX.ElementType` in scope: upstream takes the other branch
-    ///   (`elementTypeConstraint`, tag type against it), not ported here;
+    /// - a `JSX.ElementType` in scope: upstream takes the other branch,
+    ///   [`Checker::check_jsx_element_type_constraint`], for every tag
+    ///   (intrinsic included);
     /// - overloads, or a union tag: the resolved candidate is `resolveCall`'s
     ///   choice (calls lane);
     /// - an error return type or bound: `errorType` relates to everything.
@@ -48,16 +50,17 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(tag) = tag else { return };
-        if let JsxTagNameExpression::Identifier(name) = tag
-            && crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text)
-        {
-            return;
-        }
         if matches!(tag, JsxTagNameExpression::JsxNamespacedName(_)) {
             return;
         }
         let Some(tag_id) = tag.node_id() else { return };
-        if self.jsx_type_symbol(node, "ElementType").is_some() {
+        if let Some(constraint) = self.jsx_element_type_type_at(node) {
+            self.check_jsx_element_type_constraint(tag, tag_id, constraint);
+            return;
+        }
+        if let JsxTagNameExpression::Identifier(name) = tag
+            && crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text)
+        {
             return;
         }
         let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
@@ -85,6 +88,84 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::with_args(&messages::_0_CANNOT_BE_USED_AS_A_JSX_COMPONENT, span, [text]),
         );
+    }
+
+    /// The `elementTypeConstraint` branch of
+    /// `checkJsxOpeningLikeElementOrOpeningFragment` (`jsx.go:140-150`): with
+    /// `JSX.ElementType` in scope, the tag's type — the tag name as a string
+    /// literal for an intrinsic tag (`isJsxIntrinsicTagName`), else
+    /// `checkExpression(tagName)` — is related to it, and a failure reports
+    /// TS2786 on the tag name chained over `Its type '{0}' is not a valid JSX
+    /// element type.` (the relation's own elaboration under that head is not
+    /// modelled). Only a definite `NotRelated` reports; an undecided relation
+    /// declines.
+    fn check_jsx_element_type_constraint(
+        &mut self,
+        tag: JsxTagNameExpression<'_>,
+        tag_id: NodeId,
+        constraint: TypeId,
+    ) {
+        let tag_type = match tag {
+            JsxTagNameExpression::Identifier(name)
+                if crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text) =>
+            {
+                self.store.intern_literal(
+                    crate::flags::TypeFlags::STRING_LITERAL,
+                    crate::types::TypeData::StringLiteral(name.text.to_owned()),
+                    false,
+                )
+            }
+            _ => {
+                let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
+                self.check_expression(expression)
+            }
+        };
+        if self.is_error(tag_type)
+            || self.relate_ternary(tag_type, constraint, Relation::Assignable)
+                != Ternary::NotRelated
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(tag_id) else { return };
+        let span = self.error_span(tag_id);
+        let detail = Diagnostic::with_args(
+            &messages::ITS_TYPE_0_IS_NOT_A_VALID_JSX_ELEMENT_TYPE,
+            span,
+            [self.type_to_string(tag_type)],
+        );
+        let text = self.jsx_tag_text(tag_id);
+        self.report(
+            file,
+            Diagnostic::new_chain(
+                Some(detail),
+                &messages::_0_CANNOT_BE_USED_AS_A_JSX_COMPONENT,
+                [text],
+            ),
+        );
+    }
+
+    /// `getJsxElementTypeTypeAt` (`jsx.go:1279`): `JSX.ElementType`
+    /// (`getJsxElementTypeSymbol`, a type-meaning export of the JSX
+    /// namespace) through `instantiateAliasOrInterfaceWithDefaults`
+    /// (`jsx.go:1032`) with no written arguments — every type parameter
+    /// takes its default. `None` when absent or `errorType`, as upstream;
+    /// also `None` where this port cannot fill the defaults
+    /// ([`Checker::instantiated_heritage_base`] declines), which skips the
+    /// check rather than taking the other branch.
+    pub(crate) fn jsx_element_type_type_at(&mut self, location: NodeId) -> Option<TypeId> {
+        let symbol = self.jsx_type_symbol(location, "ElementType")?;
+        let symbol = self.binder.merged_symbol(symbol);
+        let symbol = if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
+            let target = self.resolve_alias_fully(symbol);
+            self.binder.merged_symbol(target)
+        } else {
+            symbol
+        };
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE) {
+            return None;
+        }
+        let ty = self.instantiated_heritage_base(symbol, &[], Some(location))?;
+        (!self.is_error(ty)).then_some(ty)
     }
 
     /// `resolveJsxOpeningLikeElement`'s string-literal arm (`jsx.go:544-583`
