@@ -147,17 +147,18 @@ fn a_tag_that_is_not_callable_is_a_gap() {
 ///
 /// **The first assertion is the anti-vacuity guard**, and it is the point of
 /// writing the test this way: the arm can only be exercised by a span that
-/// genuinely gaps, and any particular gap may close. If `import.meta` ever
-/// types, this line fails loudly instead of the test silently ceasing to reach
-/// the branch it exists for.
+/// genuinely gaps, and any particular gap may close. `import.meta` was the
+/// span until it typed (tsr-2zk.990) and this line failed loudly, as designed;
+/// `import.foo` is `errorType` upstream too (`checkImportMetaProperty`,
+/// `checker.go:10782`), so it stays a gap by construction.
 #[test]
 fn a_template_over_an_untypeable_span_is_still_string() {
     assert_eq!(
-        type_of_last("var a = import.meta;"),
+        type_of_last("var a = import.foo;"),
         "error",
         "this fixture needs a span that GAPS; pick another construct"
     );
-    assert_eq!(type_of_last("var s = `x${import.meta}y`;"), "string");
+    assert_eq!(type_of_last("var s = `x${import.foo}y`;"), "string");
 }
 
 /// The control that keeps the fold alive: a template whose spans DO type still

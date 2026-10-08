@@ -647,6 +647,7 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::MetaProperty(_) => {
+                self.check_meta_property_reports(node);
                 self.check_new_target_meta_property(node);
                 ambient
             }
