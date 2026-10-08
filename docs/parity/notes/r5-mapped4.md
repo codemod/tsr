@@ -167,3 +167,51 @@ and no slow cases. On that file's CLI check with the route applied: 7.39 s →
 2.46 s. Bench Ir: domain-model 1,195,807,596 → 1,195,675,981 (−0.01%),
 generic-imports 342,893,926 → 342,907,113 (+0.004%). Median CPU new/old:
 domain-model 1.029, generic-imports 0.962 (21 samples).
+
+## 4. r5-mapped3's declared-route diff, refreshed (held: one slow case)
+
+[`r5-mapped4-declared-route.diff`](r5-mapped4-declared-route.diff) is
+r5-mapped3's [`r5-mapped3-declared-route.diff`](r5-mapped3-declared-route.diff)
+rebased onto the current `declared.rs`, unchanged in substance. A mapped node
+goes through `create_semantic_mapped_type` (createMappedTypeNodeFromType from
+typed parts; members when not generic) before the written-text mint, and
+`keyof any|never|unknown` goes to `resolved_keyof_type` (getIndexTypeEx's
+arms, checker.go:26701, `.16.108`).
+
+**Measured** unfiltered on top of §1 and §2 (base `22f35b4`, which already
+carries them): types **+81 RIGHT**, diagnostics **+1 case** (`bigintIndex`),
+**zero verdict losses** on both dumps, including base-RIGHT keys missing from
+the new dump (gate v3). Its 19 losses at r5-mapped3's measurement are §1's 13
+and §2's 6. Converted lines by case: `verbatim-declarations-parameters` ×7,
+`paramsOnlyHaveLiteralTypesWhenAppropriatelyContextualized` ×7,
+`assignmentGenericLookupTypeNarrowing` ×6, `deeplyNestedMappedTypes` ×5,
+`bigintIndex` ×5, `mappedTypeWithAny` ×4,
+`declarationEmitMappedTypePropertyFromNumericStringKey` ×4,
+`mappedTypeModifiers` ×3, `mappedTypeAsClauses` ×3,
+`dependentDestructuredVariablesFromNestedPatterns` ×3,
+`typeGuardNarrowsIndexedAccessOfKnownProperty11`/`12` ×3 each, and 17 more
+cases at 1–2 lines. Perf: median CPU new/old domain-model 0.983,
+generic-imports 1.006; Ir domain-model 1,195,825,471 → 1,202,251,201
+(+0.54%), generic-imports 342,899,754 → 342,903,933.
+
+**Why it is held.** `slowcases` flags one case. Before §3,
+`hugeDeclarationOutputGetsTruncatedWithError` went from 172 ms / 45 MiB to
+8,440 ms / 375 MiB; after §3 it is **2,060 ms / 376 MiB**. That is still
+above 3× the base and above the 1 s and 256 MiB floors. The case's
+`{ [K in manyprops]: { [K2 in manyprops]: `${K}.${K2}` } }` is not generic,
+so the route resolves and prints all 457,000 members when the node is
+evaluated. Native resolves a mapped type's members when they are first read
+(`resolveStructuredTypeMembers`). Its CLI check never reads them, and its
+`.types` print stops at the node builder's truncation length. The base port
+is fast here only because it printed the written text (60 characters, also
+WRONG).
+
+**What would unblock it.** Publish a non-generic mapped type before its
+members are resolved, and resolve them on first read, as the generic arm's
+`resolve_mapped_type_members` already does. The obstacle is that a type's
+text is fixed when the type is minted (`TypeData::Named`), and the members
+print *is* the text. So this needs printing that is deferred, or that
+truncates in the node builder's way (`checkTruncationLength`). That is a
+printing-architecture change, beyond this lane. The Ir increase on
+domain-model (+0.54%) has the same cause: non-generic mapped nodes are now
+resolved eagerly.
