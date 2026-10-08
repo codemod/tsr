@@ -1,0 +1,53 @@
+diff --git a/crates/tsr-checker/src/constraints.rs b/crates/tsr-checker/src/constraints.rs
+index b29e4eb7..0985040f 100644
+--- a/crates/tsr-checker/src/constraints.rs
++++ b/crates/tsr-checker/src/constraints.rs
+@@ -637,7 +637,10 @@ impl Checker<'_, '_> {
+     }
+ 
+     fn context_type_is_generic_inner(&mut self, ty: TypeId, aliases: &mut Vec<SymbolId>) -> bool {
+-        if self.signature_parameter_type_is_generic(ty)
++        // getGenericObjectFlags (checker.go): every InstantiableNonPrimitive
++        // type, a deferred conditional included, is generic.
++        if self.store.get(ty).flags.contains(TypeFlags::CONDITIONAL)
++            || self.signature_parameter_type_is_generic(ty)
+             || self.deferred_keyof_operands.contains_key(&ty)
+             || self.deferred_indexed_access_types.contains_key(&ty)
+             || self.is_generic_homomorphic_mapped_type(ty)
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 65a34bcd..026a388a 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -7458,15 +7458,25 @@ impl<'a> Checker<'a, '_> {
+         if self.instantiation_depth >= 99 {
+             return;
+         }
+-        let Some(parameter) = self.distributive_conditional_parameter(check_node) else { return };
++        let parameter = self.distributive_conditional_parameter(check_node);
+         let check = self.get_type_from_type_node(check_node);
+-        if let Some(constraint) = self.distributive_conditional_constraint(
+-            conditional,
+-            parameter,
+-            check,
+-            &rustc_hash::FxHashMap::default(),
+-        ) {
++        if let Some(parameter) = parameter
++            && let Some(constraint) = self.distributive_conditional_constraint(
++                conditional,
++                parameter,
++                check,
++                &rustc_hash::FxHashMap::default(),
++            )
++        {
+             self.conditional_constraint_branches.insert(id, (constraint, constraint));
++            return;
++        }
++        // getDefaultConstraintOfConditionalType (checker.go:17262).
++        let (Some(yes), Some(no)) = (conditional.true_type, conditional.false_type) else { return };
++        let yes = self.get_type_from_type_node(yes);
++        let no = self.get_type_from_type_node(no);
++        if !self.is_error(yes) && !self.is_error(no) {
++            self.conditional_constraint_branches.insert(id, (yes, no));
+         }
+     }
+ 

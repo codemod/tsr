@@ -756,9 +756,10 @@ impl<'a> Checker<'a, '_> {
                     // same-name test can see. Taking the three is the better
                     // trade at 208:1, and the guard is recorded rather than kept.
                     Some(text) => {
-                        let flags = if self.mapped_template_depth > 0
-                            && matches!(node, TypeNode::ConditionalTypeNode(_))
-                        {
+                        // getConditionalType's deferred result carries
+                        // TypeFlagsConditional inside a mapped template or
+                        // not; a deferred conditional is never an object type.
+                        let flags = if matches!(node, TypeNode::ConditionalTypeNode(_)) {
                             TypeFlags::CONDITIONAL
                         } else {
                             TypeFlags::OBJECT
@@ -815,6 +816,7 @@ impl<'a> Checker<'a, '_> {
                                 .collect();
                             self.conditional_inference_nodes
                                 .insert(id, ConditionalInferenceNode { declaration, bindings });
+                            self.capture_inline_conditional_constraint(id, conditional);
                         }
                         id
                     }
@@ -7403,10 +7405,22 @@ impl<'a> Checker<'a, '_> {
             constrained_arguments[position] = constraint;
             if let Some(constrained) =
                 self.evaluate_conditional_alias(symbol, &constrained_arguments, None)
-                && constrained != self.intrinsics.never
             {
-                self.conditional_constraint_branches.insert(id, (constrained, constrained));
-                return;
+                // getConditionalTypeInstantiation(…, forConstraint = true):
+                // the extra true branch of each distributed constituent.
+                let Some(constrained) = self.with_for_constraint_extras(
+                    conditional,
+                    check,
+                    constraint,
+                    &frame,
+                    constrained,
+                ) else {
+                    return;
+                };
+                if !self.store.get(constrained).flags.contains(TypeFlags::NEVER) {
+                    self.conditional_constraint_branches.insert(id, (constrained, constrained));
+                    return;
+                }
             }
         }
         self.instantiation_depth += 1;
@@ -7418,6 +7432,211 @@ impl<'a> Checker<'a, '_> {
         if yes != self.intrinsics.error && no != self.intrinsics.error {
             self.conditional_constraint_branches.insert(id, (yes, no));
         }
+    }
+
+    /// getConstraintOfDistributiveConditionalType (checker.go:17286) for an
+    /// inline deferred conditional mint, published into
+    /// `conditional_constraint_branches`, the table `base_constraint_of_type`
+    /// already reads for alias references (`capture_conditional_alias_branches`).
+    /// The mint is fresh per site and its outer bindings are the ones active
+    /// when it is minted, so the capture runs once, at mint time, under those
+    /// same frames.
+    ///
+    /// getDefaultConstraintOfConditionalType's two branches are NOT published
+    /// for an inline mint yet: with them, `conditionalTypeAssignabilityWhenDeferred`
+    /// narrowed `x` in `const x1: [T] extends [number] ? … = x` to `never`
+    /// (getNarrowableTypeForReference substituted its new union constraint).
+    /// Teaching `context_type_is_generic` (`constraints.rs`) that a CONDITIONAL
+    /// type is generic did not recover that line and cost a diagnostics case
+    /// (`docs/parity/notes/r5-declared.md` §1.3).
+    fn capture_inline_conditional_constraint(
+        &mut self,
+        id: TypeId,
+        conditional: &tsr_ast::ConditionalTypeNode<'a>,
+    ) {
+        let Some(check_node) = conditional.check_type else { return };
+        if self.instantiation_depth >= 99 {
+            return;
+        }
+        let Some(parameter) = self.distributive_conditional_parameter(check_node) else { return };
+        let check = self.get_type_from_type_node(check_node);
+        if let Some(constraint) = self.distributive_conditional_constraint(
+            conditional,
+            parameter,
+            check,
+            &rustc_hash::FxHashMap::default(),
+        ) {
+            self.conditional_constraint_branches.insert(id, (constraint, constraint));
+        }
+    }
+
+    /// getConstraintOfDistributiveConditionalType (checker.go:17286): for a
+    /// distributive root whose check type `check` (the naked parameter
+    /// `parameter`) has a constraint other than itself, the conditional
+    /// instantiated with the check mapped to that constraint and
+    /// `forConstraint` set, unless that instantiation is `never`. `frame`
+    /// holds the reference's other bindings (an alias's arguments).
+    ///
+    /// getConditionalTypeInstantiation distributes the substituted check over
+    /// its union constituents before getConditionalType runs, so
+    /// `forConstraint`'s extra true branch is decided per constituent here.
+    /// `None` for native's `noConstraintType`, and where the evaluator or a
+    /// relation this port cannot answer stood in the way: no constraint is
+    /// published, as before.
+    fn distributive_conditional_constraint(
+        &mut self,
+        conditional: &tsr_ast::ConditionalTypeNode<'a>,
+        parameter: SymbolId,
+        check: TypeId,
+        frame: &rustc_hash::FxHashMap<SymbolId, TypeId>,
+    ) -> Option<TypeId> {
+        // Native reads getConstraintOfType, which for a parameter constrained
+        // by another parameter is that parameter, and instantiates a deferred
+        // conditional there. This port's evaluator cannot instantiate a
+        // deferred root under a mapper, so the base constraint stands in, as
+        // `capture_conditional_alias_branches` already measured it.
+        let constraint = self.base_constraint_of_type(check)?;
+        if constraint == check || self.is_error(constraint) {
+            return None;
+        }
+        let parts = match &self.store.get(constraint).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![constraint],
+        };
+        let mut results = Vec::with_capacity(parts.len());
+        for part in parts {
+            let mut bindings = frame.clone();
+            bindings.insert(parameter, part);
+            self.instantiation_depth += 1;
+            self.alias_evaluation_bindings.push(bindings);
+            let result = self.evaluate_conditional_node(conditional, None).and_then(|result| {
+                let extra = self.for_constraint_includes_true_branch(conditional, part)?;
+                Some(if extra {
+                    let yes = self.get_type_from_type_node(conditional.true_type?);
+                    if self.is_error(yes) {
+                        return None;
+                    }
+                    self.get_union_type(&[result, yes])
+                } else {
+                    result
+                })
+            });
+            self.alias_evaluation_bindings.pop();
+            self.instantiation_depth -= 1;
+            match result {
+                Some(result) if !self.is_error(result) => results.push(result),
+                _ => return None,
+            }
+        }
+        let instantiated = self.get_union_type(&results);
+        (!self.store.get(instantiated).flags.contains(TypeFlags::NEVER)).then_some(instantiated)
+    }
+
+    /// `evaluated` (the conditional instantiated with the check parameter
+    /// `parameter` mapped to `constraint`) joined with the true branch of
+    /// every distributed constituent of `constraint` for which
+    /// [`Self::for_constraint_includes_true_branch`] holds. `frame` binds the
+    /// reference's other parameters. `None` where that test is undecided.
+    fn with_for_constraint_extras(
+        &mut self,
+        conditional: &tsr_ast::ConditionalTypeNode<'a>,
+        parameter: SymbolId,
+        constraint: TypeId,
+        frame: &rustc_hash::FxHashMap<SymbolId, TypeId>,
+        evaluated: TypeId,
+    ) -> Option<TypeId> {
+        let parts = match &self.store.get(constraint).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![constraint],
+        };
+        let mut extras = Vec::new();
+        for part in parts {
+            let mut bindings = frame.clone();
+            bindings.insert(parameter, part);
+            self.instantiation_depth += 1;
+            self.alias_evaluation_bindings.push(bindings);
+            let extra =
+                self.for_constraint_includes_true_branch(conditional, part).and_then(|extra| {
+                    if !extra {
+                        return Some(None);
+                    }
+                    let yes = self.get_type_from_type_node(conditional.true_type?);
+                    (!self.is_error(yes)).then_some(Some(yes))
+                });
+            self.alias_evaluation_bindings.pop();
+            self.instantiation_depth -= 1;
+            extras.extend(extra?);
+        }
+        if extras.is_empty() {
+            return Some(evaluated);
+        }
+        extras.insert(0, evaluated);
+        Some(self.get_union_type(&extras))
+    }
+
+    /// getConditionalType's `forConstraint` extra (checker.go:24383), asked
+    /// under the frame that binds the check type to `check`: when the check
+    /// is definitely not assignable to the extends type, the true branch is
+    /// still included if some constituent of the extends type is assignable
+    /// to the check. The permissive instantiations are the types themselves:
+    /// a generic check or extends type defers before this test, and the
+    /// evaluator has already answered for it. `None` where a relation is
+    /// `Unknown` or the root infers (its extends type is the inferred one).
+    fn for_constraint_includes_true_branch(
+        &mut self,
+        conditional: &tsr_ast::ConditionalTypeNode<'a>,
+        check: TypeId,
+    ) -> Option<bool> {
+        use crate::relater::{Relation, Ternary};
+        // Stated divergence: an `infer` root tests the INFERRED extends type,
+        // which only the evaluator's inference road builds. No extra is added
+        // for it, which is what this port did before `forConstraint` existed.
+        if conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+            locals.values().any(|&symbol| {
+                self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+            })
+        }) {
+            return Some(false);
+        }
+        let flags = self.store.get(check).flags;
+        if flags.intersects(TypeFlags::ANY) {
+            // The any arm adds the true branch itself.
+            return Some(false);
+        }
+        if flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+            || self.mentions_registered_type_parameter(check)
+        {
+            return Some(false);
+        }
+        let extends = self.get_type_from_type_node(conditional.extends_type?);
+        if self.is_error(extends) {
+            return None;
+        }
+        let extends_flags = self.store.get(extends).flags;
+        if extends_flags.intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::NEVER)
+            || extends_flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+            || self.mentions_registered_type_parameter(extends)
+        {
+            return Some(false);
+        }
+        match self.relate_ternary(check, extends, Relation::Assignable) {
+            Ternary::Related => return Some(false),
+            Ternary::Unknown => return None,
+            Ternary::NotRelated => {}
+        }
+        let parts = match &self.store.get(extends).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![extends],
+        };
+        let mut undecided = false;
+        for part in parts {
+            match self.relate_ternary(part, check, Relation::Assignable) {
+                Ternary::Related => return Some(true),
+                Ternary::Unknown => undecided = true,
+                Ternary::NotRelated => {}
+            }
+        }
+        (!undecided).then_some(false)
     }
 
     /// The type parameters declared *on* a symbol\'s own declaration.
