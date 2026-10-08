@@ -1172,7 +1172,13 @@ impl Checker<'_, '_> {
     /// which is the only thing this rule adds to machinery already in place.
     /// §361.
     fn check_umd_global_reference(&mut self, node: NodeId, text: &str) {
-        if self.file_has_parse_errors || !self.is_value_reference(node) {
+        // `errorOrSuggestion(AllowUmdGlobalAccess != TSTrue, …)`
+        // (`checker.go:1846`): with the option on it is a suggestion, which
+        // no diagnostic list here carries (`r5-modfmt.md` §2).
+        if self.file_has_parse_errors
+            || self.module_format_options.allow_umd_global_access
+            || !self.is_value_reference(node)
+        {
             return;
         }
         // Upstream's guard is `meaning&SymbolFlagsValue == SymbolFlagsValue`
