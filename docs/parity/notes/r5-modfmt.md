@@ -99,6 +99,20 @@ every `Checker::new` call site without a program behaves as before.
   (an `export =` of a namespace with a `default` member reads as having a
   default upstream); the second conjunct is what fixes it.
 
+### 2.2 Option readers (`tsr-2zk.993`)
+
+r5-variants2 (64d9890) made the harness apply every declared option; these
+are the readers that were missing. All in `module_format.rs`, gated on one
+`ModuleFormatOptions` field each.
+
+| option | code | upstream | note |
+|---|---|---|---|
+| `allowUmdGlobalAccess` | TS2686 | `errorOrSuggestion(AllowUmdGlobalAccess != TSTrue, …)`, `checker.go:1846` | the report becomes a suggestion, which no list here carries; one guard in `check_umd_global_reference` |
+| `erasableSyntaxOnly` | TS1294 | `shouldCheckErasableSyntax` at `checker.go:2667`, `:5076`, `:5165`, `:5469`, `:5595`, `:12293` | parameter properties, enums, instantiated namespaces, `import =`, `export =`, `<T>` assertions; the assertion span runs to the operand's full start, found by stepping back over whitespace |
+| `noFallthroughCasesInSwitch` | TS7029 | `checkCaseBlock` tail, `checker.go:4196` | **no flow.rs edit was needed**: the binder already records `FallthroughFlowNode` (`BindResult::fallthrough_flow`) and `is_reachable_flow_node` is `pub(crate)` |
+| `noPropertyAccessFromIndexSignature` | TS4111 | `checker.go:11361`, inside the property-access index-signature arm | **not built**: its only home is `access_member_lookup`'s index-info arm (`members.rs:855`), a type lookup that is re-entered for one node, so a report there needs a report-once guard in main's active file. One row (`noPropertyAccessFromIndexSignature1`); left to the members lane |
+| `moduleDetection` | — | `GetExternalModuleIndicatorOptions` | §5: a binder change, shipped as a measured diff |
+
 ## 3. Measured
 
 Frozen baseline `d64a532a` → this commit, full dumps, unfiltered:

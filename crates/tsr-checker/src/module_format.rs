@@ -51,6 +51,8 @@ use crate::checker::Checker;
 /// The compiler options the module-format checks read, captured once by
 /// `apply_compiler_options` (ADR-0042's pattern: the checker copies what it
 /// reads rather than holding the options).
+// One bool per compiler option read, as `CompilerOptions` itself holds them.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ModuleFormatOptions {
     /// `GetEmitModuleKind()`, upstream's `c.moduleKind` (`checker.go:880`).
@@ -60,6 +62,14 @@ pub(crate) struct ModuleFormatOptions {
     pub(crate) module_kind: ModuleKind,
     /// `GetEmitModuleDetectionKind()`.
     pub(crate) module_detection: tsr_core::ModuleDetectionKind,
+    /// `compilerOptions.AllowUmdGlobalAccess.IsTrue()`: TS2686 becomes a
+    /// suggestion (`checker.go:1846`).
+    pub(crate) allow_umd_global_access: bool,
+    /// `compilerOptions.ErasableSyntaxOnly.IsTrue()` (`shouldCheckErasableSyntax`,
+    /// `checker.go:2650`, with its not-a-JS-file half).
+    pub(crate) erasable_syntax_only: bool,
+    /// `compilerOptions.NoFallthroughCasesInSwitch.IsTrue()` (`checker.go:4196`).
+    pub(crate) no_fallthrough_cases_in_switch: bool,
     /// `compilerOptions.NoEmit.IsTrue()`: `errorSkippedOnNoEmit` and
     /// `grammarErrorOnNodeSkippedOnNoEmit` diagnostics are dropped
     /// (`SetSkippedOnNoEmit`, filtered by the program under `noEmit`).
@@ -74,6 +84,9 @@ impl Default for ModuleFormatOptions {
         Self {
             module_kind: ModuleKind::None,
             module_detection: tsr_core::ModuleDetectionKind::Auto,
+            allow_umd_global_access: false,
+            erasable_syntax_only: false,
+            no_fallthrough_cases_in_switch: false,
             no_emit: false,
         }
     }
@@ -84,6 +97,9 @@ impl ModuleFormatOptions {
         Self {
             module_kind: options.emit_module_kind(),
             module_detection: options.emit_module_detection_kind(),
+            allow_umd_global_access: options.allow_umd_global_access.is_true(),
+            erasable_syntax_only: options.erasable_syntax_only.is_true(),
+            no_fallthrough_cases_in_switch: options.no_fallthrough_cases_in_switch.is_true(),
             no_emit: options.no_emit.is_true(),
         }
     }
@@ -96,6 +112,9 @@ impl Checker<'_, '_> {
     pub(crate) fn check_module_format(&mut self, node: NodeId, typed: Node<'_>, ambient: bool) {
         if self.module_format_options.module_kind == ModuleKind::None {
             return;
+        }
+        if self.module_format_options.erasable_syntax_only {
+            self.check_erasable_syntax(node, typed, ambient);
         }
         match typed {
             Node::ImportEqualsDeclaration(declaration) => {
@@ -149,6 +168,7 @@ impl Checker<'_, '_> {
             }
             Node::ArrowFunction(arrow) => self.check_reserved_arrow_type_parameters(arrow),
             Node::TypeAssertion(_) => self.check_reserved_type_assertion(node),
+            Node::CaseOrDefaultClause(clause) => self.check_fallthrough_case(node, clause),
             Node::AwaitExpression(_) => {
                 let start = self.nodes.span(node).start;
                 self.check_top_level_await(node, TopLevelAwait::Expression, start);
@@ -809,5 +829,115 @@ impl Checker<'_, '_> {
             }),
             _ => false,
         }
+    }
+
+    /// TS1294 — `This syntax is not allowed when 'erasableSyntaxOnly' is
+    /// enabled.` Each arm is one `shouldCheckErasableSyntax` site:
+    /// a parameter property (`checkParameter`, `checker.go:2667`), a
+    /// non-ambient enum (`checkEnumDeclaration`, `:5076`), a non-ambient
+    /// instantiated namespace (`checkModuleDeclaration`, `:5165`), a
+    /// non-ambient `import =` (`checkImportEqualsDeclaration`, `:5469`), a
+    /// non-ambient `export =` (`checkExportAssignment`, `:5595`) and an
+    /// angle-bracket assertion (`checkAssertion`, `:12293`). Not in a JS file.
+    fn check_erasable_syntax(&mut self, node: NodeId, typed: Node<'_>, ambient: bool) {
+        let message = &messages::THIS_SYNTAX_IS_NOT_ALLOWED_WHEN_ERASABLESYNTAXONLY_IS_ENABLED;
+        let reports = match typed {
+            Node::ParameterDeclaration(parameter) => parameter.modifiers.iter().any(|modifier| {
+                matches!(modifier, tsr_ast::ModifierLike::Token(token) if matches!(
+                    token.kind,
+                    SyntaxKind::PublicKeyword
+                        | SyntaxKind::PrivateKeyword
+                        | SyntaxKind::ProtectedKeyword
+                        | SyntaxKind::ReadonlyKeyword
+                        | SyntaxKind::OverrideKeyword
+                ))
+            }),
+            Node::EnumDeclaration(_) | Node::ImportEqualsDeclaration(_) => !ambient,
+            Node::ExportAssignment(assignment) => assignment.is_export_equals && !ambient,
+            Node::ModuleDeclaration(_) => {
+                !ambient && self.module_declaration_is_instantiated_or_preserved(node)
+            }
+            Node::TypeAssertion(assertion) => {
+                if self.in_js_file(node) {
+                    return;
+                }
+                // `[SkipTrivia(node.Pos()), node.Expression().Pos())`: the
+                // `<T>` and the trivia after it, up to the operand's token.
+                let Some(expression) = assertion.expression.and_then(|e| e.node_id()) else {
+                    return;
+                };
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+                let start = self.nodes.span(node).start;
+                let end = self.full_start_before(file, expression);
+                self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, end)));
+                return;
+            }
+            _ => false,
+        };
+        if !reports || self.in_js_file(node) {
+            return;
+        }
+        self.error_on_node(node, message, Vec::new());
+    }
+
+    /// `isInstantiatedModule(node, ShouldPreserveConstEnums())` and the
+    /// value-module symbol test that guards it (`checker.go:5164`).
+    fn module_declaration_is_instantiated_or_preserved(&self, node: NodeId) -> bool {
+        let Some(typed) = self.node_map.get(node) else { return false };
+        let mut parents: Vec<_> =
+            self.nodes.ancestors(node).filter_map(|ancestor| self.node_map.get(ancestor)).collect();
+        parents.reverse();
+        match tsr_ast::module_instance_state(typed, &parents) {
+            tsr_ast::ModuleInstanceState::Instantiated => true,
+            tsr_ast::ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
+            tsr_ast::ModuleInstanceState::NonInstantiated => false,
+        }
+    }
+
+    /// `node.Pos()` for a node whose span starts at its first token: the end
+    /// of the previous token, found by stepping back over whitespace in the
+    /// source (a comment between the two is not stepped over). Without
+    /// source text, the token start.
+    fn full_start_before(&self, file: NodeId, node: NodeId) -> u32 {
+        let start = self.nodes.span(node).start;
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return start;
+        };
+        let Some(before) = text.get(..start as usize) else { return start };
+        let trimmed = before.trim_end();
+        u32::try_from(trimmed.len()).unwrap_or(start)
+    }
+
+    /// TS7029 — `checkCaseBlock`'s tail (`checker.go:4196`): under
+    /// `noFallthroughCasesInSwitch`, a clause whose end the binder recorded
+    /// as a fallthrough (`FallthroughFlowNode`, set for every clause but the
+    /// last whose end is not syntactically unreachable) and whose flow node
+    /// is reachable (`isReachableFlowNode`, the flow port's).
+    ///
+    /// `error(clause)` spans `GetErrorSpanForNode`'s clause arm: from the
+    /// `case`/`default` keyword to the first statement's full start.
+    fn check_fallthrough_case(&mut self, node: NodeId, clause: &tsr_ast::CaseOrDefaultClause<'_>) {
+        if !self.module_format_options.no_fallthrough_cases_in_switch {
+            return;
+        }
+        let Some(flow) = self.binder.fallthrough_flow(node) else { return };
+        if !self.is_reachable_flow_node(flow) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        let end = clause
+            .statements
+            .first()
+            .and_then(tsr_ast::Statement::node_id)
+            .map_or(span.end, |first| self.full_start_before(file, first));
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::FALLTHROUGH_CASE_IN_SWITCH,
+                tsr_core::Span::new(span.start, end.max(span.start)),
+            ),
+        );
     }
 }
