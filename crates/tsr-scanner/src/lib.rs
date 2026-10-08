@@ -949,10 +949,17 @@ impl<'a> Scanner<'a> {
                     if is_octal {
                         let digits = &self.source[digits_start as usize..self.pos as usize];
                         let value = u64::from_str_radix(digits, 8).unwrap_or(0);
+                        // `scanNumber` (`scanner.go:1965`): after a `-` token
+                        // the report starts one character earlier and the
+                        // suggestion keeps the sign. `s.token` is still the
+                        // previous token here.
+                        let with_minus = self.token.kind == SyntaxKind::MinusToken;
+                        let (report_start, sign) =
+                            if with_minus { (start - 1, "-") } else { (start, "") };
                         self.error_with(
                             &messages::OCTAL_LITERALS_ARE_NOT_ALLOWED_USE_THE_SYNTAX_0,
-                            Span::new(start, self.pos),
-                            &[&format!("0o{value:o}")],
+                            Span::new(report_start, self.pos),
+                            &[&format!("{sign}0o{value:o}")],
                         );
                         return SyntaxKind::NumericLiteral;
                     }

@@ -527,3 +527,6 @@ per-file flag must become per-node.
 - `abstract` member outside an abstract class (`checkGrammarModifiers`):
   TS1244/TS1253 are `grammarErrorOnNode(modifier)`, spanning the `abstract`
   keyword rather than the member.
+- Legacy octal literals (`scanNumber`): when the previous token is `-`, the
+  TS1121 report starts one character earlier and suggests `-0o…`, exactly as
+  the scanner does (it reads its still-current previous token).
