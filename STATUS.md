@@ -54,7 +54,17 @@ reported separately.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
 
-Raw-owner continuation, frozen `85f9c4cb` / native `5b1047d`: ten private
+Symbol-key continuation, frozen main `1cea3449` / native `5b1047d`: existing
+value/declared-type cache keys and symbol resolution frames now use validated
+identities privately. Current-main baseline passes 194 library tests; the final
+slice passes 453 debug tests (206 library, 16 domain, 231 integration), with one
+ignore and the known parsed owner red filtered. Two native direct observations
+and a compiling origin-key mutant qualify copy identity/publication. Full
+cutover remains uncompiled: 69 diagnostics across twelve files, from 85 at
+replay. Strict Clippy has six errors versus baseline five. No canonical runtime,
+full corpus or speed claim. [Source-qualified continuation](docs/architecture/checker-symbol-completion-contract.md#symbol-key-continuation-on-current-main).
+
+Earlier raw-owner continuation, frozen `85f9c4cb` / native `5b1047d`: ten private
 anonymous-owner readers now preserve raw flags, declarations, export keys and
 exact enum-owner identity. Final slice passes 446 debug tests (199 library,
 16 domain, 231 integration), with one existing ignore and the known red owner
@@ -3607,12 +3617,14 @@ Round-4 parity follow-ups. Each is open in Beads with the lane's notes:
   template-optionality and keyof-generic-base (types dump unfinished); the
   r4-operators2 in-operand and TS18046 diffs (re-measure).
 
-Continue `tsr-1yb.7.7.2.1` with actual merged-owner publication and native cache
-keys. The raw-owner readers are implemented privately; the current full cutover
-has 85 compiler diagnostics across 16 files. Native one-hop private redirects
-must not be replaced with the Binder's bound chain or a clone-origin fallback.
-Then compile and execute parsed owner/alias-stack controls and requalify on
-advancing main. The green raw-reader slice does not execute the full cutover.
+Continue `tsr-1yb.7.7.2.1` from frozen `1cea3449`: existing value/declared
+cache and symbol resolution keys now carry validated identities privately.
+Finish type/declared/member/class/naming consumers, other owner caches and native
+merged publication. The full cutover has 69 compiler diagnostics across twelve
+files; the green 453-test key slice does not execute it. Native one-hop private
+redirects must not become the Binder's bound chain or a clone-origin fallback.
+Compile and run unfiltered parsed owner/alias-stack controls, then requalify
+advancing main against full fidelity/performed-work and ordinary speed gates.
 
 Continue `tsr-1yb.7.7.2.1` from the existing owner-migration source. The
 validated raw-signature reader and five callable consumers are implemented
@@ -7252,6 +7264,15 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `1cea3449`'s 453-pass key slice is refused as full private-owner or
+alias completion: the actual cutover still has 69 compiler errors across twelve
+files, and the parsed owner red is explicitly filtered. Strict Clippy reports
+six errors versus baseline five; the new unused writer remains unintegrated.
+The publication predicate's unsupported/error distinction is also unfinished.
+Two direct native observations and a failing origin-key mutant establish the
+owned key boundary, not natural whole-CLI scope or a speed gain. No runtime
+change is retained. [Lossless current-main progress](docs/architecture/checker-module-clone-progress.json).
 
 Round 4 (tsr-2zk), measured against the integration baseline of the day:
 - **r4-typeparams merged-parameter diff.** Held: +126 type lines, but 6 losses
@@ -14129,6 +14150,8 @@ cargo run -p xtask -- issue-ids    # every `bd <id>` cited in docs/ exists
 ---
 
 ## 7. Session log
+
+| 2026-10-08 | `1cea3449` / native `5b1047d` | — | — | **Validated symbol-key migration, tsr-1yb.7.7.2.1.** Prior patches replay without conflicts onto current main; baseline library 194 passes. Existing value/declared caches and symbol resolution frames use actual handles privately. Source-qualified final slice 453 passes (one ignore, known parsed owner red filtered); native two direct observations match private identity/property/publication, and compiling origin-key mutant fails one test before exact restoration. Twelve additional full-cutover consumers migrated; compiler gate 85 -> 89 -> 72 -> 69 across twelve files. Strict Clippy six versus baseline five. Lossless 26/32-file patches preserved. No canonical runtime, full corpus or speed claim. [Evidence](docs/architecture/checker-module-clone-progress.json). |
 
 | 2026-10-08 | `85f9c4cb` / native `5b1047d` | — | — | **Raw-owner migration progress, tsr-1yb.7.7.2.1.** Ten raw flag/declaration/export/enum-identity consumers ported privately. Two bound characterizations and four native direct operations pass; source-edge and empty-export mutants fail two/one controls. Final source-qualified slice passes 446 debug tests (one ignore, known owner red filtered); broader cutover falls 98 -> 85 compiler errors across 16 files. One unused-writer Clippy error remains. Eight-file slice and seventeen-file full patches preserved. No canonical runtime, corpus or speed claim. [Lossless progress](docs/architecture/checker-module-clone-progress.json). |
 
