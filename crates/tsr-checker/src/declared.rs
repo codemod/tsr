@@ -8914,7 +8914,14 @@ impl<'a> Checker<'a, '_> {
     /// `type C<T> = ...; declare function C<T>(): C<T>;` lists the function
     /// first (`docs/parity/notes/r5-typeparams2.md` §4).
     pub(crate) fn type_alias_declaration_of(&self, symbol: SymbolId) -> Option<NodeId> {
-        self.binder.symbols().get(symbol).declarations.iter().copied().find(|&declaration| {
+        let data = self.binder.symbols().get(symbol);
+        // Every declaration the search can find binds `TYPE_ALIAS`; without
+        // the flag none exists, and the scan of a many-declaration lib symbol
+        // (`Array`) is skipped.
+        if !data.flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        data.declarations.iter().copied().find(|&declaration| {
             matches!(
                 self.node_map.get(declaration),
                 Some(
