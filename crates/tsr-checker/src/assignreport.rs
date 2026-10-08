@@ -28,7 +28,7 @@
 //! what decides whether the declines are drawn in the right place.
 
 use tsr_ast::{BinaryExpression, Node, NodeId, SyntaxKind};
-use tsr_binder::SymbolFlags;
+use tsr_binder::{SymbolFlags, SymbolId};
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::{
@@ -36,6 +36,14 @@ use crate::{
     flags::TypeFlags,
     types::{TypeData, TypeId},
 };
+
+/// [`Checker::missing_property_chain`]'s answer: `reportRelationError`
+/// (`relater.go:4816`) suppresses its head for the missing-property message,
+/// or keeps it with that message (when one could be named) as the chain child.
+enum MissingPropertyHead {
+    Suppressed,
+    Kept(Option<Diagnostic>),
+}
 
 /// Verdicts recorded by §172's probe, in the order
 /// `report_assignability_failure` tests them.
@@ -1573,6 +1581,18 @@ impl<'a> Checker<'a, '_> {
         target: TypeId,
         properties: &[String],
     ) {
+        let diagnostic = self.missing_properties_diagnostic(span, source, target, properties);
+        self.report(file, diagnostic);
+    }
+
+    /// The message [`Checker::report_missing_properties`] reports, unreported.
+    fn missing_properties_diagnostic(
+        &mut self,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        properties: &[String],
+    ) -> Diagnostic {
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
         let (message, args) = if properties.len() == 1 {
@@ -1596,7 +1616,207 @@ impl<'a> Checker<'a, '_> {
                 vec![source_text, target_text, properties.join(", ")],
             )
         };
-        self.report(file, Diagnostic::with_args(message, span, args));
+        Diagnostic::with_args(message, span, args)
+    }
+
+    /// `reportRelationError`'s missing-property suppression (`relater.go:4816`)
+    /// for a failure whose chain ends in `reportUnmatchedProperty`'s message:
+    /// whether the missing-property message stands alone, or stays as the
+    /// chain child under the caller's head (TS2322/TS2345).
+    ///
+    /// The missing-property message names the pair `propertiesRelatedTo` saw:
+    /// `getNormalizedType` (`checker.go:27865`) has reduced each side through
+    /// `getSingleBaseForNonAugmentingSubtype`, and `structuredTypeRelatedTo`'s
+    /// type-variable arm (`relater.go:3665`) has moved a type-parameter source
+    /// to its constraint. The head names the pair `reportErrorResults`
+    /// (`relater.go:4705`) displays: the original side when it has an alias
+    /// or a single base. `chainArgsMatch` compares the printed strings, so
+    /// this does too. A type-parameter source always keeps the head (`T` never
+    /// prints as its constraint); an undecided constraint leaves no child.
+    fn missing_property_chain(
+        &mut self,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        properties: &[String],
+    ) -> MissingPropertyHead {
+        let mut chain_source = source;
+        if self.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER) {
+            let crate::constraints::ConstraintOfType::Constraint(constraint) =
+                self.constraint_of_type(source)
+            else {
+                return MissingPropertyHead::Kept(None);
+            };
+            chain_source = constraint;
+        }
+        let chain_source = self.single_base_normalized(chain_source);
+        let chain_target = self.single_base_normalized(target);
+        if chain_source == source && chain_target == target {
+            return MissingPropertyHead::Suppressed;
+        }
+        let displayed_source = self.assignability_source_for_error_display(source, target);
+        if self.type_to_string(displayed_source) == self.type_to_string(chain_source)
+            && self.type_to_string(target) == self.type_to_string(chain_target)
+        {
+            return MissingPropertyHead::Suppressed;
+        }
+        MissingPropertyHead::Kept(Some(self.missing_properties_diagnostic(
+            span,
+            chain_source,
+            chain_target,
+            properties,
+        )))
+    }
+
+    /// `getNormalizedType`'s reference arm (`checker.go:27865`), iterated:
+    /// each step replaces a non-augmenting subtype with its single base.
+    fn single_base_normalized(&mut self, mut t: TypeId) -> TypeId {
+        // Each step moves to a base, and `get_base_types` refuses a circular
+        // base, so the walk ends; the bound only guards a malformed table.
+        for _ in 0..64 {
+            match self.single_base_for_non_augmenting_subtype(t) {
+                Some(base) if base != t => t = base,
+                _ => break,
+            }
+        }
+        t
+    }
+
+    /// `getSingleBaseForNonAugmentingSubtype` (`checker.go:28087`): the one
+    /// base of a class or interface reference that declares no members.
+    ///
+    /// `ObjectFlagsReference` holds for every class and for an interface that
+    /// is generic or not `isThislessInterface` (`getDeclaredTypeOfClassOrInterface`,
+    /// `checker.go`). Native's `getMembersOfSymbol` counts the type parameters
+    /// the binder files in the members table, so a generic target never has a
+    /// single base and no instantiation through its type arguments is needed;
+    /// a `this` argument does not change the printed base. Not modelled: an
+    /// interface that is a reference only through *outer* type parameters is
+    /// read as thisless.
+    fn single_base_for_non_augmenting_subtype(&mut self, t: TypeId) -> Option<TypeId> {
+        let symbol = match self.type_reference_targets.get(&t) {
+            Some(&(symbol, _)) => symbol,
+            None => match self.type_of(t).data {
+                TypeData::Named { members: Some(symbol), .. } => symbol,
+                _ => return None,
+            },
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        let flags = self.binder.symbols().get(symbol).flags;
+        if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
+            return None;
+        }
+        if !self.binder.symbols().get(symbol).members.is_empty() {
+            return None;
+        }
+        if flags.contains(SymbolFlags::CLASS) {
+            // A base expression other than a simple (qualified) name may
+            // circularly reference the class itself.
+            if !self.class_base_expression_is_simple_name(symbol) {
+                return None;
+            }
+        } else if self.is_thisless_interface(symbol) {
+            return None;
+        }
+        let bases = self.get_base_types(symbol);
+        let &[base] = bases.as_slice() else { return None };
+        Some(base)
+    }
+
+    /// The class half of `getSingleBaseForNonAugmentingSubtype`'s gate: no
+    /// `extends` clause, or one whose expression is an identifier or property
+    /// access (`getBaseTypeNodeOfClass`).
+    fn class_base_expression_is_simple_name(&self, class: SymbolId) -> bool {
+        let clauses = self.binder.symbols().get(class).declarations.iter().find_map(
+            |&declaration| match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(class)) => Some(class.heritage_clauses),
+                Some(Node::ClassExpression(class)) => Some(class.heritage_clauses),
+                _ => None,
+            },
+        );
+        let Some(base) = clauses.and_then(|clauses| {
+            clauses
+                .iter()
+                .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+                .and_then(|clause| clause.types.first())
+        }) else {
+            return true;
+        };
+        matches!(
+            base.expression,
+            Some(
+                tsr_ast::Expression::Identifier(_)
+                    | tsr_ast::Expression::PropertyAccessExpression(_)
+            )
+        )
+    }
+
+    /// `isThislessInterface` (`checker.go:17356`): no declaration uses `this`,
+    /// and every entity-name base is an interface whose declared type has no
+    /// `thisType` (it is neither generic nor itself `this`-using).
+    fn is_thisless_interface(&mut self, symbol: SymbolId) -> bool {
+        self.is_thisless_interface_at(symbol, 0)
+    }
+
+    fn is_thisless_interface_at(&mut self, symbol: SymbolId, depth: u32) -> bool {
+        if depth > 32 {
+            return false;
+        }
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        for declaration in declarations {
+            let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(declaration) else {
+                continue;
+            };
+            if self.binder.facts(declaration).contains(tsr_binder::NodeFacts::CONTAINS_THIS) {
+                return false;
+            }
+            let Some(clause) = interface
+                .heritage_clauses
+                .iter()
+                .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            else {
+                continue;
+            };
+            for base in clause.types {
+                // Only an entity-name expression is resolved (isEntityNameExpression).
+                let Some(
+                    expression @ (tsr_ast::Expression::Identifier(_)
+                    | tsr_ast::Expression::PropertyAccessExpression(_)),
+                ) = base.expression
+                else {
+                    continue;
+                };
+                let Some(base_symbol) = self.heritage_entity_symbol(expression, SymbolFlags::TYPE)
+                else {
+                    return false;
+                };
+                let base_symbol = self.binder.merged_symbol(base_symbol);
+                let base_flags = self.binder.symbols().get(base_symbol).flags;
+                // getDeclaredTypeOfClassOrInterface gives a thisType to a
+                // class, a generic declaration and a this-using interface.
+                if !base_flags.contains(SymbolFlags::INTERFACE)
+                    || base_flags.contains(SymbolFlags::CLASS)
+                    || self.symbol_declares_type_parameters(base_symbol)
+                    || !self.is_thisless_interface_at(base_symbol, depth + 1)
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Whether any declaration of a class or interface declares its own type
+    /// parameters: `getDeclaredTypeOfClassOrInterface`'s `localTypeParameters`.
+    fn symbol_declares_type_parameters(&self, symbol: SymbolId) -> bool {
+        self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            match self.node_map.get(declaration) {
+                Some(Node::InterfaceDeclaration(node)) => !node.type_parameters.is_empty(),
+                Some(Node::ClassDeclaration(node)) => !node.type_parameters.is_empty(),
+                Some(Node::ClassExpression(node)) => !node.type_parameters.is_empty(),
+                _ => false,
+            }
+        })
     }
 
     /// `tryElaborateArrayLikeErrors`' TS4104 (`relater.go:4379`), reported by
@@ -1696,9 +1916,31 @@ impl<'a> Checker<'a, '_> {
                 .missing_required_property(source, normalized)
                 .or_else(|| self.unmatched_property_report(source, normalized))
         {
-            self.report_missing_properties(file, span, source, normalized, &properties);
+            let MissingPropertyHead::Kept(chain) =
+                self.missing_property_chain(span, source, normalized, &properties)
+            else {
+                self.report_missing_properties(file, span, source, normalized, &properties);
+                return true;
+            };
+            self.report_argument_head(file, span, source, target, None, chain);
             return true;
         }
+        self.report_argument_head(file, span, source, target, signature_error, None);
+        true
+    }
+
+    /// `reportRelationError`'s TS2345 head (`relater.go:4751`) for
+    /// [`Checker::report_argument_failure`], with the signature elaboration or
+    /// the missing-property message kept under it.
+    fn report_argument_head(
+        &mut self,
+        file: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        signature_error: Option<Diagnostic>,
+        chain: Option<Diagnostic>,
+    ) {
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
@@ -1714,8 +1956,8 @@ impl<'a> Checker<'a, '_> {
             signature_error.span = span;
             diagnostic.add_message_chain(Some(signature_error));
         }
+        diagnostic.add_message_chain(chain);
         self.report(file, diagnostic);
-        true
     }
 
     /// Report the assignability failure at `span`, choosing the code the way
@@ -1836,7 +2078,14 @@ impl<'a> Checker<'a, '_> {
             && let Some(properties) = self.missing_required_property(source, normalized)
         {
             probe!(PROBE_REPORTED);
-            self.report_missing_properties(file, span, source, normalized, &properties);
+            match self.missing_property_chain(span, source, normalized, &properties) {
+                MissingPropertyHead::Suppressed => {
+                    self.report_missing_properties(file, span, source, normalized, &properties);
+                }
+                MissingPropertyHead::Kept(chain) => {
+                    self.report_relation_head(at, file, span, source, target, head, None, chain);
+                }
+            }
             return true;
         }
         // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
@@ -1870,9 +2119,37 @@ impl<'a> Checker<'a, '_> {
             && union_literal.is_none()
             && let Some(properties) = self.unmatched_property_report(source, normalized)
         {
-            self.report_missing_properties(file, span, source, normalized, &properties);
+            match self.missing_property_chain(span, source, normalized, &properties) {
+                MissingPropertyHead::Suppressed => {
+                    self.report_missing_properties(file, span, source, normalized, &properties);
+                }
+                MissingPropertyHead::Kept(chain) => {
+                    self.report_relation_head(at, file, span, source, target, head, None, chain);
+                }
+            }
             return true;
         }
+        self.report_relation_head(at, file, span, source, target, head, signature_error, None);
+        true
+    }
+
+    /// `reportRelationError`'s head (`relater.go:4751`) for
+    /// [`Checker::report_relation_failure`]: the caller's message, else the
+    /// TS2322 family, with the relation's signature elaboration or the
+    /// missing-property message [`Checker::missing_property_chain`] kept
+    /// under it.
+    #[allow(clippy::too_many_arguments)]
+    fn report_relation_head(
+        &mut self,
+        at: NodeId,
+        file: NodeId,
+        span: tsr_core::Span,
+        source: TypeId,
+        target: TypeId,
+        head: Option<&'static tsr_diagnostics::Message>,
+        signature_error: Option<Diagnostic>,
+        chain: Option<Diagnostic>,
+    ) {
         let displayed_source = self.assignability_source_for_error_display(source, target);
         let source_text = self.type_to_string(displayed_source);
         let target_text = self.type_to_string(target);
@@ -1892,8 +2169,8 @@ impl<'a> Checker<'a, '_> {
             signature_error.span = span;
             diagnostic.add_message_chain(Some(signature_error));
         }
+        diagnostic.add_message_chain(chain);
         self.report(file, diagnostic);
-        true
     }
 
     /// Ported from typescript-go's `Relater.reportRelationError`
