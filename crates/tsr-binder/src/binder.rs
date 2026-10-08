@@ -697,7 +697,12 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.in_declaration_file = is_declaration_file(file_name);
         self.export_context = self.in_declaration_file && !file_has_export_declarations(file);
         self.in_js_file = is_javascript_file(file_name);
-        self.is_module = is_external_module(file);
+        // `getImportMetaIfNecessary` (`ast/parseoptions.go:101`): with no
+        // statement indicator, `import.meta` anywhere makes the file a module.
+        // Gated, as upstream gates it, on the parser's
+        // `PossiblyContainsImportMeta` flag, so the walk runs only for a file
+        // that has an `import.meta` (r5-modules §2.4).
+        self.is_module = is_external_module_in(file, self.nodes);
         self.file_node = root_id;
         self.file_symbol_name = remove_file_extension(file_name);
         if self.is_module {
@@ -4932,6 +4937,38 @@ pub fn is_external_module(file: &SourceFile<'_>) -> bool {
             _ => modifiers_of(node).is_some_and(has_export),
         }
     })
+}
+
+/// [`is_external_module`] with its last indicator,
+/// `getImportMetaIfNecessary` (`ast/parseoptions.go:101`): with no statement
+/// indicator, `import.meta` anywhere makes the file a module. Gated, as
+/// upstream gates it, on the parser's `PossiblyContainsImportMeta` flag on
+/// the source file node, so the walk runs only for a file that has an
+/// `import.meta` (r5-modules §2.4).
+#[must_use]
+pub fn is_external_module_in(file: &SourceFile<'_>, nodes: &NodeTable) -> bool {
+    is_external_module(file)
+        || file.node_id.is_some_and(|id| {
+            nodes.flags(id).contains(tsr_ast::NodeFlags::POSSIBLY_CONTAINS_IMPORT_META)
+        }) && contains_import_meta(file)
+}
+
+/// `findChildNode(file, ast.IsImportMeta)` (`ast/parseoptions.go:103`).
+fn contains_import_meta(file: &SourceFile<'_>) -> bool {
+    let mut stack = vec![Node::from(file)];
+    let mut children = Vec::new();
+    while let Some(node) = stack.pop() {
+        if let Node::MetaProperty(meta) = node
+            && meta.keyword_token.kind == tsr_ast::SyntaxKind::ImportKeyword
+            && meta.name.is_some_and(|name| name.text == "meta")
+        {
+            return true;
+        }
+        children.clear();
+        tsr_ast::push_children(node, &mut children);
+        stack.extend(children.iter().copied());
+    }
+    false
 }
 
 /// What a JavaScript assignment expression declares.

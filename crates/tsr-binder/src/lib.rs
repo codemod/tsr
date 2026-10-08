@@ -78,7 +78,7 @@ use tsr_ast::{NodeId, NodeMap, NodeTable, SourceFile, SyntaxKind};
 use tsr_core::Idx as _;
 use tsr_diagnostics::Diagnostic;
 
-pub use binder::{is_declaration_file, is_external_module};
+pub use binder::{is_declaration_file, is_external_module, is_external_module_in};
 pub use container::{ContainerFlags, container_flags};
 pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
 pub use names::PreparedNames;

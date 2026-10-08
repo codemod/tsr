@@ -238,6 +238,10 @@ pub struct Parser<'a> {
     pub(crate) parse_jsdoc: bool,
     /// Whether to record parents as nodes are finished.
     assign_parents: bool,
+    /// `p.sourceFlags`, stamped on the `SourceFile`. Only
+    /// `NodeFlagsPossiblyContainsImportMeta` is set so far, by the
+    /// `import.meta` arm (`parser.go:5195`).
+    pub(crate) source_flags: tsr_ast::NodeFlags,
 
     /// Guards against runaway recursion on pathological input.
     ///
@@ -347,6 +351,7 @@ impl<'a> Parser<'a> {
             parse_jsdoc: options.jsdoc,
             assign_parents: options.parents,
             depth: 0,
+            source_flags: tsr_ast::NodeFlags::empty(),
         }
     }
 
@@ -769,11 +774,17 @@ impl<'a> Parser<'a> {
         // bodies (docs/parity/notes/js.md).
         let _end_docs = self.parse_leading_jsdoc();
         let eof = self.alloc_token(SyntaxKind::EndOfFile, self.token.span);
-        self.finish_node(
+        let file = self.finish_node(
             SourceFile::new(self.arena.alloc_slice(&statements), eof),
             SyntaxKind::SourceFile,
             start,
-        )
+        );
+        if !self.source_flags.is_empty()
+            && let Some(id) = file.node_id
+        {
+            self.nodes.add_flags(id, self.source_flags);
+        }
+        file
     }
 }
 

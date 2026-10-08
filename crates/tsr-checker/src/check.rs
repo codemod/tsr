@@ -1193,7 +1193,7 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
-        if !tsr_binder::is_external_module(source) {
+        if !tsr_binder::is_external_module_in(source, self.nodes) {
             return;
         }
         let Some(symbol) = self.binder.resolve_name(
@@ -1433,7 +1433,7 @@ impl Checker<'_, '_> {
             return;
         }
         let legal = match self.nodes.parent(node).and_then(|p| self.node_map.get(p)) {
-            Some(Node::SourceFile(source)) => tsr_binder::is_external_module(source),
+            Some(Node::SourceFile(source)) => tsr_binder::is_external_module_in(source, self.nodes),
             Some(Node::ModuleBlock(_)) => {
                 let block = self.nodes.parent(node);
                 let outer = block.and_then(|b| self.nodes.parent(b));
@@ -1441,7 +1441,7 @@ impl Checker<'_, '_> {
                 matches!(
                     (outer.and_then(|o| self.node_map.get(o)), file.and_then(|f| self.node_map.get(f))),
                     (Some(Node::ModuleDeclaration(_)), Some(Node::SourceFile(source)))
-                        if !tsr_binder::is_external_module(source)
+                        if !tsr_binder::is_external_module_in(source, self.nodes)
                 )
             }
             _ => false,
@@ -1807,7 +1807,7 @@ impl Checker<'_, '_> {
         // `c.globals` is fed by scripts only.
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
-        if tsr_binder::is_external_module(source) {
+        if tsr_binder::is_external_module_in(source, self.nodes) {
             return;
         }
         // Top-level: the declaration's statement is a child of the file. A
@@ -3027,7 +3027,8 @@ impl Checker<'_, '_> {
             && self.in_js_file(file)
             && let Some(Node::SourceFile(source)) = self.node_map.get(file)
         {
-            return !tsr_binder::is_external_module(source) && !exports.contains_key("__esModule");
+            return !tsr_binder::is_external_module_in(source, self.nodes)
+                && !exports.contains_key("__esModule");
         }
         // `hasExportAssignmentSymbol(moduleSymbol)`.
         exports.contains_key("export=")
@@ -13728,7 +13729,7 @@ impl Checker<'_, '_> {
         let is_augmentation = self.nodes.parent(node) == Some(file)
             && matches!(
                 self.node_map.get(file),
-                Some(Node::SourceFile(source)) if tsr_binder::is_external_module(source)
+                Some(Node::SourceFile(source)) if tsr_binder::is_external_module_in(source, self.nodes)
             );
         if !is_augmentation {
             return;
@@ -13813,7 +13814,7 @@ impl Checker<'_, '_> {
             self.is_ambient_module_node(owner)
                 && matches!(
                     self.nodes.parent(owner).and_then(|file| self.node_map.get(file)),
-                    Some(Node::SourceFile(source)) if !tsr_binder::is_external_module(source)
+                    Some(Node::SourceFile(source)) if !tsr_binder::is_external_module_in(source, self.nodes)
                 )
         });
         if augmentation {

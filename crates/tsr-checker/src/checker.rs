@@ -3832,7 +3832,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                         self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
                     }) && self.source_file_of(reference).and_then(|file| self.node_map.get(file))
                         .is_some_and(|file| matches!(file, Node::SourceFile(source)
-                            if tsr_binder::is_external_module(source))))
+                            if tsr_binder::is_external_module_in(source, self.nodes))))
                 {
                     continue;
                 }
@@ -4041,7 +4041,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                     (local && matches!(checker.node_map.get(declaration), Some(Node::NamespaceExport(_))))
                         || (!ignore_qualification && checker.nodes.kind(declaration) == SyntaxKind::ExportSpecifier)
                         || (checker.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
-                            && checker.source_file_of_for_diagnostics(reference).and_then(|file| checker.node_map.get(file)).is_some_and(|file| matches!(file, Node::SourceFile(source) if tsr_binder::is_external_module(source))))
+                            && checker.source_file_of_for_diagnostics(reference).and_then(|file| checker.node_map.get(file)).is_some_and(|file| matches!(file, Node::SourceFile(source) if tsr_binder::is_external_module_in(source, checker.nodes))))
                 }) { continue; }
                 let Some(resolved) = checker.semantic_type_naming_alias_target(
                     alias,
@@ -4319,7 +4319,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                             && self.source_file_of_for_diagnostics(reference)
                                 .and_then(|file| self.node_map.get(file))
                                 .is_some_and(|file| matches!(file, Node::SourceFile(source)
-                                    if tsr_binder::is_external_module(source))))
+                                    if tsr_binder::is_external_module_in(source, self.nodes))))
                 }) {
                     continue;
                 }
