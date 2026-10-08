@@ -2152,9 +2152,10 @@ impl<'a> Checker<'a, '_> {
                     _ => None,
                 }
             }
+            && self.report_excess_property(excess_at, &name, error_target)
         {
             probe!(PROBE_REPORTED);
-            return self.report_excess_property(excess_at, &name, error_target);
+            return true;
         }
         if self.report_weak_type_failure(at, span, source, target) {
             probe!(PROBE_REPORTED);
@@ -3110,8 +3111,10 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => return None,
             };
             let name_id = name?;
-            let name = self.identifier_text(name_id)?.to_string();
-            if !self.is_known_property(reduced, &name)? {
+            let Some((name, key)) = self.object_literal_member_name(name_id).ok()? else {
+                continue;
+            };
+            if !self.is_known_property_keyed(reduced, &name, key)? {
                 let error_target = self
                     .filter_type(reduced, |checker, t| checker.is_excess_property_check_target(t));
                 return Some(ExcessProperties::Excess { at: name_id, name, error_target });
@@ -3146,7 +3149,9 @@ impl<'a> Checker<'a, '_> {
     /// enumerate declines.
     fn report_excess_property(&mut self, at: NodeId, name: &str, error_target: TypeId) -> bool {
         let candidates = if self.nodes.kind(at) == SyntaxKind::Identifier {
-            let Some(names) = self.get_property_names_of_type(error_target) else { return false };
+            let Some(names) = self.property_names_for_suggestion(error_target) else {
+                return false;
+            };
             names
         } else {
             Vec::new()
@@ -3169,6 +3174,93 @@ impl<'a> Checker<'a, '_> {
         };
         self.report(file, diagnostic);
         true
+    }
+
+    /// The property name an object-literal member's written name binds,
+    /// spelled as the member tables spell it, with the unique-symbol name type
+    /// for a late-bound symbol name. `Ok(None)` is a computed name
+    /// whose type is not `StringOrNumberLiteralOrUnique`: `checkObjectLiteral`
+    /// folds it into an index signature, so the literal type has no property
+    /// of that name and `getPropertiesOfType` never yields it. `Err` is a
+    /// literal or unique-symbol name this port cannot spell.
+    fn object_literal_member_name(
+        &mut self,
+        name: NodeId,
+    ) -> Result<Option<(String, Option<TypeId>)>, ()> {
+        if let Some(text) = self.identifier_text(name) {
+            return Ok(Some((text.to_string(), None)));
+        }
+        let Some(Node::ComputedPropertyName(computed)) = self.node_map.get(name) else {
+            return Err(());
+        };
+        let expression = computed.expression.ok_or(())?;
+        let name_type = self.check_expression(expression);
+        if !self.type_of(name_type).flags.intersects(
+            TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL | TypeFlags::UNIQUE_ES_SYMBOL,
+        ) {
+            return Ok(None);
+        }
+        // `late_bound_member_names` (`crate::members`) spells a computed
+        // member of a declared type the same two ways.
+        if let Some(text) = self.property_name_from_index(name_type) {
+            return Ok(Some((text, None)));
+        }
+        let (spelled, _) = self.late_bound_symbol_member_name(computed).ok_or(())?;
+        Ok(Some((spelled, Some(name_type))))
+    }
+
+    /// `getPropertiesOfType(containingType)`'s names for
+    /// `getSuggestionForNonexistentProperty`. A union's properties are the
+    /// names every constituent has (`getPropertiesOfUnionOrIntersectionType`
+    /// drops a `ReadPartial` one): its own property, an applicable index
+    /// signature, or, for an object literal type without a spread, an
+    /// implied `undefined` (`createUnionOrIntersectionProperty`). So the
+    /// candidates are one enumerable constituent's names that every other
+    /// constituent has; a constituent that can neither confirm nor rule out a
+    /// candidate declines. An intersection's are every constituent's names.
+    fn property_names_for_suggestion(&mut self, t: TypeId) -> Option<Vec<String>> {
+        if let Some(names) = self.get_property_names_of_type(t) {
+            return Some(names);
+        }
+        let types = match self.type_of(t).data.clone() {
+            TypeData::Union { types, .. } => types,
+            TypeData::Intersection { types, .. } => {
+                let mut names = Vec::new();
+                for part in types {
+                    for name in self.certified_property_names(part)? {
+                        if !names.contains(&name) {
+                            names.push(name);
+                        }
+                    }
+                }
+                return Some(names);
+            }
+            _ => return None,
+        };
+        let (first, names) =
+            types.iter().find_map(|&part| Some((part, self.certified_property_names(part)?)))?;
+        let mut candidates = Vec::with_capacity(names.len());
+        for name in names {
+            let mut everywhere = true;
+            for &part in &types {
+                if part == first {
+                    continue;
+                }
+                match self.is_known_property(part, &name) {
+                    Some(true) => {}
+                    Some(false) if self.object_literal_spread_flags.get(&part) == Some(&false) => {}
+                    Some(false) => {
+                        everywhere = false;
+                        break;
+                    }
+                    None => return None,
+                }
+            }
+            if everywhere {
+                candidates.push(name);
+            }
+        }
+        Some(candidates)
     }
 
     /// `ast.SkipParentheses`.
@@ -3233,7 +3325,7 @@ impl<'a> Checker<'a, '_> {
         if self.get_property_names_of_type(t).is_some_and(|names| !names.is_empty()) {
             return Some(false);
         }
-        if self.relation_property_table(t)?.is_empty()
+        if self.certified_property_names(t)?.is_empty()
             && self.get_index_infos_of_type(t)?.is_empty()
         {
             for kind in [
@@ -3269,6 +3361,18 @@ impl<'a> Checker<'a, '_> {
     /// target, any constituent's. `None` where an object constituent's member
     /// table is not certified and no other constituent knows the name.
     fn is_known_property(&mut self, target: TypeId, name: &str) -> Option<bool> {
+        self.is_known_property_keyed(target, name, None)
+    }
+
+    /// [`Checker::is_known_property`] for a property whose name type is
+    /// `key` (`getLiteralTypeFromProperty`): a unique-symbol name meets the
+    /// index signatures as its symbol type, not as a string literal.
+    fn is_known_property_keyed(
+        &mut self,
+        target: TypeId,
+        name: &str,
+        key: Option<TypeId>,
+    ) -> Option<bool> {
         let ty = self.type_of(target);
         let flags = ty.flags;
         if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } = &ty.data {
@@ -3278,7 +3382,7 @@ impl<'a> Checker<'a, '_> {
             let types = types.clone();
             let mut undecided = false;
             for part in types {
-                match self.is_known_property(part, name) {
+                match self.is_known_property_keyed(part, name, key) {
                     Some(true) => return Some(true),
                     Some(false) => {}
                     None => undecided = true,
@@ -3293,8 +3397,15 @@ impl<'a> Checker<'a, '_> {
         if names.as_ref().is_some_and(|names| names.iter().any(|seen| seen == name)) {
             return Some(true);
         }
-        if !self.get_index_infos_of_type(target)?.is_empty() {
-            let key = self.property_name_key_type(name);
+        let infos = self.get_index_infos_of_type(target)?;
+        if !infos.is_empty() {
+            // `isLateBoundName(name) && getIndexInfoOfType(target, string)`:
+            // for backwards compatibility a string index signature accepts a
+            // symbol-named property.
+            if key.is_some() && infos.iter().any(|info| info.key == self.intrinsics.string) {
+                return Some(true);
+            }
+            let key = key.unwrap_or_else(|| self.property_name_key_type(name));
             if self.get_applicable_index_info(target, key).is_some() {
                 return Some(true);
             }
