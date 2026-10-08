@@ -1699,7 +1699,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.standard_class_fields = match options.use_define_for_class_fields {
             tsr_core::Tristate::True => true,
             tsr_core::Tristate::False => false,
-            tsr_core::Tristate::Unknown => options.target >= tsr_core::ScriptTarget::ES2022,
+            tsr_core::Tristate::Unknown => {
+                options.emit_script_target() >= tsr_core::ScriptTarget::ES2022
+            }
         };
         self.module_kind = if options.module == tsr_core::ModuleKind::None {
             if options.target >= tsr_core::ScriptTarget::ES2015 {
