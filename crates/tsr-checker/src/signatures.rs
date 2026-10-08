@@ -1080,6 +1080,13 @@ impl<'a> Checker<'a, '_> {
         else {
             return None;
         };
+        // A qualified alias reference's print-only mint carries the ALIAS as
+        // its member table; no call or construct member is read from a
+        // type-alias declaration, so an empty answer would not be
+        // `getSignaturesOfType`'s. Unresolved, not empty (r4-jsx.md §2).
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
         let signatures =
             self.signature_candidates_of_interface_symbol(symbol, kind, &mut Vec::new())?;
         signatures

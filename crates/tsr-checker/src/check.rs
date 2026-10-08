@@ -195,6 +195,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(typed) = self.node_map.get(node) else { return };
+        self.check_construct_emit_helpers(node, typed);
         let ambient = match typed {
             Node::ImportDeclaration(declaration) => {
                 // `import "x"` with no clause is a **side-effect import**, and
@@ -366,6 +367,7 @@ impl Checker<'_, '_> {
                         self.check_const_enum_member_value(at);
                         self.check_enum_member_forward_references(at);
                         self.check_enum_member_auto_value(at);
+                        self.check_enum_member_isolated_modules(at);
                     }
                 }
                 self.check_reserved_enum_name(declaration);
@@ -423,6 +425,7 @@ impl Checker<'_, '_> {
                 self.check_optional_parameter_initializer(node);
                 self.check_parameter_initializer_needs_body(node);
                 self.check_parameter_property_position(node, parameter.modifiers);
+                self.check_this_parameter_position(node);
                 self.check_annotated_initializer(node, ambient);
                 self.check_subsequent_declaration_type(node);
                 ambient
@@ -1070,6 +1073,9 @@ impl Checker<'_, '_> {
         }
         if self.nodes.kind(node) == SyntaxKind::ThisKeyword {
             self.check_this_expression_diagnostics(node);
+        }
+        if self.nodes.kind(node) == SyntaxKind::Identifier {
+            self.check_this_in_type_query_diagnostics(node);
         }
         if self.nodes.kind(node) == SyntaxKind::ThisType {
             self.check_this_type_node(node);
@@ -4300,6 +4306,11 @@ impl Checker<'_, '_> {
         // `primitiveTypeAssignment`. These names resolve to no symbol here
         // because they are keywords rather than globals, so the existing
         // "resolves as a TYPE" decline never sees them.
+        // …**unless they resolve.** Upstream reaches the cascade only when
+        // `getResolvedSymbol` fails, and `declare function string()` is a
+        // value named `string`
+        // (`classReferencedInContextualParameterWithinItsOwnBaseExpression`).
+        // r4-helpers notes §7.
         if matches!(
             text,
             "string"
@@ -4312,7 +4323,14 @@ impl Checker<'_, '_> {
                 | "never"
                 | "unknown"
                 | "void"
-        ) {
+        ) && self
+            .resolve_name_with_export_alias(
+                node,
+                text,
+                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+            )
+            .is_none()
+        {
             // **A heritage position has its own three messages**, and they are
             // what makes those nine lines right rather than wrong: upstream's
             // `checkAndReportErrorForUsingTypeAsValue` reports TS2863 / TS2864 /
@@ -4342,7 +4360,12 @@ impl Checker<'_, '_> {
             // `void`, `object`, `symbol` and `bigint`, which upstream's
             // `isPrimitiveTypeName` does not list and which stay declined here.
             // §948.
-            if !upstream_six || self.file_has_parse_errors {
+            // **No parse-error gate.** §949 added one to hide 48 extra lines in
+            // files the parser recovered; upstream reports TS2693 in such
+            // files (`autoLift2`, `createArray`, `parserUnterminatedGeneric2`
+            // are parse-error fixtures whose baselines carry it). Re-measured
+            // without it: +7 cases, 0 lost. `docs/parity/notes/r4-helpers.md` §2.
+            if !upstream_six {
                 return;
             }
         }
@@ -8746,11 +8769,11 @@ impl Checker<'_, '_> {
     /// is legal, `declare const x: number = 1` is TS1039, and the difference is
     /// the presence of `typeNode` rather than anything about the initialiser.
     ///
-    /// `isInitializerSimpleLiteralEnumReference` is **not** ported: it resolves
-    /// the reference to a literal enum member, and without it a
-    /// `declare const x = E.A` takes the invalid-initialiser branch. A *wrong
-    /// line* rather than a missing one, so the enum-reference shape declines
-    /// instead — see the `QualifiedName`/`PropertyAccess` arm below. §259.
+    /// The valid-initializer predicate, `isInitializerSimpleLiteralEnumReference`
+    /// included, is [`Checker::is_valid_ambient_const_initializer`]
+    /// (`grammar.rs`). §259 declined property accesses and identifiers while
+    /// the enum-reference arm was unported; that decline is gone
+    /// (`docs/parity/notes/r4-unused-grammar.md` §6).
     fn check_ambient_initializer(
         &mut self,
         node: NodeId,
@@ -8783,17 +8806,7 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(initializer_id) else { return };
         let span = self.nodes.span(initializer_id);
         if is_const_or_readonly && annotation.is_none() {
-            // A reference — `E.A` — needs `isInitializerSimpleLiteralEnumReference`
-            // to judge, which is not ported. Declining is a missing line; the
-            // alternative is a wrong one.
-            if matches!(
-                initializer,
-                tsr_ast::Expression::PropertyAccessExpression(_)
-                    | tsr_ast::Expression::Identifier(_)
-            ) {
-                return;
-            }
-            if !is_simple_literal_initializer(initializer) {
+            if !self.is_valid_ambient_const_initializer(initializer) {
                 self.report(
                     file,
                     Diagnostic::new(
@@ -14527,22 +14540,6 @@ pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_
         Node::ConstructorTypeNode(n) => n.modifiers,
         _ => return None,
     })
-}
-
-fn is_simple_literal_initializer(initializer: tsr_ast::Expression<'_>) -> bool {
-    match initializer {
-        tsr_ast::Expression::StringLiteral(_)
-        | tsr_ast::Expression::NumericLiteral(_)
-        | tsr_ast::Expression::BigIntLiteral(_)
-        | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_) => true,
-        // `-1` is `isInitializerStringOrNumberLiteralExpression`'s second arm:
-        // a prefix minus over a numeric literal, and nothing else.
-        tsr_ast::Expression::PrefixUnaryExpression(unary) => {
-            unary.operator.kind == SyntaxKind::MinusToken
-                && matches!(unary.operand, Some(tsr_ast::Expression::NumericLiteral(_)))
-        }
-        _ => false,
-    }
 }
 
 fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Message> {

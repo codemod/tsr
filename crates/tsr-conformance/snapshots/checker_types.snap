@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8085/9538 (84.77%)
-Assertion lines: 470004/478855 (98.15%)  — a gradient, not a pass rate
-Failed         : 1453
+Passed         : 8102/9538 (84.94%)
+Assertion lines: 470118/478855 (98.18%)  — a gradient, not a pass rate
+Failed         : 1436
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline (bd tsr-bb4.1)
@@ -12,11 +12,9 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1453 failures:
+First 100 of 1436 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
-compiler/abstractClassUnionInstantiation
-  abstractClassUnionInstantiation.ts: >[ConcreteA, ConcreteB].map(cls => new cls()) : (ConcreteA | ConcreteB)[] — expected >[ConcreteA, ConcreteB].map(cls => new cls()) : ConcreteA[]
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >[[s, false]] : [symbol, boolean][] — expected >[[s, false]] : [symbol, false][]
 compiler/accessorDeclarationEmitJs
@@ -63,8 +61,6 @@ compiler/arrayFlatNoCrashInference
   arrayFlatNoCrashInference.ts: >foo : <T>(arr: T[], depth: number) => FlatArray<T[], number>[] — expected >foo : <T>(arr: T[], depth: number) => FlatArray<T, -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20>[]
 compiler/arrayFlatNoCrashInferenceDeclarations
   arrayFlatNoCrashInferenceDeclarations.ts: >foo : <T>(arr: T[], depth: number) => FlatArray<T[], number>[] — expected >foo : <T>(arr: T[], depth: number) => FlatArray<T, -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20>[]
-compiler/arraySigChecking
-  arraySigChecking.ts: >foo : any — expected >foo : {}
 compiler/arrayconcat
   arrayconcat.ts: >this.options.sort : (compareFn?: (a: IOptions, b: IOptions) => number) => IOptions[] — expected >this.options.sort : (compareFn?: ((a: IOptions, b: IOptions) => number) | undefined) => IOptions[]
 compiler/arrowExpressionBodyJSDoc
@@ -78,7 +74,7 @@ compiler/arrowFunctionsMissingTokens
 compiler/assignmentToInstantiationExpression
   assignmentToInstantiationExpression.ts: >obj.fn<number> : any — expected >obj.fn<number> : (() => number) | undefined
 compiler/asyncFunctionContextuallyTypedReturns
-  asyncFunctionContextuallyTypedReturns.ts: >v => v ? [0] : Promise.reject() : (v: boolean) => any — expected >v => v ? [0] : Promise.reject() : (v: boolean) => Promise<[0]> | [0]
+  asyncFunctionContextuallyTypedReturns.ts: >v => v ? [0] : Promise.reject() : (v: boolean) => Promise<[0]> | [number] — expected >v => v ? [0] : Promise.reject() : (v: boolean) => Promise<[0]> | [0]
 compiler/asyncFunctionReturnType
   asyncFunctionReturnType.ts: >[1, true] : [number, boolean] — expected >[1, true] : [number, true]
 compiler/asyncImportNestedYield
@@ -111,8 +107,6 @@ compiler/baseConstraintOfDecorator
   baseConstraintOfDecorator.ts: >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : typeof decoratorFunc — expected >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : { new (...args: any[]): decoratorFunc; prototype: classExtender2.decoratorFunc; } & TFunction
 compiler/baseExpressionTypeParameters
   baseExpressionTypeParameters.ts: >base<T>() : Base — expected >base<T>() : base.Base
-compiler/bestChoiceType
-  bestChoiceType.ts: >(''.match(/ /) || []) : never[] | RegExpMatchArray — expected >(''.match(/ /) || []) : RegExpMatchArray | []
 compiler/bigintArbirtraryIdentifier
   correctUse.ts: >foo : any — expected >foo : 0n
 compiler/bigintIndex
@@ -187,8 +181,6 @@ compiler/classFieldSuperAccessible
   classFieldSuperAccessible.ts: >super.name : error — expected >super.name : string
 compiler/classFieldSuperAccessibleJs1
   index.js: >super.blah1 : any — expected >super.blah1 : number
-compiler/classNonUniqueSymbolMethodHasSymbolIndexer
-  classNonUniqueSymbolMethodHasSymbolIndexer.ts: >e1 : error — expected >e1 : () => number
 compiler/classPropInitializationInferenceWithElementAccess
   classPropInitializationInferenceWithElementAccess.ts: >x : any — expected >x : number[]
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -213,3 +205,11 @@ compiler/complicatedIndexesOfIntersectionsAreInferencable
   complicatedIndexesOfIntersectionsAreInferencable.ts: >x : string extends "validate" | "initialValues" | keyof ExtraProps ? Readonly<FormikConfig<Values> & ExtraProps> : Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validate" | "initialValues" | Exclude<keyof ExtraProps, "validateOnChange">> & Partial<Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validateOnChange" | Extract<keyof ExtraProps, "validateOnChange">>> — expected >x : string extends "initialValues" | "validate" | keyof ExtraProps ? Readonly<FormikConfig<Values> & ExtraProps> : Pick<Readonly<FormikConfig<Values> & ExtraProps>, "initialValues" | "validate" | Exclude<keyof ExtraProps, "validateOnChange">> & Partial<Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validateOnChange" | Extract<keyof ExtraProps, "validateOnChange">>>
 compiler/computedPropertiesInDestructuring1
   computedPropertiesInDestructuring1.ts: >f1 : any — expected >f1 : ({ ["bar"]: x }: { bar: number; }) => void
+compiler/computedPropertiesInDestructuring1_ES6
+  computedPropertiesInDestructuring1_ES6.ts: >f1 : any — expected >f1 : ({ ["bar"]: x }: { bar: number; }) => void
+compiler/computedPropertiesWithSetterAssignment
+  /a.ts: >foo[k] : Set<string> — expected >foo[k] : Iterable<string>
+compiler/computedPropertyBindingElementDeclarationNoCrash1
+  computedPropertyBindingElementDeclarationNoCrash1.ts: >key : any — expected >key : string
+compiler/computedPropertyNameWithImportedKey
+  /b.ts: >fn : error — expected >fn : ({ [a]: value }: any) => string

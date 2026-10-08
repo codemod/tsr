@@ -558,6 +558,9 @@ pub struct Checker<'a, 'n> {
     /// used by `getVariancesWorker` (internal/checker/relater.go).
     pub(crate) variance_cache: FxHashMap<SymbolId, Option<Vec<crate::variances::Variance>>>,
     pub(crate) variance_in_progress: rustc_hash::FxHashSet<SymbolId>,
+    /// Native `Relation.results` for every relation kind, for the checker's
+    /// lifetime (`tsr-2zk.902`); see [`crate::relation_cache`].
+    pub(crate) relation_results: crate::relation_cache::RelationResults,
     pub(crate) variance_markers: Option<[TypeId; 3]>,
     pub(crate) variance_marker_types: rustc_hash::FxHashSet<TypeId>,
     /// Contextual signature instantiations and their recursion sentinel,
@@ -688,6 +691,9 @@ pub struct Checker<'a, 'n> {
     /// `CompilerOptions.ShouldPreserveConstEnums()` — see
     /// [`Checker::set_preserve_const_enums`].
     pub(crate) preserve_const_enums: bool,
+    /// `CompilerOptions.GetIsolatedModules()` (`isolatedModules` or
+    /// `verbatimModuleSyntax`): the enum member reports TS18055/TS18056.
+    pub(crate) isolated_modules: bool,
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
     /// (`checker.go:7107`) — unset is `false`, which is what keeps the whole
     /// unused-identifier family off for every case that does not ask for it.
@@ -1431,6 +1437,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             silent_never_type: None,
             variance_cache: FxHashMap::default(),
             variance_in_progress: rustc_hash::FxHashSet::default(),
+            relation_results: crate::relation_cache::RelationResults::default(),
             variance_markers: None,
             variance_marker_types: rustc_hash::FxHashSet::default(),
             signature_context_cache: FxHashMap::default(),
@@ -1458,6 +1465,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             allow_unreachable_code: false,
             unreachable_code_is_error: false,
             preserve_const_enums: false,
+            isolated_modules: false,
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
             lib_includes_dom: false,
@@ -1736,6 +1744,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `ShouldPreserveConstEnums`, which folds in `isolatedModules` — and, via
         // `GetIsolatedModules`, `verbatimModuleSyntax` too.
         self.preserve_const_enums = options.should_preserve_const_enums();
+        self.isolated_modules = options.get_isolated_modules();
 
         // `IsTrueOrUnknown` (`checker.go:5321`): on unless explicitly off.
         self.no_unchecked_side_effect_imports =

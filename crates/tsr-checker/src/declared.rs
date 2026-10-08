@@ -2537,6 +2537,25 @@ impl<'a> Checker<'a, '_> {
                 if index.parameters.is_empty() {
                     continue;
                 }
+                // getIndexInfosOfIndexSymbol (checker.go:19645-19658): a
+                // signature without exactly one typed parameter, or whose key
+                // has no valid constituent (`isValidIndexKeyType`), adds no
+                // info, so `{ [index: any]; }` is `{}`.
+                let degenerate = match index.parameters {
+                    [parameter] => parameter.r#type.is_none_or(|key| {
+                        let key = self.get_type_from_type_node(key);
+                        let keys = match &self.store.get(key).data {
+                            crate::types::TypeData::Union { types, .. } => types.clone(),
+                            _ => vec![key],
+                        };
+                        !self.is_error(key)
+                            && !keys.into_iter().any(|key| self.is_valid_index_key_type(key))
+                    }),
+                    _ => true,
+                };
+                if degenerate {
+                    continue;
+                }
                 let Some(rendered) = self.index_signature_member(index) else { return error };
                 // getIndexInfosOfIndexSymbol (checker.go:19634): an info is
                 // added for a key type only when `findIndexInfo` finds none
