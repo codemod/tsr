@@ -3,7 +3,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
 Passed         : 1636/1928 (84.85%)
-Assertion lines: 72734/78552 (92.59%)  — a gradient, not a pass rate
+Assertion lines: 72740/78552 (92.60%)  — a gradient, not a pass rate
 Failed         : 292
 Skipped        : 2240 (excluded from the denominator)
 
