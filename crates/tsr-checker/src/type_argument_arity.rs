@@ -55,6 +55,11 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let Some(name) = name else { return };
+        // `getTypeFromTypeReference` asks `getIntendedTypeFromJSDocTypeReference`
+        // first; its `Object.<K, V>` arm answers without this rule.
+        if self.is_jsdoc_record_object_reference(node) {
+            return;
+        }
         // An `ExpressionWithTypeArguments` is also the syntax of an
         // *instantiation expression* (`f<number>`), which is a value position
         // and has nothing to do with this rule. Only a heritage clause's is a
@@ -390,8 +395,20 @@ impl Checker<'_, '_> {
             return None;
         }
         let mut arity: Option<(usize, usize)> = None;
-        for declaration in &entry.declarations {
+        let declarations = entry.declarations.clone();
+        for declaration in &declarations {
+            let reparsed;
             let parameters = match self.node_map.get(*declaration) {
+                // An unparameterised JS class takes its `@template` tags'
+                // parameters (`reparseHosted`, `parser/reparser.go:459`).
+                Some(Node::ClassDeclaration(class)) if class.type_parameters.is_empty() => {
+                    reparsed = self.jsdoc_class_template_parameters(*declaration);
+                    &reparsed[..]
+                }
+                Some(Node::ClassExpression(class)) if class.type_parameters.is_empty() => {
+                    reparsed = self.jsdoc_class_template_parameters(*declaration);
+                    &reparsed[..]
+                }
                 Some(Node::ClassDeclaration(class)) => class.type_parameters,
                 Some(Node::ClassExpression(class)) => class.type_parameters,
                 Some(Node::InterfaceDeclaration(interface)) => interface.type_parameters,

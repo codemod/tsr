@@ -838,7 +838,11 @@ impl<'a> Checker<'a, '_> {
             let mut current = declaration;
             loop {
                 match self.nodes.kind(current) {
-                    SyntaxKind::ImportEqualsDeclaration | SyntaxKind::ImportDeclaration => {
+                    // A JSDoc `@import` is native's reparsed
+                    // `JSImportDeclaration`, an `ImportDeclaration` kind.
+                    SyntaxKind::ImportEqualsDeclaration
+                    | SyntaxKind::ImportDeclaration
+                    | SyntaxKind::JSDocImportTag => {
                         import_statement = Some(current);
                         break;
                     }
@@ -854,10 +858,12 @@ impl<'a> Checker<'a, '_> {
             }
             if let Some(statement) = import_statement
                 && !self.has_export_keyword(statement)
-                && self
-                    .nodes
-                    .parent(statement)
-                    .is_some_and(|parent| self.is_declaration_visible(parent))
+                && if self.nodes.kind(statement) == SyntaxKind::JSDocImportTag {
+                    self.jsdoc_import_declaration_parent(statement)
+                } else {
+                    self.nodes.parent(statement)
+                }
+                .is_some_and(|parent| self.is_declaration_visible(parent))
             {
                 continue;
             }
@@ -1268,6 +1274,19 @@ impl<'a> Checker<'a, '_> {
             }
             TypeNode::ParenthesizedTypeNode(paren) => {
                 format!("({})", self.emit_reused_type(paren.r#type?, LOWEST, false, cx))
+            }
+            TypeNode::TypeOperatorNode(operator)
+                if operator.operator.kind == SyntaxKind::UniqueKeyword
+                    && matches!(operator.r#type, Some(TypeNode::KeywordTypeNode(keyword))
+                        if keyword.kind == SyntaxKind::SymbolKeyword) =>
+            {
+                // `nodecopy.go:596`: `unique symbol` is reused only when the
+                // node lies inside the print's enclosing declaration (the
+                // `.types` writer's is the asserted node's parent); elsewhere
+                // it is serialized from its type.
+                let enclosing = cx.site.and_then(|site| self.nodes.parent(site))?;
+                let id = operator.node_id?;
+                self.is_ancestor_or_self(enclosing, id).then(|| "unique symbol".to_string())?
             }
             TypeNode::TypeOperatorNode(operator) => {
                 let (keyword, operand_precedence) = match operator.operator.kind {

@@ -1,0 +1,27 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1126,7 +1126,11 @@
+         let constraint_node =
+             self.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
+                 match self.node_map.get(declaration) {
+-                    Some(Node::TypeParameterDeclaration(parameter)) => parameter.constraint,
++                    // A JSDoc `@template {C}` constraint is the reparsed
++                    // parameter's (`gatherTypeParameters`).
++                    Some(Node::TypeParameterDeclaration(parameter)) => {
++                        parameter.constraint.or_else(|| self.jsdoc_template_constraint(declaration))
++                    }
+                     _ => None,
+                 }
+             })?;
+diff --git a/crates/tsr-checker/src/jsdoc_params.rs b/crates/tsr-checker/src/jsdoc_params.rs
+--- a/crates/tsr-checker/src/jsdoc_params.rs
++++ b/crates/tsr-checker/src/jsdoc_params.rs
+@@ -893,7 +893,6 @@
+     /// The constraint `gatherTypeParameters` (`parser/reparser.go:293`)
+     /// gives a JSDoc type parameter: an `@template {C} T, U` tag's `{C}`
+     /// becomes the reparsed constraint of its **first** parameter only.
+-    #[expect(dead_code, reason = "read by docs/parity/notes/r5-jsdoc3-template-constraint.diff")]
+     pub(crate) fn jsdoc_template_constraint(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
+         let tag = self.nodes.parent(parameter)?;
+         let Some(Node::JSDocTemplateTag(template)) = self.node_map.get(tag) else {

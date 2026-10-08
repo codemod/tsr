@@ -286,6 +286,90 @@ impl Checker<'_, '_> {
     }
 }
 
+impl Checker<'_, '_> {
+    /// `isTypeMatchedByTemplateLiteralType` (`relater.go:2332`) with
+    /// `compareTypesAssignable`, the comparer
+    /// `isTypeMatchedByTemplateLiteralOrStringMapping` (`checker.go:25874`)
+    /// passes. The relater's own copy (`relater.rs`
+    /// `valid_template_placeholder`) compares inside an open relation; this
+    /// one is for callers outside one, such as union reduction.
+    ///
+    /// The source is matched against the template's literal parts directly
+    /// (`inferTypesFromTemplateLiteralType`, [`Checker::template_literal_inferences`]),
+    /// and each inferred placeholder is checked on its own. A string literal
+    /// source therefore never opens a relation against the template itself;
+    /// a placeholder relation opens only when its target is not `string`.
+    pub(crate) fn is_type_matched_by_template_literal_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        let Some(parts) = self.template_literal_parts.get(&target).cloned() else {
+            return false;
+        };
+        self.is_type_matched_by_template_literal_parts(source, &parts)
+    }
+
+    /// [`Checker::is_type_matched_by_template_literal_type`] against a
+    /// template's parts the caller already holds. Native passes the template
+    /// by pointer; a caller matching many sources against one template
+    /// (union reduction) reads the parts once rather than copying them out of
+    /// `template_literal_parts` per source.
+    pub(crate) fn is_type_matched_by_template_literal_parts(
+        &mut self,
+        source: TypeId,
+        parts: &TemplateLiteralParts,
+    ) -> bool {
+        let Some(inferences) = self.template_literal_inferences(source, parts) else {
+            return false;
+        };
+        inferences.into_iter().zip(parts.types.iter().copied()).all(|(inference, placeholder)| {
+            self.is_valid_type_for_template_literal_placeholder(inference, placeholder)
+        })
+    }
+
+    /// `isValidTypeForTemplateLiteralPlaceholder` (`relater.go:2476`) with
+    /// `compareTypesAssignable`.
+    fn is_valid_type_for_template_literal_placeholder(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        if let TypeData::Intersection { types, .. } = &self.store.get(target).data {
+            let types = types.clone();
+            return types.into_iter().all(|target| {
+                self.is_empty_anonymous_object_type(target)
+                    || self.is_valid_type_for_template_literal_placeholder(source, target)
+            });
+        }
+        let flags = self.store.get(target).flags;
+        if flags.contains(TypeFlags::STRING) || self.is_type_assignable_to(source, target) {
+            return true;
+        }
+        if let TypeData::StringLiteral(value) = &self.store.get(source).data {
+            let value = value.clone();
+            return (flags.contains(TypeFlags::NUMBER)
+                && crate::template_match::template_number(&value, false).is_some())
+                || (flags.contains(TypeFlags::BIG_INT)
+                    && crate::template_match::template_bigint(&value, false).is_some())
+                || (flags.intersects(TypeFlags::BOOLEAN_LITERAL | TypeFlags::NULLABLE)
+                    && value == self.type_to_string(target))
+                || (flags.contains(TypeFlags::STRING_MAPPING)
+                    && self.is_member_of_string_mapping(source, target))
+                || (flags.contains(TypeFlags::TEMPLATE_LITERAL)
+                    && self.is_type_matched_by_template_literal_type(source, target));
+        }
+        if let Some(parts) = self.template_literal_parts.get(&source)
+            && parts.types.len() == 1
+            && parts.texts.iter().all(String::is_empty)
+        {
+            let inner = parts.types[0];
+            return self.is_type_assignable_to(inner, target);
+        }
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,6 +1,5 @@
 //! An unresolved identifier EXPRESSION is upstream's `errorType`
-//! (`checker.go:11048`), whatever module machinery the file carries — with
-//! one held exception, a `.js` file with no `CommonJS` machinery.
+//! (`checker.go:11048`), whatever module machinery the file carries.
 //!
 //! History. §784 made the §31 gate answer the port's gap (printed `error`) in
 //! a plain `.js` file and the `any` stand-in in a `CommonJS` one, because the
@@ -10,12 +9,6 @@
 //! kept is `errorType` natively. The identity is asserted here, not the
 //! spelling.
 //!
-//! The plain-`.js` arm stays the gap for now (§3 there): in a case with no
-//! `.errors.txt` the writer's fast path prints a call through an `errorType`
-//! callee, and the call road answers `any` where `resolveCallExpression`
-//! answers `errorType` (`checker.go:8516`). That fix is in `calls.rs`, held as
-//! a diff with the switch.
-
 use tsr_ast::{NodeFlags, Statement};
 use tsr_checker::Checker;
 use tsr_core::Arena;
@@ -53,11 +46,10 @@ fn is_native_error(source: &str, javascript: bool) -> bool {
 }
 
 /// `parsingDeepParenthensizedExpression`'s undeclared `f` in a plain `.js`
-/// file is `errorType` natively, but stays the port's gap until the held
-/// `calls.rs` arm lands (module docs).
+/// file: TS2304, `errorType` (`checker.go:11048`).
 #[test]
-fn an_unresolved_identifier_in_a_plain_js_file_is_held_as_the_gap() {
-    assert!(!is_native_error("var x = f;", true));
+fn an_unresolved_identifier_in_a_plain_js_file_is_native_error() {
+    assert!(is_native_error("var x = f;", true));
 }
 
 /// The TS half: the same `unknownSymbol` exit.

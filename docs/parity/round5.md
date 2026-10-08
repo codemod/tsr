@@ -610,3 +610,155 @@ The unclaimed causes are now filed or claimed:
   by construct).
 - `.16.65` (T_1 rename, 21 cases) and `.16.233` (escaping) go to r5-typetriage,
   which owns printing.rs.
+
+### r5-harness finished; gate v3 (`tsr-2zk.1041` closed)
+
+Both dumps now run every case under case_guard. It appends `ms=`/`mib=`
+columns and writes PANIC, OOM or TIMEOUT marker rows; the dump exits 3 or 134.
+`examples/slowcases` compares a base and a new dump. On 99b337b the case that
+used to read EMPTY_RIGHT now stops as OOM.
+
+The integrator's gate moves to v3 (`bgate_core3.sh`) at batch Y:
+- **A base-RIGHT key absent from the new dump is a loss.** The old `join` dropped
+  such keys silently (r5-harness §5 item 8). Checked against the current base
+  itself: 0 missing.
+- **slowcases runs on both dumps** once the base carries guard columns. Batch Y
+  is the first guarded freeze, so it skips the check there.
+- **A dump that exits non-zero stops the gate**, through `set -e`/pipefail.
+
+Already over budget, recorded as KNOWN_SLOW:
+- both varianceProbling cases;
+- relationComplexityError;
+- performanceComparison…GenericSignatures.
+
+Profiles became issues: `.1065` (relationCount/TS2859), `.1066` (instantiation
+depth, which goes to r5-declared2), `.1067` (template literal matching), `.1068`
+(variance probing) and `.1069` (timing pass for known-divergence cases).
+The freed slot went to r5-funcdecl (`.1062`, `.1067`). `.37` closed as a duplicate. `.46` got 8 MiB workers everywhere; its root
+cause was not reproduced in 27 full runs.
+
+Integrator process note: in batch W the queue skipped `bmerge r5-declared`, so `e9d15e8`
+(`.979` qualified twins) did not land and only its enum diff did. The cause: I inserted
+lines at the index of the command that was currently running. The runner then re-ran
+that batch's gate and stepped over the inserted line. `e9d15e8` lands through r5-declared2's branch.
+The queue is append-only again, and inserts go strictly after the running line.
+
+### r5-errorsplit4 finished; r5-errorsplit5 dispatched (`tsr-2zk.1070`)
+
+r5-errorsplit4 built a per-line native identity probe: a go -overlay on the
+pinned tsgo runner that tags each `.types` line @@E (errorType) or @@A
+(anyType). The probe agreed on 24,307 of 24,310 lines already matched as
+native_error. With the probe, `4bf9119` switches checkIdentifier's unresolved
+exit to errorType wherever native does:
+- +7 lines;
+- credited gap 4,554 → 4,367;
+- narrowing cost 5,158 → 4,557.
+
+Its plain-JS diff adds native's resolveErrorCall arm in calls.rs (+7 lines,
+304 lines leave the gap). It lands with the two inert iteration diffs. No writer
+rewrite costs zero yet, so none is narrowed (ADR-0048 decision log).
+r5-errorsplit5 takes the declaration-name producers: ALIAS with no type (544
+lines) and FUNCTION_SCOPED_VARIABLE (350). The default-declared cache diff
+goes to r5-declared2.
+
+**Gate hole, found and fixed in batch X.** `bgate_core.sh` printed its loss
+counts but never stopped on them. Every batch up to W showed `losses=0`, so
+nothing slipped through. Batch X was the first with losses: 7 type lines in
+parsingDeepParenthensizedExpression. Resolving the r5-errorsplit4 merge
+conflict had kept the §31 gate's JS arm as the gap. The run was killed before
+its accept step, and the plain-JS patch was landed first, without its
+redundant calls.rs hunk. Both gate cores now end with
+`STOP: losses` when either count is non-zero.
+
+### r5-typetriage finished; r5-align dispatched (`tsr-2zk.1071`)
+
+r5-typetriage's fixes:
+- the spread method form (getSpreadSymbol's rule; it changes no verdict alone);
+- U+2028/U+2029/U+0085 escaping in `quote()` (+13 lines, 3 cases).
+
+The T_1 renaming cause turned out to be decided in inference.rs, not
+printing.rs, so it is filed for main as `.1072` and `.16.65` is unclaimed
+again. The enum-member ASCII-escape diff goes to r5-declared2.
+
+The freed slot went to r5-align, the largest cause left in unowned files: 52
+cases fail only on type lines that never align with the baseline (the types
+producer's walker). It also takes `.1069`, the timing pass for known-divergence
+cases.
+
+### r5-instexpr finished; r5-shapes dispatched (`tsr-2zk.1073`)
+
+r5-instexpr made two changes:
+- instantiation expressions (getInstantiationExpressionType and
+  checkExpressionWithTypeArguments, with a cache keyed (node, exprType)):
+  +91 type lines and +1 case; instantiationExpressionErrors is now fully RIGHT;
+- unique-symbol identity keyed on the declaration symbol: +14 lines.
+
+Its node-reuse diff (+20) and the call-site identity diff land with it. All are
+zero-loss, with Ir flat. The remainder is filed as `.1074`.
+
+The freed slot went to r5-shapes, which takes the typetriage's unowned mixed
+buckets: signature-differs (26 cases solely blocked), object-members-differ
+(17), partial-any (14), function-expression error (8) and others. It
+sub-clusters them by producer first, then fixes.
+
+r5-typetriage also left a held diff for the T_1 rename,
+`r5-typetriage-shadow-site-anchor.diff` (+27/−2 lines, +5 cases). It anchors the
+shadow test at the print site and ports the binder's computed-name rule
+(nameresolver.go:216-227). It is not lossless: rename_type_parameters_for_site
+renames by instantiation and re-resolves deferred conditional constraints, where
+native renames only at print time. It waits on a print-only rename in
+inference.rs (`.1072`, main `.9`).
+
+### r5-jsdoc3 finished; r5-jsdoc4 dispatched (`tsr-2zk.1075`)
+
+r5-jsdoc3 root-caused all 36 of r5-jsdoc2's walk losses: the JSDoc scope hop,
+reparsed-return parents, unstamped JSDoc roots, this_container and arity. It
+shipped its owned queries plus seven diffs, landed in batch AB in order:
+1. contextual JS assignments;
+2. node-reuse @import;
+3. require alias;
+4. scope hop (rebuilt; r4's version cost +0.47% Ir);
+5. hosted declaration types;
+6. JSDoc diagnostics;
+7. @template constraint.
+
+Together: +110 type lines and +9 diagnostics cases, with no losses. Ir is
++0.10% on domain-model and flat on generic-imports. One placement was refused
+on its number: in_js_file crossing the comment cost +0.22% Ir, so the loader
+stamps JSDoc roots instead. r5-jsdoc4 takes the remainder.
+
+### r5-funcdecl: first report
+
+`4c9d6b66` (`.1062`) ports the signature-construction producers in
+signatures.rs: cloneBindingName, getTupleElementLabelFromBindingElement /
+getUniqAssociatedNamesFromTupleType, the contextual yield NEXT slot, and the
+§929 type-query gate. +113 type lines (67 WRONG→RIGHT, 46 GAP→RIGHT), no
+losses.
+
+`7bb98dd8` (`.1067`) uses isTypeMatchedByTemplateLiteralType in union
+reduction. templateLiteralTypes1 drops from about 35 s to 2 s, the dumps are
+identical, and Ir is lower. Its members.rs fixture diff lands with it, so the
+tests stay green.
+
+The contextual.rs remainder is filed as `.1076` and the binding-element key as
+`.1077`. `214c9830` then fixed `.16.70`: the GROUNDED gate now exempts
+type parameters declared by an enclosing declaration, for +18 type lines and
++1 case. The freed slot went to r5-modules2 (printed import specifiers, 16
+cases solely blocked; `.989`, `.999`, `.1060`).
+
+### r5-declared2 finished; r5-declared3 dispatched
+
+r5-declared2 first carried r5-declared's `e9d15e8`, which batch W's queue skip
+had dropped. Then:
+- `.1061`, the intersection alias: +3 cases, +53 type lines;
+- `.1042`, tuple alias naming via getTupleElementFlags: +23 type lines;
+- `.1059`, the renamed-import alias road: +10 configured cases, +20 type lines;
+- `.1043`: held as an inference.rs diff (fillMissingTypeArguments' errorType
+  pre-fill, +17 lines). It lands with the merge.
+
+The total is +13 cases and +96 type lines, plus 17 from the diff, with no losses
+and Ir down 0.01–0.06%.
+
+r5-declared3 is now declared.rs' single owner. It takes the instantiation-depth
+bound that hangs recursiveConditionalCrash3 (`.1066`), the leftovers (`.1078`),
+and two small diffs other lanes left for declared.rs.

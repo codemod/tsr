@@ -500,10 +500,6 @@ impl<'a> Checker<'a, '_> {
     ///
     /// No cache: one `jsdoc_entries` probe that almost always misses, then
     /// one comment's tags, and only in a JS file.
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc3-hosted-declaration-types.diff"
-    )]
     pub(crate) fn jsdoc_self_hosted_type(&self, declaration: NodeId) -> Option<TypeNode<'a>> {
         let doc = self.jsdoc_entries.get(&declaration)?.last()?;
         if !self.in_js_file(declaration) {
@@ -720,10 +716,6 @@ impl<'a> Checker<'a, '_> {
     /// declaration that is its statement's expression takes the statement's
     /// `@type`. Read by `getContextualTypeForBinaryOperand`'s first line
     /// (`checker.go:29811`).
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc3-contextual-js-assignments.diff"
-    )]
     pub(crate) fn jsdoc_binary_type(
         &self,
         binary_id: NodeId,
@@ -744,10 +736,6 @@ impl<'a> Checker<'a, '_> {
     /// copies onto it in a JS file — the type `checkExportAssignment`
     /// checks the expression against (`check_jsdoc_annotated_initializer`)
     /// and `getContextualType`'s `KindExportAssignment` arm answers.
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc3-contextual-js-assignments.diff"
-    )]
     pub(crate) fn jsdoc_export_assignment_type(&self, node: NodeId) -> Option<TypeNode<'a>> {
         if !self.in_js_file(node) {
             return None;
@@ -762,10 +750,6 @@ impl<'a> Checker<'a, '_> {
     /// statement of the nearest `SourceFile`, `Block` or `ModuleBlock`
     /// enclosing the comment's host. `getAnyImportSyntax`'s callers ask
     /// whether that parent is visible (`hasVisibleDeclarations`).
-    #[expect(
-        dead_code,
-        reason = "read by docs/parity/notes/r5-jsdoc3-node-reuse-jsdoc-import.diff"
-    )]
     pub(crate) fn jsdoc_import_declaration_parent(&self, import_tag: NodeId) -> Option<NodeId> {
         let mut current = import_tag;
         while let Some(parent) = self.nodes.parent(current) {
@@ -780,6 +764,146 @@ impl<'a> Checker<'a, '_> {
                 return Some(current);
             }
             current = self.nodes.parent(current)?;
+        }
+    }
+
+    /// `getFunctionLikeHost` (`parser/reparser.go:653`): the function-like
+    /// node a comment on `host` reparses onto — the host itself, the first
+    /// declaration's initializer of a variable statement, a property's
+    /// initializer, an export or return expression, or an expression
+    /// statement's right-most assigned expression, through `satisfies`.
+    pub(crate) fn jsdoc_function_like_host(&self, host: NodeId) -> Option<NodeId> {
+        let expression = match self.node_map.get(host)? {
+            Node::VariableStatement(statement) => {
+                statement.declaration_list?.declarations.first()?.initializer
+            }
+            Node::PropertyAssignment(property) => property.initializer,
+            Node::PropertyDeclaration(property) => property.initializer,
+            Node::ExportAssignment(export) => export.expression,
+            Node::ReturnStatement(statement) => statement.expression,
+            Node::ExpressionStatement(statement) => {
+                let mut current = statement.expression?;
+                while let tsr_ast::Expression::BinaryExpression(binary) = current
+                    && binary.operator_token.map(|t| t.kind) == Some(SyntaxKind::EqualsToken)
+                {
+                    current = binary.right?;
+                }
+                Some(current)
+            }
+            _ => return self.function_like_parts(host).map(|_| host),
+        };
+        let mut current = expression?;
+        while let tsr_ast::Expression::SatisfiesExpression(satisfies) = current {
+            current = satisfies.expression?;
+        }
+        let id = current.node_id()?;
+        self.function_like_parts(id).map(|_| id)
+    }
+
+    /// The function a reparsed `@returns` type node is the `Type` of
+    /// (`reparseHosted`'s `KindJSDocReturnTag` arm, `parser/reparser.go:514`),
+    /// for `getTypePredicateParent` (`checker.go:3099`): native parents the
+    /// clone under the function, so a `@returns {x is T}` predicate is in
+    /// return-type position. `None` for any other node in a comment.
+    pub(crate) fn jsdoc_reparsed_return_owner(&self, type_node: NodeId) -> Option<NodeId> {
+        let mut root = type_node;
+        while let Some(parent) = self.nodes.parent(root) {
+            root = parent;
+        }
+        let host = *self.jsdoc_hosts.get(&root)?;
+        let function = self.jsdoc_function_like_host(host)?;
+        let parts = self.function_like_parts(function)?;
+        if parts.return_type {
+            return None;
+        }
+        let reparsed = self.jsdoc_reparsed_function(function);
+        if reparsed.full_signature.is_some() {
+            return None;
+        }
+        // The replay keeps the tag's `{…}` wrapper; native's `Type` is the
+        // clone of what it wraps (`tag.TypeExpression().Type()`).
+        let returned = match reparsed.return_type? {
+            TypeNode::JSDocTypeExpression(expression) => expression.r#type?,
+            other => other,
+        };
+        (Node::from(returned).node_id() == Some(type_node)).then_some(function)
+    }
+
+    /// The type parameters `reparseHosted`'s `KindJSDocTemplateTag` class
+    /// arms (`parser/reparser.go:459-470`) give an unparameterised JS class:
+    /// `gatherTypeParameters(jsDoc, false)` (`:293`) over its last comment —
+    /// every `@template` tag's parameters in order, none when the comment
+    /// declares a typedef or callback. Empty for any other node.
+    pub(crate) fn jsdoc_class_template_parameters(
+        &self,
+        class: NodeId,
+    ) -> Vec<&'a tsr_ast::TypeParameterDeclaration<'a>> {
+        let written = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(node)) => node.type_parameters,
+            Some(Node::ClassExpression(node)) => node.type_parameters,
+            _ => return Vec::new(),
+        };
+        if !written.is_empty() {
+            return Vec::new();
+        }
+        let Some(doc) = self.jsdoc_entries.get(&class).and_then(|docs| docs.last()) else {
+            return Vec::new();
+        };
+        if !self.in_js_file(class) {
+            return Vec::new();
+        }
+        let mut parameters = Vec::new();
+        for tag in doc.tags {
+            match tag {
+                JSDocTag::JSDocTypedefTag(_) | JSDocTag::JSDocCallbackTag(_) => return Vec::new(),
+                JSDocTag::JSDocTemplateTag(template) => {
+                    parameters.extend_from_slice(template.type_parameters);
+                }
+                _ => {}
+            }
+        }
+        parameters
+    }
+
+    /// Whether `getIntendedTypeFromJSDocTypeReference` (`checker.go:23020`)
+    /// answers `reference` through its `Object` arm with two type arguments
+    /// (`Object.<K, V>`: a `Record` instantiation, or `any`) — a JSDoc
+    /// reference that never reaches `getTypeFromClassOrInterfaceReference`,
+    /// so neither its arity rule nor `checkNoTypeArguments` runs on it.
+    pub(crate) fn is_jsdoc_record_object_reference(&self, reference: NodeId) -> bool {
+        let Some(Node::TypeReferenceNode(node)) = self.node_map.get(reference) else {
+            return false;
+        };
+        if node.type_arguments.len() != 2
+            || !matches!(node.type_name, Some(EntityName::Identifier(name)) if name.text == "Object")
+        {
+            return false;
+        }
+        // `node.Flags & NodeFlagsJSDoc`: the reference sits inside a comment.
+        let mut current = self.nodes.parent(reference);
+        while let Some(ancestor) = current {
+            if self.nodes.kind(ancestor) == SyntaxKind::JSDoc {
+                return true;
+            }
+            current = self.nodes.parent(ancestor);
+        }
+        false
+    }
+
+    /// The constraint `gatherTypeParameters` (`parser/reparser.go:293`)
+    /// gives a JSDoc type parameter: an `@template {C} T, U` tag's `{C}`
+    /// becomes the reparsed constraint of its **first** parameter only.
+    pub(crate) fn jsdoc_template_constraint(&self, parameter: NodeId) -> Option<TypeNode<'a>> {
+        let tag = self.nodes.parent(parameter)?;
+        let Some(Node::JSDocTemplateTag(template)) = self.node_map.get(tag) else {
+            return None;
+        };
+        if template.type_parameters.first()?.node_id != Some(parameter) {
+            return None;
+        }
+        match template.constraint? {
+            Node::JSDocTypeExpression(expression) => expression.r#type,
+            other => TypeNode::try_from(other).ok(),
         }
     }
 

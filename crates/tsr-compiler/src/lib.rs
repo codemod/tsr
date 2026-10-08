@@ -354,6 +354,15 @@ impl<'a> Program<'a> {
                     && let Some(root) = tsr_ast::Node::SourceFile(into.source_file).node_id()
                 {
                     nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+                    // Every JSDoc root too: native's flag is on every node of
+                    // the file, and a comment's root has no parent edge.
+                    for (_, docs) in into.jsdoc.iter() {
+                        for doc in docs {
+                            if let Some(id) = doc.node_id {
+                                nodes.add_flags(id, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+                            }
+                        }
+                    }
                 }
                 parsed.push(ProgramFile::new(path, file_name, text, into));
             },

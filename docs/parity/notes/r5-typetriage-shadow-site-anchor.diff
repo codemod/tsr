@@ -1,0 +1,75 @@
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index a75694c..3878288 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -979,8 +979,19 @@ impl<'a> BindResult<'a> {
+             return false;
+         }
+         let flags = self.symbols.get(self.merged_symbol(symbol)).flags;
+-        meaning.intersects(flags & SymbolFlags::TYPE)
+-            && !flags.contains(SymbolFlags::TYPE_PARAMETER)
++        if !meaning.intersects(flags & SymbolFlags::TYPE) {
++            return false;
++        }
++        if !flags.contains(SymbolFlags::TYPE_PARAMETER) {
++            return true;
++        }
++        // Type parameters are visible in the parameter list, the return type
++        // and the type-parameter list (`nameresolver.go:61-70`). Only the
++        // member's own computed name is ported as a hidden position: the
++        // whole arm also hides them from positions where upstream's node
++        // builder resolves inside a synthesized fake scope this port does
++        // not build, which regressed 473 type lines (r5-typetriage §11).
++        nodes.kind(last) == SyntaxKind::ComputedPropertyName
+     }
+ 
+     /// `useResult`'s parameter arm (`binder/nameresolver.go:72`): *"parameters
+@@ -1234,6 +1245,23 @@ impl<'a> BindResult<'a> {
+                 }
+                 return Some(self.merged_symbol(found));
+             }
++            // A computed property name of a class or interface member cannot
++            // see the container's type-meaning members (`nameresolver.go:216-227`):
++            // upstream reports TS2467 when asked for a message and answers nil
++            // either way, so the walk does not continue outward.
++            if nodes.kind(node) == SyntaxKind::ComputedPropertyName
++                && let Some(member) = nodes.parent(node)
++                && let Some(container) = nodes.parent(member)
++                && matches!(
++                    nodes.kind(container),
++                    SyntaxKind::ClassDeclaration
++                        | SyntaxKind::ClassExpression
++                        | SyntaxKind::InterfaceDeclaration
++                )
++                && self.lookup_type_member(container, name, meaning).is_some()
++            {
++                return None;
++            }
+             // **A class's type parameters are not in scope in its base class
+             // expression** (`nameresolver.go:196-208`): coming up from the
+             // expression of an `extends` clause's `ExpressionWithTypeArguments`
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index 7489ba4..8693097 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -7226,13 +7226,13 @@ impl<'a> Checker<'a, '_> {
+         // same-named type parameter renames this one; this signature's own
+         // parameters then join the scope for its slot renders.
+         let mut throwaway = rustc_hash::FxHashSet::default();
+-        // The SITE test anchors at the PRINTED DECLARATION here — upstream
+-        // resolves shadows from the declaration being rendered, and the
+-        // assertion-node anchor renamed 4 computed-name positions whose own
+-        // method declares the parameter (§107's first refusal). The §102
+-        // composite arm keeps the assertion anchor: its per-site layouts
+-        // ([T,T_1] vs [T_1,T]) are the decoded evidence for it.
+-        let site_anchor = signature.declaration;
++        // The SITE test anchors at the print site, as upstream's
++        // typeParameterShadowsOtherTypeParameterInScope resolves from
++        // ctx.enclosingDeclaration. §107's first refusal (4 computed-name
++        // positions renamed) was the binder's missing ComputedPropertyName
++        // arms (`nameresolver.go:61-70`, `:216-227`), ported in the same
++        // diff (r5-typetriage §11).
++        let site_anchor = reference;
+         let names_depth = self.render_type_parameter_names.allocations.len();
+         let mut renamed =
+             self.rename_type_parameters_for_site(signature.clone(), site_anchor, &mut throwaway);

@@ -216,6 +216,9 @@ pub(crate) struct Binder<'a, 'n> {
     /// checker's late binding and the conformance harness both need to read the
     /// expression back.
     computed_names: rustc_hash::FxHashMap<NodeId, NodeId>,
+    /// `JSDoc comment -> the node it documents`: the one edge the tree omits
+    /// (the parser's `attach_jsdoc`). See [`crate::BindResult::jsdoc_host`].
+    jsdoc_hosts: rustc_hash::FxHashMap<NodeId, NodeId>,
     /// Declaration node → its name node, for anchoring redeclaration diagnostics.
     ///
     /// A `NodeId` alone cannot reach the tree — [`NodeTable`] holds kind, span,
@@ -468,6 +471,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             pattern_ambient_module_augmentations,
             undefined_symbol,
             computed_names,
+            jsdoc_hosts,
             diagnostics,
             flow,
             node_flow,
@@ -518,6 +522,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             pattern_ambient_module_augmentations.into_iter().map(|(name, id)| (name, symbol(id))),
         );
         binder.computed_names.extend(computed_names);
+        binder.jsdoc_hosts.extend(jsdoc_hosts);
         binder.diagnostics.extend(diagnostics);
         binder.facts.extend(facts);
         binder.end_flow.extend(end_flow.into_iter().map(|(node, id)| (node, flow(id))));
@@ -583,6 +588,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             pattern_ambient_module_augmentations,
             undefined_symbol,
             computed_names,
+            jsdoc_hosts,
             diagnostics,
             mut flow,
             node_flow,
@@ -638,6 +644,7 @@ impl<'a, 'n> Binder<'a, 'n> {
             jsdoc_type_hosts: rustc_hash::FxHashSet::default(),
             this_container: NodeId::ZERO,
             computed_names,
+            jsdoc_hosts,
             name_nodes: Vec::new(),
             name_index: rustc_hash::FxHashMap::default(),
             name_indexed: 0,
@@ -818,6 +825,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         BindResult {
             max_depth: self.max_depth,
             computed_names: self.computed_names,
+            jsdoc_hosts: self.jsdoc_hosts,
             global_exports: self.global_exports,
             globals: self.globals,
             merged: self.merged,
@@ -3431,6 +3439,9 @@ impl<'a, 'n> Binder<'a, 'n> {
         use tsr_ast::JSDocTag;
         for (host, docs) in jsdoc {
             for doc in *docs {
+                if let Some(doc_id) = doc.node_id {
+                    self.jsdoc_hosts.insert(doc_id, *host);
+                }
                 // Native reparents the gathered template nodes under a
                 // JSTypeAliasDeclaration (reparser.go::reparseUnhosted's
                 // typedef/callback arms, `gatherTypeParameters` with
@@ -3496,7 +3507,19 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 // the §219 qualification hazard — the first
                                 // draft turned `importTag2`'s gap into a wrong
                                 // line exactly that way. `bd tsr-e2u`'s fence.
-                                Some(tsr_ast::NamedImportBindings::NamespaceImport(_)) | None => {}
+                                Some(tsr_ast::NamedImportBindings::NamespaceImport(namespace)) => {
+                                    if let (Some(name), Some(id)) =
+                                        (namespace.name, namespace.node_id)
+                                    {
+                                        self.declare_jsdoc_symbol(
+                                            root,
+                                            name.text,
+                                            SymbolFlags::ALIAS,
+                                            id,
+                                        );
+                                    }
+                                }
+                                None => {}
                             }
                         }
                         JSDocTag::JSDocCallbackTag(callback) => {

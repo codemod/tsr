@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4534/5502 (82.41%)
-Failed         : 968
+Passed         : 4547/5502 (82.64%)
+Failed         : 955
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 968 failures:
+First 100 of 955 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -105,13 +105,7 @@ compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
 compiler/checkDestructuringShorthandAssigment2
   1 missing (first TS2353 at checkDestructuringShorthandAssigment2.ts(4,27))
 compiler/checkJsTypeDefNoUnusedLocalMarked
-  1 missing (first TS2352 at something.js(5,29))
-compiler/checkJsdocTypeTagOnExportAssignment1
-  1 missing (first TS2353 at a.js(8,18))
-compiler/checkJsdocTypeTagOnExportAssignment4
-  1 missing (first TS2322 at a.js(6,16))
-compiler/checkJsdocTypeTagOnExportAssignment6
-  1 missing (first TS2353 at a.js(8,30))
+  1 unexpected (first TS6133 at something.js(3,5)), 1 missing
 compiler/checkJsxNotSetError
   3 missing (first TS6142 at /bar.jsx(1,17))
 compiler/checkerInitializationCrash
@@ -212,3 +206,9 @@ compiler/controlFlowNoImplicitAny
   4 missing (first TS7034 at controlFlowNoImplicitAny.ts(101,9))
 compiler/correctOrderOfPromiseMethod
   1 unexpected (first TS2322 at correctOrderOfPromiseMethod.ts(20,11)), 0 missing
+compiler/crashInEmitTokenWithComment
+  2 missing (first TS2345 at crashInEmitTokenWithComment.ts(5,4))
+compiler/dataViewConstructor
+  1 missing (first TS2345 at dataViewConstructor.ts(1,14))
+compiler/declarationEmitCommonJsModuleReferencedType
+  1 missing (first TS2883 at r/entry.ts(3,14))

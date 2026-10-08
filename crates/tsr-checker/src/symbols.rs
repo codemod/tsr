@@ -5058,6 +5058,15 @@ impl<'a> Checker<'a, '_> {
                 else {
                     return self.intrinsics.error;
                 };
+                // `checkPropertyAssignment`'s `node.Type()` arm
+                // (`checker.go:13681`): in JS the reparsed `@type` is the
+                // member's type (the initializer is checked against it).
+                if let Some(annotation) = self.jsdoc_self_hosted_type(declaration) {
+                    if let Some(initializer) = assignment.initializer {
+                        self.check_expression_for_mutable_location(initializer);
+                    }
+                    return self.get_type_from_type_node(annotation);
+                }
                 match assignment.initializer {
                     // §105 slice 2a: const context beats retention — the
                     // member symbol's type is the initializer's REGULAR type
@@ -5292,12 +5301,29 @@ impl<'a> Checker<'a, '_> {
         // An annotation-less catch variable is `unknown` under
         // `useUnknownInCatchVariables` and `any` without it — never the
         // ordinary implicit-any road (`checker-notes-narrow.md` §21).
-        if self.type_annotation_of(declaration).is_none()
-            && self
-                .nodes
-                .parent(declaration)
-                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+        if self
+            .nodes
+            .parent(declaration)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
         {
+            // `getTypeForVariableLikeDeclaration`'s catch arm
+            // (`checker.go:16678`): an annotation — in JS the reparsed `@type`
+            // — is accepted only when it is `any` or `unknown`.
+            if let Some(annotation) = self
+                .type_annotation_of(declaration)
+                .or_else(|| self.jsdoc_type_annotation(declaration))
+            {
+                let declared = self.get_type_from_type_node(annotation);
+                return if self
+                    .type_of(declared)
+                    .flags
+                    .intersects(crate::flags::TypeFlags::ANY_OR_UNKNOWN)
+                {
+                    declared
+                } else {
+                    self.intrinsics.error
+                };
+            }
             return if self.use_unknown_in_catch_variables {
                 self.intrinsics.unknown
             } else {
@@ -5873,11 +5899,14 @@ impl<'a> Checker<'a, '_> {
                 Err(())
             };
         };
-        if self.is_error(iterator) {
+        // `getIterationTypesOfIterableSlow` (`checker.go:6463`):
+        // `IsTypeAny(methodType)` answers all-`any`, upstream's `errorType`
+        // included (ADR-0048). Only the port's gap declines.
+        if self.is_gap(iterator) {
             return Err(());
         }
-        if iterator == self.intrinsics.any {
-            return Ok(Some(vec![iterator]));
+        if self.is_type_any(iterator) {
+            return Ok(Some(vec![self.intrinsics.any]));
         }
         if self
             .get_property_of_type(source, name)
@@ -5893,7 +5922,7 @@ impl<'a> Checker<'a, '_> {
         let mut returns = Vec::new();
         for signature in signatures {
             if self.signature_min_argument_count(&signature) == 0 {
-                if self.is_error(signature.r#type) {
+                if self.is_gap(signature.r#type) {
                     return Err(());
                 }
                 returns.push(signature.r#type);
@@ -5903,8 +5932,10 @@ impl<'a> Checker<'a, '_> {
             return Ok(None);
         }
         let iterator = self.get_intersection_type(&returns, None);
-        if iterator == self.intrinsics.any {
-            return Ok(Some(vec![iterator]));
+        // `getIterationTypesOfIteratorWorker` (`checker.go:6496`): the
+        // intersection is `IsTypeAny` when any return is, `errorType` too.
+        if self.is_type_any(iterator) {
+            return Ok(Some(vec![self.intrinsics.any]));
         }
         let mut yields = Vec::new();
         let mut has_iteration_types = false;
@@ -5924,7 +5955,7 @@ impl<'a> Checker<'a, '_> {
                 // for a missing method. Other methods may still yield.
                 continue;
             };
-            if self.is_error(method) {
+            if self.is_gap(method) {
                 return Err(());
             }
             if name == "next"
@@ -5937,8 +5968,10 @@ impl<'a> Checker<'a, '_> {
             if name != "next" {
                 method = self.get_non_nullable_type(method);
             }
-            if method == self.intrinsics.any {
-                return Ok(Some(vec![method]));
+            // `getIterationTypesOfMethod` (`checker.go:6555`):
+            // `IsTypeAny(methodType)` answers all-`any`, `errorType` included.
+            if self.is_type_any(method) {
+                return Ok(Some(vec![self.intrinsics.any]));
             }
             let signatures = if self.store.get(method).flags.intersects(TypeFlags::PRIMITIVE) {
                 Vec::new()
@@ -5952,7 +5985,7 @@ impl<'a> Checker<'a, '_> {
             }
             has_iteration_types = true;
             let returns: Vec<_> = signatures.iter().map(|signature| signature.r#type).collect();
-            if returns.iter().any(|&ty| self.is_error(ty)) {
+            if returns.iter().any(|&ty| self.is_gap(ty)) {
                 return Err(());
             }
             let mut result = self.get_intersection_type(&returns, None);
@@ -5979,7 +6012,10 @@ impl<'a> Checker<'a, '_> {
                 crate::types::TypeData::Union { types, .. } => types,
                 _ => vec![result],
             };
-            if parts.contains(&self.intrinsics.any) {
+            // `getIterationTypesOfIteratorResult` (`checker.go:6650`):
+            // `IsTypeAny` on the result; a union holding an any-flagged
+            // constituent (`errorType` too) is that constituent natively.
+            if parts.iter().any(|&part| self.is_type_any(part)) {
                 return Ok(Some(vec![self.intrinsics.any]));
             }
             // getIterationTypesOfIteratorResult filters yield and return
@@ -6753,8 +6789,16 @@ impl<'a> Checker<'a, '_> {
         if !self.in_js_file(declaration) {
             return None;
         }
-        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
-            return None;
+        // `reparseHosted`'s property and catch-variable hosts read their own
+        // comment (`jsdoc_self_hosted_type`); every other variable is the
+        // statement walk below.
+        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration
+            || self
+                .nodes
+                .parent(declaration)
+                .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::CatchClause)
+        {
+            return self.jsdoc_self_hosted_type(declaration);
         }
         let list_id = self.nodes.parent(declaration)?;
         let current = self.nodes.parent(list_id)?;

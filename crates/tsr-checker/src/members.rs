@@ -1126,7 +1126,11 @@ impl Checker<'_, '_> {
         let constraint_node =
             self.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
                 match self.node_map.get(declaration) {
-                    Some(Node::TypeParameterDeclaration(parameter)) => parameter.constraint,
+                    // A JSDoc `@template {C}` constraint is the reparsed
+                    // parameter's (`gatherTypeParameters`).
+                    Some(Node::TypeParameterDeclaration(parameter)) => {
+                        parameter.constraint.or_else(|| self.jsdoc_template_constraint(declaration))
+                    }
                     _ => None,
                 }
             })?;
@@ -4372,7 +4376,7 @@ mod property_name_tests {
         }
 
         let own = r#"static field = 11; static arrow = (n: number): string => 'field';
-static opaque = function({ "value": value }: { value: number }): number { return value; };
+static opaque = function({ [a + b]: value }: { value: number }): number { return value; };
 static own(n: number): string { return 'method'; }
 static get getter(): number { return 13; } static set setter(n: number) {}
 private static hidden = 19; protected static guarded = 23;

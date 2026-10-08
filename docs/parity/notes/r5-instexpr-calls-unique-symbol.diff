@@ -1,0 +1,43 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index c7f3020..dc894e1 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -3153,11 +3153,9 @@ impl Checker<'_, '_> {
+             // §26 (`checker-notes-callres.md`): the position the gate
+             // detected now MINTS — one distinct `unique symbol` per site
+             // (`getESSymbolLikeTypeForNode`, `checker.go:22982`).
+-            return self.store.new_named(
+-                TypeFlags::UNIQUE_ES_SYMBOL,
+-                "unique symbol".to_string(),
+-                None,
+-            );
++            return node
++                .node_id
++                .map_or(self.intrinsics.es_symbol, |id| self.get_es_symbol_like_type_for_call(id));
+         }
+         if counters::counting() {
+             if signature.r#type == error {
+--- a/crates/tsr-checker/src/unique_symbols.rs
++++ b/crates/tsr-checker/src/unique_symbols.rs
+@@ -148,6 +148,21 @@
+         minted
+     }
+ 
++    /// The `resolveCallExpression` caller (`checker.go:8351`): the declaration
++    /// is `WalkUpParenthesizedExpressions(node.Parent)`.
++    pub(crate) fn get_es_symbol_like_type_for_call(&mut self, call: NodeId) -> TypeId {
++        let mut parent = self.nodes.parent(call);
++        while let Some(node) = parent
++            && self.nodes.kind(node) == SyntaxKind::ParenthesizedExpression
++        {
++            parent = self.nodes.parent(node);
++        }
++        match parent {
++            Some(declaration) => self.get_es_symbol_like_type_for_node(declaration),
++            None => self.intrinsics.es_symbol,
++        }
++    }
++
+     /// The declaration a JSDoc `@type {…}` expression is reparsed onto.
+     fn jsdoc_type_tag_host(&self, expression: NodeId) -> Option<NodeId> {
+         let tag = self.nodes.parent(expression)?;

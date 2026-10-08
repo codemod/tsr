@@ -1974,6 +1974,14 @@ impl Checker<'_, '_> {
                     tsr_ast::Expression::Identifier(identifier),
                 ),
             };
+            // `checkPropertyAssignment`'s `node.Type()` arm
+            // (`checker.go:13681`): a JS property assignment's reparsed
+            // `@type` is the member's type, after its initializer is checked.
+            let member_type = match property_node_id.and_then(|id| self.jsdoc_self_hosted_type(id))
+            {
+                Some(annotation) => self.get_type_from_type_node(annotation),
+                None => member_type,
+            };
             if let PropertyValue::Initializer(initializer) = value
                 && self.is_context_sensitive_argument(&initializer)
                 && let Some(id) = initializer.node_id()

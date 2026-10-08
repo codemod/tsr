@@ -329,7 +329,9 @@ impl Checker<'_, '_> {
                 | SyntaxKind::SourceFile => return Some(id),
                 _ => {}
             }
-            current = self.nodes.parent(next);
+            // A reparsed JSDoc node is parented under its host upstream
+            // (`finishReparsedNode`); here the comment's root crosses to it.
+            current = self.nodes.parent(next).or_else(|| self.jsdoc_hosts.get(&next).copied());
         }
         None
     }

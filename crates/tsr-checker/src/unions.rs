@@ -1236,9 +1236,14 @@ impl Checker<'_, '_> {
 
     /// `removeStringLiteralsMatchedByTemplateLiterals` (`checker.go:25857`):
     /// a string literal matched by a pattern template or string mapping is
-    /// redundant beside it. `isTypeMatchedByTemplateLiteralType` under
-    /// `compareTypesAssignable` is the relater's template-target arm under the
-    /// assignable relation.
+    /// redundant beside it. The template arm is
+    /// `isTypeMatchedByTemplateLiteralOrStringMapping` (`:25874`), i.e. the
+    /// direct template matcher [`Checker::is_type_matched_by_template_literal_type`]
+    /// (`relater.go:2332`). It used to be `is_type_assignable_to(literal,
+    /// template)`, which reaches the same matcher through the relater's
+    /// template-target arm but pays a full top-level relation per pair:
+    /// 11.7 M of them in `templateLiteralTypes1`
+    /// (`docs/parity/notes/r5-funcdecl.md` §5).
     fn remove_string_literals_matched_by_template_literals(
         &mut self,
         mut types: Vec<TypeId>,
@@ -1248,6 +1253,12 @@ impl Checker<'_, '_> {
         if templates.is_empty() {
             return types;
         }
+        // A template's parts, read once for every literal it is matched
+        // against; a string mapping has none.
+        let templates: Vec<(TypeId, Option<crate::templates::TemplateLiteralParts>)> = templates
+            .into_iter()
+            .map(|template| (template, self.template_literal_parts.get(&template).cloned()))
+            .collect();
         let mut index = types.len();
         while index > 0 {
             index -= 1;
@@ -1255,11 +1266,13 @@ impl Checker<'_, '_> {
             if !self.store.get(ty).flags.contains(TypeFlags::STRING_LITERAL) {
                 continue;
             }
-            let matched = templates.iter().any(|&template| {
-                if self.store.get(template).flags.contains(TypeFlags::TEMPLATE_LITERAL) {
-                    self.is_type_assignable_to(ty, template)
+            let matched = templates.iter().any(|(template, parts)| {
+                if self.store.get(*template).flags.contains(TypeFlags::TEMPLATE_LITERAL) {
+                    parts.as_ref().is_some_and(|parts| {
+                        self.is_type_matched_by_template_literal_parts(ty, parts)
+                    })
                 } else {
-                    self.is_member_of_string_mapping(ty, template)
+                    self.is_member_of_string_mapping(ty, *template)
                 }
             });
             if matched {

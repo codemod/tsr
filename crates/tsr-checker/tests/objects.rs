@@ -516,15 +516,22 @@ fn a_unique_symbol_on_a_let_is_plain_symbol() {
     assert_eq!(type_of_last_expression_statement("let x: unique symbol;\nx;"), "symbol");
 }
 
-/// The predicate declines only where it can SEE an invalid declaration. An
-/// unrecognised shape keeps the unique type, because this walk climbs a
-/// syntactic parent chain that a JSDoc `@type` does not share — treating
-/// "not recognised" as invalid cost 6 `RIGHT→WRONG` in `compiler/uniqueSymbolJs2`.
+/// A parameter is not a valid `unique symbol` declaration
+/// (`isValidESSymbolDeclaration`), so its type is plain `symbol`
+/// (`getESSymbolLikeTypeForNode`, `checker.go:22982`). Away from the written
+/// annotation, that is what prints. Native, at the pinned commit:
+/// `declare function f(arg: unique symbol): void; const n: number = f;`
+/// reports TS2322 "Type '(arg: symbol) => void' is not assignable to type
+/// 'number'". `(arg: unique symbol)` appears only where the printer may reuse
+/// the written node, inside the declaration itself (`nodecopy.go:596`;
+/// uniqueSymbolsErrors.types:17). This test used to pin the old per-node mint's
+/// `unique symbol`; r5-instexpr's declaration-keyed identity (tsr-2zk.1005)
+/// corrected it.
 #[test]
-fn an_unrecognised_position_keeps_the_unique_type() {
+fn a_parameter_is_not_a_unique_symbol_position() {
     assert_eq!(
         type_of_last_expression_statement("declare function f(arg: unique symbol): void;\nf;"),
-        "(arg: unique symbol) => void"
+        "(arg: symbol) => void"
     );
 }
 

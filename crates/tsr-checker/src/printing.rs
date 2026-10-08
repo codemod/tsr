@@ -978,6 +978,13 @@ pub(crate) fn quote(value: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
+            // escapeStringWorker (`printer/utilities.go:85`) escapes these
+            // three under every quote and flag set, NeverAsciiEscape
+            // included, so a string literal type that holds one prints its
+            // escape (`allowUnescapedParagraphAndLineSeparatorsInStringLiteral`).
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            '\u{0085}' => out.push_str("\\u0085"),
             // The rest of `escapedCharsMap` (`printer/utilities.go:41`) plus
             // the NUL rule (`:150`): `\0` prints `\0` unless a digit follows —
             // then `\x00`, so the result cannot re-parse as an octal. The
@@ -1212,6 +1219,8 @@ mod tests {
         assert_eq!(quote("a\"b"), "\"a\\\"b\"");
         assert_eq!(quote("a\\b"), "\"a\\\\b\"");
         assert_eq!(quote("a\nb"), "\"a\\nb\"");
+        // escapedCharsMap's line terminators other than LF/CR.
+        assert_eq!(quote("\u{2028}x\u{2029}\u{0085}"), "\"\\u2028x\\u2029\\u0085\"");
     }
 
     #[test]
