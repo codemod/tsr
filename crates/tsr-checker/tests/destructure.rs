@@ -53,6 +53,32 @@ fn an_object_rest_validates_and_distributes_its_source() {
     assert_eq!(type_of_binding(union, "rest"), "{ b: string; } | {}");
 }
 
+/// `getPropertyTypeForIndexType` (`checker.go:27077`): with no applicable
+/// index signature, the string signature answers, even for a symbol key.
+/// `lateBoundDestructuringImplicitAnyError.types`: `>prop9 : string` for
+/// `{[symed2]: prop9} = strIndexed`. A string key against a number
+/// signature finds no signature at all and stays errorType, which the
+/// baseline writer prints `>prop2 : any`. r5-shapes §2.7.
+#[test]
+fn a_symbol_key_falls_back_to_the_string_index_signature() {
+    let strings = "declare const s: symbol;\ndeclare const strIndexed: { [idx: string]: string };\n\
+                   let { [s]: prop9 } = strIndexed;";
+    assert_eq!(type_of_binding(strings, "prop9"), "string");
+    let numbers = "declare const named: string;\n\
+                   declare const numIndexed: { [idx: number]: string };\n\
+                   let { [named]: prop2 } = numIndexed;";
+    assert_eq!(type_of_binding(numbers, "prop2"), "error");
+}
+
+/// `getRestType` reads properties through the apparent type, and `object`'s
+/// is the empty object type: `nonPrimitiveAccessProperty.types`,
+/// `>rest : {}`. r5-shapes §2.7.
+#[test]
+fn an_object_rest_of_object_is_empty() {
+    let source = "declare const a: object;\nvar { ...rest } = a;";
+    assert_eq!(type_of_binding(source, "rest"), "{}");
+}
+
 #[test]
 fn a_distributed_generic_constraint_supplies_a_common_destructured_property() {
     let source = "type Params = { foo: string } & ({ tag: \"a\" } | { tag: \"b\" });\n\

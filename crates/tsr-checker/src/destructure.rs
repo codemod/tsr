@@ -207,13 +207,21 @@ impl Checker<'_, '_> {
                             self.no_unchecked_indexed_access,
                         )
                         .unwrap_or(error)
+                    } else if let Some(member) = self.late_bound_destructuring_member(
+                        element.property_name,
+                        key,
+                        parent_type,
+                    ) {
+                        member
                     } else {
                         // AccessFlagsExpressionPosition: noUncheckedIndexedAccess
                         // adds undefined to an index-signature result
                         // (`checker.go:26947`, `:27117`). A miss under
                         // AllowMissing on an object-literal type is `undefined`
-                        // (`checker.go:27187`).
-                        if let Some(info) = self.get_applicable_index_info(parent_type, key) {
+                        // (`checker.go:27187`). With no applicable signature
+                        // the string signature answers, even for a symbol key
+                        // (`checker.go:27077`; r5-shapes §2.7).
+                        if let Some(info) = self.index_info_for_property_key(parent_type, key) {
                             let include = self.no_unchecked_indexed_access;
                             self.include_unchecked_undefined(info.value, include, parent_type, key)
                         } else {
@@ -740,8 +748,42 @@ impl Checker<'_, '_> {
         match self.relate_ternary(source, array, crate::relater::Relation::Assignable) {
             crate::relater::Ternary::Related => Some(true),
             crate::relater::Ternary::NotRelated => Some(false),
-            crate::relater::Ternary::Unknown => None,
+            crate::relater::Ternary::Unknown => self.union_parent_is_array_like(source, array),
         }
+    }
+
+    /// `isTypeAssignableTo(union, anyReadonlyArrayType)` decided per
+    /// constituent, for a union the whole-type relation left undecided. A
+    /// union source is assignable exactly when each constituent is
+    /// (`eachTypeRelatedToType`), so this is the relation's own rule, applied
+    /// with the declared-base shortcut above for each member:
+    /// `RegExpMatchArray | []` is array-like (`initializedDestructuringAssignmentTypes`,
+    /// r5-shapes §2.7). The whole-type `Nullable` gate of `isArrayLikeType`
+    /// does not apply to a constituent, so a nullable member asks the
+    /// relation, which owns strictness. Any constituent still undecided keeps
+    /// the answer undecided.
+    fn union_parent_is_array_like(&mut self, source: TypeId, array: TypeId) -> Option<bool> {
+        let TypeData::Union { types, .. } = self.store.get(source).data.clone() else {
+            return None;
+        };
+        let mut decided = Some(true);
+        for part in types {
+            let answer = if self.store.get(part).flags.intersects(TypeFlags::NULLABLE) {
+                match self.relate_ternary(part, array, crate::relater::Relation::Assignable) {
+                    crate::relater::Ternary::Related => Some(true),
+                    crate::relater::Ternary::NotRelated => Some(false),
+                    crate::relater::Ternary::Unknown => None,
+                }
+            } else {
+                self.binding_parent_is_array_like(part)
+            };
+            match answer {
+                Some(true) => {}
+                Some(false) => return Some(false),
+                None => decided = None,
+            }
+        }
+        decided
     }
 
     /// getBindingElementTypeFromParentType maps instantiable constraints,
@@ -1147,6 +1189,14 @@ impl Checker<'_, '_> {
         if flags.intersects(TypeFlags::INSTANTIABLE) {
             return error;
         }
+        // `getPropertiesOfType` reads the reduced apparent type, and the
+        // apparent type of `object` is the empty object type, so
+        // `var { ...rest } = a` with `a: object` is `{}`
+        // (`nonPrimitiveAccessProperty`, r5-shapes §2.7). `object` carries no
+        // index infos of its own.
+        if flags.intersects(TypeFlags::NON_PRIMITIVE) {
+            return self.mint_rest_properties(Vec::new(), Vec::new());
+        }
         let Some((properties, _)) = self.spread_properties(source, false) else {
             return error;
         };
@@ -1156,6 +1206,31 @@ impl Checker<'_, '_> {
             return error;
         };
         self.mint_rest_properties(properties, indexes)
+    }
+
+    /// A symbol-typed computed destructuring key names a late-bound member
+    /// before any index signature: `getPropertyTypeForIndexType`
+    /// (`checker.go:27001`) finds the property `getPropertyNameFromIndex`
+    /// names for a unique symbol, and only a miss reaches the signatures.
+    /// `let { [Symbol.iterator]: d } = []` records
+    /// `d : () => ArrayIterator<never>` (`destructuredLateBoundNameHasCorrectTypes`).
+    /// The member is looked up by the key's entity text, the one spelling
+    /// this port names late-bound members by (`indexed.rs` §381), so the
+    /// destructuring read and the element-access read cannot drift.
+    fn late_bound_destructuring_member(
+        &mut self,
+        property_name: Option<PropertyName<'_>>,
+        key: TypeId,
+        parent_type: TypeId,
+    ) -> Option<TypeId> {
+        if !self.store.get(key).flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            return None;
+        }
+        let Some(PropertyName::ComputedPropertyName(computed)) = property_name else {
+            return None;
+        };
+        let name = crate::indexed::late_bound_entity_name(computed.expression.as_ref()?)?;
+        self.get_type_of_property_of_type(parent_type, &name)
     }
 
     fn binding_element_property_name(
