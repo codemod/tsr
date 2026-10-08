@@ -212,3 +212,104 @@ Dispatched when `r4-declemit` finished (both chosen the same way as above;
 - **Owns.** `emit_helpers.rs`, `meaning_mismatch.rs`; new
   `check_construct_emit_helpers`-style functions it adds to `check.rs`, called
   from one line at the top of the walk.
+
+### r4-classsyntax — super/this expressions, computed names, type-argument arity (`tsr-2zk.912`)
+
+Dispatched when `r4-operators` finished. Owns `super_expression.rs`,
+`this_expression.rs`, `computed_name.rs`, `type_argument_arity.rs` (none
+touched by `main` since `b3cd078d`). Mirror `checkSuperExpression`,
+`checkThisExpression`, `checkComputedPropertyName`, `checkTypeReferenceNode`'s
+argument-count/constraint arms. Not TS2684/TS2558 (calls), not private names.
+
+- `r4-operators` (1e6d66b, 60d399b): `!` type facts (+24 type lines, 5 cases)
+  and the `+`/`+=` diagnostics arm (+10 cases). Its `+` type-cascade patch
+  (+24 lines, +8 cases) waits on `tsr-2zk.913` (TS2313 circular constraints).
+
+### r4-perf — checker work native caches in links (`tsr-2zk.910`), perf owner
+
+Dispatched when `r4-jsdoc` finished. Main's own measurement (perf.md §10)
+puts domain-model-large at 1.44x tsgo wall; r3-perf's attribution
+(docs/parity/notes/perf-r3.md) found the remaining gap is work native does
+once and caches in links. C1, C2 and C5 are integrated.
+
+- **Candidates.** C7: memoise `signature_candidates_of_interface_symbol`
+  (`signatures.rs`, 14.3% inclusive Ir) per `(symbol, kind)` for decided
+  top-level answers, as native's resolved signature lists on the symbol's
+  structured type. C8: a `couldContainTypeVariables` bit cached per `TypeId`
+  in front of `mentions_type_parameter` (native `ObjectFlagsCouldContainTypeVariablesComputed`).
+  C9: cache `heritage_entity_symbol` / `instantiated_heritage_base` per heritage
+  entry, as native `resolveBaseTypesOfClass`/`getBaseTypes` links do.
+- **Owns.** Exactly those functions (`signatures.rs`
+  `signature_candidates_of_interface_symbol`, `inference.rs`
+  `mentions_type_parameter*`, `members.rs` `heritage_entity_symbol`,
+  `declared.rs` `instantiated_heritage_base`), new cache fields, a new
+  `perf_links.rs`, and `docs/parity/notes/r4-perf.md`.
+- **Must not touch.** Flow effects / `get_effects_signature` (main's
+  `tsr-1yb.11.3`), relation code (`r4-relcache`), parse/bind.
+- **Acceptance.** As every lane, plus: callgrind Ir on `--modules 100` before
+  and after each commit, wall and CPU vs native tsgo on all three bench
+  projects (`/tmp`-built tsgo per scripts/offline-cargo/build-tsgo.sh), and the
+  convention record for each cache.
+
+### Outcome notes
+
+- `r4-declemit` (97c3a56): TS4025/TS4081 producer, 2 cases; the other 16
+  declaration-emit cases need SymbolTracker hooks in the serializer (hub
+  files), recorded under `tsr-2zk.904`.
+- `r4-jsdoc` (7dd2df2): parameter-own `@type`, +7 type lines. Its three
+  measured patches (+44 lines, +5 diagnostics cases) cost 4 losses and wait on
+  `tsr-2zk.911`.
+
+### r4-anyaudit — single owner of the any/error-type split (`tsr-2zk.31`)
+
+Dispatched when `r4-arrays` finished (06ce5e6 with its relater patch, 907a249:
++39 type lines, +3 diagnostics cases). Several finished lanes stop on the same
+shared contract: TSR answers `any` (or prints its gap marker `error`) where
+native answers `errorType` or a concrete type (r4-arrays `.16.87`, calls
+round 1, decls §1). This box is the only one that changes that contract. It
+edits only the specific producer functions it names in its notes, re-checks
+`main`'s history of each before every push, and delivers anything else as a
+measured patch.
+
+### r4-jsx2 — JSX attributes type with a members table (`tsr-2zk.907`)
+
+Dispatched when `r4-jsx` finished (c107f13, 691449a, a853638, de35cd6: +8
+diagnostics cases; TS2604, TS2607, JSX.ElementType and the attributes
+relation/elaboration). Its main blocker (~60 cases):
+`jsx_attributes_inference_type` (`jsx_intrinsic.rs`) mints a `Named` type with
+no members table, so `relate_ternary(attributes, IntrinsicAttributes & Props)`
+answers Unknown (`NoMembersTable`). Native builds the attributes type in
+`createJsxAttributesTypeFromAttributesProperty` over the binder's
+`JsxAttributes` symbol. Owns that function and JSX attributes-type
+construction in `jsx_intrinsic.rs` (no `main` commit touched it since
+`b3cd078d`), plus the r4-jsx files. Other r4-jsx blockers are filed as
+`tsr-2zk.917`-`.920`.
+
+### r4-realworld — real-project diagnostic triage (`tsr-2zk.916`, parent `.914`)
+
+Dispatched when `r4-relcache` finished. `r4-relcache` (626495a, f3fad58)
+ported checker-lifetime `Relation.results`: corpus byte-identical, CPU -2..-6%,
+Ir -2.8%, and TypeScript's own `src/jsTyping` / `src/typingsInstallerCore`
+now finish (24.6 s / 24.9 s; native 1.50 s / 1.57 s) where every earlier
+binary hung. On them TSR reports 875 diagnostics against native's 163/169
+(`tsr-2zk.914`); the remaining time is `tsr-2zk.915`. This lane owns no
+checker source: it cuts minimal repros, attributes each to a native
+function and owning file, and files issues; it may add repro tests under
+`crates/tsr-conformance/tests/` that assert native's output with `#[ignore]`
+until fixed.
+
+### r4-typeparams — type-parameter gathering and constraints (`tsr-2zk.901`, `.913`, `.911`)
+
+Dispatched when `r4-templates` finished (8 commits: native enum evaluator,
+TS2565/TS1061 reporting, template-literal escaping, generic index spans; +8
+type cases, +3 diagnostics cases; its isolatedModules patch is queued).
+Several lanes stop on the same functions: `declared.rs`
+`local_type_parameters_of` / `local_type_parameter_names_of` read only the
+first declaration (native `getLocalTypeParametersOfClassOrInterfaceOrTypeAlias`
+gathers every declaration, defaults from any), the constructor
+`SignatureParts` type-parameter arm (`signatures.rs`), JS `@template`
+gathering for class hosts (r4-jsdoc's class-template patch), and TS2313
+circular constraints (`constraints.rs`; native
+`getConstraintOfTypeParameter` -> `circularConstraintType`). Owns exactly
+those functions and `constraints.rs`; no `main` commit touched the
+`declared.rs` functions since `b3cd078d`.

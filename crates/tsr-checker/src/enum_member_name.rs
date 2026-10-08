@@ -50,16 +50,14 @@ impl Checker<'_, '_> {
     /// TS1066 — `In ambient enum declarations member initializer must be
     /// constant expression.`
     ///
-    /// `computeEnumMemberValues` (`checker.go:24016`) switches on the constant
-    /// evaluator's answer. This port's evaluator is deliberately **symbol-free**
-    /// (§101), so its `None` covers two unrelated situations: *not a constant*,
-    /// which upstream also rejects, and *needs the enum's symbols*, which
-    /// upstream folds. Only the first may report, so the rule additionally
-    /// requires that the initializer contain no identifier in **reference**
-    /// position — `'foo'.length` qualifies, `a + 1` and `E1.y` do not and are
-    /// declined under the silence policy.
+    /// `computeConstantEnumMemberValue` (`checker.go:24016`) switches on the
+    /// checker's evaluator's answer for the member, asked with the member as
+    /// `location` ([`Checker::evaluate_constant`]); a `nil` value reports.
     ///
-    /// `docs/architecture/checker-notes-diag2.md` §819.
+    /// §819/§821 of `docs/architecture/checker-notes-diag2.md` decided this
+    /// with a symbol-free evaluator plus a reference-identifier/call guard;
+    /// both are superseded by the symbol-aware port
+    /// (`docs/parity/notes/r4-templates.md` §3).
     fn check_ambient_enum_member_initializer(
         &mut self,
         node: NodeId,
@@ -84,15 +82,7 @@ impl Checker<'_, '_> {
         if !is_const && !is_ambient {
             return;
         }
-        if crate::expressions::evaluate_constant_expression(&initializer).is_some() {
-            return;
-        }
-        // §819's guard is a **negative** test — *"nothing here could need
-        // symbols"* — and it declines `Math.floor(…)`, which upstream reports.
-        // Its positive complement: upstream's evaluator has no call arm at all,
-        // so a subtree containing a call or a `new` is non-constant whatever
-        // its identifiers resolve to. §821.
-        if self.subtree_has_reference_identifier(at, 0) && !self.subtree_has_call(at, 0) {
+        if self.evaluate_constant(at, node).is_some() {
             return;
         }
         // Upstream's arm order (`checker.go:24014`): `isConstEnum` first, so a
@@ -106,54 +96,6 @@ impl Checker<'_, '_> {
             let span = self.error_span(at);
             self.report(file, Diagnostic::new(message, span));
         }
-    }
-
-    /// Does this subtree mention an identifier in **reference** position — one
-    /// that could resolve to an enum member and so make the symbol-free
-    /// evaluator's `None` a shortfall rather than a verdict? A property
-    /// **name** does not count. §819.
-    fn subtree_has_reference_identifier(&self, root: NodeId, depth: u32) -> bool {
-        if depth > 64 {
-            return false;
-        }
-        if self.nodes.kind(root) == tsr_ast::SyntaxKind::Identifier {
-            let is_property_name = self.nodes.parent(root).is_some_and(|parent| {
-                matches!(
-                    self.node_map.get(parent),
-                    Some(Node::PropertyAccessExpression(access))
-                        if access.name.and_then(|n| n.node_id()) == Some(root)
-                )
-            });
-            if !is_property_name {
-                return true;
-            }
-        }
-        let mut children = Vec::new();
-        if let Some(typed) = self.node_map.get(root) {
-            tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        }
-        children.into_iter().any(|child| self.subtree_has_reference_identifier(child, depth + 1))
-    }
-
-    /// Does this subtree contain a call or a `new`? Upstream's constant
-    /// evaluator has **no call arm**, so such a subtree is non-constant
-    /// whatever its identifiers resolve to — the positive complement to
-    /// `subtree_has_reference_identifier`'s negative test. §821.
-    fn subtree_has_call(&self, root: NodeId, depth: u32) -> bool {
-        if depth > 64 {
-            return false;
-        }
-        if matches!(
-            self.nodes.kind(root),
-            tsr_ast::SyntaxKind::CallExpression | tsr_ast::SyntaxKind::NewExpression
-        ) {
-            return true;
-        }
-        let mut children = Vec::new();
-        if let Some(typed) = self.node_map.get(root) {
-            tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        }
-        children.into_iter().any(|child| self.subtree_has_call(child, depth + 1))
     }
 
     /// The name check for one enum member. §671.

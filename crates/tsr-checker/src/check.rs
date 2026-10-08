@@ -364,7 +364,8 @@ impl Checker<'_, '_> {
                         self.check_enum_member_name(at);
                         self.check_computed_enum_member_initializer(at, ambient);
                         self.check_const_enum_member_value(at);
-                        self.check_enum_member_forward_references(at, ambient);
+                        self.check_enum_member_forward_references(at);
+                        self.check_enum_member_auto_value(at);
                     }
                 }
                 self.check_reserved_enum_name(declaration);
@@ -516,9 +517,10 @@ impl Checker<'_, '_> {
             Node::BinaryExpression(binary)
                 if binary.operator_token.is_some_and(|t| is_numeric_binary_operator(t.kind)) =>
             {
-                self.check_nullable_operand(node, ambient);
-                self.check_operator_operands(node, ambient);
-                let operands_ok = self.check_arithmetic_operand_types(node, ambient);
+                // `+`/`+=` with no result type returns `anyType` before
+                // `checkAssignmentOperator` (`checker.go:12446`).
+                let operands_ok = self.check_operator_operands(node, ambient)
+                    & self.check_arithmetic_operand_types(node, ambient);
                 // **A `match` is exclusive and this arm comes first.**
                 // `is_numeric_binary_operator` includes the compound arithmetic
                 // assignments (`-=`, `*=`, `/=`, `%=`, …), so those never reach
@@ -14661,6 +14663,7 @@ fn is_numeric_binary_operator(kind: SyntaxKind) -> bool {
             | SyntaxKind::BarToken
             | SyntaxKind::CaretToken
             | SyntaxKind::PlusToken
+            | SyntaxKind::PlusEqualsToken
             | SyntaxKind::LessThanToken
             | SyntaxKind::GreaterThanToken
             | SyntaxKind::LessThanEqualsToken
