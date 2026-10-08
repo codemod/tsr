@@ -45,7 +45,15 @@ too: `is_file_probably_external_module`'s `getImportMetaIfNecessary` arm
 (written against the upstream node, as its docs said) is now live, so the
 loader treats a file whose only module indicator is `import.meta` as a
 module. The unit test that asserted the gap flips, as its comment said it
-must.
+must. That arm's predicate is `ast.IsImportMeta` (`ast/utilities.go:1275`),
+which names `meta` only: once `import.defer` also parsed as a
+`MetaProperty`, the keyword-only test it had would have made an
+`import.defer` file a module (commit 4; measured over every corpus file
+containing `import.<name>`, no printed type or diagnostic changes, since no
+such file relies on it today).
+
+The binder carries its own copy of the module indicator, which still
+omits this arm (§2.3).
 
 ### 2.2 The checker half
 
