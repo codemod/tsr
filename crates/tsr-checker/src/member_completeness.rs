@@ -673,7 +673,9 @@ mod tests {
             ("Defaulted", Some(vec![("z".to_owned(), false)])),
             ("Field", Some(vec![("z".to_owned(), true)])),
             ("Plain", Some(vec![])),
-            ("Generic", None),
+            // A generic class reference has a table too: names and optionality
+            // survive instantiation (r5-report generic-reference-table diff).
+            ("Generic", Some(vec![("z".to_owned(), true)])),
         ] {
             let symbol = bound.lookup_local(root, name).expect("class bound");
             let ty = checker.get_declared_type_of_symbol(symbol);
