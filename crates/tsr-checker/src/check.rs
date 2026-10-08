@@ -8423,12 +8423,16 @@ impl Checker<'_, '_> {
                     Node::PropertyDeclaration(n) => n.modifiers,
                     _ => return,
                 };
-                let Some(abstract_modifier) = modifiers.iter().find_map(|modifier| match modifier {
-                    tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword => {
-                        t.node_id
-                    }
-                    _ => None,
-                }) else {
+                let Some(abstract_modifier) =
+                    modifiers.iter().find_map(|modifier| match modifier {
+                        tsr_ast::ModifierLike::Token(t)
+                            if t.kind == SyntaxKind::AbstractKeyword =>
+                        {
+                            t.node_id
+                        }
+                        _ => None,
+                    })
+                else {
                     return;
                 };
                 let Some(parent) = self.nodes.parent(node) else { return };
