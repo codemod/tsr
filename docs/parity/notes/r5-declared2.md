@@ -13,7 +13,7 @@ unless noted).
 `e9d15e8` (`qualified_declared_type_twin`, `.979`), although batch W's
 bookkeeping lists it; only its isEnumTypeRelatedTo diff landed (`1aa95e7`).
 This lane's first commit merges `claude/beautiful-shannon-ar5gh0-r5-declared`
-(e9d15e8 and two doc commits) and the frozen base is that merge, `9efedcf`:
+(e9d15e8 and two doc commits) and the frozen base is that merge, `4d875db`:
 
 | dump | RIGHT | EMPTY_RIGHT | WRONG | EMPTY_WRONG | GAP |
 |---|---|---|---|---|---|
@@ -96,7 +96,7 @@ read (`members.rs`, main's file); nothing in this item needed it.
 
 ### 1.4 Measured
 
-Unfiltered, against the frozen base `9efedcf`:
+Unfiltered, against the frozen base `4d875db`:
 
 | | base | after |
 |---|---|---|
@@ -225,7 +225,7 @@ arm already did.
 ### 2.6 Measured
 
 Unfiltered, against §1's commit (whose dumps are this item's base; both are
-zero-loss against the frozen base `9efedcf`):
+zero-loss against the frozen base `4d875db`):
 
 | | before | after |
 |---|---|---|
@@ -240,3 +240,34 @@ Gains: `variadicTuples2` 9 (V30–V52), `partiallyNamedTuples` 9 (16–18,
 1,194,001,918 (−0.04%). Median child CPU, 21 samples: generic-imports 0.982,
 domain-model 1.027; `diagnostics_match: true`. Tests pass; no clippy finding
 in touched code. Unit tests: `crates/tsr-checker/tests/r5_declared2.rs`.
+
+## 3. `tsr-2zk.1043` — genericDefaults `[A, any, C]`: held diff (`inference.rs`)
+
+`f14<A>()` with `declare function f14<T, U = V, V = C>(…): [T, U, V]` records
+`[A, any, C]`; this port answered `error` (17 lines, `genericDefaults`
+579–897). The brief placed the cause in getDefaultFromTypeParameter; it is
+not there. `get_default_from_type_parameter` already takes the first
+declaration with a default, and `f12<A>()` (`U = T`, a backward reference)
+was already right.
+
+**Cause.** The explicit-type-argument arm of the generic call road
+(`inference.rs`, the `written_type_arguments` branch) builds its mapper one
+position at a time, so when `U`'s default `V` is instantiated, `V` is not in
+the mapper yet; `instantiate_type` refuses an unmapped parameter and the
+call answers `error`. fillMissingTypeArguments (`:21954`) first maps every
+unfilled position to errorType and only then instantiates each default
+against that mapper, so an invalid forward reference becomes errorType
+(TS2744 is its diagnostic, reported elsewhere).
+
+**Port.** [`r5-declared2-fill-missing-forward.diff`](r5-declared2-fill-missing-forward.diff)
+pre-fills the mapper with ADR-0048's `native_error` (upstream's errorType,
+printed `any` inside a type) and overwrites each filled slot in order.
+`inference.rs` is main's file, so this ships as a diff.
+
+Measured unfiltered on top of §2's commit: type lines +17 (all
+`genericDefaults`), diagnostics unchanged, zero losses on both dumps.
+
+The same pre-fill already exists for type references (`declared.rs` §136's
+fill, which uses `any` for the definite forward outcome) and for heritage
+bases (`signatures.rs`, which uses the gap and declines). Those two are
+unchanged here: neither moved a line in this run.
