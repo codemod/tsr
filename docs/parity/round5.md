@@ -610,3 +610,35 @@ The unclaimed causes are now filed or claimed:
   by construct).
 - `.16.65` (T_1 rename, 21 cases) and `.16.233` (escaping) go to r5-typetriage,
   which owns printing.rs.
+
+### r5-harness finished; gate v3 (`tsr-2zk.1041` closed)
+
+Both dumps now run every case under case_guard. It appends `ms=`/`mib=`
+columns and writes PANIC, OOM or TIMEOUT marker rows; the dump exits 3 or 134.
+`examples/slowcases` compares a base and a new dump. On 99b337b the case that
+used to read EMPTY_RIGHT now stops as OOM.
+
+The integrator's gate moves to v3 (`bgate_core3.sh`) at batch Y:
+- **A base-RIGHT key absent from the new dump is a loss.** The old `join` dropped
+  such keys silently (r5-harness §5 item 8). Checked against the current base
+  itself: 0 missing.
+- **slowcases runs on both dumps** once the base carries guard columns. Batch Y
+  is the first guarded freeze, so it skips the check there.
+- **A dump that exits non-zero stops the gate**, through `set -e`/pipefail.
+
+Already over budget, recorded as KNOWN_SLOW:
+- both varianceProbling cases;
+- relationComplexityError;
+- performanceComparison…GenericSignatures.
+
+Profiles became issues: `.1065` (relationCount/TS2859), `.1066` (instantiation
+depth, which goes to r5-declared2), `.1067` (template literal matching), `.1068`
+(variance probing) and `.1069` (timing pass for known-divergence cases).
+The freed slot went to r5-funcdecl (`.1062`, `.1067`). `.37` closed as a duplicate. `.46` got 8 MiB workers everywhere; its root
+cause was not reproduced in 27 full runs.
+
+Integrator process note: in batch W the queue skipped `bmerge r5-declared`, so `e9d15e8`
+(`.979` qualified twins) did not land and only its enum diff did. The cause: I inserted
+lines at the index of the command that was currently running. The runner then re-ran
+that batch's gate and stepped over the inserted line. `e9d15e8` lands through r5-declared2's branch.
+The queue is append-only again, and inserts go strictly after the running line.
