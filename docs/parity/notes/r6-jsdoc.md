@@ -241,3 +241,64 @@ against `tsgo`.
 **Falsifier.** A JS function with two return types that native prints as one
 of them: the decline would have been hiding a reduction difference, not an
 overload.
+
+## 6. `checkTypeParameters` and the type-parameter modifier arms
+
+**Forcing fact.** TS1273/TS1274/TS1277 (`@template private T`, `@template
+in T` on a function, `@template const T` on a typedef) and TS2706/TS2744
+(a required parameter after a defaulted one; a default naming a later
+parameter) were missing in `jsdocTemplateTag7`/`8`/`jsdocTemplateTagDefault`
+— and, unported for TypeScript too, in `varianceAnnotations`,
+`typeParameterConstModifiers`, `genericDefaults`, `genericDefaultsErrors`,
+`subclassThisTypeAssignable01` and
+`typeArgumentDefaultUsesConstraintOnCircularDefault`. Their native homes:
+
+- `checkTypeParameters` (`checker.go:7002`) with
+  `checkTypeParametersNotReferenced` (`:7022`): this port's
+  `check_type_parameter_list` (`check.rs`) carried only its duplicate scan.
+- `checkGrammarModifiers` (`grammarchecks.go:295` TS1273, `:303-312`
+  TS1277, `:526-543` TS1274/TS1030/TS1029): this port's loop is
+  `check_modifier_order`, which had no type-parameter arm. The `in`/`out` arm
+  also fires off a type parameter (`class C { in a = 0 }`).
+
+In a JS file the reparser hands `@template` lists to declarations
+(`gatherTypeParameters`, `parser/reparser.go:293`): every comment declaring
+a typedef or callback gives its alias the comment's whole list
+(`reparseUnhosted`); the last comment otherwise gives it to the
+`getFunctionLikeHost` function (unless that has a written list or the
+comment's `@type` became its full signature first) or to a class
+(`reparseHosted`, `:453`). `checkGrammarModifiers` then reads that
+declaration as the parameter's `Parent`.
+
+**Port.** Owned (`jsdoc_checks.rs`, committed, neutral alone — both dumps
+identical to the base): `jsdoc_template_lists(node)` answers those lists
+with their declaration's kind, the check walk visits each list's parameters
+(so `checkTypeParameter`'s node checks reach them, constraints and defaults
+included), and `jsdoc_template_owner_kind(parameter)` answers the reparsed
+parent. Diff [`r6-jsdoc-template-grammar.diff`](r6-jsdoc-template-grammar.diff)
+(`check.rs`): the two default rules in `check_type_parameter_list` (now
+`pub(crate)`); `check_type_parameter_modifier`, called from
+`check_modifier_order` for a type parameter or an `in`/`out` token, reading
+the parent through `jsdoc_template_owner_kind`; and `check_type_parameter_list`
+on each JS list beside the written one. TS2744 compares the reference's type
+with each later parameter's declared type — one type per symbol here, as
+native compares `t.symbol`.
+
+**Measured** (owned + diff, on `208c3ec`, unfiltered): diagnostics **5,530 →
+5,534 RIGHT (+4 cases)**: `jsdocTemplateTag7`, `jsdocTemplateTag8`,
+`typeParameterConstModifiers`,
+`typeArgumentDefaultUsesConstraintOnCircularDefault`. Five more WRONG rows
+move only toward the baseline (expected diagnostics gained, none lost, none
+unexpected): `genericDefaults` +11, `varianceAnnotations` +8,
+`jsdocTemplateTagDefault` +4, `genericDefaultsErrors` +1,
+`subclassThisTypeAssignable01` +1. Types unchanged; zero losses on both
+dumps; `slowcases` clean. Ir domain-model 1,092,529,002 (+0.09%),
+generic-imports 343,079,120 (−0.001%). `type_parameter_grammar.rs` (in the
+diff): two tests (written lists and `@template` lists), both failing without
+it; every expectation checked against `tsgo`.
+
+**Left.** `jsdocTemplateTagDefault`'s TS2322 at (9,20) (`/** @type {A} */
+const aDefault2 = [0]` with `A`'s `T` defaulting to `string`): the alias's
+default under a JS reference without arguments. `varianceAnnotations`'
+TS2636/TS2637 (variance checks) and one TS2322; `genericDefaultsErrors`' and
+`subclassThisTypeAssignable01`'s TS2344 — other producers.

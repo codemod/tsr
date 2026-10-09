@@ -227,7 +227,131 @@ impl<'a> Checker<'a, '_> {
                 }
             }
         }
+        // `checkTypeParameters` → `checkTypeParameter` (`checker.go:7002`,
+        // `:2603`) on each list `gatherTypeParameters` reparses from these
+        // comments: a typedef's or callback's alias, or the documented
+        // function or class.
+        for (_, list) in self.jsdoc_template_lists(node) {
+            out.extend(list.iter().filter_map(|parameter| parameter.node_id));
+        }
         out
+    }
+
+    /// The type-parameter lists `gatherTypeParameters`
+    /// (`parser/reparser.go:293`) reparses from the comments `node` hosts,
+    /// each with the kind of the declaration it becomes the list of:
+    ///
+    /// - `reparseUnhosted`'s typedef and callback arms (`:70`), every
+    ///   comment: a `JSTypeAliasDeclaration`, whose list is every `@template`
+    ///   of the comment (`typedefOrCallback`);
+    /// - `reparseHosted`'s `KindJSDocTemplateTag` arm (`:453`), the last
+    ///   comment only, when it declares no typedef or callback: the
+    ///   `getFunctionLikeHost` function, if it has no written list and the
+    ///   comment's `@type` has not made a full signature first, else a class
+    ///   declaration or expression with no written list.
+    ///
+    /// An `@overload`'s reparsed declaration takes the same comment's list
+    /// again (`reparseJSDocSignature`); its parameters' diagnostics land at the
+    /// same nodes, which the diagnostics collection deduplicates.
+    pub(crate) fn jsdoc_template_lists(
+        &self,
+        node: NodeId,
+    ) -> Vec<(SyntaxKind, Vec<&'a tsr_ast::TypeParameterDeclaration<'a>>)> {
+        let mut out = Vec::new();
+        let Some(docs) = self.jsdoc_entries.get(&node) else { return out };
+        if !self.in_js_file(node) {
+            return out;
+        }
+        let gather = |doc: &'a tsr_ast::JSDoc<'a>| {
+            let mut list = Vec::new();
+            for tag in top_level_tags(doc.tags) {
+                if let JSDocTag::JSDocTemplateTag(template) = tag {
+                    list.extend(template.type_parameters.iter().copied());
+                }
+            }
+            list
+        };
+        let declares_alias = |doc: &tsr_ast::JSDoc<'_>| {
+            doc.tags.iter().any(|tag| {
+                matches!(tag, JSDocTag::JSDocTypedefTag(_) | JSDocTag::JSDocCallbackTag(_))
+            })
+        };
+        for doc in *docs {
+            if declares_alias(doc) {
+                let list = gather(doc);
+                if !list.is_empty() {
+                    out.push((SyntaxKind::TypeAliasDeclaration, list));
+                }
+            }
+        }
+        let Some(&last) = docs.last() else { return out };
+        if declares_alias(last) {
+            return out;
+        }
+        let hosted = gather(last);
+        if hosted.is_empty() {
+            return out;
+        }
+        if let Some(function) = self.jsdoc_function_like_host(node) {
+            let parts = self.function_like_parts(function);
+            if parts.is_some_and(|parts| parts.type_parameters.is_empty())
+                && !self.jsdoc_type_tag_precedes_template(last, function)
+            {
+                out.push((self.nodes.kind(function), hosted));
+            }
+            return out;
+        }
+        let written = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => Some(class.type_parameters),
+            Some(Node::ClassExpression(class)) => Some(class.type_parameters),
+            _ => None,
+        };
+        if written.is_some_and(<[_]>::is_empty) {
+            out.push((self.nodes.kind(node), hosted));
+        }
+        out
+    }
+
+    /// Whether the replay made `function`'s `@type` its full signature before
+    /// the comment's first `@template` reached it: the template arm then
+    /// finds `FullSignature` set and leaves the list alone.
+    fn jsdoc_type_tag_precedes_template(&self, doc: &tsr_ast::JSDoc<'_>, function: NodeId) -> bool {
+        if self.jsdoc_reparsed_function(function).full_signature.is_none() {
+            return false;
+        }
+        for tag in top_level_tags(doc.tags) {
+            match tag {
+                JSDocTag::JSDocTemplateTag(_) => return false,
+                JSDocTag::JSDocTypeTag(tsr_ast::JSDocTypeTag {
+                    type_expression: Some(_), ..
+                }) => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// The kind of the declaration whose list a JSDoc `@template` parameter
+    /// is reparsed into ([`Self::jsdoc_template_lists`]), which
+    /// `checkGrammarModifiers` reads as the parameter's `Parent`; `None` for
+    /// a written parameter or one no declaration takes.
+    #[expect(
+        dead_code,
+        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-template-grammar.diff"
+    )]
+    pub(crate) fn jsdoc_template_owner_kind(&self, parameter: NodeId) -> Option<SyntaxKind> {
+        let tag = self.nodes.parent(parameter)?;
+        if self.nodes.kind(tag) != SyntaxKind::JSDocTemplateTag {
+            return None;
+        }
+        let mut root = tag;
+        while let Some(parent) = self.nodes.parent(root) {
+            root = parent;
+        }
+        let host = *self.jsdoc_hosts.get(&root)?;
+        self.jsdoc_template_lists(host).into_iter().find_map(|(kind, list)| {
+            list.iter().any(|candidate| candidate.node_id == Some(parameter)).then_some(kind)
+        })
     }
 }
 
