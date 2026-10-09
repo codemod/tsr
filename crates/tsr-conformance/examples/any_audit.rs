@@ -56,6 +56,7 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 use tsr_ast::{Node, NodeId, NodeMap, NodeTable, SyntaxKind};
 use tsr_binder::SymbolFlags;
+use tsr_conformance::types_producer::ProducerArm;
 use tsr_conformance::{Corpus, repo_root, types_baseline, types_producer};
 
 /// Where the printed `any` came from.
@@ -71,6 +72,10 @@ enum Bucket {
     /// `compiler/primitiveTypeAsClassName` is the shape. Neither computed nor
     /// defaulted — the string collides.
     Named,
+    /// The producer, asked again after the walk, no longer answers a type it
+    /// prints `any` (§781's order dependence): not attributable by a replay,
+    /// and not this classifier's drift.
+    OrderDependent,
     /// Neither. The control.
     Unclassified,
 }
@@ -81,6 +86,7 @@ impl Bucket {
             Self::Checker => "CHECKER",
             Self::Writer => "WRITER",
             Self::Named => "NAMED-any",
+            Self::OrderDependent => "ORDER-DEPENDENT",
             Self::Unclassified => "UNCLASSIFIED",
         }
     }
@@ -164,21 +170,6 @@ fn is_type_declaration(kind: SyntaxKind) -> bool {
     )
 }
 
-/// `is_label_name` (`types_producer.rs:648`), mirrored.
-fn is_label_name(id: NodeId, nodes: &NodeTable, map: &NodeMap<'_>) -> bool {
-    if nodes.kind(id) != SyntaxKind::Identifier {
-        return false;
-    }
-    let Some(parent) = nodes.parent(id) else { return false };
-    let label = match map.get(parent) {
-        Some(Node::LabeledStatement(statement)) => statement.label,
-        Some(Node::BreakStatement(statement)) => statement.label,
-        Some(Node::ContinueStatement(statement)) => statement.label,
-        _ => return false,
-    };
-    label.and_then(|label| label.node_id) == Some(id)
-}
-
 /// `jsx_tag_name_of` (`types_producer.rs:672`), mirrored.
 fn jsx_tag_name_of(element: NodeId, map: &NodeMap<'_>) -> Option<NodeId> {
     match map.get(element)? {
@@ -206,8 +197,12 @@ impl Ctx<'_, '_, '_> {
         id == self.checker.intrinsics().any
     }
 
+    /// Either error identity: the port's gap or upstream's `errorType`
+    /// (ADR-0048 split them). The producer's writer rewrites print both as
+    /// `any`, so a branch answering either explains the line. Testing the
+    /// gap alone was one of the drifts `r5-align.md` §7 measured.
     fn is_error(&self, id: tsr_checker::TypeId) -> bool {
-        id == self.checker.intrinsics().error
+        id == self.checker.intrinsics().error || id == self.checker.intrinsics().native_error
     }
 
     /// Walk down a chain of accesses on an `any` receiver to the node that
@@ -412,12 +407,103 @@ impl Ctx<'_, '_, '_> {
     /// order exactly (`types_producer.rs:276`). The **first** branch that
     /// returns is the one that printed.
     fn classify(&mut self, id: NodeId) -> (Bucket, String) {
+        // The branch that printed, as the producer records it
+        // (`types_producer::ProducerArm`). Each branch of `attribute` runs only
+        // for its own arm. This classifier used to re-derive the arm with its
+        // own conditions, and it drifted: 1,976 control failures at `5ef1036`
+        // (`docs/parity/notes/r5-align.md` §7).
+        let mut saw_gap = false;
+        let mut arm = ProducerArm::NoArm;
+        let answered = types_producer::type_id_at_location_arm(
+            self.checker,
+            self.binder,
+            self.nodes,
+            self.map,
+            id,
+            &mut saw_gap,
+            &mut arm,
+        );
+        let verdict = self.attribute(id, arm, answered, saw_gap);
+        if verdict.0 != Bucket::Unclassified {
+            return verdict;
+        }
+        // §781: the checker is order-dependent. If the producer ITSELF, asked
+        // again after the walk, no longer answers a type it prints `any`, no
+        // replay can attribute the printed line, and the failure is not this
+        // classifier's drift. Kept visible as its own row, outside the control.
+        let replay_prints_any = self.is_any(answered)
+            || self.is_error(answered)
+            || self.checker.type_to_string_at(answered, id).as_deref() == Some("any");
+        if !replay_prints_any {
+            let replay = self
+                .checker
+                .type_to_string_at(answered, id)
+                .unwrap_or_else(|| self.checker.type_to_string(answered));
+            return (
+                Bucket::OrderDependent,
+                format!(
+                    "the producer replayed after the walk answers `{}` ({arm:?}; §781)",
+                    truncate(&replay, 40)
+                ),
+            );
+        }
+        verdict
+    }
+
+    /// The origin of a printed `any` on the producer's own `arm`.
+    fn attribute(
+        &mut self,
+        id: NodeId,
+        arm: ProducerArm,
+        answered: tsr_checker::TypeId,
+        saw_gap: bool,
+    ) -> (Bucket, String) {
         let Some(node) = self.map.get(id) else {
             return (Bucket::Unclassified, "no node".to_string());
         };
+        match arm {
+            ProducerArm::WithStatementBody => {
+                return (
+                    Bucket::Writer,
+                    "with-statement body: errorType (NodeFlagsInWithStatement, checker.go:30627)"
+                        .to_string(),
+                );
+            }
+            ProducerArm::ExtendsBase => {
+                return self.verdict(
+                    answered,
+                    "base class expression: declared type is `any`".to_string(),
+                    id,
+                );
+            }
+            ProducerArm::NoArm => {
+                return (
+                    Bucket::Writer,
+                    "no producer arm: errorType, printed `any` by the writer".to_string(),
+                );
+            }
+            ProducerArm::MetaPropertyName
+            | ProducerArm::TypeQueryName
+            | ProducerArm::SpecifierPropertyName
+            | ProducerArm::StatementName
+            | ProducerArm::TypeOnlySpecifierName
+            | ProducerArm::TypeOnlyImportClauseName
+            | ProducerArm::ImportExportAssignmentRight => {
+                let label = format!("{arm:?}");
+                if saw_gap {
+                    return (
+                        Bucket::Writer,
+                        format!("{label}: the checker answered error, the writer prints `any`"),
+                    );
+                }
+                return self.verdict(answered, format!("{label}: the answer is `any`"), id);
+            }
+            _ => {}
+        }
 
         // 1. A type declaration's own name.
-        if let Some(parent) = self.nodes.parent(id)
+        if arm == ProducerArm::TypeDeclarationName
+            && let Some(parent) = self.nodes.parent(id)
             && self.nodes.kind(id) == SyntaxKind::Identifier
             && is_type_declaration(self.nodes.kind(parent))
             && self.map.get(parent).and_then(|node| node.name_id()) == Some(id)
@@ -432,7 +518,8 @@ impl Ctx<'_, '_, '_> {
         }
 
         // 2. The right side of a property access.
-        if let Some(parent) = self.nodes.parent(id)
+        if arm == ProducerArm::PropertyAccessName
+            && let Some(parent) = self.nodes.parent(id)
             && self.nodes.kind(parent) == SyntaxKind::PropertyAccessExpression
             && self.map.get(parent).and_then(|node| node.name_id()) == Some(id)
             && let Some(Node::PropertyAccessExpression(access)) = self.map.get(parent)
@@ -467,44 +554,25 @@ impl Ctx<'_, '_, '_> {
             return self.verdict(ours, reason, id);
         }
 
-        // 3. A declaration name.
-        if let Some(parent) = self.nodes.parent(id)
+        // 3. A declaration name, through the merged symbol as the producer
+        //    asks it.
+        if arm == ProducerArm::DeclarationName
+            && let Some(parent) = self.nodes.parent(id)
             && self.map.get(parent).and_then(|node| node.name_id()) == Some(id)
             && let Some(symbol) = self.binder.symbol_of(parent)
         {
+            let symbol = self.binder.merged_symbol(symbol);
             let ours = self.checker.get_type_of_symbol(symbol);
             let arm = self.symbol_arm(symbol);
             return self.verdict(ours, format!("declaration name -> {arm}"), id);
         }
 
-        // 4. The base of an `extends` clause — falls through unless the base's
-        //    declared type is available, exactly as the producer does.
-        if let Some(parent) = self.nodes.parent(id)
-            && self.nodes.kind(parent) == SyntaxKind::ExpressionWithTypeArguments
-            && let Some(clause) = self.nodes.parent(parent)
-            && let Some(Node::HeritageClause(heritage)) = self.map.get(clause)
-            && heritage.token.kind == SyntaxKind::ExtendsKeyword
-            && matches!(
-                self.nodes.parent(clause).map(|owner| self.nodes.kind(owner)),
-                Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression)
-            )
-            && self.nodes.kind(id) == SyntaxKind::Identifier
-            && let Some(Node::Identifier(name)) = self.map.get(id)
-            && let Some(symbol) =
-                self.binder.resolve_name(self.nodes, self.map, id, name.text, SymbolFlags::TYPE)
-        {
-            let declared = self.checker.get_declared_type_of_symbol(symbol);
-            if !self.is_error(declared) {
-                return self.verdict(
-                    declared,
-                    "base class expression: declared type is `any`".to_string(),
-                    id,
-                );
-            }
-        }
+        // 4. The base of an `extends` clause is the `ExtendsBase` arm, above;
+        //    an any-flagged base falls through in the producer.
 
         // 5. The left of a qualified name in type position.
-        if let Some(parent) = self.nodes.parent(id)
+        if arm == ProducerArm::QualifiedNameLeft
+            && let Some(parent) = self.nodes.parent(id)
             && self.nodes.kind(parent) == SyntaxKind::QualifiedName
             && let Some(Node::QualifiedName(qualified)) = self.map.get(parent)
             && qualified.right.and_then(|right| right.node_id) != Some(id)
@@ -553,36 +621,24 @@ impl Ctx<'_, '_, '_> {
             }
         }
 
-        // 6. The property name of a binding element.
-        if let Some(parent) = self.nodes.parent(id)
-            && let Some(Node::BindingElement(element)) = self.map.get(parent)
-            && element.property_name.and_then(|name| name.node_id()) == Some(id)
-        {
-            let name = match tsr_ast::Expression::try_from(node) {
-                Ok(expression) => self.checker.check_expression(expression),
-                Err(_) => self.checker.intrinsics().error,
-            };
-            if self.is_error(name) {
-                return (
-                    Bucket::Writer,
-                    "binding element: the property name (type_symbol_baseline.go:380)".to_string(),
-                );
-            }
+        // 6. The property name of a binding element: the producer prints `any`
+        //    unconditionally (the writer's `IsBindingElement(node.Parent)`
+        //    guard, property-name subset).
+        if arm == ProducerArm::BindingPropertyName {
+            return (
+                Bucket::Writer,
+                "binding element: the property name (type_symbol_baseline.go:380)".to_string(),
+            );
         }
 
-        // 7. A label name.
-        if is_label_name(id, self.nodes, self.map) {
-            let label = match tsr_ast::Expression::try_from(node) {
-                Ok(expression) => self.checker.check_expression(expression),
-                Err(_) => self.checker.intrinsics().error,
-            };
-            if self.is_error(label) {
-                return (Bucket::Writer, "label name (type_symbol_baseline.go:380)".to_string());
-            }
+        // 7. A label name: `any` unconditionally in the producer.
+        if arm == ProducerArm::LabelName {
+            return (Bucket::Writer, "label name (type_symbol_baseline.go:380)".to_string());
         }
 
         // 8. An intrinsic JSX tag name.
-        if self.nodes.kind(id) == SyntaxKind::Identifier
+        if arm == ProducerArm::IntrinsicJsxTag
+            && self.nodes.kind(id) == SyntaxKind::Identifier
             && let Some(parent) = self.nodes.parent(id)
             && jsx_tag_name_of(parent, self.map) == Some(id)
             && let Some(Node::Identifier(name)) = self.map.get(id)
@@ -606,7 +662,9 @@ impl Ctx<'_, '_, '_> {
         }
 
         // 9. The expression fall-through.
-        if let Ok(expression) = tsr_ast::Expression::try_from(node) {
+        if arm == ProducerArm::Expression
+            && let Ok(expression) = tsr_ast::Expression::try_from(node)
+        {
             let ours = self.checker.check_expression(expression);
             let arm = self.expression_arm(id, expression);
             return self.verdict(ours, arm, id);
@@ -614,7 +672,7 @@ impl Ctx<'_, '_, '_> {
 
         (
             Bucket::Unclassified,
-            format!("neither a declaration name nor an expression: {:?}", self.nodes.kind(id)),
+            format!("producer arm {arm:?} not attributed: {:?}", self.nodes.kind(id)),
         )
     }
 
@@ -687,18 +745,28 @@ fn main() {
                 return None;
             }
             let text = case.expected_types()?;
-            let expected = types_baseline::parse(&text);
-            if types_baseline::assertion_count(&expected) == 0 {
+            if types_baseline::assertion_count(&types_baseline::parse(&text)) == 0 {
                 return None;
             }
             let parsed = case.load().ok()?;
+            // The suite's reading (`types_producer::expected_for_case`), so the
+            // reconciliation below holds against `coverage`.
+            let expected = types_producer::expected_for_case(&text, &parsed);
+            if types_baseline::assertion_count(&expected) == 0 {
+                return None;
+            }
             let arena = tsr_core::Arena::new();
             let (program, ours, ids) =
                 types_producer::assertions_for_case_with_ids(&arena, &parsed, &expected);
             let nodes = program.nodes();
             let node_map = program.node_map();
             let bound = program.binder();
-            let mut checker = tsr_checker::Checker::new(bound, nodes, node_map);
+            // The producer's checker, not a bare one: module host, JSDoc table
+            // and compiler options (`configured_checker`, `bd tsr-6.29`). A bare
+            // `Checker::new` answers under default options and with no module
+            // host, so its branches stopped agreeing with the printed lines
+            // (`docs/parity/notes/r5-align.md` §7).
+            let mut checker = types_producer::configured_checker(&program);
             let mut ctx = Ctx { checker: &mut checker, binder: bound, nodes, map: node_map };
 
             let mut report = CaseReport::default();
@@ -958,6 +1026,16 @@ fn main() {
             println!("    {line}");
         }
     }
+    let order_dependent: usize = banked
+        .iter()
+        .chain(lost.iter())
+        .filter(|((bucket, _), _)| *bucket == Bucket::OrderDependent.label())
+        .map(|(_, row)| row.lines)
+        .sum();
+    println!(
+        "\nORDER-DEPENDENT (outside the control; §781): {order_dependent} lines the producer \
+         no longer prints `any` for when asked again"
+    );
     println!("\nCONTROLS (must read zero):");
     println!("  UNCLASSIFIED, banked      {unclassified_banked}");
     println!("  UNCLASSIFIED, lost        {unclassified_lost}");

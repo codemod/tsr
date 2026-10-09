@@ -77,6 +77,19 @@ fn a_union_constituent_is_parenthesised() {
 }
 
 #[test]
+fn a_constituent_is_parenthesised_by_its_printed_node_precedence() {
+    // `emitTypeNode(node, TypePrecedenceIntersection)` wraps a node that binds
+    // below `Intersection`. A `keyof A` union prints its origin, a
+    // `TypeOperator` node, so it is not wrapped
+    // (`reverseMappedTypeIntersectionConstraint`); a conditional is
+    // (`distributiveConditionalTypeConstraints`).
+    let source = "interface A { a: string; b: number }\nfunction f<T>(x: keyof T & keyof A) {}";
+    assert_eq!(type_of_annotation_at(source, 1), "keyof T & keyof A");
+    let source = "function f<T>(x: (T extends string ? 1 : 2) & string) {}";
+    assert_eq!(type_of_annotation_at(source, 0), "(T extends string ? 1 : 2) & string");
+}
+
+#[test]
 fn an_intersection_origin_keeps_parentheses_when_it_joins_another_union() {
     assert_eq!(
         type_of_annotation_at(

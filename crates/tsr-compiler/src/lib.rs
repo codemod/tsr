@@ -350,8 +350,12 @@ impl<'a> Program<'a> {
                 // table — stamps the root. `checker-notes-assign.md` §11.1 is the
                 // consumer that found the flag declared and set by nothing.
                 let lowered = file_name.to_ascii_lowercase();
-                if [".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
-                    && let Some(root) = tsr_ast::Node::SourceFile(into.source_file).node_id()
+                // `ScriptKindJSON` is `NodeFlagsJavaScriptFile |
+                // NodeFlagsJsonFile` (`parser.go:306`); the JSON parser stamps
+                // the second half itself.
+                if let Some(root) = tsr_ast::Node::SourceFile(into.source_file).node_id()
+                    && ([".js", ".jsx", ".cjs", ".mjs"].iter().any(|ext| lowered.ends_with(ext))
+                        || nodes.flags(root).contains(tsr_ast::NodeFlags::JSON_FILE))
                 {
                     nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
                     // Every JSDoc root too: native's flag is on every node of

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4564/5502 (82.95%)
-Failed         : 938
+Passed         : 4599/5502 (83.59%)
+Failed         : 903
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 938 failures:
+First 100 of 903 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -67,11 +67,11 @@ compiler/augmentExportEquals5
 compiler/awaitCallExpressionInSyncFunction
   1 unexpected (first TS2304 at awaitCallExpressionInSyncFunction.ts(2,16)), 1 missing
 compiler/awaitedType
-  2 missing (first TS2589 at awaitedType.ts(22,12))
+  2 unexpected (first TS2322 at awaitedType.ts(39,9)), 2 missing
 compiler/awaitedTypeNoLib
   1 missing (first TS2345 at awaitedTypeNoLib.ts(18,27))
 compiler/awaitedTypeStrictNull
-  2 missing (first TS2589 at awaitedTypeStrictNull.ts(22,12))
+  2 unexpected (first TS2322 at awaitedTypeStrictNull.ts(39,9)), 2 missing
 compiler/badArrayIndex
   1 unexpected (first TS1109 at badArrayIndex.ts(1,22)), 1 missing
 compiler/baseConstraintOfDecorator
@@ -103,7 +103,7 @@ compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
   2 missing (first TS2322 at chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2.ts(7,49))
 compiler/checkJsTypeDefNoUnusedLocalMarked
-  1 unexpected (first TS6133 at something.js(3,5)), 1 missing
+  1 missing (first TS2352 at something.js(5,29))
 compiler/checkJsxNotSetError
   3 missing (first TS6142 at /bar.jsx(1,17))
 compiler/checkerInitializationCrash

@@ -18,6 +18,10 @@ pub(crate) struct MappedTypeInfo {
     pub(crate) homomorphic_symbol: Option<SymbolId>,
 }
 
+/// A type mapper in `instantiate_type`'s form: the pairs, the parameters
+/// they may mention, and those parameters' names.
+type CombinedMapper = (Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>);
+
 /// `ReverseMappedType` (types.go): the source, mapped target and constraint
 /// whose members resolveReverseMappedTypeMembers produces on first read.
 #[derive(Clone, Debug)]
@@ -42,17 +46,40 @@ impl<'a> Checker<'a, '_> {
     /// getTypeFromMappedTypeNode and createMappedTypeNodeFromType (checker.go,
     /// nodebuilderimpl.go). Build a deferred mapped type from semantic parts
     /// when its template is outside the bounded written-node renderer.
+    ///
+    /// getTypeFromMappedTypeNode (checker.go:24170) answers one type per node
+    /// (`typeNodeLinks.resolvedType`). The answer is published in
+    /// `type_literal_types`, the table type-literal and function-type nodes
+    /// already use for the same links, under the same context key
+    /// ([`Checker::type_literal_key`]: the node, the alias-evaluation
+    /// bindings and whether a mapped template encloses it), so a re-resolved
+    /// alias body or an enclosing template keeps its own image. Without it
+    /// every evaluation minted a fresh type, and identity tests such as
+    /// `typeToTypeNodeHelperWithPossibleReusableTypeNode`'s
+    /// `getTypeFromTypeNode(node) == t` never held (r5-mapped4.md §2). A
+    /// declined build is not published, so a later evaluation retries it.
     pub(crate) fn create_semantic_mapped_type(
         &mut self,
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) -> Option<TypeId> {
-        let info = self.mapped_type_info(node)?;
-        if !self.is_generic_mapped_info(&info) {
-            return self.resolved_mapped_object(info);
+        let key = node.node_id.map(|id| self.type_literal_key(id));
+        if let Some(key) = &key
+            && let Some(&ty) = self.type_literal_types.get(key)
+        {
+            return Some(ty);
         }
-        let text = self.mapped_type_text(&info)?;
-        let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
-        self.mapped_types.insert(ty, info);
+        let info = self.mapped_type_info(node)?;
+        let ty = if self.is_generic_mapped_info(&info) {
+            let text = self.mapped_type_text(&info)?;
+            let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
+            self.mapped_types.insert(ty, info);
+            ty
+        } else {
+            self.resolved_mapped_object(info)?
+        };
+        if let Some(key) = key {
+            self.type_literal_types.insert(key, ty);
+        }
         Some(ty)
     }
 
@@ -63,21 +90,21 @@ impl<'a> Checker<'a, '_> {
         let name = node.type_parameter?.name?.text;
         // The node builder preserves the top-level keyof operator even
         // when resolving its operand would produce a concrete key union.
-        let constraint =
-            if let Some(source) = info.modifiers_source
-                && info.keyof_constraint
-            {
-                let text = self.type_to_string(source);
-                if self.store.get(source).flags.intersects(
-                    crate::flags::TypeFlags::UNION | crate::flags::TypeFlags::INTERSECTION,
-                ) {
-                    format!("keyof ({text})")
-                } else {
-                    format!("keyof {text}")
-                }
+        let constraint = if let Some(source) = info.modifiers_source
+            && info.keyof_constraint
+        {
+            // emitTypeOperator's operand precedence (`printer.go:2274`):
+            // a union, intersection, conditional or function operand is
+            // parenthesised; an aliased union is a reference and is not.
+            let text = self.type_to_string(source);
+            if crate::node_reuse::binds_below_type_operator(&text) {
+                format!("keyof ({text})")
             } else {
-                self.type_to_string(info.constraint)
-            };
+                format!("keyof {text}")
+            }
+        } else {
+            self.type_to_string(info.constraint)
+        };
         // createMappedTypeNodeFromType (nodebuilderimpl.go:1471) prints
         // removeMissingType(getTemplateTypeFromMappedType(t), isOptional): the
         // template with `?`'s optionality, minus the missing type that exact
@@ -318,10 +345,34 @@ impl<'a> Checker<'a, '_> {
         } else {
             constraint
         };
+        // A node evaluated under alias-evaluation frames is this port's image
+        // of an instantiated mapped type (the alias body re-resolved under its
+        // arguments, where native instantiates one type). Its iteration
+        // parameter is the instance's clone, as instantiateAnonymousType
+        // makes it (checker.go:22461): the frames are the clone's mapper, so
+        // its constraint is the declared one instantiated (`keyof U` for
+        // `MyMap<U>`). The template and `as` clause are resolved once with
+        // `P` bound to the clone, in a frame of its own, rather than renamed
+        // afterwards: a rename re-resolves every alias reference they hold,
+        // and each of those would rename again (r5-mapped4.md §5).
+        let parameter_type = if self.alias_evaluation_bindings.is_empty() {
+            parameter_type
+        } else {
+            let map = self.alias_evaluation_map();
+            let parameters: Vec<_> = map.iter().map(|&(parameter, _)| parameter).collect();
+            self.clone_mapped_type_parameter(parameter_type, &map, &parameters, &[]).0
+        };
+        let rebinds = !self.alias_evaluation_bindings.is_empty();
+        if rebinds {
+            self.alias_evaluation_bindings.push([(symbol, parameter_type)].into_iter().collect());
+        }
         self.mapped_template_depth += 1;
         let template = self.get_type_from_type_node(template);
         let name_type = node.name_type.map(|node| self.get_type_from_type_node(node));
         self.mapped_template_depth -= 1;
+        if rebinds {
+            self.alias_evaluation_bindings.pop();
+        }
 
         if constraint == self.intrinsics.error
             || template == self.intrinsics.error
@@ -384,17 +435,25 @@ impl<'a> Checker<'a, '_> {
         let operand = self.deferred_keyof_operands.get(&extended).copied();
         self.alias_evaluation_bindings = bindings;
         let operand = operand?;
+        let map = self.alias_evaluation_map();
+        let parameters: Vec<_> = map.iter().map(|&(parameter, _)| parameter).collect();
+        Some(self.instantiate_type(operand, &map, &parameters, &[]))
+    }
+
+    /// The active alias-evaluation frames as a type mapper: each bound
+    /// parameter's declared type to its argument (an inner frame wins).
+    fn alias_evaluation_map(&mut self) -> Vec<(TypeId, TypeId)> {
         let bindings: rustc_hash::FxHashMap<_, _> = self
             .alias_evaluation_bindings
             .iter()
             .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
             .collect();
-        let map: Vec<_> = bindings
+        let mut bindings: Vec<_> = bindings.into_iter().collect();
+        bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
+        bindings
             .into_iter()
             .map(|(symbol, ty)| (self.get_declared_type_of_symbol(symbol), ty))
-            .collect();
-        let parameters: Vec<_> = map.iter().map(|&(parameter, _)| parameter).collect();
-        Some(self.instantiate_type(operand, &map, &parameters, &[]))
+            .collect()
     }
 
     /// Resolve key operators semantically under a mapped type's mapper.
@@ -708,6 +767,11 @@ impl<'a> Checker<'a, '_> {
         // resolveMappedTypeMembers combines source keys before substituting
         // the template, so colliding names see the entire key union.
         let mut members: Vec<(TypeId, TypeId, TypeId)> = Vec::new();
+        // The first member each property name landed on: resolveMappedTypeMembers
+        // keys its member table by name, so the merge below is a lookup, not
+        // a rescan of every earlier member (r5-mapped4.md §3).
+        let mut member_by_name: rustc_hash::FxHashMap<String, usize> =
+            rustc_hash::FxHashMap::default();
         for key in keys {
             let name = info.name_type.map_or(key, |name| {
                 self.instantiate_type(name, &[(info.parameter, key)], &[info.parameter], &[])
@@ -729,13 +793,15 @@ impl<'a> Checker<'a, '_> {
                 // Keys naming one property share it; native unions their key
                 // types under the shared name (resolveMappedTypeMembers).
                 let property_name = self.mapped_key_property_name(name);
-                if let Some((_, keys, _)) = members.iter_mut().find(|(existing, _, _)| {
-                    property_name.is_some()
-                        && (existing == &name
-                            || self.mapped_key_property_name(*existing) == property_name)
-                }) {
+                if let Some(&index) =
+                    property_name.as_ref().and_then(|name| member_by_name.get(name))
+                {
+                    let keys = &mut members[index].1;
                     *keys = self.get_union_type(&[*keys, key]);
                 } else {
+                    if let Some(property_name) = property_name {
+                        member_by_name.insert(property_name, members.len());
+                    }
                     members.push((name, key, key));
                 }
             }
@@ -746,6 +812,7 @@ impl<'a> Checker<'a, '_> {
         // setStructuredTypeMembers does. Types are published after substitution.
         self.anonymous_properties.insert(id, (Vec::new(), true));
         let mut properties = Vec::new();
+        let mut property_names: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
         let mut indexes: Vec<crate::index_signatures::IndexInfo> = Vec::new();
         for (name_type, key, first_key) in members {
             let Some(name) = self.mapped_key_property_name(name_type) else {
@@ -791,10 +858,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 continue;
             };
-            if properties
-                .iter()
-                .any(|property: &crate::objects::AnonymousProperty| property.name == name)
-            {
+            if !property_names.insert(name.clone()) {
                 continue;
             }
             let source_name = self.mapped_key_property_name(first_key);
@@ -906,8 +970,18 @@ impl<'a> Checker<'a, '_> {
             return mapped;
         }
         info.constraint = self.instantiate_type(info.constraint, map, parameters, names);
-        info.template = self.instantiate_type(info.template, map, parameters, names);
-        info.name_type = info.name_type.map(|ty| self.instantiate_type(ty, map, parameters, names));
+        // instantiateAnonymousType (checker.go:22461): the instance iterates a
+        // fresh clone of the declared parameter, whose mapper combines
+        // `P -> P'` with the instance's, so getConstraintOfTypeParameter(P')
+        // is the instantiated constraint. The template and `as` clause are
+        // instantiated under that combined mapper.
+        let (fresh, (combined, sources, source_names)) =
+            self.clone_mapped_type_parameter(info.parameter, map, parameters, names);
+        info.parameter = fresh;
+        let source_names: Vec<_> = source_names.iter().map(String::as_str).collect();
+        info.template = self.instantiate_type(info.template, &combined, &sources, &source_names);
+        info.name_type =
+            info.name_type.map(|ty| self.instantiate_type(ty, &combined, &sources, &source_names));
         info.modifiers_source = info
             .modifiers_source
             .map(|source| self.instantiate_type(source, map, parameters, names));
@@ -939,6 +1013,57 @@ impl<'a> Checker<'a, '_> {
             return self.intrinsics.error;
         }
         self.resolved_mapped_object(info).unwrap_or(self.intrinsics.error)
+    }
+
+    /// The mapped arm of instantiateAnonymousType (checker.go:22461):
+    /// `cloneTypeParameter(getTypeParameterFromMappedType(t))`, with the
+    /// combined mapper `P -> P'` then `map` recorded as the clone's mapper, so
+    /// getConstraintOfTypeParameter(P') resolves per instance through
+    /// `instantiated_type_parameters`. Returns the clone and the combined
+    /// mapper (pairs, parameters, names) for the instance's template.
+    fn clone_mapped_type_parameter(
+        &mut self,
+        original: TypeId,
+        map: &[(TypeId, TypeId)],
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> (TypeId, CombinedMapper) {
+        let name = self.type_to_string(original);
+        // One clone per instantiation: native clones inside
+        // instantiateAnonymousType, which getObjectTypeInstantiation caches
+        // by the outer type arguments. `P` stands for its mapped declaration,
+        // so `(P, map)` is that cache's key in `instantiated_objects`, whose
+        // other keys are object types.
+        let key = (original, map.to_vec());
+        let fresh = if let Some(&fresh) = self.instantiated_objects.get(&key) {
+            fresh
+        } else {
+            let fresh =
+                self.store.new_named(crate::flags::TypeFlags::TYPE_PARAMETER, name.clone(), None);
+            if let Some(&symbol) = self.type_parameter_symbols.get(&original) {
+                self.type_parameter_symbols.insert(fresh, symbol);
+            }
+            self.instantiated_objects.insert(key, fresh);
+            fresh
+        };
+        let mut combined = Vec::with_capacity(map.len() + 1);
+        combined.push((original, fresh));
+        combined.extend_from_slice(map);
+        let mut sources = Vec::with_capacity(parameters.len() + 1);
+        sources.push(original);
+        sources.extend_from_slice(parameters);
+        let mut source_names = Vec::with_capacity(names.len() + 1);
+        source_names.push(name);
+        source_names.extend(names.iter().map(|&name| name.to_owned()));
+        self.instantiated_type_parameters.entry(fresh).or_insert_with(|| {
+            crate::inference::InstantiatedTypeParameter {
+                target: original,
+                map: combined.clone(),
+                parameters: sources.clone(),
+                names: source_names.clone(),
+            }
+        });
+        (fresh, (combined, sources, source_names))
     }
 
     /// createTypeNodeFromObjectType (nodebuilderimpl.go:2690) for a mapped
@@ -1377,6 +1502,43 @@ mod member_producer_tests {
     use crate::{Checker, flags::TypeFlags, types::TypeData};
     use tsr_ast::Statement;
     use tsr_core::Arena;
+
+    /// instantiateAnonymousType's mapped arm (checker.go:22461):
+    /// `MyMap<U>` iterates a clone of `P` constrained to `keyof U`, one clone
+    /// per instantiation, while the declaration's `P` keeps `keyof T`
+    /// (`mappedTypeParameterConstraint`, r5-mapped4.md §5).
+    #[test]
+    fn an_instance_iterates_a_clone_with_the_instantiated_constraint() {
+        let source = "type MyMap<T> = {[P in keyof T]: T[keyof T]};
+function foo<U>(m: MyMap<U>, n: MyMap<U>) {}";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "mapped-iteration.ts", text: source },
+        );
+        let Statement::FunctionDeclaration(function) = parsed.source_file.statements[1] else {
+            panic!("function");
+        };
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let mut clones = Vec::new();
+        for parameter in function.parameters {
+            let mapped = checker.get_type_from_type_node(parameter.r#type.unwrap());
+            checker.ensure_mapped_type_info(mapped);
+            let clone = checker.mapped_types[&mapped].parameter;
+            let constraint = checker.type_parameter_constraint(clone).unwrap();
+            assert_eq!(checker.type_to_string(constraint), "keyof U");
+            assert!(checker.instantiated_type_parameters.contains_key(&clone));
+            let target = checker.instantiated_type_parameters[&clone].target;
+            let declared = checker.type_parameter_constraint(target).unwrap();
+            assert_eq!(checker.type_to_string(declared), "keyof T");
+            clones.push(clone);
+        }
+        assert_eq!(clones[0], clones[1]);
+    }
 
     #[test]
     fn open_homomorphic_members_keep_constraint_roots_and_deferred_values() {

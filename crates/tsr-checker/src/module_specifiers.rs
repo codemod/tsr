@@ -120,6 +120,7 @@ pub(crate) enum Ending {
     Minimal,
     Index,
     Js,
+    Ts,
 }
 
 /// `tspath.RemoveFileExtension`'s extension, for the extensions a program
@@ -178,65 +179,501 @@ fn combine(directory: &str, relative: &str) -> String {
     }
 }
 
+/// `tspath.HasJSFileExtension`.
+fn has_js_file_extension(path: &str) -> bool {
+    [".js", ".jsx", ".mjs", ".cjs"].iter().any(|extension| path.ends_with(extension))
+}
+
+/// `tspath.ExtensionsNotSupportingExtensionlessResolution`.
+const NOT_EXTENSIONLESS: [&str; 6] = [".mts", ".d.mts", ".mjs", ".cts", ".d.cts", ".cjs"];
+
+/// `PathIsBareSpecifier` (`modulespecifiers/util.go:42`) folded into
+/// `ensurePathIsNonModuleName` (`:136`): a bare path gets `./`.
+fn ensure_path_is_non_module_name(path: String) -> String {
+    if tsr_path::path_is_relative(&path) || tsr_path::get_root_length(&path) > 0 {
+        path
+    } else {
+        format!("./{path}")
+    }
+}
+
+/// `GetJSExtensionForDeclarationFileExtension` (`modulespecifiers/util.go:143`).
+fn js_extension_for_declaration_file_extension(extension: &str) -> &str {
+    match extension {
+        ".d.ts" => ".js",
+        ".d.mts" => ".mjs",
+        ".d.cts" => ".cjs",
+        // `.d.json.ts` and the like.
+        other => other.get(".d".len()..other.len().saturating_sub(".ts".len())).unwrap_or(""),
+    }
+}
+
+/// `TryGetRealFileNameForNonJSDeclarationFileName` (`modulespecifiers/util.go:159`):
+/// `foo.d.json.ts` / `foo.module.d.css.ts` back to `foo.json` /
+/// `foo.module.css`.
+fn real_file_name_for_non_js_declaration_file_name(file_name: &str) -> Option<String> {
+    let base_name = file_name.rsplit('/').next().unwrap_or(file_name);
+    if !tsr_path::file_extension_is(file_name, ".ts")
+        || !base_name.contains(".d.")
+        || tsr_path::file_extension_is(base_name, ".d.ts")
+    {
+        return None;
+    }
+    let no_extension = tsr_path::remove_extension(file_name, ".ts");
+    let extension = &no_extension[no_extension.rfind('.')?..];
+    let before = no_extension.split_once(".d.").map_or(no_extension, |(before, _)| before);
+    Some(format!("{before}{extension}"))
+}
+
+/// The node builder's half of `ModuleSpecifierPreferences`
+/// (`getSpecifierForModuleSymbol`, `nodebuilderimpl.go:1296`): the
+/// `ImportModuleSpecifierEnding` it passes — `Js` when its resolution mode is
+/// ESM, else none — under `ImportModuleSpecifierPreferenceProjectRelative`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SpecifierPreferences {
+    /// `ImportModuleSpecifierEndingPreferenceJs` (else `None`).
+    pub ending_js: bool,
+}
+
 impl Checker<'_, '_> {
-    /// `processEnding` (`modulespecifiers/specifiers.go:636`) under
-    /// `allowed` endings (never `.ts`, which `allowImportingTsExtensions`
-    /// alone admits and the caller declines). `None` for the
-    /// `foo.d.json.ts` remap, which is not ported.
-    pub(crate) fn process_ending(&self, file_name: &str, allowed: &[Ending]) -> Option<String> {
-        let Some(extension) = file_extension(file_name) else {
-            return Some(file_name.to_string());
+    /// `symbolToTypeNode`'s import-type arm (`nodebuilderimpl.go:659`-`:707`):
+    /// the argument of the `import(…)` type that names `module` at
+    /// `reference` — the quoted specifier, followed by
+    /// `, { with: { "resolution-mode": "…" } }` when native writes the
+    /// attribute.
+    ///
+    /// Under `node16`/`nodenext` resolution, a target emitted as ESM from a
+    /// context file of another emit format is named in ESM mode with the
+    /// `import` attribute. `GetEmitModuleFormatOfFile` is
+    /// `ModuleHost::implied_node_format_for_emit`, as in r5-modules §6.
+    ///
+    /// The arm's second half — regenerating a specifier that dives into
+    /// `/node_modules/` in the swapped mode — is gated on
+    /// `FlagsAllowNodeModulesRelativePaths` being *unset*. `typeToString`
+    /// always sets it (`FlagsIgnoreErrors`, `printer.go:202`,
+    /// `nodebuilder/types.go:61`), so a printed type never swaps; only
+    /// declaration emit does, and its tracker
+    /// (`symbol_access.rs` `inferred_type_reports`) asks the swapped mode
+    /// itself (r5-modules2 §3.2).
+    pub(crate) fn import_type_argument(
+        &self,
+        module: tsr_binder::SymbolId,
+        reference: NodeId,
+    ) -> Option<String> {
+        let node_next = self.module_host.is_some_and(|host| {
+            host.specifier_options(ModuleKind::None).module_resolution_is_node_next
+        });
+        if !node_next {
+            return self.module_specifier_for_symbol_in_mode(module, reference, ModuleKind::None);
+        }
+        let host = self.module_host?;
+        let format = |file: NodeId| host.implied_node_format_for_emit(file);
+        // `ast.GetSourceFileOfModule(chain[0])` and the enclosing file.
+        let target_file = self
+            .binder
+            .symbols()
+            .get(module)
+            .declarations
+            .first()
+            .and_then(|&declaration| self.source_file_of(declaration));
+        let context_file = self.source_file_of(reference);
+        let mut attribute = None;
+        let mut specifier = None;
+        if let (Some(target), Some(context)) = (target_file, context_file)
+            && format(target) == ModuleKind::ESNext
+            && format(target) != format(context)
+        {
+            specifier =
+                self.module_specifier_for_symbol_in_mode(module, reference, ModuleKind::ESNext);
+            attribute = Some("import");
+        }
+        let specifier = match specifier {
+            Some(specifier) => specifier,
+            None => {
+                self.module_specifier_for_symbol_in_mode(module, reference, ModuleKind::None)?
+            }
         };
-        if matches!(extension, ".json" | ".mjs" | ".cjs") {
-            return Some(file_name.to_string());
-        }
-        let base = &file_name[..file_name.len() - extension.len()];
-        let (_, js) = self.js_extension_for_file(file_name)?;
-        if matches!(extension, ".d.mts" | ".d.cts" | ".mts" | ".cts") {
-            return Some(format!("{base}{js}"));
-        }
-        if extension == ".ts" && file_name.contains(".d.") {
-            return None;
-        }
-        Some(match allowed.first().copied().unwrap_or(Ending::Minimal) {
-            Ending::Minimal => base.strip_suffix("/index").unwrap_or(base).to_string(),
-            Ending::Index => base.to_string(),
-            Ending::Js => format!("{base}{js}"),
+        Some(match attribute {
+            Some(mode) => format!("{specifier}, {{ with: {{ \"resolution-mode\": \"{mode}\" }} }}"),
+            None => specifier,
         })
     }
 
-    /// `getAllowedEndingsInPreferredOrder` (`modulespecifiers/preferences.go`)
-    /// without `allowImportingTsExtensions` (`None` there, as the caller
-    /// declines it): `[Js]` for an ESM file under `node16`..`nodenext`
-    /// resolution, else the preferred ending first.
+    /// `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`) for a module
+    /// that has a source file, over `GetModuleSpecifiers`
+    /// (`modulespecifiers/specifiers.go:19`) and `computeModuleSpecifiers`
+    /// (`:359`): the first specifier, unquoted. The ambient arms are the
+    /// caller's (`Checker::module_specifier_for_symbol_in_mode`).
+    ///
+    /// `module_file` is the module's source file, `importing` the
+    /// reference's. The module paths are the file's own path only:
+    /// `GetEachFileNameOfModule`'s symlink and redirect alternatives are not
+    /// ported (r5-modules2 §2), so the per-path loops run once.
+    ///
+    /// No cache: native memoizes the answer per `(symbol, file, mode)`
+    /// (`links.specifierCache`); every input here is a pure function of the
+    /// program, so recomputing gives the same answer (r5-modules2 §2).
+    pub(crate) fn module_specifier_for_file(
+        &self,
+        module_file: NodeId,
+        importing: NodeId,
+        override_mode: ModuleKind,
+    ) -> Option<String> {
+        let host = self.module_host?;
+        // The node builder's own resolution mode (`:1278`), which picks the
+        // ending preference it passes. The `originalModuleSpecifier` arm
+        // (printing inside an import declaration) is not ported.
+        let builder_mode = if override_mode == ModuleKind::None {
+            host.default_resolution_mode_for_file(importing)
+        } else {
+            override_mode
+        };
+        let preferences = SpecifierPreferences { ending_js: builder_mode == ModuleKind::ESNext };
+        // `computeModuleSpecifiers`' existing-import arm (r5-modules §4).
+        if let Some(existing) =
+            self.existing_import_specifier(importing, module_file, override_mode)
+        {
+            return Some(existing);
+        }
+        let from = host.file_path(importing)?;
+        let to = host.file_path(module_file)?;
+        let source_directory = tsr_path::get_directory_path(&from);
+        // The `IsInNodeModules` arm: a package-name specifier, after which
+        // `getLocalModuleSpecifier` runs `pathsOnly` and (with no `paths`)
+        // answers nothing, so the package name wins.
+        if to.contains("/node_modules/")
+            && let Some(name) = self.node_module_specifier(
+                importing,
+                source_directory,
+                &to,
+                override_mode,
+                preferences,
+            )
+        {
+            return Some(name);
+        }
+        let import_mode = if override_mode == ModuleKind::None {
+            host.default_resolution_mode_for_file(importing)
+        } else {
+            override_mode
+        };
+        self.local_module_specifier(importing, &from, &to, import_mode, preferences)
+    }
+
+    /// `getLocalModuleSpecifier` (`modulespecifiers/specifiers.go:481`) with
+    /// no `paths`, `rootDirs` or `package.json` `imports` (none is visible
+    /// to the checker's host; r5-modules2 §2): the relative path from the
+    /// importing file's directory, through `processEnding`.
+    fn local_module_specifier(
+        &self,
+        importing: NodeId,
+        from: &str,
+        to: &str,
+        import_mode: ModuleKind,
+        preferences: SpecifierPreferences,
+    ) -> Option<String> {
+        let source_directory = tsr_path::get_directory_path(from);
+        // A path on another root has no relative spelling; upstream's
+        // `GetRelativePathFromDirectory` would answer the absolute path.
+        if (tsr_path::get_root_length(source_directory) > 0) != (tsr_path::get_root_length(to) > 0)
+        {
+            return None;
+        }
+        let allowed = self.allowed_endings(importing, preferences, import_mode)?;
+        let options = tsr_path::ComparePathsOptions {
+            use_case_sensitive_file_names: true,
+            current_directory: String::new(),
+        };
+        let relative = ensure_path_is_non_module_name(tsr_path::get_relative_path_from_directory(
+            source_directory,
+            to,
+            &options,
+        ));
+        self.process_ending(&relative, &allowed)
+    }
+
+    /// `processEnding` (`modulespecifiers/specifiers.go:636`). `None` where
+    /// `getJSExtensionForFile` would panic (an extension with no JS form).
+    ///
+    /// `tryGetAnyFileFromPath`'s probe (keep `/index` when a file shares the
+    /// directory's name) needs a file-system question the checker's host
+    /// does not answer; the minimal ending always strips `/index`.
+    pub(crate) fn process_ending(&self, file_name: &str, allowed: &[Ending]) -> Option<String> {
+        if tsr_path::file_extension_is_one_of(file_name, &[".json", ".mjs", ".cjs"]) {
+            return Some(file_name.to_string());
+        }
+        let no_extension = tsr_path::remove_file_extension(file_name);
+        if no_extension == file_name {
+            return Some(file_name.to_string());
+        }
+        let priority = |ending: Ending| allowed.iter().position(|&e| e == ending);
+        let js_priority = priority(Ending::Js);
+        let ts_priority = priority(Ending::Ts);
+        // Go's `tsPriority < jsPriority` with `-1` for absent.
+        let before_js = |index: Option<usize>| match (index, js_priority) {
+            (Some(index), Some(js)) => index < js,
+            _ => false,
+        };
+        if tsr_path::file_extension_is_one_of(file_name, &[".mts", ".cts"])
+            && before_js(ts_priority)
+        {
+            return Some(file_name.to_string());
+        }
+        if tsr_path::file_extension_is_one_of(file_name, &[".d.mts", ".d.cts"]) {
+            let input = tsr_path::get_declaration_file_extension(file_name);
+            let extension = js_extension_for_declaration_file_extension(input);
+            return Some(format!("{}{extension}", tsr_path::remove_extension(file_name, input)));
+        }
+        if tsr_path::file_extension_is_one_of(file_name, &[".mts", ".cts"]) {
+            let (_, js) = self.js_extension_for_file(file_name)?;
+            return Some(format!("{no_extension}{js}"));
+        }
+        if !tsr_path::file_extension_is(file_name, ".d.ts")
+            && tsr_path::file_extension_is(file_name, ".ts")
+            && file_name.contains(".d.")
+            && let Some(real) = real_file_name_for_non_js_declaration_file_name(file_name)
+        {
+            return Some(real);
+        }
+        Some(match allowed.first().copied().unwrap_or(Ending::Minimal) {
+            Ending::Minimal => {
+                no_extension.strip_suffix("/index").unwrap_or(no_extension).to_string()
+            }
+            Ending::Index => no_extension.to_string(),
+            Ending::Js => {
+                let (_, js) = self.js_extension_for_file(file_name)?;
+                format!("{no_extension}{js}")
+            }
+            Ending::Ts => {
+                if !tsr_path::is_declaration_file_name(file_name) {
+                    return Some(file_name.to_string());
+                }
+                let extensionless = allowed
+                    .iter()
+                    .position(|&ending| matches!(ending, Ending::Minimal | Ending::Index));
+                if before_js(extensionless) {
+                    no_extension.to_string()
+                } else {
+                    let (_, js) = self.js_extension_for_file(file_name)?;
+                    format!("{no_extension}{js}")
+                }
+            }
+        })
+    }
+
+    /// `GetAllowedEndingsInPreferredOrder` (`modulespecifiers/preferences.go:147`)
+    /// for the node builder's preferences, under `syntax_mode`
+    /// (`syntaxImpliedNodeFormat`, `ModuleKind::None` for none).
     pub(crate) fn allowed_endings(
         &self,
         importing: NodeId,
-        mode: ModuleKind,
+        preferences: SpecifierPreferences,
+        syntax_mode: ModuleKind,
     ) -> Option<Vec<Ending>> {
+        use Ending::{Index, Js, Minimal, Ts};
         let host = self.module_host?;
-        if mode == ModuleKind::ESNext && host.specifier_options(mode).module_resolution_is_node_next
-        {
-            return Some(vec![Ending::Js]);
+        let resolution_mode = host.default_resolution_mode_for_file(importing);
+        let preferred = self.preferred_ending(
+            importing,
+            preferences,
+            if resolution_mode == syntax_mode { ModuleKind::None } else { syntax_mode },
+        );
+        let node_next = host.specifier_options(resolution_mode).module_resolution_is_node_next;
+        // `shouldAllowImportingTsExtension(options, importingSourceFile.FileName())`:
+        // a declaration file may name `.ts` files.
+        let allow_ts = self.allow_importing_ts_extensions
+            || host
+                .file_path(importing)
+                .is_some_and(|path| tsr_path::is_declaration_file_name(&path));
+        let effective = if syntax_mode == ModuleKind::None { resolution_mode } else { syntax_mode };
+        if effective == ModuleKind::ESNext && node_next {
+            return Some(if allow_ts { vec![Ts, Js] } else { vec![Js] });
         }
-        Some(if self.module_specifier_uses_js_ending(importing, mode)? {
-            vec![Ending::Js, Ending::Minimal, Ending::Index]
-        } else {
-            vec![Ending::Minimal, Ending::Index, Ending::Js]
+        Some(match preferred {
+            Js if allow_ts => vec![Js, Ts, Minimal, Index],
+            Js => vec![Js, Minimal, Index],
+            Ts => vec![Ts, Minimal, Js, Index],
+            Index if allow_ts => vec![Index, Minimal, Ts, Js],
+            Index => vec![Index, Minimal, Js],
+            Minimal if allow_ts => vec![Minimal, Index, Ts, Js],
+            Minimal => vec![Minimal, Index, Js],
         })
     }
 
+    /// `getPreferredEnding` (`modulespecifiers/preferences.go:121`) with no
+    /// old specifier, then `getModuleSpecifierEndingPreference` (`:68`).
+    fn preferred_ending(
+        &self,
+        importing: NodeId,
+        preferences: SpecifierPreferences,
+        resolution_mode: ModuleKind,
+    ) -> Ending {
+        let Some(host) = self.module_host else { return Ending::Minimal };
+        let resolution_mode = if resolution_mode == ModuleKind::None {
+            host.default_resolution_mode_for_file(importing)
+        } else {
+            resolution_mode
+        };
+        let node_next = host.specifier_options(resolution_mode).module_resolution_is_node_next;
+        // `shouldAllowImportingTsExtension(compilerOptions, "")`: the option alone.
+        let allow_ts = self.allow_importing_ts_extensions;
+        if preferences.ending_js || resolution_mode == ModuleKind::ESNext && node_next {
+            if !allow_ts {
+                return Ending::Js;
+            }
+            return if self.infer_preference(importing, resolution_mode, node_next) == Ending::Js {
+                Ending::Js
+            } else {
+                Ending::Ts
+            };
+        }
+        if !allow_ts {
+            return if self.uses_extensions_on_imports(importing) {
+                Ending::Js
+            } else {
+                Ending::Minimal
+            };
+        }
+        self.infer_preference(importing, resolution_mode, node_next)
+    }
+
+    /// `usesExtensionsOnImports` (`modulespecifiers/preferences.go:18`): the
+    /// first relative import whose extension is optional decides.
+    fn uses_extensions_on_imports(&self, importing: NodeId) -> bool {
+        self.first_import_text(importing, |text| {
+            (tsr_path::path_is_relative(text)
+                && !tsr_path::file_extension_is_one_of(text, &NOT_EXTENSIONLESS))
+            .then(|| has_ts_file_extension(text) || has_js_file_extension(text))
+        })
+        .unwrap_or(false)
+    }
+
+    /// `inferPreference` (`modulespecifiers/preferences.go:28`). JS
+    /// `require` calls at the top of a file without imports are upstream's
+    /// own TODO, as here.
+    fn infer_preference(&self, importing: NodeId, mode: ModuleKind, node_next: bool) -> Ending {
+        let mut uses_js = false;
+        let decided = self.first_import_text(importing, |text| {
+            if !tsr_path::path_is_relative(text)
+                || node_next && mode == ModuleKind::CommonJS
+                || tsr_path::file_extension_is_one_of(text, &NOT_EXTENSIONLESS)
+            {
+                return None;
+            }
+            if has_ts_file_extension(text) {
+                return Some(Ending::Ts);
+            }
+            uses_js |= has_js_file_extension(text);
+            None
+        });
+        decided.unwrap_or(if uses_js { Ending::Js } else { Ending::Minimal })
+    }
+
+    /// The first `Some` of `decide` over `importing`'s `Imports()` texts
+    /// (`collectExternalModuleReferences`), in order. The statement-level
+    /// imports are read off the tree first; the full collection (dynamic
+    /// `import()`, `require`, import types) is walked only when they did not
+    /// decide.
+    fn first_import_text<T>(
+        &self,
+        importing: NodeId,
+        mut decide: impl FnMut(&str) -> Option<T>,
+    ) -> Option<T> {
+        use tsr_ast::{Expression, ModuleReference, Statement};
+        let Some(tsr_ast::Node::SourceFile(source)) = self.node_map.get(importing) else {
+            return None;
+        };
+        for statement in source.statements {
+            let specifier = match statement {
+                Statement::ImportDeclaration(node) => node.module_specifier,
+                Statement::ExportDeclaration(node) => node.module_specifier,
+                Statement::ImportEqualsDeclaration(node) => match node.module_reference {
+                    Some(ModuleReference::ExternalModuleReference(external)) => external.expression,
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(Expression::StringLiteral(literal)) = specifier else { continue };
+            if let Some(found) = decide(literal.text) {
+                return Some(found);
+            }
+        }
+        let is_js_file = self.in_js_file(importing);
+        if !is_js_file
+            && !self
+                .nodes
+                .flags(importing)
+                .contains(tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT)
+        {
+            return None;
+        }
+        // `collectDynamicImports` (`parser/references.go`, mirrored by
+        // `tsr_parser::collect_external_module_references`, which the checker
+        // does not depend on): `import()` calls, `require()` in JavaScript,
+        // and literal import types, by position.
+        let mut dynamic: Vec<(u32, &str)> = Vec::new();
+        let mut stack = vec![tsr_ast::Node::from(source)];
+        let mut children = Vec::new();
+        while let Some(node) = stack.pop() {
+            let literal = match node {
+                tsr_ast::Node::CallExpression(call) => {
+                    let callee_ok = match call.expression {
+                        Some(Expression::KeywordExpression(keyword)) => {
+                            keyword.kind == tsr_ast::SyntaxKind::ImportKeyword
+                        }
+                        Some(Expression::Identifier(name)) => {
+                            is_js_file && name.text == "require" && call.arguments.len() == 1
+                        }
+                        _ => false,
+                    };
+                    match call.arguments.first().map(|argument| tsr_ast::Node::from(*argument)) {
+                        Some(tsr_ast::Node::StringLiteral(literal)) if callee_ok => {
+                            literal.node_id.map(|id| (id, literal.text))
+                        }
+                        Some(tsr_ast::Node::NoSubstitutionTemplateLiteral(literal))
+                            if callee_ok =>
+                        {
+                            literal.node_id.map(|id| (id, literal.text))
+                        }
+                        _ => None,
+                    }
+                }
+                tsr_ast::Node::ImportTypeNode(import) => match import.argument {
+                    Some(tsr_ast::TypeNode::LiteralTypeNode(literal_type)) => {
+                        match literal_type.literal {
+                            Some(tsr_ast::Node::StringLiteral(literal)) => {
+                                literal.node_id.map(|id| (id, literal.text))
+                            }
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some((id, text)) = literal {
+                dynamic.push((self.nodes.span(id).start, text));
+            }
+            children.clear();
+            tsr_ast::push_children(node, &mut children);
+            stack.extend(children.iter().copied());
+        }
+        dynamic.sort_by_key(|&(position, _)| position);
+        dynamic.into_iter().find_map(|(_, text)| decide(text))
+    }
+
     /// `tryGetModuleNameAsNodeModule` (`modulespecifiers/specifiers.go:743`)
-    /// with `packageNameOnly = false` and no override mode, for a module at
-    /// `module_path` imported from `importing` (whose directory is
-    /// `source_directory`). `None` is upstream's `""`: the caller falls back
-    /// to the relative specifier.
+    /// with `packageNameOnly = false`, for a module at `module_path`
+    /// imported from `importing` (whose directory is `source_directory`).
+    /// `None` is upstream's `""`: the caller falls back to the relative
+    /// specifier.
     pub(crate) fn node_module_specifier(
         &self,
         importing: NodeId,
         source_directory: &str,
         module_path: &str,
         override_mode: ModuleKind,
+        preferences: SpecifierPreferences,
     ) -> Option<String> {
         let parts = node_module_path_parts(module_path)?;
         let host = self.module_host?;
@@ -245,7 +682,8 @@ impl Checker<'_, '_> {
         } else {
             override_mode
         };
-        let allowed = self.allowed_endings(importing, mode)?;
+        // `getAllowedEndingsInPreferredOrder(core.ResolutionModeNone)`.
+        let allowed = self.allowed_endings(importing, preferences, ModuleKind::None)?;
         // Upstream's loop advances a local `packageRootIndex` but hands
         // `tryDirectoryWithPackageJson` the unchanged `*parts`, so every
         // iteration re-tries the package root and the loop ends in
@@ -640,7 +1078,35 @@ fn pattern_matches(key: &str, candidate: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{node_module_path_parts, package_name_from_types_package_name};
+    use super::{
+        ensure_path_is_non_module_name, js_extension_for_declaration_file_extension,
+        node_module_path_parts, package_name_from_types_package_name,
+        real_file_name_for_non_js_declaration_file_name,
+    };
+
+    #[test]
+    fn non_js_declaration_files_remap_to_their_real_names() {
+        // `TryGetRealFileNameForNonJSDeclarationFileName` (`util.go:159`).
+        assert_eq!(
+            real_file_name_for_non_js_declaration_file_name("./foo.d.html.ts").as_deref(),
+            Some("./foo.html")
+        );
+        assert_eq!(
+            real_file_name_for_non_js_declaration_file_name("./a/foo.module.d.css.ts").as_deref(),
+            Some("./a/foo.module.css")
+        );
+        assert_eq!(real_file_name_for_non_js_declaration_file_name("./foo.d.ts"), None);
+        assert_eq!(real_file_name_for_non_js_declaration_file_name("./a.d/foo.ts"), None);
+        assert_eq!(js_extension_for_declaration_file_extension(".d.json.ts"), ".json");
+        assert_eq!(js_extension_for_declaration_file_extension(".d.mts"), ".mjs");
+    }
+
+    #[test]
+    fn bare_paths_become_relative() {
+        assert_eq!(ensure_path_is_non_module_name("foo".into()), "./foo");
+        assert_eq!(ensure_path_is_non_module_name("../foo".into()), "../foo");
+        assert_eq!(ensure_path_is_non_module_name("/foo".into()), "/foo");
+    }
 
     #[test]
     fn path_parts_index_the_outermost_node_modules_and_the_innermost_package() {

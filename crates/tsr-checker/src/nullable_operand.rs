@@ -181,11 +181,23 @@ impl Checker<'_, '_> {
     /// `never` result — in both modes. The `+` arm's *type*
     /// (`binary.rs` `check_addition`) asks this; its diagnostics go through
     /// [`Checker::check_non_null_type_reporting`].
+    ///
+    /// Each of those `errorType` answers is upstream's own (ADR-0048), so
+    /// they are [`Intrinsics::native_error`](crate::Intrinsics), not the gap:
+    /// verified line by line against the native identity probe, 256 of 256
+    /// lines (`docs/parity/notes/r5-errorsplit5.md` §3). The gap is kept only
+    /// for a gap operand, which [`Checker::check_non_null_type`] hands back
+    /// unchanged.
     pub(crate) fn non_null_operand_type(&mut self, ty: TypeId) -> TypeId {
         if self.strict_null_checks && self.type_of(ty).flags.intersects(TypeFlags::UNKNOWN) {
-            return self.intrinsics.error;
+            return self.intrinsics.native_error;
         }
         let non_null = self.check_non_null_type(ty);
+        // `check_non_null_type` (`members.rs`) spells its two `errorType`
+        // exits (`checker.go:7411`, `:7429`) as the gap; neither is one.
+        if non_null == self.intrinsics.error && !self.is_gap(ty) {
+            return self.intrinsics.native_error;
+        }
         // Non-strict `GetNonNullableType` is the identity, and upstream's tail
         // (`checker.go:7429`) still answers `errorType` for a nullable or
         // never result; `check_non_null_type` returns the type unchanged there.
@@ -196,7 +208,7 @@ impl Checker<'_, '_> {
                 .get_type_facts(ty)
                 .intersects(crate::flow::TypeFacts::IS_UNDEFINED | crate::flow::TypeFacts::IS_NULL)
         {
-            return self.intrinsics.error;
+            return self.intrinsics.native_error;
         }
         non_null
     }

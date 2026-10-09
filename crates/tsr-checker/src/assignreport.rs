@@ -164,6 +164,20 @@ impl<'a> Checker<'a, '_> {
             // arithmetic arms (`checker.go:12401`, `:12458`). An operator
             // error (`errorType`) returns before the call upstream.
             _ => {
+                // `+=`'s `checkForDisallowedESSymbolOperand` (`checker.go:12444`):
+                // a symbol-like operand reports TS2469 and returns the
+                // result type before `checkAssignmentOperator`.
+                if operator.kind == SyntaxKind::PlusEqualsToken {
+                    let left_type = self.check_expression(left);
+                    let right_type = self.check_expression(right);
+                    let symbol_like = crate::flags::TypeFlags::ES_SYMBOL_LIKE;
+                    if self.maybe_type_of_kind_considering_base_constraint(left_type, symbol_like)
+                        || self
+                            .maybe_type_of_kind_considering_base_constraint(right_type, symbol_like)
+                    {
+                        return;
+                    }
+                }
                 let result = self.check_expression_at_node(node);
                 if result == self.intrinsics().error {
                     return;
@@ -286,8 +300,8 @@ impl<'a> Checker<'a, '_> {
     /// an array/object literal is `checkDestructuringAssignment`'s, so neither
     /// is this position. An unresolved iterated type (native nil) is silent.
     ///
-    /// `for await` iterates `getIteratedTypeOrElementType`'s async arm, which
-    /// this port's `for_of_element_type` does not answer, so it is declined.
+    /// The iterated type is `checkRightHandSideOfForOf`'s
+    /// (`for_of_statement_element_type`), async-first for `for await`.
     /// The left-hand type comes from [`Checker::assignment_target_type`], the
     /// same declared-type reader (and declines) the `=` arm uses.
     pub(crate) fn check_for_of_reference_assignment(&mut self, node: NodeId, ambient: bool) {
@@ -295,7 +309,7 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
-        if statement.kind.kind != SyntaxKind::ForOfStatement || statement.await_modifier.is_some() {
+        if statement.kind.kind != SyntaxKind::ForOfStatement {
             return;
         }
         let (Some(initializer), Some(expression)) = (statement.initializer, statement.expression)
@@ -318,8 +332,10 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         let Some(target) = self.assignment_target_type(left_id) else { return };
-        let iterable = self.check_expression_at_node(right_id);
-        let Some(source) = self.for_of_element_type(iterable) else { return };
+        let is_async = statement.await_modifier.is_some();
+        let Some(source) = self.for_of_statement_element_type(expression, is_async) else {
+            return;
+        };
         self.report_assignability_failure(left_id, right_id, source, target);
     }
 
@@ -491,15 +507,28 @@ impl<'a> Checker<'a, '_> {
         let (annotation, initializer) = match self.node_map.get(node) {
             Some(Node::PropertyDeclaration(property)) => (property.r#type, property.initializer),
             Some(Node::ParameterDeclaration(parameter)) => {
-                if parameter.question_token.is_some() || parameter.dot_dot_dot_token.is_some() {
+                if parameter.dot_dot_dot_token.is_some() {
                     return;
                 }
                 (parameter.r#type, parameter.initializer)
             }
             _ => return,
         };
-        let (Some(annotation), Some(initializer)) = (annotation, initializer) else { return };
-        let target = self.get_type_from_type_node(annotation);
+        let Some(initializer) = initializer else { return };
+        let target = match annotation {
+            Some(annotation) if self.nodes.kind(node) == SyntaxKind::PropertyDeclaration => {
+                self.get_type_from_type_node(annotation)
+            }
+            _ if self.nodes.kind(node) == SyntaxKind::PropertyDeclaration => return,
+            // `checkVariableLikeDeclaration` (`checker.go:5893`) relates a
+            // parameter default to `getTypeOfSymbol` of the parameter: the
+            // annotation, or the contextual parameter type of an
+            // unannotated parameter of a contextually typed function.
+            _ => {
+                let Some(target) = self.parameter_initializer_target(node) else { return };
+                target
+            }
+        };
         let source = self.check_expression(initializer);
         let Some(initializer_id) = initializer.node_id() else { return };
         // §73: the elaboration reports the member instead of the outer message.
@@ -509,6 +538,43 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         self.report_assignability_failure(node, initializer_id, source, target);
+    }
+
+    /// `getTypeOfSymbol` of a parameter that is its symbol's value
+    /// declaration, for its default's relation. An undecided type (a gap,
+    /// or the error type of an unresolved contextual parameter) declines.
+    ///
+    /// An unannotated parameter of a function that cannot be contextually
+    /// typed (a declaration, a class method, an accessor or constructor) has
+    /// the widened type of its own default, to which the default is always
+    /// assignable, so it is not asked: asking would resolve its type earlier
+    /// than native does, and this port's signature resolution reports a
+    /// circularity (TS7022) native never reaches for
+    /// `function foo(a = bar()) {}` beside `function bar(a = foo()) {}`
+    /// (`functionWithDefaultParameterWithNoStatements16`).
+    fn parameter_initializer_target(&mut self, node: NodeId) -> Option<TypeId> {
+        if let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node)
+            && parameter.r#type.is_none()
+        {
+            let function = self.nodes.parent(node)?;
+            let contextual = match self.nodes.kind(function) {
+                SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction => true,
+                SyntaxKind::MethodDeclaration => self
+                    .nodes
+                    .parent(function)
+                    .is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ObjectLiteralExpression),
+                _ => false,
+            };
+            if !contextual {
+                return None;
+            }
+        }
+        let symbol = self.binder.symbol_of(node)?;
+        if self.binder.symbols().get(symbol).value_declaration != Some(node) {
+            return None;
+        }
+        let target = self.get_type_of_symbol(symbol);
+        (!self.is_gap(target) && !self.is_error(target)).then_some(target)
     }
 
     /// `checkVariableLikeDeclaration` (`checker.go:5790`) on a binding element
@@ -602,8 +668,10 @@ impl<'a> Checker<'a, '_> {
     /// plain operand's only: a `yield*` operand's elements are related, not
     /// the written literal.
     ///
-    /// Declined: async generators (the yielded type is awaited first,
-    /// `getAwaitedType`).
+    /// An async generator relates the awaited yielded type
+    /// ([`Checker::awaited_yielded_type`]) against the annotation's async
+    /// yield iteration type; `yield*` iterates with
+    /// `IterationUseAsyncYieldStar`.
     pub(crate) fn check_yield_expression_assignability(&mut self, node: NodeId) {
         if self.in_js_file(node) {
             return;
@@ -617,16 +685,17 @@ impl<'a> Checker<'a, '_> {
             Some(Node::FunctionExpression(f)) => (f.asterisk_token, f.r#type, f.modifiers),
             _ => return,
         };
-        if asterisk.is_none() || has_async(modifiers) {
+        if asterisk.is_none() {
             return;
         }
+        let is_async = has_async(modifiers);
         let Some(annotation) = annotation else { return };
         let mut return_type = self.get_type_from_type_node(annotation);
         if self.type_of(return_type).flags.contains(TypeFlags::UNION) {
             let mut undecided = false;
             return_type = self.filter_type(return_type, |checker, constituent| {
                 checker
-                    .generator_instantiation_assignable_to_return_type(constituent, false)
+                    .generator_instantiation_assignable_to_return_type(constituent, is_async)
                     .unwrap_or_else(|()| {
                         undecided = true;
                         false
@@ -639,7 +708,7 @@ impl<'a> Checker<'a, '_> {
         let Ok(yield_type) = self.get_iteration_type_of_generator_function_return_type(
             crate::iteration::IterationTypeKind::Yield,
             return_type,
-            false,
+            is_async,
         ) else {
             return;
         };
@@ -648,12 +717,20 @@ impl<'a> Checker<'a, '_> {
             let operand_type = self.check_expression_at_node(operand);
             if yield_star {
                 // getYieldedTypeOfYieldExpression (`checker.go:11019`).
-                let Some((yielded, _)) = self.yield_star_operand_types(operand_type, false) else {
+                let Some((yielded, _)) = self.yield_star_operand_types(operand_type, is_async)
+                else {
+                    return;
+                };
+                let Some(yielded) = self.awaited_yielded_type(yielded, operand, is_async) else {
                     return;
                 };
                 self.report_assignability_failure(operand, operand, yielded, target);
                 return;
             }
+            let Some(operand_type) = self.awaited_yielded_type(operand_type, operand, is_async)
+            else {
+                return;
+            };
             let before = self.diagnostics.len();
             self.check_excess_properties(target, operand);
             if self.diagnostics.len() != before {
@@ -664,6 +741,27 @@ impl<'a> Checker<'a, '_> {
             let undefined = self.intrinsics.undefined;
             self.report_assignability_failure_with(node, None, undefined, target);
         }
+    }
+
+    /// The async tail of `getYieldedTypeOfYieldExpression` (`checker.go:11019`):
+    /// an async generator yields `getAwaitedTypeEx(yieldedType, errorNode,
+    /// TS1322)`, reported at the operand. A sync generator yields the type
+    /// unchanged. `None` declines (a gap, or native's `nil`).
+    fn awaited_yielded_type(
+        &mut self,
+        yielded: TypeId,
+        operand: NodeId,
+        is_async: bool,
+    ) -> Option<TypeId> {
+        if !is_async {
+            return Some(yielded);
+        }
+        self.check_awaited_type(
+            yielded,
+            false,
+            operand,
+            &messages::TYPE_OF_ITERATED_ELEMENTS_OF_A_YIELD_ASTERISK_OPERAND_MUST_EITHER_BE_A_VALID_PROMISE_OR_MUST_NOT_CONTAIN_A_CALLABLE_THEN_MEMBER,
+        )
     }
 
     /// `checkSignatureDeclaration`'s generator arm (`checker.go:2757`): a
@@ -1057,9 +1155,18 @@ impl<'a> Checker<'a, '_> {
     /// Answers `(returnType, unwrappedReturnType, isAsync)`. An async
     /// function's target is `unwrapReturnType`'s `getAwaitedTypeNoAlias` of
     /// its annotation (`checker.go:20388`); a gap, or native's `nil` (whose
-    /// `errorType` target relates to everything), declines. **Generators are
-    /// declined**: their annotation is an `Iterator<…>` whose return
-    /// iteration type is not read here.
+    /// `errorType` target relates to everything), declines. A generator's
+    /// target is `unwrapReturnType`'s generator arm: the annotation's return
+    /// iteration type (`getIterationTypeOfGeneratorFunctionReturnType`; for
+    /// an async generator native then takes `getAwaitedTypeNoAlias(
+    /// unwrapAwaitedType(…))`). A generator has no set-accessor fallback, so no annotation is no check.
+    ///
+    /// **Async generators are declined**, as `check_yield_expression_assignability`
+    /// declines them: the contextual type of an async generator's return
+    /// operand (`getContextualTypeForReturnExpression`'s async arm) is not
+    /// this port's, so `return Promise.resolve({ x: 'x' })` widens `'x'` and
+    /// relates a source native never sees (`generatorReturnContextualType`
+    /// 23:3, 27:3; `docs/parity/notes/r5-ts2322.md` §2.2).
     fn return_type_from_annotation(&mut self, container: NodeId) -> Option<(TypeId, TypeId, bool)> {
         let (annotation, generator, modifiers) = match self.node_map.get(container)? {
             Node::FunctionDeclaration(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
@@ -1070,7 +1177,21 @@ impl<'a> Checker<'a, '_> {
             _ => return None,
         };
         if generator {
-            return None;
+            let is_async = has_async(modifiers);
+            if is_async {
+                return None;
+            }
+            let return_type = self.get_type_from_type_node(annotation?);
+            // Native's nil (an `any` annotation, a missing slot) is
+            // `errorType`, which relates to everything; a gap declines.
+            let slot = self
+                .get_iteration_type_of_generator_function_return_type(
+                    crate::iteration::IterationTypeKind::Return,
+                    return_type,
+                    is_async,
+                )
+                .ok()??;
+            return Some((return_type, slot, false));
         }
         if has_async(modifiers) {
             let return_type = self.get_type_from_type_node(annotation?);
@@ -1088,13 +1209,33 @@ impl<'a> Checker<'a, '_> {
 
     /// `getAnnotatedAccessorType` of the set accessor paired with an
     /// unannotated get accessor: its first non-`this` parameter's annotation.
-    /// A computed name only pairs when the binder bound it (`hasBindableName`).
-    fn set_accessor_parameter_annotation(&self, getter: NodeId) -> Option<tsr_ast::TypeNode<'a>> {
+    /// A computed name pairs when it is late-bindable (`hasBindableName`):
+    /// the binder gives each such declaration its own `__computed` symbol,
+    /// and the pair is the declarations `lateBindMember` gives one name
+    /// ([`Checker::late_bound_members_of`] of the owner, on the getter's side
+    /// of `static`).
+    fn set_accessor_parameter_annotation(
+        &mut self,
+        getter: NodeId,
+    ) -> Option<tsr_ast::TypeNode<'a>> {
         if self.nodes.kind(getter) != SyntaxKind::GetAccessor {
             return None;
         }
         let symbol = self.binder.symbol_of(getter)?;
-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let declarations = if self.binder.symbols().get(symbol).name == "__computed" {
+            let owner = self.binder.symbol_of(self.nodes.parent(getter)?)?;
+            let owner = self.binder.merged_symbol(owner);
+            let is_static = self.member_declaration_has_modifier(getter, SyntaxKind::StaticKeyword);
+            let members = self.late_bound_members_of(owner, is_static);
+            let name = members.iter().find(|(_, declaration)| *declaration == getter)?.0.clone();
+            members
+                .into_iter()
+                .filter(|(member, _)| *member == name)
+                .map(|(_, declaration)| declaration)
+                .collect()
+        } else {
+            self.binder.symbols().get(symbol).declarations.clone()
+        };
         declarations.into_iter().find_map(|declaration| {
             let Some(Node::SetAccessorDeclaration(setter)) = self.node_map.get(declaration) else {
                 return None;
@@ -1284,7 +1425,7 @@ impl<'a> Checker<'a, '_> {
     /// `checkReferenceExpression`'s verdict (`checker.go:13130`) without its
     /// reports (those are `check_reference_expression`'s): an identifier or
     /// access under assertions and parentheses, not an optional chain.
-    fn is_assignable_reference(&self, node: NodeId) -> bool {
+    pub(crate) fn is_assignable_reference(&self, node: NodeId) -> bool {
         let spine = self.skip_reference_spine(node, true);
         matches!(
             self.nodes.kind(spine),
@@ -1308,7 +1449,7 @@ impl<'a> Checker<'a, '_> {
     /// variable is `any` and upstream reports nothing — the same auto-to-any
     /// mechanism `docs/architecture/checker-notes-narrow.md` §9 measures from the
     /// `.types` side.
-    fn assignment_target_type(&mut self, node: NodeId) -> Option<TypeId> {
+    pub(crate) fn assignment_target_type(&mut self, node: NodeId) -> Option<TypeId> {
         // `checkParenthesizedExpression` answers its operand's type, and
         // `getAssignmentTargetKind` looks through parentheses, so `(x) = ''`
         // writes into `x`'s declared type exactly as `x = ''` does.
@@ -1368,13 +1509,26 @@ impl<'a> Checker<'a, '_> {
         }
         let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return None };
         let text = identifier.text;
-        let symbol = self.binder.resolve_name(
+        let Some(symbol) = self.binder.resolve_name(
             self.nodes,
             self.node_map,
             node,
             text,
             SymbolFlags::VALUE | SymbolFlags::ALIAS,
-        )?;
+        ) else {
+            // `resolveName`'s function-scope `argumentsSymbol`
+            // (`binder/nameresolver.go`), whose type is the global
+            // `IArguments`: `checkIdentifier` answers it, and an assignment
+            // to `arguments` relates against it
+            // (`parseClassDeclarationInStrictModeByDefaultInES6`). The
+            // identifier's own check owns the container rule; an `arguments`
+            // outside a function answers the error type, which declines.
+            if text == "arguments" {
+                let ty = self.check_expression_at_node(node);
+                return (!self.is_gap(ty) && !self.is_error(ty)).then_some(ty);
+            }
+            return None;
+        };
         let symbol = self.binder.merged_symbol(symbol);
         let entry = self.binder.symbols().get(symbol);
         // `checkIdentifier`'s assignment arms report TS2628/2629/2630/2631/2632
@@ -1401,7 +1555,14 @@ impl<'a> Checker<'a, '_> {
         {
             return None;
         }
-        Some(self.get_type_of_symbol(symbol))
+        let declared = self.get_type_of_symbol(symbol);
+        // `checkIdentifier` (`checker.go:11110`): a definite target of a
+        // compound-like assignment (`x = x + 1`) reads at the literal's base,
+        // exactly as `x += 1` would.
+        if self.is_in_compound_like_assignment(node) {
+            return Some(self.get_base_type_of_literal_type(declared));
+        }
+        Some(declared)
     }
 
     /// Is this an **auto-typed** declaration — `let x;`, no annotation and no
@@ -2724,6 +2885,17 @@ impl<'a> Checker<'a, '_> {
             // below stays for flagged look-alikes and every target.
             // Measured: no corpus verdict changes (tsr-2zk.44).
             if side == source && side == unknown {
+                continue;
+            }
+            // `any` relates to every target but `never` (`isSimpleTypeRelatedTo`
+            // admits an `any` source only against a non-`never` target), so an
+            // `any` source against `never` is a definite failure whatever this
+            // port's `any` stands for: `x1[k] = 'bar' as any` into a reduced
+            // `never` property is TS2322 natively (`intersectionReduction`).
+            if side == source
+                && side == any
+                && self.type_of(target).flags.contains(TypeFlags::NEVER)
+            {
                 continue;
             }
             // `Checker::is_error` and not `== intrinsics.error`: an unresolved

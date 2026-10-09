@@ -207,13 +207,21 @@ impl Checker<'_, '_> {
                             self.no_unchecked_indexed_access,
                         )
                         .unwrap_or(error)
+                    } else if let Some(member) = self.late_bound_destructuring_member(
+                        element.property_name,
+                        key,
+                        parent_type,
+                    ) {
+                        member
                     } else {
                         // AccessFlagsExpressionPosition: noUncheckedIndexedAccess
                         // adds undefined to an index-signature result
                         // (`checker.go:26947`, `:27117`). A miss under
                         // AllowMissing on an object-literal type is `undefined`
-                        // (`checker.go:27187`).
-                        if let Some(info) = self.get_applicable_index_info(parent_type, key) {
+                        // (`checker.go:27187`). With no applicable signature
+                        // the string signature answers, even for a symbol key
+                        // (`checker.go:27077`; r5-shapes §2.7).
+                        if let Some(info) = self.destructuring_index_info(parent_type, key) {
                             let include = self.no_unchecked_indexed_access;
                             self.include_unchecked_undefined(info.value, include, parent_type, key)
                         } else {
@@ -740,13 +748,51 @@ impl Checker<'_, '_> {
         match self.relate_ternary(source, array, crate::relater::Relation::Assignable) {
             crate::relater::Ternary::Related => Some(true),
             crate::relater::Ternary::NotRelated => Some(false),
-            crate::relater::Ternary::Unknown => None,
+            crate::relater::Ternary::Unknown => self.union_parent_is_array_like(source, array),
         }
+    }
+
+    /// `isTypeAssignableTo(union, anyReadonlyArrayType)` decided per
+    /// constituent, for a union the whole-type relation left undecided. A
+    /// union source is assignable exactly when each constituent is
+    /// (`eachTypeRelatedToType`), so this is the relation's own rule, applied
+    /// with the declared-base shortcut above for each member:
+    /// `RegExpMatchArray | []` is array-like (`initializedDestructuringAssignmentTypes`,
+    /// r5-shapes §2.7). The whole-type `Nullable` gate of `isArrayLikeType`
+    /// does not apply to a constituent, so a nullable member asks the
+    /// relation, which owns strictness. Any constituent still undecided keeps
+    /// the answer undecided.
+    fn union_parent_is_array_like(&mut self, source: TypeId, array: TypeId) -> Option<bool> {
+        let TypeData::Union { types, .. } = self.store.get(source).data.clone() else {
+            return None;
+        };
+        let mut decided = Some(true);
+        for part in types {
+            let answer = if self.store.get(part).flags.intersects(TypeFlags::NULLABLE) {
+                match self.relate_ternary(part, array, crate::relater::Relation::Assignable) {
+                    crate::relater::Ternary::Related => Some(true),
+                    crate::relater::Ternary::NotRelated => Some(false),
+                    crate::relater::Ternary::Unknown => None,
+                }
+            } else {
+                self.binding_parent_is_array_like(part)
+            };
+            match answer {
+                Some(true) => {}
+                Some(false) => return Some(false),
+                None => decided = None,
+            }
+        }
+        decided
     }
 
     /// getBindingElementTypeFromParentType maps instantiable constraints,
     /// then slices only if every constituent is a tuple (checker.go:17753).
-    fn binding_rest_tuple_slice(&mut self, source: TypeId, index: usize) -> Option<TypeId> {
+    pub(crate) fn binding_rest_tuple_slice(
+        &mut self,
+        source: TypeId,
+        index: usize,
+    ) -> Option<TypeId> {
         let source = self.binding_type_alias_body(source);
         let parts = match self.store.get(source).data.clone() {
             TypeData::Union { types, .. } => types,
@@ -1125,7 +1171,7 @@ impl Checker<'_, '_> {
     /// A generic constituent of a union declines: native would mint an
     /// `Omit` for it, which the top-level type-parameter branch above
     /// implements only for a bare source.
-    fn concrete_rest_type(&mut self, source: TypeId, bound: &[String]) -> TypeId {
+    pub(crate) fn concrete_rest_type(&mut self, source: TypeId, bound: &[String]) -> TypeId {
         let error = self.intrinsics.error;
         let source =
             self.filter_type(source, |c, t| !c.store.get(t).flags.intersects(TypeFlags::NULLABLE));
@@ -1147,6 +1193,14 @@ impl Checker<'_, '_> {
         if flags.intersects(TypeFlags::INSTANTIABLE) {
             return error;
         }
+        // `getPropertiesOfType` reads the reduced apparent type, and the
+        // apparent type of `object` is the empty object type, so
+        // `var { ...rest } = a` with `a: object` is `{}`
+        // (`nonPrimitiveAccessProperty`, r5-shapes §2.7). `object` carries no
+        // index infos of its own.
+        if flags.intersects(TypeFlags::NON_PRIMITIVE) {
+            return self.mint_rest_properties(Vec::new(), Vec::new());
+        }
         let Some((properties, _)) = self.spread_properties(source, false) else {
             return error;
         };
@@ -1156,6 +1210,65 @@ impl Checker<'_, '_> {
             return error;
         };
         self.mint_rest_properties(properties, indexes)
+    }
+
+    /// A symbol-typed computed destructuring key names a late-bound member
+    /// before any index signature: `getPropertyTypeForIndexType`
+    /// (`checker.go:27001`) finds the property `getPropertyNameFromIndex`
+    /// names for a unique symbol, and only a miss reaches the signatures.
+    /// `let { [Symbol.iterator]: d } = []` records
+    /// `d : () => ArrayIterator<never>` (`destructuredLateBoundNameHasCorrectTypes`).
+    /// The member is looked up by the key's entity text, the one spelling
+    /// this port names late-bound members by (`indexed.rs` §381), so the
+    /// destructuring read and the element-access read cannot drift.
+    fn late_bound_destructuring_member(
+        &mut self,
+        property_name: Option<PropertyName<'_>>,
+        key: TypeId,
+        parent_type: TypeId,
+    ) -> Option<TypeId> {
+        if !self.store.get(key).flags.intersects(TypeFlags::ES_SYMBOL_LIKE) {
+            return None;
+        }
+        let Some(PropertyName::ComputedPropertyName(computed)) = property_name else {
+            return None;
+        };
+        let name = late_bound_entity_name(computed.expression.as_ref()?)?;
+        self.get_type_of_property_of_type(parent_type, &name)
+    }
+
+    /// `getPropertyTypeForIndexType`'s index-signature choice
+    /// (`checker.go:27072`–`:27079`): the applicable signature, and when none
+    /// applies, *"we default to the string index signature. In effect, this
+    /// means the string index signature applies even when accessing with a
+    /// symbol-like type."* Upstream reaches the choice only for a non-null key
+    /// assignable to `string | number | symbol`, so the fallback carries that
+    /// gate. A destructuring key of type `symbol` against
+    /// `{ [k: string]: V }` is `V` (`lateBoundDestructuringImplicitAnyError`,
+    /// r5-shapes §2.7). `resolved_indexed_access_type` (`indexed.rs`) reads
+    /// its index signatures through this too.
+    pub(crate) fn destructuring_index_info(
+        &mut self,
+        object: TypeId,
+        index: TypeId,
+    ) -> Option<crate::index_signatures::IndexInfo> {
+        if let Some(info) = self.get_applicable_index_info(object, index) {
+            return Some(info);
+        }
+        if self.store.get(index).flags.intersects(TypeFlags::NULLABLE) {
+            return None;
+        }
+        let keys = self.get_union_type(&[
+            self.intrinsics.string,
+            self.intrinsics.number,
+            self.intrinsics.es_symbol,
+        ]);
+        if !self.is_type_assignable_to(index, keys) {
+            return None;
+        }
+        self.get_index_infos_of_type(object)?
+            .into_iter()
+            .find(|info| info.key == self.intrinsics.string)
     }
 
     fn binding_element_property_name(
@@ -1190,7 +1303,7 @@ impl Checker<'_, '_> {
     /// `allow_missing` (`AccessFlagsAllowMissing`, a defaulted element), where
     /// `getPropertyTypeForIndexType` answers `undefined` for an object-literal
     /// object type (`checker.go:27187`) and the default supplies the type.
-    fn destructuring_property_lookup(
+    pub(crate) fn destructuring_property_lookup(
         &mut self,
         parent_type: TypeId,
         name: &str,
@@ -1254,4 +1367,31 @@ impl Checker<'_, '_> {
         let include = self.no_unchecked_indexed_access;
         self.include_unchecked_undefined(info.value, include, parent_type, key)
     }
+}
+
+/// The member key §381 (`indexed.rs`) gives a symbol-typed entity:
+/// `[Symbol.iterator]` for the expression `Symbol.iterator`. This port names
+/// a late-bound member by the entity it was declared with
+/// (`late_bound_members_of`, `members.rs`), where upstream names it by the
+/// unique symbol's `__@iterator@N` (`getPropertyNameFromType`). A reader that
+/// holds the key expression must therefore spell it the same way to find the
+/// member. The element-access arm in `indexed.rs` holds the same spelling
+/// inline; `r5-shapes-indexed-never-and-shared-keys.diff` makes it call this
+/// one. `None` for anything that is not an identifier or a property-access
+/// chain of identifiers.
+pub(crate) fn late_bound_entity_name(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+    fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+        match expression {
+            tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
+            tsr_ast::Expression::PropertyAccessExpression(access) => {
+                let base = chain_text(access.expression.as_ref()?)?;
+                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                    return None;
+                };
+                Some(format!("{base}.{}", name.text))
+            }
+            _ => None,
+        }
+    }
+    chain_text(expression).map(|chain| format!("[{chain}]"))
 }

@@ -1125,6 +1125,7 @@ impl Checker<'_, '_> {
         self.check_unmatched_jsdoc_parameters(node);
         self.check_jsdoc_satisfies_tags(node, ambient);
         if self.file_is_js {
+            self.check_jsdoc_reparsed_this_parameter(node);
             for reparsed in self.jsdoc_reparsed_type_nodes(node) {
                 self.check_node(reparsed, ambient, depth + 1);
             }
@@ -1226,9 +1227,7 @@ impl Checker<'_, '_> {
         if !tsr_binder::is_external_module_in(source, self.nodes) {
             return;
         }
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
+        let Some(symbol) = self.resolve_identifier_memo(
             node,
             text,
             SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
@@ -1236,6 +1235,20 @@ impl Checker<'_, '_> {
             return;
         };
         let symbol = self.binder.merged_symbol(symbol);
+        // `getSymbol(symbols, name, meaning)` (`checker.go`) admits an alias
+        // only when `getSymbolFlags(alias)&meaning != 0`: a UMD name whose
+        // module is `export = React` over a non-instantiated `declare
+        // namespace React {}` is no value, so upstream's `Value` lookup never
+        // returns it and the UMD check never runs (it reports TS2708 at a
+        // value use instead). The binder's lookup tests only the alias's own
+        // flags. `reactTransitiveImportHasValidDeclaration` and the
+        // `jsxNamespaceImplicitImport…PickedOverGlobalOne` cases;
+        // `docs/parity/notes/r5-smallcodes.md` §3.1.
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            && !self.get_symbol_flags(symbol).intersects(SymbolFlags::VALUE)
+        {
+            return;
+        }
         // The declaration kind, not `ALIAS`: a plain `import * as Bar` is an
         // alias too and must stay silent.
         //
@@ -4024,9 +4037,28 @@ impl Checker<'_, '_> {
             // A file that resolved, is in the program, and exports nothing —
             // `requireOfAnEmptyFile1`. Upstream's argument is the resolved file
             // name, not the specifier.
+            //
+            // `!isSideEffectImport(errorNode)` (`checker.go:15358`): `import
+            // "./script"` consumes no module symbol, so a script target is
+            // not an error (`sideEffectImports3`, and `import './'` in
+            // `reactJsxReactResolvedNodeNext`).
+            if self.is_side_effect_import(specifier) {
+                return;
+            }
             Diagnostic::with_args(&messages::FILE_0_IS_NOT_A_MODULE, span, [path])
         };
         self.report(importing, diagnostic);
+    }
+
+    /// `isSideEffectImport` (`checker/utilities.go:229`): the nearest
+    /// `ImportDeclaration` ancestor has no import clause.
+    fn is_side_effect_import(&self, node: NodeId) -> bool {
+        std::iter::once(node)
+            .chain(self.nodes.ancestors(node))
+            .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::ImportDeclaration)
+            .is_some_and(|ancestor| {
+                matches!(self.node_map.get(ancestor), Some(Node::ImportDeclaration(import)) if import.import_clause.is_none())
+            })
     }
 
     /// The boolean core of the TS2307 emitter, shared with
@@ -6377,14 +6409,7 @@ impl Checker<'_, '_> {
         }
         let Some(symbol) = self
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
-            .binder
-            .resolve_name(
-                self.nodes,
-                self.node_map,
-                node,
-                text,
-                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
-            )
+            .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
             // **`a.C` is not a name in scope.** Upstream reaches this use
             // through `resolveEntityName`, which resolves the receiver and
             // takes the member from its exports; this rule is dispatched per
@@ -7013,13 +7038,7 @@ impl Checker<'_, '_> {
         }
         let Some(symbol) =
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
-            self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                node,
-                text,
-                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
-            )
+            self.resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
         else {
             return false;
         };
@@ -12213,33 +12232,45 @@ impl Checker<'_, '_> {
     /// set to es2020, es2022, esnext, commonjs, amd, system, umd, node16,
     /// node18, node20, or nodenext.`
     ///
-    /// `checkGrammarImportCallExpression`'s third arm
-    /// (`grammarchecks.go:2171`), which is one comparison against
-    /// `moduleKind`. The function's other arms are named and not built: the
-    /// `verbatimModuleSyntax` one needs an option this port does not read, the
-    /// `import.meta` one is TS18060 (§615), and the type-arguments one has no
-    /// corpus case. §642.
+    /// `checkGrammarImportCallExpression`'s second and third arms
+    /// (`grammarchecks.go:2167`-`:2172`), each one comparison against
+    /// `moduleKind`: `import.defer(…)` (callee a `MetaProperty`) is TS18060
+    /// outside `esnext`/`preserve`; a plain `import(…)` is TS1323 under
+    /// `es2015`. The function's other arms are named and not built: the
+    /// `verbatimModuleSyntax` one needs an option this port does not read, and
+    /// the type-arguments one has no corpus case. §642;
+    /// `docs/parity/notes/r5-smallcodes.md` §3.5.
     fn check_dynamic_import_module_kind(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors || self.module_kind != tsr_core::ModuleKind::ES2015 {
+        if self.file_has_parse_errors {
             return;
         }
         let Node::CallExpression(call) = typed else { return };
-        if !matches!(
-            call.expression,
+        let message = match call.expression {
+            // `ast.IsImportCall`: only `import.defer` makes the call an import
+            // call; `import.meta(…)` is an ordinary call.
+            Some(tsr_ast::Expression::MetaProperty(meta))
+                if meta.keyword_token.kind == SyntaxKind::ImportKeyword
+                    && meta.name.is_some_and(|name| name.text == "defer") =>
+            {
+                if matches!(
+                    self.module_kind,
+                    tsr_core::ModuleKind::ESNext | tsr_core::ModuleKind::Preserve
+                ) {
+                    return;
+                }
+                &messages::DEFERRED_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ESNEXT_OR_PRESERVE
+            }
             Some(tsr_ast::Expression::KeywordExpression(keyword))
                 if keyword.kind == SyntaxKind::ImportKeyword
-        ) {
-            return;
-        }
+                    && self.module_kind == tsr_core::ModuleKind::ES2015 =>
+            {
+                &messages::DYNAMIC_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ES2020_ES2022_ESNEXT_COMMONJS_AMD_SYSTEM_UMD_NODE16_NODE18_NODE20_OR_NODENEXT
+            }
+            _ => return,
+        };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::DYNAMIC_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ES2020_ES2022_ESNEXT_COMMONJS_AMD_SYSTEM_UMD_NODE16_NODE18_NODE20_OR_NODENEXT,
-                span,
-            ),
-        );
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// TS1206 — `Decorators are not valid here.`

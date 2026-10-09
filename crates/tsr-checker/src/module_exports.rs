@@ -120,6 +120,27 @@ impl crate::Checker<'_, '_> {
         synthetic
     }
 
+    /// `checkImportCallExpression`'s module type (`checker.go:8305`-`:8310`)
+    /// after the `getTypeWithSyntheticDefaultOnly` arm:
+    /// `getTypeWithSyntheticDefaultImportType(getTypeOfSymbol(esModuleSymbol), …)`
+    /// with `esModuleSymbol = resolveExternalModuleSymbol(module)`.
+    ///
+    /// `namespace` is the caller's mint for the module object, which stands
+    /// for the module symbol's own type. A module with `export =` resolves
+    /// to its target, whose type is asked for directly; this replaces
+    /// r5-modexports §3's decline, which skipped such modules.
+    pub(crate) fn import_call_module_type(
+        &mut self,
+        module: tsr_binder::SymbolId,
+        namespace: crate::types::TypeId,
+        specifier: tsr_ast::NodeId,
+    ) -> crate::types::TypeId {
+        let es_module = self.resolve_external_module_symbol(module);
+        let value =
+            if es_module == module { namespace } else { self.get_type_of_symbol(es_module) };
+        self.get_type_with_synthetic_default_import_type(value, module, specifier)
+    }
+
     /// `createDefaultPropertyWrapperForModule` (`checker.go:15707`): an
     /// anonymous object whose one member is `default`, typed as the module.
     ///

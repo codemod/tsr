@@ -3464,7 +3464,8 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 _ => continue,
                             };
                             let Some(id) = typedef.node_id else { continue };
-                            self.declare_jsdoc_symbol(root, name, SymbolFlags::TYPE_ALIAS, id);
+                            let scope = self.jsdoc_alias_scope(*host, root);
+                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
                             // The tag's type expression is parsed syntax — a
                             // `{{a: string}}` object carries members upstream
                             // binds like any written type literal.
@@ -3530,7 +3531,8 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 _ => continue,
                             };
                             let Some(id) = callback.node_id else { continue };
-                            self.declare_jsdoc_symbol(root, name, SymbolFlags::TYPE_ALIAS, id);
+                            let scope = self.jsdoc_alias_scope(*host, root);
+                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
                             if let Some(expression) = callback.type_expression {
                                 self.bind(tsr_ast::Node::from(expression));
                             }
@@ -3610,6 +3612,22 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 self.bind(tsr_ast::Node::from(expression));
                             }
                         }
+                        // `reparseHosted`'s heritage arms (`parser/reparser.go:563`,
+                        // `:589`) clone `@implements`' reference and
+                        // `@augments`' type arguments into the class's heritage
+                        // clauses, where they bind like written ones.
+                        JSDocTag::JSDocAugmentsTag(tsr_ast::JSDocAugmentsTag {
+                            class_name: Some(reference),
+                            ..
+                        })
+                        | JSDocTag::JSDocImplementsTag(tsr_ast::JSDocImplementsTag {
+                            class_name: Some(reference),
+                            ..
+                        }) => {
+                            for argument in reference.type_arguments {
+                                self.bind(tsr_ast::Node::from(*argument));
+                            }
+                        }
                         JSDocTag::JSDocOverloadTag(overload) => {
                             let Some(id) = overload.node_id else { continue };
                             if let Some(symbol) = self.node_symbols[host.index() - self.node_base] {
@@ -3621,6 +3639,36 @@ impl<'a, 'n> Binder<'a, 'n> {
                 }
             }
         }
+    }
+
+    /// The locals a `@typedef`/`@callback` alias documented on `host` is
+    /// declared in. `reparseUnhosted` makes it a `JSTypeAliasDeclaration`
+    /// that `parseListIndex` (`parser/parser.go:610`) keeps in the nearest
+    /// source-file or block statement list enclosing the host (a
+    /// `ModuleBlock` parses its statements as `PCBlockStatements`), and
+    /// `bindBlockScopedDeclaration` files a type alias in that list's
+    /// block-scope container: the block itself, or the function whose body
+    /// it is, or the namespace a module block belongs to.
+    fn jsdoc_alias_scope(&self, host: NodeId, root: NodeId) -> NodeId {
+        let mut current = host;
+        while let Some(parent) = self.nodes.parent(current) {
+            match self.nodes.kind(parent) {
+                SyntaxKind::SourceFile => return root,
+                SyntaxKind::ModuleBlock => return self.nodes.parent(parent).unwrap_or(root),
+                SyntaxKind::Block => {
+                    return match self.nodes.parent(parent) {
+                        Some(owner)
+                            if crate::container::is_function_like_kind(self.nodes.kind(owner)) =>
+                        {
+                            owner
+                        }
+                        _ => parent,
+                    };
+                }
+                _ => current = parent,
+            }
+        }
+        root
     }
 
     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.

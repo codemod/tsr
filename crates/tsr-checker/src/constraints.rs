@@ -490,8 +490,9 @@ impl Checker<'_, '_> {
             return self.next_base_constraint(constraint);
         }
         if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
-            self.store.get(ty).data.clone()
+            &self.store.get(ty).data
         {
+            let types = types.clone();
             let union = self.store.get(ty).flags.contains(TypeFlags::UNION);
             let constraints: Vec<_> =
                 types.iter().filter_map(|&ty| self.next_base_constraint(ty)).collect();
@@ -573,10 +574,12 @@ impl Checker<'_, '_> {
         if !self.active_inference_contexts.is_empty() {
             return ty;
         }
-        let parts = match self.store.get(ty).data.clone() {
-            TypeData::Union { types, .. } => types,
-            _ => vec![ty],
+        let union_parts = match &self.store.get(ty).data {
+            TypeData::Union { types, .. } => Some(types.clone()),
+            _ => None,
         };
+        let single = [ty];
+        let parts: &[TypeId] = union_parts.as_deref().unwrap_or(&single);
         if !parts.iter().any(|&part| self.generic_type_with_union_constraint(part)) {
             return ty;
         }
@@ -626,7 +629,7 @@ impl Checker<'_, '_> {
             return ty;
         }
         let constraints: Vec<_> =
-            parts.into_iter().map(|part| self.base_constraint_or_type(part)).collect();
+            parts.iter().map(|&part| self.base_constraint_or_type(part)).collect();
         self.get_union_type(&constraints)
     }
 
@@ -648,8 +651,9 @@ impl Checker<'_, '_> {
             return self.context_type_is_generic_inner(base, aliases);
         }
         if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
-            self.store.get(ty).data.clone()
+            &self.store.get(ty).data
         {
+            let types = types.clone();
             return types.into_iter().any(|part| self.context_type_is_generic_inner(part, aliases));
         }
         if let Some(parts) = self.template_literal_parts.get(&ty).cloned() {
@@ -758,7 +762,8 @@ impl Checker<'_, '_> {
     }
 
     fn generic_type_with_union_constraint(&mut self, ty: TypeId) -> bool {
-        if let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() {
+        if let TypeData::Intersection { types, .. } = &self.store.get(ty).data {
+            let types = types.clone();
             return types.into_iter().any(|ty| self.generic_type_with_union_constraint(ty));
         }
         if self.instantiable_constraint_type(ty) {
@@ -773,7 +778,8 @@ impl Checker<'_, '_> {
     }
 
     fn generic_type_without_nullable_constraint(&mut self, ty: TypeId) -> bool {
-        if let TypeData::Intersection { types, .. } = self.store.get(ty).data.clone() {
+        if let TypeData::Intersection { types, .. } = &self.store.get(ty).data {
+            let types = types.clone();
             return types.into_iter().any(|ty| self.generic_type_without_nullable_constraint(ty));
         }
         if self.instantiable_constraint_type(ty) {
@@ -796,7 +802,7 @@ impl Checker<'_, '_> {
     }
 }
 
-impl Checker<'_, '_> {
+impl<'a> Checker<'a, '_> {
     /// `checkTypeReferenceOrImport`'s constraint arm (`checker.go:2998`) into
     /// `checkTypeArgumentConstraints` (`checker.go:3016`) for a written type
     /// reference: each type argument must be assignable to its parameter's
@@ -832,10 +838,21 @@ impl Checker<'_, '_> {
                 (symbol, reference.type_arguments)
             }
             Some(tsr_ast::Node::ExpressionWithTypeArguments(reference)) => {
+                // The written arguments, or in JS the ones `reparseHosted`'s
+                // `KindJSDocAugmentsTag` arm copies from an `@augments` tag
+                // onto an `extends` element that writes none.
+                let type_arguments = if reference.type_arguments.is_empty() {
+                    match self.jsdoc_augments_type_arguments(node) {
+                        Some(arguments) if !arguments.is_empty() => arguments,
+                        _ => return,
+                    }
+                } else {
+                    reference.type_arguments
+                };
                 let Some(symbol) = self.heritage_type_argument_symbol(node, reference) else {
                     return;
                 };
-                (symbol, reference.type_arguments)
+                (symbol, type_arguments)
             }
             _ => return,
         };
@@ -856,6 +873,17 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        self.check_type_argument_constraints_of(symbol, type_arguments);
+    }
+
+    /// `checkTypeArgumentConstraints` (`checker.go:3016`) for `symbol`'s
+    /// type parameters against the written `type_arguments`, after the
+    /// caller has resolved the reference to a class, interface or alias.
+    fn check_type_argument_constraints_of(
+        &mut self,
+        symbol: SymbolId,
+        type_arguments: &'a [tsr_ast::TypeNode<'a>],
+    ) {
         let Some(parameters) = self.constraint_check_type_parameters(symbol) else { return };
         if parameters.is_empty() || type_arguments.len() > parameters.len() {
             return;
@@ -941,9 +969,6 @@ impl Checker<'_, '_> {
         node: NodeId,
         reference: &tsr_ast::ExpressionWithTypeArguments<'_>,
     ) -> Option<tsr_binder::SymbolId> {
-        if reference.type_arguments.is_empty() {
-            return None;
-        }
         let parent = self.nodes.parent(node)?;
         if self.nodes.kind(parent) != SyntaxKind::HeritageClause {
             return None;
@@ -1078,11 +1103,15 @@ impl<'a> Checker<'a, '_> {
         let mut written: Vec<&'a tsr_ast::TypeParameterDeclaration<'a>> = Vec::new();
         for (position, declaration) in declarations.iter().enumerate() {
             match self.node_map.get(*declaration) {
+                // A JS class's `@template` tags are its type parameters
+                // when it writes none (`reparseHosted`, `parser/reparser.go:459`).
                 Some(tsr_ast::Node::ClassDeclaration(node)) => {
                     written.extend(node.type_parameters.iter().copied());
+                    written.extend(self.jsdoc_class_template_parameters(*declaration));
                 }
                 Some(tsr_ast::Node::ClassExpression(node)) => {
                     written.extend(node.type_parameters.iter().copied());
+                    written.extend(self.jsdoc_class_template_parameters(*declaration));
                 }
                 Some(tsr_ast::Node::InterfaceDeclaration(node)) => {
                     written.extend(node.type_parameters.iter().copied());

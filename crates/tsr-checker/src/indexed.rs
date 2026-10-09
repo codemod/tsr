@@ -362,12 +362,22 @@ impl Checker<'_, '_> {
         if object_type == self.intrinsics.any {
             return self.intrinsics.any;
         }
-        // §32: an element access through a minted unresolved receiver —
-        // upstream's `errorType` — answers `any`, the same one hop as the
-        // property twin, behind the same §31 structural gate.
+        // §32: an element access through a minted unresolved receiver, behind
+        // the §31 structural gate (in an import-machinery file the mint may be
+        // the port's resolution miss: r5-errorsplit5 notes §7). Upstream's
+        // unresolved reference is any-flagged with an alias, so `isErrorType`
+        // holds and `checkElementAccessExpression` answers the receiver
+        // itself (`checker.go:8153`), printed by its alias name
+        // (`recursiveTypeRelations`: `obj[exportedClassName] :
+        // ClassNameObject`). It answered `any`. The OBJECT-flagged deferred
+        // mints are the port's gap, not upstream's type, and keep the `any`
+        // stand-in.
         if self.unresolved_types.contains(&object_type)
             && node.node_id.is_some_and(|id| !self.file_has_import_machinery(id))
         {
+            if !self.is_gap(object_type) {
+                return object_type;
+            }
             return self.intrinsics.any;
         }
         // §263+§264, landed together (the halves are not independently
@@ -412,23 +422,7 @@ impl Checker<'_, '_> {
         // ADR-0006, the generated Go wins). A miss falls through to the
         // index-signature road unchanged.
         if self.type_of(index_type).flags.intersects(crate::flags::TypeFlags::ES_SYMBOL_LIKE) {
-            fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
-                match expression {
-                    tsr_ast::Expression::Identifier(identifier) => {
-                        Some(identifier.text.to_string())
-                    }
-                    tsr_ast::Expression::PropertyAccessExpression(access) => {
-                        let base = chain_text(access.expression.as_ref()?)?;
-                        let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
-                            return None;
-                        };
-                        Some(format!("{base}.{}", name.text))
-                    }
-                    _ => None,
-                }
-            }
-            if let Some(chain) = chain_text(&index) {
-                let name = format!("[{chain}]");
+            if let Some(name) = crate::destructure::late_bound_entity_name(&index) {
                 if let Some(member) = self.get_type_of_property_of_type(object_type, &name) {
                     // getPropertyTypeForIndexType: a known symbol property,
                     // like a known string property, does not use index fallback.
@@ -789,28 +783,30 @@ impl Checker<'_, '_> {
                 return Some(value);
             }
         }
-        let apparent = self.apparent_type(object);
-        let info = self.get_applicable_index_info(apparent, index).or_else(|| {
-            // getPropertyTypeForIndexType (checker.go:27085): a string
-            // signature is the fallback for every non-null property key,
-            // including symbols. This matters when a generic indexed type's
-            // base constraint projects keyof T to string | number | symbol.
-            if self.store.get(index).flags.intersects(TypeFlags::NULLABLE) {
-                return None;
-            }
+        // getPropertyTypeForIndexType (`checker.go:27072`): once no property
+        // answered, an `any` or `never` object read with a property-key type
+        // is itself. `any` returned above; `never` reaches here, so the
+        // first element of `const [n] = a` with `a: never` is `never`
+        // (`arrayDestructuringInSwitch2`, r5-shapes §2.7).
+        if object == self.intrinsics.never
+            && !self.store.get(index).flags.intersects(TypeFlags::NULLABLE)
+        {
             let keys = self.get_union_type(&[
                 self.intrinsics.string,
                 self.intrinsics.number,
                 self.intrinsics.es_symbol,
             ]);
-            if !self.is_type_assignable_to(index, keys) {
-                return None;
+            if self.is_type_assignable_to(index, keys) {
+                return Some(object);
             }
-            self.get_index_infos_of_type(apparent)?
-                .into_iter()
-                .find(|info| info.key == self.intrinsics.string)
-        });
-        if let Some(info) = info {
+        }
+        // getPropertyTypeForIndexType (checker.go:27085): a string signature
+        // is the fallback for every non-null property key, including symbols.
+        // This matters when a generic indexed type's base constraint projects
+        // keyof T to string | number | symbol. One rule, shared with
+        // destructuring (`destructure.rs`).
+        let apparent = self.apparent_type(object);
+        if let Some(info) = self.destructuring_index_info(apparent, index) {
             return Some(self.include_unchecked_undefined(
                 info.value,
                 include_undefined,

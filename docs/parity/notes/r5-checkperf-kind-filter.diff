@@ -1,0 +1,22 @@
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index a144b55..e8dd924 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -3018,10 +3018,15 @@ impl Checker<'_, '_> {
+         if self.global_this_type == Some(t) {
+             return Some(Vec::new());
+         }
+-        if let Some(signatures) = self.signature_types.get(&t).cloned() {
++        if let Some(signatures) = self.signature_types.get(&t) {
++            // Copy out only the requested kind (`r5-checkperf.md` §6).
++            let signatures: Vec<_> = signatures
++                .iter()
++                .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
++                .cloned()
++                .collect();
+             return signatures
+                 .into_iter()
+-                .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
+                 .map(|signature| self.complete_signature_return(signature))
+                 .collect();
+         }

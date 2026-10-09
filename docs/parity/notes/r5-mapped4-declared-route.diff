@@ -1,0 +1,36 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 612fb4e..dbb5d41 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -630,8 +630,15 @@ impl<'a> Checker<'a, '_> {
+             {
+                 let Some(inner) = node.r#type else { return self.intrinsics.error };
+                 let target = self.get_type_from_type_node(inner);
++                // getIndexTypeEx (checker.go:26701): any, never and unknown
++                // answer stringNumberSymbolType/never directly.
+                 if self.mapped_types.contains_key(&target)
+-                    || self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER)
++                    || self.store.get(target).flags.intersects(
++                        TypeFlags::TYPE_PARAMETER
++                            | TypeFlags::ANY
++                            | TypeFlags::NEVER
++                            | TypeFlags::UNKNOWN,
++                    )
+                 {
+                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
+                 }
+@@ -755,6 +762,14 @@ impl<'a> Checker<'a, '_> {
+                     // MUTUAL recursion (`Recurse1` through `Recurse2`), which no
+                     // same-name test can see. Taking the three is the better
+                     // trade at 208:1, and the guard is recorded rather than kept.
++                    // createMappedTypeNodeFromType (nodebuilderimpl.go:1458)
++                    // prints a mapped type from its typed parts.
++                    Some(_)
++                        if let TypeNode::MappedTypeNode(mapped) = node
++                            && let Some(id) = self.create_semantic_mapped_type(mapped) =>
++                    {
++                        id
++                    }
+                     Some(text) => {
+                         // getConditionalType's deferred result carries
+                         // TypeFlagsConditional inside a mapped template or

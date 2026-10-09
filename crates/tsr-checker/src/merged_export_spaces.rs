@@ -1,5 +1,7 @@
 //! TS2395 — `Individual declarations in merged declaration '{0}' must be all
-//! exported or all local.`
+//! exported or all local.` — and TS2652, `Merged declaration '{0}' cannot
+//! include a default export declaration.` (`docs/parity/notes/r5-smallcodes.md`
+//! §2.1).
 //!
 //! `checkExportsOnMergedDeclarations` (`checker.go:6909`-`:6958`).
 //!
@@ -88,27 +90,19 @@ impl Checker<'_, '_> {
         }
         for declaration in declarations {
             let spaces = self.declaration_spaces(declaration);
-            // **The `else if` is load-bearing even though its first arm is not
-            // emitted.** Upstream's default branch is TS2652, which this port
-            // does not report; computing its condition is what keeps a
-            // declaration in the default-common set from taking TS2395.
-            if spaces.intersects(common_default) {
+            // Only the declarations that contributed to an intersecting space
+            // are reported, the default-common set first (`checker.go:6952`).
+            let message = if spaces.intersects(common_default) {
+                &messages::MERGED_DECLARATION_0_CANNOT_INCLUDE_A_DEFAULT_EXPORT_DECLARATION_CONSIDER_ADDING_A_SEPARATE_EXPORT_DEFAULT_0_DECLARATION_INSTEAD
+            } else if spaces.intersects(common_exports_and_locals) {
+                &messages::INDIVIDUAL_DECLARATIONS_IN_MERGED_DECLARATION_0_MUST_BE_ALL_EXPORTED_OR_ALL_LOCAL
+            } else {
                 continue;
-            }
-            if !spaces.intersects(common_exports_and_locals) {
-                continue;
-            }
+            };
             let Some(at) = self.declaration_name_of(declaration) else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(at) else { continue };
             let span = self.error_span(at);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::INDIVIDUAL_DECLARATIONS_IN_MERGED_DECLARATION_0_MUST_BE_ALL_EXPORTED_OR_ALL_LOCAL,
-                    span,
-                    [text.clone()],
-                ),
-            );
+            self.report(file, Diagnostic::with_args(message, span, [text.clone()]));
         }
     }
 

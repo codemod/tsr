@@ -1,0 +1,176 @@
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index a144b55..09aa61a 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -1194,67 +1194,86 @@ impl Checker<'_, '_> {
+                     break;
+                 }
+             }
+-            let root_node = self.node_map.get(root)?;
+-            let mut stack = vec![root_node];
+-            let mut children = Vec::new();
+-            while let Some(node) = stack.pop() {
+-                let target = match node {
+-                    Node::BinaryExpression(binary)
+-                        if binary.operator_token.is_some_and(|t| {
+-                            tsr_ast::SyntaxKind::EqualsToken == t.kind
+-                                || matches!(
+-                                    t.kind,
+-                                    tsr_ast::SyntaxKind::PlusEqualsToken
+-                                        | tsr_ast::SyntaxKind::MinusEqualsToken
+-                                        | tsr_ast::SyntaxKind::AsteriskEqualsToken
+-                                        | tsr_ast::SyntaxKind::SlashEqualsToken
+-                                        | tsr_ast::SyntaxKind::PercentEqualsToken
+-                                        | tsr_ast::SyntaxKind::BarEqualsToken
+-                                        | tsr_ast::SyntaxKind::AmpersandEqualsToken
+-                                        | tsr_ast::SyntaxKind::CaretEqualsToken
+-                                        | tsr_ast::SyntaxKind::BarBarEqualsToken
+-                                        | tsr_ast::SyntaxKind::AmpersandAmpersandEqualsToken
+-                                        | tsr_ast::SyntaxKind::QuestionQuestionEqualsToken
+-                                )
+-                        }) =>
+-                    {
+-                        binary.left
+-                    }
+-                    Node::PrefixUnaryExpression(unary)
+-                        if matches!(
+-                            unary.operator.kind,
+-                            tsr_ast::SyntaxKind::PlusPlusToken
+-                                | tsr_ast::SyntaxKind::MinusMinusToken
+-                        ) =>
+-                    {
+-                        unary.operand
+-                    }
+-                    Node::PostfixUnaryExpression(unary) => unary.operand,
+-                    _ => None,
+-                };
+-                if let Some(tsr_ast::Expression::Identifier(identifier)) = target
+-                    && identifier.text == name
+-                    && let Some(id) = identifier.node_id
+-                    && self.binder.resolve_name(
+-                        self.nodes,
+-                        self.node_map,
+-                        id,
+-                        name,
+-                        SymbolFlags::VALUE,
+-                    ) == Some(symbol)
+-                {
+-                    return Some(true);
+-                }
+-                children.clear();
+-                tsr_ast::push_children(node, &mut children);
+-                stack.extend(children.iter().copied());
+-            }
+-            Some(false)
++            // One walk per scan root, shared by every symbol declared under it
++            // (`r5-checkperf.md` §10): the answer is whether ANY assignment
++            // target spelled `name` resolves to the symbol.
++            let targets = self.assignment_targets_under(root)?;
++            let candidates = targets.get(name)?;
++            Some(candidates.iter().any(|&id| {
++                self.binder.resolve_name(self.nodes, self.node_map, id, name, SymbolFlags::VALUE)
++                    == Some(symbol)
++            }))
+         })()
+         .unwrap_or(false);
+         self.symbol_assignment_scan.insert(symbol, answer);
+         answer
+     }
++
++    /// [`Checker::symbol_has_any_assignment`]'s scan of `root`, done once: every
++    /// assignment-operator, `++` and `--` target that is an identifier, by its
++    /// text, in walk order. The per-symbol scan's answer is an `any` over the
++    /// targets spelled like the symbol, so indexing them once per root answers
++    /// every symbol exactly as the walk did (`r5-checkperf.md` §10). `None`
++    /// when `root` has no node, as the walk's `?` answered.
++    fn assignment_targets_under(
++        &mut self,
++        root: NodeId,
++    ) -> Option<crate::perf_links::AssignmentTargets> {
++        if let Some(targets) = self.perf_links.assignment_targets.get(&root) {
++            return Some(targets.clone());
++        }
++        let root_node = self.node_map.get(root)?;
++        let mut targets: rustc_hash::FxHashMap<Box<str>, Vec<NodeId>> =
++            rustc_hash::FxHashMap::default();
++        let mut stack = vec![root_node];
++        let mut children = Vec::new();
++        while let Some(node) = stack.pop() {
++            let target = match node {
++                Node::BinaryExpression(binary)
++                    if binary.operator_token.is_some_and(|t| {
++                        tsr_ast::SyntaxKind::EqualsToken == t.kind
++                            || matches!(
++                                t.kind,
++                                tsr_ast::SyntaxKind::PlusEqualsToken
++                                    | tsr_ast::SyntaxKind::MinusEqualsToken
++                                    | tsr_ast::SyntaxKind::AsteriskEqualsToken
++                                    | tsr_ast::SyntaxKind::SlashEqualsToken
++                                    | tsr_ast::SyntaxKind::PercentEqualsToken
++                                    | tsr_ast::SyntaxKind::BarEqualsToken
++                                    | tsr_ast::SyntaxKind::AmpersandEqualsToken
++                                    | tsr_ast::SyntaxKind::CaretEqualsToken
++                                    | tsr_ast::SyntaxKind::BarBarEqualsToken
++                                    | tsr_ast::SyntaxKind::AmpersandAmpersandEqualsToken
++                                    | tsr_ast::SyntaxKind::QuestionQuestionEqualsToken
++                            )
++                    }) =>
++                {
++                    binary.left
++                }
++                Node::PrefixUnaryExpression(unary)
++                    if matches!(
++                        unary.operator.kind,
++                        tsr_ast::SyntaxKind::PlusPlusToken | tsr_ast::SyntaxKind::MinusMinusToken
++                    ) =>
++                {
++                    unary.operand
++                }
++                Node::PostfixUnaryExpression(unary) => unary.operand,
++                _ => None,
++            };
++            if let Some(tsr_ast::Expression::Identifier(identifier)) = target
++                && let Some(id) = identifier.node_id
++            {
++                targets.entry(identifier.text.into()).or_default().push(id);
++            }
++            children.clear();
++            tsr_ast::push_children(node, &mut children);
++            stack.extend(children.iter().copied());
++        }
++        let targets = std::rc::Rc::new(targets);
++        self.perf_links.assignment_targets.insert(root, targets.clone());
++        Some(targets)
++    }
+     /// The walk's container bound, extended outward for constants and
+     /// past-last-assignment mutables — `checkIdentifier`'s loop,
+     /// `checker.go:11139`, and the §13 build. The default bound is the
+diff --git a/crates/tsr-checker/src/perf_links.rs b/crates/tsr-checker/src/perf_links.rs
+index a61703e..822e6f0 100644
+--- a/crates/tsr-checker/src/perf_links.rs
++++ b/crates/tsr-checker/src/perf_links.rs
+@@ -83,6 +83,13 @@ pub(crate) struct PerfLinks {
+     /// declarations or parameters (`r5-typeparams2.md` §2). Interior-mutable
+     /// because the reader, `Checker::local_type_parameters_of`, takes `&self`.
+     pub(crate) local_type_parameters: std::cell::RefCell<Vec<Option<LocalTypeParametersLink>>>,
++
++    // ---- r5-checkperf (`tsr-2zk.17`). ----
++    /// `scan root -> assignment-target identifiers by text`: the one walk
++    /// `Checker::symbol_has_any_assignment` makes of a control-flow
++    /// container, shared by every symbol declared in it. A pure function of
++    /// the bound tree, so every entry is complete (`r5-checkperf.md` §10).
++    pub(crate) assignment_targets: FxHashMap<NodeId, AssignmentTargets>,
+ }
+ 
+ /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
+@@ -96,6 +103,10 @@ pub(crate) enum LocalTypeParametersLink {
+     Merged(std::rc::Rc<[NodeId]>),
+ }
+ 
++/// [`PerfLinks::assignment_targets`]' value: a scan root's assignment-target
++/// identifiers by text, in walk order.
++pub(crate) type AssignmentTargets = std::rc::Rc<FxHashMap<Box<str>, Vec<NodeId>>>;
++
+ /// [`PerfLinks::heritage_bases`]' key: base symbol, reference location, the
+ /// first written type argument's node and the written argument count. A
+ /// written argument list is one contiguous node list, so its first node and

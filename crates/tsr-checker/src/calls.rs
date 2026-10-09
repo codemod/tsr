@@ -2705,7 +2705,15 @@ impl Checker<'_, '_> {
         // Windows-style relative specifier printed one backslash where the
         // baseline records two
         // (`ambientExternalModuleWithRelativeModuleName`).
-        let text = format!("typeof import({})", crate::printing::quote(literal.text));
+        // The node builder spells the module through
+        // `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`), not the
+        // written text (r5-modules2 §4); the written text is the fallback
+        // where no specifier is computed.
+        let spelled = tsr_ast::Node::from(specifier)
+            .node_id()
+            .and_then(|site| self.module_specifier_for_symbol(module, site))
+            .unwrap_or_else(|| crate::printing::quote(literal.text));
+        let text = format!("typeof import({spelled})");
         let key = (text.clone(), module);
         let namespace = if let Some(&existing) = self.qualified_reference_types.get(&key) {
             existing
@@ -2719,15 +2727,12 @@ impl Checker<'_, '_> {
             self.qualified_reference_types.insert(key, minted);
             minted
         };
-        // `:8309`: `getTypeWithSyntheticDefaultImportType` of the module type.
-        // Only a module without `export =` is asked: `namespace` stands for
-        // the module symbol's type, which is not the `export =` target's
-        // (`docs/parity/notes/r5-modexports.md` §3).
+        // `:8305`-`:8310`: `getTypeWithSyntheticDefaultImportType` of
+        // `getTypeOfSymbol(resolveExternalModuleSymbol(m))` — for an
+        // `export =` module, its target's type (r5-modules2 §5).
         let namespace = match tsr_ast::Node::from(specifier).node_id() {
-            Some(specifier_id) if self.resolve_external_module_symbol(module) == module => {
-                self.get_type_with_synthetic_default_import_type(namespace, module, specifier_id)
-            }
-            _ => namespace,
+            Some(specifier_id) => self.import_call_module_type(module, namespace, specifier_id),
+            None => namespace,
         };
         let promise = self.global_type_symbol_with_arity("Promise", 1)?;
         Some(self.create_type_reference(promise, vec![namespace]))
@@ -2872,11 +2877,16 @@ impl Checker<'_, '_> {
         } else {
             return false;
         };
+        // `ast.GetDeclarationOfKind` takes the first declaration of the kind,
+        // and `decl.Flags & NodeFlagsAmbient` is set by native's parser on
+        // every node of a `.d.ts` or under `declare`; this port's parser sets
+        // no ambient flag, so the any-file stand-in answers it.
         !record.flags.intersects(SymbolFlags::ALIAS)
-            && record.declarations.iter().any(|&declaration| {
-                self.nodes.kind(declaration) == kind
-                    && self.combined_node_flags(declaration).contains(tsr_ast::NodeFlags::AMBIENT)
-            })
+            && record
+                .declarations
+                .iter()
+                .find(|&&declaration| self.nodes.kind(declaration) == kind)
+                .is_some_and(|&declaration| self.is_ambient_declaration(declaration))
     }
 
     /// resolveExternalModuleTypeByLiteral's symbol half. Keep the original

@@ -274,15 +274,42 @@ fn a_union_containing_a_named_union_keeps_the_origin_spelling() {
     // narrowing filters project subsets.
     with_checker("enum E { A, B } var x: E | string;", |checker, _bound, statements| {
         let id = annotation_type(checker, statements, 1);
-        // Primitive-first, per the corpus census (`string | Color`,
-        // `boolean | E`); nullable entries sort last instead
-        // (`MyEnum | undefined`).
+        // The origin's entries are in `CompareTypes` order (`insertType`,
+        // `checker.go:25724`): `string`'s flag sorts below a union's.
         assert_eq!(checker.type_to_string(id), "string | E");
         let ty = checker.type_of(id);
         let TypeData::Union { types, .. } = &ty.data else {
             panic!("the origin union still IS a union of the flattened members");
         };
         assert_eq!(types.len(), 3, "E.A, E.B, string — members stay flattened");
+    });
+}
+
+#[test]
+fn origin_entries_follow_compare_types_and_print_through_format_union_types() {
+    // r5-unionorder: getUnionTypeWorker's origin is `reducedTypes` plus each
+    // named union placed by `insertType` (`checker.go:25724`) — a
+    // `CompareTypes` order, where a type parameter (1 << 19) and an object
+    // (1 << 20) sort before any union (1 << 27). An unnamed union is no
+    // entry: `boolean`'s two literals join as members and formatUnionTypes
+    // (`printer.go:383`) collapses them, and puts `null` then `undefined`
+    // last (`unknownControlFlow.types:62`, `typeInferenceLiteralUnion`'s
+    // `(T | Primitive)[]`).
+    let source = "type P = undefined | null | string; enum E { A, B } \
+                  function f<T>(a: P | T, b: E | null | undefined, c: boolean | E | undefined) {}";
+    with_checker(source, |checker, _bound, statements| {
+        let Statement::FunctionDeclaration(function) = statements[2] else {
+            panic!("statement 2 must be the function");
+        };
+        let printed: Vec<String> = function
+            .parameters
+            .iter()
+            .map(|parameter| {
+                let id = checker.get_type_from_type_node(parameter.r#type.expect("annotated"));
+                checker.type_to_string(id)
+            })
+            .collect();
+        assert_eq!(printed, ["T | P", "E | null | undefined", "boolean | E | undefined"]);
     });
 }
 
@@ -343,6 +370,81 @@ fn subtype_elimination_precedes_named_origin_construction() {
             assert_eq!(checker.type_to_string(result), "Choice");
         });
     }
+}
+
+#[test]
+fn an_enum_is_a_named_union_in_a_subtype_reduced_origin() {
+    // getDeclaredTypeOfEnum gives the enum's union an alias
+    // (checker.go:23899), so addNamedUnions keeps `E` as an origin entry and
+    // insertType places it after the object (`1 << 20` before `1 << 27`):
+    // `logicalOrOperatorWithEveryType.types:373` records `{ a: string; } | E`.
+    with_checker(
+        "enum E { a, b, c }
+         declare const o: { a: string } | undefined; declare const e: E;
+         const result = o || e;",
+        |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), "{ a: string; } | E");
+        },
+    );
+}
+
+#[test]
+fn no_infer_sorts_as_a_substitution_type() {
+    // NoInfer<T> is a substitution type natively (getNoInferType,
+    // checker.go:27394): TypeFlagsSubstitution (1 << 24) sorts after an
+    // object (1 << 20) whatever the alias reference's name says
+    // (`noInferUnionExcessPropertyCheck1.types:12`).
+    let source = "type NoInfer<T> = intrinsic;
+                  function f<T>(b: NoInfer<T> | (() => NoInfer<T>)) {}";
+    with_checker(source, |checker, _bound, statements| {
+        let Statement::FunctionDeclaration(function) = statements[1] else {
+            panic!("statement 1 must be the function");
+        };
+        let annotation = function.parameters[0].r#type.expect("annotated");
+        let id = checker.get_type_from_type_node(annotation);
+        assert_eq!(checker.type_to_string(id), "(() => NoInfer<T>) | NoInfer<T>");
+    });
+}
+
+#[test]
+fn tuples_order_by_element_flags_before_their_arguments() {
+    // compareTupleTypes (utilities.go:620): equal arity, then ElementFlags
+    // (Required 1 < Variadic 8) before labels and type arguments, and a
+    // tuple has no type-name symbol (`genericRestParameters3.types:267`).
+    let source = "function f<A extends unknown[]>(...args: [x: string, ...rest: A | [number]]) {}";
+    with_checker(source, |checker, _bound, statements| {
+        let Statement::FunctionDeclaration(function) = statements[0] else {
+            panic!("statement 0 must be the function");
+        };
+        let annotation = function.parameters[0].r#type.expect("annotated");
+        let id = checker.get_type_from_type_node(annotation);
+        assert_eq!(checker.type_to_string(id), "[x: string, number] | [x: string, ...rest: A]");
+    });
+}
+
+#[test]
+fn a_conditional_constituent_is_parenthesised_and_an_aliased_signature_is_not() {
+    // emitUnionTypeConstituent (printer.go:2038) parenthesises below
+    // TypePrecedenceTypeOperator: a ConditionalTypeNode is the lowest, while
+    // an alias of a signature literal is a TypeReferenceNode
+    // (`nonNullableReduction.types`, `narrowByInstanceof.types`).
+    let source = "type BB = { new(): string };
+                  function f<T>(x: T | (string extends T ? null : never), y: BB | undefined) {}";
+    with_checker(source, |checker, _bound, statements| {
+        let Statement::FunctionDeclaration(function) = statements[1] else {
+            panic!("statement 1 must be the function");
+        };
+        let printed: Vec<String> = function
+            .parameters
+            .iter()
+            .map(|parameter| {
+                let id = checker.get_type_from_type_node(parameter.r#type.expect("annotated"));
+                checker.type_to_string(id)
+            })
+            .collect();
+        assert_eq!(printed, ["T | (string extends T ? null : never)", "BB | undefined"]);
+    });
 }
 
 #[test]

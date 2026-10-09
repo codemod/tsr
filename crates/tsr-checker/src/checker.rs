@@ -381,7 +381,10 @@ pub struct Checker<'a, 'n> {
     /// backwards walk is exponential on branchy code — a hang rather than a
     /// wrong answer, which is why it is part of the port and not an
     /// optimisation.
-    pub(crate) shared_flows: Vec<(tsr_binder::FlowId, crate::flow::FlowType)>,
+    pub(crate) shared_flows: crate::perf_links::SharedFlows,
+    /// The global table's `ALIAS`-flagged entries in its iteration order
+    /// ([`Checker::global_alias_entries`], `r5-checkperf.md` §7).
+    global_alias_entries: Option<std::rc::Rc<[(&'a str, SymbolId)]>>,
     /// §52's reentrancy guard: operand nodes currently being typed FROM
     /// INSIDE an equality-narrowing walk. Typing `value` can re-enter the
     /// same reference's flow walk through the operand's own narrowing and
@@ -832,6 +835,13 @@ pub struct Checker<'a, 'n> {
     pub(crate) synthetic_default_types:
         FxHashMap<(crate::module_exports::SyntheticDefaultKind, TypeId), TypeId>,
     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    /// The inverse of [`Self::instantiated_objects`] for a freshly minted
+    /// object: its source and mapper. Native keeps `ObjectType.mapper` on the
+    /// instantiation, and `CompareTypes` orders two instantiations of one
+    /// anonymous symbol by it (`compareTypeMappers`, utilities.go:683).
+    /// Written once, by the producer that mints the result.
+    pub(crate) instantiated_object_mappers:
+        rustc_hash::FxHashMap<TypeId, (TypeId, Vec<(TypeId, TypeId)>)>,
     /// `instantiationExpressionTypes` (checker.go:10667) and its parked reports.
     pub(crate) instantiation_expressions:
         crate::instantiation_expressions::InstantiationExpressionLinks,
@@ -900,6 +910,13 @@ pub struct Checker<'a, 'n> {
     /// shape property road may search (a WRITTEN intersection answering
     /// confidently was 134 G→W in the discriminated-union family).
     pub(crate) alias_evaluated_types: rustc_hash::FxHashSet<TypeId>,
+    /// getConditionalTypeInstantiation's `root.instantiations`
+    /// (checker.go:22485) for conditional alias roots: (alias symbol, ordered
+    /// type arguments, result alias, inside a mapped template) → the
+    /// evaluated type. Completed evaluations only; see `declared.rs`'
+    /// `evaluate_conditional_alias`.
+    pub(crate) conditional_alias_instantiations:
+        FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>, Option<tsr_binder::SymbolId>, bool), TypeId>,
     /// §107: while true, `instantiate_type` answers an UNMAPPED type
     /// parameter with ITSELF instead of refusing — the print-clone's
     /// substitution runs over signatures that legitimately mention ENCLOSING
@@ -1455,7 +1472,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             dependent_binding_parents_in_flight: rustc_hash::FxHashSet::default(),
             flow_analysis_disabled: false,
             flow_disabled_containers: rustc_hash::FxHashSet::default(),
-            shared_flows: Vec::new(),
+            shared_flows: crate::perf_links::SharedFlows::default(),
+            global_alias_entries: None,
             narrow_value_stack: std::collections::HashSet::new(),
             call_inference_signatures: rustc_hash::FxHashMap::default(),
             resolved_call_signatures: rustc_hash::FxHashMap::default(),
@@ -1550,6 +1568,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             module_value_clones: FxHashMap::default(),
             synthetic_default_types: FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),
+            instantiated_object_mappers: rustc_hash::FxHashMap::default(),
             instantiation_expressions:
                 crate::instantiation_expressions::InstantiationExpressionLinks::default(),
             any_function_type: None,
@@ -1576,6 +1595,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             type_literal_origins: FxHashMap::default(),
             key_names_in_progress: rustc_hash::FxHashSet::default(),
             alias_evaluated_types: rustc_hash::FxHashSet::default(),
+            conditional_alias_instantiations: FxHashMap::default(),
             alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,
@@ -2282,14 +2302,20 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let mut parts = Vec::with_capacity(entries.len());
                 let mut complete = true;
                 let multiple = entries.len() > 1;
-                for entry in entries {
+                // formatUnionTypes (printer.go:383) orders the printed
+                // entries: `null` then `undefined` last, booleans collapsed.
+                for part in crate::unions::union_print_parts(&self.store, &entries) {
+                    let entry = match part {
+                        crate::unions::UnionPrintPart::Type(entry) => entry,
+                        crate::unions::UnionPrintPart::Keyword(keyword) => {
+                            parts.push(keyword.to_string());
+                            continue;
+                        }
+                    };
                     if let Some(part) = self.type_to_string_at(entry, reference) {
-                        let intersection =
-                            matches!(
-                                self.store.get(entry).data,
-                                crate::types::TypeData::Intersection { .. }
-                            ) && !crate::printing::prints_as_a_single_token(self.store.get(entry));
-                        parts.push(if multiple && intersection {
+                        let parenthesised =
+                            crate::unions::union_constituent_needs_parentheses(&self.store, entry);
+                        parts.push(if multiple && parenthesised {
                             format!("({part})")
                         } else {
                             part
@@ -2398,16 +2424,23 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// - **Ambient** (§143 slice 1, `checker-notes-narrow.md`): `declare module
     ///   "name"` prints `"name"` verbatim — escaped via the shared `quote`
     ///   (SS196). Read from the first string-named module declaration.
-    /// - **File** (§521): the relative specifier from the reference's file,
-    ///   `moduleSpecifiers`' relative preference with `index` stripped, for
-    ///   the plain extensions only — `node_modules` package names and the
-    ///   extension-keeping `.mts`/`.cts` forms decline (`None`, a gap). With
-    ///   no host path, the module symbol's name (the path with its extension
-    ///   stripped, `bind_source_file_as_external_module`) is spelled `./name`
-    ///   when it sits at the root, the one directory layout most of the corpus
-    ///   mounts.
-    fn module_specifier_for_symbol(&self, module: SymbolId, reference: NodeId) -> Option<String> {
-        self.module_specifier_for_symbol_in_mode(module, reference, tsr_core::ModuleKind::None)
+    /// - **File**: `GetModuleSpecifiers` over the module's file —
+    ///   the existing import, the `node_modules` package name, else the
+    ///   relative path through `processEnding`
+    ///   ([`Checker::module_specifier_for_file`], r5-modules2 §2). With no
+    ///   host path, the module symbol's name (the path with its extension
+    ///   stripped, `bind_source_file_as_external_module`) is spelled
+    ///   `./name` when it sits at the root.
+    ///
+    /// What the printers write inside `import(…)`: `symbolToTypeNode`'s
+    /// import-type arm over this function, with its `resolution-mode`
+    /// attribute ([`Checker::import_type_argument`], r5-modules2 §3.2).
+    pub(crate) fn module_specifier_for_symbol(
+        &self,
+        module: SymbolId,
+        reference: NodeId,
+    ) -> Option<String> {
+        self.import_type_argument(module, reference)
     }
 
     /// [`Checker::module_specifier_for_symbol`] under `getSpecifierForModuleSymbol`'s
@@ -2442,87 +2475,22 @@ impl<'a, 'n> Checker<'a, 'n> {
             .iter()
             .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
         {
-            // `computeModuleSpecifiers`' existing-import arm comes before
-            // any computed path (r5-modules §4).
+            // The file arm: `GetModuleSpecifiers` over the module's file
+            // (`crate::module_specifiers`, r5-modules2 §2).
             if let Some(from) = self.source_file_of(reference)
-                && let Some(existing) = self.existing_import_specifier(from, file, override_mode)
+                && self.module_host.is_some_and(|host| host.file_path(from).is_some())
             {
-                return Some(crate::printing::quote(&existing));
+                return self
+                    .module_specifier_for_file(file, from, override_mode)
+                    .map(|specifier| crate::printing::quote(&specifier));
             }
-            let paths =
-                self.module_host.zip(self.source_file_of(reference)).and_then(|(host, from)| {
-                    Some((host.file_path(from)?, host.file_path(file)?, from, host))
-                });
-            let Some((from, to, from_file, host)) = paths else {
-                let relative = symbol.name.strip_prefix('/')?;
-                return (!relative.contains('/') && !relative.is_empty())
-                    .then(|| format!("\"./{relative}\""));
-            };
-            // `computeModuleSpecifiers`' node_modules arm
-            // (`tryGetModuleNameAsNodeModule`, `crate::module_specifiers`);
-            // when it names nothing, the relative specifier below is
-            // upstream's fallback too (r5-modules §5).
-            if to.contains("/node_modules/")
-                && let Some(name) = self.node_module_specifier(
-                    from_file,
-                    tsr_path::get_directory_path(&from),
-                    &to,
-                    override_mode,
-                )
-            {
-                return Some(crate::printing::quote(&name));
-            }
-            // `processEnding` (`modulespecifiers/specifiers.go:636`) under the
-            // node builder's ending choice (r5-modules §4).
-            let js_ending = self.module_specifier_uses_js_ending(
-                from_file,
-                if override_mode == tsr_core::ModuleKind::None {
-                    host.default_resolution_mode_for_file(from_file)
-                } else {
-                    override_mode
-                },
-            )?;
-            let (input, output) = self.js_extension_for_file(&to)?;
-            let base = &to[..to.len() - input.len()];
-            let keeps_extension =
-                matches!(input, ".mjs" | ".cjs" | ".mts" | ".cts" | ".d.mts" | ".d.cts");
-            let spelled;
-            let stem = if js_ending || keeps_extension {
-                spelled = format!("{base}{output}");
-                spelled.as_str()
-            } else {
-                base
-            };
-            // `moduleSpecifiers`' `index` stripping (the minimal ending only):
-            // `./dir/index` is spelled `./dir`, and the importing directory's
-            // own index `.`.
-            let stripped =
-                (!js_ending && !keeps_extension).then(|| stem.strip_suffix("/index")).flatten();
-            let (stem, index) = match stripped {
-                Some("") => ("/", true),
-                Some(directory) => (directory, true),
-                None => (stem, false),
-            };
-            let options = tsr_path::ComparePathsOptions {
-                use_case_sensitive_file_names: true,
-                current_directory: String::new(),
-            };
-            let from_directory = tsr_path::get_directory_path(&from);
-            if (tsr_path::get_root_length(from_directory) > 0)
-                != (tsr_path::get_root_length(stem) > 0)
-            {
-                return None;
-            }
-            let relative =
-                tsr_path::get_relative_path_from_directory(from_directory, stem, &options);
-            let relative = if relative.is_empty() && index {
-                ".".to_string()
-            } else if relative.starts_with('.') {
-                relative
-            } else {
-                format!("./{relative}")
-            };
-            return Some(format!("\"{relative}\""));
+            // With no host path, the module symbol's name (the path with its
+            // extension stripped, `bind_source_file_as_external_module`) is
+            // spelled `./name` when it sits at the root, the one directory
+            // layout most of the corpus mounts.
+            let relative = symbol.name.strip_prefix('/')?;
+            return (!relative.contains('/') && !relative.is_empty())
+                .then(|| format!("\"./{relative}\""));
         }
         None
     }
@@ -3251,7 +3219,12 @@ impl<'a, 'n> Checker<'a, 'n> {
                         .resolve_name(self.nodes, self.node_map, reference, name, meaning)
                         .is_none();
                 if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
-                    return Some(format!("import(\"./{stem}\")."));
+                    // `getSpecifierForModuleSymbol`'s spelling
+                    // (`crate::module_specifiers`, r5-modules2 §3): the
+                    // module symbol's name keeps declaration suffixes
+                    // (`./foo.d`) that `processEnding` removes.
+                    let specifier = self.module_specifier_for_symbol(parent, reference)?;
+                    return Some(format!("import({specifier})."));
                 }
                 // A module under `node_modules` takes `getSpecifierForModuleSymbol`'s
                 // whole answer — an existing import, the package name
@@ -3839,7 +3812,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             current = self.nodes.parent(node);
         }
-        tables.push(self.binder.globals().values().copied().collect());
+        // Only `ALIAS` candidates pass the first test below; the global
+        // table's are listed once (`r5-checkperf.md` §7).
+        tables.push(self.global_alias_entries().iter().map(|&(_, id)| id).collect());
 
         // §501: the module handed in may itself be an alias — following
         // `export =` returns the `export=` symbol under upstream's
@@ -4287,6 +4262,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         tables.push(Table::Globals);
         let binder = self.binder;
         for table in tables {
+            // The global table is the program's largest: its direct hit is a
+            // keyed lookup (keys are unique, so it is the entry the scan
+            // found) and only its `ALIAS` entries — the only ones the
+            // candidate loop below acts on — are listed, in table order
+            // (`r5-checkperf.md` §7).
+            let global_direct =
+                matches!(table, Table::Globals).then(|| binder.globals().get(own).copied());
             let table: Vec<(&'a str, SymbolId)> = match table {
                 Table::Locals(node) => binder
                     .locals(node)
@@ -4302,9 +4284,11 @@ impl<'a, 'n> Checker<'a, 'n> {
                     .map(|(&name, &id)| (name, id))
                     .collect(),
                 Table::ClassName(name, symbol) => vec![(name, symbol)],
-                Table::Globals => binder.globals().iter().map(|(&name, &id)| (name, id)).collect(),
+                Table::Globals => self.global_alias_entries().to_vec(),
             };
-            let direct = table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit);
+            let direct = global_direct.unwrap_or_else(|| {
+                table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit)
+            });
             if direct.is_some_and(|hit| self.binder.merged_symbol(hit) == target) {
                 return Some(own.to_string());
             }
@@ -4485,13 +4469,36 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             current = self.nodes.parent(node);
         }
-        candidates.extend(self.binder.globals().values().copied());
+        // Only `ALIAS` candidates reach the test below; the global table's
+        // are listed once (`r5-checkperf.md` §7).
+        candidates.extend(self.global_alias_entries().iter().map(|&(_, id)| id));
         candidates.into_iter().any(|candidate| {
             self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
                 && self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
                     == Some(target)
                 && !self.alias_targets_module_clone(candidate)
         })
+    }
+
+    /// The global symbol table's entries whose symbol carries `ALIAS`, in the
+    /// table's iteration order: the only global entries `best_name`'s and
+    /// `alias_in_scope_for`'s alias loops act on (`trySymbolTable`'s alias
+    /// iteration, `symbolaccessibility.go:562`). The binder's tables are
+    /// immutable for the checker's lifetime, so the list is computed once
+    /// and is always complete. Private `Checker` (`r5-checkperf.md` §7).
+    fn global_alias_entries(&mut self) -> std::rc::Rc<[(&'a str, SymbolId)]> {
+        if let Some(entries) = &self.global_alias_entries {
+            return entries.clone();
+        }
+        let binder = self.binder;
+        let entries: std::rc::Rc<[(&'a str, SymbolId)]> = binder
+            .globals()
+            .iter()
+            .filter(|&(_, &id)| binder.symbols().get(id).flags.intersects(SymbolFlags::ALIAS))
+            .map(|(&name, &id)| (name, id))
+            .collect();
+        self.global_alias_entries = Some(entries.clone());
+        entries
     }
 
     /// A clone's aliases name that module value, not its callable source.

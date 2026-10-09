@@ -125,6 +125,7 @@ pub mod declared;
 mod decorators;
 mod delete_operand;
 pub mod destructure;
+mod destructuring_assignment;
 mod emit_helpers;
 mod enum_initializer;
 pub mod enum_member_name;

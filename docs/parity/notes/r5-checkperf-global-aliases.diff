@@ -1,0 +1,100 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index feed815..6cdcbdc 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -379,6 +379,9 @@ pub struct Checker<'a, 'n> {
+     /// wrong answer, which is why it is part of the port and not an
+     /// optimisation.
+     pub(crate) shared_flows: Vec<(tsr_binder::FlowId, crate::flow::FlowType)>,
++    /// The global table's `ALIAS`-flagged entries in its iteration order
++    /// ([`Checker::global_alias_entries`], `r5-checkperf.md` §7).
++    global_alias_entries: Option<std::rc::Rc<[(&'a str, SymbolId)]>>,
+     /// §52's reentrancy guard: operand nodes currently being typed FROM
+     /// INSIDE an equality-narrowing walk. Typing `value` can re-enter the
+     /// same reference's flow walk through the operand's own narrowing and
+@@ -1435,6 +1438,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             flow_analysis_disabled: false,
+             flow_disabled_containers: rustc_hash::FxHashSet::default(),
+             shared_flows: Vec::new(),
++            global_alias_entries: None,
+             narrow_value_stack: std::collections::HashSet::new(),
+             call_inference_signatures: rustc_hash::FxHashMap::default(),
+             resolved_call_signatures: rustc_hash::FxHashMap::default(),
+@@ -3813,7 +3817,9 @@ impl<'a, 'n> Checker<'a, 'n> {
+             }
+             current = self.nodes.parent(node);
+         }
+-        tables.push(self.binder.globals().values().copied().collect());
++        // Only `ALIAS` candidates pass the first test below; the global
++        // table's are listed once (`r5-checkperf.md` §7).
++        tables.push(self.global_alias_entries().iter().map(|&(_, id)| id).collect());
+ 
+         // §501: the module handed in may itself be an alias — following
+         // `export =` returns the `export=` symbol under upstream's
+@@ -4261,6 +4267,13 @@ impl<'a, 'n> Checker<'a, 'n> {
+         tables.push(Table::Globals);
+         let binder = self.binder;
+         for table in tables {
++            // The global table is the program's largest: its direct hit is a
++            // keyed lookup (keys are unique, so it is the entry the scan
++            // found) and only its `ALIAS` entries — the only ones the
++            // candidate loop below acts on — are listed, in table order
++            // (`r5-checkperf.md` §7).
++            let global_direct =
++                matches!(table, Table::Globals).then(|| binder.globals().get(own).copied());
+             let table: Vec<(&'a str, SymbolId)> = match table {
+                 Table::Locals(node) => binder
+                     .locals(node)
+@@ -4276,9 +4289,11 @@ impl<'a, 'n> Checker<'a, 'n> {
+                     .map(|(&name, &id)| (name, id))
+                     .collect(),
+                 Table::ClassName(name, symbol) => vec![(name, symbol)],
+-                Table::Globals => binder.globals().iter().map(|(&name, &id)| (name, id)).collect(),
++                Table::Globals => self.global_alias_entries().to_vec(),
+             };
+-            let direct = table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit);
++            let direct = global_direct.unwrap_or_else(|| {
++                table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit)
++            });
+             if direct.is_some_and(|hit| self.binder.merged_symbol(hit) == target) {
+                 return Some(own.to_string());
+             }
+@@ -4459,7 +4474,9 @@ impl<'a, 'n> Checker<'a, 'n> {
+             }
+             current = self.nodes.parent(node);
+         }
+-        candidates.extend(self.binder.globals().values().copied());
++        // Only `ALIAS` candidates reach the test below; the global table's
++        // are listed once (`r5-checkperf.md` §7).
++        candidates.extend(self.global_alias_entries().iter().map(|&(_, id)| id));
+         candidates.into_iter().any(|candidate| {
+             self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
+                 && self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
+@@ -4468,6 +4485,27 @@ impl<'a, 'n> Checker<'a, 'n> {
+         })
+     }
+ 
++    /// The global symbol table's entries whose symbol carries `ALIAS`, in the
++    /// table's iteration order: the only global entries `best_name`'s and
++    /// `alias_in_scope_for`'s alias loops act on (`trySymbolTable`'s alias
++    /// iteration, `symbolaccessibility.go:562`). The binder's tables are
++    /// immutable for the checker's lifetime, so the list is computed once
++    /// and is always complete. Private `Checker` (`r5-checkperf.md` §7).
++    fn global_alias_entries(&mut self) -> std::rc::Rc<[(&'a str, SymbolId)]> {
++        if let Some(entries) = &self.global_alias_entries {
++            return entries.clone();
++        }
++        let binder = self.binder;
++        let entries: std::rc::Rc<[(&'a str, SymbolId)]> = binder
++            .globals()
++            .iter()
++            .filter(|&(_, &id)| binder.symbols().get(id).flags.intersects(SymbolFlags::ALIAS))
++            .map(|(&name, &id)| (name, id))
++            .collect();
++        self.global_alias_entries = Some(entries.clone());
++        entries
++    }
++
+     /// A clone's aliases name that module value, not its callable source.
+     fn alias_targets_module_clone(&mut self, alias: SymbolId) -> bool {
+         let target = self.resolve_alias_fully(alias);

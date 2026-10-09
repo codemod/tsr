@@ -377,6 +377,10 @@ pub(crate) struct JSDocReparsedFunction<'a> {
     /// The reparsed `fun.Type`: the first typed `@returns` of an
     /// unannotated function without a full signature.
     pub(crate) return_type: Option<TypeNode<'a>>,
+    /// The `@this` tag whose reparsed `this` parameter prefixes the list
+    /// (`reparseHosted`'s `KindJSDocThisTag` arm, `parser/reparser.go:487`):
+    /// the first one, when the written list does not start with `this`.
+    pub(crate) this_tag: Option<&'a tsr_ast::JSDocThisTag<'a>>,
 }
 
 /// One parameter's reparsed half: the `@param` tag `findMatchingParameter`
@@ -1033,6 +1037,7 @@ impl<'a> Checker<'a, '_> {
                     if state.this == ThisParameter::None {
                         state.this =
                             ThisParameter::Reparsed { typed: this_tag.type_expression.is_some() };
+                        out.this_tag = Some(this_tag);
                     }
                 }
                 JSDocTag::JSDocReturnTag(return_tag) if out.full_signature.is_none() => {

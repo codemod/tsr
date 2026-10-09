@@ -309,18 +309,61 @@ pub(crate) fn union_print_parts(store: &TypeStore, types: &[TypeId]) -> Vec<Unio
 /// `TypeLiteralNode` at `NonArray`, the highest precedence, despite containing
 /// `=>`.
 fn parenthesised(store: &TypeStore, id: TypeId) -> String {
+    let text = printing::type_to_string(store.get(id));
+    if union_constituent_needs_parentheses(store, id) { format!("({text})") } else { text }
+}
+
+/// Whether a union constituent prints parenthesised: [`parenthesised`]'s
+/// test, shared with the site renderers so every road agrees.
+pub(crate) fn union_constituent_needs_parentheses(store: &TypeStore, id: TypeId) -> bool {
     let ty = store.get(id);
-    let needs = match &ty.data {
+    match &ty.data {
         // An intersection **that prints as `A & B`**. One that a type alias
         // names prints as that name, which the node builder emits as a
         // `TypeReferenceNode` at the highest precedence — the distinction this
         // rule got wrong on its first run, at 19 lines.
         TypeData::Intersection { .. } => !printing::prints_as_a_single_token(ty),
-        TypeData::Anonymous { signature, .. } => *signature,
+        // A signature type that a type alias names prints as the alias
+        // reference (`type BB = { new(): B }` is `AA | BB`,
+        // `narrowByInstanceof.types`), a `TypeReferenceNode` at the highest
+        // precedence. The `signature` bit is set where the literal is built
+        // and survives the naming, so the printed text decides which node the
+        // builder emits: a function or constructor type node always starts
+        // with its parameter list, its type parameters, or `new`/`abstract new`.
+        TypeData::Anonymous { signature, text, .. } => {
+            *signature
+                && (text.starts_with('(')
+                    || text.starts_with('<')
+                    || text.starts_with("new ")
+                    || text.starts_with("abstract new "))
+        }
+        // `TypePrecedenceConditional` is the lowest (`ast/precedence.go`), so a
+        // conditional constituent prints `T | (A extends B ? C : D)`. A
+        // conditional that a type alias names prints as its reference; the
+        // text tells the two apart by a depth-0 `extends`, which a reference's
+        // type arguments can only hold inside their brackets.
+        _ if ty.flags.contains(TypeFlags::CONDITIONAL) => {
+            has_top_level_extends(&printing::type_to_string(ty))
+        }
         _ => false,
-    };
-    let text = printing::type_to_string(ty);
-    if needs { format!("({text})") } else { text }
+    }
+}
+
+/// Whether `text` holds ` extends ` outside every bracket: the printed shape
+/// of a `ConditionalTypeNode` rather than of a reference to one.
+fn has_top_level_extends(text: &str) -> bool {
+    let mut depth = 0i32;
+    let bytes = text.as_bytes();
+    for (index, &byte) in bytes.iter().enumerate() {
+        match byte {
+            b'(' | b'[' | b'{' | b'<' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b'>' if index == 0 || bytes[index - 1] != b'=' => depth -= 1,
+            b' ' if depth == 0 && text[index..].starts_with(" extends ") => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// `booleanType` — the union `false | true` (`checker.go:1002`).
@@ -344,6 +387,25 @@ pub(crate) fn create_boolean_type(
     regular_true: TypeId,
 ) -> TypeId {
     create_union(store, TypeFlags::empty(), vec![regular_false, regular_true], None)
+}
+
+/// What [`Checker::tuple_compare_shape`] reads off a tuple reference.
+struct TupleCompareShape {
+    readonly: bool,
+    flags: Vec<u8>,
+    labels: Vec<Option<String>>,
+    arguments: Vec<TypeId>,
+}
+
+/// `compareElementLabels` (`utilities.go:645`): an unlabeled element sorts
+/// before a labeled one; two labels compare by text.
+fn compare_element_labels(left: Option<&str>, right: Option<&str>) -> Ordering {
+    match (left, right) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(x), Some(y)) => x.cmp(y),
+    }
 }
 
 /// `getSortOrderFlags` (`utilities.go:581`).
@@ -612,10 +674,19 @@ impl Checker<'_, '_> {
                     TypeData::Union { symbol: Some(symbol), .. }
                         if self.binder.symbols().get(*symbol).flags
                             .contains(tsr_binder::SymbolFlags::TYPE_ALIAS));
-                    let contributed = if aliased {
-                        vec![id]
-                    } else {
-                        self.union_origin.get(&id).cloned().unwrap_or_else(|| vec![id])
+                    // addNamedUnions (checker.go:25824): a union with an
+                    // alias (an enum's declared type is one, checker.go:23899)
+                    // stays one entry; an origin-carrying union contributes
+                    // its origin's entries; an unnamed union is no entry at
+                    // all, and its members reach the origin as typeSet
+                    // members (`reducedTypes`, checker.go:25708).
+                    let contributed = match &self.store.get(id).data {
+                        TypeData::Union { symbol: Some(_), .. } => vec![id],
+                        _ if aliased => vec![id],
+                        TypeData::Union { types: members, .. } => {
+                            self.union_origin.get(&id).cloned().unwrap_or_else(|| members.clone())
+                        }
+                        _ => vec![id],
                     };
                     for entry in contributed {
                         if !entries.contains(&entry) {
@@ -623,25 +694,13 @@ impl Checker<'_, '_> {
                         }
                     }
                 }
-                // Entry order, from the baselines: nullable entries LAST
-                // (`MyEnum | undefined`), everything else by its first
-                // MEMBER's sort bits (`boolean | E` for the written
-                // `E | boolean`).
-                let key = |checker: &Self, id: TypeId| -> (bool, u32) {
-                    let flags = checker.store.get(id).flags;
-                    if flags.intersects(TypeFlags::NULLABLE) {
-                        return (true, 0);
-                    }
-                    let first = match &checker.store.get(id).data {
-                        TypeData::Union { types, .. } => types.first().copied().unwrap_or(id),
-                        _ => id,
-                    };
-                    (false, sort_order_flags(checker.store.get(first).flags))
-                };
-                entries.sort_by(|&a, &b| {
-                    let (ka, kb) = (key(self, a), key(self, b));
-                    ka.cmp(&kb).then_with(|| self.compare_types(a, b))
-                });
+                // The origin is `newUnionType(reducedTypes)` after each named
+                // union is placed by `insertType` (checker.go:25724), so its
+                // entries are in `CompareTypes` order and nothing else. The
+                // nullable tail (`MyEnum | undefined`) and the boolean
+                // collapse are the printer's (`formatUnionTypes`,
+                // printer.go:383), applied where the text is built.
+                entries.sort_by(|&a, &b| self.compare_types(a, b));
                 Some(entries)
             } else {
                 // §742: a NAMED constituent inside an ALIASED union
@@ -1067,14 +1126,15 @@ impl Checker<'_, '_> {
                 return self.intrinsics.error;
             }
         }
-        let mut parts = Vec::with_capacity(entries.len());
-        for &entry in &entries {
-            let printed = crate::printing::type_to_string(self.store.get(entry));
-            if printed == "error" {
-                return self.intrinsics.error;
-            }
-            parts.push(parenthesised(&self.store, entry));
+        if entries
+            .iter()
+            .any(|&entry| crate::printing::type_to_string(self.store.get(entry)) == "error")
+        {
+            return self.intrinsics.error;
         }
+        // The node builder prints the origin's entries through
+        // `formatUnionTypes` (printer.go:383): `null` then `undefined` last.
+        let parts = format_union_types(&self.store, &entries);
         if set.is_empty() {
             return self.intrinsics.never;
         }
@@ -1435,7 +1495,9 @@ impl Checker<'_, '_> {
         let symbols = self.binder.symbols();
         let left_name = if let Some((alias, _)) = alias_a {
             Some(symbols.get(*alias).name)
-        } else if self.tuple_element_lists.contains_key(&a) {
+        } else if self.tuple_element_lists.contains_key(&a)
+            || self.variadic_tuple_elements.contains_key(&a)
+        {
             None
         } else if let Some((target, _)) = reference_a {
             Some(symbols.get(*target).name)
@@ -1444,7 +1506,9 @@ impl Checker<'_, '_> {
         };
         let right_name = if let Some((alias, _)) = alias_b {
             Some(symbols.get(*alias).name)
-        } else if self.tuple_element_lists.contains_key(&b) {
+        } else if self.tuple_element_lists.contains_key(&b)
+            || self.variadic_tuple_elements.contains_key(&b)
+        {
             None
         } else if let Some((target, _)) = reference_b {
             Some(symbols.get(*target).name)
@@ -1459,6 +1523,79 @@ impl Checker<'_, '_> {
             (Some(_), None) => Ordering::Less,
             (None, None) => Ordering::Equal,
         }
+    }
+
+    /// A tuple reference as `compareTupleTypes` (`utilities.go:620`) and the
+    /// type-argument arm after it see it: the target's `readonly` and
+    /// per-element `ElementFlags` and labels, and the resolved type
+    /// arguments. This port keeps a fixed tuple in `tuple_element_lists`
+    /// (with `tuple_optional_masks` and `tuple_labels`) and a normalized
+    /// variadic one in `variadic_tuple_elements`, whose spread of an array is
+    /// a Rest element over the array's element type and any other spread a
+    /// Variadic element over the spread type itself (`TupleNormalizer`,
+    /// checker.go:23364).
+    fn tuple_compare_shape(&self, id: TypeId) -> Option<TupleCompareShape> {
+        const REQUIRED: u8 = 1;
+        const OPTIONAL: u8 = 2;
+        const REST: u8 = 4;
+        const VARIADIC: u8 = 8;
+        if let Some((elements, readonly)) = self.tuple_element_lists.get(&id) {
+            let mask = self.tuple_optional_masks.get(&id);
+            let labels = self.tuple_labels.get(&id);
+            return Some(TupleCompareShape {
+                readonly: *readonly,
+                flags: (0..elements.len())
+                    .map(|index| {
+                        if mask.and_then(|m| m.get(index)).copied().unwrap_or(false) {
+                            OPTIONAL
+                        } else {
+                            REQUIRED
+                        }
+                    })
+                    .collect(),
+                labels: (0..elements.len())
+                    .map(|index| labels.and_then(|l| l.get(index)).cloned().flatten())
+                    .collect(),
+                arguments: elements.clone(),
+            });
+        }
+        let (elements, readonly) = self.variadic_tuple_elements.get(&id)?;
+        let mut shape = TupleCompareShape {
+            readonly: *readonly,
+            flags: Vec::with_capacity(elements.len()),
+            labels: Vec::with_capacity(elements.len()),
+            arguments: Vec::with_capacity(elements.len()),
+        };
+        for element in elements {
+            let (flag, argument) = if element.spread {
+                match self.spread_array_element_read_only(element.r#type) {
+                    Some(item) => (REST, item),
+                    None => (VARIADIC, element.r#type),
+                }
+            } else if element.optional {
+                (OPTIONAL, element.r#type)
+            } else {
+                (REQUIRED, element.r#type)
+            };
+            shape.flags.push(flag);
+            shape.labels.push(element.label.clone());
+            shape.arguments.push(argument);
+        }
+        Some(shape)
+    }
+
+    /// [`Checker::tuple_spread_array_element`] without its `&mut` lookup of
+    /// the global `Array`: a comparator cannot resolve globals, so the
+    /// reference's target is recognised by its merged symbol's name. A
+    /// spread whose type is `any` is a Rest over itself.
+    fn spread_array_element_read_only(&self, id: TypeId) -> Option<TypeId> {
+        if self.store.get(id).flags.contains(TypeFlags::ANY) {
+            return Some(id);
+        }
+        let (target, arguments) = self.type_reference_targets.get(&id)?;
+        let [element] = arguments.as_slice() else { return None };
+        let name = self.binder.symbols().get(self.binder.merged_symbol(*target)).name;
+        matches!(name, "Array" | "ReadonlyArray").then_some(*element)
     }
 
     /// `compareTypeLists` (`utilities.go:660`): shorter lists first, then
@@ -1483,6 +1620,28 @@ impl Checker<'_, '_> {
             return Ordering::Equal;
         }
         let (left, right) = (self.store.get(a), self.store.get(b));
+        // `NoInfer<T>` is native's substitution type (`getNoInferType`,
+        // checker.go:27394), which this port spells as an alias reference
+        // (`no_infer_base_type`). CompareTypes sees `TypeFlagsSubstitution`
+        // (`1 << 24`, after an object's `1 << 20`), no type-name symbol, and
+        // then the substitution arm: the base types, then the constraints,
+        // which are `unknown` for every NoInfer (utilities.go:558).
+        let no_infer = |id: TypeId, ty: &crate::types::Type| {
+            ty.flags.contains(TypeFlags::OBJECT).then(|| self.no_infer_base_type(id)).flatten()
+        };
+        let (no_infer_a, no_infer_b) = (no_infer(a, left), no_infer(b, right));
+        if no_infer_a.is_some() || no_infer_b.is_some() {
+            let flags = |base: Option<TypeId>, ty: &crate::types::Type| {
+                base.map_or(sort_order_flags(ty.flags), |_| TypeFlags::SUBSTITUTION.bits())
+            };
+            return flags(no_infer_a, left)
+                .cmp(&flags(no_infer_b, right))
+                .then_with(|| match (no_infer_a, no_infer_b) {
+                    (Some(x), Some(y)) => self.compare_types(x, y),
+                    _ => Ordering::Equal,
+                })
+                .then(a.cmp(&b));
+        }
         sort_order_flags(left.flags)
             .cmp(&sort_order_flags(right.flags))
             .then_with(|| self.compare_type_names(a, b, left, right))
@@ -1494,6 +1653,35 @@ impl Checker<'_, '_> {
             // to the type-id tiebreak below, which is this port's creation
             // order and not upstream's.
             .then_with(|| self.compare_type_symbols(a, b, left, right))
+            // compareTypeMappers (utilities.go:683) for two instantiations of
+            // one anonymous literal: an object without a mapper sorts after
+            // one with a mapper; two flat mappers compare their sources, then
+            // their targets (`TypeMapperKindArray`, :706).
+            .then_with(|| {
+                if !left.flags.intersects(TypeFlags::OBJECT)
+                    || !right.flags.intersects(TypeFlags::OBJECT)
+                    || !matches!(left.data, TypeData::Named { .. })
+                    || !matches!(right.data, TypeData::Named { .. })
+                {
+                    return Ordering::Equal;
+                }
+                match (
+                    self.instantiated_object_mappers.get(&a),
+                    self.instantiated_object_mappers.get(&b),
+                ) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Greater,
+                    (Some(_), None) => Ordering::Less,
+                    (Some((_, left)), Some((_, right))) => {
+                        let sources =
+                            |m: &[(TypeId, TypeId)]| m.iter().map(|p| p.0).collect::<Vec<_>>();
+                        let targets =
+                            |m: &[(TypeId, TypeId)]| m.iter().map(|p| p.1).collect::<Vec<_>>();
+                        self.compare_type_lists(&sources(left), &sources(right))
+                            .then_with(|| self.compare_type_lists(&targets(left), &targets(right)))
+                    }
+                }
+            })
             // compareTypeMappers orders instantiations of the same anonymous
             // member by their mapped types. Equal source lists identify the
             // flat mapper shape retained by instantiate_signature_type.
@@ -1532,14 +1720,22 @@ impl Checker<'_, '_> {
             // tuple test. Element flags and labels are equal by construction
             // here while the modifier tuple forms refuse
             // (`get_type_from_tuple_type_node`).
-            .then_with(|| {
-                match (self.tuple_element_lists.get(&a), self.tuple_element_lists.get(&b)) {
-                    (Some((elements_a, readonly_a)), Some((elements_b, readonly_b))) => readonly_a
-                        .cmp(readonly_b)
-                        .then(elements_a.len().cmp(&elements_b.len()))
-                        .then_with(|| self.compare_type_lists(elements_a, elements_b)),
-                    _ => Ordering::Equal,
-                }
+            .then_with(|| match (self.tuple_compare_shape(a), self.tuple_compare_shape(b)) {
+                (Some(x), Some(y)) => x
+                    .readonly
+                    .cmp(&y.readonly)
+                    .then(x.flags.len().cmp(&y.flags.len()))
+                    .then_with(|| x.flags.cmp(&y.flags))
+                    .then_with(|| {
+                        x.labels
+                            .iter()
+                            .zip(&y.labels)
+                            .map(|(l, r)| compare_element_labels(l.as_deref(), r.as_deref()))
+                            .find(|order| *order != Ordering::Equal)
+                            .unwrap_or(Ordering::Equal)
+                    })
+                    .then_with(|| self.compare_type_lists(&x.arguments, &y.arguments)),
+                _ => Ordering::Equal,
             })
             .then_with(|| match (&left.data, &right.data) {
                 // "String literal types are ordered by their values."
@@ -1859,19 +2055,19 @@ impl crate::checker::Checker<'_, '_> {
 
     /// addNamedUnions (checker.go:25824): aliases are atomic entries; a union
     /// origin is traversed, while a non-union origin keeps its enclosing union.
+    /// An enum's declared type is aliased natively (`getDeclaredTypeOfEnum`,
+    /// checker.go:23899, `&TypeAlias{symbol: symbol}`), so any union this port
+    /// names by a symbol is `t.alias != nil`.
     fn add_named_unions(&self, named: &mut Vec<TypeId>, source: &[TypeId]) {
         for &id in source {
             let TypeData::Union { symbol, .. } = &self.store.get(id).data else { continue };
             let origin = self.union_origin.get(&id);
-            if symbol.is_some_and(|symbol| {
-                self.binder
-                    .symbols()
-                    .get(symbol)
-                    .flags
-                    .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
-            }) || origin.is_some_and(|entries| {
-                entries.len() == 1 && !self.store.get(entries[0]).flags.contains(TypeFlags::UNION)
-            }) {
+            if symbol.is_some()
+                || origin.is_some_and(|entries| {
+                    entries.len() == 1
+                        && !self.store.get(entries[0]).flags.contains(TypeFlags::UNION)
+                })
+            {
                 if !named.contains(&id) {
                     named.push(id);
                 }

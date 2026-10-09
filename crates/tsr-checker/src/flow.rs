@@ -791,11 +791,7 @@ impl Checker<'_, '_> {
             let flags = binder.flow().flags(flow);
 
             if flags.contains(FlowFlags::SHARED) {
-                if let Some(cached) = self.shared_flows[state.shared_flow_start..]
-                    .iter()
-                    .find(|(id, _)| *id == flow)
-                    .map(|(_, t)| *t)
-                {
+                if let Some(cached) = self.shared_flows.find(state.shared_flow_start, flow) {
                     state.depth -= 1;
                     return cached;
                 }
@@ -1194,66 +1190,85 @@ impl Checker<'_, '_> {
                     break;
                 }
             }
-            let root_node = self.node_map.get(root)?;
-            let mut stack = vec![root_node];
-            let mut children = Vec::new();
-            while let Some(node) = stack.pop() {
-                let target = match node {
-                    Node::BinaryExpression(binary)
-                        if binary.operator_token.is_some_and(|t| {
-                            tsr_ast::SyntaxKind::EqualsToken == t.kind
-                                || matches!(
-                                    t.kind,
-                                    tsr_ast::SyntaxKind::PlusEqualsToken
-                                        | tsr_ast::SyntaxKind::MinusEqualsToken
-                                        | tsr_ast::SyntaxKind::AsteriskEqualsToken
-                                        | tsr_ast::SyntaxKind::SlashEqualsToken
-                                        | tsr_ast::SyntaxKind::PercentEqualsToken
-                                        | tsr_ast::SyntaxKind::BarEqualsToken
-                                        | tsr_ast::SyntaxKind::AmpersandEqualsToken
-                                        | tsr_ast::SyntaxKind::CaretEqualsToken
-                                        | tsr_ast::SyntaxKind::BarBarEqualsToken
-                                        | tsr_ast::SyntaxKind::AmpersandAmpersandEqualsToken
-                                        | tsr_ast::SyntaxKind::QuestionQuestionEqualsToken
-                                )
-                        }) =>
-                    {
-                        binary.left
-                    }
-                    Node::PrefixUnaryExpression(unary)
-                        if matches!(
-                            unary.operator.kind,
-                            tsr_ast::SyntaxKind::PlusPlusToken
-                                | tsr_ast::SyntaxKind::MinusMinusToken
-                        ) =>
-                    {
-                        unary.operand
-                    }
-                    Node::PostfixUnaryExpression(unary) => unary.operand,
-                    _ => None,
-                };
-                if let Some(tsr_ast::Expression::Identifier(identifier)) = target
-                    && identifier.text == name
-                    && let Some(id) = identifier.node_id
-                    && self.binder.resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        id,
-                        name,
-                        SymbolFlags::VALUE,
-                    ) == Some(symbol)
-                {
-                    return Some(true);
-                }
-                children.clear();
-                tsr_ast::push_children(node, &mut children);
-                stack.extend(children.iter().copied());
-            }
-            Some(false)
+            // One walk per scan root, shared by every symbol declared under it
+            // (`r5-checkperf.md` §10): the answer is whether ANY assignment
+            // target spelled `name` resolves to the symbol.
+            let targets = self.assignment_targets_under(root)?;
+            let candidates = targets.get(name)?;
+            Some(candidates.iter().any(|&id| {
+                self.binder.resolve_name(self.nodes, self.node_map, id, name, SymbolFlags::VALUE)
+                    == Some(symbol)
+            }))
         })()
         .unwrap_or(false);
         self.symbol_assignment_scan.insert(symbol, answer);
         answer
+    }
+
+    /// [`Checker::symbol_has_any_assignment`]'s scan of `root`, done once: every
+    /// assignment-operator, `++` and `--` target that is an identifier, by its
+    /// text, in walk order. The per-symbol scan's answer is an `any` over the
+    /// targets spelled like the symbol, so indexing them once per root answers
+    /// every symbol exactly as the walk did (`r5-checkperf.md` §10). `None`
+    /// when `root` has no node, as the walk's `?` answered.
+    fn assignment_targets_under(
+        &mut self,
+        root: NodeId,
+    ) -> Option<crate::perf_links::AssignmentTargets> {
+        if let Some(targets) = self.perf_links.assignment_targets.get(&root) {
+            return Some(targets.clone());
+        }
+        let root_node = self.node_map.get(root)?;
+        let mut targets: rustc_hash::FxHashMap<Box<str>, Vec<NodeId>> =
+            rustc_hash::FxHashMap::default();
+        let mut stack = vec![root_node];
+        let mut children = Vec::new();
+        while let Some(node) = stack.pop() {
+            let target = match node {
+                Node::BinaryExpression(binary)
+                    if binary.operator_token.is_some_and(|t| {
+                        tsr_ast::SyntaxKind::EqualsToken == t.kind
+                            || matches!(
+                                t.kind,
+                                tsr_ast::SyntaxKind::PlusEqualsToken
+                                    | tsr_ast::SyntaxKind::MinusEqualsToken
+                                    | tsr_ast::SyntaxKind::AsteriskEqualsToken
+                                    | tsr_ast::SyntaxKind::SlashEqualsToken
+                                    | tsr_ast::SyntaxKind::PercentEqualsToken
+                                    | tsr_ast::SyntaxKind::BarEqualsToken
+                                    | tsr_ast::SyntaxKind::AmpersandEqualsToken
+                                    | tsr_ast::SyntaxKind::CaretEqualsToken
+                                    | tsr_ast::SyntaxKind::BarBarEqualsToken
+                                    | tsr_ast::SyntaxKind::AmpersandAmpersandEqualsToken
+                                    | tsr_ast::SyntaxKind::QuestionQuestionEqualsToken
+                            )
+                    }) =>
+                {
+                    binary.left
+                }
+                Node::PrefixUnaryExpression(unary)
+                    if matches!(
+                        unary.operator.kind,
+                        tsr_ast::SyntaxKind::PlusPlusToken | tsr_ast::SyntaxKind::MinusMinusToken
+                    ) =>
+                {
+                    unary.operand
+                }
+                Node::PostfixUnaryExpression(unary) => unary.operand,
+                _ => None,
+            };
+            if let Some(tsr_ast::Expression::Identifier(identifier)) = target
+                && let Some(id) = identifier.node_id
+            {
+                targets.entry(identifier.text.into()).or_default().push(id);
+            }
+            children.clear();
+            tsr_ast::push_children(node, &mut children);
+            stack.extend(children.iter().copied());
+        }
+        let targets = std::rc::Rc::new(targets);
+        self.perf_links.assignment_targets.insert(root, targets.clone());
+        Some(targets)
     }
     /// The walk's container bound, extended outward for constants and
     /// past-last-assignment mutables — `checkIdentifier`'s loop,
@@ -3018,10 +3033,15 @@ impl Checker<'_, '_> {
         if self.global_this_type == Some(t) {
             return Some(Vec::new());
         }
-        if let Some(signatures) = self.signature_types.get(&t).cloned() {
+        if let Some(signatures) = self.signature_types.get(&t) {
+            // Copy out only the requested kind (`r5-checkperf.md` §6).
+            let signatures: Vec<_> = signatures
+                .iter()
+                .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
+                .cloned()
+                .collect();
             return signatures
                 .into_iter()
-                .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
                 .map(|signature| self.complete_signature_return(signature))
                 .collect();
         }
@@ -3059,13 +3079,8 @@ impl Checker<'_, '_> {
     fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
         match self.node_map.get(node) {
             Some(Node::Identifier(identifier)) => {
-                let symbol = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    node,
-                    identifier.text,
-                    SymbolFlags::VALUE,
-                )?;
+                let symbol =
+                    self.resolve_identifier_memo(node, identifier.text, SymbolFlags::VALUE)?;
                 // `getExportSymbolOfValueSymbolIfExported`.
                 let symbol = self.binder.merged_symbol(symbol);
                 self.get_explicit_type_of_symbol(symbol)
@@ -5282,9 +5297,12 @@ impl Checker<'_, '_> {
         let TypeData::EnumLiteral { owner, value, .. } = &self.store.get(regular).data else {
             return None;
         };
+        // Concatenated rather than `format!`ed: the relater asks this for both
+        // sides of every simple relation, 29.7 M times on jsTyping, where the
+        // formatting machinery was 13.1 G Ir (`r5-checkperf.md` §9).
         let key = match value {
-            crate::types::EnumLiteralValue::Number(value) => format!("n:{value}"),
-            crate::types::EnumLiteralValue::String(value) => format!("s:{value}"),
+            crate::types::EnumLiteralValue::Number(value) => enum_value_key("n:", value),
+            crate::types::EnumLiteralValue::String(value) => enum_value_key("s:", value),
         };
         Some((*owner, key))
     }
@@ -9030,3 +9048,13 @@ mod object_facts_tests;
 #[cfg(test)]
 #[path = "flow_effects_completion_tests.rs"]
 mod effects_completion_tests;
+
+/// [`Checker::enum_member_value`]'s key: `prefix` then `value`. Out of line so
+/// the common non-member early return stays as light as before.
+#[inline(never)]
+fn enum_value_key(prefix: &str, value: &str) -> String {
+    let mut key = String::with_capacity(prefix.len() + value.len());
+    key.push_str(prefix);
+    key.push_str(value);
+    key
+}

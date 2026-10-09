@@ -253,6 +253,13 @@ pub struct TypeStore {
     /// traversal/forcing or serialized text is cached here, and no speed claim
     /// follows from admitting an existing constituent walk.
     union_display_plans: FxHashMap<TypeId, bool>,
+    /// `(literal, fresh) -> its fresh or regular twin`: native keeps the pair
+    /// as each literal type's `freshType`/`regularType` links
+    /// (`getFreshTypeOfLiteralType`/`getRegularTypeOfLiteralType`,
+    /// `checker.go`, pinned `5b1047d`). The twin is a pure function of the
+    /// literal's interned key, so every entry is complete; it is dropped when
+    /// `complete_object` rewrites an identity (`r5-checkperf.md` §5).
+    literal_twins: FxHashMap<(TypeId, bool), TypeId>,
 }
 
 impl TypeStore {
@@ -287,6 +294,23 @@ impl TypeStore {
     /// Complete a reserved, non-interned object identity after its members resolve.
     pub(crate) fn complete_object(&mut self, reserved: TypeId, resolved: TypeId) {
         self.types[reserved.index()] = self.types[resolved.index()].clone();
+        self.literal_twins.remove(&(reserved, false));
+        self.literal_twins.remove(&(reserved, true));
+    }
+
+    /// The interned literal with `id`'s flags and payload and the given
+    /// freshness — what `intern_literal(flags, data.clone(), fresh)` answers —
+    /// remembered per `(id, fresh)` so the payload is cloned and hashed once
+    /// per literal rather than once per request (`r5-checkperf.md` §5).
+    pub(crate) fn literal_twin(&mut self, id: TypeId, fresh: bool) -> TypeId {
+        if let Some(&twin) = self.literal_twins.get(&(id, fresh)) {
+            return twin;
+        }
+        let ty = &self.types[id.index()];
+        let (flags, data) = (ty.flags, ty.data.clone());
+        let twin = self.intern_literal(flags, data, fresh);
+        self.literal_twins.insert((id, fresh), twin);
+        twin
     }
 
     /// Create a type without interning, always a fresh identity.

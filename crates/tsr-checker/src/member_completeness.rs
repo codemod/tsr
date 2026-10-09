@@ -769,17 +769,27 @@ function read(qualified, replaced) { qualified.child.present; replaced.kept; }
         // type literal (`reparseJSDocTypeLiteral`), so completeness is the
         // literal's own member test; nested and `@type`-replaced bodies are
         // ordinary literals too.
-        for (name, expected) in [
-            ("Plain", vec![true]),
-            ("Generic", vec![true]),
-            ("Lower", vec![true]),
-            ("Qualified", vec![true]),
-            ("Replaced", vec![true]),
-            ("Merged", vec![true, true]),
-            ("Multiple", vec![true]),
-            ("Other", vec![true]),
+        //
+        // A typedef inside a function body is that function's local
+        // (`parseListIndex` + `bindBlockScopedDeclaration`, binder.rs
+        // `jsdoc_alias_scope`), so the two `Merged` tags are two symbols,
+        // one per function, not one merged file-level symbol.
+        let function = |name: &str| {
+            let symbol = bound.lookup_local(root, name).expect("function bound");
+            bound.symbols().get(symbol).declarations[0]
+        };
+        for (container, name, expected) in [
+            (root, "Plain", vec![true]),
+            (root, "Generic", vec![true]),
+            (root, "Lower", vec![true]),
+            (root, "Qualified", vec![true]),
+            (root, "Replaced", vec![true]),
+            (function("first"), "Merged", vec![true]),
+            (function("second"), "Merged", vec![true]),
+            (root, "Multiple", vec![true]),
+            (root, "Other", vec![true]),
         ] {
-            let symbol = bound.lookup_local(root, name).expect("typedef bound");
+            let symbol = bound.lookup_local(container, name).expect("typedef bound");
             let actual: Vec<_> = bound
                 .symbols()
                 .get(symbol)

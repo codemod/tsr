@@ -935,12 +935,23 @@ impl<'a> Checker<'a, '_> {
                 }
                 return error;
             }
-            let mut map = Vec::with_capacity(parameters.len());
-            for (position, &type_parameter) in parameters.iter().enumerate() {
-                if let Some(&argument) = written.get(position) {
-                    map.push((type_parameter, argument));
-                    continue;
-                }
+            // fillMissingTypeArguments (checker.go:21954) maps every unfilled
+            // position to errorType before instantiating any default, so a
+            // default naming a later parameter (`<T, U = V, V = C>`) is an
+            // invalid forward reference that becomes errorType (ADR-0048's
+            // `native_error`, printed `any`): `f14<A>()` is `[A, any, C]`
+            // (`genericDefaults`).
+            let mut map: Vec<_> = parameters
+                .iter()
+                .enumerate()
+                .map(|(position, &type_parameter)| {
+                    (
+                        type_parameter,
+                        written.get(position).copied().unwrap_or(self.intrinsics.native_error),
+                    )
+                })
+                .collect();
+            for position in written.len()..parameters.len() {
                 let image = match signature
                     .type_parameters
                     .get(position)
@@ -955,7 +966,7 @@ impl<'a> Checker<'a, '_> {
                     }
                     None => self.intrinsics.unknown,
                 };
-                map.push((type_parameter, image));
+                map[position].1 = image;
             }
             let answer = self.instantiate_type(returned, &map, &parameters, &names);
             if answer != error
@@ -5773,6 +5784,7 @@ impl<'a> Checker<'a, '_> {
         let minted = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, owner);
         self.anonymous_properties.insert(minted, (properties, true));
         self.object_literal_index_infos.insert(minted, indexes);
+        self.instantiated_object_mappers.insert(minted, key.clone());
         self.instantiated_objects.insert(key, minted);
         minted
     }

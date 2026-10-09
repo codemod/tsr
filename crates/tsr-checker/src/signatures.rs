@@ -1321,7 +1321,7 @@ impl<'a> Checker<'a, '_> {
     /// `error` until this was corrected. Asking whether `declaration` is the very
     /// next child of the shared parent answers the same question from the data
     /// this port does have.
-    fn is_overload_implementation(&self, declaration: NodeId, previous: NodeId) -> bool {
+    pub(crate) fn is_overload_implementation(&self, declaration: NodeId, previous: NodeId) -> bool {
         if self.signature_parts_of(declaration).and_then(|parts| parts.body).is_none()
             || self.nodes.kind(declaration) != self.nodes.kind(previous)
         {
@@ -3680,7 +3680,7 @@ impl<'a> Checker<'a, '_> {
                 // answers `voidType`. A bare `return;` is itself the proof that
                 // the body's end is reachable, so this does not consult
                 // [`Checker::block_completes_normally`].
-                return Some(self.intrinsics.void);
+                return Some(self.empty_return_aggregate_type(declaration));
             }
             [] => {}
             [single] => return self.inferred_return_type(declaration, *single),
@@ -3705,7 +3705,7 @@ impl<'a> Checker<'a, '_> {
             // `checkAndAggregateReturnExpressionTypes` yields no types and is not
             // never-returning: `getReturnTypeFromBody` answers `voidType`
             // (`checker.go:20200`). This holds even for a body that only throws.
-            return Some(self.intrinsics.void);
+            return Some(self.empty_return_aggregate_type(declaration));
         }
         // A function expression, an arrow, or an object-literal method with no
         // `return`. Upstream separates `never` from `void` here by asking whether
@@ -3714,10 +3714,31 @@ impl<'a> Checker<'a, '_> {
         // checking an effect-only self-call as a return expression would
         // incorrectly poison the active return slot.
         Some(if self.function_has_implicit_return(declaration) {
-            self.intrinsics.void
+            self.empty_return_aggregate_type(declaration)
         } else {
             self.intrinsics.never
         })
+    }
+
+    /// `getReturnTypeFromBody`'s empty-aggregate arm for a plain function
+    /// (`checker.go:20175`–`:20188`): no return expression, so the type is
+    /// `undefinedType` when some constituent of the contextual return type
+    /// is `undefined`, and `voidType` otherwise. `const f20: () => undefined
+    /// = () => {}` records `() => undefined`
+    /// (`functionsMissingReturnStatementsAndExpressions*`). The async arm
+    /// already carried this rule; a plain function's `unwrapReturnType` is the
+    /// contextual return type itself. An undecidable contextual type keeps
+    /// `void`, the answer this arm gave before. r5-shapes §2.2.
+    fn empty_return_aggregate_type(&mut self, declaration: NodeId) -> TypeId {
+        let contextual = self.get_contextual_return_type(declaration).ok().flatten();
+        if contextual.is_some_and(|ty| {
+            ty != self.intrinsics.error
+                && self.maybe_type_of_kind(ty, crate::flags::TypeFlags::UNDEFINED)
+        }) {
+            self.intrinsics.undefined
+        } else {
+            self.intrinsics.void
+        }
     }
 
     /// The type of a concise arrow body, `x => x + 1`.
@@ -7601,6 +7622,10 @@ impl<'a> Checker<'a, '_> {
                     out.push_str(" extends ");
                     if let Some(written) = &parameter.written_constraint {
                         out.push_str(written);
+                    } else if let Some(text) = parameter.resolved_type.and_then(|parameter| {
+                        self.reused_constraint_text(parameter, constraint, Some(reference))
+                    }) {
+                        out.push_str(&text);
                     } else {
                         let text = render(self, constraint);
                         out.push_str(&text);
@@ -7824,9 +7849,14 @@ impl<'a> Checker<'a, '_> {
                 out.push_str(&parameter.name);
                 if let Some(constraint) = parameter.constraint {
                     out.push_str(" extends ");
-                    match &parameter.written_constraint {
-                        Some(written) => out.push_str(written),
-                        None => out.push_str(&self.type_to_string(constraint)),
+                    if let Some(written) = &parameter.written_constraint {
+                        out.push_str(written);
+                    } else if let Some(text) = parameter.resolved_type.and_then(|parameter| {
+                        self.reused_constraint_text(parameter, constraint, None)
+                    }) {
+                        out.push_str(&text);
+                    } else {
+                        out.push_str(&self.type_to_string(constraint));
                     }
                 }
                 if let Some(default) = parameter.default {

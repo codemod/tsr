@@ -28,6 +28,13 @@
 //! corpus exercises" was the reasonable-sounding move that hid a 57-line defect
 //! — the corpus had been consulted for the union case and never for the others.
 //!
+//! **Corrected again (r5-mapped4):** the port still decided by type kind
+//! (a union, a signature) rather than by the printed node's precedence, so a
+//! union printing its `keyof X` origin was wrapped (`P & (keyof NameMap)`)
+//! and a conditional was not. The constituent's precedence is now read from
+//! its printed text by `node_reuse::binds_below_intersection`
+//! (`docs/parity/notes/r5-mapped4.md` §1).
+//!
 //! # The reduction that needs no assignability, and the one that does
 //!
 //! Most of upstream's emptiness rules are **pure flag arithmetic** over
@@ -112,13 +119,16 @@ fn create_intersection(
                 //   too, and was never parenthesised here at all:
                 //   `typeof ErrImpl & (<T>() => T)` and
                 //   `T & (new (...args: any[]) => { … })`.
-                let needs = if constituent.flags.contains(TypeFlags::UNION)
-                    && !constituent.flags.contains(TypeFlags::BOOLEAN)
-                {
-                    !printing::prints_as_a_single_token(constituent)
-                } else {
-                    matches!(&constituent.data, TypeData::Anonymous { signature, .. } if *signature)
-                };
+                //
+                // r5-mapped4 replaced the per-kind list with the rule itself.
+                // The list missed two kinds: a union whose ORIGIN is not a
+                // union node (`keyof NameMap` is getIndexType's `newIndexType`
+                // origin, a `TypeOperator` node, and printed
+                // `P & (keyof NameMap)`), and a conditional, which binds below
+                // `Intersection` and printed unwrapped. Each constituent's
+                // node kind now comes from its printed text, read by the same
+                // precedence reader the node-reuse fallback uses.
+                let needs = crate::node_reuse::binds_below_intersection(&printed);
                 if needs { format!("({printed})") } else { printed }
             })
             .collect::<Vec<_>>()

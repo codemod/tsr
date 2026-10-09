@@ -141,9 +141,12 @@ fn a_receiver_this_port_could_not_type_is_still_a_gap() {
     // `anyType` and `errorType` carry `ANY` in this port, and one of them cannot
     // reach the arm. Documented rather than tested, on the same rule as the
     // `{ a = 1 }` guard in `objects.rs`.
-    // §32: the minted unresolved receiver is upstream's `errorType`, and
-    // `u[0]` through it answers `any` — upstream's baseline shape.
-    assert_eq!(type_of_last("var u: Unresolved;\nconst x = u[0];"), "any");
+    // §32: the minted unresolved receiver is upstream's any-flagged
+    // unresolved reference, so `isErrorType` holds and `u[0]` answers the
+    // receiver itself (`checker.go:8153`), printed by its name. It answered
+    // `any` until r5-errorsplit5 (notes §7.1; `recursiveTypeRelations`
+    // records `obj[exportedClassName] : ClassNameObject`).
+    assert_eq!(type_of_last("var u: Unresolved;\nconst x = u[0];"), "Unresolved");
 }
 
 #[test]

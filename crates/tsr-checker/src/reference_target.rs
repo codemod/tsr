@@ -90,6 +90,8 @@ impl Checker<'_, '_> {
         }
         let Some(left) = binary.left.and_then(|left| left.node_id()) else { return };
         self.check_destructuring_pattern_targets(left);
+        // The relation half of the same walk (`destructuring_assignment.rs`).
+        self.check_destructuring_assignment_relations(node);
     }
 
     /// `checkForOfStatement`'s expression arm (`checker.go:4050`): a literal
@@ -108,6 +110,7 @@ impl Checker<'_, '_> {
             SyntaxKind::VariableDeclarationList => {}
             SyntaxKind::ArrayLiteralExpression | SyntaxKind::ObjectLiteralExpression => {
                 self.check_destructuring_pattern_targets(initializer);
+                self.check_for_of_destructuring_relations(node);
             }
             _ => self.check_reference_expression_arms(
                 initializer,

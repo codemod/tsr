@@ -1,0 +1,693 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index c921581..d03152e 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1212,9 +1212,7 @@ impl Checker<'_, '_> {
+         if !tsr_binder::is_external_module_in(source, self.nodes) {
+             return;
+         }
+-        let Some(symbol) = self.binder.resolve_name(
+-            self.nodes,
+-            self.node_map,
++        let Some(symbol) = self.resolve_identifier_memo(
+             node,
+             text,
+             SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+@@ -6363,14 +6361,7 @@ impl Checker<'_, '_> {
+         }
+         let Some(symbol) = self
+             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
+-            .binder
+-            .resolve_name(
+-                self.nodes,
+-                self.node_map,
+-                node,
+-                text,
+-                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+-            )
++            .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
+             // **`a.C` is not a name in scope.** Upstream reaches this use
+             // through `resolveEntityName`, which resolves the receiver and
+             // takes the member from its exports; this rule is dispatched per
+@@ -6999,13 +6990,7 @@ impl Checker<'_, '_> {
+         }
+         let Some(symbol) =
+             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
+-            self.binder.resolve_name(
+-                self.nodes,
+-                self.node_map,
+-                node,
+-                text,
+-                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+-            )
++            self.resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
+         else {
+             return false;
+         };
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index feed815..5ceff4e 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -378,7 +378,10 @@ pub struct Checker<'a, 'n> {
+     /// backwards walk is exponential on branchy code — a hang rather than a
+     /// wrong answer, which is why it is part of the port and not an
+     /// optimisation.
+-    pub(crate) shared_flows: Vec<(tsr_binder::FlowId, crate::flow::FlowType)>,
++    pub(crate) shared_flows: crate::perf_links::SharedFlows,
++    /// The global table's `ALIAS`-flagged entries in its iteration order
++    /// ([`Checker::global_alias_entries`], `r5-checkperf.md` §7).
++    global_alias_entries: Option<std::rc::Rc<[(&'a str, SymbolId)]>>,
+     /// §52's reentrancy guard: operand nodes currently being typed FROM
+     /// INSIDE an equality-narrowing walk. Typing `value` can re-enter the
+     /// same reference's flow walk through the operand's own narrowing and
+@@ -1434,7 +1437,8 @@ impl<'a, 'n> Checker<'a, 'n> {
+             dependent_binding_parents_in_flight: rustc_hash::FxHashSet::default(),
+             flow_analysis_disabled: false,
+             flow_disabled_containers: rustc_hash::FxHashSet::default(),
+-            shared_flows: Vec::new(),
++            shared_flows: crate::perf_links::SharedFlows::default(),
++            global_alias_entries: None,
+             narrow_value_stack: std::collections::HashSet::new(),
+             call_inference_signatures: rustc_hash::FxHashMap::default(),
+             resolved_call_signatures: rustc_hash::FxHashMap::default(),
+@@ -3813,7 +3817,9 @@ impl<'a, 'n> Checker<'a, 'n> {
+             }
+             current = self.nodes.parent(node);
+         }
+-        tables.push(self.binder.globals().values().copied().collect());
++        // Only `ALIAS` candidates pass the first test below; the global
++        // table's are listed once (`r5-checkperf.md` §7).
++        tables.push(self.global_alias_entries().iter().map(|&(_, id)| id).collect());
+ 
+         // §501: the module handed in may itself be an alias — following
+         // `export =` returns the `export=` symbol under upstream's
+@@ -4261,6 +4267,13 @@ impl<'a, 'n> Checker<'a, 'n> {
+         tables.push(Table::Globals);
+         let binder = self.binder;
+         for table in tables {
++            // The global table is the program's largest: its direct hit is a
++            // keyed lookup (keys are unique, so it is the entry the scan
++            // found) and only its `ALIAS` entries — the only ones the
++            // candidate loop below acts on — are listed, in table order
++            // (`r5-checkperf.md` §7).
++            let global_direct =
++                matches!(table, Table::Globals).then(|| binder.globals().get(own).copied());
+             let table: Vec<(&'a str, SymbolId)> = match table {
+                 Table::Locals(node) => binder
+                     .locals(node)
+@@ -4276,9 +4289,11 @@ impl<'a, 'n> Checker<'a, 'n> {
+                     .map(|(&name, &id)| (name, id))
+                     .collect(),
+                 Table::ClassName(name, symbol) => vec![(name, symbol)],
+-                Table::Globals => binder.globals().iter().map(|(&name, &id)| (name, id)).collect(),
++                Table::Globals => self.global_alias_entries().to_vec(),
+             };
+-            let direct = table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit);
++            let direct = global_direct.unwrap_or_else(|| {
++                table.iter().find(|&&(name, _)| name == own).map(|&(_, hit)| hit)
++            });
+             if direct.is_some_and(|hit| self.binder.merged_symbol(hit) == target) {
+                 return Some(own.to_string());
+             }
+@@ -4459,7 +4474,9 @@ impl<'a, 'n> Checker<'a, 'n> {
+             }
+             current = self.nodes.parent(node);
+         }
+-        candidates.extend(self.binder.globals().values().copied());
++        // Only `ALIAS` candidates reach the test below; the global table's
++        // are listed once (`r5-checkperf.md` §7).
++        candidates.extend(self.global_alias_entries().iter().map(|&(_, id)| id));
+         candidates.into_iter().any(|candidate| {
+             self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
+                 && self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
+@@ -4468,6 +4485,27 @@ impl<'a, 'n> Checker<'a, 'n> {
+         })
+     }
+ 
++    /// The global symbol table's entries whose symbol carries `ALIAS`, in the
++    /// table's iteration order: the only global entries `best_name`'s and
++    /// `alias_in_scope_for`'s alias loops act on (`trySymbolTable`'s alias
++    /// iteration, `symbolaccessibility.go:562`). The binder's tables are
++    /// immutable for the checker's lifetime, so the list is computed once
++    /// and is always complete. Private `Checker` (`r5-checkperf.md` §7).
++    fn global_alias_entries(&mut self) -> std::rc::Rc<[(&'a str, SymbolId)]> {
++        if let Some(entries) = &self.global_alias_entries {
++            return entries.clone();
++        }
++        let binder = self.binder;
++        let entries: std::rc::Rc<[(&'a str, SymbolId)]> = binder
++            .globals()
++            .iter()
++            .filter(|&(_, &id)| binder.symbols().get(id).flags.intersects(SymbolFlags::ALIAS))
++            .map(|(&name, &id)| (name, id))
++            .collect();
++        self.global_alias_entries = Some(entries.clone());
++        entries
++    }
++
+     /// A clone's aliases name that module value, not its callable source.
+     fn alias_targets_module_clone(&mut self, alias: SymbolId) -> bool {
+         let target = self.resolve_alias_fully(alias);
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index a144b55..a4b9cc3 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -791,11 +791,7 @@ impl Checker<'_, '_> {
+             let flags = binder.flow().flags(flow);
+ 
+             if flags.contains(FlowFlags::SHARED) {
+-                if let Some(cached) = self.shared_flows[state.shared_flow_start..]
+-                    .iter()
+-                    .find(|(id, _)| *id == flow)
+-                    .map(|(_, t)| *t)
+-                {
++                if let Some(cached) = self.shared_flows.find(state.shared_flow_start, flow) {
+                     state.depth -= 1;
+                     return cached;
+                 }
+@@ -1194,67 +1190,86 @@ impl Checker<'_, '_> {
+                     break;
+                 }
+             }
+-            let root_node = self.node_map.get(root)?;
+-            let mut stack = vec![root_node];
+-            let mut children = Vec::new();
+-            while let Some(node) = stack.pop() {
+-                let target = match node {
+-                    Node::BinaryExpression(binary)
+-                        if binary.operator_token.is_some_and(|t| {
+-                            tsr_ast::SyntaxKind::EqualsToken == t.kind
+-                                || matches!(
+-                                    t.kind,
+-                                    tsr_ast::SyntaxKind::PlusEqualsToken
+-                                        | tsr_ast::SyntaxKind::MinusEqualsToken
+-                                        | tsr_ast::SyntaxKind::AsteriskEqualsToken
+-                                        | tsr_ast::SyntaxKind::SlashEqualsToken
+-                                        | tsr_ast::SyntaxKind::PercentEqualsToken
+-                                        | tsr_ast::SyntaxKind::BarEqualsToken
+-                                        | tsr_ast::SyntaxKind::AmpersandEqualsToken
+-                                        | tsr_ast::SyntaxKind::CaretEqualsToken
+-                                        | tsr_ast::SyntaxKind::BarBarEqualsToken
+-                                        | tsr_ast::SyntaxKind::AmpersandAmpersandEqualsToken
+-                                        | tsr_ast::SyntaxKind::QuestionQuestionEqualsToken
+-                                )
+-                        }) =>
+-                    {
+-                        binary.left
+-                    }
+-                    Node::PrefixUnaryExpression(unary)
+-                        if matches!(
+-                            unary.operator.kind,
+-                            tsr_ast::SyntaxKind::PlusPlusToken
+-                                | tsr_ast::SyntaxKind::MinusMinusToken
+-                        ) =>
+-                    {
+-                        unary.operand
+-                    }
+-                    Node::PostfixUnaryExpression(unary) => unary.operand,
+-                    _ => None,
+-                };
+-                if let Some(tsr_ast::Expression::Identifier(identifier)) = target
+-                    && identifier.text == name
+-                    && let Some(id) = identifier.node_id
+-                    && self.binder.resolve_name(
+-                        self.nodes,
+-                        self.node_map,
+-                        id,
+-                        name,
+-                        SymbolFlags::VALUE,
+-                    ) == Some(symbol)
+-                {
+-                    return Some(true);
+-                }
+-                children.clear();
+-                tsr_ast::push_children(node, &mut children);
+-                stack.extend(children.iter().copied());
+-            }
+-            Some(false)
++            // One walk per scan root, shared by every symbol declared under it
++            // (`r5-checkperf.md` §10): the answer is whether ANY assignment
++            // target spelled `name` resolves to the symbol.
++            let targets = self.assignment_targets_under(root)?;
++            let candidates = targets.get(name)?;
++            Some(candidates.iter().any(|&id| {
++                self.binder.resolve_name(self.nodes, self.node_map, id, name, SymbolFlags::VALUE)
++                    == Some(symbol)
++            }))
+         })()
+         .unwrap_or(false);
+         self.symbol_assignment_scan.insert(symbol, answer);
+         answer
+     }
++
++    /// [`Checker::symbol_has_any_assignment`]'s scan of `root`, done once: every
++    /// assignment-operator, `++` and `--` target that is an identifier, by its
++    /// text, in walk order. The per-symbol scan's answer is an `any` over the
++    /// targets spelled like the symbol, so indexing them once per root answers
++    /// every symbol exactly as the walk did (`r5-checkperf.md` §10). `None`
++    /// when `root` has no node, as the walk's `?` answered.
++    fn assignment_targets_under(
++        &mut self,
++        root: NodeId,
++    ) -> Option<crate::perf_links::AssignmentTargets> {
++        if let Some(targets) = self.perf_links.assignment_targets.get(&root) {
++            return Some(targets.clone());
++        }
++        let root_node = self.node_map.get(root)?;
++        let mut targets: rustc_hash::FxHashMap<Box<str>, Vec<NodeId>> =
++            rustc_hash::FxHashMap::default();
++        let mut stack = vec![root_node];
++        let mut children = Vec::new();
++        while let Some(node) = stack.pop() {
++            let target = match node {
++                Node::BinaryExpression(binary)
++                    if binary.operator_token.is_some_and(|t| {
++                        tsr_ast::SyntaxKind::EqualsToken == t.kind
++                            || matches!(
++                                t.kind,
++                                tsr_ast::SyntaxKind::PlusEqualsToken
++                                    | tsr_ast::SyntaxKind::MinusEqualsToken
++                                    | tsr_ast::SyntaxKind::AsteriskEqualsToken
++                                    | tsr_ast::SyntaxKind::SlashEqualsToken
++                                    | tsr_ast::SyntaxKind::PercentEqualsToken
++                                    | tsr_ast::SyntaxKind::BarEqualsToken
++                                    | tsr_ast::SyntaxKind::AmpersandEqualsToken
++                                    | tsr_ast::SyntaxKind::CaretEqualsToken
++                                    | tsr_ast::SyntaxKind::BarBarEqualsToken
++                                    | tsr_ast::SyntaxKind::AmpersandAmpersandEqualsToken
++                                    | tsr_ast::SyntaxKind::QuestionQuestionEqualsToken
++                            )
++                    }) =>
++                {
++                    binary.left
++                }
++                Node::PrefixUnaryExpression(unary)
++                    if matches!(
++                        unary.operator.kind,
++                        tsr_ast::SyntaxKind::PlusPlusToken | tsr_ast::SyntaxKind::MinusMinusToken
++                    ) =>
++                {
++                    unary.operand
++                }
++                Node::PostfixUnaryExpression(unary) => unary.operand,
++                _ => None,
++            };
++            if let Some(tsr_ast::Expression::Identifier(identifier)) = target
++                && let Some(id) = identifier.node_id
++            {
++                targets.entry(identifier.text.into()).or_default().push(id);
++            }
++            children.clear();
++            tsr_ast::push_children(node, &mut children);
++            stack.extend(children.iter().copied());
++        }
++        let targets = std::rc::Rc::new(targets);
++        self.perf_links.assignment_targets.insert(root, targets.clone());
++        Some(targets)
++    }
+     /// The walk's container bound, extended outward for constants and
+     /// past-last-assignment mutables — `checkIdentifier`'s loop,
+     /// `checker.go:11139`, and the §13 build. The default bound is the
+@@ -3018,10 +3033,15 @@ impl Checker<'_, '_> {
+         if self.global_this_type == Some(t) {
+             return Some(Vec::new());
+         }
+-        if let Some(signatures) = self.signature_types.get(&t).cloned() {
++        if let Some(signatures) = self.signature_types.get(&t) {
++            // Copy out only the requested kind (`r5-checkperf.md` §6).
++            let signatures: Vec<_> = signatures
++                .iter()
++                .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
++                .cloned()
++                .collect();
+             return signatures
+                 .into_iter()
+-                .filter(|s| (s.kind == crate::signatures::SignatureKind::Call) == is_call)
+                 .map(|signature| self.complete_signature_return(signature))
+                 .collect();
+         }
+@@ -3059,13 +3079,8 @@ impl Checker<'_, '_> {
+     fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
+         match self.node_map.get(node) {
+             Some(Node::Identifier(identifier)) => {
+-                let symbol = self.binder.resolve_name(
+-                    self.nodes,
+-                    self.node_map,
+-                    node,
+-                    identifier.text,
+-                    SymbolFlags::VALUE,
+-                )?;
++                let symbol =
++                    self.resolve_identifier_memo(node, identifier.text, SymbolFlags::VALUE)?;
+                 // `getExportSymbolOfValueSymbolIfExported`.
+                 let symbol = self.binder.merged_symbol(symbol);
+                 self.get_explicit_type_of_symbol(symbol)
+@@ -5266,9 +5281,12 @@ impl Checker<'_, '_> {
+         let TypeData::EnumLiteral { owner, value, .. } = &self.store.get(regular).data else {
+             return None;
+         };
++        // Concatenated rather than `format!`ed: the relater asks this for both
++        // sides of every simple relation, 29.7 M times on jsTyping, where the
++        // formatting machinery was 13.1 G Ir (`r5-checkperf.md` §9).
+         let key = match value {
+-            crate::types::EnumLiteralValue::Number(value) => format!("n:{value}"),
+-            crate::types::EnumLiteralValue::String(value) => format!("s:{value}"),
++            crate::types::EnumLiteralValue::Number(value) => enum_value_key("n:", value),
++            crate::types::EnumLiteralValue::String(value) => enum_value_key("s:", value),
+         };
+         Some((*owner, key))
+     }
+@@ -9068,3 +9086,13 @@ mod object_facts_tests;
+ #[cfg(test)]
+ #[path = "flow_effects_completion_tests.rs"]
+ mod effects_completion_tests;
++
++/// [`Checker::enum_member_value`]'s key: `prefix` then `value`. Out of line so
++/// the common non-member early return stays as light as before.
++#[inline(never)]
++fn enum_value_key(prefix: &str, value: &str) -> String {
++    let mut key = String::with_capacity(prefix.len() + value.len());
++    key.push_str(prefix);
++    key.push_str(value);
++    key
++}
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 2895651..7fc71fe 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -3676,10 +3676,26 @@ impl Checker<'_, '_> {
+         owner: SymbolId,
+         name: &str,
+     ) -> Option<SymbolId> {
++        if let Some(&found) =
++            self.perf_links.declared_properties.get(&owner).and_then(|names| names.get(name))
++        {
++            return found;
++        }
++        let provisional = self.perf_links.property_walk_provisional;
+         let mut visiting = std::mem::take(&mut self.perf_links.visiting_scratch);
+         visiting.clear();
+         let found = self.get_property_of_declared_symbol(owner, name, &mut visiting);
+         self.perf_links.visiting_scratch = visiting;
++        // Publish only an answer every step of which read settled state
++        // (`r5-checkperf.md` §12): a later walk would then read exactly the
++        // same tables and answer the same.
++        if self.perf_links.property_walk_provisional == provisional {
++            self.perf_links
++                .declared_properties
++                .entry(owner)
++                .or_default()
++                .insert(name.into(), found);
++        }
+         found
+     }
+ 
+@@ -3711,21 +3727,60 @@ impl Checker<'_, '_> {
+             return None;
+         }
+         visiting.push(owner);
+-        if let Some(&found) = self.binder.symbols().get(owner).members.get(name)
+-            && self.symbol_is_value(found)
+-        {
+-            return Some(found);
++        if let Some(&found) = self.binder.symbols().get(owner).members.get(name) {
++            // An alias member's value-ness follows its alias chain, which can
++            // be mid-resolution: such a step is not settled (§12).
++            if !self.binder.symbols().get(found).flags.intersects(SymbolFlags::VALUE) {
++                self.perf_links.property_walk_provisional += 1;
++            }
++            if self.symbol_is_value(found) {
++                return Some(found);
++            }
+         }
+         // getPropertyOfType searches the resolved member table for every
+-        // semantic key, including string and numeric late-bound names.
+-        for (key, member) in self.late_bound_members_of(owner, false) {
+-            if key == name
+-                && let Some(symbol) = self.binder.symbol_of(member)
+-            {
+-                return Some(symbol);
++        // semantic key, including string and numeric late-bound names. A
++        // published list is searched in place rather than copied per step
++        // (`r5-checkperf.md` §11).
++        let late_bound = |members: &[(String, tsr_ast::NodeId)],
++                          binder: &tsr_binder::BindResult<'_>| {
++            members.iter().find_map(
++                |(key, member)| if key == name { binder.symbol_of(*member) } else { None },
++            )
++        };
++        let binder = self.binder;
++        // The placeholder of a late-bound list still computing is not its
++        // answer (§12).
++        if self.perf_links.late_bound_active.contains(&(owner, false)) {
++            self.perf_links.property_walk_provisional += 1;
++        }
++        let found = match self.late_bound_member_names.get(&(owner, false)) {
++            Some(members) => late_bound(members, binder),
++            None => late_bound(&self.late_bound_members_of(owner, false), binder),
++        };
++        if found.is_some() {
++            return found;
++        }
++        // A published base list never changes once stored, so it is read by
++        // index instead of copied per step; an unpublished one is computed
++        // as before (`r5-checkperf.md` §11).
++        let key = (owner, true);
++        if self.base_symbols.contains_key(&key) {
++            let mut index = 0;
++            while let Some(&base) = self.base_symbols.get(&key).and_then(|bases| bases.get(index)) {
++                if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {
++                    return Some(found);
++                }
++                index += 1;
+             }
++            return None;
++        }
++        // A base list that was not published (a gap, or computed while an
++        // alias resolves) may answer differently later (§12).
++        let bases = self.base_symbols_of(owner);
++        if !self.base_symbols.contains_key(&key) {
++            self.perf_links.property_walk_provisional += 1;
+         }
+-        for base in self.base_symbols_of(owner)? {
++        for base in bases? {
+             if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {
+                 return Some(found);
+             }
+diff --git a/crates/tsr-checker/src/perf_links.rs b/crates/tsr-checker/src/perf_links.rs
+index a61703e..abf17f8 100644
+--- a/crates/tsr-checker/src/perf_links.rs
++++ b/crates/tsr-checker/src/perf_links.rs
+@@ -83,6 +83,30 @@ pub(crate) struct PerfLinks {
+     /// declarations or parameters (`r5-typeparams2.md` §2). Interior-mutable
+     /// because the reader, `Checker::local_type_parameters_of`, takes `&self`.
+     pub(crate) local_type_parameters: std::cell::RefCell<Vec<Option<LocalTypeParametersLink>>>,
++
++    // ---- r5-checkperf (`tsr-2zk.996`). ----
++    /// `(identifier, meaning bits) -> symbol`: `resolveName` from an
++    /// identifier for its own text, the answer native keeps in the
++    /// identifier's `links.resolvedSymbol` (`getResolvedSymbol`,
++    /// `checker.go`). Every entry is a completed answer, `None` included
++    /// (`r5-checkperf.md` §4).
++    pub(crate) resolved_identifiers: FxHashMap<(NodeId, u32), Option<SymbolId>>,
++    // ---- r5-checkperf (`tsr-2zk.17`). ----
++    /// `scan root -> assignment-target identifiers by text`: the one walk
++    /// `Checker::symbol_has_any_assignment` makes of a control-flow
++    /// container, shared by every symbol declared in it. A pure function of
++    /// the bound tree, so every entry is complete (`r5-checkperf.md` §10).
++    pub(crate) assignment_targets: FxHashMap<NodeId, AssignmentTargets>,
++    // ---- r5-checkperf (`tsr-2zk.967`). ----
++    /// `owner -> name -> property`: a class's or interface's property as the
++    /// declared-symbol walk finds it from an empty path — native
++    /// `getPropertyOfType` reading `resolveStructuredTypeMembers`' table.
++    /// Holds only answers whose walk read settled state, `None` included
++    /// (`r5-checkperf.md` §12).
++    pub(crate) declared_properties: FxHashMap<SymbolId, FxHashMap<Box<str>, Option<SymbolId>>>,
++    /// Steps of a declared-symbol walk that read unsettled state; a walk
++    /// publishes only when this did not move (`r5-checkperf.md` §12).
++    pub(crate) property_walk_provisional: u64,
+ }
+ 
+ /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
+@@ -96,6 +120,10 @@ pub(crate) enum LocalTypeParametersLink {
+     Merged(std::rc::Rc<[NodeId]>),
+ }
+ 
++/// [`PerfLinks::assignment_targets`]' value: a scan root's assignment-target
++/// identifiers by text, in walk order.
++pub(crate) type AssignmentTargets = std::rc::Rc<FxHashMap<Box<str>, Vec<NodeId>>>;
++
+ /// [`PerfLinks::heritage_bases`]' key: base symbol, reference location, the
+ /// first written type argument's node and the written argument count. A
+ /// written argument list is one contiguous node list, so its first node and
+@@ -284,6 +312,134 @@ impl Checker<'_, '_> {
+     }
+ }
+ 
++// ---- r5-checkperf (`tsr-2zk.17`): the shared-flow stack's layout. ----
++
++/// Upstream's `c.sharedFlows` (`checker.go:799`, `flow.go:136`): the stack of
++/// `(flow node, flow type)` answers the backwards walk shares between
++/// branches of one `getFlowTypeOfReference`. Same stack, same truncation
++/// points, same answer: the first entry for the node at or after the
++/// query's `sharedFlowStart`.
++///
++/// Native finds it with a linear scan of the stack. On domain-model-large
++/// that scan averaged ~88 entries over 435,254 lookups, about 300 M Ir
++/// (`r5-checkperf.md` §3). Here each entry also records the position of the
++/// previous live entry for the same node, and `last` holds the newest
++/// position per node, so a lookup walks only that node's own entries (almost
++/// always none or one). `truncate` unlinks the dropped entries newest first,
++/// which restores `last` exactly.
++///
++/// The `Vec`-shaped methods (`len`, `push`, `truncate`) keep every existing
++/// call site unchanged.
++pub(crate) struct SharedFlows<T = crate::flow::FlowType> {
++    /// Per entry: its `FlowId::index`, and one plus the position of the
++    /// previous entry for the same id (`0` when it is the oldest).
++    links: Vec<(u32, u32)>,
++    types: Vec<T>,
++    /// Per id (indexed by it, grown on demand): one plus the position of its
++    /// newest entry, or `0` when it has none.
++    last: Vec<u32>,
++}
++
++impl<T> Default for SharedFlows<T> {
++    fn default() -> Self {
++        Self { links: Vec::new(), types: Vec::new(), last: Vec::new() }
++    }
++}
++
++fn flow_key(id: tsr_binder::FlowId) -> usize {
++    use tsr_core::Idx;
++    id.index()
++}
++
++impl<T: Copy> SharedFlows<T> {
++    pub(crate) fn len(&self) -> usize {
++        self.links.len()
++    }
++
++    pub(crate) fn push(&mut self, (id, flow_type): (tsr_binder::FlowId, T)) {
++        let id = flow_key(id);
++        if id >= self.last.len() {
++            self.last.resize(id + 1, 0);
++        }
++        let position = u32::try_from(self.links.len()).expect("shared-flow stack fits in u32");
++        self.links.push((u32::try_from(id).expect("a FlowId is a u32"), self.last[id]));
++        self.last[id] = position + 1;
++        self.types.push(flow_type);
++    }
++
++    pub(crate) fn truncate(&mut self, len: usize) {
++        while self.links.len() > len {
++            let (id, previous) = self.links.pop().expect("non-empty");
++            self.last[id as usize] = previous;
++        }
++        self.types.truncate(len);
++    }
++
++    /// The first entry for `id` at or after `start`, as native's
++    /// `for i := f.sharedFlowStart; i < len(c.sharedFlows); i++` finds it.
++    pub(crate) fn find(&self, start: usize, id: tsr_binder::FlowId) -> Option<T> {
++        let mut link = self.last.get(flow_key(id)).copied().unwrap_or(0);
++        let mut first = None;
++        while link != 0 && link as usize > start {
++            let position = link as usize - 1;
++            first = Some(position);
++            link = self.links[position].1;
++        }
++        first.map(|position| self.types[position])
++    }
++}
++
++// ---- r5-checkperf (`tsr-2zk.996`): identifier name resolution. ----
++
++impl Checker<'_, '_> {
++    /// [`tsr_binder::BindResult::resolve_name`] from the identifier `node`
++    /// for its own text, memoised per `(node, meaning)`.
++    ///
++    /// **Native operation.** `getResolvedSymbol` (`checker.go`, pinned
++    /// `5b1047d`) resolves an identifier once and keeps the answer in
++    /// `links.resolvedSymbol`; `checkIdentifier`'s rules then read that one
++    /// symbol. This port's identifier rules resolve per rule, three of them
++    /// with `getResolvedSymbol`'s own meaning, and the flow walk's dotted-name
++    /// reads resolve per query.
++    ///
++    /// **Identity and owner.** Key: the identifier's `NodeId` and the meaning
++    /// bits; the name is the identifier's text, so it is not in the key — a
++    /// `start` that is not an identifier spelled `name` bypasses the memo.
++    /// Private `Checker`, Program lifetime.
++    ///
++    /// **Publication.** Exact, so every answer publishes, `None` included:
++    /// the walk reads only the binder's tables, the node table and the node
++    /// map, all immutable `&'a` borrows for the checker's lifetime, and
++    /// takes no checker callback (the export-alias variant, which does, is
++    /// not routed here).
++    ///
++    /// **Context.** None: no receiver, mapper or alias frame enters the walk.
++    ///
++    /// **Work boundary.** One ancestor walk per `(identifier, meaning)`
++    /// (`r5-checkperf.md` §4).
++    pub(crate) fn resolve_identifier_memo(
++        &mut self,
++        node: NodeId,
++        name: &str,
++        meaning: tsr_binder::SymbolFlags,
++    ) -> Option<SymbolId> {
++        let is_own_text = matches!(
++            self.node_map.get(node),
++            Some(tsr_ast::Node::Identifier(identifier)) if identifier.text == name
++        );
++        if !is_own_text {
++            return self.binder.resolve_name(self.nodes, self.node_map, node, name, meaning);
++        }
++        let key = (node, meaning.bits());
++        if let Some(&symbol) = self.perf_links.resolved_identifiers.get(&key) {
++            return symbol;
++        }
++        let symbol = self.binder.resolve_name(self.nodes, self.node_map, node, name, meaning);
++        self.perf_links.resolved_identifiers.insert(key, symbol);
++        symbol
++    }
++}
++
+ #[cfg(test)]
+ mod receiver_signature_kinds_tests {
+     use tsr_ast::{HasNodeId, NodeId};
+@@ -345,4 +501,35 @@ mod receiver_signature_kinds_tests {
+             },
+         );
+     }
++
++    #[test]
++    fn shared_flows_find_the_first_entry_at_or_after_start() {
++        use super::SharedFlows;
++        use tsr_binder::FlowId;
++        use tsr_core::Idx;
++        let id = |n: usize| FlowId::from_usize(n);
++        let ty = |n: usize| n * 10;
++        let mut flows = SharedFlows::<usize>::default();
++        // 40 entries: id k at position k, plus a second id-7 entry at 35.
++        for k in 0..40 {
++            flows.push((id(if k == 35 { 7 } else { k }), ty(k)));
++        }
++        for start in [0, 3, 8, 16, 17, 33, 36, 40] {
++            for k in 0..41 {
++                let want = (start..40).find(|&p| (if p == 35 { 7 } else { p }) == k).map(ty);
++                assert_eq!(flows.find(start, id(k)), want);
++            }
++        }
++        flows.truncate(20);
++        assert_eq!(flows.len(), 20);
++        assert!(flows.find(0, id(35)).is_none());
++        assert_eq!(flows.find(0, id(19)), Some(ty(19)));
++        // The truncated id-7 duplicate is gone; the first id-7 entry stays.
++        assert_eq!(flows.find(0, id(7)), Some(ty(7)));
++        assert!(flows.find(8, id(7)).is_none());
++        flows.truncate(0);
++        assert!(flows.find(0, id(7)).is_none());
++        flows.push((id(7), ty(99)));
++        assert_eq!(flows.find(0, id(7)), Some(ty(99)));
++    }
+ }

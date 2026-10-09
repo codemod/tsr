@@ -1031,18 +1031,7 @@ impl Checker<'_, '_> {
             Expression::TypeOfExpression(node) => self.check_type_of_expression(node),
             // `checkVoidExpression` (`checker.go:10633`): the operand checks
             // for its own lines; the expression is `undefined`.
-            Expression::VoidExpression(node) => {
-                // §293: the answer does not consult the operand — upstream
-                // returns `undefinedType` whatever it is, exactly as the
-                // comparison arms return `boolean`. The error-propagation
-                // this arm carried was the per-site deviation §271/§291
-                // retired at their sites; `void e.toUpperCase()` on an
-                // `unknown` catch variable is `undefined`
-                // (`useUnknownInCatchVariables01`).
-                let Some(operand) = node.expression else { return self.intrinsics.error };
-                self.check_expression(operand);
-                self.intrinsics.undefined
-            }
+            Expression::VoidExpression(node) => self.check_void_expression(node),
             // `checkDeleteExpression` (`checker.go:10570`): the operand
             // checks; the expression is `boolean` — unconditionally, the
             // same §293 rule as `void`.
@@ -1161,8 +1150,9 @@ impl Checker<'_, '_> {
 
     /// `getJsxType(JsxNames.Element, location)` (`jsx.go:1275`, `:1295`),
     /// reduced to the resolving path: the `JSX` namespace in scope at the
-    /// element, its `Element` export, that symbol's declared type. Every
-    /// missing hop is a gap — `errorType` — never a substitute.
+    /// element, its `Element` export, that symbol's declared type. A missing
+    /// hop is upstream's `errorType` (`jsx.go:1303`), never a substitute; a
+    /// fragment turns it into `anyType` (`checkJsxFragment`, `jsx.go:123`).
     pub(crate) fn check_jsx_element(&mut self, id: Option<tsr_ast::NodeId>) -> TypeId {
         let Some(id) = id else { return self.intrinsics.error };
         // §249, INDUCED AND REVERTED, both variants measured. Recorded here
@@ -1210,10 +1200,48 @@ impl Checker<'_, '_> {
         if let Some(opening) = opening {
             self.jsx_attributes_context(opening);
         }
-        let Some(element) = self.jsx_type_symbol(id, "Element") else {
-            return self.intrinsics.error;
+        // ADR-0048 settles §249's question by identity rather than by
+        // spelling. `getJsxType` answers `errorType` when the namespace or
+        // its `Element` is absent (`jsx.go:1303`), and `checkJsxFragment`
+        // turns an `isErrorType` element type into `anyType` (`jsx.go:123`).
+        // §249's `any` gave the *element* `anyType`, which is not upstream's
+        // identity: it prints and propagates as `anyType` where upstream's
+        // `errorType` does not. Each answer is upstream's own identity, and
+        // the writer decides the spelling. Verified line by
+        // line against the native identity probe: elements 599 `errorType`
+        // lines, fragments 27 `anyType` lines
+        // (`docs/parity/notes/r5-errorsplit5.md` §4). A declared `Element`
+        // type that is the gap stays the gap.
+        let fragment = matches!(self.node_map.get(id), Some(Node::JsxFragment(_)));
+        let element_type = match self.jsx_type_symbol(id, "Element") {
+            Some(element) => self.get_declared_type_of_symbol(element),
+            None => self.intrinsics.native_error,
         };
-        self.get_declared_type_of_symbol(element)
+        if fragment && self.is_error(element_type) && !self.is_gap(element_type) {
+            return self.intrinsics.any;
+        }
+        element_type
+    }
+
+    /// Ported from `Checker.checkVoidExpression` (`checker.go:10840`): the
+    /// operand checks for its own lines, and the expression is
+    /// `undefinedWideningType` whatever the operand is.
+    ///
+    /// §293: the answer does not consult the operand, exactly as the
+    /// comparison arms return `boolean`. The error-propagation this arm once
+    /// carried was the per-site deviation §271/§291 retired at their sites;
+    /// `void e.toUpperCase()` on an `unknown` catch variable is `undefined`
+    /// (`useUnknownInCatchVariables01`).
+    ///
+    /// The widening flavour is observable outside strict mode: the object
+    /// literal `{ c: void 4 }` widens its member to `any` in an inferred
+    /// return type (`declInput`: `() => { a: bar; b: any; c: any; }`), as the
+    /// `undefined` keyword's member does. In strict mode the two are the same
+    /// type (`Intrinsics::undefined_widening`). r5-shapes §2.2.
+    fn check_void_expression(&mut self, node: &tsr_ast::VoidExpression<'_>) -> TypeId {
+        let Some(operand) = node.expression else { return self.intrinsics.error };
+        self.check_expression(operand);
+        self.intrinsics.undefined_widening
     }
 
     /// Ported from `Checker.checkTypeOfExpression` (`checker.go:10617`).
@@ -1887,11 +1915,16 @@ impl Checker<'_, '_> {
     /// reading upstream's tail said so — the data structure had nothing to
     /// confess. See `docs/architecture/checker-notes-this.md` and `bd tsr-h1s`.
     ///
-    /// # What is deliberately not answered
+    /// # The object-literal container and the error exits
     ///
-    /// - **An object-literal container.** Upstream assumes `any` there
-    ///   (`checker.go:7917`), and `checker-notes-rank.md` §6 forbids banking on
-    ///   `any`.
+    /// An object-literal container is upstream's `anyType` (`checker.go:7917`).
+    /// It used to be the gap, because `checker-notes-rank.md` §6 forbids
+    /// banking on `any`. ADR-0048's identity probe now shows it is upstream's
+    /// own `anyType` on every line (`superInObjectLiterals_ES6`,
+    /// `classExtendingAny`), so it answers that. The illegal-usage exits answer
+    /// upstream's `errorType`, including the one where the walk finds no
+    /// member, now that the walk carries `GetSuperContainer`'s static-block
+    /// and decorator arms (`docs/parity/notes/r5-errorsplit5.md` §5).
     ///
     /// The base itself comes from [`Checker::get_base_types`] and
     /// [`Checker::get_base_constructor_type_of_class`] (`crate::base_types`).
@@ -1926,20 +1959,36 @@ impl Checker<'_, '_> {
         // fixtures; the skip is the rule, not the position.
         let mut crossed_computed_name = false;
         let mut skip_named_member = false;
+        // `GetSuperContainer`'s `KindDecorator` arm (`ast/utilities.go:1837`):
+        // a decorator is applied outside the class element it decorates (or
+        // outside the member owning the decorated parameter), so that element
+        // is skipped, and so is a class met before any member, as for a
+        // computed name. `esDecorators-preservesThis` records
+        // `>super : DecoratorProvider` for `@(super.decorate)` on a nested
+        // class's method.
+        let mut crossed_decorator = false;
+        // ADR-0048: every illegal-usage exit below is upstream's `errorType`
+        // (`checker.go:7912`), and an object-literal container is its
+        // `anyType` (`:7917`). Verified line by line against the native
+        // identity probe (`docs/parity/notes/r5-errorsplit5.md` §5).
+        let native_error = self.intrinsics.native_error;
         while let Some(id) = current {
             match self.nodes.kind(id) {
                 // A plain function is where `getSuperContainer(node,
                 // stopOnFunctions: true)` stops, so an outer class is not
-                // reached.
-                SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => return error,
-                // An object-literal CONTAINER is upstream's `any`
-                // (`checker.go:7917`), which `checker-notes-rank.md` §6
-                // forbids banking on — but only when a member was actually
+                // reached, and a function container is never legal.
+                SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => {
+                    return native_error;
+                }
+                // An object-literal CONTAINER is upstream's `anyType`
+                // (`checker.go:7917`, "for object literal assume that type
+                // of 'super' is 'any'") — but only when a member was actually
                 // found; a literal passed while skipping a computed-named
-                // member is just an expression on the way.
+                // member is just an expression on the way. A super CALL in
+                // an object-literal member already left at the member.
                 SyntaxKind::ObjectLiteralExpression => {
                     if is_static.is_some() {
-                        return error;
+                        return self.intrinsics.any;
                     }
                 }
                 // §481: upstream skips arrows ONLY for a non-call `super`
@@ -1951,10 +2000,36 @@ impl Checker<'_, '_> {
                 // `any` (`derivedClassConstructorWithoutSuperCall` records
                 // `>super : any` for `() => super()`). A property access
                 // keeps the transparent-arrow behaviour.
-                SyntaxKind::ArrowFunction if is_call => return self.intrinsics.any,
+                SyntaxKind::ArrowFunction if is_call => return native_error,
                 SyntaxKind::ComputedPropertyName => {
                     crossed_computed_name = true;
                     skip_named_member = true;
+                }
+                SyntaxKind::Decorator if is_static.is_none() => {
+                    let parent = self.nodes.parent(id);
+                    let decorated = match parent.map(|parent| self.nodes.kind(parent)) {
+                        Some(SyntaxKind::Parameter) => parent.and_then(|p| self.nodes.parent(p)),
+                        _ => parent,
+                    };
+                    if decorated.is_some_and(|element| self.is_class_element(element)) {
+                        crossed_decorator = true;
+                        skip_named_member = true;
+                    }
+                }
+                // A static block is a member container (`ast/utilities.go:1835`)
+                // and is static (`ast.IsStatic`), so its `super` is legal
+                // (`checker.go:7879`) and reads the base constructor type
+                // (`classFieldSuperAccessible`). A super CALL there is not.
+                SyntaxKind::ClassStaticBlockDeclaration if is_static.is_none() => {
+                    if skip_named_member {
+                        skip_named_member = false;
+                    } else {
+                        if is_call {
+                            return native_error;
+                        }
+                        is_static = Some(true);
+                        container = Some(id);
+                    }
                 }
                 SyntaxKind::MethodDeclaration
                 | SyntaxKind::Constructor
@@ -1972,7 +2047,7 @@ impl Checker<'_, '_> {
                         // the arrow arm above (`superCallOutsideConstructor`,
                         // `errorSuperCalls`, `typeOfThisInStaticMembers6`).
                         if is_call && self.nodes.kind(id) != SyntaxKind::Constructor {
-                            return self.intrinsics.any;
+                            return native_error;
                         }
                         is_static = Some(self.has_static_modifier(id));
                         container = Some(id);
@@ -1989,7 +2064,7 @@ impl Checker<'_, '_> {
                 // stopping here is the same answer upstream reaches by
                 // returning the member.
                 SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-                    if is_static.is_some() || !crossed_computed_name =>
+                    if is_static.is_some() || !(crossed_computed_name || crossed_decorator) =>
                 {
                     class = Some(id);
                     break;
@@ -1999,13 +2074,12 @@ impl Checker<'_, '_> {
             current = self.nodes.parent(id);
         }
         let (Some(class), Some(is_static)) = (class, is_static) else {
-            // The walk found no member. Through a computed name that is
-            // upstream's specific error and the deliberate error-any; every
-            // other exit keeps the honest gap.
-            if crossed_computed_name {
-                return self.intrinsics.any;
-            }
-            return error;
+            // The walk found no member: `container == nil`, upstream's
+            // diagnostic and `errorType` (`checker.go:7912`), through a
+            // computed name or not. This kept the gap while the walk missed
+            // static blocks and decorators; with those ported, every line it
+            // moves is `errorType` natively (notes §5).
+            return native_error;
         };
 
         // `checkSuperExpression`'s base arm (`checker.go:7854`), after the
@@ -2028,19 +2102,21 @@ impl Checker<'_, '_> {
             .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
             .is_none_or(|clause| clause.types.is_empty())
         {
-            return error;
+            return native_error;
         }
         let Some(class_symbol) = self.binder.symbol_of(class) else { return error };
         let constructor = self.get_base_constructor_type_of_class(class_symbol);
         if constructor == self.intrinsics.null {
-            return if is_call { error } else { self.intrinsics.null };
+            return if is_call { native_error } else { self.intrinsics.null };
         }
-        let Some(&base) = self.get_base_types(class_symbol).first() else { return error };
+        let Some(&base) = self.get_base_types(class_symbol).first() else {
+            return native_error;
+        };
         if let Some(container) = container
             && self.nodes.kind(container) == SyntaxKind::Constructor
             && self.is_in_constructor_argument_initializer(node, container)
         {
-            return error;
+            return native_error;
         }
         if is_static || is_call {
             return constructor;
@@ -3877,7 +3953,7 @@ impl Checker<'_, '_> {
     /// `isInCompoundLikeAssignment` (`internal/checker/utilities.go:118`): a
     /// definite `=` whose right side (parentheses skipped) is a
     /// shift-or-higher binary — `x = x + 1` reads its target like `x += 1`.
-    fn is_in_compound_like_assignment(&self, id: NodeId) -> bool {
+    pub(crate) fn is_in_compound_like_assignment(&self, id: NodeId) -> bool {
         let Some(target) = self.assignment_target(id) else { return false };
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(target) else {
             return false;

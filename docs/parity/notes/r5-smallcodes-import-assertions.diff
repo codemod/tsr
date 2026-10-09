@@ -1,0 +1,73 @@
+diff --git a/crates/tsr-parser/src/module.rs b/crates/tsr-parser/src/module.rs
+index e0d6c24..0774442 100644
+--- a/crates/tsr-parser/src/module.rs
++++ b/crates/tsr-parser/src/module.rs
+@@ -539,11 +539,21 @@ impl<'a> Parser<'a> {
+ 
+     /// `with { type: "json" }` — import attributes, if present.
+     ///
+-    /// Also accepts the older `assert` spelling, which TypeScript still parses.
++    /// Also accepts the older `assert` spelling on the same line, reporting
++    /// TS2880 at the keyword: `tryParseImportAttributes`
++    /// (`internal/parser/parser.go:2497`). Upstream reports it whatever
++    /// `ignoreDeprecations` says (`importAssertionsDeprecatedIgnored`).
+     pub(crate) fn parse_import_attributes(&mut self) -> Option<&'a ImportAttributes<'a>> {
+-        if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
++        let assert_here =
++            self.at(SyntaxKind::AssertKeyword) && !self.token.has_preceding_line_break();
++        if !self.at(SyntaxKind::WithKeyword) && !assert_here {
+             return None;
+         }
++        if self.at(SyntaxKind::AssertKeyword) {
++            self.error_at_current(
++                &messages::IMPORT_ASSERTIONS_HAVE_BEEN_REPLACED_BY_IMPORT_ATTRIBUTES_USE_WITH_INSTEAD_OF_ASSERT,
++            );
++        }
+         let start = self.pos();
+         let token = self.take_token();
+         Some(self.parse_import_attributes_body(start, token))
+@@ -562,6 +572,12 @@ impl<'a> Parser<'a> {
+         if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
+             return None;
+         }
++        // `parser.go:3039`.
++        if self.at(SyntaxKind::AssertKeyword) {
++            self.error_at_current(
++                &messages::IMPORT_ASSERTIONS_HAVE_BEEN_REPLACED_BY_IMPORT_ATTRIBUTES_USE_WITH_INSTEAD_OF_ASSERT,
++            );
++        }
+         let token = self.take_token();
+         self.expect(SyntaxKind::ColonToken);
+         // `parseImportAttributes(currentToken, skipKeyword=true)` takes its
+diff --git a/crates/tsr-parser/tests/parse.rs b/crates/tsr-parser/tests/parse.rs
+index 634d7a4..e7d67d5 100644
+--- a/crates/tsr-parser/tests/parse.rs
++++ b/crates/tsr-parser/tests/parse.rs
+@@ -722,7 +722,26 @@ fn import_types() {
+         &arena,
+         r#"type C = import("mod", { with: { "resolution-mode": "import" } }).Type;"#,
+     );
+-    statements(&arena, r#"type D = import("mod", { assert: { type: "json", }, }).Type;"#);
++    statements(&arena, r#"type D = import("mod", { with: { type: "json", }, }).Type;"#);
++}
++
++#[test]
++fn import_assertions_parse_with_ts2880() {
++    // `parser.go:2497`/`:2565`/`:3039`: the `assert` spelling still parses,
++    // reporting TS2880 at the keyword — and only on the same line.
++    let arena = Arena::new();
++    for (source, start) in [
++        (r#"import a from "m" assert { type: "json" };"#, 18),
++        (r#"export { a } from "m" assert { type: "json" };"#, 22),
++        (r#"type D = import("mod", { assert: { type: "json" } }).Type;"#, 25),
++    ] {
++        let result = parse(&arena, source);
++        let reported: Vec<_> =
++            result.diagnostics.iter().map(|d| (d.code(), d.span.start)).collect();
++        assert_eq!(reported, [("TS2880".into(), start)], "{source}");
++    }
++    let result = parse(&arena, "import a from \"m\"\nassert({});");
++    assert!(result.diagnostics.is_empty());
+ }
+ 
+ // ---- long-tail syntax -----------------------------------------------------

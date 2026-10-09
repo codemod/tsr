@@ -790,3 +790,185 @@ also explains the earlier pushes of un-gated merges. The daemon is stopped,
 so only an accepted gate pushes now. `58ead272` reverts the batch, leaving the
 source tree equal to batch AB's. r5-declared3 re-lands r5-declared2's work with
 the decline re-measured.
+
+### r5-shapes finished; r5-ts2322 dispatched (`tsr-2zk.1082`)
+
+r5-shapes split the typetriage's six mixed buckets by producer, then fixed
+three things: binding elements (getPropertyTypeForIndexType's string-index
+fallback, late-bound symbol keys, the per-constituent isArrayLikeType),
+checkVoidExpression's undefinedWideningType, and missing member names. That is
++9 cases and +25 type lines.
+
+Three diffs land in batch AE for +12 more cases:
+- the late-bound overload implementation exclusion (symbols.rs);
+- DeclarationNameToString's (Missing) (declared.rs);
+- getReturnTypeFromBody's implicit-undefined arm (signatures.rs).
+
+Identical-member collapse is filed for main as `.1083`. The freed slot went to
+r5-ts2322: the largest diagnostic cluster without an owner, 136 cases whose
+only wrong code is TS2322.
+
+### r5-align finished; r5-smallcodes dispatched (`tsr-2zk.1084`)
+
+r5-align fixed three harness causes of unaligned type lines, each faithful to
+iterateBaseline:
+- JSON units are walked;
+- sections are matched to units by their removeTestPathPrefixes name;
+- echoed `>` code lines are skipped.
+
+This aligned 3,758 lines (3,542 RIGHT) and flipped 28 checker_types cases with
+none lost. The 49 cases still unaligned are parser divergences, filed for main
+as `.1086`. It also:
+- added `divergentcost`, a guarded timing pass over the 518 known-divergence
+  cases that are in neither dump. It found a new hang,
+  noCircularitySelfReferentialGetter2 (`.1085`);
+- made scorepair report RIGHT→UNALIGNED;
+- fixed any_audit's control by recording the producer's own return arm.
+
+The freed slot went to r5-smallcodes: about 49 cases across ten small
+diagnostic codes that no lane owned.
+
+### r5-relater6 finished; r5-relater7 dispatched (`tsr-2zk.1088`)
+
+r5-relater6 ported:
+- IAM, getSimplifiedIndexedAccessType's generic-mapped arm;
+- `.1049`'s relater side: generic key vs keyof, alias-image bodies and the
+  template fallthrough;
+- IAW, the indexed-access write constraint. Ir fell 2.9% on domain-model,
+  because pairs that used to run to Unknown now end early;
+- B16;
+- r5-relater5's isDiscriminantProperty, with a (union, name) cache: Ir +0.03%,
+  against +0.41% without the cache.
+
+Every commit is zero-loss. The TS2536 reporter is held until a binder fix for
+imports inside `declare module "x"` blocks in scripts. The as-clause item is
+blocked on mapped.rs pieces (`.1089`).
+
+r5-relater7 is now relater.rs' single owner. It takes r5-ts2322's 36 relater
+cases (`.1088`), `.1055`, relationCount/TS2859 (`.1065`), the variance-probe
+cost (`.1068`), and the binder fix plus the TS2536 reporter.
+
+### r5-checkperf finished; r5-checkperf2 dispatched (`tsr-2zk.1091`)
+
+r5-checkperf made the round's first checker-CPU gains. `ab77d39` borrows
+TypeData instead of cloning it and keeps literal twins: dm Ir −0.94%.
+
+Its stack diff lands in batch AH, all byte-identical:
+- the sharedFlows lookup becomes a per-node chain, replacing a linear scan that
+  cost about 300M Ir on dml;
+- a minimal resolve-identifier memo at four sites (`.996`);
+- a once-per-checker global-alias list;
+- no format! on enum keys;
+- one indexed assignment walk per container;
+- a settled (owner, name) property memo.
+
+Ir on dm falls 4.35%, on dml 10.67%. Wall vs tsgo, dml 0.738 → 0.659.
+jsTyping goes from 4.88 to 3.64, still slower than native.
+
+`.935` is not duplicated work: with four checkers, the wall is checker 0's
+share, and the lever is per-file speed. `.997`, the Signature representation,
+is cross-cutting and becomes a single-owner item between rounds (`.1092`).
+r5-checkperf2 takes allocator pressure and the jsTyping hot spots.
+
+### r5-mapped4 finished; r5-mapped5 dispatched (`tsr-2zk.1093`)
+
+r5-mapped4 cleared both blockers of the semantic mapped-node route:
+- intersection constituents are parenthesised by printed node precedence
+  (+3 type lines);
+- type-parameter constraints reuse their written node (+35).
+
+It then ported instantiateAnonymousType's per-instance mapped parameter clone
+(`.1053`, +4). The clone is cached per (P, map); without the cache one case
+took 1,854 ms. It also removed a quadratic key merge. That is +42 type lines,
+with no losses and every commit's Ir within 0.085%.
+
+The relater-iteration and keyof-parens diffs land in batch AH. The refreshed
+route diff (+81 lines, +1 case, no verdict loss) is held by gate v3's
+slowcases check: hugeDeclarationOutputGetsTruncatedWithError goes from 172 ms
+to 2,060 ms, because non-generic mapped members resolve and print eagerly.
+r5-mapped5 takes native's lazy members and print truncation (an ADR), then
+`.1089` and reducible indexed access.
+
+### r5-ts2322 finished; r5-printer2 dispatched (`tsr-2zk.1094`)
+
+r5-ts2322 triaged the 121 plain cases whose only wrong code is TS2322, then:
+- ported checkReferenceAssignment's relation for destructuring assignments
+  (new destructuring_assignment.rs), +9 cases;
+- fixed eight check-site target causes in assignreport.rs, +10 cases.
+
+That is +19 cases with no losses. It refused checkMappedType's key relation on
+its number: 15 cases lost, 0 gained, because the relater answers NotRelated on
+generic keys. Its remainder is the relater's 36 cases (`.1088`, r5-relater7),
+write types (`.1095`), getFlowTypeOfDestructuring (`.1096`, main's flow.rs),
+and items in main's calls/inference.
+
+The freed slot went to r5-printer2: optional-parameter `| undefined`
+(`.16.60`), names as written (`.16.125`), and the small printer families.
+
+### r5-modules2 finished; r5-smallcodes2 dispatched (`tsr-2zk.1097`)
+
+r5-modules2 made three changes:
+- GetModuleSpecifiers' file arm, with endings, preferences and processEnding;
+- the import-type resolution-mode attribute: +21 type lines;
+- the JSON JavaScriptFile stamp.
+
+Its four diffs land in batch AJ for +78 type lines and +1 case:
+- the symbol-chain specifier (checker.rs);
+- the export= class specifier (printing.rs);
+- the import-call specifier (calls.rs);
+- the import-call type of an export= module (calls.rs plus module_exports.rs).
+
+The remainder is blocked on main's symbol-chain qualification (`.39`), a
+symlink cache, and ModuleHost exposure (`.1098`). The freed slot went to
+r5-smallcodes2, the second set of small diagnostic clusters.
+
+### r5-jsdoc4 finished; r5-js dispatched (`tsr-2zk.1099`)
+
+r5-jsdoc4 extended the JSDoc walk to casts, @satisfies, @this, @callback,
+@overload and export @type, added heritage TS2344 including @augments, and
+ported TS2492. That is +9 cases with no losses. The heritage arm overlapped
+r5-missingprop's landed diff; the integrator merged the two in batch AF.
+
+Its three diffs land in batch AK: @augments binding, typedef block scope, and
+the CommonJS require ambient arm. Together +1 case and +10 type lines.
+
+It refused narrowing the JS decline in check_type_reference_name on its
+number: +1 / −6. That waits on JS value-reference arms in declared.rs. The
+freed slot went to r5-js: the 113 cases blocked only by JS-file causes, with a
+rule not to duplicate main's `.5` epic.
+
+### r5-unionorder finished; r5-nodereuse dispatched (`tsr-2zk.1101`)
+
+r5-unionorder corrected the brief's premise. tsgo orders union members with
+CompareTypes (utilities.go:415); the type id is only the last tiebreak, so no
+id or init-order change was needed. It fixed the real sort and origin bugs:
+- origin entries per addNamedUnions, printed with formatUnionTypes;
+- enum named unions;
+- NoInfer as a substitution type;
+- compareTupleTypes.
+
+That is +15 type lines with no losses. Its printing-parentheses and
+object-mapper diffs land later, for +7.
+
+37 of the 54 union-order lines are node reuse: native re-emits the written
+node. node_reuse.rs therefore moves from r5-mapped5 to a new owner,
+r5-nodereuse, which takes those lines together with r5-shapes' pseudochecker
+group.
+
+### r5-declared3: batch AC re-landed zero-loss
+
+r5-declared3's branch reverts the revert (`58ead272` and `b52e2e5`), adding
+r5-declared2's work back. It then fixes the batch-AC loss at its root.
+r5-declared2's decline used "the alias body does not evaluate" as a proxy for
+"a `typeof Class<T>` alias reference is a member-less mint". Once
+instantiation expressions landed, the proxy never fired. The decline is now
+narrowed to the real missing piece.
+
+Measured unfiltered on the current integration head:
+- +15 diagnostics cases and +118 type lines, with no losses;
+- slowcases clean;
+- Ir −3.6% on domain-model, from `.1066`'s guard and cache;
+- recursiveConditionalCrash3 finishes in 81 s, down from more than 120 s.
+
+Filed: `.1102`, the instantiation-expression cache ignoring alias frames, and
+`.1103`, the per-statement instantiation_count reset and TS2589's currentNode.

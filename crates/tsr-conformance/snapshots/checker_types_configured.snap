@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1650/1928 (85.58%)
-Assertion lines: 73309/78552 (93.33%)  — a gradient, not a pass rate
-Failed         : 278
+Passed         : 1695/1928 (87.91%)
+Assertion lines: 76791/78552 (97.76%)  — a gradient, not a pass rate
+Failed         : 233
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,15 +27,11 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 278 failures:
+First 100 of 233 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
   accessorWithRestParam.ts: >v : any — expected >v : any[]
-compiler/ambientRequireFunction(module=commonjs)
-  app.js: >require("fs") : any — expected >require("fs") : typeof fs
-compiler/ambientRequireFunction(module=preserve)
-  app.js: >require("fs") : any — expected >require("fs") : typeof fs
 compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)
   argumentsBindsToFunctionScopeArgumentList.ts: >arguments : number — expected >arguments : IArguments
 compiler/argumentsSpreadRestIterables(target=esnext)
@@ -116,8 +112,6 @@ compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)
   client.ts: >c : typeof c — expected >c : typeof import("./server").c
 compiler/functionLikeInParameterInitializer(target=es2015)
   functionLikeInParameterInitializer.ts: >bar : (func?: () => string) => void — expected >bar : (func?: () => any) => void
-compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)
-  functionsMissingReturnStatementsAndExpressions.ts: >() => {    // Ok, contextual type for implicit return is `undefined`} : () => void — expected >() => {    // Ok, contextual type for implicit return is `undefined`} : () => undefined
 compiler/importHelpers(target=es2015)
   external.ts: >result : error — expected >result : TemplateStringsArray
 compiler/inKeywordTypeguard(strict=false)
@@ -134,10 +128,6 @@ compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx
   /index.tsx: >Comp : () => import("@emotion/react/jsx-runtime/jsx-namespace").EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
 compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=react-jsx)
   /index.tsx: >Comp : () => import("@emotion/react/jsx-runtime/jsx-namespace").EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
-compiler/jsxSpreadTag(target=es2015)
-  /a.tsx: >{ wrong: <div>x</div>} : any — expected >{ wrong: <div>x</div>} : { wrong: any; }
-compiler/jsxSpreadTag(target=esnext)
-  /a.tsx: >{ wrong: <div>x</div>} : any — expected >{ wrong: <div>x</div>} : { wrong: any; }
 compiler/modularizeLibrary_ErrorFromUsingES6ArrayWithOnlyES6ArrayLib(target=es2015)
   modularizeLibrary_ErrorFromUsingES6ArrayWithOnlyES6ArrayLib.ts: >arguments : any — expected >arguments : {}
 compiler/neverAsDiscriminantType(strict=false)
@@ -146,10 +136,6 @@ compiler/neverAsDiscriminantType(strict=true)
   neverAsDiscriminantType.ts: >GatewayPayload : error — expected >GatewayPayload : GatewayPayload
 compiler/newLexicalEnvironmentForConvertedLoop(target=es2015)
   newLexicalEnvironmentForConvertedLoop.ts: >...[] : error — expected >...[] : never
-compiler/nonNullableAndObjectIntersections(strict=false)
-  nonNullableAndObjectIntersections.ts: >TestNew : NonNullableNew<null> — expected >TestNew : never
-compiler/nonNullableAndObjectIntersections(strict=true)
-  nonNullableAndObjectIntersections.ts: >TestNew : NonNullableNew<null> — expected >TestNew : never
 compiler/operationsAvailableOnPromisedType(target=es2015)
   operationsAvailableOnPromisedType.ts: >[...c] : any — expected >[...c] : any[]
 compiler/optionalChainWithInstantiationExpression1(target=es2019)
@@ -204,27 +190,41 @@ compiler/trailingCommasES5(target=es2015)
   trailingCommasES5.ts: >a6 : undefined[] — expected >a6 : any[]
 compiler/transformNestedGeneratorsWithTry(target=es2015)
   main.ts: >Bluebird : PromiseConstructor — expected >Bluebird : { all<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>[]>; all<T extends readonly unknown[] | []>(values: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]>; }>; race<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>>; race<T extends readonly unknown[] | []>(values: T): Promise<Awaited<T[number]>>; prototype: Promise<any>; reject<T = never>(reason?: any): Promise<T>; resolve(): Promise<void>; resolve<T>(value: T): Promise<Awaited<T>>; resolve<T>(value: T | PromiseLike<T>): Promise<Awaited<T>>; [Symbol.species]: PromiseConstructor; default: PromiseConstructor; }
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=commonjs)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2020)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2022)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=es6)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=esnext)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=node16)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=node18)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=node20)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=nodenext)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=preserve)
-  arbitraryModuleNamespaceIdentifiers_module.ts: >importTest : any — expected >importTest : "someType"
 conformance/arrowFunctionContexts(alwaysstrict=true)
   arrowFunctionContexts.ts: >window.setTimeout : (handler: TimerHandler, timeout?: number, ...arguments: any[]) => number — expected >window.setTimeout : ((handler: TimerHandler, timeout?: number, ...arguments: any[]) => number) & ((handler: TimerHandler, timeout?: number, ...arguments: any[]) => number)
 conformance/asyncArrowFunctionCapturesThis_es5(target=es2015)
   asyncArrowFunctionCapturesThis_es5.ts: >fn : error — expected >fn : () => Promise<this>
+conformance/asyncAwaitIsolatedModules_es5(target=es2015)
+  asyncAwaitIsolatedModules_es5.ts: >mp : any — expected >mp : MyPromise<number>
+conformance/asyncFunctionDeclaration15_es5(target=es2015)
+  asyncFunctionDeclaration15_es5.ts: >fn13 : any — expected >fn13 : () => Promise<any>
+conformance/asyncGetter_es5(target=es2015)
+  asyncGetter_es5.ts: >foo : any — expected >foo : void
+conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=false)
+  builtinIteratorReturn.ts: >i13 : IterableIterator<number, any> — expected >i13 : IterableIterator<number>
+conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=true)
+  builtinIteratorReturn.ts: >i13 : IterableIterator<number, any> — expected >i13 : IterableIterator<number>
+conformance/classStaticBlock22(target=es2022)
+  classStaticBlock22.ts: 62 assertion(s), expected 61
+conformance/classStaticBlock22(target=esnext)
+  classStaticBlock22.ts: 62 assertion(s), expected 61
+conformance/classStaticBlock26(target=es2022)
+  classStaticBlock26.ts: 32 assertion(s), expected 35
+conformance/classStaticBlock26(target=esnext)
+  classStaticBlock26.ts: 32 assertion(s), expected 35
+conformance/computedPropertyNames33_ES5(target=es2015)
+  computedPropertyNames33_ES5.ts: >foo : <T>() => string — expected >foo : <T_1>() => string
+conformance/computedPropertyNamesDeclarationEmit4_ES5(target=es2015)
+  computedPropertyNamesDeclarationEmit4_ES5.ts: >v : any — expected >v : {}
+conformance/declarationFileForHtmlImport(allowarbitraryextensions=false)
+  file.ts: >mod : typeof mod — expected >mod : any
+conformance/decoratorOnClassMethod11(target=es2015)
+  decoratorOnClassMethod11.ts: >(this.decorator) : (target: Object, key: string) => void — expected >(this.decorator) : any
+conformance/defaultExportsCannotMerge01(target=es2015)
+  m2.ts: >x : any — expected >x : Entity
+conformance/defaultExportsCannotMerge02(target=es2015)
+  m2.ts: >x : any — expected >x : Entity
+conformance/defaultExportsCannotMerge03(target=es2015)
+  m2.ts: >x : any — expected >x : Entity
+conformance/destructuringParameterDeclaration10(strict=false)
+  destructuringParameterDeclaration10.ts: >param : { additionalFiles?: Partial<Record<"json" | "json5" | "jsonc", string[]>>; } — expected >param : { additionalFiles?: Partial<Record<"json" | "jsonc" | "json5", string[]>>; }

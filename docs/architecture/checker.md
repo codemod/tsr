@@ -2077,6 +2077,15 @@ corpus needs parentheses inside an intersection — not one baseline line has a
 function type as an intersection constituent — so only that case is ported. A
 general precedence table would be a guess everywhere it was not exercised.
 
+**Corrected (twice).** The claim above was false: §594 measured 47 baseline
+lines with a function type as a constituent, and r5-mapped4 found two more
+kinds the per-kind list missed: a union printing its `keyof X` origin (a
+`TypeOperator` node, never wrapped: `P & keyof NameMap`) and a conditional
+(always wrapped). The rule is now upstream's own: `emitTypeNode(node,
+TypePrecedenceIntersection)` wraps a constituent whose node precedence is below
+`Intersection`, read from its printed text
+(`docs/parity/notes/r5-mapped4.md` §1).
+
 The two orders coexist in one printed type, and one test pins that:
 `A & (number | string)` prints `A & (string | number)` — source order outside,
 sorted order inside.
