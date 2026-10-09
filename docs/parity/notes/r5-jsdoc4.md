@@ -170,3 +170,38 @@ of an `@augments`/`@implements` tag's class name, plus the walk's arm
 (`jsdoc_checks.rs`, `checkSourceElements(baseTypeNode.TypeArguments())`,
 `checker.go:4316`) that visits the `@augments` arguments the `extends`
 element takes. Measured in §2.2.
+
+### 2.2 Measured
+
+On §2's commit, unfiltered:
+
+| Set | diagnostics RIGHT | types RIGHT | losses |
+|---|---|---|---|
+| §2 | 5,393 | 545,044 | — |
+| walk arm alone (committed) | 5,393 | 545,044 | none; no row changes |
+| walk arm + `r5-jsdoc4-augments-binding.diff` | **5,394** (extendsTag5) | **545,048** (extendsTag5 ×4) | none |
+
+Ir with the walk arm: domain-model 1,199,698,811, generic-imports
+342,891,775 (§2: 1,199,725,707 / 342,897,414); the arm runs only behind the
+hook's `file_is_js`. The binder diff binds JS comments only.
+
+**Landing.** Apply `r5-jsdoc4-augments-binding.diff` on this lane's commit;
+it is independent of everything else here.
+
+### 2.3 Not done: `unmetTypeConstraintInJSDocImportCall`
+
+Native reaches TS2344 through `checkTypeReferenceOrImport` (`checker.go:2998`)
+for an `ImportType` with type arguments, gated on
+`!isErrorType(getTypeFromTypeNode(node))`. TSR's
+`get_type_from_import_type_node` (`declared.rs`, r5-declared2's) answers
+`error` for **every** import type that writes type arguments ("written type
+arguments … the instantiated print is its own row"), so the gate can never
+pass; the TS twin `unmetTypeConstraintInImportCall` is WRONG for the same
+reason. Reaching the check without the type would be a guess at
+`getTypeFromImportTypeNode`'s answer, which §3a of the box protocol rules
+out. Needs: `getTypeReferenceType` over the import type's symbol with its
+written arguments in `declared.rs`; then an `ImportType` arm in
+`check_type_argument_constraints` (the qualifier's symbol, the written
+arguments, `check_type_argument_constraints_of`). Its argument `T` is a bare
+type parameter, which `bare_type_parameter_argument_is_decidable` already
+admits for a `TypeReferenceNode` argument.
