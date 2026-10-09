@@ -869,3 +869,22 @@ jsTyping goes from 4.88 to 3.64, still slower than native.
 share, and the lever is per-file speed. `.997`, the Signature representation,
 is cross-cutting and becomes a single-owner item between rounds (`.1092`).
 r5-checkperf2 takes allocator pressure and the jsTyping hot spots.
+
+### r5-mapped4 finished; r5-mapped5 dispatched (`tsr-2zk.1093`)
+
+r5-mapped4 cleared both blockers of the semantic mapped-node route:
+- intersection constituents are parenthesised by printed node precedence
+  (+3 type lines);
+- type-parameter constraints reuse their written node (+35).
+
+It then ported instantiateAnonymousType's per-instance mapped parameter clone
+(`.1053`, +4). The clone is cached per (P, map); without the cache one case
+took 1,854 ms. It also removed a quadratic key merge. That is +42 type lines,
+with no losses and every commit's Ir within 0.085%.
+
+The relater-iteration and keyof-parens diffs land in batch AH. The refreshed
+route diff (+81 lines, +1 case, no verdict loss) is held by gate v3's
+slowcases check: hugeDeclarationOutputGetsTruncatedWithError goes from 172 ms
+to 2,060 ms, because non-generic mapped members resolve and print eagerly.
+r5-mapped5 takes native's lazy members and print truncation (an ADR), then
+`.1089` and reducible indexed access.
