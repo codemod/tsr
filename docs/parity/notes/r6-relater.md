@@ -523,3 +523,64 @@ its member table from the inner `Pick` image (the same members symbol as
 string }>` (a literal argument) is right. Owner: member resolution of a
 nested identity mapped alias (`declared.rs`'s
 `instantiate_identity_mapped_alias` / `mapped.rs`).
+
+### 8.4 `thisTypeInFunctions`: not the relater
+
+Its six extras (`d1.polymorphic = d2.polymorphic` and the like) compare
+`(this: Derived1) => number` with `(this: Derived2) => number`, bivariantly
+on `this`. Natively `Derived1 -> Derived2` relates: resolveTypeReferenceMembers
+(checker.go:19095) pads a class's own type arguments with the type itself,
+so its members (inherited ones through getTypeWithThisArgument) read
+`Derived1.polymorphic` as `(this: Derived1) => number`, and the nested pair
+is a maybe-key. The port's member table keeps the declaration's unbound
+`this` (`(this: this) => number`), and `Base1.this -> Base2.this` fails.
+Owner: class instance member resolution (`members.rs`, MAIN).
+
+## 9. Round summary
+
+Commits, in order, each zero-loss on both dumps against §0, slowcases clean,
+CLI output identical on both bench projects:
+
+| § | Commit | Diagnostics | Types |
+|---|---|---|---|
+| 1 | `3e65366` object's apparent `{}` | +1 | 0 |
+| 2 | `e17d326` variance reliability and fallback | +5 | +1 |
+| 3 | `baf5b35` `mapped_conditionals` lift | 0 | +5 |
+| 5 | `ee54555` two mapped-substitution lifts | 0 | 0 |
+| 6 | `f7b00e9` conditional source arms | 0 | +23 |
+| 7 | `e9dc417` TS2321 | 0 | 0 |
+| 8 | `65eb0e9` reporter never reports a related pair | +3 | 0 |
+
+Totals against §0: diagnostics RIGHT 5530 → 5536, EMPTY_RIGHT 5596 →
+5599, WRONG 1063 → 1057, EMPTY_WRONG 49 → 46 (+9 cases); types RIGHT
+549,853 → 549,883 (+30). `coverage`: checker_types 89.03%, diagnostics
+84.37% (round 5 closed at 89.00% and 84.26%). `Ir` over the round:
+generic-imports 343,079,039 → 343,076,453 (−0.0008%), domain-model
+1,091,485,686 → 1,089,884,049 (−0.15%).
+
+Held diff: [`r6-relater-write-constraint.diff`](r6-relater-write-constraint.diff)
+(§4: +23 type lines, 2 lost, waiting on `mapped.rs`'s name-type kind).
+
+Needed outside the lane (function, file, reason, cases):
+- `constraint_of_type` (`constraints.rs`, MAIN): nil for
+  `T[string | number | symbol][string | number | symbol]` with an
+  unconstrained `T` (`deepComparisons` 5);
+- `ConditionalInferenceNode::declaration` (`declared.rs`, r6-declared):
+  `pub(crate)`, so `conditional_root` reads an inline conditional's node
+  (`conditionalTypeAssignabilityWhenDeferred` 41, 65);
+- getMappedTypeNameTypeKind (`mapped.rs`, r6-mapped): relate the whole
+  `as`-clause conditional to the iteration parameter, not the union of its
+  branches (unblocks §4's diff);
+- `-?` and nested identity mapped aliases (`mapped.rs`/`declared.rs`,
+  r6-mapped/r6-declared): `x` of `RequiredDeep<{ a?: 1 }>` is `1` natively;
+  `Required<Pick<…>>` keeps `Pick`'s optionality
+  (`identicalTypesNoDifferByCheckOrder`);
+- instantiateMappedType's primitive arm for non-identity homomorphic
+  aliases (`declared.rs`, r6-declared): `RequiredDeep<undefined>` should be
+  `undefined` (the relater normalizes it, §2(2), but printing does not);
+- resolveTypeReferenceMembers' `this` padding for a class instance type
+  (`members.rs`, MAIN): `thisTypeInFunctions` 6 extras;
+- the mapped substitution for a resolved mapped alias instance and the
+  union-walk fallthrough (§5(3)): `correlatedUnions` 181, 299;
+- `canonical_signature` for `<T>() => T extends … ? 0 : 1`
+  (`signatures.rs`, r6-printer): `exactOptionalPropertyTypesIdentical`.
