@@ -2774,10 +2774,20 @@ impl Checker<'_, '_> {
         // verbatim, so the import-spelling needs no per-site machinery. An
         // unresolvable specifier keeps today's error (the §31-family
         // boundary owns those).
+        // `ast.IsImportCall` (`ast/utilities.go`): `import(…)` and the
+        // deferred form `import.defer(…)` — a `MetaProperty` callee whose
+        // keyword is `import` and whose name is `defer` — are both import
+        // calls, and `checkCallExpression` answers both through
+        // `checkImportCallExpression` without checking the callee.
         if matches!(
             callee,
             Expression::KeywordExpression(keyword)
                 if keyword.kind == tsr_ast::SyntaxKind::ImportKeyword
+        ) || matches!(
+            callee,
+            Expression::MetaProperty(meta)
+                if meta.keyword_token.kind == tsr_ast::SyntaxKind::ImportKeyword
+                    && meta.name.is_some_and(|name| name.text == "defer")
         ) {
             if let Some(result) = self.check_import_call_expression(node) {
                 return result;

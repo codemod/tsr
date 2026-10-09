@@ -1702,3 +1702,20 @@ Batch BV merges the 23 commits main gained since `17265fac`:
 - the box setup's detached bd bootstrap (.50).
 
 The gate measures the merge against the batch-BU tip, like any box batch.
+
+### Batch BV: main merge, plus the IsImportCall fix the gate required
+
+BV's first gate lost 6 diagnostics cases, all variants of dynamicImportDefer.
+Each one gained a TS7006 on the `ns =>` callback of
+`import.defer("./a.js").then(...)`. Main's eebc8123 now reports TS7006 when
+getContextualSignature is nil.
+
+That exposed a pre-existing gap. The port typed only `import(…)` through
+checkImportCallExpression; native's `ast.IsImportCall` also admits the
+`import.defer(…)` MetaProperty callee. The port instead checked
+`import.defer` as an errorType meta property, so the `then` callback had no
+contextual signature.
+
+calls.rs now admits both forms, as IsImportCall does. That is the
+integrator's fix for a merge interaction: it ports the native predicate
+and suppresses nothing.
