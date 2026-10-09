@@ -1762,6 +1762,24 @@ impl<'a> Checker<'a, '_> {
         self.nodes.parent(current)
     }
 
+    /// `ast.IsExternalModuleAugmentation` (`ast/utilities.go:3567`), with
+    /// `IsModuleAugmentationExternal` (`:1694`); `IsAmbientModule` is
+    /// `Checker::is_ambient_module_declaration`.
+    fn is_external_module_augmentation(&self, node: NodeId) -> bool {
+        if !self.is_ambient_module_declaration(node) {
+            return false;
+        }
+        let Some(parent) = self.nodes.parent(node) else { return false };
+        match self.node_map.get(parent) {
+            Some(Node::SourceFile(source)) => tsr_binder::is_external_module(source),
+            Some(Node::ModuleBlock(_)) => self.nodes.parent(parent).is_some_and(|grand| {
+                self.is_ambient_module_declaration(grand)
+                    && self.nodes.parent(grand).is_some_and(|file| self.is_global_source_file(file))
+            }),
+            _ => false,
+        }
+    }
+
     fn is_global_source_file(&self, node: NodeId) -> bool {
         matches!(self.node_map.get(node), Some(Node::SourceFile(source))
             if !tsr_binder::is_external_module(source))
@@ -1796,16 +1814,15 @@ impl<'a> Checker<'a, '_> {
             | SyntaxKind::FunctionDeclaration
             | SyntaxKind::EnumDeclaration
             | SyntaxKind::ImportEqualsDeclaration => {
-                let Some(container) = self.declaration_container(node) else { return false };
-                // `IsExternalModuleAugmentation`: `declare module "m"` inside a
-                // module file is always visible.
-                if let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node)
-                    && matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
-                    && matches!(self.node_map.get(container), Some(Node::SourceFile(source))
-                        if tsr_binder::is_external_module(source))
-                {
+                // `IsExternalModuleAugmentation`: `declare module "m"` or
+                // `declare global` inside a module file is always visible.
+                // The `global` arm is what makes a lib global merged from a
+                // module-shaped lib file (`Iterator`, redeclared inside
+                // `lib.es2025.iterator.d.ts`'s `declare global`) nameable.
+                if self.is_external_module_augmentation(node) {
                     return true;
                 }
+                let Some(container) = self.declaration_container(node) else { return false };
                 let ambient_member = self.nodes.kind(node) != SyntaxKind::ImportEqualsDeclaration
                     && self.nodes.kind(container) != SyntaxKind::SourceFile
                     && self.nodes.flags(container).contains(tsr_ast::NodeFlags::AMBIENT);
