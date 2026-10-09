@@ -2555,9 +2555,9 @@ impl Relater<'_, '_, '_> {
         if !self.checker.type_of(index).flags.intersects(TypeFlags::INSTANTIABLE)
             && !self.checker.indexed_access_index_is_generic(index)
             && let Some(distributed) =
-                self.distributed_index_over_object(object, index, writing, depth)
+                self.distributed_index_over_object(object, index, writing, depth).ok()?
         {
-            return distributed;
+            return Some(distributed);
         }
         self.checker.ensure_mapped_type_info(object);
         let Some(info) = self.checker.mapped_types.get(&object).cloned() else {
@@ -2605,7 +2605,7 @@ impl Relater<'_, '_, '_> {
     }
 
     /// distributeIndexOverObjectType (checker.go:27990) for a union or
-    /// intersection object: `None` when it does not apply, `Some(None)` when
+    /// intersection object: `Ok(None)` when it does not apply, `Err(())` when
     /// a constituent's access or simplification cannot be computed.
     /// shouldDeferIndexType (checker.go) keeps an intersection that mentions
     /// an instantiable type and has an empty anonymous object constituent.
@@ -2615,30 +2615,33 @@ impl Relater<'_, '_, '_> {
         index: TypeId,
         writing: bool,
         depth: u32,
-    ) -> Option<Option<TypeId>> {
+    ) -> Result<Option<TypeId>, ()> {
         let (parts, intersection) = match self.union_constituents(object) {
             Some(parts) => (parts, false),
-            None => (self.intersection_constituents(object)?, true),
+            None => match self.intersection_constituents(object) {
+                Some(parts) => (parts, true),
+                None => return Ok(None),
+            },
         };
         if intersection
             && self.checker.maybe_type_of_kind(object, TypeFlags::INSTANTIABLE)
             && parts.iter().any(|&part| self.checker.is_empty_anonymous_object_type(part))
         {
-            return None;
+            return Ok(None);
         }
         let mut types = Vec::with_capacity(parts.len());
         for part in parts {
             let Some(access) = self.checker.resolved_indexed_access_type(part, index, false) else {
-                return Some(None);
+                return Err(());
             };
             let Some(simplified) =
                 self.simplified_indexed_access_worker(access, writing, depth + 1)
             else {
-                return Some(None);
+                return Err(());
             };
             types.push(simplified);
         }
-        Some(Some(if intersection || writing {
+        Ok(Some(if intersection || writing {
             self.checker.get_intersection_type(&types, None)
         } else {
             self.checker.get_union_type(&types)
