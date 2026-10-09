@@ -847,3 +847,25 @@ blocked on mapped.rs pieces (`.1089`).
 r5-relater7 is now relater.rs' single owner. It takes r5-ts2322's 36 relater
 cases (`.1088`), `.1055`, relationCount/TS2859 (`.1065`), the variance-probe
 cost (`.1068`), and the binder fix plus the TS2536 reporter.
+
+### r5-checkperf finished; r5-checkperf2 dispatched (`tsr-2zk.1091`)
+
+r5-checkperf made the round's first checker-CPU gains. `ab77d39` borrows
+TypeData instead of cloning it and keeps literal twins: dm Ir −0.94%.
+
+Its stack diff lands in batch AH, all byte-identical:
+- the sharedFlows lookup becomes a per-node chain, replacing a linear scan that
+  cost about 300M Ir on dml;
+- a minimal resolve-identifier memo at four sites (`.996`);
+- a once-per-checker global-alias list;
+- no format! on enum keys;
+- one indexed assignment walk per container;
+- a settled (owner, name) property memo.
+
+Ir on dm falls 4.35%, on dml 10.67%. Wall vs tsgo, dml 0.738 → 0.659.
+jsTyping goes from 4.88 to 3.64, still slower than native.
+
+`.935` is not duplicated work: with four checkers, the wall is checker 0's
+share, and the lever is per-file speed. `.997`, the Signature representation,
+is cross-cutting and becomes a single-owner item between rounds (`.1092`).
+r5-checkperf2 takes allocator pressure and the jsTyping hot spots.
