@@ -37,7 +37,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
-impl<'a> Checker<'a, '_> {
+impl Checker<'_, '_> {
     /// The host whose comment holds `tag`, when `tag` is an `@overload` that
     /// `reparseUnhosted` makes a declaration of (a function, method or
     /// constructor declaration outside every object literal).
