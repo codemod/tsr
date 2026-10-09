@@ -1,5 +1,5 @@
 diff --git a/crates/tsr-checker/src/indexed.rs b/crates/tsr-checker/src/indexed.rs
-index 6cc5f14..d5e57d3 100644
+index 552d7b3..0b973cd 100644
 --- a/crates/tsr-checker/src/indexed.rs
 +++ b/crates/tsr-checker/src/indexed.rs
 @@ -774,9 +774,6 @@ impl Checker<'_, '_> {
@@ -12,9 +12,9 @@ index 6cc5f14..d5e57d3 100644
      /// - a function's type: its late-bound assignment members
      ///   (`InternalSymbolNameAssignmentDeclaration`, `binder.go:1002`, read by
      ///   `getResolvedMembersOrExportsOfSymbol`) are unbound (24);
-@@ -786,6 +783,11 @@ impl Checker<'_, '_> {
-     ///   globalThis` has no members table and is complete all the same: its
-     ///   lookup is [`Checker::global_this_property_type`]'s globals table.
+@@ -790,6 +787,11 @@ impl Checker<'_, '_> {
+     ///   upstream empties the bases and still reads the receiver's own
+     ///   signatures (no corpus line; `tests/types.rs` pins it).
      ///
 +    /// A union with an object-literal constituent was excluded until
 +    /// `createUnionOrIntersectionProperty`'s object-literal `undefined` arm
@@ -58,6 +58,26 @@ index ec7387f..1e48fb1 100644
                  };
                  projected.push(member);
              }
+diff --git a/crates/tsr-checker/tests/element_access_miss.rs b/crates/tsr-checker/tests/element_access_miss.rs
+index 3129f8c..50a7acb 100644
+--- a/crates/tsr-checker/tests/element_access_miss.rs
++++ b/crates/tsr-checker/tests/element_access_miss.rs
+@@ -118,10 +118,11 @@ fn a_miss_on_a_function_receiver_stays_the_gap() {
+     assert_eq!(last_element_access(source), Identity::Gap);
+ }
+ 
+-/// `createUnionOrIntersectionProperty`'s object-literal arm is unported, so
+-/// a miss over a union with an object literal stays the gap.
++/// `createUnionOrIntersectionProperty`'s object-literal arm is ported
++/// (`docs/parity/notes/r6-errorsplit.md` §5): the literal constituent
++/// contributes `undefined`, so the access is no miss at all.
+ #[test]
+-fn a_miss_on_a_union_with_an_object_literal_stays_the_gap() {
++fn a_union_with_an_object_literal_reads_undefined_for_the_literal() {
+     let source = "declare let x: { a: string } | undefined;\n(x || {})[\"a\"];\n";
+-    assert_eq!(last_element_access(source), Identity::Gap);
++    assert_eq!(last_element_access(source), Identity::Other("string | undefined".to_owned()));
+ }
 diff --git a/crates/tsr-checker/tests/union_object_literal_property.rs b/crates/tsr-checker/tests/union_object_literal_property.rs
 new file mode 100644
 index 0000000..9deb66f

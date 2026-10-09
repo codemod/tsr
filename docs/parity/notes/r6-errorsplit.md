@@ -299,3 +299,70 @@ string key reads back its member; the function's printed type carries the
 late members after the early one, named by key type; a key the function
 lacks is `errorType`), and flips `tests/element_access_miss.rs`' function
 pin from the gap to `native_error`.
+
+**Correction.** Commit `71d8704` claimed to re-cut diff O but committed the
+first cut: a `git checkout -- .` that reset the measured working tree also
+reverted the copied diff. The re-cut diff O lands in the next commit, and
+`git apply` of O, L and G in that order was re-verified there.
+
+## §7 Diff G (`members.rs`, `readonly_target.rs`): an unconstrained type parameter's apparent type
+
+[`r6-errorsplit-unconstrained-apparent.diff`](r6-errorsplit-unconstrained-apparent.diff)
+applies on diff L (order: O, L, G). It is the cause of one family of the
+generic-receiver exclusion's false claims (§1.1):
+`propertyAccessOnTypeParameterWithoutConstraints`' `x['toString']()` on an
+unconstrained `T` is `string` natively, and the port gapped it.
+
+`getApparentType`'s head (`checker.go:21731`) is
+
+```go
+if t.flags&TypeFlagsInstantiable != 0 {
+    t = c.getBaseConstraintOfType(t)
+    if t == nil { t = c.unknownType }
+}
+```
+
+and the port's `apparent_type` kept the type itself when no base constraint
+was found (`unwrap_or(id)`). So an unconstrained `T` fell through every arm
+and stayed `T`, whose lookup finds nothing, where upstream reads `unknown`
+and, without `strictNullChecks`, its apparent empty object, which falls back
+to `Object`'s members. The comment beside it described upstream's behaviour
+(*"An unconstrained parameter becomes `unknown`"*) while the code did not do
+it. The diff maps a missing base constraint of an instantiable type to
+`unknown`, as upstream does; a non-instantiable type is unchanged.
+
+One reader depended on the old answer. `enclosing_class_from_this_parameter`
+(`readonly_target.rs`, TS2445's `this`-parameter road) read `this: T` through
+`apparent_type` and took a non-class answer as "no class". With `{}` it
+answered `Unsupported` and dropped three TS2445 reports
+(`protectedMembersThisParameter`, RIGHT→WRONG on the first measurement).
+Upstream's `getEnclosingClassFromThisParameter` (`checker.go:11987`) reads
+`getConstraintOfTypeParameter`, which is nil for an unconstrained parameter,
+and then has no class. The diff ports that: an unconstrained type parameter
+answers no class before the apparent read.
+
+**Measured** on commit 2 (unfiltered, both dumps): zero losses; types +32
+(14 GAP→RIGHT, 18 WRONG→RIGHT: `propertyAccessOnTypeParameterWithoutConstraints`
+30, `typeParameterExplicitlyExtendsAny` 2); diagnostics unchanged, zero
+transitions. No line moves to or from `native_error`; credited gap
+unchanged. slowcases clean. `apparent_type` is hot, so perf was taken A/B
+against the commit-2 binary: domain-model 1.003, generic-imports 1.008 (21
+samples). The added work is a flags test on the no-constraint branch.
+
+The diff carries `tests/unconstrained_type_parameter_apparent.rs`, which
+fails without it.
+
+**The stack.** O, L and G applied together on commit 3, measured against
+commit 2: types **549,993 / 786 / 5,524** (57 GAP→RIGHT, 81 WRONG→RIGHT,
++138), diagnostics 5,530 / **5,597** / 1,063 / **48** (+1), zero losses on
+both dumps; credited gap **2,131**; `HadErrorBaseline` 1,983. The parts sum
+(19 + 87 + 32).
+
+The generic exclusion stays: its other false claims are the
+`Extract<keyof T, string>` keys of a `for…in` variable (`isomorphicMappedTypeInference`,
+`mappedTypes4`, `keyofAndForIn`, `typeGuardsTypeParameters`,
+`correlatedUnions`, `mappedTypeConstraints2`, `keyofAndIndexedAccessErrors`),
+which upstream admits by relating the key to `keyof T`
+(`checkIndexedAccessIndexType`, `checker.go:8220`) and the port's relater
+cannot (a conditional-type source; r6-relater's lane), and
+`classExtendingAny`'s `this['wot']`, an `any`-based class.
