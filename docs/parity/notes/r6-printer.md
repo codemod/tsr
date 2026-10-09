@@ -177,3 +177,54 @@ probed). The site namer (`reference_text_at` / `symbol_chain`,
 native reuses, some line now RIGHT would turn WRONG. The unfiltered run
 shows none. If `annotation_alias_text_at` were retired in favour of the
 visitor alone, as native has it, this gate would go with it.
+
+## 3. `tsr-2zk.1114` remainder (item 3)
+
+### 3.1 A literal at a mutable location reads the instantiated contextual type
+
+**Forcing constraint.** `arrayLiteralInference` (5 lines):
+`const m: Map<AppType, AppStyle[]> = new Map([[AppType.Standard, […]], …])`.
+Native infers `Map<AppType.AdvancedList | AppType.Standard |
+AppType.Relationship, …>`. The port inferred `Map<AppType, …>`, because each
+member literal was widened to its enum before inference saw it.
+
+`checkExpressionForMutableLocation` (`checker.go:13878`) asks
+`getWidenedLiteralLikeTypeForContextualType(t,
+instantiateContextualType(getContextualType(node, None), node, None))`.
+Without `ContextFlagsSignature`, `instantiateContextualType`
+(`checker.go:30817`) incorporates only the inference context's
+**return mapper**. The annotation `Map<AppType, …>` infers `K = AppType`
+there, so the element's contextual type `K` reads as the enum `AppType`, a
+union of member literals, and `isLiteralOfContextualType` keeps
+`AppType.Standard`. The port passed the raw contextual type `K`, which is
+unconstrained, so `isLiteralOfContextualType` answered `false` and the
+literal widened.
+
+**Port.** `check_expression_for_mutable_location` (objects.rs) puts the
+contextual type through `instantiate_contextual_type_without_signature`
+(contextual.rs). That function is the existing port of exactly this
+non-Signature form, already used by `checkArrayLiteral`'s tuple-context read.
+The §946 uninstantiated retry is left as it was. No cache or side table is
+added.
+
+**Measured**, unfiltered against the base: types **+5 / −0**
+(`arrayLiteralInference:0:26,0:28,0:29,0:40,0:54`; the case converts),
+diagnostics unchanged, slowcases clean, CLI output identical. Ir:
+domain-model 1,090,870,104 and 1,091,914,416 on two runs of the same binary,
+against the base's 1,090,902,888 and 1,090,897,313. generic-imports
+343,083,992 / 343,084,367 against 343,079,364 / 343,080,143 (+0.001%).
+
+*Noise correction.* Re-running one binary under callgrind moves domain-model
+by about 1.0M Ir (≈0.1%). The commit binary of §2 measured 1,091,897,193
+once and 1,090,864,817 on a second run. §2's "+0.09%" for the commit alone
+is therefore within that noise. Treat it as ±0.1%, not as a cost.
+
+The test is `crates/tsr-conformance/tests/mutable_location_return_mapper.rs`
+(`new Map([[E.A, 1], [E.B, 2]])` under `Map<E, number>` prints
+`Map<E.A | E.B, number>` natively).
+
+**How this would be wrong.** Native's return mapper is a separate inference
+pass over the contextual return type. If the port's
+`live_contextual_return_mapper` carried inferences native's does not, a
+literal would be kept where native widens. The unfiltered run moved no
+line the other way.
