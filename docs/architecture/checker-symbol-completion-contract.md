@@ -203,6 +203,26 @@ record capacities on current source before choosing a compact production
 encoding. The layout proves safe ownership, not profitable reuse. `.7.7` must
 measure the integrated change against its unchanged whole-project gates.
 
+The private local-lifetime experiment at frozen `2e47ffaa` (full commit in the
+linked evidence) puts a Checker-local `Arc<SymbolStoreIdentity>` holder around
+that same Program stamp. Its allocation is a lifetime holder, never an identity:
+equality/hash still delegate to the inner Program stamp and bound index. Reads
+validate the original Program identity before indexing. The holder owns no AST
+or records; retained handles preserve the stamp after store/Checker drop. Public
+handles retain `Send + Sync`, and separate holders on the same Program compare
+and hash equally. No cache, publication state or alias/receiver key changes.
+
+Corrected opt-in counts cover all seven bound clone/lift sites: 21,548,677
+events across four Checkers and 21,320,280 single, repeated identically through
+checking/diagnostic projection. These are ownership events, not expensive worker
+executions. The local holder saves 22.43% four-worker wall time relative to the
+original private owner port, but the direct combined-port/main comparison still
+regresses 20.997% default and 16.244% single. Runtime retention remains refused.
+An `Rc` holder has no meaningful CLI benefit and would change standalone handle
+thread safety; it is rejected. [Source, exact replay and measurements](checker-owner-performance-qualification.md)
+track this boundary under `tsr-1yb.11.6`; no compact encoding or completed speed
+claim follows from the representation controls.
+
 ## Current alias-target qualification
 
 The 2026-10-08 audit uses TSR `59f6ce22` and pinned native `5b1047d1`.

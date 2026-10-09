@@ -22,6 +22,35 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Selected owner continuation at frozen `2e47ffaa`, pinned native `5b1047d`:
+the exact 92-file private replay preserves all 1,056 guarded inputs. The actual
+full native gate improves 8,275 to **8,303 EXACT cases**, with **28 gains, zero
+losses and zero missing** among 12,797 compared cases; the existing one failure
+and one timeout remain. All previously exact diagnostic/type halves also survive.
+The complete legacy comparison retains all 552,533 type/12,238 diagnostic keys,
+with **124 type gains/nine diagnostic gains and zero previously RIGHT losses**.
+Workspace **3286/0/19**, strict workspace Clippy, formatting and work-trace pass.
+This corrects the remaining 2/2-loss status of the historical continuation below.
+
+Runtime retention is now refused by measured performance: the original owner
+port regresses **56.88% default/17.16% single** versus frozen main. A private
+Checker-local `Arc` lifetime holder saves **22.43% default wall/36.26% user CPU**
+against that port while preserving the same Program identity. Its direct paired
+comparison still regresses **20.997% default/16.244% single** versus main.
+Corrected complete-checker counts are 21,548,677 bound handle operations default
+and 21,320,280 single; these are not semantic worker executions. The safe variant
+passes **230 library tests**; the `Rc` alternative is rejected for no meaningful
+CLI benefit and changed handle thread safety. The safe variant's actual full
+native rerun retains all 8,303 EXACT cases and every non-timing case payload,
+with strict checker all-targets Clippy passing. Naming probe repeats 400 global
+queries/891,600 copied entries/15.2MB name payload with zero aliases, and 5,200
+local queries/865,904 entries/516,704 aliases. `tsr-1yb.33.1.2` owns native direct
+lookup before alias-only preparation. Full runtime review, attribution,
+canonical integration and verified equivalent-work TSR/native ratio<=0.50 remain
+unfinished. [Exact replay and measured gates](docs/architecture/checker-owner-performance-qualification.md).
+
+Historical workspace owner continuation:
+
 Selected workspace owner continuation measured after `18d77c9e`, pinned native
 `5b1047d`: historical43-source replay plus four exact continuation patches
 reproduce **1,056 inputs**, with **48 cumulative changed sources** from the prior
@@ -3904,6 +3933,21 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Continue from the full-corpus-preserving private owner replay at frozen
+`2e47ffaa`. All old selected-owner RIGHT losses are repaired, but ordinary
+runtime retention fails the main comparison even after the local `Arc` holder:
+**+20.997% default wall/+16.244% single**. `tsr-1yb.11.6` owns lifetime-holder
+attribution/controls, and existing `tsr-1yb.11.5` owns native alias-only naming
+table scans. Attribute the remaining semantic forcing/allocation cost before
+another runtime candidate; the actual naming counts now select native direct
+lookup before alias-only preparation under `tsr-1yb.33.1.2`. Do not retry the
+rejected `Rc` representation.
+All six original goal tickets remain in progress for their full acceptance,
+including complete equivalent-work ratio<=0.50 and canonical integration.
+[Current qualification](docs/architecture/checker-owner-performance-qualification.md).
+
+Historical next steps below refer to their frozen sources:
+
 Continue the selected-owner preservation repairs from frozen `18d77c9e`:
 private workspace3279/0/19 and strict Clippy/formatting/work-trace pass; both
 unfiltered dumps retain all552533 type/12238 diagnostic keys. The remaining
@@ -7731,6 +7775,22 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Frozen `2e47ffaa` plus the full owner replay passes the no-RIGHT-loss corpus
+gates but fails ordinary CLI retention: **0.639249→1.002839s default** and
+**1.235787→1.447870s single**. The checker-local safe `Arc` holder removes much
+of the concurrent refcount cost, yet a direct independent main comparison still
+fails: **0.597028→0.722384s default**, **1.183679→1.375961s single**. Same options,
+loaded input identities and complete diagnostic/exit fingerprints are preserved;
+verified native ratio remains null because complete performed work is unverified.
+The `Rc` experiment is rejected: Rc/local-Arc ratios **1.001725 default** and
+**0.993764 single** give no meaningful benefit to justify changed `Send`/`Sync`.
+The earlier partial clone count omitted four edge sites and is explicitly a
+lower bound; corrected counts are preserved separately. Broad runtime review
+is incomplete and canonical Rust is unchanged. [Qualified negatives and source](docs/architecture/checker-owner-performance-qualification.md).
+
+The following `18d77c9e` 2/2-loss refusal is historical; the current private
+continuation restores those losses but remains refused by the performance gate.
 
 Selected workspace continuation at frozen `18d77c9e` still refuses runtime
 retention: the latest full legacy comparison loses **2 previously RIGHT type
@@ -16135,3 +16195,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `124ea18d` plus exact 34-source private overlay / native `5b1047d` | — | — | **Conformance consumers and native alias admission, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Exact 1,053-input replay, 1,019 unchanged. Actual library224/0/0, checker integration23/0, conformance34/0 and native78 rows; work-trace compiles. 121 compiler suggestions reduce strict lint141 to28; keep-going all-targets reports25 mismatches in seven examples. Canonical runtime, full corpus/work and ratio<=0.50 gates remain unfinished. [Replay](docs/architecture/checker-conformance-consumer-continuation.json). |
 
 | 2026-10-08 | `18d77c9e` plus exact48-source cumulative private overlay / native `5b1047d` | — | — | **Selected workspace/alias/callable continuation.** Exact1056-input phase replays;91 files differ from frozen main. Workspace3279/0/19, library225/0/0; strictClippy/fullfmt/work-trace pass. Native20 call/12 parent rows/two clone publications plus6 property,10 diagnostic and8 merged callable observations qualify scoped repairs. Both legacy dumps complete552533types/12238diagnostics: first12type/10diagnostic losses reduced to2/2,124type/9diagnostic gains,0missing. Failed alias abort and lint/formatting probes preserved. Remaining selected property/type-only and inherited-member losses stay under active tickets; no canonical runtime or speed proof. [Replay](docs/architecture/checker-workspace-owner-continuation.json). |
+
+| 2026-10-08 | `2e47ffaa` plus exact private92-file owner replay / native `5b1047d` | — | — | **Full owner preservation and refcount/naming attribution.** Actual full native8275→8303 EXACT,28gains/0losses/0missing; full legacy552533type/12238diag keys,124/9gains/0RIGHTlosses. Workspace3286/0/19,strictClippy/fmt/work-trace pass. Safe localArc230library/strictcheckeralltargets and actual full native8303 with0non-timing payload changes; originalport default+56.88%/single+17.16%main regression reduced by22.43%defaultwall/36.26%CPU, yet directmain comparison remains+20.997%/+16.244%. Rc rejected1.001725default/0.993764single. Corrected21.55M/21.32M ownership counts; naming globals400queries/891600copies/15.2MB/zeroaliases selects newP1 tsr-1yb.33.1.2 native direct/alias-only preparation. Four exact1056-input replays; no canonical Rust retention or verified equivalent-work <=0.50. Six goals remain in progress. [Qualified source and gates](docs/architecture/checker-owner-performance-qualification.md). |
