@@ -1,0 +1,115 @@
+diff --git a/crates/tsr-checker/src/literals.rs b/crates/tsr-checker/src/literals.rs
+index cc3753e..a794159 100644
+--- a/crates/tsr-checker/src/literals.rs
++++ b/crates/tsr-checker/src/literals.rs
+@@ -176,4 +176,33 @@ impl Checker<'_, '_> {
+         self.regular_types.insert(id, widened);
+         widened
+     }
++
++    /// [`Checker::enum_member_value`] without building its key: the owning
++    /// enum and the borrowed value payload of an enum member type (through
++    /// its `enum_member_regular` twin), or `None` for anything else. The key
++    /// that function spells is `n:`/`s:` then the payload, so two keys are
++    /// equal exactly when the variants and the texts are, and
++    /// [`enum_value_has_key`] answers the comparison against a spelled key.
++    /// Native compares the literal's `value` field the same way
++    /// (`isSimpleTypeRelatedTo`, `relater.go:236`). `r5-checkperf2.md` §5.
++    pub(crate) fn enum_member_payload(
++        &self,
++        member: TypeId,
++    ) -> Option<(tsr_binder::SymbolId, &crate::types::EnumLiteralValue)> {
++        let regular = self.enum_member_regular.get(&member).copied().unwrap_or(member);
++        match &self.store.get(regular).data {
++            crate::types::TypeData::EnumLiteral { owner, value, .. } => Some((*owner, value)),
++            _ => None,
++        }
++    }
++}
++
++/// Whether `key` is [`Checker::enum_member_value`]'s key for `value`:
++/// `n:` or `s:`, then the payload.
++pub(crate) fn enum_value_has_key(value: &crate::types::EnumLiteralValue, key: &str) -> bool {
++    let (prefix, text) = match value {
++        crate::types::EnumLiteralValue::Number(text) => ("n:", text),
++        crate::types::EnumLiteralValue::String(text) => ("s:", text),
++    };
++    key.strip_prefix(prefix) == Some(text.as_str())
+ }
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 73beb35..9b00e3c 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -3756,34 +3756,37 @@ impl Relater<'_, '_, '_> {
+         }
+         // Enum literals carry the primitive value and nominal owner. Keep
+         // enum-to-enum identity ahead of ordinary primitive relations.
+-        let source_member = self.checker.enum_member_value(source);
+-        let target_member = self.checker.enum_member_value(target);
++        // Compared on the borrowed payloads: `enum_member_value`'s keys are
++        // equal exactly when the payloads are (`r5-checkperf2.md` §5).
++        let source_member = self.checker.enum_member_payload(source);
++        let target_member = self.checker.enum_member_payload(target);
+         let plain =
+             |flags: TypeFlags| !flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION);
+-        if let Some((source_owner, source_key)) = &source_member {
+-            if let Some((target_owner, target_key)) = &target_member {
++        if let Some((source_owner, source_value)) = source_member {
++            if let Some((target_owner, target_value)) = target_member {
+                 // `relater.go:236-243`: two members of ONE enum relate only
+                 // by identity (caught above) — otherwise they are two
+                 // literals and the structured walk finds nothing. Members of
+                 // two enums relate through `isEnumTypeRelatedTo`, which
+                 // requires the same NAME and member-by-member equal values;
+                 // a different name is decided, the same name is not ported.
++                let equal = source_value == target_value;
+                 if source_owner == target_owner {
+-                    return Some(source_key == target_key);
++                    return Some(equal);
+                 }
+                 // `relater.go:238`: equal values of two enums related by
+                 // isEnumTypeRelatedTo. Otherwise two distinct literals.
+-                return Some(
+-                    source_key == target_key
+-                        && self.is_enum_type_related_to(*source_owner, *target_owner),
+-                );
++                return Some(equal && self.is_enum_type_related_to(source_owner, target_owner));
+             }
+-            let numeric = source_key.starts_with("n:");
++            let numeric = matches!(source_value, crate::types::EnumLiteralValue::Number(_));
+             // `relater.go:219`/`:225`: an enum literal relates to the PLAIN
+             // literal of its value.
+             if t.intersects(TypeFlags::LITERAL)
+                 && plain(t)
+-                && self.checker.plain_literal_key(target).as_deref() == Some(source_key.as_str())
++                && self
++                    .checker
++                    .plain_literal_key(target)
++                    .is_some_and(|key| crate::literals::enum_value_has_key(source_value, &key))
+             {
+                 return Some(true);
+             }
+@@ -3792,9 +3795,9 @@ impl Relater<'_, '_, '_> {
+             if plain(t) && t.intersects(TypeFlags::NUMBER | TypeFlags::STRING) {
+                 return Some(numeric == t.intersects(TypeFlags::NUMBER));
+             }
+-        } else if let Some((_, target_key)) = &target_member
++        } else if let Some((_, target_value)) = target_member
+             && matches!(self.relation, Relation::Assignable | Relation::Comparable)
+-            && target_key.starts_with("n:")
++            && matches!(target_value, crate::types::EnumLiteralValue::Number(_))
+         {
+             // `relater.go:266-270`, the bit-flag rules: `number` relates to a
+             // numeric enum member (and so, through the union dispatch, to a
+@@ -3804,7 +3807,10 @@ impl Relater<'_, '_, '_> {
+                 return Some(true);
+             }
+             if s.intersects(TypeFlags::NUMBER_LITERAL)
+-                && self.checker.plain_literal_key(source).as_deref() == Some(target_key.as_str())
++                && self
++                    .checker
++                    .plain_literal_key(source)
++                    .is_some_and(|key| crate::literals::enum_value_has_key(target_value, &key))
+             {
+                 return Some(true);
+             }
