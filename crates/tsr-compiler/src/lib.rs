@@ -1317,6 +1317,19 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
             resolution.resolved_file.is_some(),
         ))
     }
+
+    fn source_file_may_be_emitted(&self, file: tsr_ast::NodeId) -> bool {
+        self.files_by_source_file
+            .get(&file)
+            .is_some_and(|&index| Program::source_file_may_be_emitted(self, index))
+    }
+
+    fn compare_paths_options(&self) -> tsr_path::ComparePathsOptions {
+        tsr_path::ComparePathsOptions {
+            use_case_sensitive_file_names: self.use_case_sensitive_file_names,
+            current_directory: self.current_directory.clone(),
+        }
+    }
     fn jsdoc_template_parameters(&self, declaration: NodeId) -> Vec<NodeId> {
         // §110: linear over files, then over each file's (host, docs) rows —
         // the table is small and the call is bake-time-only.

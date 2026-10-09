@@ -371,6 +371,8 @@ impl Checker<'_, '_> {
                     )
                 }) {
                     self.check_exports_on_merged_declarations(node);
+                    // TS1280 (`checker.go:5168`), `isolated_alias.rs`.
+                    self.check_global_script_namespace(node);
                 }
                 ambient
                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
@@ -3901,6 +3903,22 @@ impl Checker<'_, '_> {
                 ) {
                     return;
                 }
+                // The chain's last arm, `rewriteRelativeImportExtensions`
+                // (`checker.go:15261`), `isolated_alias.rs`.
+                if self.rewrite_relative_import_extensions
+                    && let Some(resolved) = resolved
+                {
+                    let compare = host.compare_paths_options();
+                    self.check_rewrite_relative_import_extensions(
+                        declaration,
+                        specifier,
+                        resolved,
+                        options,
+                        true,
+                        &compare,
+                        |file| host.source_file_may_be_emitted(file),
+                    );
+                }
             }
             self.check_untyped_module_import(declaration, specifier);
             self.check_esm_import_from_commonjs(declaration, specifier);
@@ -4708,6 +4726,11 @@ impl Checker<'_, '_> {
                 // `Alias && !Value`, and this port's alias symbols answer
                 // `VALUE` where upstream's do not (§119), so the test belongs
                 // here rather than on the meaning ladder below. §121.
+                // TS1281, reported inside `resolveNameHelper`'s walk at the
+                // enum declaration that found the name
+                // (`binder/nameresolver.go:153`), so before the success arms
+                // below; `isolated_alias.rs`.
+                self.check_enum_member_from_another_file(node, value, text);
                 self.report_type_only_alias_used_as_value(node, value, text);
                 // TS2866, `resolveNameHelper`'s next success arm
                 // (`checker.go:1872`), `isolated_alias.rs`.
@@ -5536,6 +5559,14 @@ impl Checker<'_, '_> {
         reason = "one arm per expression-bearing node kind; splitting it would \
                   hide the exhaustiveness that is the point of the list"
     )]
+    /// `isIntrinsicJsxName` (`checker/utilities.go`) for an identifier tag.
+    fn is_intrinsic_jsx_tag_identifier(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::Identifier(name)) => crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text),
+            _ => false,
+        }
+    }
+
     pub(crate) fn is_value_reference(&self, node: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(node) else { return false };
         let Some(typed) = self.node_map.get(parent) else { return false };
@@ -5623,6 +5654,22 @@ impl Checker<'_, '_> {
             Node::Decorator(n) => is(n.expression.and_then(|e| e.node_id())),
             Node::ExportAssignment(n) => is(n.expression.and_then(|e| e.node_id())),
             Node::JsxExpression(n) => is(n.expression.and_then(|e| e.node_id())),
+            // A value tag name: `resolveJsxOpeningLikeElement` checks it as an
+            // expression (`jsx.go:562`) and `checkJsxElementDeferred` checks the
+            // closing tag the same way (`jsx.go:82`); an intrinsic name
+            // (`isIntrinsicJsxName`) is looked up in `JSX.IntrinsicElements`.
+            Node::JsxOpeningElement(n) => {
+                is(n.tag_name.and_then(|t| t.node_id()))
+                    && !self.is_intrinsic_jsx_tag_identifier(node)
+            }
+            Node::JsxSelfClosingElement(n) => {
+                is(n.tag_name.and_then(|t| t.node_id()))
+                    && !self.is_intrinsic_jsx_tag_identifier(node)
+            }
+            Node::JsxClosingElement(n) => {
+                is(n.tag_name.and_then(|t| t.node_id()))
+                    && !self.is_intrinsic_jsx_tag_identifier(node)
+            }
             // `class C extends B` resolves `B` as a value; `implements I` does
             // not, and the two share this node kind. The heritage clause's
             // keyword is what separates them.
@@ -6601,6 +6648,15 @@ impl Checker<'_, '_> {
             // and upstream says nothing about using one early —
             // `enumUsedBeforeDeclaration` reports on its `Color` and not on
             // its `ConstColor`, and `ENUM` here was §99's one wrong line.
+            (&messages::ENUM_0_USED_BEFORE_ITS_DECLARATION, &[SyntaxKind::EnumDeclaration])
+        } else if entry.flags.intersects(SymbolFlags::CONST_ENUM) && !is_class {
+            // The last arm (`checker.go:1911`–`1914`): a `const enum` is
+            // inlined only when the whole program is visible. Under
+            // `GetIsolatedModules()` it is emitted like a regular enum, so an
+            // early use is the same TDZ error. r6-modules2 §4.
+            if !self.isolated_modules {
+                return;
+            }
             (&messages::ENUM_0_USED_BEFORE_ITS_DECLARATION, &[SyntaxKind::EnumDeclaration])
         } else if is_class {
             (

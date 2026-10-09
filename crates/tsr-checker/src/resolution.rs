@@ -205,6 +205,23 @@ pub trait ModuleHost {
         None
     }
 
+    /// `program.SourceFileMayBeEmitted(file, false)` (`compiler/emitter.go:452`),
+    /// read by `resolveExternalModule`'s `rewriteRelativeImportExtensions`
+    /// arm (`checker.go:15282`, `crate::isolated_alias`). `false` for a host
+    /// with no emit.
+    fn source_file_may_be_emitted(&self, _file: NodeId) -> bool {
+        false
+    }
+
+    /// The program's `ComparePathsOptions` (`UseCaseSensitiveFileNames`,
+    /// `GetCurrentDirectory`), read by that arm's `GetRelativePathFromFile`.
+    fn compare_paths_options(&self) -> tsr_path::ComparePathsOptions {
+        tsr_path::ComparePathsOptions {
+            use_case_sensitive_file_names: true,
+            current_directory: String::new(),
+        }
+    }
+
     /// `Program.GetResolvedModule(file, moduleReference, mode)`
     /// (`checker.go:558`) composed with `GetSourceFileForResolvedModule`: the
     /// file the specifier resolved to **under the usage location's mode**.

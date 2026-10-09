@@ -279,7 +279,16 @@ impl Checker<'_, '_> {
             // resolver guards distinguish active, declined and completed work.
         }
         if signatures.len() != 1 {
-            return None;
+            // `resolveCall`'s `chooseOverload` (`docs/parity/notes/r6-jsx.md`
+            // §1): the chosen candidate is published by the chooser, in this
+            // function's shape; a failed or declined set has no context.
+            if !matches!(self.jsx_overloads_at(opening), crate::jsx_component::JsxOverloads::Chosen)
+            {
+                return None;
+            }
+            let signature = self.resolved_call_signatures.get(&opening)?;
+            let first = signature.parameters.first().cloned()?;
+            return Some(self.parameter_type(&first));
         }
         let mut signature = signatures.remove(0);
         let mut props = if class_reference {

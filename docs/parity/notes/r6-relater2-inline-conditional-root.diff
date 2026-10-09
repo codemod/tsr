@@ -1,0 +1,31 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index d7cb3f4..d3f4ed2 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -53,7 +53,7 @@ impl TypeLiteralKey {
+ 
+ #[derive(Clone, Debug)]
+ pub(crate) struct ConditionalInferenceNode {
+-    declaration: NodeId,
++    pub(crate) declaration: NodeId,
+     bindings: rustc_hash::FxHashMap<SymbolId, TypeId>,
+ }
+ 
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 537de79..0468078 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -5798,6 +5798,13 @@ impl Relater<'_, '_, '_> {
+                 Some(tsr_ast::Node::ConditionalTypeNode(node)) => node,
+                 _ => return None,
+             }
++        } else if let Some(info) = self.checker.conditional_inference_nodes.get(&id) {
++            // An inline conditional's root: the written node `declared.rs`
++            // retained for its deferred instantiation.
++            match self.checker.node_map.get(info.declaration) {
++                Some(tsr_ast::Node::ConditionalTypeNode(node)) => node,
++                _ => return None,
++            }
+         } else {
+             let (symbol, _) = self.checker.type_reference_targets.get(&id)?;
+             let declaration = self.checker.type_alias_declaration_of(*symbol)?;
