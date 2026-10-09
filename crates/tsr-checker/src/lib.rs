@@ -121,6 +121,7 @@ mod const_inference;
 mod constraints;
 mod context_sensitive;
 pub mod contextual;
+mod current_node;
 mod debug_env;
 pub mod declared;
 mod decorators;

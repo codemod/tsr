@@ -192,6 +192,17 @@ impl Checker<'_, '_> {
     /// `compiler/binderBinaryExpressionStress` is 4,971 operands of one
     /// left-leaning chain.
     fn check_node(&mut self, node: NodeId, ambient: bool, depth: u32) {
+        // `checkSourceElement`'s save/set/restore of `c.currentNode`
+        // (`checker.go:2243`); `current_node.rs`.
+        if !crate::current_node::is_current_node_kind(self.nodes.kind(node)) {
+            return self.check_node_worker(node, ambient, depth);
+        }
+        let saved = self.enter_current_node(node);
+        self.check_node_worker(node, ambient, depth);
+        self.leave_current_node(saved);
+    }
+
+    fn check_node_worker(&mut self, node: NodeId, ambient: bool, depth: u32) {
         if depth > MAX_CHECK_DEPTH {
             return;
         }
@@ -1333,7 +1344,18 @@ impl Checker<'_, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return;
         }
+        // `checkTypeAliasDeclaration` resolves the body under
+        // `checkSourceElement(typeNode)` (`checker.go:6897`), so the body's
+        // node is current, not the declaration.
+        let body = match self.node_map.get(node) {
+            Some(Node::TypeAliasDeclaration(alias)) => alias.r#type.and_then(|t| t.node_id()),
+            _ => None,
+        };
+        let saved = body.map(|body| self.enter_current_node(body));
         self.get_declared_type_of_symbol(symbol);
+        if let Some(saved) = saved {
+            self.leave_current_node(saved);
+        }
     }
 
     /// TS1042 — `'{0}' modifier cannot be used here.`

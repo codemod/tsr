@@ -71,9 +71,12 @@ impl Checker<'_, '_> {
         // (internal/checker/checker.go). Depth remains shared with the active
         // instantiation stack; an exhausted prior expression cannot poison
         // an independent check.
-        self.instantiation_count = 0;
+        let saved_current_node = node.node_id().map(|id| self.enter_current_node(id));
         self.computations += 1;
         let computed = self.check_expression_worker(expression);
+        if let Some(saved) = saved_current_node {
+            self.leave_current_node(saved);
+        }
 
         // Never persist a type computed during loop fixpoint analysis: the
         // walk hands out transient so-far unions, and an entry stamped from
