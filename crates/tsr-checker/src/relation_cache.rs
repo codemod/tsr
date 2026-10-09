@@ -16,6 +16,7 @@
 //! "Checker-lifetime results (tsr-2zk.902)".
 
 use rustc_hash::FxHashMap;
+use tsr_binder::SymbolId;
 
 use crate::relater::Relation;
 use crate::types::TypeId;
@@ -28,10 +29,10 @@ use crate::types::TypeId;
 pub(crate) type RelationKey = (TypeId, TypeId, bool);
 
 /// The completed states of native `RelationComparisonResult` this port
-/// publishes. `Reported`, `StackDepthOverflow` and the
-/// `ReportsUnmeasurable`/`ReportsUnreliable` variance flags are not
-/// represented: the port's depth refusal is an unpublished `Unknown`, and it
-/// does not propagate reliability flags.
+/// publishes. `Reported` and `StackDepthOverflow` are not represented: the
+/// port's depth refusal is an unpublished `Unknown`. The
+/// `ReportsUnmeasurable`/`ReportsUnreliable` bits travel beside the state as
+/// a [`Reliability`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CachedRelation {
     /// `RelationComparisonResultSucceeded`.
@@ -43,6 +44,24 @@ pub(crate) enum CachedRelation {
     /// (`checkTypeRelatedToEx`, relater.go:373), so the overflowing walk is
     /// not attempted again.
     ComplexityOverflow,
+}
+
+bitflags::bitflags! {
+    /// Native `RelationComparisonResultReportsUnmeasurable` and
+    /// `RelationComparisonResultReportsUnreliable` (`relater.go:70-71`): a
+    /// variance measurement's comparison touched a marker type through a
+    /// construct its variance digest cannot describe. Held as the checker's
+    /// current `reliabilityFlags` ([`RelationResults::reliability`]), beside
+    /// every published result, and per measured type parameter
+    /// ([`RelationResults::variance_reliability`]), where they are native's
+    /// `VarianceFlagsUnmeasurable`/`VarianceFlagsUnreliable`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+    pub(crate) struct Reliability: u8 {
+        /// `ReportsUnmeasurable` / `VarianceFlagsUnmeasurable`.
+        const UNMEASURABLE = 1;
+        /// `ReportsUnreliable` / `VarianceFlagsUnreliable`.
+        const UNRELIABLE = 2;
+    }
 }
 
 /// The compiler options a relation answer reads, directly in the relater or
@@ -60,14 +79,26 @@ pub(crate) struct RelationResults {
     /// tests can change them on a live checker, so a walk that starts under
     /// different options discards every result first ([`Self::validate`]).
     options: Option<RelationOptions>,
-    assignable: FxHashMap<RelationKey, CachedRelation>,
-    subtype: FxHashMap<RelationKey, CachedRelation>,
-    strict_subtype: FxHashMap<RelationKey, CachedRelation>,
-    comparable: FxHashMap<RelationKey, CachedRelation>,
+    assignable: FxHashMap<RelationKey, (CachedRelation, Reliability)>,
+    subtype: FxHashMap<RelationKey, (CachedRelation, Reliability)>,
+    strict_subtype: FxHashMap<RelationKey, (CachedRelation, Reliability)>,
+    comparable: FxHashMap<RelationKey, (CachedRelation, Reliability)>,
+    /// Native `Checker.reliabilityFlags` (`checker.go:736`): the reports
+    /// collected by the comparison in progress. `recursiveTypeRelatedTo`
+    /// scopes it per structured pair; `getVariancesWorker` reads it per type
+    /// parameter. Not cleared by [`Self::validate`]: it describes the walk
+    /// in progress, not stored results.
+    pub(crate) reliability: Reliability,
+    /// The `Unmeasurable`/`Unreliable` half of native's `VarianceFlags`, per
+    /// measured symbol and type parameter, beside the masked
+    /// `Checker::variance_cache` (`variances.rs`). Variances do not depend
+    /// on the relation options [`Self::validate`] guards, so neither does
+    /// this.
+    pub(crate) variance_reliability: FxHashMap<SymbolId, Vec<Reliability>>,
 }
 
 impl RelationResults {
-    fn map(&self, relation: Relation) -> &FxHashMap<RelationKey, CachedRelation> {
+    fn map(&self, relation: Relation) -> &FxHashMap<RelationKey, (CachedRelation, Reliability)> {
         match relation {
             Relation::Assignable => &self.assignable,
             Relation::Subtype => &self.subtype,
@@ -76,7 +107,10 @@ impl RelationResults {
         }
     }
 
-    fn map_mut(&mut self, relation: Relation) -> &mut FxHashMap<RelationKey, CachedRelation> {
+    fn map_mut(
+        &mut self,
+        relation: Relation,
+    ) -> &mut FxHashMap<RelationKey, (CachedRelation, Reliability)> {
         match relation {
             Relation::Assignable => &mut self.assignable,
             Relation::Subtype => &mut self.subtype,
@@ -87,12 +121,27 @@ impl RelationResults {
 
     /// `Relation.get` (`relater.go:103`).
     pub(crate) fn get(&self, relation: Relation, key: RelationKey) -> Option<CachedRelation> {
+        self.map(relation).get(&key).map(|&(result, _)| result)
+    }
+
+    /// `Relation.get` (`relater.go:103`) with the entry's report bits.
+    pub(crate) fn get_with_reliability(
+        &self,
+        relation: Relation,
+        key: RelationKey,
+    ) -> Option<(CachedRelation, Reliability)> {
         self.map(relation).get(&key).copied()
     }
 
     /// `Relation.set` (`relater.go:107`).
-    pub(crate) fn set(&mut self, relation: Relation, key: RelationKey, result: CachedRelation) {
-        self.map_mut(relation).insert(key, result);
+    pub(crate) fn set(
+        &mut self,
+        relation: Relation,
+        key: RelationKey,
+        result: CachedRelation,
+        reliability: Reliability,
+    ) {
+        self.map_mut(relation).insert(key, (result, reliability));
     }
 
     /// Keep the stored results only if they were computed under `options`.
