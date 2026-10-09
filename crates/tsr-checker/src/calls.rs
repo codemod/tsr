@@ -2697,6 +2697,14 @@ impl Checker<'_, '_> {
                 return Some(self.create_type_reference(promise, vec![synthetic]));
             }
         }
+        // `getTypeOfSymbol(esModuleSymbol)` of a shorthand ambient module
+        // (`declare module "x";`) is `anyType`, and every synthetic-default
+        // road keeps it: `getSpreadType` answers `any` for an `any` side
+        // (`checker.go:8309`). So the import is `Promise<any>`
+        // (`nodeModulesAllowJsDynamicImport`, r5-js §3.2).
+        if self.is_shorthand_ambient_module(self.resolve_external_module_symbol(module)) {
+            return self.promise_of_any();
+        }
         // Interned per (module, written spelling): duplicate mints would
         // churn prints (the bar's falsifier c).
         // SS196: the specifier is a STRING and prints escaped —

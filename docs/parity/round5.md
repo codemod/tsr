@@ -994,3 +994,97 @@ TS2589's currentNode reporting (`.1103`).
 Most of the unowned pool is now spent. The largest remaining clusters (TS2345,
 TS2769, TS2339, TS7006, TS2304, flow and contextual typing) sit in main's
 active lanes (`.4`, `.6`, `.9`, `.11`) or in main's files.
+
+### r5-errorsplit5 finished; r5-errorsplit6 dispatched (`tsr-2zk.1106`)
+
+r5-errorsplit5 ran the native identity probe over the whole corpus (12,157
+baselines) and switched four producers, each verified line by line:
+- nullable `+`;
+- JSX elements (errorType) vs fragments (anyType);
+- checkSuperExpression, including GetSuperContainer's static-block and
+  decorator arms;
+- the indexed twin.
+
+That is +84 type lines with no losses. Its symbols.rs diff (alias not-a-value,
+the getTypeOfSymbol fallthrough) and members.rs diff (the property twin) land
+in batch AO.
+
+With them, the first writer rewrite reaches zero RIGHT cost and is narrowed:
+GlobalAugmentation. The ADR-0048 narrowing cost falls from 4,504 to 3,030.
+r5-errorsplit6 takes indexed.rs' failed-lookup arms, the false-claim roots and
+spread propagation. Main's remainder is `.1107`.
+
+### r5-smallcodes2 finished; r5-config dispatched (`tsr-2zk.1108`)
+
+r5-smallcodes2 fixed:
+- TS2540: the constructor exemption's Property gate, and globalThis
+  read-only;
+- TS1156: no report inside a `with` body, plus the modifier-chain gate;
+- TS2300: lateBindMember conflicts;
+- TS2695: isInDiag2657, through a new ModuleHost::parse_diagnostics.
+
+That is +10 cases with no losses and Ir flat. Its error_span missing-node diff
+and its parser as-ASI diff land next, for +5 cases and +10 type lines.
+
+The freed slot went to r5-config: configuration-dependent failures (the
+weakest suite) and the harness compile root (`/.src`, `.1087`).
+
+Note for the user: main's lazy-JSDoc lane (`.17.1`) is claimed but shows one
+commit in 96 hours, while JSDoc scanning is about 40% of generic-imports' Ir.
+It is the largest open perf lever and is not taken over without the owner.
+
+### r5-js finished; r5-jsdoc5 dispatched (`tsr-2zk.1110`)
+
+r5-js triaged the 100 cases blocked only by JS-file causes; 53 of them are
+JSDoc. Every producer sat in an owned or hub file, so it shipped measured
+diffs only. Three land in a later batch:
+- the JS setter-parameter gate (+4 lines);
+- shorthand ambient modules in import() (+48 lines, 8 cases);
+- the assignment-context nil arms (+9 lines).
+
+Its super-in-static-block diff is not landed, because r5-errorsplit5's
+`abf502e` already ports GetSuperContainer's static-block arm.
+
+The remainder in main's files (late-bound expandos, require-destructuring
+aliases, inference from `any`) is `.1111`. The JSDoc bucket goes to
+r5-jsdoc5.
+
+### r5-mapped5 finished; r5-mapped6 dispatched (`tsr-2zk.1112`)
+
+r5-mapped5 recorded ADR-0050:
+- mapped property types are instantiated on first read (getTypeOfMappedSymbol);
+- mapped member prints truncate as the node builder does.
+
+hugeDeclarationOutputGetsTruncatedWithError is now 295 ms instead of 2,060 ms,
+with its native truncation point matched exactly. It also ported:
+- getIndexTypeForMappedType over generic key domains;
+- symbol-keyed computed properties;
+- mapped info for concrete mapped alias instances;
+- reducible indexed access (isGenericReducibleType and the uniqueLiteral
+  intrinsic).
+
+Six diffs land in batch AR.
+
+**Refused on its number:** the semantic mapped-node route gains +86 type lines
+and +1 case but costs domain-model Ir +0.48%, from evaluating 40
+`KeysOfType<…>` bodies. The performance rule rejects it as it stands.
+r5-mapped6 must find native's cache or deferral for that path and land the
+route within noise.
+
+### r5-checkperf2 finished; r5-checkperf3 dispatched (`tsr-2zk.1113`)
+
+r5-checkperf2 made two byte-identical changes:
+- the pending-signature-return walk goes by reference;
+- union_index_infos reuses each primitive's apparent answer.
+
+Ir fell 0.70% on dm and 0.81% on dml. Its relater.rs enum-payload diff cuts
+jsTyping's check by 7.5% of Ir.
+
+Wall vs tsgo on its container: dm 0.76, dml 0.74, gi 0.89, jsTyping 3.6. The
+0.50 target is not met. On dm and dml no checker function is above 1.5% self
+any more; about 16% is the allocator, mostly Signature copies (`.1092`, single
+owner between rounds).
+
+r5-checkperf3 takes the two largest jsTyping levers. Both are in main's files,
+so they ship as small measured diffs: native's per-call resolvedSignature link,
+and a union property certification memo.

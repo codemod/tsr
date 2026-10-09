@@ -176,4 +176,33 @@ impl Checker<'_, '_> {
         self.regular_types.insert(id, widened);
         widened
     }
+
+    /// [`Checker::enum_member_value`] without building its key: the owning
+    /// enum and the borrowed value payload of an enum member type (through
+    /// its `enum_member_regular` twin), or `None` for anything else. The key
+    /// that function spells is `n:`/`s:` then the payload, so two keys are
+    /// equal exactly when the variants and the texts are, and
+    /// [`enum_value_has_key`] answers the comparison against a spelled key.
+    /// Native compares the literal's `value` field the same way
+    /// (`isSimpleTypeRelatedTo`, `relater.go:236`). `r5-checkperf2.md` §5.
+    pub(crate) fn enum_member_payload(
+        &self,
+        member: TypeId,
+    ) -> Option<(tsr_binder::SymbolId, &crate::types::EnumLiteralValue)> {
+        let regular = self.enum_member_regular.get(&member).copied().unwrap_or(member);
+        match &self.store.get(regular).data {
+            crate::types::TypeData::EnumLiteral { owner, value, .. } => Some((*owner, value)),
+            _ => None,
+        }
+    }
+}
+
+/// Whether `key` is [`Checker::enum_member_value`]'s key for `value`:
+/// `n:` or `s:`, then the payload.
+pub(crate) fn enum_value_has_key(value: &crate::types::EnumLiteralValue, key: &str) -> bool {
+    let (prefix, text) = match value {
+        crate::types::EnumLiteralValue::Number(text) => ("n:", text),
+        crate::types::EnumLiteralValue::String(text) => ("s:", text),
+    };
+    key.strip_prefix(prefix) == Some(text.as_str())
 }

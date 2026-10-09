@@ -1,0 +1,59 @@
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index 49c07e9..5a9cb73 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -1988,7 +1988,12 @@ impl Checker<'_, '_> {
+                 | SyntaxKind::Constructor
+                 | SyntaxKind::PropertyDeclaration
+                 | SyntaxKind::GetAccessor
+-                | SyntaxKind::SetAccessor => {
++                | SyntaxKind::SetAccessor
++                // `GetSuperContainer` (`ast/utilities.go:1835`) stops at a
++                // `static {}` block too, and `ast.IsStatic` is true for it,
++                // so `super.x` there is the base constructor's member
++                // (`classFieldSuperAccessibleJs1`).
++                | SyntaxKind::ClassStaticBlockDeclaration => {
+                     if skip_named_member {
+                         skip_named_member = false;
+                     } else if is_static.is_none() {
+@@ -2002,7 +2007,10 @@ impl Checker<'_, '_> {
+                         if is_call && self.nodes.kind(id) != SyntaxKind::Constructor {
+                             return self.intrinsics.any;
+                         }
+-                        is_static = Some(self.has_static_modifier(id));
++                        is_static = Some(
++                            self.nodes.kind(id) == SyntaxKind::ClassStaticBlockDeclaration
++                                || self.has_static_modifier(id),
++                        );
+                         container = Some(id);
+                     }
+                 }
+diff --git a/crates/tsr-checker/tests/super_expressions.rs b/crates/tsr-checker/tests/super_expressions.rs
+index 43a8b6c..ef8639f 100644
+--- a/crates/tsr-checker/tests/super_expressions.rs
++++ b/crates/tsr-checker/tests/super_expressions.rs
+@@ -170,3 +170,24 @@ fn a_computed_name_on_a_nested_class_member_answers_the_outer_base() {
+         "A"
+     );
+ }
++
++/// `GetSuperContainer` (`ast/utilities.go:1835`) stops at a `static {}`
++/// block, and `ast.IsStatic` is true for it, so `super.x` inside one is the
++/// base constructor's side (`classStaticBlock5`, `classFieldSuperAccessible`).
++/// `docs/parity/notes/r5-js.md` §3.3.
++#[test]
++fn super_in_a_static_block_is_the_base_constructor() {
++    assert_eq!(
++        type_of_super(
++            "class B { static x = 1 }\nclass D extends B { static { const y = super.x; } }"
++        ),
++        "typeof B"
++    );
++}
++
++/// A `super(...)` call in a static block is not in a constructor, so it is
++/// the call arm's error-any (`checker.go:7867`), not the base.
++#[test]
++fn a_super_call_in_a_static_block_is_the_error_any() {
++    assert_eq!(type_of_super("class B {}\nclass D extends B { static { super(); } }"), "any");
++}

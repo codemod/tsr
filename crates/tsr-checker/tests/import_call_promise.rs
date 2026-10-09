@@ -160,3 +160,36 @@ fn without_a_promise_global_the_call_declines() {
     let fixture = program(&arena, &[("a", "declare const s: string;\nconst p = import(s);\n")]);
     assert_eq!(variable_type(&fixture, "p"), "error");
 }
+
+/// `getTypeOfSymbol` of a shorthand ambient module (`declare module "x";`)
+/// is `anyType`, and both synthetic-default roads keep `any`
+/// (`getSpreadType` of an `any` side), so the import is `Promise<any>`
+/// (`nodeModulesDynamicImport`). `docs/parity/notes/r5-js.md` §3.2.
+#[test]
+fn a_shorthand_ambient_module_is_a_promise_of_any() {
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("lib", PROMISE),
+            ("d", "declare module \"fs\";\n"),
+            ("a", "const p = import(\"fs\");\n"),
+        ],
+    );
+    assert_eq!(variable_type(&fixture, "p"), "Promise<any>");
+}
+
+/// A bodied ambient module is not shorthand and keeps its namespace.
+#[test]
+fn a_bodied_ambient_module_keeps_its_namespace() {
+    let arena = Arena::new();
+    let fixture = program(
+        &arena,
+        &[
+            ("lib", PROMISE),
+            ("d", "declare module \"fs\" { export const x: number; }\n"),
+            ("a", "const p = import(\"fs\");\n"),
+        ],
+    );
+    assert_ne!(variable_type(&fixture, "p"), "Promise<any>");
+}

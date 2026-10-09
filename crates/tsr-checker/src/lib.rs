@@ -101,6 +101,7 @@
 pub mod array_literals;
 pub mod assertion_overlap;
 pub mod assertions;
+mod assignment_context;
 mod assignment_declarations;
 pub mod assignreport;
 mod base_types;
@@ -160,6 +161,7 @@ mod jsx_attributes;
 mod jsx_component;
 mod jsx_factory;
 pub mod jsx_intrinsic;
+mod late_bound_members;
 pub mod literals;
 pub mod mapped;
 pub mod meaning_mismatch;

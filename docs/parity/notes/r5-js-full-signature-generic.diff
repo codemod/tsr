@@ -1,0 +1,127 @@
+diff --git a/crates/tsr-checker/src/jsdoc_full_signature.rs b/crates/tsr-checker/src/jsdoc_full_signature.rs
+index 672234d..20a79cf 100644
+--- a/crates/tsr-checker/src/jsdoc_full_signature.rs
++++ b/crates/tsr-checker/src/jsdoc_full_signature.rs
+@@ -57,7 +57,7 @@ impl<'a> Checker<'a, '_> {
+         // getSignatureOfFullSignatureType: getSingleCallSignature of the
+         // annotation's type.
+         let ty = self.get_type_from_type_node(annotation);
+-        let signature = self.single_call_signature(ty)?;
++        let signature = self.full_signature_call_signature(ty)?;
+         Some(if is_rest {
+             self.signature_rest_type_at_position(&signature, position)
+         } else {
+@@ -71,7 +71,40 @@ impl<'a> Checker<'a, '_> {
+     pub(crate) fn jsdoc_full_signature_return_type(&mut self, function: NodeId) -> Option<TypeId> {
+         let annotation = self.jsdoc_full_signature_node(function)?;
+         let ty = self.get_type_from_type_node(annotation);
+-        let signature = self.single_call_signature(ty)?;
++        let signature = self.full_signature_call_signature(ty)?;
+         self.get_return_type_of_signature(&signature)
+     }
++
++    /// `getSignatureOfFullSignatureType` (`checker/checker.go:20072`) as
++    /// `getSignaturesOfSymbol` (`:19827`) reads it: a JS function or method
++    /// declaration whose `@type` tag is its full signature *is* that tag's
++    /// single call signature, type parameters and all, in place of the
++    /// signature built from the declaration. `docs/parity/notes/r5-js.md` §3.5.
++    pub(crate) fn jsdoc_full_signature_of_declaration(
++        &mut self,
++        declaration: NodeId,
++    ) -> Option<crate::signatures::Signature> {
++        let annotation = self.jsdoc_full_signature_node(declaration)?;
++        let ty = self.get_type_from_type_node(annotation);
++        self.full_signature_call_signature(ty)
++    }
++
++    /// `getSingleCallSignature` (`checker/checker.go:19345`) of a full
++    /// signature's type. Unlike the contextual reader
++    /// ([`Checker::single_call_signature`]), native admits a *generic*
++    /// signature here: `@type {<T>(x: T) => T}` gives the function `<T>`.
++    fn full_signature_call_signature(
++        &mut self,
++        ty: TypeId,
++    ) -> Option<crate::signatures::Signature> {
++        if !self.signature_types.contains_key(&ty)
++            && !matches!(self.store.get(ty).data, crate::types::TypeData::Anonymous { .. })
++        {
++            return None;
++        }
++        match self.call_signatures_of_type(ty)?.as_slice() {
++            [signature] => Some(signature.clone()),
++            _ => None,
++        }
++    }
+ }
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index e107644..2517793 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -778,6 +778,12 @@ impl<'a> Checker<'a, '_> {
+             if index > 0 && self.is_overload_implementation(declaration, declarations[index - 1]) {
+                 continue;
+             }
++            // `sig := c.getSignatureOfFullSignatureType(decl)` first
++            // (`checker.go:19827`): a JS declaration's `@type` signature.
++            if let Some(full) = self.jsdoc_full_signature_of_declaration(declaration) {
++                result.push(full);
++                continue;
++            }
+             result.push(self.get_signature_from_declaration(declaration)?);
+         }
+         Some(result)
+diff --git a/crates/tsr-checker/tests/jsdoc_full_signature_generic.rs b/crates/tsr-checker/tests/jsdoc_full_signature_generic.rs
+new file mode 100644
+index 0000000..34d5cad
+--- /dev/null
++++ b/crates/tsr-checker/tests/jsdoc_full_signature_generic.rs
+@@ -0,0 +1,49 @@
++//! A JS function whose `@type` tag is its full signature takes that tag's
++//! single call signature, type parameters included
++//! (`getSignaturesOfSymbol` → `getSignatureOfFullSignatureType`,
++//! `checker.go:19827`/`:20072`). `docs/parity/notes/r5-js.md` §3.5.
++use tsr_ast::{Node, NodeId, SyntaxKind};
++use tsr_binder::BindResult;
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The printed type of the JS file's first function declaration.
++fn function_type(source: &str) -> String {
++    let name = "t.js";
++    let arena = Arena::new();
++    let mut parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
++    parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name, text: source },
++        &jsdoc,
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.set_jsdoc(parsed.jsdoc.iter());
++    let function = (0..u32::try_from(parsed.nodes.len()).expect("fits"))
++        .map(NodeId::new)
++        .find(|&id| parsed.nodes.kind(id) == SyntaxKind::FunctionDeclaration)
++        .expect("a function declaration");
++    let symbol = bound.symbol_of(function).expect("bound");
++    let id = checker.get_type_of_symbol(symbol);
++    checker.type_to_string(id)
++}
++
++#[test]
++fn a_generic_full_signature_keeps_its_type_parameters() {
++    let source = "/** @type {<T>(param?: T) => T} */\nfunction typed(param) { return param; }\n";
++    assert_eq!(function_type(source), "<T>(param?: T) => T");
++}
++
++#[test]
++fn a_plain_full_signature_still_types_the_function() {
++    let source = "/** @type {(n?: number) => number} */\nfunction typed(n) { return 1; }\n";
++    assert_eq!(function_type(source), "(n?: number) => number");
++}

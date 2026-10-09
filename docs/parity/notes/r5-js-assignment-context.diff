@@ -1,0 +1,182 @@
+diff --git a/crates/tsr-checker/src/assignment_context.rs b/crates/tsr-checker/src/assignment_context.rs
+new file mode 100644
+index 0000000..258d28a
+--- /dev/null
++++ b/crates/tsr-checker/src/assignment_context.rs
+@@ -0,0 +1,85 @@
++//! The nil arms of `getContextualTypeForAssignmentExpression`
++//! (`checker.go:29843`), as a syntactic-plus-symbol test the
++//! no-contextual-type walk (`has_no_contextual_type`, `signatures.rs`) can
++//! ask without computing a type.
++//!
++//! Native answers **no contextual type** for the right operand of
++//! `module.exports = expr`, and of an assignment declaration
++//! (`binary.Symbol != nil`, the binder's expando / `exports.x` / `F.x`
++//! forms) unless its receiver is a variable whose declaration carries a type
++//! annotation. Those are exactly the cases where typing the right operand
++//! from the left would ask for the type the right operand is declaring.
++//! `contextual_type_for_binary_operand`'s assignment arm (`contextual.rs`)
++//! answers the same nil for the same shapes; this is its proof-of-absence
++//! twin. `docs/parity/notes/r5-js.md` §3.4.
++//!
++//! Convention record (`docs/conventions.md`): no cache, no side table; the
++//! work is one name resolution of the receiver identifier.
++
++use tsr_ast::{Expression, NodeId, SyntaxKind};
++use tsr_binder::SymbolFlags;
++
++impl crate::Checker<'_, '_> {
++    /// Whether native's `getContextualTypeForAssignmentExpression` answers
++    /// nil for `binary`'s right operand. `false` means "context may exist":
++    /// the caller keeps its own refusal.
++    pub(crate) fn assignment_has_no_contextual_type(
++        &self,
++        binary_id: NodeId,
++        binary: &tsr_ast::BinaryExpression<'_>,
++    ) -> bool {
++        let receiver = match binary.left {
++            Some(Expression::PropertyAccessExpression(access)) => access.expression,
++            Some(Expression::ElementAccessExpression(access)) => access.expression,
++            _ => return false,
++        };
++        let declares = self.binder.symbol_of(binary_id).is_some();
++        match receiver {
++            Some(Expression::Identifier(identifier)) => {
++                let Some(reference) = identifier.node_id else { return false };
++                let Some(symbol) = self.binder.resolve_name(
++                    self.nodes,
++                    self.node_map,
++                    reference,
++                    identifier.text,
++                    SymbolFlags::VALUE,
++                ) else {
++                    return false;
++                };
++                // `getExportSymbolOfValueSymbolIfExported`.
++                let symbol = self.binder.symbols().get(symbol).export_symbol.unwrap_or(symbol);
++                // "No contextual type for an expression of the form
++                // 'module.exports = expr'."
++                if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::MODULE_EXPORTS) {
++                    return true;
++                }
++                if !declares {
++                    return false;
++                }
++                // The contextual arm keeps a TypeScript class receiver on the
++                // left operand's type (its synthetic prototype); so does this.
++                let merged = self.binder.merged_symbol(symbol);
++                if !self.in_js_file(binary_id)
++                    && self.binder.symbols().get(merged).flags.contains(SymbolFlags::CLASS)
++                {
++                    return false;
++                }
++                // Only an annotated variable supplies context.
++                match self.binder.symbols().get(symbol).value_declaration {
++                    Some(declaration)
++                        if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration =>
++                    {
++                        self.type_annotation_of(declaration).is_none()
++                            && self.jsdoc_type_annotation(declaration).is_none()
++                    }
++                    _ => true,
++                }
++            }
++            // `F.a.b = expr` / `F[k].b = expr` declaring a member.
++            Some(
++                Expression::PropertyAccessExpression(_) | Expression::ElementAccessExpression(_),
++            ) => declares,
++            _ => false,
++        }
++    }
++}
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index 32e9cfe..1601b23 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -101,6 +101,7 @@
+ pub mod array_literals;
+ pub mod assertion_overlap;
+ pub mod assertions;
++mod assignment_context;
+ mod assignment_declarations;
+ pub mod assignreport;
+ mod base_types;
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index e107644..a1eaeae 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -4726,11 +4726,17 @@ impl<'a> Checker<'a, '_> {
+                     let is_right = node.right.and_then(|e| e.node_id()) == Some(position);
+                     match operator {
+                         // Assignment forms contextually type their right
+-                        // operand from the left; refuse to guess either side.
++                        // operand from the left; refuse to guess either side,
++                        // except where `getContextualTypeForAssignmentExpression`
++                        // answers nil from the shape alone (`module.exports =`,
++                        // an unannotated assignment declaration; r5-js §3.4).
+                         EqualsToken
+                         | AmpersandAmpersandEqualsToken
+                         | BarBarEqualsToken
+-                        | QuestionQuestionEqualsToken => return false,
++                        | QuestionQuestionEqualsToken => {
++                            return is_right
++                                && self.assignment_has_no_contextual_type(parent, node);
++                        }
+                         // `||`/`??`: the right operand is typed by the left
+                         // operand's TYPE — never a shown absence; the left
+                         // climbs to the expression's own context.
+diff --git a/crates/tsr-checker/tests/assignment_context.rs b/crates/tsr-checker/tests/assignment_context.rs
+new file mode 100644
+index 0000000..fe201fa
+--- /dev/null
++++ b/crates/tsr-checker/tests/assignment_context.rs
+@@ -0,0 +1,49 @@
++//! `getContextualTypeForAssignmentExpression` (`checker.go:29843`) answers
++//! no contextual type for an assignment declaration whose receiver is not an
++//! annotated variable, so a context-sensitive function on its right types
++//! from its own parameters (`G.z = (a = 1) => a`). `docs/parity/notes/r5-js.md`
++//! §3.4.
++use tsr_ast::{Node, SyntaxKind};
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The printed type of the file's first arrow function.
++fn type_of_first_arrow(source: &str) -> String {
++    let arena = Arena::new();
++    let parsed = tsr_parser::parse(&arena, source);
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "test.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    let mut stack: Vec<Node<'_>> = vec![Node::SourceFile(parsed.source_file)];
++    let mut children = Vec::new();
++    while let Some(node) = stack.pop() {
++        if let Node::ArrowFunction(arrow) = node {
++            let id = checker.check_expression(tsr_ast::Expression::ArrowFunction(arrow));
++            return checker.type_to_string(id);
++        }
++        children.clear();
++        tsr_ast::push_children(node, &mut children);
++        stack.extend(children.iter().copied());
++    }
++    panic!("the fixture must contain an arrow function ({:?})", SyntaxKind::ArrowFunction)
++}
++
++#[test]
++fn an_expando_assignment_gives_its_function_no_context() {
++    assert_eq!(
++        type_of_first_arrow("function G() {}\nG.z = (a = 1) => a;\n"),
++        "(a?: number) => number"
++    );
++}
++
++#[test]
++fn a_nested_expando_literal_member_has_no_context_either() {
++    assert_eq!(
++        type_of_first_arrow("function G() {}\nG.y = { f: (a = 1) => a };\n"),
++        "(a?: number) => number"
++    );
++}

@@ -523,7 +523,12 @@ fn a_qualified_type_only_alias_does_not_acquire_a_value_meaning() {
         if let Some(expected) = expected {
             assert_eq!(checker.type_to_string_at(ty, site).unwrap(), expected);
         } else {
-            assert_eq!(ty, checker.intrinsics().error, "a type-only alias has no value type");
+            // Upstream's `errorType` (`checker.go:18614`), r5-errorsplit5 §6.
+            assert_eq!(
+                ty,
+                checker.intrinsics().native_error,
+                "a type-only alias has no value type"
+            );
             let Some(Node::NewExpression(expression)) =
                 parsed.node_map.get(parsed.nodes.parent(site).unwrap())
             else {
@@ -533,7 +538,7 @@ fn a_qualified_type_only_alias_does_not_acquire_a_value_meaning() {
                 checker.check_expression(tsr_ast::Expression::NewExpression(expression));
             assert_eq!(
                 constructed,
-                checker.intrinsics().error,
+                checker.intrinsics().native_error,
                 "a type-only alias cannot be constructed"
             );
         }
@@ -826,8 +831,14 @@ fn module_class_clone_boundary_does_not_admit_other_export_meanings() {
         let head = checker.get_type_of_symbol(locals["Head"]);
         let raw = checker.get_type_of_symbol(locals["Raw"]);
         assert_eq!(head, raw, "outside declaration-symbol module copies: {library}");
-        if library.starts_with("interface") || library.starts_with("import") {
-            assert_eq!(head, checker.intrinsics().error, "unsupported meaning/cycle keeps a gap");
+        // A type-only `export =` target is upstream's `errorType`
+        // (`checker.go:18614`, r5-errorsplit5 §6); the self-import cycle
+        // breaks the chain, which keeps the gap.
+        if library.starts_with("interface") {
+            assert_eq!(head, checker.intrinsics().native_error, "type-only meaning is errorType");
+        }
+        if library.starts_with("import") {
+            assert_eq!(head, checker.intrinsics().error, "a broken chain keeps a gap");
         }
     }
 }

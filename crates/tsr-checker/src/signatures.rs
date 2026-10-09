@@ -2086,12 +2086,48 @@ impl<'a> Checker<'a, '_> {
     /// from pending metadata. Direct mapper hits precede this demand. Active
     /// originals and unsupported completion decline without storing an image.
     pub(crate) fn complete_pending_signature_returns_of_type(&mut self, ty: TypeId) -> bool {
-        let Some(signatures) = self.signature_types.get(&ty).cloned() else {
+        let Some(stored) = self.signature_types.get(&ty) else {
             return !matches!(self.store.get(ty).data,
                 crate::types::TypeData::Anonymous { symbol, .. }
                     if self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags
                         .intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD));
         };
+        // Read-only up to the first `Pending` entry, which is the only arm that
+        // writes; the stored list is copied from there on, exactly as the
+        // whole-list snapshot this replaced would have read it
+        // (`r5-checkperf2.md` §3).
+        let mut first_pending = None;
+        for (index, signature) in stored.iter().enumerate() {
+            if signature.target.is_some() || signature.non_inferrable {
+                continue;
+            }
+            let key = self.type_literal_key(signature.declaration);
+            match self.pending_signature_returns.get(&key) {
+                Some(LazyReturnState::Active) => return false,
+                Some(LazyReturnState::Pending) => {
+                    first_pending = Some(index);
+                    break;
+                }
+                None if self
+                    .pending_signature_returns
+                    .keys()
+                    .any(|pending| pending.node == key.node) =>
+                {
+                    return false;
+                }
+                None if self.signature_returns.get(&key).is_some_and(|returned| {
+                    returned.is_none_or(|ty| ty == self.intrinsics.error)
+                }) =>
+                {
+                    return false;
+                }
+                None => {}
+            }
+        }
+        let Some(first_pending) = first_pending else {
+            return true;
+        };
+        let signatures = stored[first_pending..].to_vec();
         for signature in signatures {
             if signature.target.is_some() || signature.non_inferrable {
                 continue;
@@ -4726,11 +4762,17 @@ impl<'a> Checker<'a, '_> {
                     let is_right = node.right.and_then(|e| e.node_id()) == Some(position);
                     match operator {
                         // Assignment forms contextually type their right
-                        // operand from the left; refuse to guess either side.
+                        // operand from the left; refuse to guess either side,
+                        // except where `getContextualTypeForAssignmentExpression`
+                        // answers nil from the shape alone (`module.exports =`,
+                        // an unannotated assignment declaration; r5-js §3.4).
                         EqualsToken
                         | AmpersandAmpersandEqualsToken
                         | BarBarEqualsToken
-                        | QuestionQuestionEqualsToken => return false,
+                        | QuestionQuestionEqualsToken => {
+                            return is_right
+                                && self.assignment_has_no_contextual_type(parent, node);
+                        }
                         // `||`/`??`: the right operand is typed by the left
                         // operand's TYPE — never a shown absence; the left
                         // climbs to the expression's own context.

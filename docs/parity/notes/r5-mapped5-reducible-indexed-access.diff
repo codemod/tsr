@@ -1,0 +1,44 @@
+diff --git a/crates/tsr-checker/src/indexed.rs b/crates/tsr-checker/src/indexed.rs
+index c81d720..0bc5bce 100644
+--- a/crates/tsr-checker/src/indexed.rs
++++ b/crates/tsr-checker/src/indexed.rs
+@@ -715,6 +715,9 @@ impl Checker<'_, '_> {
+         if object == self.intrinsics.error || index == self.intrinsics.error {
+             return None;
+         }
++        // getIndexedAccessTypeOrUndefined reduces the object first
++        // (checker.go:26939).
++        let object = self.get_reduced_type(object);
+         // getIndexedAccessTypeOrUndefined normalizes generic string/number
+         // keys when every object constituent has only a string index signature.
+         if !self.store.get(index).flags.intersects(TypeFlags::NULLABLE)
+@@ -733,7 +736,13 @@ impl Checker<'_, '_> {
+             return Some(t);
+         }
+         let index_generic = self.indexed_access_index_is_generic(index);
+-        if self.indexed_access_object_is_generic(object) || index_generic {
++        // shouldDeferIndexedAccessType's third disjunct (checker.go:27370):
++        // a union that an instantiation could reduce stays deferred, so the
++        // reduction applies once its type parameters are known.
++        if self.indexed_access_object_is_generic(object)
++            || index_generic
++            || self.is_generic_reducible_type(object)
++        {
+             if self.store.get(object).flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
+                 return Some(object);
+             }
+diff --git a/crates/tsr-checker/src/intersections.rs b/crates/tsr-checker/src/intersections.rs
+index 82fb7c5..168bd3c 100644
+--- a/crates/tsr-checker/src/intersections.rs
++++ b/crates/tsr-checker/src/intersections.rs
+@@ -289,10 +289,6 @@ impl Checker<'_, '_> {
+     /// deferred (shouldDeferIndexedAccessType, `:27370`), and getIndexType
+     /// its `keyof` (shouldDeferIndexType, `:26838`), so the reduction is
+     /// applied once the type parameters are known.
+-    // Its callers are r5-mapped5-reducible-indexed-access.diff and
+-    // r5-mapped5-reducible-keyof.diff (`indexed.rs`, `declared.rs`); the
+-    // first removes this allowance.
+-    #[allow(dead_code)]
+     pub(crate) fn is_generic_reducible_type(&mut self, t: TypeId) -> bool {
+         match &self.store.get(t).data {
+             TypeData::Union { types, .. } => {

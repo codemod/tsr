@@ -172,3 +172,39 @@ fn an_element_access_through_an_unresolved_reference_is_the_reference() {
     let source = "declare var x: Missing;\nvar y = x[0];";
     assert_eq!(initializer_identity("t.ts", source), Identity::Other("Missing".to_owned()));
 }
+
+/// The type of the binding `name` declared at the file's top level.
+fn symbol_identity(source: &str, name: &str) -> Identity {
+    let arena = Arena::new();
+    let parsed =
+        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
+    let symbol = bound.lookup_local(root, name).expect("declared");
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    let id = checker.get_type_of_symbol(symbol);
+    identity_of(&mut checker, id)
+}
+
+/// An alias whose target is not a value has no type: `errorType`
+/// (`checker.go:18614`). `compiler/ramdaToolsNoInfinite2`.
+#[test]
+fn an_alias_to_a_type_is_native_error() {
+    let source = "namespace N { export interface I {} }\nimport x = N.I;";
+    assert_eq!(symbol_identity(source, "x"), Identity::NativeError);
+}
+
+/// A symbol that is no value at all reaches `getTypeOfSymbol`'s final
+/// `errorType` (`checker.go:16521`): a non-instantiated namespace.
+#[test]
+fn a_type_only_namespace_is_native_error() {
+    assert_eq!(
+        symbol_identity("namespace N { export interface I {} }", "N"),
+        Identity::NativeError
+    );
+}

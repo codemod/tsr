@@ -256,6 +256,95 @@ Tests: `tests/errortype_producers.rs` covers four cases:
 - a class without a base is `native_error`;
 - a static block's `super` is `typeof B`.
 
+## §6 Diff A (`symbols.rs`, main's): the ALIAS row, `getTypeOfSymbol`'s fallthrough, circular accessors, and the `GlobalAugmentation` narrowing
+
+[`r5-errorsplit5-alias-symbols.diff`](r5-errorsplit5-alias-symbols.diff)
+applies on commit 4 (`git apply`). It carries three producer arms in
+`symbols.rs`, one writer narrowing in `types_producer.rs`, and their tests.
+
+**N — `get_type_of_alias`'s final arm** (the ALIAS declaration-name row, 542
+lines at the base). `getTypeOfAlias` answers `errorType` when the resolved
+target is not a value (`checker.go:18614`). The port's arm answered the gap
+for two different things, so it is split:
+
+- **The chain resolves to its end, and that end is not a value: `native_error`.**
+  Switched as "any `Some` target" first, it moved 473 lines: 459
+  `errorType`, 14 natively `anyType` or typed. The 14 were all chains the
+  port *breaks*: an alias whose own resolution answered `None`, as in
+  shorthand ambient re-exports, `import mod = globalThis`, cross-file
+  merges. `get_symbol_flags` then reads "no VALUE". Natively such a chain
+  ends at `unknownSymbol`, which `getSymbolFlags` reports as all flags
+  (`checker.go:16379`), so it is never the not-a-value arm. Restricting the
+  arm to chains whose `resolve_alias_fully` reaches a non-alias symbol
+  removes all 14. It also returns 37 `errorType` lines to the gap, a
+  conservative cost.
+- **The port resolved nothing (`None`), or broke the chain: the gap.**
+  Switched alone, the `None` arm moved 168 `errorType` lines and 69 natively
+  `anyType` or typed ones, mixed in every declaration form (import specifier, default,
+  namespace import, `import =`, export specifier). It is the port's
+  resolution miss beside upstream's `unknownSymbol`, so it stays the gap,
+  for the same reason r5-errorsplit4 held its `a` arm.
+
+**S — `get_type_of_symbol`'s final fallthrough** (`checker.go:16521`). This
+is a symbol with no value meaning at all, such as the name of
+`declare global` or a type-only namespace. 159 of 161 moved lines are
+`errorType`. The other two are `duplicateVarsAcrossFileBoundaries` (a
+`var`/`import =` merge across script files, so the port's merge differs) and
+one already-WRONG line in `moduleAugmentationDuringSyntheticDefaultCheck`.
+
+**CA — a circular accessor** (`getTypeOfAccessors`' failed pop,
+`checker.go:18557`). Upstream answers `anyType`. The port kept the gap because
+its eager object-literal members close cycles native never forms
+(`noCircularitySelfReferentialGetter3/4`). Measured, that fear does not
+materialize:
+
+- every moved line is `anyType` natively (11) or already WRONG (2, in
+  `circularAccessorAnnotations`);
+- zero losses;
+- +2 GAP→RIGHT: `recursiveGetterAccess:0:1` and
+  `recursiveProperties(target=es2015):0:1`.
+
+This is item 2's `circularAccessorAnnotations` (6 credited lines).
+
+**GN — narrowing `GlobalAugmentation`.** With S in place, every `declare
+global` name is `native_error`, and the rewrite's cost table reads **zero**.
+Per the decision log, the rewrite narrows: the writer's guard applies to
+`native_error` only, and a gap name prints `error`. Measured with the arms,
+narrowing changes no line. Without S it would cost 23 RIGHT lines, so it
+ships inside this diff.
+
+**Measured** on commit 4 (unfiltered, both dumps, against `22a5e1a`):
+
+| | commit 4 | commit 4 + diff A |
+|---|---:|---:|
+| types RIGHT / GAP / WRONG | 544,752 / 936 / 6,845 | **544,754 / 934 / 6,845** |
+| diagnostics | unchanged | unchanged, zero transitions |
+| type / diagnostics losses vs base | 0 / 0 | **0 / 0** |
+| credited gap | 3,058 | **2,575** |
+| `native_error` lines (matched) | 27,109 (27,008) | 27,587 (27,485) |
+| wholesale narrowing RIGHT→GAP | 3,606 | **3,030** |
+| `StatementName` | 312 | **29** |
+| `GlobalAugmentation` | 23 | **0, narrowed** |
+
+Perf, measured with diff B applied too (median child CPU): 21 samples read
+domain-model 1.063 and generic-imports 0.992. Re-run at 41 samples,
+domain-model read 1.008.
+
+**Tests in the diff.**
+
+- `errortype_producers.rs` adds two tests: an alias to a type is
+  `native_error`, and a type-only namespace is `native_error`.
+- Three existing tests pinned the gap where native is `errorType`, and now
+  pin `native_error`:
+  - `export_specifiers.rs`'s type-only specifier test, whose own falsifier
+    note anticipated this. Both routes now answer `errorType`.
+  - `symbol_chain.rs`'s type-only qualified alias, and constructing it.
+  - `symbol_chain.rs`'s `export =` interface namespace import. Its
+    self-import cycle stays the gap.
+
+The workspace tests pass with both diffs applied. Clippy and fmt are clean in
+the touched code.
+
 ## §7 Item 3: §32's twins, an unresolved type-reference receiver
 
 Upstream's unresolved type reference (`getTypeFromTypeAliasReference` for an
@@ -318,18 +407,73 @@ generic-imports 1.099 and domain-model 0.952. Re-run at 41 samples per the
 protocol, they read domain-model 1.025 and generic-imports 1.005. The change
 is one arm behind a set lookup that the old code already made.
 
+### §7.2 Diff B (`members.rs`, main's): the property twin answers `errorType`
+
+[`r5-errorsplit5-members-twin.diff`](r5-errorsplit5-members-twin.diff)
+applies on commit 4, independently of diff A. Outside import-machinery files,
+`check_property_access_expression`'s §32 twin answers `native_error` for an
+any-flagged unresolved receiver. It used to answer `anyType`. The test is in a
+new file (`tests/property_access_unresolved_receiver.rs`), so the two diffs do
+not touch the same file.
+
+**Measured** on commit 4 (unfiltered, both dumps, against `22a5e1a`):
+
+- zero losses;
+- types 544,752 / 944 / 6,837;
+- diagnostics unchanged;
+- `native_error` lines 27,109 → **30,314**: 3,196 moved lines, all
+  `errorType` natively, 3,000 of them in `parserRealSource*`.
+
+The 9 false claims are the JS `require` receivers in §7. 8 of them move
+WRONG→GAP: they now print `error` in cases with no `.errors.txt`, where
+upstream prints a real type. They were never RIGHT.
+
+Credited gap and narrowing are unchanged (3,058 and 3,606). The old `any` was
+`anyType`, not the gap, so this diff fixes identity and is not narrowing work.
+
+## §8 Held, remaining, and found
+
+- **Held: the ALIAS `None` arm** (§6), and the property twin in
+  import-machinery files (§7). Each is mixed natively.
+- **The FUNCTION_SCOPED_VARIABLE row** fell 350 → 192 with commits 1–2. What
+  remains comes from other initializer producers:
+  - element access, 215 lines across all rows. `element_access_lookup`'s
+    failed-lookup `error` is upstream's mix of `errorType` and `anyType` by
+    arm (`getPropertyTypeForIndexType`, `noImplicitAny`, the JS-literal arm),
+    so it needs per-arm probing;
+  - `new` and call expressions;
+  - object spreads (`spreads.rs`, r5-typetriage's).
+- **Item 2's remainder.** 64 credited lines are natively `anyType` (115 at
+  the base). The largest groups:
+  - binding elements of contextually typed or empty-array patterns:
+    `fallbackToBindingPatternForTypeInference` 10,
+    `destructuringArrayBindingPatternAndAssignment2` 5,
+    `declarationsAndAssignments` 4, `iterableArrayPattern21` 2. Their
+    producers are in contextual typing and inference (main's);
+  - `extendFromAny` 4, `underscoreTest1` 4, `truthinessCallExpressionCoercion2` 3;
+  - `recursiveExportAssignmentAndFindAliasedType7` 3, an untyped module
+    alias that is the §6 `None` arm.
+- **False claims made by these switches.** All of them are listed above.
+  None was RIGHT except `duplicateVarsAcrossFileBoundaries`' two lines in
+  diff A. Each one traces to a port divergence elsewhere: alias resolution,
+  JSX namespace lookup, script-file merging, or JS `require` minting.
+
 ## §9 Narrowing, re-measured after each switch
 
 ADR-0048's decision log narrows a rewrite only at zero RIGHT cost. The cost
 of each rewrite, as RIGHT→GAP lines:
 
-| rewrite | base (`22a5e1a`) | commit 1 | commit 2 | commit 3 |
-|---|---:|---:|---:|---:|
-| `HadErrorBaseline` | 3,375 | 3,184 | 2,639 | 2,513 |
-| `AtLocation` | 732 | 732 | 732 | 696 |
-| `StatementName` | 312 | 312 | 312 | 312 |
-| `AccessOrQualifiedParent` | 62 | 62 | 62 | 62 |
-| `GlobalAugmentation` | 23 | 23 | 23 | 23 |
-| **total** | 4,504 | 4,313 | 3,768 | 3,606 |
+| rewrite | base (`22a5e1a`) | commit 1 | commit 2 | commit 3 | commit 4 | + diff A |
+|---|---:|---:|---:|---:|---:|---:|
+| `HadErrorBaseline` | 3,375 | 3,184 | 2,639 | 2,513 | 2,513 | 2,353 |
+| `AtLocation` | 732 | 732 | 732 | 696 | 696 | 586 |
+| `StatementName` | 312 | 312 | 312 | 312 | 312 | 29 |
+| `AccessOrQualifiedParent` | 62 | 62 | 62 | 62 | 62 | 62 |
+| `GlobalAugmentation` | 23 | 23 | 23 | 23 | 23 | **0 → narrowed** |
+| **total** | 4,504 | 4,313 | 3,768 | 3,606 | 3,606 | 3,030 |
+| credited gap | 4,056 | 3,802 | 3,184 | 3,058 | 3,058 | 2,575 |
 
-No rewrite reaches zero, so none is narrowed.
+In the commits, no rewrite reaches zero. Diff A takes `GlobalAugmentation` to
+zero and narrows it. `StatementName`'s 29 are the ALIAS `None` arm and
+natively-`anyType` untyped-module aliases (§6, §8). Diff B leaves the table
+unchanged (§7.2).

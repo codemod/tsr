@@ -105,10 +105,16 @@ impl<'a> Checker<'a, '_> {
         if flags.contains(SymbolFlags::EXPORT_VALUE) {
             return self.get_type_of_export_value(symbol);
         }
-        // Every `SymbolFlags` shape upstream dispatches on is now answered. What
-        // remains unported is the four `CheckFlags` shapes upstream tests
-        // *before* any of them — deferred, instantiated, mapped, reverse-mapped.
-        self.intrinsics.error
+        // Every `SymbolFlags` shape upstream dispatches on is now answered, and
+        // what falls through is upstream's own final `errorType`
+        // (`checker.go:16521`): a symbol that is no value at all, such as
+        // `declare global`'s namespace. ADR-0048: verified line by line
+        // against the native identity probe, 159 of 161 moved lines
+        // (`docs/parity/notes/r5-errorsplit5.md` §6). The four `CheckFlags`
+        // shapes upstream tests *before* the flags (deferred, instantiated,
+        // mapped, reverse-mapped) stay unported; none of the moved lines is
+        // one of them.
+        self.intrinsics.native_error
     }
 
     /// The type of an **export marker** — the local left behind by
@@ -238,14 +244,18 @@ impl<'a> Checker<'a, '_> {
             return self.intrinsics.error;
         }
         let computed = self.get_type_of_accessors_worker(symbol);
-        // Native answers `anyType` here; this port keeps `errorType` because
-        // its eager object-literal members close cycles native never forms
-        // (`noCircularitySelfReferentialGetter3/4`), where `any` prints wrong.
+        // `checker.go:18557`: a circular accessor is upstream's `anyType`.
+        // This kept the gap because the port's eager object-literal members
+        // close cycles native never forms
+        // (`noCircularitySelfReferentialGetter3/4`). Measured with ADR-0048's
+        // identity probe, every moved line is `anyType` natively or was
+        // already WRONG, with zero losses (`docs/parity/notes/r5-errorsplit5.md`
+        // §6).
         let computed = if self.resolutions.pop() {
             computed
         } else {
             self.report_accessor_circularity(symbol);
-            self.intrinsics.error
+            self.intrinsics.any
         };
         self.symbol_types.insert(symbol, computed);
         computed
@@ -652,6 +662,25 @@ impl<'a> Checker<'a, '_> {
                 let value = self.get_type_of_symbol(target);
                 self.module_clone_type(symbol, target, value).unwrap_or(value)
             }
+            // `checker.go:18614`: a target that is not a value has no type,
+            // and upstream answers `errorType`. Only a chain that resolves to
+            // its end is that: upstream's chain through `unknownSymbol` is
+            // all-flags (`checker.go:16379`), so a chain this port breaks is
+            // the `None` population below, not this one. ADR-0048: verified
+            // line by line against the native identity probe
+            // (`docs/parity/notes/r5-errorsplit5.md` §6).
+            Some(target)
+                if {
+                    let terminal = self.resolve_alias_fully(target);
+                    !self.binder.symbols().get(terminal).flags.intersects(SymbolFlags::ALIAS)
+                } =>
+            {
+                self.intrinsics.native_error
+            }
+            // The port resolved nothing, or a link of the chain. Natively that
+            // is `unknownSymbol` on some lines (`errorType`) and a value this
+            // port cannot resolve on others, in every declaration form, so it
+            // stays the gap (§6).
             _ => self.intrinsics.error,
         };
         let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
@@ -6289,11 +6318,15 @@ impl<'a> Checker<'a, '_> {
         // compute keeps the gap.
         if self.nodes.kind(declaration) == SyntaxKind::Parameter
             && self.type_annotation_of(declaration).is_none()
-            // NOT in JS: a JS setter's parameter reads JSDoc/contextual
-            // machinery this arm does not model, and the ungated draft broke
-            // a PASSING case (`declarationEmitClassAccessorsJs1`, 4 R->W all
-            // in .js files) — the revert rule, honoured by the gate.
-            && !self.in_js_file(declaration)
+            // In JS the reparsed `@param` (or a parameter `@type`) IS the
+            // annotation: native's arm sits after
+            // `tryGetTypeFromEffectiveTypeNode` (`checker.go:16719`), so a
+            // documented setter parameter keeps its tag
+            // (`declarationEmitClassAccessorsJs1`) and an undocumented one
+            // reads the getter (`accessorDeclarationEmitJs`). r5-js §3.1.
+            && (!self.in_js_file(declaration)
+                || (self.jsdoc_parameter_annotation(declaration).is_none()
+                    && self.jsdoc_type_annotation(declaration).is_none()))
             && let Some(setter) = self.nodes.parent(declaration)
             && self.nodes.kind(setter) == SyntaxKind::SetAccessor
             && let Some(symbol) = self.binder.symbol_of(setter)
