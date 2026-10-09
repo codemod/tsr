@@ -609,6 +609,15 @@ impl<'a> Checker<'a, '_> {
                 {
                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
                 }
+                // getIndexTypeEx's default arm (checker.go:26701) over a
+                // primitive operand, or a union of them: the literal keys of
+                // its apparent type's properties (getLiteralTypeFromProperties
+                // reads getPropertiesOfType, which takes the apparent type).
+                if self.is_primitive_keyof_operand(target)
+                    && let Some(keys) = self.resolved_keyof_type(target)
+                {
+                    return keys;
+                }
                 // getIndexType over a concrete object operand: the semantic
                 // key union, so a numeric-literal property name contributes a
                 // NUMBER literal key (`getLiteralTypeFromPropertyName`,
@@ -9397,6 +9406,26 @@ impl<'a> Checker<'a, '_> {
         let result = self.resolved_keyof_type_worker(target);
         self.index_types_in_progress.remove(&target);
         result
+    }
+
+    /// A `keyof` operand getIndexTypeEx answers through its default arm
+    /// from the apparent type: a primitive (`string`, a literal, `boolean`,
+    /// `bigint`, a symbol) or a union of them. `any`, `never` and `unknown`
+    /// have arms of their own.
+    fn is_primitive_keyof_operand(&self, target: TypeId) -> bool {
+        let primitive = |ty: TypeId| {
+            self.store.get(ty).flags.intersects(
+                TypeFlags::STRING_LIKE
+                    | TypeFlags::NUMBER_LIKE
+                    | TypeFlags::BIG_INT_LIKE
+                    | TypeFlags::BOOLEAN_LIKE
+                    | TypeFlags::ES_SYMBOL_LIKE,
+            ) && !self.store.get(ty).flags.intersects(TypeFlags::INSTANTIABLE)
+        };
+        match &self.store.get(target).data {
+            crate::types::TypeData::Union { types, .. } => types.iter().all(|&ty| primitive(ty)),
+            _ => primitive(target),
+        }
     }
 
     fn resolved_keyof_type_worker(&mut self, target: TypeId) -> Option<TypeId> {
