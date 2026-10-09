@@ -138,3 +138,50 @@ generic and which native nonetheless evaluates (an any/never/error check is
 decided before the generic test natively too), or a mapped `as` clause whose
 exclusion native does not make: a contextual parameter typed `any` here where
 native types it.
+
+## 2. getMappedTypeNameTypeKind: native answers Filtering; the held diff's losses are contextual instantiation
+
+**The brief's hypothesis.** r6-relater §4 held
+[`r6-relater-write-constraint.diff`](r6-relater-write-constraint.diff)
+(+23/−2) on the claim that native decides getMappedTypeNameTypeKind
+(checker.go:26842) as Remapping for `as K extends Uppercase<string> ? K :
+never`, where the port decides Filtering from the branch union `K | never`.
+
+**Native probe** (tsgo, `--strict`), with the mapped type left generic so
+getTypeOfPropertyOfContextualTypeEx (checker.go:30565) must ask the kind:
+
+```ts
+function f<T extends { type: string }>() {
+  const x: { [K in T["type"] as K extends Uppercase<string> ? K : never]?: (ev: K) => void } = { bar: (ev) => { const n: number = ev; } };
+  const y: { [K in T["type"] as Exclude<K, "x">]?: (ev: K) => void } = { bar: (ev) => { const n: number = ev; } };
+  const z: { [K in T["type"] as K extends "x" ? never : K]?: (ev: K) => void } = { bar: (ev) => { const n: number = ev; } };
+  const w: { [K in T["type"] as `p${K}`]?: (ev: K) => void } = { bar: (ev) => { const n: number = ev; } };
+}
+```
+
+`x`, `y` and `z` report TS2322 on `const n: number = ev` (so `ev` is typed
+through getIndexedMappedTypeSubstitutedTypeOfContextualType: the kind is
+Filtering); only `w`, the template-literal remap, reports TS7006 (Remapping).
+That matches relater.go's conditional-source arm: the default constraint
+`K | never` relates to `K`. With the held diff applied the port answers the
+same kinds: `ev` is typed for `x`/`y`/`z` and `any` for `w`. So the kind is
+already native's, and `mapped.rs` keeps it.
+
+**What `:107/108` actually need.** In `contextualTypeFunctionObjectPropertyIntersection`,
+native types `bar`'s `ev` as `any` because the contextual type of `on` is
+instantiated with the first inference pass (`TEvent := { type: "FOO" } | {
+type: "bar" }`, instantiateContextualType): the mapped type is then concrete,
+`"bar"` fails `Uppercase<string>`, and no property `bar` exists. The port
+keeps it generic with `TEvent` at its constraint. The same cause shows on the
+base in the `"*"` lines of that case, already WRONG: `:40–47` and `:85–92`
+print `ev: { type: string; }` where native prints the inferred union. Owner:
+contextual instantiation (`contextual.rs`/`inference.rs`, MAIN).
+
+**The diff, measured on top of §1's commit** (unfiltered): types **+23 / −2**
+(gains `contextuallyTypedSymbolNamedProperties` 13,
+`contextualTypeFunctionObjectPropertyIntersection` 10; losses `:107/:108`),
+diagnostics unchanged. It stays held on the contextual instantiation above,
+not on `mapped.rs`.
+
+(Native prints `ev` as `string`, not `"bar"`, in the TS2322 for `x`/`y`/`z`;
+the port gives `"bar"`. Not chased here.)
