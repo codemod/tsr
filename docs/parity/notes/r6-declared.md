@@ -348,3 +348,36 @@ domain-model 1,089,529,559 -> 1,089,344,728 (-0.02%), generic-imports
 Also in this commit, at r6-relater's request:
 `ConditionalInferenceNode::declaration` is `pub(crate)`, for
 `conditionalTypeAssignabilityWhenDeferred` 41/65. No behaviour change.
+
+## 3. A namespace-rooted qualified enum reference answers the enum
+
+**Forcing constraint.** r5-relater7 §1 found `First.E`, written in a type
+position with `First` a namespace, minted as an OBJECT-flagged `Named` type.
+The qualified road's enum arm (QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE,
+getTypeReferenceType's declared type) was scoped to an alias-rooted name. A
+namespace-rooted enum kept §41's mint, so `Abc.Nope.a -> First.E` never
+reached isEnumTypeRelatedTo, and `z = "x"` with `z: First.E` was silent.
+
+**Port.** The arm admits any root. It still answers the enum's declared type
+only where that type prints as the written text does at the site, so no
+rendered line moves. The earlier scoping recorded 3 R→W from a union's
+named-constituent guard (`boolean | X.Foo` printing `any`); those lines do not
+move now.
+
+**Measured** (unfiltered, both dumps, against §0; this commit alone on
+`e100e74`):
+- diagnostics **+2 cases**: `enumLiteralAssignableToEnumInsideUnion` and
+  `enumAssignmentCompat7`, WRONG -> RIGHT;
+- types unchanged, zero losses, slowcases clean;
+- Ir domain-model 1,089,344,728 -> 1,089,283,795, generic-imports
+  343,074,440 -> 343,062,841 (both within noise).
+
+**`enumAssignmentCompat3` stays WRONG on one row.** Line 70, `abc = secondCd`:
+`Cd.E` is `{ c, d }`, whose `c` is 0, where `First.E.c` is 2. Native's
+isEnumTypeRelatedTo walks the source's members and reports "Each
+declaration of 'E.c' differs in its value". The port relates the pair. That
+is the enum-relation arm (`relater.rs`, r6-relater's lane). The other 11
+rows report now.
+
+The conformance cases are the falsifier. A unit test cannot show it, since
+the print is the same before and after.

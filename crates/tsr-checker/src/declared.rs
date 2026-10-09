@@ -6248,13 +6248,14 @@ impl<'a> Checker<'a, '_> {
             // named-constituent guard) the mint stays — routing those measured
             // 4 R→W, the NB-SYMBOL-CHAIN wall again.
             //
-            // Scoped to an ALIAS-rooted name — the population the alias walk
-            // in `resolve_entity_name_ex` newly resolves, which answered the
-            // ANY-flagged unresolved mint before. A namespace-rooted enum keeps
-            // §41's measured mint: routing it measured 3 R→W where a union's
-            // named-constituent guard (`boolean | X.Foo`) turned it into `any`.
-            if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
-                && self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM)
+            // Any root, namespace or alias (`r6-declared.md` §3). The
+            // first scoping to ALIAS-rooted names kept §41's mint for a
+            // namespace-rooted enum: routing it then measured 3 R→W, where a
+            // union's named-constituent guard (`boolean | X.Foo`) turned it
+            // into `any`. The mint is an OBJECT, so `First.E` never reached
+            // isEnumTypeRelatedTo and `z = "x"` with `z: First.E` was silent
+            // (`enumAssignmentCompat3`, `enumLiteralAssignableToEnumInsideUnion`).
+            if self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM)
                 && !self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM_MEMBER)
             {
                 let declared = self.get_declared_type_of_symbol(resolved);
