@@ -99,6 +99,16 @@ pub(crate) struct RelationResults {
     /// on the relation options [`Self::validate`] guards, so neither does
     /// this.
     pub(crate) variance_reliability: FxHashMap<SymbolId, Vec<Reliability>>,
+    /// getRecursionIdentity's deferred type reference arm (relater.go): an
+    /// instantiation of an alias written as a tuple or array type is a type
+    /// reference whose identity is the alias's tuple/array node, shared by
+    /// every instantiation. The port relates such an alias image as its
+    /// evaluated body (an interned tuple or array type with no node), so the
+    /// relater records the node here, keyed by that body, when it
+    /// normalizes the image (`non_object_alias_image_body`). Read only by
+    /// `relation_recursion_identity`. Not cleared by [`Self::validate`]: the
+    /// node is a property of the body's construction, not of a relation.
+    pub(crate) alias_reference_nodes: FxHashMap<TypeId, tsr_ast::NodeId>,
 }
 
 impl RelationResults {
