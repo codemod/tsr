@@ -64,6 +64,22 @@ pub fn parse(text: &str) -> Vec<BaselineDiagnostic> {
     out
 }
 
+/// The `<category> TS` prefix of a header line, as `Category.Name`
+/// (`internal/diagnostics/diagnostics.go:29`) spells it: `error`, `warning`
+/// and `message`. A `Message`-category diagnostic is a real entry of the
+/// baseline — `checkGrammarImportCallExpression`'s TS1450 is one
+/// (`importAttributes1(module=esnext).errors.txt` holds only those) — and the
+/// checker reports it into the same list, so dropping it here made the
+/// baseline look empty and every faithful TS1450 an extra
+/// (`docs/parity/notes/r5-config.md` §2).
+///
+/// `suggestion` stays outside the oracle: its only header lines in the corpus
+/// are `compiler/overshifts`' 36 TS6807, which this port does not produce, so
+/// reading them would score a missing producer rather than a harness fact.
+fn strip_category(rest: &str) -> Option<&str> {
+    ["error TS", "warning TS", "message TS"].iter().find_map(|prefix| rest.strip_prefix(prefix))
+}
+
 /// `file.ts(12,34): error TS9007: message` → the position and the code.
 ///
 /// Global diagnostics have no `(line,column)` and are deliberately not matched:
@@ -74,7 +90,7 @@ fn parse_header_line(line: &str) -> Option<BaselineDiagnostic> {
     let (file, position) = location.rsplit_once('(')?;
     let (line_number, column) = position.split_once(',')?;
 
-    let rest = rest.strip_prefix("error TS").or_else(|| rest.strip_prefix("warning TS"))?;
+    let rest = strip_category(rest)?;
     let code = rest.split(':').next()?;
 
     Some(BaselineDiagnostic {
@@ -99,7 +115,7 @@ fn parse_pretty_header_line(line: &str) -> Option<BaselineDiagnostic> {
         return None;
     }
     let (location, rest) = plain.split_once(" - ")?;
-    let rest = rest.strip_prefix("error TS").or_else(|| rest.strip_prefix("warning TS"))?;
+    let rest = strip_category(rest)?;
     let code = rest.split(':').next()?;
     let (file_and_line, column) = location.rsplit_once(':')?;
     let (file, line_number) = file_and_line.rsplit_once(':')?;
@@ -177,6 +193,22 @@ mod tests {
         let parsed = parse("a(target=es5).ts(2,3): error TS9010: Nope.\n");
         assert_eq!(parsed[0].file, "a(target=es5).ts");
         assert_eq!((parsed[0].line, parsed[0].column), (2, 3));
+    }
+
+    #[test]
+    fn a_message_category_header_is_a_diagnostic() {
+        let parsed = parse("3.ts(8,11): message TS1450: Dynamic imports can only accept…\n");
+        assert_eq!(
+            parsed,
+            [BaselineDiagnostic { file: "3.ts".into(), line: 8, column: 11, code: 1450 }]
+        );
+    }
+
+    #[test]
+    fn a_suggestion_header_is_outside_the_oracle() {
+        assert!(
+            parse("a.ts(2,1): suggestion TS6807: This operation can be simplified.\n").is_empty()
+        );
     }
 
     #[test]
