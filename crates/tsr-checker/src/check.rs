@@ -745,6 +745,7 @@ impl Checker<'_, '_> {
             Node::CallExpression(call) => {
                 self.resolve_call_before_callback_bodies(node, call.arguments);
                 self.check_call_expression_diagnostics(node);
+                self.check_import_call_trailing_comma(node);
                 self.check_import_call_specifier(node);
                 ambient
             }

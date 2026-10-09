@@ -27,10 +27,6 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
-#[expect(
-    dead_code,
-    reason = "hooked by docs/parity/notes/r6-smallcodes4-import-call-trailing-comma.diff, which removes this"
-)]
 impl Checker<'_, '_> {
     /// `checkGrammarImportCallExpression`'s trailing-comma arm
     /// (`grammarchecks.go:2182-2184`), for an `import(…)` call.
@@ -84,13 +80,6 @@ impl Checker<'_, '_> {
 /// The offset of a `,` that is the first token at or after `from`, past
 /// whitespace and `//` and `/* */` comments; `None` when the first token is
 /// anything else.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "hooked by docs/parity/notes/r6-smallcodes4-import-call-trailing-comma.diff, which removes this"
-    )
-)]
 fn comma_after(text: &str, from: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut at = from;
