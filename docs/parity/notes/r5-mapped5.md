@@ -328,3 +328,37 @@ only change in a harness file, flagged for the integrator. The unit coverage
 is the corpus case. The reducible predicate needs the
 `flow.rs` diff to answer true, so a unit test here would only exercise the
 false arm.
+
+## 7. Item 4: `.16.99` remainder, `keyof` of a primitive (diff); `.16.71`/`.16.100` not started
+
+**Forcing constraint.** `keyofAndIndexedAccessErrors:9–13`: `keyof keyof
+Object` and deeper answered `any`. The written `keyof` arm in `declared.rs`
+sent only mapped, type-parameter and concrete object operands to
+`resolved_keyof_type`. A primitive operand, or a union of them (the key union
+of `keyof Object`), fell to `keys_of`, which declines. Native's
+`getIndexTypeEx` default arm (`checker.go:26701`) is
+`getLiteralTypeFromProperties` over `getPropertiesOfType`, which reads the
+apparent type. A union operand is the intersection of its constituents'
+keys (`:26693`). `resolved_keyof_type` already has both arms.
+
+**Diff** ([`r5-mapped5-keyof-primitive.diff`](r5-mapped5-keyof-primitive.diff),
+`declared.rs`): a primitive operand, or a union of primitives (not
+instantiable; `any`/`never`/`unknown` excluded, since the route diff's
+`.16.108` arm owns them), goes to `resolved_keyof_type`.
+
+**Measured** on top of §6's commit, both dumps unfiltered:
+- types **+2 RIGHT** (`keyofAndIndexedAccessErrors:10/12`, `"toString" | "valueOf"`);
+- diagnostics unchanged;
+- zero losses against §6 and the frozen base; slowcases clean;
+- Ir domain-model 1,155,171,529 → 1,155,797,436 (+0.054%), generic-imports
+  342,950,569 → 342,955,740 (+0.002%).
+
+Lines 9, 11 and 13 (`keyof String`) now print every key but `unique symbol`
+(`[Symbol.iterator]`). That is `.16.253`, the unique-symbol key identity.
+Line 7 (`keyof K0`, an unresolved name) is the route diff's `.16.108` arm.
+
+**`.16.71`/`.16.100` (conditional nodes, mapped nodes under alias bindings):
+not started.** The brief places them after item 1's route lands, and the
+route is held on Ir (§2). Both rewrite the written-text mint arm that the
+route diff changes. A diff written now would have to be rebased once the
+route's fate is decided.
