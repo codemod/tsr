@@ -78,17 +78,46 @@ deterministic measure, and it is flat.
 
 ### 3.1 TS2686
 
-Analysis is in progress; this section records the hypothesis to test with
-native `tsgo`.
+Probed against native `tsgo` with the shapes reduced to one `.d.ts` in
+`node_modules/react` and an importing module:
 
-- `export = React` beside `declare namespace React {}` (4 cases). The
-  namespace is non-instantiated, so a `Value` lookup skips it and finds the
-  global UMD alias. Upstream nevertheless reports nothing.
-- `declare global { const React }` against `export as namespace React` (2
-  cases). Upstream reports TS2451 on both declarations, which means the merge
-  failed and the globals entry keeps the augmentation's variable. A variable
-  declaration is not a `NamespaceExportDeclaration`, so `Every` fails. TSR's
-  `global_exports` table answers the UMD alias instead.
+| `index.d.ts` | tsgo | TSR before |
+|---|---|---|
+| `export = React; export as namespace React; declare namespace React {}` | nothing | TS2686 at `export = React` |
+| the same plus `declare const y: typeof React;` | TS2708 at `typeof React` | TS2686 + TS2708 |
+| `declare namespace React { const q: number }` (instantiated) | nothing | nothing |
+
+The second row shows that upstream's `Value` lookup never returns the
+global UMD alias here. It fails and falls through to the namespace-meaning
+retry that reports TS2708. The reason is `getSymbol(symbols, name, meaning)`:
+an alias is admitted only when `getSymbolFlags(alias)&meaning != 0`. The UMD
+alias resolves to the module's `export =`, a non-instantiated namespace, which
+has no `Value` flag. The binder's `resolve_name` tests only the alias's own
+flags, so it returned the alias and the UMD check fired.
+
+**Fixed (commit 2).** `check_umd_global_reference` now declines when the
+resolved symbol is an alias whose `get_symbol_flags` lacks `VALUE`. This is
+the condition under which upstream's lookup does not return the symbol at
+all. The faithful home is `resolve_name`'s table lookup in the binder, which is
+main's and is shared by every caller. The decline is confined to this rule,
+where the extra symbol is the only effect. Measured: +4 cases
+(`jsxNamespaceImplicitImport…FromConfigPickedOverGlobalOne` ×2,
+`…FromPragmaPickedOverGlobalOne`, `reactTransitiveImportHasValidDeclaration`),
+zero losses on both dumps, types identical, Ir +0.003% / −0.003%.
+
+**Open (2 cases, binder).** `umdGlobalAugmentationNoCrash` and
+`umdNamespaceMergedWithGlobalAugmentationIsNotCircular` declare
+`declare global { const React }` against `export as namespace React`.
+`initializeChecker` puts the UMD alias in `globals` first-in-wins
+(`checker.go:1322`). Then `mergeModuleAugmentation` merges the augmentation's
+`const` into it. `mergeSymbol` resolves the non-transient alias target
+(`checker.go:14153`), finds the module symbol excluded by
+`BlockScopedVariableExcludes`, reports TS2451, and **returns `source`**.
+`mergeSymbolTable` stores that return value, so `globals["React"]` becomes
+the `const`, and `Every(NamespaceExportDeclaration)` fails. The binder's
+`merge_symbol` declines alias merges (`binder.rs`, `bd tsr-y4u.12`) and keeps
+the alias in `globals`. Fixing it means the conflict arm replaces the globals
+entry with the source, which is binder work (main's).
 
 ### 3.2 TS2688
 

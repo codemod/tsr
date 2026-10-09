@@ -1236,6 +1236,20 @@ impl Checker<'_, '_> {
             return;
         };
         let symbol = self.binder.merged_symbol(symbol);
+        // `getSymbol(symbols, name, meaning)` (`checker.go`) admits an alias
+        // only when `getSymbolFlags(alias)&meaning != 0`: a UMD name whose
+        // module is `export = React` over a non-instantiated `declare
+        // namespace React {}` is no value, so upstream's `Value` lookup never
+        // returns it and the UMD check never runs (it reports TS2708 at a
+        // value use instead). The binder's lookup tests only the alias's own
+        // flags. `reactTransitiveImportHasValidDeclaration` and the
+        // `jsxNamespaceImplicitImport…PickedOverGlobalOne` cases;
+        // `docs/parity/notes/r5-smallcodes.md` §3.1.
+        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            && !self.get_symbol_flags(symbol).intersects(SymbolFlags::VALUE)
+        {
+            return;
+        }
         // The declaration kind, not `ALIAS`: a plain `import * as Bar` is an
         // alias too and must stay silent.
         //
