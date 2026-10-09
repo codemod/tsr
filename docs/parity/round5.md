@@ -1088,3 +1088,20 @@ owner between rounds).
 r5-checkperf3 takes the two largest jsTyping levers. Both are in main's files,
 so they ship as small measured diffs: native's per-call resolvedSignature link,
 and a union property certification memo.
+
+### r5-printer2 finished; r5-printer3 dispatched (`tsr-2zk.1114`)
+
+r5-printer2 ported:
+- the optional parameter's symbol `| undefined` (`.16.60`);
+- written-annotation reuse in type-literal properties;
+- the merged object-literal name spelling;
+- divergent accessor pairs printed as get/set.
+
+That is +178 type lines and about +27 cases, with no losses. Its four diffs (two
+member-form arms in checker.rs, an overloaded optional method in declared.rs,
+names as written `.16.125`) land later, for +76 lines and +11 cases.
+
+Defaulted type arguments dropped in printed references (28 lines) live in
+declared.rs (`.1115`). r5-printer3 takes the synthetic optional parameters,
+the enum-member producer, object-literal accessor identity and contextual
+signature type parameters.
