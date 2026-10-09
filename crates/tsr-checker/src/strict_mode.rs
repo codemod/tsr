@@ -144,8 +144,9 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(operand) else { return };
-        // `errorOnNode` — the operand's own span, as the sites above.
-        let span = self.nodes.span(operand);
+        // `errorOnNode` → `GetErrorRangeForNode`: a missing operand
+        // (`delete ;`) reports zero-width at its full start.
+        let span = self.error_span(operand);
         self.report(
             file,
             Diagnostic::new(

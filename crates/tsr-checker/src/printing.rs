@@ -634,6 +634,11 @@ impl Checker<'_, '_> {
                         ),
                     });
                 }
+            } else if let Some([getter, setter]) =
+                self.type_literal_accessor_pair_at(&property, property_type, reference)
+            {
+                members.push(crate::objects::Member::Signature { printed: getter });
+                members.push(crate::objects::Member::Signature { printed: setter });
             } else {
                 let annotation = property.origin.and_then(|symbol| {
                     let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
@@ -643,13 +648,27 @@ impl Checker<'_, '_> {
                         _ => None,
                     }
                 });
-                let alias = annotation.and_then(|annotation| {
+                // `serializeTypeForDeclaration`'s reuse arm first: an
+                // equivalent annotation is re-emitted at the site. The two
+                // arms after it keep their earlier spellings where the
+                // visitor refuses the node: an alias the annotation names,
+                // and the producer's written-node precedence, read from the
+                // declaration rather than by comparing two rendered strings
+                // (an unresolved annotation keeps its published spelling).
+                let printed = if let Some(text) = annotation.and_then(|annotation| {
+                    self.reused_property_annotation_text_at(
+                        annotation,
+                        property_type,
+                        property.optional,
+                        reference,
+                    )
+                }) {
+                    text
+                } else if let Some(alias) = annotation.and_then(|annotation| {
                     self.annotation_alias_text_at(annotation, property_type, reference)
-                });
-                // Preserve the producer's written-node precedence using its
-                // declaration, not equality of two rendered strings. An
-                // unresolved annotation keeps its published spelling too.
-                let written = annotation.is_some_and(|annotation| {
+                }) {
+                    alias
+                } else if annotation.is_some_and(|annotation| {
                     let semantic = self.get_type_from_type_node(annotation);
                     self.is_error(semantic)
                         || (matches!(
@@ -658,10 +677,7 @@ impl Checker<'_, '_> {
                                 | tsr_ast::TypeNode::ArrayTypeNode(_)
                                 | tsr_ast::TypeNode::UnionTypeNode(_)
                         ) && self.written_annotation_text(annotation).is_some())
-                });
-                let printed = if let Some(alias) = alias {
-                    alias
-                } else if written {
+                }) {
                     self.property_printed_type(&property).into_owned()
                 } else if let Some(text) = self.type_to_string_at(property_type, reference) {
                     text
@@ -824,6 +840,147 @@ impl Checker<'_, '_> {
             return Some((input, output));
         }
         Some((input, output))
+    }
+}
+
+impl<'a> Checker<'a, '_> {
+    /// `scanner.DeclarationNameToString` (`scanner/utilities.go:76`) for an
+    /// identifier name: the name's **source text**, which keeps a unicode
+    /// escape the scanner cooked out of the identifier's value
+    /// (`class C\u0032` prints `C\u0032`; `parserClassDeclaration23`). The
+    /// node builder prints a symbol's name through it
+    /// (`getNameOfSymbolAsWritten`, `nodebuilderimpl.go:1002`).
+    ///
+    /// The cooked text is the answer whenever the source ends with it, which
+    /// is every name written without an escape, so the file text is read
+    /// only to confirm that. A node span starts at its leading trivia, so
+    /// the written name is the trailing run of identifier characters and
+    /// escape syntax. No host source text keeps the cooked text.
+    pub(crate) fn identifier_text_as_written(&self, name: tsr_ast::NodeId, cooked: &str) -> String {
+        let written = self
+            .source_file_of(name)
+            .and_then(|file| self.module_host?.source_text(file, self.nodes))
+            .and_then(|text| {
+                let span = self.nodes.span(name);
+                text.get(span.start as usize..span.end as usize)
+            });
+        let Some(written) = written.filter(|written| !written.ends_with(cooked)) else {
+            return cooked.to_string();
+        };
+        let start = written
+            .char_indices()
+            .rev()
+            .find(|&(_, c)| !(c.is_alphanumeric() || matches!(c, '_' | '$' | '\\' | '{' | '}')))
+            .map_or(0, |(index, c)| index + c.len_utf8());
+        let tail = &written[start..];
+        if tail.contains('\\') { tail.to_string() } else { cooked.to_string() }
+    }
+
+    /// `getNameOfSymbolAsWritten`'s declaration arm
+    /// (`nodebuilderimpl.go:987-1002`) for a symbol whose first named
+    /// declaration is an identifier: that name as written
+    /// ([`Self::identifier_text_as_written`]). Any other shape keeps the
+    /// symbol's name.
+    pub(crate) fn symbol_name_as_written(&self, symbol: tsr_binder::SymbolId) -> String {
+        let record = self.binder.symbols().get(symbol);
+        let name = record
+            .declarations
+            .iter()
+            .find_map(|&declaration| self.node_map.get(declaration)?.name_id());
+        match name.and_then(|id| self.node_map.get(id)) {
+            Some(tsr_ast::Node::Identifier(identifier))
+                if identifier.text == record.name && !identifier.text.is_empty() =>
+            {
+                match identifier.node_id {
+                    Some(id) => self.identifier_text_as_written(id, identifier.text),
+                    None => identifier.text.to_string(),
+                }
+            }
+            _ => record.name.to_string(),
+        }
+    }
+
+    /// `addPropertyToElementList`'s accessor arm (`nodebuilderimpl.go:2524`):
+    /// an accessor property whose read type differs from its write type
+    /// (`getWriteTypeOfSymbol`) prints as its getter and setter signatures,
+    /// `{ get foo(): number; set foo(v: number | string); }`, each built by
+    /// `signatureToSignatureDeclarationHelper` from the accessor's own
+    /// declaration, so the written annotations are reused. Error types on
+    /// either side keep the property form. A type literal's accessors have
+    /// no class parent, so the class-only arms do not apply.
+    fn type_literal_accessor_pair_at(
+        &mut self,
+        property: &crate::objects::AnonymousProperty,
+        read: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<[String; 2]> {
+        let symbol = property.origin?;
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let getter = declarations.iter().copied().find(|&id| {
+            matches!(self.node_map.get(id), Some(tsr_ast::Node::GetAccessorDeclaration(_)))
+        })?;
+        let setter = declarations.iter().copied().find(|&id| {
+            matches!(self.node_map.get(id), Some(tsr_ast::Node::SetAccessorDeclaration(_)))
+        })?;
+        let write_parameter = self.accessor_write_parameter(symbol)?;
+        let write = self.parameter_type(&write_parameter);
+        if read == write || self.is_error(read) || self.is_error(write) {
+            return None;
+        }
+        let name = &property.printed_name;
+        let getter_signature = self.get_signature_from_declaration(getter)?;
+        let getter_return = getter_signature
+            .written_return
+            .and_then(|written| {
+                let current = self
+                    .get_return_type_of_signature(&getter_signature)
+                    .unwrap_or(getter_signature.r#type);
+                self.written_annotation_text_at(written, current, reference)
+            })
+            .or_else(|| self.type_to_string_at(read, reference))
+            .unwrap_or_else(|| self.type_to_string(read));
+        let setter_signature = self.get_signature_from_declaration(setter)?;
+        let parameter = setter_signature.parameters.first()?;
+        let parameter_type = self.parameter_type(parameter);
+        let parameter_text = parameter
+            .written_text
+            .and_then(|written| self.written_annotation_text_at(written, parameter_type, reference))
+            .or_else(|| self.type_to_string_at(parameter_type, reference))
+            .unwrap_or_else(|| self.type_to_string(parameter_type));
+        Some([
+            format!("get {name}(): {getter_return}"),
+            format!("set {name}({}: {parameter_text})", parameter.name),
+        ])
+    }
+
+    /// `serializeTypeForDeclaration`'s reuse arm for a property signature
+    /// (`nodebuilderimpl.go:2231`, reached from `addPropertyToElementList`):
+    /// the written annotation is re-emitted when `pseudoTypeEquivalentToType`
+    /// holds — its type is the property's, or, for an optional property,
+    /// the property's once the optionality is forgiven (`:2249`). Emitted at
+    /// `reference` by the existing-node visitor, so an unannotated parameter
+    /// of a written function type gains `: any` (`nodecopy.go:660`) where
+    /// the type's own serialization prints the parameter's type.
+    fn reused_property_annotation_text_at(
+        &mut self,
+        annotation: tsr_ast::TypeNode<'a>,
+        property_type: TypeId,
+        optional: bool,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let semantic = self.get_type_from_type_node(annotation);
+        if self.is_error(semantic) {
+            return None;
+        }
+        let equivalent = semantic == property_type
+            || (optional
+                && self.strict_null_checks
+                && self.get_optional_type(semantic, true) == property_type);
+        if !equivalent {
+            return None;
+        }
+        let written = self.reuse_annotation(annotation, property_type)?;
+        self.written_annotation_text_at(written, property_type, reference)
     }
 }
 

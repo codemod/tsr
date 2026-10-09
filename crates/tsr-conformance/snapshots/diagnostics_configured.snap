@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 870/1089 (79.89%)
-Failed         : 219
+Passed         : 875/1089 (80.35%)
+Failed         : 214
 Skipped        : 3079 (excluded from the denominator)
 
   1333  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3079 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 219 failures:
+First 100 of 214 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -84,8 +84,6 @@ compiler/emitDecoratorMetadata_isolatedModules(module=esnext)
   3 missing (first TS1272 at index.ts(9,23))
 compiler/es5-asyncFunctionWithStatements(alwaysstrict=true,target=es2015)
   1 unexpected (first TS2410 at es5-asyncFunctionWithStatements.ts(25,9)), 4 missing
-compiler/es5-oldStyleOctalLiteralInEnums(target=es2015)
-  1 unexpected (first TS1121 at es5-oldStyleOctalLiteralInEnums.ts(2,8)), 1 missing
 compiler/es5ExportDefaultClassDeclaration3(target=es2015)
   1 missing (first TS2449 at es5ExportDefaultClassDeclaration3.ts(1,21))
 compiler/es6ImportNamedImportNoNamedExports(target=es2015)
@@ -226,3 +224,5 @@ conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,
   1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
 conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,module=nodenext)
   1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
+conformance/decoratorMetadata-jsdoc(target=es2015)
+  1 missing (first TS8020 at decoratorMetadata-jsdoc.ts(9,9))

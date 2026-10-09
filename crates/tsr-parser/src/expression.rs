@@ -2980,7 +2980,23 @@ impl<'a> Parser<'a> {
 
     fn parse_parameter_worker(&mut self) -> &'a ParameterDeclaration<'a> {
         let start = self.pos();
+        // The first modifier's `Loc` starts at its full start, leading trivia
+        // included: where the previous token ended.
+        let modifiers_full_start = self.node_end();
         let modifiers = self.parse_modifiers();
+        // `parseParameterWorker`'s `KindThisKeyword` arm (`parser.go:3334`):
+        // a `this` parameter with modifiers is a parse error at
+        // `modifiers.Nodes[0].Loc` — full start, no `SkipTrivia` — so the
+        // checker's `grammarErrorOnFirstToken` for the same rule stays silent.
+        if self.at(SyntaxKind::ThisKeyword)
+            && let Some(first) = modifiers.first().and_then(ModifierLike::node_id)
+        {
+            let end = self.nodes.span(first).end;
+            self.error_at(
+                &messages::NEITHER_DECORATORS_NOR_MODIFIERS_MAY_BE_APPLIED_TO_THIS_PARAMETERS,
+                Span::new(modifiers_full_start, end),
+            );
+        }
         let dot_dot_dot =
             if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
         // A `this` parameter is the one reserved word a parameter name admits:

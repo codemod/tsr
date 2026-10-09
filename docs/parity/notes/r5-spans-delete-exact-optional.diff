@@ -1,0 +1,24 @@
+diff --git a/crates/tsr-checker/src/delete_operand.rs b/crates/tsr-checker/src/delete_operand.rs
+index d5ef54d..79601a5 100644
+--- a/crates/tsr-checker/src/delete_operand.rs
++++ b/crates/tsr-checker/src/delete_operand.rs
+@@ -58,10 +58,15 @@ impl Checker<'_, '_> {
+         {
+             return;
+         }
+-        // `hasTypeFacts(t, TypeFactsIsUndefined)`; the
+-        // `exactOptionalPropertyTypes` arm is not ported (§587 of
+-        // `checker-notes-diag2.md`).
+-        if self.nullish_facts(ty).1 {
++        // Under `exactOptionalPropertyTypes` only the symbol's own `?` makes
++        // it optional (`symbol.Flags&SymbolFlagsOptional`); otherwise
++        // `hasTypeFacts(t, TypeFactsIsUndefined)`.
++        let is_optional = if self.exact_optional_property_types {
++            self.property_is_optional(symbol)
++        } else {
++            self.nullish_facts(ty).1
++        };
++        if is_optional {
+             return;
+         }
+         self.report_delete_operand(

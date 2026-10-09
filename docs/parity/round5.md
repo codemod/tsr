@@ -1088,3 +1088,48 @@ owner between rounds).
 r5-checkperf3 takes the two largest jsTyping levers. Both are in main's files,
 so they ship as small measured diffs: native's per-call resolvedSignature link,
 and a union property certification memo.
+
+### r5-printer2 finished; r5-printer3 dispatched (`tsr-2zk.1114`)
+
+r5-printer2 ported:
+- the optional parameter's symbol `| undefined` (`.16.60`);
+- written-annotation reuse in type-literal properties;
+- the merged object-literal name spelling;
+- divergent accessor pairs printed as get/set.
+
+That is +178 type lines and about +27 cases, with no losses. Its four diffs (two
+member-form arms in checker.rs, an overloaded optional method in declared.rs,
+names as written `.16.125`) land later, for +76 lines and +11 cases.
+
+Defaulted type arguments dropped in printed references (28 lines) live in
+declared.rs (`.1115`). r5-printer3 takes the synthetic optional parameters,
+the enum-member producer, object-literal accessor identity and contextual
+signature type parameters.
+
+### r5-declared3 finished; r5-declared4 dispatched
+
+r5-declared3's work (the `.1066` guard and cache, and the batch AC re-land)
+landed in batch AM. It declined `.1115` as new work past its session rhythm.
+r5-declared4 is now declared.rs' single owner, and also owns
+instantiation_expressions.rs and unique_symbols.rs. It takes `.1115`, `.1102`
+and the `.1078` leftovers, and lands declared.rs diffs other lanes send it.
+
+### r5-spans finished (batch AU); r5-smallcodes3 dispatched
+
+r5-spans landed four diffs: the scanner's octal-minus and unterminated-comment
+spans, the parser's `this`-parameter modifier span, the missing-node raw-span
+sites (stacked on r5-smallcodes2's `error_span` arm), and the currentNode
+tracking TS2589 needs. `tsr-2zk.1104` is closed. Three diffs stay held, each
+with its blocker:
+
+- TS2589 report sites: 8 losses, because this port's instantiation depth
+  reaches 100 where upstream's does not. They wait on lazy anonymous-type
+  instantiation and the conditional tail guard (`tsr-2zk.1116`, which blocks
+  `tsr-2zk.1103`). That work is in main's laziness lane, `tsr-2zk.11.5`.
+- The `await using` list span waits on the parser's `AwaitUsing` flag
+  (`tsr-2zk.2.3`).
+- The delete exact-optional arm waits on `Partial`'s members carrying their
+  own symbols.
+
+r5-smallcodes3 takes the slot, with the single-code clusters outside main's
+active lanes (`tsr-2zk.1117`).

@@ -4535,9 +4535,24 @@ impl<'a, 'n> Binder<'a, 'n> {
             self.name_index.insert(id, name);
         }
         self.name_indexed = self.name_nodes.len();
-        self.name_index
+        let span = self
+            .name_index
             .get(&declaration)
-            .map_or_else(|| self.nodes.span(declaration), |name| self.nodes.span(*name))
+            .map_or_else(|| self.nodes.span(declaration), |name| self.nodes.span(*name));
+        // `createDiagnosticForNode` → `GetErrorRangeForNode`
+        // (`scanner.go:2649`): a missing name (`export default var …`'s
+        // missing expression) reports zero-width at its full start, the end
+        // of the previous token. This parser puts a missing node at the next
+        // token's start, so step back over the whitespace between, as the
+        // checker's `error_span` does.
+        if span.start == span.end
+            && let Some(before) = self.source.get(..span.start as usize)
+        {
+            return tsr_core::Span::at(
+                u32::try_from(before.trim_end().len()).unwrap_or(span.start),
+            );
+        }
+        span
     }
 
     /// Add `name` to the appropriate table, merging with an existing symbol where

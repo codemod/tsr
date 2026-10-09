@@ -1287,6 +1287,8 @@ pub struct Checker<'a, 'n> {
     /// The statement/deferred-node reset sites remain outside this port's
     /// on-demand expression traversal.
     pub(crate) instantiation_count: u32,
+    /// Upstream's `c.currentNode` (`checker.go:596`); `current_node.rs`.
+    pub(crate) current_node: Option<NodeId>,
     /// Whether the program declares any pattern ambient module
     /// (`declare module "*.css"`).
     ///
@@ -1497,6 +1499,7 @@ impl<'a, 'n> Checker<'a, 'n> {
 
             instantiation_depth: 0,
             instantiation_count: 0,
+            current_node: None,
             has_pattern_ambient_modules: binder.globals().keys().any(|name| name.contains('*')),
             strict_null_checks: true,
             strict_function_types: true,
@@ -2594,9 +2597,11 @@ impl<'a, 'n> Checker<'a, 'n> {
         {
             return name;
         }
+        // `getNameOfSymbolAsWritten`: the declaration's name as written.
+        let own = self.symbol_name_as_written(symbol);
         match self.symbol_chain(symbol, reference, SymbolFlags::VALUE, 0) {
             Some(prefix) => format!("{prefix}{own}"),
-            None => own.to_string(),
+            None => own,
         }
     }
 
@@ -2672,9 +2677,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             {
                 out.push_str(&text);
             } else {
+                // `serializeTypeForDeclaration`'s fallback serializes the
+                // symbol's type, optionality included.
+                let serialized = self.serialized_parameter_type(parameter, parameter_type);
                 let rendered = self
-                    .type_to_string_at(parameter_type, reference)
-                    .unwrap_or_else(|| self.type_to_string(parameter_type));
+                    .type_to_string_at(serialized, reference)
+                    .unwrap_or_else(|| self.type_to_string(serialized));
                 out.push_str(&rendered);
             }
         }

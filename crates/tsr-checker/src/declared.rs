@@ -2619,6 +2619,13 @@ impl<'a> Checker<'a, '_> {
                         overloads.len() == 1,
                     );
                     self.signature_types.insert(method_type, overloads);
+                    // The binder ORs `SymbolFlagsOptional` across a merged
+                    // symbol's declarations, and `addPropertyToElementList`
+                    // reads the symbol's flag for every overload
+                    // (`nodebuilderimpl.go:2524`): one `?` overload makes
+                    // them all print `func4?(…)`.
+                    let optional =
+                        optional || existing.is_some_and(|index| typed_properties[index].optional);
                     let property = crate::objects::AnonymousProperty {
                         accessor_write: None,
                         method: true,
@@ -7927,7 +7934,10 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::Node::Identifier(identifier) if identifier.text.is_empty() => {
                     Some("(Missing)".to_string())
                 }
-                tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
+                tsr_ast::Node::Identifier(identifier) => Some(match identifier.node_id {
+                    Some(id) => self.identifier_text_as_written(id, identifier.text),
+                    None => identifier.text.to_string(),
+                }),
                 _ => None,
             });
         // §305: an anonymous class expression's INSTANCE type takes the same
