@@ -200,6 +200,14 @@ nothing in `declared.rs`/`checker.rs`. Unit tests:
 
 ## 2. `.1061`'s decline removed (r5-declared2 §1.2)
 
+> **Corrected (§5).** This section's measurement was taken on `d91243e`, the
+> batch-AC tip, which the integrator then reverted (`58ead272`). On that base
+> `aliasInstantiationExpressionGenericIntersectionNoCrash2` was already
+> WRONG, so dropping the decline looked free. Against the real integration
+> head it is the loss that reverted batch AC. §5 restores the decline,
+> narrowed to the piece that is actually missing. The numbers below are kept
+> as measured.
+
 r5-declared2 kept the alias's own name mint for an intersection-bodied alias
 when a constituent was an alias reference whose body `evaluate_alias_body`
 could not build. That covered `typeof Class<T>`, which a type query with type
@@ -302,3 +310,101 @@ pins both sides: `string extends T` has operands, and
   Not attempted in this session.
 - **`namedTupleMembersErrors` 8** (`[first: string, rest: ...string[]?]`) is
   the parser's postfix-`...` form, as r5-declared2 §2.5 said.
+
+## 5. Re-landing r5-declared2 on the integration head (batch AC's loss)
+
+Batch AC (r5-declared2's merge and its fill-missing diff) failed the
+integrator's gate with one diagnostics loss and was reverted on the
+integration branch (`58ead272`, and `b52e2e5` for the `inference.rs` diff).
+Sections 1–4 above were measured on `d91243e`, the batch-AC tip, so their base
+already carried the loss. This branch is now rebuilt linearly on the
+integration head `6cdb344` (batches AD–AG):
+
+1. `git revert 58ead272` re-applies r5-declared2's merge;
+2. §1, §2 and §4's commits, cherry-picked unchanged;
+3. `git revert b52e2e5` re-applies the fill-missing diff
+   (`r5-declared2-fill-missing-forward.diff`, r5-declared2 §3);
+4. this section's fix.
+
+### 5.1 The loss: `aliasInstantiationExpressionGenericIntersectionNoCrash2`
+
+`wat as Wat<string>` with `type Wat<T> = ClassAlias<T> & FnAlias<T>`,
+`type ClassAlias<T> = typeof Class<T>`, `type FnAlias<T> = typeof fn<T>`.
+Native reports TS2352 through the `ClassAlias` constituent. RIGHT at the
+integration head, WRONG (no TS2352) with r5-declared2 re-applied, with or
+without r5-declared2's decline.
+
+**Cause.** r5-declared2's `instantiate_intersection_alias` makes
+`Wat<number>` an intersection of the instantiated constituents
+`ClassAlias<number> & FnAlias<number>`. Native relates that structurally.
+Here, a reference to an alias whose body is an instantiation expression is
+still a **member-less name mint**. On a probe, `new a()` with
+`a: ClassAlias<number>` answers `error`, and `f()` with `f: FnAlias<number>`
+answers `error`. The constituent mints relate to each other only through
+alias variance (`ClassAlias<number>` to `ClassAlias<string>` reports TS2352
+alone). Across aliases (`FnAlias<number>` to `ClassAlias<string>`) they have
+no members to compare, so the intersection comes out comparable and the
+TS2352 is lost.
+
+r5-declared2's decline tested `evaluate_alias_body(owner, args).is_none()`.
+That was a proxy for this, from before `tsr-2zk.1006`. Since instantiation
+expressions landed, the constituent bodies do evaluate (`{ new ():
+Class<T>; prototype: Class<any>; }`, `() => T`), so the proxy never fires.
+The piece that is missing is that a *reference* to such an alias does not
+carry those members, not the body itself.
+
+**Port (narrowed decline).** `instantiate_intersection_alias` keeps the
+alias's own name mint (alias-argument relation, as at the integration head)
+when a declared constituent references an alias whose body, parentheses
+skipped, is a type query with type arguments. Any other intersection body
+takes getTypeAliasInstantiation's road.
+
+- **What would change it:** references to instantiation-expression aliases
+  carrying the instantiated structure (the alias reference road, so that
+  `new a()` types). Then the decline goes, and the TS2352 comes from the
+  structural relation, as native's does.
+- **How I would know it is wrong:** an intersection over such a constituent
+  whose native print or relation differs from the alias-argument relation.
+  None appears in the full run below.
+
+**Also found, not changed:** the instantiation-expression cache
+(`instantiation_expressions.rs`, keyed `(node, expression type)`) ignores
+the alias frames. Under this port's frame-bound alias evaluation,
+`typeof Class<T>` evaluated with `T = number` and then with `T = string`
+returns the first result. Keying it on the frame (`flattened_alias_bindings`)
+did not restore the TS2352 by itself, and the file is not mine, so it is
+reported, not changed.
+
+### 5.2 Measured
+
+Frozen base: the integration head `6cdb344`. `diagverdictdump` RIGHT 5431,
+EMPTY_RIGHT 5590, WRONG 1160, EMPTY_WRONG 57; `verdictdump` RIGHT 548747,
+WRONG 6644, GAP 900. Unfiltered, the whole branch (r5-declared2 re-applied,
+§1–§4, the fill-missing diff, §5.1) against it:
+
+| | base | after |
+|---|---|---|
+| diagnostics RIGHT + EMPTY_RIGHT | 11021 | 11036 (+15) |
+| type lines RIGHT | 548747 | 548865 (+118) |
+| losses (diag / types / base-RIGHT keys missing) | | 0 / 0 / 0 |
+
+Cases converted: `enumAssignmentCompat6`, `jsxChildWrongType`,
+`namespaceDisambiguationInUnion`, `parenthesisDoesNotBlockAliasSymbolCreation`,
+`spyComparisonChecking`, and all ten module configurations of
+`arbitraryModuleNamespaceIdentifiers_module`. Type gains, by case:
+`typeVariableConstraintIntersections` 19, `genericDefaults` 17 (the
+fill-missing diff), `variadicTuples2` 9, `partiallyNamedTuples` 9,
+`propTypeValidatorInference` 6, `intersectionsAndEmptyObjects` 4,
+`declarationEmitGenericTypeParamerSerialization2` 4,
+`namedTupleMembersErrors` 3, `ramdaToolsNoInfinite2` 3, two per
+`arbitraryModuleNamespaceIdentifiers_module` configuration, and smaller ones.
+That is r5-declared2's measured gains plus §2's and the fill-missing diff's.
+
+`slowcases`: clean on both dump pairs. recursiveConditionalCrash3: 81 s,
+exit 0. Ir (callgrind, `--singleThreaded --pretty false`, base binary vs
+this branch): generic-imports 342,993,333 → 342,957,086 (−0.01%);
+domain-model 1,190,055,384 → 1,146,632,065 (**−3.6%**). Median child CPU vs
+the base binary: domain-model 0.986 (21 samples); generic-imports 1.040 at
+21 samples, **1.028** at 41. `diagnostics_match: true` on both. Workspace
+tests pass; clippy reports nothing in `declared.rs`, `checker.rs` or
+`inference.rs`; fmt clean.

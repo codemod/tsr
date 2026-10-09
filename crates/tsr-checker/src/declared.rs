@@ -6781,6 +6781,30 @@ impl<'a> Checker<'a, '_> {
             crate::types::TypeData::Intersection { types, .. } => types,
             _ => vec![declared],
         };
+        // Native relates an intersection structurally, constituent by
+        // constituent, and probes alias variance only for object and
+        // conditional types (relater.go:3389). A constituent that is a
+        // reference to an alias whose body is an instantiation expression
+        // (`type ClassAlias<T> = typeof Class<T>`) is still a member-less name
+        // mint in this port: the body evaluates (`tsr-2zk.1006`), but a
+        // reference to the alias does not carry its members (`new a()` on
+        // `a: ClassAlias<number>` answers `error`). Against such a mint the
+        // structural relation is undecidable, so keep the alias's own name
+        // mint, whose relation reads the alias's arguments, until those
+        // references carry the instantiated structure
+        // (`docs/parity/notes/r5-declared3.md` §5).
+        for &constituent in &constituents {
+            if let Some(&(owner, _)) = self.type_reference_targets.get(&constituent)
+                && self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS)
+                && let Some(declaration) = self.type_alias_declaration_of(owner)
+                && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+                && let Some(TypeNode::TypeQueryNode(query)) =
+                    alias.r#type.and_then(Self::skip_type_parentheses)
+                && !query.type_arguments.is_empty()
+            {
+                return None;
+            }
+        }
         let mapper: Vec<_> = parameters.iter().copied().zip(arguments.iter().copied()).collect();
         let mut instantiated = Vec::with_capacity(constituents.len());
         for constituent in constituents {
