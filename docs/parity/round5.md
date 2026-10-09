@@ -1248,3 +1248,24 @@ a written constraint naming the local alias `Outer` is reused where `Outer`
 is out of scope. Native prints `T_1 extends T = T`. The +26 type lines they
 measured are not in this round. `tsr-2zk.1118` holds the work, with that test
 as its falsifier.
+
+## Round 6 dispatch
+
+The goal (99.9% parity, TSR/tsgo wall ≤0.50) is not met. Round 6 resumes
+from main `17265fac`, with ten boxes taking round 5's handoff:
+
+| Box | Items |
+|---|---|
+| r6-relater | `.1124`, `.1065` |
+| r6-nodereuse | `.1118`, `.1129` |
+| r6-printer | `.1114`, `.1127`, `.1128` |
+| r6-declared | `.1115`, `.1123` |
+| r6-mapped | `.16.71`, `.16.100`, `.16.8`, `.16.91` |
+| r6-isolated | `.1125` |
+| r6-errorsplit | `.1130` |
+| r6-jsdoc | `.1110`, `.1100` |
+| r6-checkperf | `.1131` |
+| r6-smallcodes4 | `.1132` |
+
+Main's own claims stay untouched: `.11.5`, `.16.2`, `.17`, `.17.1`, `.22`,
+`.38`, `.39`, `.4.12`, `.7.8` and `.9.7`.
