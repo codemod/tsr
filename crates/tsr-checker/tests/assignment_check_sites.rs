@@ -112,3 +112,28 @@ fn an_any_source_fails_only_against_never() {
     );
     assert_eq!(actual, [ts2322("any", "never")]);
 }
+
+/// The async iteration protocol, appended to [`LIB`].
+const ASYNC_LIB: &str = "interface SymbolConstructor { readonly asyncIterator: unique symbol; }\n\
+    interface PromiseLike<T> { then<R1 = T, R2 = never>(onfulfilled?: ((value: T) => R1 | PromiseLike<R1>) | null, onrejected?: ((reason: any) => R2 | PromiseLike<R2>) | null): PromiseLike<R1 | R2>; }\n\
+    interface Promise<T> { then<R1 = T, R2 = never>(onfulfilled?: ((value: T) => R1 | PromiseLike<R1>) | null, onrejected?: ((reason: any) => R2 | PromiseLike<R2>) | null): Promise<R1 | R2>; }\n\
+    interface AsyncIterator<T, R = any, N = any> { next(...[value]: [] | [N]): Promise<IteratorResult<T, R>>; }\n\
+    interface AsyncIterable<T, R = any, N = any> { [Symbol.asyncIterator](): AsyncIterator<T, R, N>; }\n\
+    interface AsyncIterableIterator<T, R = any, N = any> extends AsyncIterator<T, R, N> {\n\
+        [Symbol.asyncIterator](): AsyncIterableIterator<T, R, N>;\n\
+    }\n\
+    interface AsyncGenerator<T = unknown, R = any, N = any> extends AsyncIterator<T, R, N> {\n\
+        [Symbol.asyncIterator](): AsyncGenerator<T, R, N>;\n\
+    }\n";
+
+#[test]
+fn an_async_generator_yield_relates_the_awaited_operand() {
+    // types.asyncGenerators.es2018.2 38:11, 41:12.
+    let actual = diagnostics(&format!(
+        "{ASYNC_LIB}\
+         async function* f1(): AsyncIterableIterator<number> {{ yield \"a\"; }}\n\
+         async function* f2(): AsyncIterableIterator<number> {{ yield* [\"a\", \"b\"]; }}\n\
+         async function* f3(): AsyncIterableIterator<number> {{ yield 1; yield* [2]; }}\n"
+    ));
+    assert_eq!(actual, [ts2322("string", "number"), ts2322("string", "number")]);
+}
