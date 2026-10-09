@@ -1,0 +1,179 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index 8f23e35..3cb4c5a 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -10491,6 +10491,75 @@ impl Checker<'_, '_> {
+         );
+     }
+ 
++    /// TS2702 / TS2713 — `checkAndReportErrorForUsingTypeAsNamespace`
++    /// (`checker.go:1608`), the arm of `onFailedToResolveSymbol` a qualified
++    /// name's left side reaches when its namespace lookup fails.
++    ///
++    /// `resolveSymbol(resolveName(left, Type &^ Namespace))`: a type that is
++    /// not also a namespace. When the type's declared type has a property of
++    /// the right side's name the whole qualified name gets TS2713 (`C2.Red`
++    /// for `type C2 = typeof Color`); otherwise the left side gets TS2702.
++    /// An alias answers when its resolved flags carry the meaning, as
++    /// `getSymbol` admits it.
++    fn check_using_type_as_namespace(
++        &mut self,
++        qualified: NodeId,
++        left: NodeId,
++        name: &str,
++        member: &str,
++    ) -> bool {
++        let meaning = SymbolFlags::TYPE.difference(SymbolFlags::NAMESPACE);
++        let Some(symbol) = self.binder.resolve_name(
++            self.nodes,
++            self.node_map,
++            left,
++            name,
++            meaning | SymbolFlags::ALIAS,
++        ) else {
++            return false;
++        };
++        let symbol = self.binder.merged_symbol(symbol);
++        let symbol = if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
++            if !self.get_symbol_flags(symbol).intersects(meaning) {
++                return false;
++            }
++            let Some(target) = self.resolve_alias(symbol) else { return false };
++            self.binder.merged_symbol(target)
++        } else {
++            symbol
++        };
++        let Some(file) = self.source_file_of_for_diagnostics(left) else { return true };
++        // `getPropertyOfType` reads through `getReducedApparentType`, so a
++        // type parameter answers its constraint's property (`T.abc` for
++        // `T extends { abc: number }`).
++        let declared = self.get_declared_type_of_symbol(symbol);
++        let reduced = self.get_reduced_type(declared);
++        let apparent = self.apparent_type(reduced);
++        let apparent = self.get_reduced_type(apparent);
++        if self.get_property_of_type(apparent, member).is_some() {
++            let span = self.error_span(qualified);
++            self.report(
++                file,
++                Diagnostic::with_args(
++                    &messages::CANNOT_ACCESS_0_1_BECAUSE_0_IS_A_TYPE_BUT_NOT_A_NAMESPACE_DID_YOU_MEAN_TO_RETRIEVE_THE_TYPE_OF_THE_PROPERTY_1_IN_0_WITH_0_1,
++                    span,
++                    [name.to_string(), member.to_string()],
++                ),
++            );
++            return true;
++        }
++        let span = self.nodes.span(left);
++        self.report(
++            file,
++            Diagnostic::with_args(
++                &messages::_0_ONLY_REFERS_TO_A_TYPE_BUT_IS_BEING_USED_AS_A_NAMESPACE_HERE,
++                span,
++                [name.to_string()],
++            ),
++        );
++        true
++    }
++
+     /// TS2694 — `Namespace '{0}' has no exported member '{1}'.`
+     ///
+     /// `resolveEntityName`'s qualified-name failure arm (`checker.go:15884`),
+@@ -10603,6 +10672,9 @@ impl Checker<'_, '_> {
+             // a conditional type is the corpus's shape — reaches a different
+             // arm entirely, and reporting TS2503 there was 60 wrong lines.
+             // §302.
++            if self.check_using_type_as_namespace(node, left, &namespace_name, &member) {
++                return;
++            }
+             if [SymbolFlags::TYPE, SymbolFlags::VALUE, SymbolFlags::NAMESPACE].into_iter().any(
+                 |meaning| {
+                     self.binder
+@@ -10630,6 +10702,13 @@ impl Checker<'_, '_> {
+         let namespace = self.binder.merged_symbol(namespace);
+         let namespace = if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
+         {
++            // `getSymbol` admits an alias only when `getSymbolFlags(alias)`
++            // has the namespace meaning; an alias of a class or interface is
++            // not found, and the failure arm asks whether it is a type.
++            if !self.get_symbol_flags(namespace).intersects(SymbolFlags::NAMESPACE) {
++                self.check_using_type_as_namespace(node, left, &namespace_name, &member);
++                return;
++            }
+             let Some(target) = self.resolve_alias(namespace) else { return };
+             self.binder.merged_symbol(target)
+         } else {
+diff --git a/crates/tsr-checker/tests/type_used_as_namespace.rs b/crates/tsr-checker/tests/type_used_as_namespace.rs
+new file mode 100644
+index 0000000..aaacde2
+--- /dev/null
++++ b/crates/tsr-checker/tests/type_used_as_namespace.rs
+@@ -0,0 +1,69 @@
++//! TS2702 / TS2713 — `checkAndReportErrorForUsingTypeAsNamespace`
++//! (`checker.go:1608`), reached from `onFailedToResolveSymbol` when a
++//! qualified type name's left side is not a namespace. Expectations were
++//! checked against a native `tsgo` built from the pinned submodule.
++
++use tsr_ast::NodeId;
++use tsr_checker::Checker;
++use tsr_checker::check::FileContext;
++use tsr_core::Arena;
++
++/// The codes reported, sorted.
++fn codes(source: &str) -> Vec<String> {
++    let arena = Arena::new();
++    let mut nodes = tsr_ast::NodeTable::default();
++    let mut node_map = tsr_ast::NodeMap::default();
++    let file = tsr_parser::parse_into(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("a.ts"),
++        &mut nodes,
++        &mut node_map,
++    );
++    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
++    let bound = tsr_binder::bind_into(
++        tsr_binder::BindResult::empty(),
++        &arena,
++        file.source_file,
++        &nodes,
++        tsr_binder::FileInfo { name: "a.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &nodes, &node_map);
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    let mut codes: Vec<String> = checker
++        .diagnostics()
++        .iter()
++        .map(|(_, d)| d.code().to_string())
++        .filter(|code| code == "TS2702" || code == "TS2713" || code == "TS2503")
++        .collect();
++    codes.sort();
++    codes
++}
++
++#[test]
++fn an_interface_without_the_member_is_ts2702() {
++    assert_eq!(codes("interface OhNo {}\ndeclare let y: OhNo.hello;"), ["TS2702"]);
++}
++
++#[test]
++fn an_interface_with_the_member_is_ts2713() {
++    assert_eq!(codes("interface G { bar: string }\nvar z: G.bar;"), ["TS2713"]);
++}
++
++#[test]
++fn a_type_parameter_reads_its_constraints_member() {
++    assert_eq!(
++        codes("function foo<T extends { abc: number }>(x: T) { let a: T.abc = x.abc; }"),
++        ["TS2713"]
++    );
++}
++
++#[test]
++fn a_namespace_is_not_a_type_used_as_one() {
++    assert!(codes("namespace N { export type A = number }\nvar n: N.A;").is_empty());
++}
++
++#[test]
++fn a_name_that_is_nothing_is_still_ts2503() {
++    assert_eq!(codes("var q: Nothing.A;"), ["TS2503"]);
++}

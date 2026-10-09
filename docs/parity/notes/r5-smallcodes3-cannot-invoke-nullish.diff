@@ -1,0 +1,94 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index 9590237..e5d1bb2 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -2370,10 +2370,18 @@ impl Checker<'_, '_> {
+         if !self.strict_null_checks && !remainder_nullable {
+             return NonNullCallee::Unknown;
+         }
+-        // `reportCannotInvokePossiblyNullOrUndefinedError` (TS2721-TS2723) is
+-        // not emitted yet: it trusts the callee's narrowed type, and this
+-        // port's narrowing of `super.m && super.m()` and of a discriminated
+-        // `opts.a || opts.f()` still answers the declared nullable type.
++        // `reportCannotInvokePossiblyNullOrUndefinedError` (`checker.go:9894`).
++        let message = if facts.contains(crate::flow::TypeFacts::IS_UNDEFINED) {
++            if facts.contains(crate::flow::TypeFacts::IS_NULL) {
++                &messages::CANNOT_INVOKE_AN_OBJECT_WHICH_IS_POSSIBLY_NULL_OR_UNDEFINED
++            } else {
++                &messages::CANNOT_INVOKE_AN_OBJECT_WHICH_IS_POSSIBLY_UNDEFINED
++            }
++        } else {
++            &messages::CANNOT_INVOKE_AN_OBJECT_WHICH_IS_POSSIBLY_NULL
++        };
++        let span = self.error_span(callee);
++        self.report_at_node(callee, Diagnostic::new(message, span));
+         if remainder_nullable { NonNullCallee::Error } else { NonNullCallee::Type(non_nullable) }
+     }
+ 
+diff --git a/crates/tsr-checker/tests/cannot_invoke_possibly_nullish.rs b/crates/tsr-checker/tests/cannot_invoke_possibly_nullish.rs
+new file mode 100644
+index 0000000..9a12ae8
+--- /dev/null
++++ b/crates/tsr-checker/tests/cannot_invoke_possibly_nullish.rs
+@@ -0,0 +1,61 @@
++//! TS2721–TS2723 — `reportCannotInvokePossiblyNullOrUndefinedError`
++//! (`checker.go:9894`), the reporter `resolveCallExpression` hands to
++//! `checkNonNullTypeWithReporter` (`checker.go:8511`). Expectations were
++//! checked against a native `tsgo` built from the pinned submodule.
++
++use tsr_ast::NodeId;
++use tsr_checker::Checker;
++use tsr_checker::check::FileContext;
++use tsr_core::Arena;
++
++fn codes(source: &str) -> Vec<String> {
++    let arena = Arena::new();
++    let mut nodes = tsr_ast::NodeTable::default();
++    let mut node_map = tsr_ast::NodeMap::default();
++    let file = tsr_parser::parse_into(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("a.ts"),
++        &mut nodes,
++        &mut node_map,
++    );
++    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
++    let bound = tsr_binder::bind_into(
++        tsr_binder::BindResult::empty(),
++        &arena,
++        file.source_file,
++        &nodes,
++        tsr_binder::FileInfo { name: "a.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &nodes, &node_map);
++    checker.set_strict_null_checks(true);
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    let mut codes: Vec<String> = checker
++        .diagnostics()
++        .iter()
++        .map(|(_, d)| d.code().to_string())
++        .filter(|code| matches!(code.as_str(), "TS2721" | "TS2722" | "TS2723"))
++        .collect();
++    codes.sort();
++    codes
++}
++
++#[test]
++fn a_possibly_undefined_callee_is_ts2722() {
++    assert_eq!(codes("declare const f: (() => void) | undefined;\nf();"), ["TS2722"]);
++}
++
++#[test]
++fn a_possibly_null_callee_is_ts2721() {
++    assert_eq!(codes("declare const f: (() => void) | null;\nf();"), ["TS2721"]);
++}
++
++#[test]
++fn a_possibly_null_or_undefined_callee_is_ts2723() {
++    assert_eq!(codes("declare const f: (() => void) | null | undefined;\nf();"), ["TS2723"]);
++}
++
++#[test]
++fn a_narrowed_callee_does_not_report() {
++    assert!(codes("declare const f: (() => void) | undefined;\nif (f) f();").is_empty());
++}
