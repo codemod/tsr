@@ -54,7 +54,6 @@ use crate::types::TypeId;
 impl<'a> Checker<'a, '_> {
     /// The type of a `typeof import(…)` node, or `None` where this port
     /// does not answer (the caller keeps its gap).
-    #[expect(dead_code, reason = "consumer: r6-typesroots2-import-type-value-meaning.diff")]
     pub(crate) fn import_type_value_meaning(
         &mut self,
         node: &tsr_ast::ImportTypeNode<'a>,
