@@ -44,7 +44,8 @@ checks, not a resolution difference.
 | C1. TypeScript-only annotations in JavaScript files | `getTypeFromTypeReference` reached by `checkSourceElement` in a `.js` file | fillInMissingTypeArgsOnJSConstructCalls, parserArrowFunctionExpression10, parserArrowFunctionExpression17 | §6, diff `r6-names-js-type-annotations` |
 | C2. JSDoc type names | JSDoc arms of `resolveTypeReferenceName`; script-file typedefs in `globals` | jsdocResolveNameFailureInTypedef, typedefScope1, recursiveResolveDeclaredMembers | open |
 | D. parameter initialisers | `resolveName`'s `useOuterVariableScopeInParameter` (`binder/nameresolver.go:74`, `:346`) | functionLikeInParameterInitializer(es2015), parameterInitializersForwardReferencing(es2015) | open |
-| E. keyword-spelled identifiers | `onFailedToResolveSymbol`'s six-name `isPrimitiveTypeName`; `typeof null` | parserSymbolIndexer5 (TS2552), invalidTypeOfTarget | open |
+| E1. non-primitive keyword spellings as values | `checkAndReportErrorForUsingTypeAsValue`'s six-name `isPrimitiveTypeName` (`checker.go:1637`) | parserSymbolIndexer5 (TS2552) | §7, diff `r6-names-primitive-spellings` |
+| E2. `typeof null` | `parseTypeQuery`'s reserved-word entity name | invalidTypeOfTarget | open |
 | F. parse recovery | parser trees that differ from native | arrowFunctionsMissingTokens, YieldStarExpression2_es6, bigintArbirtraryIdentifier, importDeferTypeConflict2, parserSuperExpression2, classExpressionWithDecorator1 | open |
 | G. spelling suggestions | `getSpellingSuggestionForName` at an export specifier | duplicateErrorNameNotFound (TS2552) | open |
 | H. module augmentation | augmentation merge (`tsr-2zk.38`, main's) | moduleAugmentationInAmbientModule1, moduleAugmentationInAmbientModule5 (TS2552) | routed |
@@ -60,6 +61,7 @@ function it wires in `name_slots.rs`, and adds its test under
 | 1 | `r6-names-value-slots.diff` | +6 cases | 0 | 3,382/1,089 → 3,363/1,089 |
 | 2 | `r6-names-empty-for-of.diff` | +4 cases | 0 | 3,382/1,089 → 3,382/1,085 |
 | 3 | `r6-names-js-type-annotations.diff` | +3 cases | 0 | 3,382/1,089 → 3,378/1,089 |
+| 4 | `r6-names-primitive-spellings.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 
 Diffs 1–3 applied together in this order: +13 cases, 0 losses on both
 dumps, rows 3,382/1,089 → 3,359/1,085, types dump identical to the base
@@ -174,3 +176,24 @@ comment in `check.rs` in place, noting the correction.
 **Falsifier.** A `.js` baseline that has TS8010 on an annotation with an
 unresolvable name and no TS2304 beside it. The probe above and the corpus
 have none.
+
+## §7 Cluster E1: `symbol`, `bigint` and `object` used as values
+
+`check_value_identifier` routed ten keyword spellings away from the cascade
+and, after §880/§948, let native's six (`any`, `string`, `number`,
+`boolean`, `never`, `unknown`) through to TS2693. The other four stayed
+declined on the reasoning that a rule reporting TS2693 for them was wrong.
+It was, but silence is wrong too: native's `isPrimitiveTypeName`
+(`checker.go:1637`) does not list them, so
+`checkAndReportErrorForUsingTypeAsValue` (`checker.go:1662`) passes on and
+the ordinary cascade runs: the spelling suggestion, then TS2304. `void` never
+reaches here (it parses as a `VoidExpression`).
+
+Native probe (`tsgo --target es2015`): `let a = symbol` → TS2552 *Did you
+mean 'Symbol'?*; `bigint` → TS2304; `object` → TS2552 *'Object'*; `string`
+→ TS2693; `class E extends symbol {}` → TS2552. The port with the diff
+matches every row.
+
+The diff deletes the four-name early return and corrects the §948 comment
+in place. Measured alone: +1 case (`parserSymbolIndexer5`), 0 losses,
+missing rows −1, no new extra row.
