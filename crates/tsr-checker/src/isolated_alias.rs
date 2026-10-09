@@ -554,7 +554,7 @@ impl Checker<'_, '_> {
         }) else {
             return;
         };
-        if !self.decorated_node_can_be_decorated(node, typed) {
+        if !self.node_can_be_decorated(node, typed) {
             return;
         }
         // `markLinkedReferences`' own guards: `canCollectSymbolAliasAccessibilityData`
@@ -783,73 +783,6 @@ impl Checker<'_, '_> {
     fn is_const_enum_or_const_enum_only_module(&self, symbol: SymbolId) -> bool {
         let flags = self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags;
         flags.intersects(SymbolFlags::CONST_ENUM)
-    }
-
-    /// `ast.NodeCanBeDecorated(c.legacyDecorators, node, node.Parent,
-    /// node.Parent.Parent)` (`ast/utilities.go:4254`), with `CanHaveDecorators`
-    /// folded in as the kinds it lists. `grammar.rs` has a port of the same
-    /// predicate, private to that file.
-    fn decorated_node_can_be_decorated(&self, node: NodeId, typed: Node<'_>) -> bool {
-        let legacy = self.legacy_decorators;
-        let parent = self.nodes.parent(node);
-        let parent_kind = parent.map(|parent| self.nodes.kind(parent));
-        let parent_is_class_declaration = parent_kind == Some(SyntaxKind::ClassDeclaration);
-        let parent_is_class_like =
-            matches!(parent_kind, Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression));
-        let private_name = |name: tsr_ast::PropertyName<'_>| {
-            matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
-        };
-        let class_member = |body: bool| {
-            body && (if legacy { parent_is_class_declaration } else { parent_is_class_like })
-        };
-        match typed {
-            Node::ClassDeclaration(_) => true,
-            Node::ClassExpression(_) => !legacy,
-            Node::PropertyDeclaration(property) => {
-                !(legacy && private_name(property.name))
-                    && ((legacy && parent_is_class_declaration)
-                        || (!legacy
-                            && parent_is_class_like
-                            && !tsr_ast::has_syntactic_modifier(
-                                property.modifiers,
-                                SyntaxKind::AbstractKeyword,
-                            )
-                            && !tsr_ast::has_syntactic_modifier(
-                                property.modifiers,
-                                SyntaxKind::DeclareKeyword,
-                            )))
-            }
-            Node::MethodDeclaration(method) => {
-                !(legacy && private_name(method.name)) && class_member(method.body.is_some())
-            }
-            Node::GetAccessorDeclaration(accessor) => {
-                !(legacy && private_name(accessor.name)) && class_member(accessor.body.is_some())
-            }
-            Node::SetAccessorDeclaration(accessor) => {
-                !(legacy && private_name(accessor.name)) && class_member(accessor.body.is_some())
-            }
-            Node::ParameterDeclaration(_) => {
-                if !legacy {
-                    return false;
-                }
-                let Some(parent) = parent else { return false };
-                let (body, parameters) = match self.node_map.get(parent) {
-                    Some(Node::ConstructorDeclaration(n)) => (n.body.is_some(), n.parameters),
-                    Some(Node::MethodDeclaration(n)) => (n.body.is_some(), n.parameters),
-                    Some(Node::SetAccessorDeclaration(n)) => (n.body.is_some(), n.parameters),
-                    _ => return false,
-                };
-                // `GetThisParameter(parent) != node`.
-                let this_parameter = parameters.first().filter(|first| {
-                    matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
-                });
-                body && this_parameter.and_then(|first| first.node_id) != Some(node)
-                    && self.nodes.parent(parent).is_some_and(|grandparent| {
-                        self.nodes.kind(grandparent) == SyntaxKind::ClassDeclaration
-                    })
-            }
-            _ => false,
-        }
     }
 
     /// `resolveExternalModule`'s resolution-diagnostic branch (pinned
