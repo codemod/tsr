@@ -609,3 +609,17 @@ lookup per generic reference read. Not ported here: the non-generic arms
 every non-generic class member read; `typeParameterExtendingUnion1/2`
 (`T extends Cat | Dog`, `a.run`) wait on them.
 Converts `sliceResultCast`.
+
+## 25. A miss on `this` reports against the class (tsr-2zk.4)
+
+`checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11349`) calls
+`reportNonexistentProperty(right, IfElse(isThisTypeParameter(leftType),
+apparentType, leftType))`: a miss on a polymorphic `this` receiver is asked
+and printed against its apparent type, the class (`Property 'foo' does not
+exist on type 'A'.`, `D<T>` for a generic class), including the TS2576 static
+and TS2551 suggestion arms. `check_nonexistent_property` printed `this`. The
+property-access arms now use `containing` (`is_minted_this_type` →
+`apparent_type`); element access keeps its receiver
+(`getPropertyTypeForIndexType` has no such substitution). No cache.
+Converts 25 cases, among them `autoLift2`, `es6DeclOrdering`, `statics`,
+`typeOfThisInInstanceMember`, `destructuringParameterProperties2/5`.
