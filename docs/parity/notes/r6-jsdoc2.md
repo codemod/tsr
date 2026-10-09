@@ -44,8 +44,8 @@ checker-side `in_js_file` decline is never native's. Per case:
 | `asyncArrowFunction_allowJs`, `checkJsdocSatisfiesTag15` (42,21), `argumentsReferenceInFunction1_Js` (1,25), `overloadTag2` (25,20) | TS7006 | `check_implicit_any_parameters`' JS decline | §2.1 |
 | `argumentsObjectCreatesRestForJs`, `argumentsPropertyNameInJsMode1`/`2`, `callWithMissingVoidUndefinedUnknownAnyInJs` ×2 | TS2554 | `getArgumentArityError`: `calls.rs`/`call_arity.rs` JS gates | r6-callreport, left |
 | `contextuallyTypedParametersOptionalInJSDoc`, `argumentsReferenceInFunction1_Js` (13,29) | TS2345 | `isSignatureApplicable`: same gates | r6-callreport, left |
-| `jsFileCompilationBindStrictModeErrors` | TS2703 | `check_reference_expression`'s JS decline (`check.rs`) | next |
-| `jsFileCompilationBindReachabilityErrors(alwaysstrict=true)` | TS7028 | `checkLabeledStatement`'s unused-label arm, unported (TS too) | next |
+| `jsFileCompilationBindStrictModeErrors` | TS2703 | `check_reference_expression`'s JS decline (`check.rs`) | §2.2, converted |
+| `jsFileCompilationBindReachabilityErrors(alwaysstrict=true)` | TS7028 | `checkLabeledStatement`'s unused-label arm, unported (TS too) | §2.2, converted |
 | `controlFlowInstanceof` | TS2339 on `{}` | `getInstanceType`'s `emptyObjectType` leg (`flow.go:979`) declines in `flow.rs`; the TypeScript twin fails the same | main, routed |
 | `classFieldSuperAccessibleJs1` | TS2565 | `getFlowTypeOfAccessExpression`'s `assumeUninitialized` arm (`checker.go:11416`) unported in `members.rs` | main, routed |
 | `checkJsdocSatisfiesTag10` | TS2353 | excess property against `Partial<Record<Keys, unknown>>`; the TypeScript twin (`satisfies`) fails the same | relater lane, routed |
@@ -146,3 +146,36 @@ reparsed wrapper this rule now reads as context — e.g. a `@type` cast whose
 type has no call signature. The proof answers "has context" for any typed
 wrapper, which can only withhold a report; a case wanting the report would
 show the withholding is too wide.
+
+### 2.2 `checkDeleteExpression` and `checkLabeledStatement`'s unused label
+
+**TS2703 in JS.** `check_reference_expression` (`check.rs`; native
+`checkReferenceExpression`, `checker.go:13130`, and `checkDeleteExpression`,
+`:10808`) returned on `in_js_file`. Its comment named
+`plainJSBinderErrors.js`'s three TS2703 lines; native reports them too and
+the program drops them, TS2703 not being a `plainJSErrors` code — which this
+port's program filter (`is_plain_js_error`) now applies the same way. Diff
+[`r6-jsdoc2-js-delete-operand.diff`](r6-jsdoc2-js-delete-operand.diff): the
+decline goes. Test `tsr-checker/tests/js_delete_operand.rs` (in the diff),
+failing without it.
+
+**TS7028.** Not a JS gate: `checkLabeledStatement`'s second arm
+(`checker.go:4219`) was unported for every file. The binder already records
+the fact native records as `NodeFlagsUnreachable` on the label
+(`bindLabeledStatement`, `binder.go:2158`; this port's
+`NodeFacts::UNUSED_LABEL`); the checker reports it at the label when
+`allowUnusedLabels` is explicitly `false` (unset is `errorOrSuggestion`'s
+suggestion, never in `.errors.txt`). Diff
+[`r6-jsdoc2-unused-label.diff`](r6-jsdoc2-unused-label.diff)
+(`check.rs` `check_unused_label`, `checker.rs` `unused_label_is_error`).
+Test `tsr-checker/tests/unused_label.rs` (in the diff), failing without it.
+
+**Measured** (both diffs together, unfiltered against `2e26f22`; they touch
+disjoint hunks and their codes are disjoint, so the attribution is by
+code): diagnostics **5,637 → 5,640 RIGHT (+3 cases)** — TS2703:
+`jsFileCompilationBindStrictModeErrors`; TS7028:
+`jsFileCompilationBindReachabilityErrors(alwaysstrict=true)` and
+`reachabilityChecks3` (TypeScript). No other row changed; types unchanged;
+zero losses on both dumps; `slowcases` clean. Ir domain-model
+1,092,012,508, generic-imports 343,092,233 (noise). The diffs apply in
+either order and independently of §2.1's.
