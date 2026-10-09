@@ -149,6 +149,7 @@ pub mod index_signatures;
 pub mod indexed;
 pub mod inference;
 mod instantiation_expressions;
+mod instantiation_type_query_reuse;
 pub mod intersections;
 pub mod intrinsics;
 mod isolated_alias;

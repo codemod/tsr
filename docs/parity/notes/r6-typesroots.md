@@ -151,6 +151,52 @@ parserComputedPropertyName14/18/19. slowcases clean. Ir ×1.00049 /
 member while this port drops it would show as a loss. The unit tests
 (`tests/type_literal_index_symbols.rs`, in the diff) pin all three fates.
 
+## 4. `.16.36`: the node builder reuses an instantiation expression's `typeof` node (diff)
+
+**Re-measured.** Of the cluster's 11 lines, 7 are the self-referential
+queries in circularInstantiationExpression and selfReferentialFunctionType
+(`declare function h<T>(): typeof h<T>`). r5-instexpr §2.5 declines these
+on purpose: native resolves signature returns lazily and never re-enters
+`h`, while this port completes returns eagerly. They wait on lazy signature
+returns, which this lane does not own. The other lines are
+arrayTypeOfTypeOf's `>xs3 : typeof Array<number>`, with the instantiated
+`ArrayConstructor` members printed in their place.
+
+**Forcing constraint.** `getInstantiationExpressionType`
+(`checker.go:10660`) records its node on the minted type. When that node is
+a `TypeQueryNode` and `getTypeFromTypeNode(existing) == t`,
+`createAnonymousTypeNodeEx` (`nodebuilderimpl.go:2816`) reuses the written
+node. So a type computed from `typeof f<A>` prints as written wherever it
+prints.
+
+**Port.** `crate::instantiation_type_query_reuse` re-mints the result of a
+`TypeQueryNode`'s computation with its written spelling. It copies the
+property table, signatures and index infos, and marks the new type in
+`alias_named_signature_types` so the site re-render keeps the text. The
+identity test is kept exactly: only a result minted by this node's own
+computation qualifies (not the expression type, not a pre-existing
+constraint, not a union or intersection constituent), and only with no
+alias frame open. An alias instantiation is a mapped copy upstream, not the
+node's type. Arguments print as the builder reuses them: a nested
+argument-free `typeof` as written, anything else as its type prints.
+
+**Approximation, stated.** Upstream re-checks each entity name's
+accessibility at the print site and falls back to the structural form. Text
+baked at creation cannot. Every corpus print of these types is in the
+declaring file. A site where the name is inaccessible would print the
+written text where native expands it.
+
+**Measured** (on top of §2-§3): types +4 WRONG→RIGHT, zero losses,
+diagnostics unchanged: arrayTypeOfTypeOf 2, and
+aliasInstantiationExpressionGenericIntersectionNoCrash2 2 (the alias
+declared types `typeof Class<T>`, `typeof fn<T>`). slowcases clean. Ir
+×1.00114 / ×0.99992 against the base binary, cumulative with §2-§3.
+`tests/type_query.rs`'s
+`an_instantiation_expression_instantiates_while_plain_typeof_answers`
+asserted the structural `(y: string) => string` for
+`var a: typeof identity<string>`. Native prints `typeof identity<string>`
+(the `FnAlias` line above is the same shape), so the diff flips it.
+
 ## Diffs, in apply order
 
 Every diff applies to `b18aec06` plus this branch's commits and the diffs
@@ -160,3 +206,6 @@ above it.
    `reference_arity.rs`, tests. +31 types, zero losses.
 2. `r6-typesroots-late-bound-index.diff` (§3): `declared.rs`,
    `type_literal_index_symbols.rs`, tests. +7 types, zero losses.
+3. `r6-typesroots-typeof-reuse.diff` (§4): `instantiation_expressions.rs`
+   (r6-declared), `instantiation_type_query_reuse.rs`, tests. +4 types,
+   zero losses. Independent of 1-2.
