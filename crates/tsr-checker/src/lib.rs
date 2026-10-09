@@ -98,6 +98,7 @@
 //! evidence until something deliberately wrong has been pushed through the whole
 //! path and seen to go red.
 
+mod alias_accessibility;
 pub mod array_literals;
 pub mod assertion_overlap;
 pub mod assertions;
