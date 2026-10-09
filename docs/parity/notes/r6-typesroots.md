@@ -281,6 +281,120 @@ The generic-key arm above it (`T[K]`) is unchanged.
 zero losses, diagnostics unchanged. slowcases clean. Ir ×1.00037 / ×0.99998
 cumulative. The cluster's two blocked cases wait on CLONE-BINDING-NAME.
 
+## 8. `.16.32`: the unqualified type-meaning import type, and its print (diff)
+
+**Re-measured.** All four finished-alone cases fail on `b18aec06` (23
+lines). They split into two roots.
+
+1. **Unqualified `import("./foo")` written as a type**
+   (declarationImportTypeAliasInferredAndEmittable, 8 lines).
+   `getTypeFromImportTypeNode` (`checker.go:24575`) resolves the module
+   through `resolveExternalModuleSymbol`, so `export = Conn` is the class.
+   With type meaning it answers `resolveImportSymbolType` →
+   `getTypeReferenceType(node, resolveSymbol(symbol))`
+   (`checker.go:24657`), which is the class instance type.
+   `get_type_from_import_type_node` (`declared.rs`) declined every
+   unqualified form. Ported here.
+2. **Qualified import types with written type arguments**
+   (declarationEmitNoInvalidCommentReuse1/2,
+   declarationEmitTopLevelNodeFromCrossFile2, 15 lines) and
+   `typeof import(...)` (importUsedInGenericImportResolves, 1 line). The
+   types instantiate easily. The blocker is the print: native writes
+   `import("./box").Box<…>` because no chain names `Box` at the site, and
+   this port's printer cannot qualify a symbol through its module
+   specifier at an arbitrary site (the NB-SYMBOL-CHAIN wall,
+   `docs/parity/notes/type-refs.md`). The existing argument-free arm
+   avoids the wall by minting the written text. Minting text for an
+   instantiated generic would bake its arguments' prints too. Not
+   attempted.
+
+**The print half of root 1.** The class instance type then printed `Conn`
+where native writes `import("./foo")`. `symbolToTypeNode` finds no
+accessible chain for the class at the use site, and `getContainersOfSymbol`
+(`symbolaccessibility.go:280`) offers the `export =` module, which the
+builder writes as an import type with no qualifier
+(`getSpecifierForModuleSymbol`, `nodebuilderimpl.go:1249`). TSR had this for
+the constructor side only (`export_equals_class_text_at`, `printing.rs`:
+`typeof import("./lib")`). `export_equals_class_instance_text_at` is the
+instance twin. It is hooked in `type_to_string_at_worker` (`checker.rs`)
+after the module-clone guard: `import * as Head` of an `export =` class can
+name the instance through the `Head` alias natively, and
+`symbol_chain.rs`'s
+`a_module_clone_alias_does_not_name_an_inaccessible_original_class` pins
+that this port declines there. Placing the arm before the guard failed that
+test. Non-generic classes only.
+
+**Measured** (alone on `b18aec06`): types +11 (6 GAP→RIGHT, 5 WRONG→RIGHT),
+zero losses, diagnostics unchanged: declarationImportTypeAliasInferredAndEmittable
+8, multiImportExport 2, reexportClassDefinition 1. Without the print half,
+the resolution alone turned 5 gaps into wrong `Conn` lines. slowcases clean.
+Ir ×0.99996 / ×0.99997.
+
+## 9. `.16.46`: the origin slice gate, measured and HELD (+35 / −2)
+
+`getUnionTypeWorker` (`checker.go:25705-25728`) builds a denormalized origin
+for any union made from named unions without overlap. `build_origin_union`'s
+§53 slice gate (`unions.rs`, no owner this round) declines when an origin
+entry is a non-union OBJECT (`string[] | Color`). Admitting non-union
+objects (`r6-typesroots-HELD-origin-slice-gate.diff`, one line) measured
+**+35 types** (TypeGuardWithEnumUnion 16 of 16, subtypeReductionUnionConstraints
++3, stableTypeOrdering 3, iterableWithNeverAsUnionMember 3,
+checkJsxChildrenProperty3/4 3+3, typeInferenceLiteralUnion 2,
+generatorYieldContextualType 2) **and 2 losses**:
+subtypeReductionUnionConstraints `:0:23` and `:0:32` (`Node` →
+`Document | Node`).
+
+**Cause of the losses, not this gate.** On `b18aec06`, `isNode(node)`
+narrowing `Document | Node` by the predicate `node is Node` is broken even
+without an origin. A plain `BarNode | Document | FooNode` stays un-narrowed.
+The base lines were RIGHT only because the gated declared type was a gap,
+and narrowing a gap answers the candidate. The narrowing fails because
+`narrowed_type_worker` (`flow.rs`) gets `Ternary::Unknown` from the relater
+and gives up. The relater's reasons instrument (`relater::reasons`) names
+**row 3, no members table**. The undecidable side is a type literal that
+recurses through a union alias:
+`type F = { kind: 'foo'; children: N }; type N = F | B`. An `interface F`
+in the same shape decides fine. The type literal's circular member resolves
+to a placeholder with no members table, where native resolves type-literal
+members lazily. Minimal repro: narrowing `B | { kind: 'document' }` by
+`node is N` stays whole.
+
+So the gate change is right, and it waits on that placeholder. The owner
+is the alias/type-literal resolution (`declared.rs`, r6-declared), with
+`DECLARED-TYPE-OF-TYPE-ALIAS-CIRCULARITY` the nearest triage cluster. The
+held diff applies independently of 1-7.
+
+## 10. What remains, with causes
+
+| Cluster | Remaining (non-RIGHT lines) | Cause | Owner |
+|---|---|---|---|
+| `.16.14` | keyofAndForIn 2, typeGuardsTypeParameters 4 (`{ [P in keyof T]: T[P]; }[Extract<keyof T, string>]` gaps) | The for-in key type is already right (types-triage-2 §FORIN). The deferred access needs `Extract<keyof T, string>` assignable to `keyof T`: RELATE-CONDITIONAL | r6-relater |
+| `.16.16` | recursiveGenericMethodCall 2 (`Generator<T, any, any>` against `Generator<T>`) | Return-annotation print of a default-filled reference, not type-parameter collection | r6-printer |
+| `.16.21` | genericTypeAliases 23, declarationEmitInferredTypeAlias4 5 | A generic alias declared in a function is never visible (`determineIfDeclarationIsVisible`, `emitresolver.go:131`: container is a Block, so `getIsDeclarationVisible` fails), so native expands `Foo<A[]>` to `A[] \| { x: A[] \| any; }`, with the recursive reference becoming `any` through the builder's visited set. TSR bakes the alias name at creation and has no structural re-render of an alias-named union with a visited set | r6-printer + r6-declared |
+| `.16.21` | inlineMappedTypeModifierDeclarationEmit 14, mappedTypeGenericInstantiationPreservesHomomorphism 5, declarationEmitNestedAnonymousMappedType 4 | A non-exported module alias printed from another file (no accessible chain). The expansion is the builder's mapped-type forms (`Exclude<…> extends infer T_1 extends keyof T ? { [P in T_1]: T[P]; } : never`) | r6-mapped + r6-printer |
+| `.16.21` | typeAliasesForObjectTypes 1 | A duplicate `type T2` declaration conflicts in the binder and gets its own symbol, which no chain reaches | binder (main) |
+| `.16.32` | 3 cases, 15 lines; importUsedInGenericImportResolves 1 | §8 root 2: printing `import("…").X<…>` for a symbol no chain names | r6-printer (NB-SYMBOL-CHAIN) |
+| `.16.36` | circularInstantiationExpression 4, selfReferentialFunctionType 5 | r5-instexpr §2.5's decline: eager signature returns close a cycle native never forms | main (lazy returns) |
+| `.16.46` | 22 + literalTypes2 10 | §9: held diff, waits on type-literal circular members | r6-declared |
+| `.16.34`, `.16.43`, `.16.47` | blocked cases only (intersectionTypeInference2, renamingDestructuredPropertyInFunctionType) | INFERENCE-REVERSE-MAPPED-INTERSECTION; CLONE-BINDING-NAME | other clusters |
+
+Closeable: `.16.34`, `.16.35`, `.16.40`, `.16.54` (already RIGHT on the
+base), and `.16.28`, `.16.41`, `.16.43`, `.16.47` (every finished-alone case
+RIGHT once diffs 1-7 land).
+
+## 11. The stack, measured whole
+
+Diffs 1-7 applied in order on `b18aec06`: types **+78** (68 WRONG→RIGHT,
+10 GAP→RIGHT) across 29 cases, **zero losses** on both dumps (diagnostics
+unchanged), slowcases clean. Ir ×1.00024 domain-model, ×0.99992
+generic-imports. `cargo test --workspace --release` passes. Clippy reports
+nothing in touched code (stable flags pre-existing code in
+`enum_initializer.rs`, `signatures.rs:4803`, `index_signatures.rs:247`,
+`unique_symbols.rs:103`, `tsr-dts/tests`). Coverage: checker_types 8,489 →
+**8,515** of 9,538 (89.00% → 89.27%), lines 472,939 → 473,016;
+checker_types_configured 1,716 → 1,717; diagnostics 4,636 of 5,502
+unchanged.
+
 ## Diffs, in apply order
 
 Every diff applies to `b18aec06` plus this branch's commits and the diffs
@@ -300,3 +414,9 @@ above it.
    tests. +6 types, zero losses. Independent of 1-4.
 6. `r6-typesroots-late-bound-destructuring-apparent.diff` (§7):
    `destructure.rs` (main). +2 types, zero losses. Independent of 1-5.
+7. `r6-typesroots-import-type-meaning.diff` (§8): `declared.rs`
+   (r6-declared), `checker.rs` (main), `import_type_meaning.rs`, tests.
+   +11 types, zero losses. Independent of 1-6.
+
+Held, not for application: `r6-typesroots-HELD-origin-slice-gate.diff`
+(§9, `unions.rs`): +35/−2. It waits on type-literal circular members.
