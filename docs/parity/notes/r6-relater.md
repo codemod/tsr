@@ -553,7 +553,8 @@ CLI output identical on both bench projects:
 
 Totals against §0: diagnostics RIGHT 5530 → 5536, EMPTY_RIGHT 5596 →
 5599, WRONG 1063 → 1057, EMPTY_WRONG 49 → 46 (+9 cases); types RIGHT
-549,853 → 549,883 (+30). `coverage`: checker_types 89.03%, diagnostics
+549,853 → 549,882 (+29; first written as 549,883 / +30 and corrected
+against the final dump). `coverage`: checker_types 89.03%, diagnostics
 84.37% (round 5 closed at 89.00% and 84.26%). `Ir` over the round:
 generic-imports 343,079,039 → 343,076,453 (−0.0008%), domain-model
 1,091,485,686 → 1,089,884,049 (−0.15%).
