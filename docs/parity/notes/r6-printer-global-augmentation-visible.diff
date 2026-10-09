@@ -1,0 +1,102 @@
+diff --git a/crates/tsr-checker/src/node_reuse.rs b/crates/tsr-checker/src/node_reuse.rs
+index 1cffb89..3f3b2a0 100644
+--- a/crates/tsr-checker/src/node_reuse.rs
++++ b/crates/tsr-checker/src/node_reuse.rs
+@@ -1119,6 +1119,24 @@ impl<'a> Checker<'a, '_> {
+         self.nodes.parent(current)
+     }
+ 
++    /// `ast.IsExternalModuleAugmentation` (`ast/utilities.go:3567`), with
++    /// `IsModuleAugmentationExternal` (`:1694`); `IsAmbientModule` is
++    /// `Checker::is_ambient_module_declaration`.
++    fn is_external_module_augmentation(&self, node: NodeId) -> bool {
++        if !self.is_ambient_module_declaration(node) {
++            return false;
++        }
++        let Some(parent) = self.nodes.parent(node) else { return false };
++        match self.node_map.get(parent) {
++            Some(Node::SourceFile(source)) => tsr_binder::is_external_module(source),
++            Some(Node::ModuleBlock(_)) => self.nodes.parent(parent).is_some_and(|grand| {
++                self.is_ambient_module_declaration(grand)
++                    && self.nodes.parent(grand).is_some_and(|file| self.is_global_source_file(file))
++            }),
++            _ => false,
++        }
++    }
++
+     fn is_global_source_file(&self, node: NodeId) -> bool {
+         matches!(self.node_map.get(node), Some(Node::SourceFile(source))
+             if !tsr_binder::is_external_module(source))
+@@ -1153,16 +1171,15 @@ impl<'a> Checker<'a, '_> {
+             | SyntaxKind::FunctionDeclaration
+             | SyntaxKind::EnumDeclaration
+             | SyntaxKind::ImportEqualsDeclaration => {
+-                let Some(container) = self.declaration_container(node) else { return false };
+-                // `IsExternalModuleAugmentation`: `declare module "m"` inside a
+-                // module file is always visible.
+-                if let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node)
+-                    && matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+-                    && matches!(self.node_map.get(container), Some(Node::SourceFile(source))
+-                        if tsr_binder::is_external_module(source))
+-                {
++                // `IsExternalModuleAugmentation`: `declare module "m"` or
++                // `declare global` inside a module file is always visible.
++                // The `global` arm is what makes a lib global merged from a
++                // module-shaped lib file (`Iterator`, redeclared inside
++                // `lib.es2025.iterator.d.ts`'s `declare global`) nameable.
++                if self.is_external_module_augmentation(node) {
+                     return true;
+                 }
++                let Some(container) = self.declaration_container(node) else { return false };
+                 let ambient_member = self.nodes.kind(node) != SyntaxKind::ImportEqualsDeclaration
+                     && self.nodes.kind(container) != SyntaxKind::SourceFile
+                     && self.nodes.flags(container).contains(tsr_ast::NodeFlags::AMBIENT);
+diff --git a/crates/tsr-conformance/tests/global_augmentation_reuse.rs b/crates/tsr-conformance/tests/global_augmentation_reuse.rs
+new file mode 100644
+index 0000000..fe3ff8d
+--- /dev/null
++++ b/crates/tsr-conformance/tests/global_augmentation_reuse.rs
+@@ -0,0 +1,43 @@
++//! A written reference to a global declared inside a module file's
++//! `declare global` is reused in a signature print
++//! (`docs/parity/notes/r6-printer.md` §1). Expectations from pinned native
++//! tsgo 5b1047d.
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++const SOURCE: &str = r#"// @strict: true
++// @filename: a.ts
++export {};
++declare global {
++    interface Pair<T, U = any> { first: T; second: U; }
++    namespace Outer { interface Inner<T, U = any> { v: T; w: U; } }
++}
++// @filename: b.ts
++function g(): Pair<number> { return null as any; }
++function h(p: Outer.Inner<string>) { return p; }
++declare const d: Pair<string>;
++"#;
++
++fn assertions(source: &str) -> Vec<String> {
++    let case = TestCase::parse("probe/global_augmentation_reuse", "a.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect()
++}
++
++#[test]
++fn a_global_augmentation_member_is_visible_to_node_reuse() {
++    let lines = assertions(SOURCE);
++    // `IsExternalModuleAugmentation` holds for `declare global` in a module
++    // file, so `Pair` is accessible and the written `Pair<number>` is reused;
++    // the type itself prints every argument.
++    for wanted in ["g : () => Pair<number>", "d : Pair<string, any>"] {
++        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
++    }
++}

@@ -7146,6 +7146,18 @@ impl<'a> Checker<'a, '_> {
                     let semantic = *self.declared_types.get(&symbol)?;
                     self.type_to_string_at(semantic, reference)?
                 } else {
+                    // The reused name must be one the node builder may emit
+                    // at the site: `trackExistingEntityName` and, when the
+                    // name does not resolve there, `serializeTypeName` both
+                    // ask `IsSymbolAccessible` (`nodecopy.go:374`,
+                    // `nodebuilderimpl.go:451`). A module's unexported alias
+                    // printed in another file is refused, and the slot is
+                    // serialized from its type.
+                    let accessible = crate::symbol_access::DeclarationEmitResolver::new(self)
+                        .is_type_symbol_accessible(symbol, reference);
+                    if !accessible {
+                        return None;
+                    }
                     self.reference_text_at(symbol, &[], reference)?
                 };
                 let mut arguments = Vec::new();
