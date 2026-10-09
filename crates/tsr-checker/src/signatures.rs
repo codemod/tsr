@@ -82,6 +82,10 @@ mod parameter {
     /// private: every reader goes through the canonical accessor
     /// [`crate::checker::Checker::parameter_type`], so the slot's
     /// publication state ([`Slot`]) is decided in one place.
+    // Four independent facts native reads off the symbol and its
+    // declaration (`isOptionalParameter`, rest, `isOptionalDeclaration`,
+    // `requiresAddingImplicitUndefined`); an enum would encode no invariant.
+    #[allow(clippy::struct_excessive_bools)]
     #[derive(Debug, Clone)]
     pub struct Parameter {
         /// The parameter's name, as written.
@@ -115,6 +119,16 @@ mod parameter {
         /// and also holds for a trailing initializer, whose symbol type
         /// takes no `undefined`.
         pub question: bool,
+        /// The emit resolver's `requiresAddingImplicitUndefined` for a
+        /// parameter (`emitresolver.go:601`): a **required** parameter with an
+        /// initializer (`isRequiredInitializedParameter`, `:625`; required
+        /// because a later parameter is), under strictNullChecks, whose
+        /// annotation does not already contain `undefined`.
+        /// `serializeTypeForDeclaration` (`nodebuilderimpl.go:2219`) then
+        /// prints `X | undefined` although the symbol's type is `X`:
+        /// `function g(x = "J", y: number)` prints
+        /// `(x: string | undefined, y: number) => …`.
+        pub implicit_undefined: bool,
     }
 
     impl Parameter {
@@ -134,6 +148,7 @@ mod parameter {
                 slot: Slot::Resolved(r#type),
                 written_text,
                 question: false,
+                implicit_undefined: false,
             }
         }
 
@@ -148,6 +163,7 @@ mod parameter {
                 slot: Slot::Symbol(symbol),
                 written_text: None,
                 question: false,
+                implicit_undefined: false,
             }
         }
 
@@ -1754,6 +1770,38 @@ impl<'a> Checker<'a, '_> {
                 slot.optional =
                     node.r#type.is_none() && node.dot_dot_dot_token.is_none() && index >= count;
             }
+            // `requiresAddingImplicitUndefinedWorker` (`emitresolver.go:601`)
+            // for a plain parameter. A parameter property's answer depends on
+            // the printing site (`isRequiredInitializedParameter`'s
+            // `enclosingDeclaration` arm, `:629`) and is not ported: it keeps
+            // the bare type, as before.
+            slot.implicit_undefined = self.strict_null_checks
+                && node.initializer.is_some()
+                && !slot.optional
+                && !node.modifiers.iter().any(|modifier| {
+                    matches!(
+                        modifier,
+                        tsr_ast::ModifierLike::Token(token)
+                            if matches!(
+                                token.kind,
+                                SyntaxKind::PublicKeyword
+                                    | SyntaxKind::PrivateKeyword
+                                    | SyntaxKind::ProtectedKeyword
+                                    | SyntaxKind::ReadonlyKeyword
+                                    | SyntaxKind::OverrideKeyword
+                            )
+                    )
+                })
+                && !(node.r#type.is_some() && {
+                    let declared = self.parameter_type(slot);
+                    declared == self.intrinsics.error
+                        || declared == self.intrinsics.undefined
+                        || matches!(
+                            &self.store.get(declared).data,
+                            crate::types::TypeData::Union { types, .. }
+                                if types.contains(&self.intrinsics.undefined)
+                        )
+                });
         }
 
         // §110 slice 2: `@returns {T}` is the annotation a JS declaration
@@ -2088,6 +2136,29 @@ impl<'a> Checker<'a, '_> {
         }
         let optional = self.get_optional_type(parameter_type, false);
         if optional == self.intrinsics.error { parameter_type } else { optional }
+    }
+
+    /// `serializeTypeForDeclaration`'s `addUndefinedForParameter` arm
+    /// (`nodebuilderimpl.go:2219`): the type a printer serializes for a
+    /// parameter the emit resolver says needs an implicit `undefined`
+    /// ([`Parameter::implicit_undefined`]), or `None` for every other
+    /// parameter, which takes the printer's ordinary arms.
+    ///
+    /// Native then compares the written annotation against the widened type,
+    /// fails, and prints the annotation's node plus `| undefined`
+    /// (`:2263-2276`). This serializes the widened type instead: the same
+    /// text for an annotation that prints as its type, which is every one
+    /// the corpus reaches here.
+    pub(crate) fn implicit_undefined_parameter_type(
+        &mut self,
+        parameter: &Parameter,
+        parameter_type: TypeId,
+    ) -> Option<TypeId> {
+        if !parameter.implicit_undefined {
+            return None;
+        }
+        let optional = self.get_optional_type(parameter_type, false);
+        (optional != self.intrinsics.error).then_some(optional)
     }
 
     /// The type of one signature parameter for a read that cannot resolve —
@@ -7851,7 +7922,12 @@ impl<'a> Checker<'a, '_> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            if let Some(text) = parameter.written_text.and_then(|written| {
+            if let Some(implicit) =
+                self.implicit_undefined_parameter_type(parameter, parameter_type)
+            {
+                let text = render(self, implicit);
+                out.push_str(&text);
+            } else if let Some(text) = parameter.written_text.and_then(|written| {
                 self.written_annotation_text_at(written, parameter_type, reference)
             }) {
                 out.push_str(&text);
@@ -7995,7 +8071,11 @@ impl<'a> Checker<'a, '_> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            if let Some(written) = parameter
+            if let Some(implicit) =
+                self.implicit_undefined_parameter_type(parameter, parameter_type)
+            {
+                out.push_str(&self.type_to_string(implicit));
+            } else if let Some(written) = parameter
                 .written_text
                 .and_then(|written| self.site_free_annotation_text(written, parameter_type))
             {

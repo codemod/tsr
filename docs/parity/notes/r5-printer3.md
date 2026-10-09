@@ -265,3 +265,56 @@ Design options, for a decision record before anyone builds one:
 Option 1 is the one that matches native; the measured payoff today is 4 type
 lines, so it waits on a cause that needs literal identity. Owner: the
 scanner (main).
+
+## 7. A required parameter with an initializer prints `| undefined`
+
+**Forcing constraint.** `serializeTypeForDeclaration`
+(`nodebuilderimpl.go:2219`) asks the emit resolver whether a parameter
+`requiresAddingImplicitUndefined` (`emitresolver.go:601`): a parameter that
+is **not** optional (`isOptionalParameter`: no `?`, and a later parameter is
+required) but has an initializer, under strictNullChecks, whose annotation
+does not already contain `undefined` (`isRequiredInitializedParameter`,
+`:625`; `declaredParameterTypeContainsUndefined`, `:605`, an error type
+counting as containing it). The printed type then takes `getOptionalType`,
+although the symbol's type does not: `function g(x = "J", y: number)` prints
+`(x: string | undefined, y: number) => number`; with an annotation the reuse
+arm fails against the widened type and prints the annotation's node plus
+`| undefined` (`:2263-2276`). The port printed the bare type.
+
+**Port.** `Parameter::implicit_undefined`, set beside `question` in
+`get_signature_from_declaration` from the declaration, and
+`Checker::implicit_undefined_parameter_type`, which every signature printer
+consults before its reuse arms (the arrow printer and `signature_to_string`
+in `signatures.rs`, `objects::signature_member_text`). It serializes the
+widened type rather than re-emitting the annotation with `| undefined`
+appended; the two print alike for an annotation that prints as its type,
+and no corpus line reaches the difference.
+
+Not ported: a parameter property (`constructor(public x = 1, y: number)`).
+`isRequiredInitializedParameter` answers by the printing site there
+(`enclosingDeclaration` function-like, `:629`); the flag stays off for a
+property modifier.
+
+**Measured** on top of §4, unfiltered: +7 type lines, 0 lost; +1 case
+(`defaultParameterAddsUndefinedWithStrictNullChecks`). Diagnostics
+unchanged; slowcases clean.
+Ir: domain-model 1,124,528,536 → 1,124,059,226 (−0.04%), generic-imports
+342,944,464 → 342,930,624; CLI output identical. The unit test
+`a_defaulted_parameter_is_optional_only_from_the_minimum_argument_count`
+checks under strictNullChecks and now expects the native
+`(x: number | undefined, y: number) => void`.
+
+The same arm in main's member printer (`Checker::signature_member_text_at`,
+`checker.rs`) measured **zero** transitions on top, so it is not shipped.
+
+## 8. Diff for declared.rs: a readonly array element is parenthesized
+
+`r5-printer3-readonly-array-element.diff`. `wrap_array_element_text`
+(`declared.rs`) wraps the `keyof`, `typeof` and `unique` operator spellings
+of an array element, and its comment held that `readonly`, the fourth,
+never reaches it. It does once the element is itself a readonly array or
+tuple: `ReadonlyArray<readonly [K, V]>` printed `readonly readonly [K, V][]`,
+native `readonly (readonly [K, V])[]` (the parenthesizer wraps a
+`TypeOperator` element of an array type). Measured on top of §4: +1 type
+line, 0 lost, +1 case (`overrideInterfaceProperty`); diagnostics unchanged,
+slowcases clean.

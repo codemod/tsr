@@ -1452,9 +1452,13 @@ fn a_defaulted_parameter_is_optional_only_from_the_minimum_argument_count() {
     // argument count is 2, so upstream's `isOptionalParameter` says no —
     // `parameterIndex >= minArgumentCount` is false. Treating every defaulted
     // parameter as optional would print `(x?: number, y: number)` here.
+    // This fixture checks under strictNullChecks, where the emit resolver's
+    // `isRequiredInitializedParameter` (`emitresolver.go:625`) adds the
+    // implicit `undefined` to the printed type
+    // (`defaultParameterAddsUndefinedWithStrictNullChecks.types`).
     assert_eq!(
         type_of_declaration("function f(x = 1, y: number) {}", "f"),
-        "(x: number, y: number) => void"
+        "(x: number | undefined, y: number) => void"
     );
     // A `?` token is optional outright, whatever follows it.
     assert_eq!(
