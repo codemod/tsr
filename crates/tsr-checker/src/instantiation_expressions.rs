@@ -11,11 +11,18 @@
 //!   `InstantiationExpressionKey{nodeId, typeId}` and written once per key
 //!   after `getInstantiatedType` completes.
 //! - **Key identity and owner:** `InstantiationExpressionLinks::types`,
-//!   keyed by the `ExpressionWithTypeArguments`/`TypeQueryNode` id and the
-//!   expression type's [`TypeId`]; private to this Checker. No receiver,
-//!   mapper or alias context enters the key, because upstream's does not: the
-//!   type arguments are syntax under the node and the expression type is the
-//!   whole input.
+//!   keyed by the `ExpressionWithTypeArguments`/`TypeQueryNode` id, the
+//!   expression type's [`TypeId`] and the open alias-evaluation frames
+//!   ([`Checker::flattened_alias_bindings`]); private to this Checker.
+//!   Upstream's key has no frame half because upstream computes the node
+//!   once, over the declared type parameters, and an alias instantiation
+//!   maps that one result through its mapper. This port evaluates an alias
+//!   body under a frame instead (`alias_evaluation_bindings`), so the type
+//!   arguments under the node resolve to the frame's bindings and the frame
+//!   is part of the input: `typeof C<T>` under `T = number` and under
+//!   `T = string` are two results (`tsr-2zk.1102`). The frame half is the
+//!   same flattening `type_literal_key` uses, so the two caches partition
+//!   alike. No receiver or print mode enters the key.
 //! - **Publication states:** absent (not computed), active (`None`: a
 //!   re-entry answers the gap, see `get_instantiation_expression_type`) or
 //!   completed. A gap in any
@@ -24,7 +31,8 @@
 //!   than a partial object type, and publishes no diagnostic.
 //! - **Expensive work boundary:** the signature instantiation, done once per
 //!   key; the minted object copies the source's property table rather than
-//!   re-deriving it per read.
+//!   re-deriving it per read. With no frame open (the common case) the frame
+//!   half is an empty vector and allocates nothing.
 //!
 //! # Diagnostics
 //!
@@ -34,7 +42,9 @@
 //! `InstantiationExpressionLinks::reports` and the walk's visit
 //! ([`Checker::check_instantiation_expression_reports`]) forces the type and
 //! drains them. Recomputation for a new expression type (a new key) parks
-//! again, as upstream would report again.
+//! again, as upstream would report again. A computation under an open alias
+//! frame parks nothing: it stands in for upstream's mapper over the one
+//! frame-free computation, which is the one that reports.
 //!
 //! `docs/parity/notes/r5-instexpr.md` records the representation choices.
 
@@ -53,12 +63,16 @@ use crate::types::{TypeData, TypeId};
 /// key identity and publication states.
 #[derive(Default)]
 pub(crate) struct InstantiationExpressionLinks {
-    /// `(node, expression type) -> result`: `None` while the computation is
-    /// active, `Some` once completed.
-    types: rustc_hash::FxHashMap<(NodeId, TypeId), Option<TypeId>>,
+    /// `(node, expression type, open alias frames) -> result`: `None` while
+    /// the computation is active, `Some` once completed.
+    types: rustc_hash::FxHashMap<InstantiationExpressionKey, Option<TypeId>>,
     /// Reports parked by a computation, drained once by the walk's visit.
     reports: rustc_hash::FxHashMap<NodeId, Vec<(NodeId, Diagnostic)>>,
 }
+
+/// `InstantiationExpressionKey{nodeId, typeId}` plus the open alias frames
+/// (module header).
+type InstantiationExpressionKey = (NodeId, TypeId, Vec<(tsr_binder::SymbolId, TypeId)>);
 
 /// `checkTypeArguments`' answer: the filled arguments, or `nil` after a
 /// reported constraint failure.
@@ -121,7 +135,10 @@ impl<'a> Checker<'a, '_> {
         {
             return expression_type;
         }
-        match self.instantiation_expressions.types.get(&(node, expression_type)) {
+        let frames = self.flattened_alias_bindings();
+        let under_alias_frame = !frames.is_empty();
+        let key = (node, expression_type, frames);
+        match self.instantiation_expressions.types.get(&key) {
             Some(&Some(cached)) => return cached,
             // Re-entered while active: `typeof f<T>` inside `f`'s own
             // signature. Upstream resolves signature members lazily and never
@@ -130,7 +147,7 @@ impl<'a> Checker<'a, '_> {
             Some(None) => return self.intrinsics.error,
             None => {}
         }
-        self.instantiation_expressions.types.insert((node, expression_type), None);
+        self.instantiation_expressions.types.insert(key.clone(), None);
         let reported_before = self.diagnostics.len();
         let mut state = InstantiationState::default();
         let mut result =
@@ -163,8 +180,8 @@ impl<'a> Checker<'a, '_> {
                 ));
             }
         }
-        self.instantiation_expressions.types.insert((node, expression_type), Some(result));
-        if !reports.is_empty() {
+        self.instantiation_expressions.types.insert(key, Some(result));
+        if !reports.is_empty() && !under_alias_frame {
             self.instantiation_expressions.reports.entry(node).or_default().extend(reports);
         }
         result
@@ -761,4 +778,37 @@ fn same_signatures(left: &[Signature], right: &[Signature]) -> bool {
                 && a.declaration == b.declaration
                 && a.target.is_none() == b.target.is_none()
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::checker::Checker;
+
+    /// `tsr-2zk.1102`: under frame-bound alias evaluation, `typeof f<T>`
+    /// evaluated with `T = number` and then with `T = string` are two results,
+    /// not the first one returned twice.
+    #[test]
+    fn instantiation_expressions_are_keyed_on_the_alias_frame() {
+        let arena = tsr_core::Arena::new();
+        let source = "declare function f<T>(x: T): T;\ntype F<T> = typeof f<T>;";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[1]
+        else {
+            panic!("F alias")
+        };
+        let symbol = bound.symbol_of(alias.node_id.unwrap()).unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let (number, string) = (checker.intrinsics.number, checker.intrinsics.string);
+        let with_number = checker.evaluate_alias_body(symbol, &[number]).expect("F<number>");
+        let with_string = checker.evaluate_alias_body(symbol, &[string]).expect("F<string>");
+        assert_eq!(checker.type_to_string(with_number), "(x: number) => number");
+        assert_eq!(checker.type_to_string(with_string), "(x: string) => string");
+    }
 }

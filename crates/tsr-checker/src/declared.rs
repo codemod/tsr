@@ -320,6 +320,18 @@ impl<'a> Checker<'a, '_> {
                         .is_some_and(|element| checker.may_resolve_type_alias(element))
                 })
             }
+            // getTypeFromArrayOrTupleTypeNode (checker.go:24121) never defers
+            // a tuple with a VARIADIC element: createNormalizedTupleType reads
+            // every element now, so `type R = [string, ...R]` re-enters its own
+            // declared type and reports TS2456 (`namedTupleMembersErrors`).
+            TypeNode::TupleTypeNode(tuple)
+                if tuple
+                    .elements
+                    .iter()
+                    .any(|&element| Self::is_variadic_tuple_element(element)) =>
+            {
+                false
+            }
             TypeNode::TupleTypeNode(tuple) => {
                 self.is_deferred_type_reference_node(tuple.node_id, false, |checker| {
                     tuple.elements.iter().any(|&element| checker.may_resolve_type_alias(element))
@@ -2921,8 +2933,34 @@ impl<'a> Checker<'a, '_> {
                 // (via getMembersOfSymbol, checker.go:16124) yields one
                 // property typed from its first (value) declaration:
                 // `{ a: string; a: string; }` prints `{ a: string; }`.
-                if typed_properties.iter().any(|existing| existing.origin == Some(symbol)) {
+                if let Some(existing) =
+                    typed_properties.iter().position(|existing| existing.origin == Some(symbol))
+                {
                     merged_duplicate = true;
+                    // getPropertyNameNodeForSymbol (nodebuilderimpl.go:2434)
+                    // quotes the merged member's name only when EVERY
+                    // declaration is string-named; a later numeric-named
+                    // declaration (`"1": number; 1.0: string`) makes it the
+                    // numeric literal `1`, the symbol's own name
+                    // (createPropertyNameNodeForIdentifierOrLiteral). An
+                    // identifier-named one changes nothing: a quoted first
+                    // declaration already printed bare when its text is an
+                    // identifier.
+                    if let tsr_ast::PropertyName::NumericLiteral(_) = property.name
+                        && let Some(numeric) = crate::objects::written_property_name(&property.name)
+                    {
+                        let old = std::mem::replace(
+                            &mut typed_properties[existing].printed_name,
+                            numeric.clone(),
+                        );
+                        if let Some(crate::objects::Member::Property { name, .. }) =
+                            properties.iter_mut().find(|member| {
+                                matches!(member, crate::objects::Member::Property { name, .. } if *name == old)
+                            })
+                        {
+                            *name = numeric;
+                        }
+                    }
                     continue;
                 }
                 typed_properties.push(crate::objects::AnonymousProperty {
@@ -3670,6 +3708,22 @@ impl<'a> Checker<'a, '_> {
             // Rest/Variadic split (`docs/parity/notes/r5-declared2.md` §2).
             if node.elements.iter().any(|&element| Self::is_variadic_tuple_element(element)) {
                 return structural;
+            }
+            // A body whose structural answer is an ARRAY reference
+            // (`type AliasRest = [...p: number[]]`, getArrayElementTypeNode's
+            // one-rest arm) has no tuple side tables to copy: a member-less
+            // name over it relates to nothing, and `AliasRest extends
+            // [unknown]` deferred where native answers `false`. Native's
+            // deferred reference resolves to the body's own target, so the
+            // name carries that reference's identity (target, arguments,
+            // member owner) through `deferred_alias_reference`, as a class or
+            // interface reference written as an alias body does
+            // (`r5-declared4.md` §3.1).
+            if !self.tuple_element_lists.contains_key(&structural)
+                && !self.variadic_tuple_elements.contains_key(&structural)
+                && self.type_reference_targets.contains_key(&structural)
+            {
+                return self.deferred_alias_reference(node.node_id, structural);
             }
             let name = self.binder.symbols().get(alias).name.to_string();
             let named = self.store.new_named(TypeFlags::OBJECT, name, None);
