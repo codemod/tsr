@@ -1105,3 +1105,11 @@ Defaulted type arguments dropped in printed references (28 lines) live in
 declared.rs (`.1115`). r5-printer3 takes the synthetic optional parameters,
 the enum-member producer, object-literal accessor identity and contextual
 signature type parameters.
+
+### r5-declared3 finished; r5-declared4 dispatched
+
+r5-declared3's work (the `.1066` guard and cache, and the batch AC re-land)
+landed in batch AM. It declined `.1115` as new work past its session rhythm.
+r5-declared4 is now declared.rs' single owner, and also owns
+instantiation_expressions.rs and unique_symbols.rs. It takes `.1115`, `.1102`
+and the `.1078` leftovers, and lands declared.rs diffs other lanes send it.
