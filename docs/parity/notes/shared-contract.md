@@ -94,3 +94,15 @@ which wraps only an `isNoInferTargetType` base: `NoInfer<string>` is
 now does too, in `create_type_reference_with_display` beside the
 `NonNullable` arm. Object and type-parameter bases keep the wrapper (native
 control `NoInfer<{ x: 1 }>` relation unchanged). No new cache.
+
+## Enum declared unions sort by their alias name (tsr-2zk.47.5)
+
+`CompareTypes`' `compareTypeNames` (`utilities.go:590`) reads
+`getTypeNameSymbol`, which answers `t.alias.symbol` first. An enum's declared
+union is created with `&TypeAlias{symbol}` (`getDeclaredTypeOfEnum`,
+checker.go:23899), so two enum unions in a union origin (`insertType`,
+checker.go:25724) order by enum name: `(E7 | E8 | E3 | E4)[]`. The port
+excluded every enum-like type from the name comparison, so `E4 | E3` fell
+to creation order. A union carrying a symbol (`TypeData::Union { symbol }`)
+now names itself by that symbol; non-union enum members still answer no
+name and order by declaration. No new cache.
