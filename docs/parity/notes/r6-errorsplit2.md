@@ -322,3 +322,93 @@ nothing. The falsifier ("the residual stops falling") has not fired:
 `AccessOrQualifiedParent`'s last 8 and `StatementName`'s 27 were item 4.
 Item 4 waits on item 1, and item 1 is not exhausted. They are left
 unprobed this session.
+
+## §7 Diff W (`types_producer.rs`, the harness): the `with` body
+
+[`r6-errorsplit2-with-statement-body.diff`](r6-errorsplit2-with-statement-body.diff)
+applies on diff N (order N, P, Q, W, M).
+
+`getTypeOfNode` opens with `if node.Flags&ast.NodeFlagsInWithStatement != 0
+{ return c.errorType }` (`checker.go:31932`). The harness recomputes the
+flag by an ancestor walk and returned the gap. That was the port's own
+miscoloring: its comment quotes upstream's `errorType`. The diff answers
+`native_error` there and stops setting the port's-failure flag, which belongs
+to the gap only (ADR-0048 decision 3).
+
+**Measured** on N, P, Q (unfiltered, both dumps): zero transitions. 62 lines
+move to `native_error`, all RIGHT and all `errorType` natively:
+
+- the `withStatement*` cases;
+- `sourceMapValidationStatements` and `superCallsInConstructor`;
+- `letDeclarations-{scopes,validContexts,invalidContexts}`;
+- `jsFileCompilationBindStrictModeErrors`, `functionExpressionInWithBlock`,
+  `plainJSBinderErrors` and `elidedEmbeddedStatementsReplacedWithSemicolon`.
+
+Credited gap −62. The diff carries
+`tsr-conformance/tests/with_statement_body.rs`, which pins a literal in a
+`with` body as `native_error` beside the `with` expression's own `any`.
+
+## §8 Diff M (`import_meta.rs`, with `check.rs`): `checkMetaProperty`'s type half
+
+[`r6-errorsplit2-meta-property-type.diff`](r6-errorsplit2-meta-property-type.diff)
+applies on §1's base alone (order N, P, Q, W, M). `import_meta.rs` has no
+lane owner this round, and `check.rs` is main's.
+
+Upstream (`checker.go:10753-10797`) answers:
+
+- `import.defer` (outside a call) and `import.<other>`: `errorType`. The
+  port's doc comment said so, and the code returned the gap.
+- `new.target`: `checkNewTargetMetaProperty` (`:10768`). With no
+  `GetNewTargetContainer`, TS17013 and `errorType`. In a constructor, the
+  class symbol's type. In a function declaration or expression, the
+  function's own type.
+
+The port answered the gap for every `new.target`. Its TS17013 report
+(`check_new_target_meta_property`) already computes the container through
+`new_target_this_container`, so the diff makes that walk `pub(crate)` and
+ports the type half beside the `import` arm.
+
+**Measured** on N, P, Q, W (unfiltered, both dumps): **zero losses; types +9
+WRONG→RIGHT**:
+
+- `shadowedReservedCompilerDeclarationsWithNoEmit`'s `new.target : typeof C2`
+  and the two lines it initializes;
+- `misspelledNewMetaProperty`'s `new.targ : () => void` and its
+  initialized variable;
+- `invalidNewTarget.es{5,6}`' object literal `O` and its initializer, both
+  printed once their methods' `new.target` answers `any`.
+
+Diagnostics unchanged, zero transitions. 57 lines move to `native_error`,
+all `errorType` natively (`invalidNewTarget.es6` 42,
+`dynamicImportDeferInvalidStandalone` 10, `importMetaPropertyInvalidInCall`
+5). Among them are 23 `AtLocation` lines whose rewrite printed `any` for the
+gap. Credited gap −31; `AtLocation` 565 → 542.
+
+The diff carries `tsr-checker/tests/new_target_meta_property.rs`. It also
+moves `tests/tagged_templates.rs`' anti-vacuity span off `import.foo`, which
+no longer gaps (as that test's own comment foresaw), onto a missed
+property of a declared reference receiver (§3 keeps that the gap).
+
+## §9 The stack after W and M
+
+N, P, Q, W, M on §1's base, unfiltered, both dumps:
+
+- types **550,102 / 784 / 5,417** (+9 WRONG→RIGHT, all from M);
+- diagnostics unchanged (5,574 / 5,602 / 1,019 / 43), zero transitions;
+- zero losses on both dumps;
+- moved to `native_error`: 555 lines, every one `errorType` natively;
+- credited gap 2,129 → **1,600**; `native_error` lines 31,832 (31,726
+  matched);
+- slowcases clean on both dumps;
+- Ir against the base binary: domain-model +0.004%, generic-imports
+  −0.006% (one run each, inside §5's spread).
+
+| rewrite (RIGHT→GAP cost) | base | N, P, Q | + W, M |
+|---|---:|---:|---:|
+| `HadErrorBaseline` | 1,983 | 1,609 | **1,517** |
+| `AtLocation` | 575 | 565 | **542** |
+| `AccessOrQualifiedParent` | 62 | 8 | 8 |
+| `StatementName` | 27 | 27 | 27 |
+| **total** | 2,647 | 2,209 | **2,094** |
+
+No rewrite costs zero, so none is narrowed.

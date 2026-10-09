@@ -458,3 +458,19 @@ Zero transitions on both dumps. Credited gap 2,129 → **1,693**.
 **Narrowing**: `HadErrorBaseline` 1,609, `AtLocation` 565,
 `AccessOrQualifiedParent` 8, `StatementName` 27. None costs zero, so none is
 narrowed. The residual fell 2,647 → 2,209.
+
+### 2026-10-09 — round 6, second box, continued: the `with` body and `checkMetaProperty`
+
+Two more upstream `errorType` exits the port answered with its gap, both held
+as diffs (r6-errorsplit2 §7, §8):
+
+- **Diff W** (the harness): `getTypeOfNode`'s `NodeFlagsInWithStatement`
+  exit (`checker.go:31932`). 62 lines, all `errorType`.
+- **Diff M** (`import_meta.rs`, `check.rs`): `checkMetaProperty`'s type half
+  (`:10753-10797`): `import.<other>` and `import.defer` are `errorType`, and
+  `new.target` is `errorType` without a container, otherwise the class's or
+  the function's type. 57 lines, all `errorType`, and +9 WRONG→RIGHT.
+
+Zero losses. Credited gap 1,693 → **1,600**. **Narrowing**:
+`HadErrorBaseline` 1,517, `AtLocation` 542, `AccessOrQualifiedParent` 8,
+`StatementName` 27. None costs zero. The residual fell 2,209 → 2,094.

@@ -1,0 +1,177 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index dd7bed4..c248e9f 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -2354,7 +2354,7 @@ impl Checker<'_, '_> {
+     /// `GetThisContainer(node, includeArrowFunctions=false,
+     /// includeClassComputedPropertyName=false)` (`ast/utilities.go:1790`).
+     /// `None` only where upstream would panic (a detached node).
+-    fn new_target_this_container(&self, node: NodeId) -> Option<NodeId> {
++    pub(crate) fn new_target_this_container(&self, node: NodeId) -> Option<NodeId> {
+         let mut current = node;
+         loop {
+             current = self.nodes.parent(current)?;
+diff --git a/crates/tsr-checker/src/import_meta.rs b/crates/tsr-checker/src/import_meta.rs
+index 4932bb7..5ee44e3 100644
+--- a/crates/tsr-checker/src/import_meta.rs
++++ b/crates/tsr-checker/src/import_meta.rs
+@@ -27,21 +27,55 @@ impl Checker<'_, '_> {
+             .map_or(self.intrinsics.empty_object, |symbol| self.get_declared_type_of_symbol(symbol))
+     }
+ 
+-    /// The type half of `checkMetaProperty` (`checker.go:10753`) for
+-    /// `import.*`: `checkImportMetaProperty` (`:10782`) answers the global
+-    /// `ImportMeta` for `import.meta` and `errorType` for any other name, and
+-    /// `import.defer` is `errorType` too.
+-    ///
+-    /// `new.target` (`checkNewTargetMetaProperty`, `:10768`) keeps this
+-    /// dispatch's previous `errorType` answer; its type arm is not ported by
+-    /// this lane (r5-modules §2.3).
++    /// The type half of `checkMetaProperty` (`checker.go:10753`):
++    /// `checkImportMetaProperty` (`:10782`) answers the global `ImportMeta`
++    /// for `import.meta` and `errorType` for any other name, `import.defer`
++    /// is `errorType` too, and `new.target` is
++    /// [`Checker::check_new_target_meta_property_type`].
+     pub(crate) fn check_meta_property_type(&mut self, node: &tsr_ast::MetaProperty<'_>) -> TypeId {
++        if node.keyword_token.kind == SyntaxKind::NewKeyword {
++            return match node.node_id {
++                Some(id) => self.check_new_target_meta_property_type(id),
++                None => self.intrinsics.error,
++            };
++        }
+         if node.keyword_token.kind != SyntaxKind::ImportKeyword {
+             return self.intrinsics.error;
+         }
+         match node.name {
+             Some(name) if name.text == "meta" => self.global_import_meta_type(),
+-            _ => self.intrinsics.error,
++            _ => self.intrinsics.native_error,
++        }
++    }
++
++    /// The type half of `checkNewTargetMetaProperty` (`checker.go:10768`):
++    /// `GetNewTargetContainer` (`ast/utilities.go`) is the `this` container
++    /// when it is a constructor or a function declaration or expression. No
++    /// container is reported (TS17013, `check_new_target_meta_property`)
++    /// and answers `errorType`; a constructor answers its class symbol's
++    /// type, a function its own symbol's.
++    fn check_new_target_meta_property_type(&mut self, node: NodeId) -> TypeId {
++        let Some(container) = self.new_target_this_container(node).filter(|&container| {
++            matches!(
++                self.nodes.kind(container),
++                SyntaxKind::Constructor
++                    | SyntaxKind::FunctionDeclaration
++                    | SyntaxKind::FunctionExpression
++            )
++        }) else {
++            return self.intrinsics.native_error;
++        };
++        let declaration = if self.nodes.kind(container) == SyntaxKind::Constructor {
++            match self.nodes.parent(container) {
++                Some(class) => class,
++                None => return self.intrinsics.error,
++            }
++        } else {
++            container
++        };
++        match self.binder.symbol_of(declaration) {
++            Some(symbol) => self.get_type_of_symbol(symbol),
++            None => self.intrinsics.error,
+         }
+     }
+ 
+diff --git a/crates/tsr-checker/tests/new_target_meta_property.rs b/crates/tsr-checker/tests/new_target_meta_property.rs
+new file mode 100644
+index 0000000..6198d28
+--- /dev/null
++++ b/crates/tsr-checker/tests/new_target_meta_property.rs
+@@ -0,0 +1,62 @@
++//! `checkMetaProperty`'s type half (`checker.go:10753`): `new.target` is the
++//! class's or the function's own type inside a constructor or a function,
++//! and `errorType` outside one; `import.<other>` is `errorType`
++//! (`docs/parity/notes/r6-errorsplit2.md` §8).
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The printed type of the file's last meta-property, or `gap`/`errorType`
++/// for the two error identities.
++fn last_meta_property(source: &str) -> String {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    #[allow(clippy::cast_possible_truncation)]
++    let id = (0..parsed.nodes.len() as u32)
++        .map(tsr_ast::NodeId::new)
++        .filter(|&id| parsed.nodes.kind(id) == tsr_ast::SyntaxKind::MetaProperty)
++        .last()
++        .expect("a meta-property");
++    let node = parsed.node_map.get(id).expect("a mapped node");
++    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
++    let type_id = checker.check_expression(expression);
++    let intrinsics = checker.intrinsics();
++    if type_id == intrinsics.native_error {
++        "errorType".to_owned()
++    } else if type_id == intrinsics.error {
++        "gap".to_owned()
++    } else {
++        checker.type_to_string(type_id)
++    }
++}
++
++#[test]
++fn new_target_in_a_constructor_is_the_class() {
++    let source = "class C2 {\n  constructor() { const t = new.target; }\n}";
++    assert_eq!(last_meta_property(source), "typeof C2");
++}
++
++#[test]
++fn new_target_in_a_function_is_the_function() {
++    let source = "function f() { return new.target; }";
++    assert_eq!(last_meta_property(source), "() => any");
++}
++
++#[test]
++fn new_target_outside_a_function_is_error_type() {
++    let source = "const a = new.target;";
++    assert_eq!(last_meta_property(source), "errorType");
++}
++
++#[test]
++fn new_target_in_an_arrow_at_top_level_is_error_type() {
++    let source = "const a = () => new.target;";
++    assert_eq!(last_meta_property(source), "errorType");
++}
+diff --git a/crates/tsr-checker/tests/tagged_templates.rs b/crates/tsr-checker/tests/tagged_templates.rs
+index 6920553..94306c7 100644
+--- a/crates/tsr-checker/tests/tagged_templates.rs
++++ b/crates/tsr-checker/tests/tagged_templates.rs
+@@ -149,16 +149,18 @@ fn a_tag_that_is_not_callable_is_a_gap() {
+ /// writing the test this way: the arm can only be exercised by a span that
+ /// genuinely gaps, and any particular gap may close. `import.meta` was the
+ /// span until it typed (tsr-2zk.990) and this line failed loudly, as designed;
+-/// `import.foo` is `errorType` upstream too (`checkImportMetaProperty`,
+-/// `checker.go:10782`), so it stays a gap by construction.
++/// `import.foo` was next, until it answered upstream's own `errorType`
++/// (`checkImportMetaProperty`, `checker.go:10782`; r6-errorsplit2 §8). A
++/// missed property on a declared reference receiver keeps the gap
++/// (r6-errorsplit2 §3), so it is the span now.
+ #[test]
+ fn a_template_over_an_untypeable_span_is_still_string() {
+     assert_eq!(
+-        type_of_last("var a = import.foo;"),
++        type_of_last("declare const o: { a: 1 };\nvar a = o.b;"),
+         "error",
+         "this fixture needs a span that GAPS; pick another construct"
+     );
+-    assert_eq!(type_of_last("var s = `x${import.foo}y`;"), "string");
++    assert_eq!(type_of_last("declare const o: { a: 1 };\nvar s = `x${o.b}y`;"), "string");
+ }
+ 
+ /// The control that keeps the fold alive: a template whose spans DO type still
