@@ -746,7 +746,11 @@ impl Checker<'_, '_> {
 
     /// getBindingElementTypeFromParentType maps instantiable constraints,
     /// then slices only if every constituent is a tuple (checker.go:17753).
-    fn binding_rest_tuple_slice(&mut self, source: TypeId, index: usize) -> Option<TypeId> {
+    pub(crate) fn binding_rest_tuple_slice(
+        &mut self,
+        source: TypeId,
+        index: usize,
+    ) -> Option<TypeId> {
         let source = self.binding_type_alias_body(source);
         let parts = match self.store.get(source).data.clone() {
             TypeData::Union { types, .. } => types,
@@ -1125,7 +1129,7 @@ impl Checker<'_, '_> {
     /// A generic constituent of a union declines: native would mint an
     /// `Omit` for it, which the top-level type-parameter branch above
     /// implements only for a bare source.
-    fn concrete_rest_type(&mut self, source: TypeId, bound: &[String]) -> TypeId {
+    pub(crate) fn concrete_rest_type(&mut self, source: TypeId, bound: &[String]) -> TypeId {
         let error = self.intrinsics.error;
         let source =
             self.filter_type(source, |c, t| !c.store.get(t).flags.intersects(TypeFlags::NULLABLE));
@@ -1190,7 +1194,7 @@ impl Checker<'_, '_> {
     /// `allow_missing` (`AccessFlagsAllowMissing`, a defaulted element), where
     /// `getPropertyTypeForIndexType` answers `undefined` for an object-literal
     /// object type (`checker.go:27187`) and the default supplies the type.
-    fn destructuring_property_lookup(
+    pub(crate) fn destructuring_property_lookup(
         &mut self,
         parent_type: TypeId,
         name: &str,
