@@ -11322,7 +11322,28 @@ impl Checker<'_, '_> {
         // `error_span` would give the name at column 11. This is the one report
         // site in `crate::check` that must not go through `error_span`, and §48
         // centralised the others precisely so an exception is visible.
-        let span = self.nodes.span(node);
+        //
+        // The range runs to the end of the **last** statement of the run:
+        // `checkSourceElementUnreachable` (`checker.go:2430`) scans forward
+        // over the following run members of a statement list
+        // (`parent.CanHaveStatements()`) and reports `start..endNode.End()`.
+        // `docs/parity/notes/decls.md` §25.
+        let mut span = self.nodes.span(node);
+        if matches!(
+            self.nodes.kind(parent),
+            SyntaxKind::SourceFile
+                | SyntaxKind::Block
+                | SyntaxKind::ModuleBlock
+                | SyntaxKind::CaseClause
+                | SyntaxKind::DefaultClause
+        ) {
+            for &next in &siblings[index + 1..] {
+                if !self.is_unreachable_run_member(next) {
+                    break;
+                }
+                span.end = self.nodes.span(next).end;
+            }
+        }
         self.report(file, Diagnostic::new(&messages::UNREACHABLE_CODE_DETECTED, span));
     }
 

@@ -517,3 +517,15 @@ constructors) has no TSR counterpart reaching this arm.
 `VariableDeclaration` to its name, so `const c: number;` underlines `c`.
 `check_const_is_initialized` used the declaration's own span on the claim that
 `grammarErrorOnNode` does not narrow; it does, and it now uses `error_span`.
+
+## §25 TS7027 covers the whole unreachable run
+
+`checkSourceElementUnreachable` (`checker.go:2392`) scans forward from the
+first unreachable statement of a statement list (`parent.CanHaveStatements()`:
+source file, block, module block, case/default clause) over every following
+statement that is potentially executable and unreachable, and reports one
+diagnostic from the first statement's token start to the **last** one's end.
+`check_unreachable` already reported once per run but at the first
+statement's own span; it now extends the end over the run with the same
+`is_unreachable_run_member` predicate. No new state; the forward scan is the
+sibling list the function already builds.
