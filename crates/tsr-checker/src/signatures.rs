@@ -7662,16 +7662,16 @@ impl<'a> Checker<'a, '_> {
     /// takes the qualifier, rename or refusal the site owes it — falling back
     /// to the baked text where the site-aware path declines.
     ///
-    /// A predicate signature is printed here too: its written predicate is
-    /// reused at the site (`serializeReturnTypeForSignature` →
-    /// `pseudoReturnTypeMatchesPredicate`, `nodebuilderimpl.go:2045`), where
-    /// a name resolving only in the declaration's scope (`Collection.Keyed`
-    /// inside a namespace) survives; the site-free print refuses it.
+    /// Predicate signatures take the baked text: a predicate's print is
+    /// site-independent, and the twin's counterfactual excluded them.
     pub(crate) fn signature_to_string_at(
         &mut self,
         signature: &Signature,
         reference: tsr_ast::NodeId,
     ) -> String {
+        if signature.predicate.is_some() {
+            return self.signature_to_string(signature);
+        }
         // §107: the render-scope shadow — an ENCLOSING signature render's
         // same-named type parameter renames this one; this signature's own
         // parameters then join the scope for its slot renders.
@@ -8005,11 +8005,6 @@ impl<'a> Checker<'a, '_> {
         }
         out.push_str(") => ");
         if let Some(text) = self.reused_return_text(signature, Some(reference)) {
-            out.push_str(&text);
-        } else if let Some(predicate) = &signature.predicate {
-            // `serializeReturnTypeForSignature` serializes the predicate in
-            // the return slot when the written node is not reused.
-            let text = self.type_predicate_to_string(predicate);
             out.push_str(&text);
         } else if let Some(text) = self.signature_return_alias_text_at(signature, reference) {
             out.push_str(&text);
