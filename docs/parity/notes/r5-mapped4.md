@@ -304,3 +304,109 @@ Perf (vs `07fadbd`'s binary): median CPU new/old domain-model 1.001
 `diagnostics_match: true`. Callgrind Ir: domain-model 1,195,758,647 →
 1,196,776,671 (+0.085%), generic-imports 342,882,571 → 342,931,413
 (+0.014%).
+
+## 6. `reducibleIndexedAccessTypes`: `(Payload & { dataType: K })["data"]` (root cause; not ported)
+
+```ts
+enum Type { A, B, C }
+type Payload = PayloadA | PayloadB | PayloadC   // each { dataType: Type.X; data: … }
+type MappedPayload2 = {
+    [K in Type]?: (data: (Payload & { dataType: K })["data"]) => void
+}
+```
+
+Native keeps the template's `(Payload & { dataType: K; })["data"]` deferred
+(type row `0:19`). It answers `string` for the `Type.A` member (rows `0:22`–`0:33`). The
+port answers `string | number | { x: number; y: number; }` everywhere: the
+whole value union. Before the enum-keys diff (`ee6fcb7`), `{ [K in Type]: … }`
+had no members, because enum keys vanished, so only row `0:19` could differ.
+The member lines appeared with the keys.
+
+**Root cause: `shouldDeferIndexedAccessType`'s reducible arm is not
+ported.** The index `"data"` is not generic, and the object
+`(PayloadA & { dataType: K }) | …` is not a generic *object* type: no
+constituent is instantiable, a generic mapped type or a generic tuple. Native
+defers anyway, through the third disjunct (`checker.go:27370`):
+
+```go
+return c.isGenericObjectType(objectType) && !(…tuple…) || c.isGenericReducibleType(objectType)
+```
+
+`isGenericReducibleType` (`checker.go:24932`) holds for a union containing
+intersections where some intersection `isReducibleIntersection`
+(`:24937`): instantiated with `uniqueLiteralMapper`, which maps every type
+parameter to `uniqueLiteralType`, `getReducedType` changes it. Here
+`dataType: Type.A & uniqueLiteral` is `never`, a discriminant with a never
+type, so the intersection reduces. `uniqueLiteralType` (`checker.go:1015`)
+is a `never` that union reduction treats as a literal, and that
+`createUnionOrIntersectionProperty` does not count as `HasNeverType`
+(`:21621`). So `{ dataType: K }` alone does not reduce, and only a conflict
+with another constituent does. Deferred, the instance's
+`K := Type.A` reaches `getIndexedAccessType` with a reducible object, and
+`getReducedType` keeps only `PayloadA & { dataType: Type.A }`, whose `data`
+is `string`.
+
+The port's `resolved_indexed_access_type` (`indexed.rs`, main's) defers on
+`indexed_access_object_is_generic || indexed_access_index_is_generic` only.
+It projects through the apparent union at once, before `K` is known.
+
+**What the port needs, and where:**
+1. `uniqueLiteralType`: a distinct `never` intrinsic (`intrinsics.rs`).
+   `intersection_has_never_discriminant` (`flow.rs`, main's) must not count
+   it as never.
+2. `is_reducible_intersection` / `is_generic_reducible_type`: instantiate
+   with every mentioned type parameter mapped to it, then
+   `get_reduced_type` (`intersections.rs`, this lane's; useless without 3).
+3. The deferral arm in `resolved_indexed_access_type` (`indexed.rs`) and the
+   expression road's equivalent.
+
+Not built here: two of the three pieces are in files this lane may not
+touch, and piece 2 alone is dead code. Expected effect: the six
+`reducibleIndexedAccessTypes` rows. The other users of
+`isGenericReducibleType` (`shouldDeferIndexType`'s union arm,
+`checker.go:26838`, which `getIndexType` uses) are part of the same port.
+
+## 7. Item 3: conditional nodes and `keyof` operand shapes (`.16.71`, `.16.100`, `.16.99`)
+
+The brief places these after diff 1 (§4), which is held. Only the part that
+does not depend on it was done.
+
+**`keyof` operand parentheses (`.16.99`, committed half + measured diff).**
+`emitTypeOperator` emits its operand at `TypePrecedenceTypeOperator`
+(`printer.go:2274`), so a union, intersection, conditional or function
+operand is parenthesised: `keyof (keyof T extends never ? … : …)`. The port
+had two partial rules. `mapped.rs` `mapped_type_text` wrapped by flags (a
+union or intersection, including an aliased union, which prints as a
+reference and takes no parentheses). `declared.rs`' deferred `keyof` mint
+wrapped only a deferred intersection. Both now ask
+`node_reuse::binds_below_type_operator`, the §1 text reader at the
+`TypeOperator` rung.
+
+- `mapped.rs` (committed): zero verdict change, zero losses on both dumps,
+  no slow cases. Ir domain-model 1,196,134,031 → 1,196,108,889,
+  generic-imports 342,926,358 → 342,906,222 (both −0.01%); median CPU
+  new/old 1.021 and 1.028 (21 samples).
+- [`r5-mapped4-keyof-operand-parens.diff`](r5-mapped4-keyof-operand-parens.diff)
+  (`declared.rs`, r5-declared's): measured on top, both dumps unfiltered,
+  types **+4** (`controlFlowGenericTypes:298/300/301/303`), diagnostics
+  unchanged, zero losses, no slow cases.
+
+**Not done, with hypotheses** (the `.16.99` target cases at `22f35b4`):
+
+- `keyofAndIndexedAccessErrors:10–13`, `keyof` of a primitive or boxed
+  primitive answering `any`. getIndexType's default arm is
+  `getLiteralTypeFromProperties` over the apparent type. The `keyof` arm in
+  `declared.rs` routes only object, mapped and type-parameter operands (plus
+  `any`/`never`/`unknown` in diff 1) to `resolved_keyof_type`.
+- `formatToPartsFractionalSecond:13/15`: the origin prints
+  `keyof DateTimeFormatPartTypesRegistry`, where native prints
+  `keyof Intl.DateTimeFormatPartTypesRegistry`. The origin text is
+  `type_to_string(target)` with no symbol chain (`tsr-2zk.39`).
+- `keyRemappingKeyofResult`, `inferenceUnionOfObjectsMappedContextualType`,
+  `emptyObjectNotSubtypeOfIndexSignatureContainingObject1/2`,
+  `variadicTuples1`: not traced. Their WRONG rows are not `keyof` prints
+  (`Oops` vs `"str"`, `any`/`error` results, tuple element widening).
+
+**`.16.71`/`.16.100` (conditional nodes, mapped nodes under alias
+bindings): not started.** Both rewrite the same `declared.rs` arm as diff 1
+(the written-text mint) and the conditional evaluator, so they wait on §4.

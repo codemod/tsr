@@ -18,6 +18,10 @@ pub(crate) struct MappedTypeInfo {
     pub(crate) homomorphic_symbol: Option<SymbolId>,
 }
 
+/// A type mapper in `instantiate_type`'s form: the pairs, the parameters
+/// they may mention, and those parameters' names.
+type CombinedMapper = (Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>);
+
 /// `ReverseMappedType` (types.go): the source, mapped target and constraint
 /// whose members resolveReverseMappedTypeMembers produces on first read.
 #[derive(Clone, Debug)]
@@ -86,21 +90,21 @@ impl<'a> Checker<'a, '_> {
         let name = node.type_parameter?.name?.text;
         // The node builder preserves the top-level keyof operator even
         // when resolving its operand would produce a concrete key union.
-        let constraint =
-            if let Some(source) = info.modifiers_source
-                && info.keyof_constraint
-            {
-                let text = self.type_to_string(source);
-                if self.store.get(source).flags.intersects(
-                    crate::flags::TypeFlags::UNION | crate::flags::TypeFlags::INTERSECTION,
-                ) {
-                    format!("keyof ({text})")
-                } else {
-                    format!("keyof {text}")
-                }
+        let constraint = if let Some(source) = info.modifiers_source
+            && info.keyof_constraint
+        {
+            // emitTypeOperator's operand precedence (`printer.go:2274`):
+            // a union, intersection, conditional or function operand is
+            // parenthesised; an aliased union is a reference and is not.
+            let text = self.type_to_string(source);
+            if crate::node_reuse::binds_below_type_operator(&text) {
+                format!("keyof ({text})")
             } else {
-                self.type_to_string(info.constraint)
-            };
+                format!("keyof {text}")
+            }
+        } else {
+            self.type_to_string(info.constraint)
+        };
         // createMappedTypeNodeFromType (nodebuilderimpl.go:1471) prints
         // removeMissingType(getTemplateTypeFromMappedType(t), isOptional): the
         // template with `?`'s optionality, minus the missing type that exact
@@ -971,7 +975,7 @@ impl<'a> Checker<'a, '_> {
         // `P -> P'` with the instance's, so getConstraintOfTypeParameter(P')
         // is the instantiated constraint. The template and `as` clause are
         // instantiated under that combined mapper.
-        let (fresh, combined, sources, source_names) =
+        let (fresh, (combined, sources, source_names)) =
             self.clone_mapped_type_parameter(info.parameter, map, parameters, names);
         info.parameter = fresh;
         let source_names: Vec<_> = source_names.iter().map(String::as_str).collect();
@@ -1023,7 +1027,7 @@ impl<'a> Checker<'a, '_> {
         map: &[(TypeId, TypeId)],
         parameters: &[TypeId],
         names: &[&str],
-    ) -> (TypeId, Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>) {
+    ) -> (TypeId, CombinedMapper) {
         let name = self.type_to_string(original);
         // One clone per instantiation: native clones inside
         // instantiateAnonymousType, which getObjectTypeInstantiation caches
@@ -1059,7 +1063,7 @@ impl<'a> Checker<'a, '_> {
                 names: source_names.clone(),
             }
         });
-        (fresh, combined, sources, source_names)
+        (fresh, (combined, sources, source_names))
     }
 
     /// createTypeNodeFromObjectType (nodebuilderimpl.go:2690) for a mapped
