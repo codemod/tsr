@@ -584,6 +584,26 @@ impl<'a> Checker<'a, '_> {
         }
         if let Some((symbol, arguments)) = self.deferred_mapped_aliases.remove(&id) {
             self.capture_mapped_alias(id, symbol, &arguments);
+            return;
+        }
+        // A concrete instance of a mapped alias (`Partial<Foo1>`), or the
+        // image of an argument-less one (`Funcs`), is minted with its
+        // members resolved through the source (`instantiate_identity_mapped_alias`)
+        // and no mapped info. Native's instance is a MappedType all the same
+        // (getTypeAliasInstantiation → instantiateMappedType), which
+        // isMappedTypeGenericIndexedAccess and getConstraintFromIndexedAccess
+        // (checker.go:17227) read, so its parts are captured on first ask.
+        let target = match self.type_reference_targets.get(&id) {
+            Some((symbol, arguments)) => Some((*symbol, arguments.clone())),
+            None => match self.store.get(id).data {
+                crate::types::TypeData::Named { members: Some(symbol), .. } => {
+                    Some((symbol, Vec::new()))
+                }
+                _ => None,
+            },
+        };
+        if let Some((symbol, arguments)) = target {
+            self.capture_mapped_alias(id, symbol, &arguments);
         }
     }
 
@@ -1821,6 +1841,36 @@ function f<K extends string>(a: Mapped5<K>, b: Mapped6<K>) {}";
             keys.push(checker.type_to_string(key));
         }
         assert_eq!(keys, ["K", "`_${K}`"]);
+    }
+
+    /// getTypeAliasInstantiation → instantiateMappedType: a concrete
+    /// instance of a mapped alias is a mapped type, so its parts are captured
+    /// on first ask (isMappedTypeGenericIndexedAccess reads them).
+    #[test]
+    fn a_concrete_mapped_alias_instance_keeps_its_mapped_identity() {
+        let source = "type Part<T> = { [P in keyof T]?: T[P] };
+type Foo1 = { x: number; y: string };
+function f(o: Part<Foo1>) {}";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "mapped-instance.ts", text: source },
+        );
+        let Statement::FunctionDeclaration(function) = parsed.source_file.statements[2] else {
+            panic!("function");
+        };
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let instance = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+        assert_eq!(checker.type_to_string(instance), "Part<Foo1>");
+        checker.ensure_mapped_type_info(instance);
+        let info = checker.mapped_types[&instance].clone();
+        assert_eq!(checker.type_to_string(info.constraint), "keyof Foo1");
+        assert_eq!(info.optionality, Some(true));
+        assert!(info.name_type.is_none());
     }
 
     #[test]

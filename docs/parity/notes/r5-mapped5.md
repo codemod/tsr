@@ -216,3 +216,39 @@ byte-identical to §1. Zero losses; slowcases clean. Ir domain-model
 1,154,370,415 → 1,154,429,396 (+0.005%), generic-imports 342,937,447 →
 342,974,956 (+0.011%). Nothing converts until r5-relater7 lifts the
 write-constraint decline that §4 of r5-relater6 held for this case.
+
+## 5. `tsr-2zk.1089`: a concrete mapped alias instance keeps its mapped identity (committed)
+
+**Forcing constraint.** r5-relater6 §4's forced declines: `Partial<Foo1>[K]`
+and `Partial<Config>[T]` are `isMappedTypeGenericIndexedAccess`. Their
+constraint is the substitution `E[P := X]` (getConstraintFromIndexedAccess,
+`checker.go:17227`). The port's concrete instance (`instantiate_identity_mapped_alias`,
+`declared.rs`) is minted with the source's members and no mapped info, so
+`mapped_indexed_access_constraint` could not substitute.
+`mapped_substitution_out_of_reach` declined (`relater.rs`).
+
+**Ported.** Native's instance is a MappedType
+(getTypeAliasInstantiation → instantiateMappedType). `ensure_mapped_type_info`
+now captures a mapped alias instance's parts on first ask. That covers a
+reference target `(alias, arguments)`, and the image of an argument-less
+alias (`Funcs`). It goes through `capture_mapped_alias`, which already
+declines unless the alias body is a mapped node. The members still come from
+the source; only the mapped info is added, and only for the 13 callers that
+ask for it (relater, inference, mapped). **No `declared.rs` change was
+needed.** The brief expected one, but the capture belongs on the read side
+the relater already calls.
+
+**Measured** against §1 (with §3 and §4's diffs measured separately above),
+both dumps unfiltered:
+- types **+3 RIGHT**: `correlatedUnions:0:469/470/475`. Two of them were GAP
+  (`error`). The `Config[T]` lines now type through the substitution;
+- diagnostics unchanged;
+- zero losses; slowcases clean;
+- Ir: domain-model 1,154,370,415 → 1,154,901,490 (+0.046%), generic-imports
+  342,937,447 → 342,971,668 (+0.010%);
+- median CPU (21 samples): 0.975 and 1.012.
+
+The relater's `mapped_substitution_out_of_reach` decline should now never
+fire for these instances, since the object has mapped info. r5-relater7 can
+retire it, and the intersection-source variant
+(`NonNullable<Partial<Config>[T]> → Config[T]`), after re-measuring.
