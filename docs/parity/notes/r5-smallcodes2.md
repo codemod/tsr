@@ -92,7 +92,30 @@ empty list, `using` placement) is not added: no listed case needs it.
 
 ### 2.3 TS2300 from `lateBindMember`
 
-*In progress.*
+`lateBindMember` (`checker.go:16005`) is where a late-bound member's conflict
+is reported: when the late-bound symbol of its name already has flags that
+`getExcludedSymbolFlags` of the new declaration excludes, every declaration of
+that symbol, the early-bound member of the same name if any, and the new
+declaration get TS2300. The new declaration then goes into a fresh symbol
+that is not stored. Two getters `get [Symbol.hasInstance]()`
+(`symbolProperty44`) are the case: `GetAccessorExcludes` contains
+`GetAccessor`, while `checkObjectTypeForDuplicateDeclarations` (state 2, kind
+2) says nothing.
+
+This port has no member-resolution step to hang it on, so
+`late_bound_member_conflicts` replays the table build over the members
+`check_object_type_for_duplicate_declarations` already gathers, in source
+order, instance and static separately, and its reports join that function's
+(deduplicated by node and name, as upstream's diagnostic collection does).
+Accepted limitation: upstream binds across all declarations of a merged
+symbol; a conflict between two merged interface declarations is not seen.
+
+The same function now also does `combineSymbolTables(earlySymbols,
+lateSymbols)` (`checker.go:15974`): a late-bound property whose name an
+early-bound member of the same table already has merges into that symbol, so
+`[c0]: number; 1: number` with `const c0 = "1"` is one symbol of two
+declarations and both are TS2300 `'1'` (`dynamicNamesErrors`, still WRONG on
+a missing TS2717).
 
 ### 2.4 TS2540
 
