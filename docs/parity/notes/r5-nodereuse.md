@@ -246,6 +246,11 @@ Converted by the full stack, by case (lines): `subtypingWithCallSignatures2`
 `declarationEmitComputedPropertyName*` four, and
 `subtypingWithCallSignatures2/3`.
 
+**Full parity run** (`coverage`): the committed tree gives checker_types
+8,358/9,538 (configured 1,670/1,928) and diagnostics 4,589/5,502 (configured
+842/1,089). With the three diffs: checker_types **8,391** (+33), configured
+**1,676** (+6). Diagnostics are unchanged.
+
 **Perf, median child CPU new/old** (`whole_project_perf.py`, base binary in
 the `--tsgo` slot). Owned only: domain-model 0.950, generic-imports 0.974
 (21 samples). Full stack, final diffs: domain-model 1.062 at 21 samples,
