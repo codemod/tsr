@@ -1152,3 +1152,24 @@ that work only when it prints. Printing spread members on demand is filed as
 `tsr-2zk.1119`. `tsr-2zk.1101` is closed.
 
 r5-nodereuse2 continues with structural pseudo types (`tsr-2zk.1118`).
+
+### r5-relater7 finished (batch AW); r5-relater8 dispatched
+
+r5-relater7 landed six relater arms for `.1088` and `.1055`'s fundule arm: +9
+diagnostics cases. It also landed two native perf paths:
+- `relationCount` and the overflow budget (`.1065`): relationComplexityError
+  went from 67 s to 2.9 s;
+- the target-symbol recursion identity for written class references (`.1068`):
+  varianceProbling went from 41 s to 0.4 s.
+
+dm Ir fell 1.7%. The TS2859 reporter diff lands with it. Three diffs stay held,
+each blocked on a file outside the lane:
+- primitive-index waits on contextual's literal through an index signature
+  (`tsr-2zk.1121`);
+- enum-object waits on inference from an enum object (`tsr-2zk.1122`);
+- the binder's declare-module imports wait on bounded conditional-alias
+  evaluation in declared.rs (`tsr-2zk.1123`). Unbounded, the dumps OOM at
+  ramdaToolsNoInfinite2.
+
+r5-relater8 takes the remaining relater arms (`tsr-2zk.1124`) and `.1065`'s
+TS2321.
