@@ -5636,6 +5636,80 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// Whether the index type of the indexed access that alias `symbol`
+    /// declares ([`Self::alias_body_is_indexed_access`]) is, under
+    /// `arguments`, a union other than `boolean`: the index node is resolved
+    /// in the alias's own binding frame, or the chain's next alias is asked
+    /// with the reference's arguments resolved in that frame. `false` when
+    /// anything does not resolve.
+    fn alias_indexed_access_index_is_union(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+        depth: usize,
+    ) -> bool {
+        if depth > 8 || self.instantiation_depth >= 100 {
+            return false;
+        }
+        let Some(body) = self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) else {
+            return false;
+        };
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() {
+            return false;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let Some(parameter) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                return false;
+            };
+            frame.insert(parameter, argument);
+        }
+        let next = match body {
+            TypeNode::IndexedAccessTypeNode(access) => match access.index_type {
+                Some(index) => IndexedAliasStep::Index(index),
+                None => return false,
+            },
+            TypeNode::TypeReferenceNode(reference) => {
+                match reference
+                    .type_name
+                    .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                {
+                    Some(inner) if inner != symbol => {
+                        IndexedAliasStep::Alias(inner, reference.type_arguments)
+                    }
+                    _ => return false,
+                }
+            }
+            _ => return false,
+        };
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let resolved: Vec<TypeId> = match next {
+            IndexedAliasStep::Index(index) => vec![self.get_type_from_type_node(index)],
+            IndexedAliasStep::Alias(_, nodes) => {
+                nodes.iter().map(|&node| self.get_type_from_type_node(node)).collect()
+            }
+        };
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        if resolved.contains(&self.intrinsics.error) {
+            return false;
+        }
+        match next {
+            IndexedAliasStep::Index(_) => {
+                resolved[0] != self.intrinsics.boolean
+                    && matches!(
+                        self.store.get(resolved[0]).data,
+                        crate::types::TypeData::Union { .. }
+                    )
+            }
+            IndexedAliasStep::Alias(inner, _) => {
+                self.alias_indexed_access_index_is_union(inner, &resolved, depth + 1)
+            }
+        }
+    }
+
     /// Whether `instantiateTypeWithAlias` hands a new alias to the type the
     /// declared body of `symbol` instantiates to: an anonymous object or
     /// function type, or a mapped type without a homomorphic type variable
@@ -6939,8 +7013,8 @@ impl<'a> Checker<'a, '_> {
             && let Some(declaration) = self.type_alias_declaration_of(symbol)
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && alias.r#type.is_some()
-            && (self.alias_body_is_indexed_access(symbol, 0)
-                || self.is_closed_literal_union_alias(symbol, &arguments))
+            && let indexed = self.alias_body_is_indexed_access(symbol, 0)
+            && (indexed || self.is_closed_literal_union_alias(symbol, &arguments))
             && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
         {
             let text = self.type_reference_text(symbol, &arguments);
@@ -6954,6 +7028,11 @@ impl<'a> Checker<'a, '_> {
                 named
             } else if let crate::types::TypeData::Union { types, .. } =
                 self.store.get(evaluated).data.clone()
+                // getIndexedAccessTypeOrUndefined (checker.go:26975) hands the
+                // alias to getUnionTypeEx only over a non-boolean UNION index;
+                // a single key answers the property type as it is
+                // (`Example<{ a: "x" } | { a: "y" }>` is `"x" | "y"`).
+                && (!indexed || self.alias_indexed_access_index_is_union(symbol, &arguments, 0))
             {
                 let named = crate::unions::create_union(
                     &mut self.store,
@@ -11546,4 +11625,12 @@ mod parameter_default_state_tests {
             },
         );
     }
+}
+
+/// One step of the indexed-access alias index walk: the alias
+/// body's written index, or the next alias in a reference chain with its
+/// written arguments.
+enum IndexedAliasStep<'n> {
+    Index(TypeNode<'n>),
+    Alias(SymbolId, &'n [TypeNode<'n>]),
 }
