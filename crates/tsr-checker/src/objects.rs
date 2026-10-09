@@ -1561,14 +1561,19 @@ impl Checker<'_, '_> {
                     if let tsr_ast::PropertyName::Identifier(name) = accessor.name {
                         let Some(id) = accessor.node_id else { return error };
                         let Some(symbol) = self.binder.symbol_of(id) else { return error };
-                        let setter_sibling =
-                            node.properties.iter().find_map(|sibling| match sibling {
-                                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(
-                                    setter,
-                                ) if matches!(setter.name,
-                                    tsr_ast::PropertyName::Identifier(other)
-                                        if other.text == name.text) =>
-                                {
+                        // The setter that shares this getter's SYMBOL
+                        // (`checkObjectLiteral` reads `getSymbolOfDeclaration`):
+                        // a duplicate getter binds a fresh symbol that has no
+                        // setter, so `{ get a, set a, get a }` is
+                        // `{ readonly a: number; }`.
+                        let setter_sibling = self
+                            .binder
+                            .symbols()
+                            .get(symbol)
+                            .declarations
+                            .iter()
+                            .find_map(|&declaration| match self.node_map.get(declaration) {
+                                Some(tsr_ast::Node::SetAccessorDeclaration(setter)) => {
                                     Some(setter)
                                 }
                                 _ => None,
