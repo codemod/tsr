@@ -62,7 +62,7 @@ owning lane confirms it.
 | `usingDeclarationsWithObjectLiterals2` | noImplicitAny=true: missing TS7018 ×2 | `using x = { [Symbol.dispose]() {…}, y: null }` | `reportWideningErrorsInType` for a `using` initializer | rule | widening report (main) |
 | `inKeywordTypeguard` | strict=true: also missing TS18046 at 155 | `"a" in x`, `x: unknown` | `checkInExpression`'s `checkNonNullType` (r5-operators3 §2 diff) | rule | `assignreport.rs` (diff held by the integrator) |
 | `jsxFragmentFactoryReference` | jsx=react: missing TS2879 | `<></>` with no `React` in scope | `checkJsxFragment` → `getJsxFactoryEntity`'s fragment arm, `React` namespace symbol not found | rule | JSX (r5-jsx lanes) |
-| `tsxSpreadChildrenInvalidType` | jsx=react-jsx: missing TS7026 ×6 | global `JSX` declared, no `react/jsx-runtime` | under `react-jsx` native resolves the JSX namespace from the implicit import source (`getJsxNamespaceContainerForImplicitImport`), finds none, and every intrinsic element is implicitly `any`; TSR falls back to the global `JSX` | rule | `jsx_intrinsic.rs` |
+| `tsxSpreadChildrenInvalidType` | jsx=react-jsx: missing TS7026 ×6 | file-level `declare namespace JSX`, no `react/jsx-runtime` | under `react-jsx` a file with a JSX tag is an **external module** (`getExternalModuleIndicator`'s JSX arm), so its `namespace JSX` is module-local and `getJsxNamespaceAt`'s global fallback finds nothing. *Corrected:* the first version of this row blamed the implicit-import road in `jsx_intrinsic.rs`; that road is faithful | plumbing | **fixed, §5** (`tsr-compiler` loader) |
 | `emitDecoratorMetadata_isolatedModules` | module=esnext: missing TS1272 ×3 | type-only names in decorated signatures | `markDecoratorAliasReferenced` → `markEntityNameOrEntityExpressionAsReference(…, forDecoratorMetadata)` (`checker.go:28686`, `:28857`). **Not ported**: nothing in the checker reads `emitDecoratorMetadata` | rule (missing) | new module + `check.rs` hook |
 | `exportDeclaration` | isolatedModules=true: missing TS1289 | `export = A` of a type-only import | `checkAliasSymbol`'s `GetIsolatedModules()` arm (`checker.go:6800`–`6850`). **Not ported** in `symbols.rs::check_alias_symbol` | rule (missing) | `symbols.rs` (main) |
 | `isolatedModulesSketchyAliasLocalMerge`, `isolatedModulesShadowGlobalTypeNotValue` | every configuration: missing TS2865/TS2866 (isolatedModules) and TS1484/TS1295 (verbatimModuleSyntax) | | same `checkAliasSymbol` arm: TS2865/TS2866 read `IsolatedModules.IsTrue()` directly, TS1484 and the CommonJS-file TS1295 read `VerbatimModuleSyntax` | rule (missing) | `symbols.rs` (main) |
@@ -74,8 +74,9 @@ owning lane confirms it.
 | `regExpWithOpenBracketInCharClass` | es2015: also missing TS1501 | `/[[]/v` | the scanner's regular-expression flag check against `languageVersion` | rule | scanner (main) |
 | `regularExpressionScanning` | target-dependent TS1501/TS1503 lines on top of a uniform scanner gap | | same | rule | scanner (main) |
 
-Of the 27, **one is harness plumbing** (the `message` category, fixed below).
-The other 26 are option-gated rules whose arm is missing or wrong. One
+Of the 27, **two are plumbing**: the harness's `message` category (§2) and
+the loader's module detection under `react-jsx` (§5), both fixed. The other
+25 are option-gated rules whose arm is missing or wrong. One
 plumbing divergence that none of the 27 isolates is in the checker's own
 option reads: `module_kind` (§3).
 
@@ -211,3 +212,51 @@ against the default (`printed_name` already resolved them against `/.src`).
 **Falsifier.** If a later case shows native resolving a *relative* path
 against `/` — a type root, a `paths` base, a relative `@currentDirectory` —
 the default is wrong for that suite and the move should be reverted there.
+
+## 5. Module detection under the automatic JSX runtime (fixed)
+
+`GetExternalModuleIndicatorOptions` (`ast/parseoptions.go:19`) has two
+option-driven arms under `moduleDetection: auto`: `Force`
+(`isFileForcedToBeModuleByFormat`, ported as
+`loader::force_module_indicator`) and `JSX`, set for `jsx: react-jsx` and
+`react-jsxdev`, which makes any non-declaration file holding a JSX tag a
+module (`isFileModuleFromUsingJSXTag`, `:122`). The loader's doc comment
+recorded the JSX arm as not ported. Without it, a `.tsx` file with no
+`import` stayed a script under the automatic runtime, so its
+`declare namespace JSX` was global, `getJsxNamespaceAt`'s global fallback
+(`jsx.go:1334`) found `IntrinsicElements`, and every intrinsic tag was
+typed where native reports TS7026.
+
+The port: `loader::jsx_tags_force_module` is the option half;
+`Program::force_module_indicator` adds the tag half, a scan of the file's
+node kinds for `JsxOpeningElement`, `JsxSelfClosingElement` or
+`JsxFragment` (`walkTreeForJSXTags`). The scan runs only for a file this
+parser reads with JSX (`ScriptKind::allows_jsx`, `.tsx`/`.jsx`): no other
+file can contain a tag here, which is what native's `SubtreeContainsJsx`
+pruning answers for those files without walking them. (This port parses
+`.js` without JSX, a parser difference outside this lane; if that changes,
+the gate must widen with it.) The bool feeds the binder exactly as
+`Force` does; native's precedence (statement indicators first, declaration
+files never) is preserved because the binder adds the statement indicators
+itself and the predicate excludes declaration files.
+
+**Measured** against `771746f`, unfiltered:
+
+- diagnostics +1: `tsxSpreadChildrenInvalidType(jsx=react-jsx,target=es2015)`
+  WRONG → RIGHT; zero losses, no key missing;
+- types +12 RIGHT lines (548,907 → 548,919), all in the same configuration,
+  which becomes a passing `checker_types_configured` entry; zero losses;
+- `slowcases` clean on both dumps;
+- perf, median child CPU over 21 samples, new/base: domain-model 0.988,
+  generic-imports 1.015, `diagnostics_match: true` (neither project has a
+  `.tsx` file, so the scan never runs there).
+
+Tests: `crates/tsr-compiler/tests/jsx_module_detection.rs` (tag and
+fragment under both automatic runtimes; classic runtime, `preserve`, an
+untagged file and `moduleDetection: legacy` stay scripts).
+
+Only one configured case moved, although more vary `@jsx` across the
+classic and automatic runtimes. Why each of the others is insensitive was
+not checked case by case; a file that already imports something is a
+module either way, and a `JSX` declared in a separate `.d.ts` does not
+depend on the `.tsx` file's module-ness.

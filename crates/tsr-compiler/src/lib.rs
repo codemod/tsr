@@ -492,11 +492,32 @@ impl<'a> Program<'a> {
         program
     }
 
-    /// `GetExternalModuleIndicatorOptions(fileName, options, metadata).Force`
-    /// (`ast/parseoptions.go:19`) for the file at `index`.
+    /// Whether `getExternalModuleIndicator` (`ast/parseoptions.go:66`) makes
+    /// the file at `index` a module for a reason other than its own
+    /// statements: `GetExternalModuleIndicatorOptions`' `Force`, or its `JSX`
+    /// arm with a JSX tag in the file (`isFileModuleFromUsingJSXTag`). The
+    /// binder adds the statement-level indicators itself.
+    ///
+    /// The tag walk (`walkTreeForJSXTags`) scans the file's node kinds, and
+    /// only for a file this parser reads with JSX (`ScriptKind::allows_jsx`):
+    /// no other file can hold a tag, which is what native's
+    /// `SubtreeContainsJsx` pruning answers for it. `r5-config.md` §5.
     fn force_module_indicator(&self, index: usize) -> bool {
         let Some(metadata) = self.meta_datas.get(index) else { return false };
-        loader::force_module_indicator(&self.options, self.files[index].file_name(), metadata)
+        let file = &self.files[index];
+        if loader::force_module_indicator(&self.options, file.file_name(), metadata) {
+            return true;
+        }
+        loader::jsx_tags_force_module(&self.options, file.file_name())
+            && tsr_parser::ScriptKind::from_file_name(file.file_name()).allows_jsx()
+            && file.node_range().any(|id| {
+                matches!(
+                    self.nodes.kind(NodeId::new(id)),
+                    tsr_ast::SyntaxKind::JsxOpeningElement
+                        | tsr_ast::SyntaxKind::JsxSelfClosingElement
+                        | tsr_ast::SyntaxKind::JsxFragment
+                )
+            })
     }
 
     /// Bind every file that is not bound (`Program.BindSourceFiles`).
