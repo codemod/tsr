@@ -48,14 +48,25 @@ Each exclusion of `element_access_receiver_is_complete` was lifted behind a
 temporary environment switch (measurement only, never committed), alone and
 all together. All together, joined with the probe:
 
-| exclusion | `errorType` | false claims (lines) | where |
-|---|---:|---:|---|
-| a function's type | 19 | 30 | `declarationEmitLateBoundAssignments{,2,JS}`, `expandoFunctionExpressionsWithDynamicNames`, `expandoFunctionSymbolProperty{,Js}` |
-| generic index or receiver | 13 | 47 + 1 `anyType` | `isomorphicMappedTypeInference`, `mappedTypes4`, `keyofAndForIn`, `typeGuardsTypeParameters`, `correlatedUnions`, `propertyAccessOnTypeParameterWithoutConstraints`, `mappedTypeConstraints2`, `keyofAndIndexedAccessErrors`, `extractInferenceImprovement`, `conditionalTypes1`; `classExtendingAny` (`anyType`) |
-| `unique symbol` index | 6 | 2 | `uniqueSymbols`, `uniqueSymbolsDeclarations` (`o[N["s"]]`) |
-| union with an object literal | 1 | 8 | `destructuringAssignmentWithDefault`, `propertyAccessWidening` |
-| mapped receiver | 0 | 2 | `numericEnumMappedType` |
-| named reference without members | 7 | 5 | `intersectionWithIndexSignatures` (false); every `errorType` line is `typeof globalThis` |
+All lifted together, 62 moved lines are `errorType` natively and 91 are
+false claims (90 untagged, 1 `anyType`). The false claims, by the exclusion
+that covers them:
+
+| exclusion | false claims (lines) | where |
+|---|---:|---|
+| a function's type | 30 | `declarationEmitLateBoundAssignments{,2,JS}`, `expandoFunctionExpressionsWithDynamicNames`, `expandoFunctionSymbolProperty{,Js}` |
+| generic index or receiver | 43 + 1 `anyType` | `isomorphicMappedTypeInference` 12, `propertyAccessOnTypeParameterWithoutConstraints` 8, `mappedTypes4` 5, `mappedTypeConstraints2` 4, `correlatedUnions` 3, `keyofAndIndexedAccessErrors` 3, `typeGuardsTypeParameters` 3, `keyofAndForIn` 2, `conditionalTypes1` 2, `extractInferenceImprovement` 1; `classExtendingAny` (`anyType`) |
+| union with an object literal | 8 | `destructuringAssignmentWithDefault` 6, `propertyAccessWidening` 2 |
+| named reference without members | 5 | `intersectionWithIndexSignatures` |
+| `unique symbol` index | 2 | `uniqueSymbols`, `uniqueSymbolsDeclarations` (`o[N["s"]]`) |
+| mapped receiver | 2 | `numericEnumMappedType` |
+
+Lifted one at a time, the `errorType` lines split as: generic 4, unique
+symbol 6, union with an object literal 1, a function's type 19, named
+reference 7 (every one `typeof globalThis`), mapped receiver 0. The rest of
+the 62 (`propertyAccessOnTypeParameterWithConstraints4` ×12,
+`mappedTypeRelationships` ×6 and others) move only when two exclusions are
+lifted at once.
 
 Lines count the access and its downstream lines (an initialized variable, an
 enclosing call), as r5-errorsplit6 §2.2's table does not; that is why the
@@ -366,3 +377,87 @@ which upstream admits by relating the key to `keyof T`
 (`checkIndexedAccessIndexType`, `checker.go:8220`) and the port's relater
 cannot (a conditional-type source; r6-relater's lane), and
 `classExtendingAny`'s `this['wot']`, an `any`-based class.
+
+## §8 Item 2: r5-errorsplit6's held diffs, re-measured
+
+Both diffs apply unchanged on this branch and on the frozen base, and they
+stack after O, L and G (`git apply` of O, L, G, S, M in that order was
+checked). Measured on commit 2 (the code of the current tip), unfiltered,
+both dumps:
+
+- **Diff S** ([`r5-errorsplit6-import-equals-alias.diff`](r5-errorsplit6-import-equals-alias.diff),
+  `symbols.rs`): **landable.** Zero losses. Types +6 (2 GAP→RIGHT, 4
+  WRONG→RIGHT: `jsxNamespaceGlobalReexport`,
+  `jsxNamespaceImplicitImportJSXNamespace`). Diagnostics **+2**:
+  `jsxNamespaceImplicitImportJSXNamespace` EMPTY_WRONG→EMPTY_RIGHT, as
+  r5-errorsplit6 §4.1 measured, and `isolatedModulesExportImportUninstantiatedNamespace`
+  WRONG→RIGHT, which is new on this base. Two lines move to `native_error`
+  (the `JSX` names, both `errorType`), the two `<div></div>` false claims
+  leave it. Credited gap 2,150 → 2,148; `StatementName` 29 → 27.
+- **Diff M** ([`r5-errorsplit6-script-alias-merge.diff`](r5-errorsplit6-script-alias-merge.diff),
+  `binder.rs`): **landable.** Zero transitions on both dumps. Exactly one
+  line changes identity, `duplicateVarsAcrossFileBoundaries:5:0` (`q`), from
+  `native_error` to its variable's type, which the probe has untagged. Its
+  test `tsr-conformance/tests/script_alias_merge.rs` passes.
+
+**S's value half, measured and refused.** Accepting any namespace target
+(dropping the `!VALUE` condition), on top of diff S: **+8** (2 GAP→RIGHT, 6
+WRONG→RIGHT: `chainedImportAlias` ×7, `aliasInaccessibleModule2`) and **−2
+RIGHT**, `es6ImportNamedImportInIndirectExportAssignment:1:0` and `:1:2`,
+which print `typeof x` where upstream records `typeof a`. That is the
+alias-naming hazard of `bd tsr-4jk`, the same −2 r5-errorsplit6 §4.1
+measured. A loss is fixed, never accepted, and the fix is the alias-naming
+port, not this arm, so the half stays out.
+
+## §9 Item 3: narrowing, re-measured
+
+| rewrite (RIGHT→GAP cost) | base | commit 1 | commit 2 | + O, L, G | + S |
+|---|---:|---:|---:|---:|---:|
+| `HadErrorBaseline` | 2,013 | 2,001 | 2,000 | 1,983 | 1,983 |
+| `AtLocation` | 575 | 575 | 575 | 575 | 575 |
+| `AccessOrQualifiedParent` | 62 | 62 | 62 | 62 | 62 |
+| `StatementName` | 29 | 29 | 29 | 29 | 27 |
+| **total** | 2,679 | 2,667 | 2,666 | 2,649 | 2,647 |
+| credited gap | 2,164 | 2,151 | 2,150 | 2,131 | 2,129 |
+
+(The "+ S" column adds diff S's measured change to the stack; S was
+measured alone on commit 2.) ADR-0048 narrows a rewrite only where that
+costs zero RIGHT lines, and every rewrite still prints RIGHT gap lines. No
+rewrite is narrowed. The falsifier ("the residual stops falling across
+rounds") has not fired: 2,679 → 2,647.
+
+## §10 What remains, with causes
+
+Exclusions of `element_access_receiver_is_complete` still in place, with the
+lines the probe holds against each (§1.1, re-read after the stack):
+
+- **Generic index or receiver**, 43 false-claim lines + 1 `anyType`; diff G
+  computes `propertyAccessOnTypeParameterWithoutConstraints`' 8. The rest:
+  - the `Extract<keyof T, string>` key of a `for…in` variable
+    (`isomorphicMappedTypeInference`, `mappedTypes4`, `keyofAndForIn`,
+    `typeGuardsTypeParameters`, `correlatedUnions`), and template-literal or
+    remapped keys (`mappedTypeConstraints2`, `keyofAndIndexedAccessErrors`,
+    `extractInferenceImprovement`, `conditionalTypes1`). Upstream defers
+    `T[K]` and admits `K` by `isTypeAssignableTo(K, keyof T)`
+    (`checkIndexedAccessIndexType`, `checker.go:8220`); the port's relater
+    does not prove those (conditional-type and template sources).
+    r6-relater's lane. A narrowing that switched the miss only where the
+    relater answers `NotRelated` (not `Unknown`) was measured and moved no
+    line, so the relater answers `Unknown` there, not `NotRelated`;
+  - `classExtendingAny`'s `this['wot']`, `anyType` natively: an `any` base
+    class makes the member lookup `any`.
+- **Mapped receiver**, 2 (`numericEnumMappedType`'s `b2[1]`, `b2[e2]`).
+  `{ [k in E2]?: string }` over the ambient enum `E2` gaps where the same map
+  over the literal enum `E1` resolves (`b1[1]`). An ambient non-const enum
+  member without an initializer is computed, so `E2` is no literal union and
+  its map is a number index signature natively. The port's mapped member
+  image (`mapped.rs`) does not build it. r6-mapped's lane.
+- **Named reference without members**, 5 (`intersectionWithIndexSignatures`'
+  `q["asd"]` on `constr<{}, { [key: string]: { a: string } }>`, a generic
+  alias over a mapped type and a `Pick` of an `Exclude`). The alias is not
+  expanded to its members table. r6-mapped's lane (mapped and
+  intersection images).
+- **Undecided index signatures** (`None`), no corpus line.
+
+Diff L's limits (§6): one declaration per late name, the JS `this[k] = v`
+arm, and the declared-type arm of `getWidenedTypeForAssignmentDeclaration`.
