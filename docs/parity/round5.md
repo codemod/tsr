@@ -1624,3 +1624,25 @@ r6-declared's 55cbd3f (landed in BM). domain-model Ir −0.07%.
 The write-constraint step stays held. Its blocker is instantiateContextualType
 in main's files. The single-code rows traced outside relater.rs go to
 r6-relater3 (`tsr-2zk.1148`).
+
+### r6-specifiers finished (batch BS); r6-specifiers2 dispatched
+
+Batch BS lands r6-specifiers' work:
+- the port of GetEachFileNameOfModule, getAllModulePathsWorker and
+  KnownSymlinks (`d243288`);
+- the symlink-cache host diff;
+- the pure-alias scope diff (IsNonLocalAlias, checker.go:16266);
+- the composite-slots diff.
+
+Measured by the box: +52 type lines and +1 diagnostics case, 0 lost.
+domain-model Ir +0.087% from the pure-alias scope, where native's
+trySymbolTable does the same work.
+
+The symlink-chain-gate diff is held on `tsr-2zk.39`'s alternative containers.
+Without them it scores +1/−2 on diagnostics, from TS2883 on
+declarationEmitReexportedSymlinkReference{,2}.
+
+moduleResolutionWithSymlinks is not a symlink case. r6-smallcodes5 §4's
+routing of it was wrong: an export-specifier alias's declared type reads
+`any`. The remainder is in `tsr-2zk.1149`. The root trackers .16.59 and
+.16.77 are reopened unassigned.
