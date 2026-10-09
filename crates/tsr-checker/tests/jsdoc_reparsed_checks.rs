@@ -17,8 +17,17 @@ fn diagnostics(source: &str, javascript: bool) -> Vec<(u32, String)> {
         tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
     assert!(parsed.diagnostics.is_empty(), "fixture must parse");
     let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
+    // As the loader stamps a JS file: the root and every comment's root
+    // (`crates/tsr-compiler/src/loader.rs`, `r5-jsdoc3.md` §3).
     if javascript {
         parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+        for (_, docs) in parsed.jsdoc.iter() {
+            for doc in docs {
+                if let Some(id) = doc.node_id {
+                    parsed.nodes.add_flags(id, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
+                }
+            }
+        }
     }
     let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
     let bound = tsr_binder::bind_into_with_jsdoc(
@@ -62,56 +71,64 @@ fn a_reparsed_this_parameter_on_a_function_is_allowed() {
     assert!(!diagnostics(source, true).iter().any(|(c, _)| *c == 2730));
 }
 
+/// A typedef whose parameter is constrained to `string`: `Str<number>` is
+/// TS2344 at `number` wherever the walk checks the reference. (An
+/// unresolved name would not do: this port declines TS2304 inside JSDoc
+/// until the JS reference rules land; `r5-jsdoc4.md` §4.2.)
+const STR: &str = "/**\n * @template {string} T\n * @typedef {{ t: T }} Str\n */\n";
+
+fn reports_2344(body: &str) -> bool {
+    reports(&format!("{STR}{body}"), 2344, "number")
+}
+
 /// `checkAssertion` checks a JSDoc cast's type (`checker.go:12302`).
 #[test]
 fn a_cast_type_is_checked() {
-    assert!(reports("var x = /** @type {MissingCast} */ (1);\n", 2304, "MissingCast"));
+    assert!(reports_2344("var x = /** @type {Str<number>} */ (null);\n"));
 }
 
 /// `checkSatisfiesExpression` checks the `@satisfies` type (`:10743`).
 #[test]
 fn a_satisfies_type_is_checked() {
-    assert!(reports(
-        "/** @satisfies {MissingSatisfies} */\nvar y = 1;\n",
-        2304,
-        "MissingSatisfies"
-    ));
+    assert!(reports_2344("/** @satisfies {Str<number>} */\nvar y = null;\n"));
 }
 
 /// A `@callback` alias's function type is checked like a typedef's.
 #[test]
 fn a_callback_signature_is_checked() {
-    let source = "/**\n * @callback Cb\n * @param {MissingParam} x\n * @returns {MissingReturn}\n */\nvar z = 1;\n";
-    assert!(reports(source, 2304, "MissingParam"));
-    assert!(reports(source, 2304, "MissingReturn"));
+    assert!(reports_2344("/**\n * @callback Cb\n * @param {Str<number>} x\n */\nvar z = 1;\n"));
+    assert!(reports_2344("/**\n * @callback Cb\n * @returns {Str<number>}\n */\nvar z = 1;\n"));
 }
 
 /// Each `@overload` of a function declaration is a reparsed signature whose
 /// parameter and return types `checkSignatureDeclaration` checks.
 #[test]
 fn an_overload_signature_is_checked() {
-    let source = "/**\n * @overload\n * @param {MissingOverload} a\n * @returns {void}\n */\nfunction g(a) {}\n";
-    assert!(reports(source, 2304, "MissingOverload"));
+    assert!(reports_2344(
+        "/**\n * @overload\n * @param {Str<number>} a\n * @returns {void}\n */\nfunction g(a) {}\n"
+    ));
 }
 
 /// Inside an object literal no overload signature is made
 /// (`PCObjectLiteralMembers`), so nothing is checked.
 #[test]
 fn an_overload_in_an_object_literal_is_not_reparsed() {
-    let source = "var o = {\n  /**\n   * @overload\n   * @param {MissingInLiteral} a\n   */\n  m(a) {}\n};\n";
-    assert!(!reports(source, 2304, "MissingInLiteral"));
+    assert!(!reports_2344(
+        "var o = {\n  /**\n   * @overload\n   * @param {Str<number>} a\n   */\n  m(a) {}\n};\n"
+    ));
 }
 
 /// A full-signature `@type` is resolved by `checkFunctionOrMethodDeclaration`.
 #[test]
 fn a_full_signature_type_is_checked() {
-    let source = "/** @type {(a: MissingSignature) => void} */\nfunction h(a) {}\n";
-    assert!(reports(source, 2304, "MissingSignature"));
+    assert!(reports_2344("/** @type {(a: Str<number>) => void} */\nfunction h(a) {}\n"));
 }
 
 /// None of this runs for a TypeScript file, whose comments are not reparsed.
 #[test]
 fn typescript_comments_are_not_checked() {
-    let source = "var x = /** @type {MissingCast} */ (1);\n/** @satisfies {MissingSatisfies} */\nvar y = 1;\n";
-    assert!(diagnostics(source, false).is_empty());
+    let source = format!(
+        "{STR}var x = /** @type {{Str<number>}} */ (null);\n/** @satisfies {{Str<number>}} */\nvar y = null;\n"
+    );
+    assert!(!diagnostics(&source, false).iter().any(|(code, _)| *code == 2344));
 }

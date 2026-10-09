@@ -78,6 +78,13 @@ walk asks the same host rule the relation check uses; no behaviour change.
   gated on `file_is_js`.
 - `crates/tsr-checker/tests/jsdoc_reparsed_checks.rs`: nine tests; six fail
   without the change.
+  *Corrected after §4:* the tests first asserted TS2304 on unresolved names
+  and passed only because their harness stamped `JAVASCRIPT_FILE` on the
+  file root and not on comment roots, as the loader does. In production
+  `check_type_reference_name` declines every node `in_js_file`, comment
+  nodes included, so no TS2304 is reported inside JSDoc (§4.2). The tests
+  now stamp like the loader and assert TS2344 against a
+  `@template {string}` typedef; six still fail without this section's walk.
 
 **Not covered, with the piece they wait on.**
 
@@ -246,3 +253,58 @@ on §3.2's rows. Types unchanged; zero losses. Ir domain-model 1,199,769,056, ge
 - **TS2339** (`catch ({ x }: unknown)`): `getTypeOfDestructuredProperty`'s
   missing-property report on an `unknown` parent — destructuring
   (`destructure.rs`, r5-shapes).
+
+## 4. A typedef's scope (item 4, typedefScope1)
+
+**Native.** `reparseUnhosted` makes each `@typedef`/`@callback` a
+`JSTypeAliasDeclaration` in the reparse list, and `parseListIndex`
+(`parser/parser.go:610`) keeps it only in a source-element or
+block-statement list (`PCSourceElements`, `PCBlockStatements`; a module
+block parses its statements as the latter), propagating it outward from
+any other list. The binder then files the alias with
+`bindBlockScopedDeclaration`, in that list's block-scope container.
+
+**Gap.** `bind_jsdoc_declarations` declared every typedef and callback in
+the file root's locals, so `B` declared inside `function B1` resolved at
+file scope: typedefScope1's top-level `/** @type {B} */` found a `B`.
+
+**Diff** `r5-jsdoc4-typedef-block-scope.diff` (binder): `jsdoc_alias_scope`
+climbs from the comment's host to the nearest `SourceFile` (→ the root),
+`ModuleBlock` (→ its namespace) or `Block` (→ the function whose body it
+is, else the block itself — `container_flags`' own rule for a `Block`), and
+the two arms declare there. `@import` stays at file scope (no measured case;
+r5-jsdoc3's `jsdoc_import_declaration_parent` already answers its
+statement's parent for visibility).
+
+**Measured** (on §3, unfiltered): types **+1** (typedefScope1 `notOK : B`,
+native's unresolved spelling); diagnostics unchanged; zero losses. Ir flat
+(the binder arm runs in JS files only).
+
+### 4.1 Not converted: the missing TS2304
+
+typedefScope1 still lacks its TS2304: `B` now fails to resolve, but
+`check_type_reference_name` (`check.rs`) returns before reporting for any
+node `in_js_file`, and r5-jsdoc3's loader change stamps comment roots as JS.
+The decline exists for written TypeScript annotations in a JS file
+(TS8010's territory). Narrowing it to nodes outside comments was measured
+(with this diff): **+1** (typedefScope1) and **−6**: callbackTag2
+RIGHT→WRONG; importTypeResolutionJSDocEOF, checkJsdocTypeTag8,
+commonJSImportClassTypeReference, commonJSImportExportedClassExpression and
+jsdocTypeDefAtStartOfFile EMPTY_RIGHT→EMPTY_WRONG. Those are r5-jsdoc3
+§3's "JS-relaxed rules": a JSDoc reference to a value (a class through a
+`require` alias, `Object`, a module) resolves through native's JS arms of
+`getTypeFromTypeReference`, which TSR answers as unresolved. Refused here;
+the narrowing waits on those arms (`declared.rs`). Number that refused it:
+6 losses.
+
+### 4.2 The `@import` arm of `symbol_access.rs`' `has_visible_declarations`
+
+`getAnyImportSyntax` (`checker/utilities.go:1602`) reaches an `@import`'s
+reparsed `JSImportDeclaration`, whose parent is a statement list. TSR's
+specifier → parent³ walk lands on the `JSDocImportTag`, whose parent is the
+comment, so visibility was asked of the comment. The arm now asks
+`jsdoc_import_declaration_parent` for a `JSDocImportTag`, as r5-jsdoc3's
+node-reuse diff did for `node_reuse.rs`. Measured: no row moves on either
+dump, zero losses, Ir flat (domain-model 1,199,737,599, generic-imports
+342,888,546). No corpus case prints an `@import`ed name through this
+printer path yet.
