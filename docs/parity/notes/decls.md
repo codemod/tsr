@@ -567,3 +567,12 @@ now publishes both (`NodeFacts::HAS_IMPLICIT_RETURN`/`HAS_EXPLICIT_RETURN`,
 instead of §267's syntactic slice (no `return`/`throw` anywhere), and no
 longer declines in a file with parse diagnostics (not a grammar error).
 `subtree_has_return_or_throw` had no other caller and is removed.
+
+## §30 TS2448/TS2449/TS2450 relate the declaration
+
+`checkResolvedBlockScopedVariable` (`checker.go:1916`) adds `'{0}' is
+declared here.` (TS2728) at the block-scoped/class/enum declaration to every
+"used before its declaration" report. Both report sites of
+`check_used_before_its_declaration` now go through
+`report_used_before_its_declaration`, which attaches it via
+`diagnostic_for_node` (the declaration's name span).

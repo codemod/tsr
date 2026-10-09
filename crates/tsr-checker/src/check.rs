@@ -6587,9 +6587,7 @@ impl Checker<'_, '_> {
             {
                 return;
             }
-            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-            let span = self.error_span(node);
-            self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+            self.report_used_before_its_declaration(node, declaration, message, text);
             return;
         }
         // §83's class arm keeps its `extends` bound exactly as measured; the
@@ -6638,9 +6636,28 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        self.report_used_before_its_declaration(node, declaration, message, text);
+    }
+
+    /// `checkResolvedBlockScopedVariable`'s report (`checker.go:1904`): the
+    /// message at the use, and `'{0}' is declared here.` (TS2728) related at
+    /// the declaration. `docs/parity/notes/decls.md` §30.
+    fn report_used_before_its_declaration(
+        &mut self,
+        node: NodeId,
+        declaration: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        text: &str,
+    ) {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
+        let mut diagnostic = Diagnostic::with_args(message, span, [text.to_string()]);
+        diagnostic.add_related_information(self.diagnostic_for_node(
+            declaration,
+            &messages::_0_IS_DECLARED_HERE,
+            [text.to_string()],
+        ));
+        self.report(file, diagnostic);
     }
 
     /// The member a property access names, when its receiver resolves to a
