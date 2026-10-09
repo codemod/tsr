@@ -184,3 +184,20 @@ target's aliased mint. Controls kept: `Def<T, K> = T[K]`, `Def2<T> =
 T['a' & keyof T]`, `U<T> = {..}['a' | 'b']`, `Next<I> = IterationMap[I[1]]`
 print their alias. `alias_indexed_access_index_type` replaces the union-only
 helper's internals; no new cache.
+
+## New alias on intersection instantiations (tsr-2zk.16.57)
+
+`getTypeFromTypeAliasReference`'s `newAliasSymbol` arm over an alias whose
+body is an intersection: `instantiateTypeWorker` passes the new alias to
+`getIntersectionTypeEx` (checker.go:26056), which keeps it while the result
+is an intersection, so `type A = Nominal<'A', string>` over
+`type Nominal<K, T> = T & {..}` prints `A` (`intersectionTypeInference3`,
+`mappedTypeIndexedAccessConstraint`'s `PartMappings`). The target's aliased
+intersection (from `attach_intersection_alias`) is re-interned under the
+declaring alias's name with the same constituents
+(`new_alias_intersection_instantiation`): `type_reference_targets` keeps the
+canonical `(target, arguments)`, `alias_of` records the new alias, cache is the
+existing `deferred_alias_references[(alias, canonical)]`, published after both
+channels are installed. A reduced (non-intersection) result keeps no alias.
+Known gap (out of lane): the site-aware relation-report printer still spells
+the target alias (`Nominal<"A", string>` in TS2322 heads).

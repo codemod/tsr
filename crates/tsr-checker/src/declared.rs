@@ -5466,6 +5466,11 @@ impl<'a> Checker<'a, '_> {
         {
             return self.get_named_union_type(&types, TypeFlags::empty(), alias);
         }
+        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && let Some(image) = self.new_alias_intersection_instantiation(result, symbol, alias)
+        {
+            return image;
+        }
         if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             return self.new_alias_instantiation(result, symbol, alias);
         }
@@ -5541,6 +5546,55 @@ impl<'a> Checker<'a, '_> {
         self.alias_of.insert(image, (alias, Vec::new()));
         self.deferred_alias_references.insert((alias, result), image);
         image
+    }
+
+    /// [`Self::new_alias_instantiation`] for an INTERSECTION body:
+    /// `instantiateTypeWorker` hands the new alias to `getIntersectionTypeEx`
+    /// (checker.go:26056), which keeps it when the result is still an
+    /// intersection (`type A = Nominal<'A', string>` over `Type & {..}` prints
+    /// `A`). The target's aliased intersection (built by
+    /// `attach_intersection_alias`) is re-interned under the declaring alias's
+    /// name with the same constituents; `type_reference_targets` keeps the
+    /// canonical `(target, arguments)` pair and `alias_of` records the new
+    /// alias, as for object images. Cache: the existing
+    /// `deferred_alias_references[(alias, canonical)]`. `None` for anything
+    /// else.
+    fn new_alias_intersection_instantiation(
+        &mut self,
+        result: TypeId,
+        symbol: SymbolId,
+        alias: SymbolId,
+    ) -> Option<TypeId> {
+        let crate::types::TypeData::Intersection { types, symbol: Some(owner), .. } =
+            self.store.get(result).data.clone()
+        else {
+            return None;
+        };
+        if owner != symbol
+            || !self.local_type_parameters_of(alias).is_empty()
+            || !matches!(
+                self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::IntersectionTypeNode(_))
+            )
+        {
+            return None;
+        }
+        let (target, arguments) = self.type_reference_targets.get(&result).cloned()?;
+        if target != symbol {
+            return None;
+        }
+        if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
+            return Some(cached);
+        }
+        let text = self.binder.symbols().get(alias).name.to_string();
+        let image = self.store.intern_intersection(
+            self.store.get(result).flags,
+            crate::types::TypeData::Intersection { types, text, symbol: Some(alias) },
+        );
+        self.type_reference_targets.insert(image, (target, arguments));
+        self.alias_of.insert(image, (alias, Vec::new()));
+        self.deferred_alias_references.insert((alias, result), image);
+        Some(image)
     }
 
     /// `instantiateTypeWorker`'s union/intersection arm passes the new alias
