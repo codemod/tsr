@@ -136,6 +136,61 @@ the `…Ignored` baselines carry it.
 `resolveDecorator` is a `resolveCall` client (calls.rs, main's), so it is
 not portable from this lane.
 
-### 3.5–3.7
+### 3.5 TS18060
 
-To be filled in as each cluster is probed.
+`checkGrammarImportCallExpression` (`grammarchecks.go:2162`) reports TS18060
+on an `import.defer(…)` call outside `esnext`/`preserve`. Its plain `import(…)`
+arm is TS1323 under `es2015`, which `check_dynamic_import_module_kind` already
+had. TSR only had the import-*clause* form (`check_deferred_import_clause`).
+`ast.IsImportCall` admits a `MetaProperty` callee only for `import.defer`, so
+`import.meta(…)` stays an ordinary call.
+
+**Fixed (commit 3).** The call form is now an arm of the same function.
+Measured: +4 cases (`dynamicImportDefer` commonjs, es2015, es2020,
+nodenext).
+
+### 3.6 TS2538 (routed to r5-relater6)
+
+Probe (`target es2017`, no annotations):
+
+```ts
+async function f1(x, { [z]: y }) { }        // tsgo: TS2304 + TS2538 'any'; TSR: TS2304 only
+const x = ({ [foo.bar]: c }) => undefined;  // same
+declare const o: { a: number };
+const { [q]: w } = o;                       // both: TS2304 + TS2538
+```
+
+The variable-declaration form already works. The **parameter** form does
+not. Its parent type is the implied type of the binding pattern (no
+annotation), and `getIndexedAccessType(parentType, errorType)` there finds no
+index info and takes `getPropertyTypeForIndexType`'s final arm
+(`checker.go:27206`). `report_missing_index_signature`
+(`index_access_reports.rs`, r5-relater6's) declines this parent: the
+object-type gates at the top of that function (`is_type_any(object_type)` /
+unenumerated `Named`) are the suspects. The cases are `errorElaboration`,
+`asyncFunctionDeclarationParameterEvaluation` ×2 and
+`asyncGeneratorParameterEvaluation` ×3. `identifierStartAfterNumericLiteral`
+(×4 TS2538 `null`) is `3in[null]` after a scanner error: an element access
+with a `null` key, the `:27206` arm with `TypeToString(null)`. It is
+unprobed, and the same file owns it.
+
+### 3.7 TS2307
+
+Probed with native `tsgo`:
+
+- `importInsideModule` / `privacyGloImportParseErrors`: `import foo =
+  require("m")` inside a non-ambient namespace. `checkImportEqualsDeclaration`
+  stops at TS1147 (`checkExternalImportOrExportDeclaration` returns false), so
+  **the check never resolves the module**. Upstream's TS2307 comes from the
+  *use* `foo.x`: `resolveAlias` → `getTargetOfImportEqualsDeclaration` →
+  `resolveExternalModuleName` with error reporting. With the use removed,
+  tsgo reports TS1147 alone. TSR's TS2307 is a check-time emitter gated by
+  `external_import_is_positioned_for_resolution`, so the lazy alias-resolution
+  report is missing. The faithful home is the alias-target path in
+  `symbols.rs` (main's).
+- `noCrashOnParameterNamedRequire`, `tslibInJs`, `emitModuleCommonJS` ×2: JS
+  `require(…)` calls. In the first, `require` is a parameter, and tsgo still
+  reports, because the JS reparser turns `const x = require("…")` into an
+  import syntactically. This is binder/reparser territory (main's), with
+  `module_specifiers`/`module_exports` adjacent (r5-modules2). Not probed
+  further.

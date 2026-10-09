@@ -12246,33 +12246,45 @@ impl Checker<'_, '_> {
     /// set to es2020, es2022, esnext, commonjs, amd, system, umd, node16,
     /// node18, node20, or nodenext.`
     ///
-    /// `checkGrammarImportCallExpression`'s third arm
-    /// (`grammarchecks.go:2171`), which is one comparison against
-    /// `moduleKind`. The function's other arms are named and not built: the
-    /// `verbatimModuleSyntax` one needs an option this port does not read, the
-    /// `import.meta` one is TS18060 (§615), and the type-arguments one has no
-    /// corpus case. §642.
+    /// `checkGrammarImportCallExpression`'s second and third arms
+    /// (`grammarchecks.go:2167`-`:2172`), each one comparison against
+    /// `moduleKind`: `import.defer(…)` (callee a `MetaProperty`) is TS18060
+    /// outside `esnext`/`preserve`; a plain `import(…)` is TS1323 under
+    /// `es2015`. The function's other arms are named and not built: the
+    /// `verbatimModuleSyntax` one needs an option this port does not read, and
+    /// the type-arguments one has no corpus case. §642;
+    /// `docs/parity/notes/r5-smallcodes.md` §3.5.
     fn check_dynamic_import_module_kind(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors || self.module_kind != tsr_core::ModuleKind::ES2015 {
+        if self.file_has_parse_errors {
             return;
         }
         let Node::CallExpression(call) = typed else { return };
-        if !matches!(
-            call.expression,
+        let message = match call.expression {
+            // `ast.IsImportCall`: only `import.defer` makes the call an import
+            // call; `import.meta(…)` is an ordinary call.
+            Some(tsr_ast::Expression::MetaProperty(meta))
+                if meta.keyword_token.kind == SyntaxKind::ImportKeyword
+                    && meta.name.is_some_and(|name| name.text == "defer") =>
+            {
+                if matches!(
+                    self.module_kind,
+                    tsr_core::ModuleKind::ESNext | tsr_core::ModuleKind::Preserve
+                ) {
+                    return;
+                }
+                &messages::DEFERRED_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ESNEXT_OR_PRESERVE
+            }
             Some(tsr_ast::Expression::KeywordExpression(keyword))
                 if keyword.kind == SyntaxKind::ImportKeyword
-        ) {
-            return;
-        }
+                    && self.module_kind == tsr_core::ModuleKind::ES2015 =>
+            {
+                &messages::DYNAMIC_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ES2020_ES2022_ESNEXT_COMMONJS_AMD_SYSTEM_UMD_NODE16_NODE18_NODE20_OR_NODENEXT
+            }
+            _ => return,
+        };
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::DYNAMIC_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ES2020_ES2022_ESNEXT_COMMONJS_AMD_SYSTEM_UMD_NODE16_NODE18_NODE20_OR_NODENEXT,
-                span,
-            ),
-        );
+        self.report(file, Diagnostic::new(message, span));
     }
 
     /// TS1206 — `Decorators are not valid here.`
