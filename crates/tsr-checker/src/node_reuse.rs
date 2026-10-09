@@ -64,6 +64,20 @@
 //!   here is [`Checker::get_type_from_type_node`] (node-cached) plus the
 //!   site's renderer.
 //!
+//! # One decision per slot
+//!
+//! Upstream has one node builder; this port has several signature and
+//! object printers, and a slot must not print differently depending on which
+//! one reaches it. Each native slot therefore has ONE decision here, which
+//! every printer asks before it serializes the type:
+//! [`Checker::type_parameter_constraint_text`] (`typeParameterToDeclaration`),
+//! [`Checker::reused_return_text`] (`serializeReturnTypeForSignature`, with
+//! the pseudochecker's Direct return and `pseudoReturnTypeMatchesPredicate`),
+//! and [`Checker::reused_property_type_text`] (`addPropertyToElementList` →
+//! `serializeTypeForDeclaration`). The pseudochecker's Direct answers live in
+//! `crate::pseudochecker`. `docs/parity/notes/r5-nodereuse.md` has the rule
+//! table and the measured printer call sites.
+//!
 //! # The printer half
 //!
 //! The visitor deep-clones the node and the emitter prints it single-line
@@ -141,6 +155,15 @@ struct ReuseContext {
     /// against the names already allocated; this visitor emits them as
     /// written. See [`Checker::renamed_annotation_in_scope`].
     declares_type_parameters: bool,
+    /// For a pseudochecker node taken from a function BODY
+    /// ([`Checker::reused_return_text`]), the declaration whose signature is
+    /// printed. Upstream's `enterNewScope` for that signature binds only its
+    /// own parameters (`nodebuilderscopes.go:59`), so a parameter of an
+    /// enclosing function referenced from the body (`null! as typeof v`) is
+    /// not in scope and must resolve at the print site like any other name.
+    /// `None` for a written annotation, whose enclosing-parameter rule is
+    /// [`Checker::declared_inside_reused_node`]'s ancestor test.
+    pseudo_owner: Option<NodeId>,
 }
 
 impl ReuseContext {
@@ -152,6 +175,7 @@ impl ReuseContext {
             mapped: false,
             unnameable: false,
             declares_type_parameters: false,
+            pseudo_owner: None,
         }
     }
 }
@@ -467,7 +491,7 @@ impl<'a> Checker<'a, '_> {
         written: WrittenAnnotation,
         current: TypeId,
     ) -> Option<String> {
-        let (text, scope_local) = self.emit_from_annotation_scope(written, current)?;
+        let (text, scope_local) = self.emit_from_annotation_scope(written, current, None)?;
         (!scope_local).then_some(text)
     }
 
@@ -478,19 +502,29 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         written: WrittenAnnotation,
         current: TypeId,
+        pseudo_owner: Option<NodeId>,
     ) -> Option<(String, bool)> {
         if !written.is_equivalent_to(current, self.intrinsics.error)
             || !self.renamed_annotation_in_scope(written)
         {
             return None;
         }
+        self.walk_from_annotation_scope(written, pseudo_owner)
+    }
+
+    fn walk_from_annotation_scope(
+        &mut self,
+        written: WrittenAnnotation,
+        pseudo_owner: Option<NodeId>,
+    ) -> Option<(String, bool)> {
         let node = TypeNode::try_from(self.node_map.get(written.node)?).ok()?;
         let mut cx = ReuseContext::new(None, written.node);
+        cx.pseudo_owner = pseudo_owner;
         let text = self.try_reuse_type_node(node, false, &mut cx)?;
         if written.renamed && cx.declares_type_parameters {
             return None;
         }
-        Some((text, cx.scope_local))
+        Some((text, cx.scope_local || cx.unnameable))
     }
 
     /// The reuse decision and the print at once, for a member whose text this
@@ -514,7 +548,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let written = self.reuse_annotation(node, equivalent)?;
-        Some(self.emit_from_annotation_scope(written, equivalent)?.0)
+        Some(self.emit_from_annotation_scope(written, equivalent, None)?.0)
     }
 
     /// `typeToTypeNodeHelperWithPossibleReusableTypeNode(constraint,
@@ -555,6 +589,260 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// The reuse arm of `serializeReturnTypeForSignature`
+    /// (`nodebuilderimpl.go:2023`), the ONE return-slot decision every
+    /// signature printer asks before it falls back to the predicate or the
+    /// return type: the pseudo return (`GetReturnTypeOfSignature`, carried as
+    /// [`crate::signatures::Signature::written_return`]) is reused when it is
+    /// equivalent to the current return type AND, when the signature has a
+    /// predicate, the written node is a predicate node that matches it
+    /// (`pseudoReturnTypeMatchesPredicate`, `pseudotypenodebuilder.go:645`).
+    /// A written predicate is printed through the visitor, so its type keeps
+    /// the written union order (`value is undefined | null`); an instantiated
+    /// predicate's type no longer matches the node and is serialized. Printed
+    /// at `reference` when the printer has a site, else from the annotation's
+    /// own scope.
+    pub fn reused_return_text(
+        &mut self,
+        signature: &crate::signatures::Signature,
+        reference: Option<NodeId>,
+    ) -> Option<String> {
+        let mut pseudo_owner = None;
+        let written = if let Some(written) = signature.written_return {
+            written
+        } else {
+            // Nothing carried: `GetReturnTypeOfSignature`'s Direct answer
+            // (`crate::pseudochecker`), asked here, at print time, as upstream
+            // asks it. Its type is `getTypeFromTypeNode` of the node
+            // (`pseudoTypeToType`). The build carries every written return
+            // annotation it can reuse EXCEPT a predicate node, so an absent
+            // carriage on any other annotation is a refusal already made
+            // (an alias-mapped node, an instantiation that moved the type) and
+            // is not re-derived.
+            let node = self.pseudo_direct_return_node(signature.declaration)?;
+            match self.function_like_return_annotation(signature.declaration) {
+                Some(TypeNode::TypePredicateNode(_)) => {}
+                Some(_) => return None,
+                None => pseudo_owner = Some(signature.declaration),
+            }
+            let r#type = self.get_type_from_type_node(node);
+            self.reuse_annotation(node, r#type)?
+        };
+        let predicate_node = match self.node_map.get(written.node)? {
+            Node::TypePredicateNode(node) => Some(node),
+            _ => None,
+        };
+        match (&signature.predicate, predicate_node) {
+            (Some(predicate), Some(node)) => {
+                if !self.pseudo_return_matches_predicate(node, predicate) {
+                    return None;
+                }
+            }
+            // The pseudochecker cannot see an inferred predicate; a written
+            // predicate with no predicate on the signature cannot arise from
+            // `getTypePredicateOfSignature`. Either way: serialize.
+            (Some(_), None) | (None, Some(_)) => return None,
+            (None, None) => {}
+        }
+        // The current return type as each printer already read it: a printer
+        // with a site asks `getReturnTypeOfSignature`, as upstream's
+        // serializer does; a site-free printer is the one that bakes a type's
+        // text at creation, and it reads the stored slot without demanding a
+        // pending return (`signature_positions`' lazy returns). There the
+        // slot may still be the error placeholder, which error charity would
+        // accept; a body-derived node is not reused against it.
+        let current = if reference.is_some() {
+            self.get_return_type_of_signature(signature).unwrap_or(signature.r#type)
+        } else {
+            signature.r#type
+        };
+        if pseudo_owner.is_some() && reference.is_none() && self.is_error(current) {
+            return None;
+        }
+        if let Some(reference) = reference {
+            return self.annotation_text_at_site(written, current, reference, pseudo_owner);
+        }
+        let (text, scope_local) =
+            self.emit_from_annotation_scope(written, current, pseudo_owner)?;
+        (!scope_local).then_some(text)
+    }
+
+    /// The reuse arm of `serializeTypeForDeclaration(nil, propertyType,
+    /// propertySymbol, true)` (`nodebuilderimpl.go:2181`) as
+    /// `addPropertyToElementList` asks it (`:2486`): the ONE property-slot
+    /// decision every object-type printer asks before it serializes the
+    /// property's type. The property's declaration (its value declaration,
+    /// else its first) is asked for its pseudo type
+    /// (`Checker::pseudo_direct_declaration_node`); a Direct node is reused
+    /// when `getTypeFromTypeNode(node)` is equivalent to the property's type
+    /// (`Checker::pseudo_type_equivalent`). An optional property signature,
+    /// property declaration or parameter is compared with `undefined`
+    /// removed (`isOptionalAnnotated`), so `x?: string` reuses `string` for
+    /// the type `string | undefined` and prints `x?: string`.
+    ///
+    /// `requiresAddingImplicitUndefined` is false for every property but a
+    /// reverse-mapped one (`emitresolver.go:593`), which this port does not
+    /// mint as a symbol, so its `| undefined` arm is not ported. The
+    /// `ObjectFlagsRequiresWidening` gate cannot fail for a Direct node: the
+    /// type must be the node's own, and no type node denotes a widening
+    /// literal type.
+    pub fn reused_property_type_text(
+        &mut self,
+        symbol: tsr_binder::SymbolId,
+        property_type: TypeId,
+        reference: Option<NodeId>,
+    ) -> Option<String> {
+        let record = self.binder.symbols().get(symbol);
+        let declaration =
+            record.value_declaration.or_else(|| record.declarations.first().copied())?;
+        let node = self.pseudo_direct_declaration_node(declaration)?;
+        let optional_annotated = match self.node_map.get(declaration)? {
+            Node::PropertySignatureDeclaration(node) => {
+                node.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
+            }
+            Node::PropertyDeclaration(node) => {
+                node.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
+            }
+            Node::ParameterDeclaration(node) => node.question_token.is_some(),
+            _ => false,
+        };
+        // The symbol's own type IS `getTypeFromTypeNode` of its declaration's
+        // annotation (with `undefined` added for an optional one, which the
+        // `isOptionalAnnotated` strip removes), so while the printed type is
+        // still that type the equivalence holds by identity, as it does for
+        // a signature's carried annotation (module docs). Only a moved type
+        // (an instantiation, a spread merge) or an assertion initializer asks
+        // `getTypeFromTypeNode`, which this port does not cache for
+        // references (`docs/parity/notes/r5-nodereuse.md` §7).
+        let annotation = match self.node_map.get(declaration)? {
+            Node::PropertySignatureDeclaration(node) => node.r#type,
+            Node::PropertyDeclaration(node) => node.r#type,
+            Node::PropertyAssignment(node) => node.r#type,
+            Node::VariableDeclaration(node) => node.r#type,
+            Node::ParameterDeclaration(node) => node.r#type,
+            _ => None,
+        };
+        let own_annotation = annotation
+            .and_then(|annotation| Node::from(annotation).node_id())
+            .is_some_and(|id| Node::from(node).node_id() == Some(id));
+        if !(own_annotation && self.get_type_of_symbol(symbol) == property_type) {
+            let from_node = self.get_type_from_type_node(node);
+            if !self.pseudo_type_equivalent(from_node, property_type, optional_annotated) {
+                return None;
+            }
+        }
+        // The equivalence holds, so the visitor's identity gate is asked of
+        // the printed type itself.
+        let written = self.reuse_annotation(node, property_type)?;
+        match reference {
+            Some(reference) => self.written_annotation_text_at(written, property_type, reference),
+            None => self.site_free_annotation_text(written, property_type),
+        }
+    }
+
+    /// `pseudoTypeEquivalentToType`'s type arms (`pseudotypenodebuilder.go:362`)
+    /// for a Direct pseudo type whose `pseudoTypeToType` is `from_node`:
+    /// error charity, identity, the `NEUndefined`-stripped identity of an
+    /// optional annotation, regular-literal identity, and
+    /// `compareTypesIdentical` for two unions.
+    pub(crate) fn pseudo_type_equivalent(
+        &mut self,
+        from_node: TypeId,
+        r#type: TypeId,
+        optional_annotated: bool,
+    ) -> bool {
+        if self.is_error(r#type) || from_node == r#type {
+            return true;
+        }
+        let unions = |checker: &Self, a: TypeId, b: TypeId| {
+            checker.store.get(a).flags.contains(crate::flags::TypeFlags::UNION)
+                && checker.store.get(b).flags.contains(crate::flags::TypeFlags::UNION)
+        };
+        if optional_annotated {
+            let stripped = self.get_type_with_facts(r#type, crate::flow::TypeFacts::NE_UNDEFINED);
+            if stripped == from_node {
+                return true;
+            }
+            if unions(self, from_node, stripped)
+                && self.is_type_identical_to(from_node, stripped)
+                    == crate::relater::Ternary::Related
+            {
+                return true;
+            }
+        }
+        if self.get_regular_type_of_literal_type(from_node)
+            == self.get_regular_type_of_literal_type(r#type)
+        {
+            return true;
+        }
+        unions(self, from_node, r#type)
+            && self.is_type_identical_to(from_node, r#type) == crate::relater::Ternary::Related
+    }
+
+    /// `pseudoReturnTypeMatchesPredicate` (`pseudotypenodebuilder.go:645`):
+    /// the written predicate node agrees with the signature's predicate in
+    /// its `asserts` modifier, its `this`/parameter target, and its type
+    /// (`getTypeFromTypeNode` identity, else `compareTypesIdentical`).
+    fn pseudo_return_matches_predicate(
+        &mut self,
+        node: &tsr_ast::TypePredicateNode<'a>,
+        predicate: &crate::signatures::TypePredicate,
+    ) -> bool {
+        if node.asserts_modifier.is_some() != predicate.asserts {
+            return false;
+        }
+        match (node.parameter_name, &predicate.parameter_name) {
+            (Some(tsr_ast::TypePredicateParameterName::Identifier(name)), Some(expected))
+                if name.text == expected => {}
+            (Some(tsr_ast::TypePredicateParameterName::ThisTypeNode(_)), None) => {}
+            _ => return false,
+        }
+        match (node.r#type, predicate.r#type) {
+            (Some(written), Some(expected)) => {
+                let from_node = self.get_type_from_type_node(written);
+                // Native falls back to `compareTypesIdentical` for any pair;
+                // this port asks it for two unions only, the pair whose ids
+                // legitimately differ for one type (origins, aliases), as
+                // `pseudoTypeEquivalentToType`'s union arm does. The printers
+                // here run on every baked instantiation, and the structural
+                // identity walk has no relation cache in this port
+                // (`docs/parity/notes/r5-nodereuse.md` §7).
+                let union = crate::flags::TypeFlags::UNION;
+                from_node == expected
+                    || (self.store.get(from_node).flags.contains(union)
+                        && self.store.get(expected).flags.contains(union)
+                        && self.is_type_identical_to(from_node, expected)
+                            == crate::relater::Ternary::Related)
+            }
+            (None, None) => true,
+            _ => false,
+        }
+    }
+
+    /// The ONE constraint decision every signature printer asks
+    /// (`typeParameterToDeclaration`, `nodebuilderimpl.go:1611`): the
+    /// parameter's carried written spelling, else
+    /// `Checker::reused_constraint_text`. `None` means "serialize the
+    /// constraint from its type", which each printer does with its own
+    /// renderer (site-aware or not). Upstream has one node builder and so one
+    /// call; this port has four signature printers (two in `signatures.rs`,
+    /// the member printers in `checker.rs` and `objects.rs`), and the reuse
+    /// must not depend on which one a type reaches (`Object.freeze`'s
+    /// overloads print through the member printers:
+    /// `docs/parity/notes/r5-nodereuse.md` §2).
+    pub fn type_parameter_constraint_text(
+        &mut self,
+        parameter: &crate::signatures::TypeParameter,
+        constraint: TypeId,
+        reference: Option<NodeId>,
+    ) -> Option<String> {
+        if let Some(written) = &parameter.written_constraint {
+            return Some(written.clone());
+        }
+        let resolved = parameter.resolved_type?;
+        self.reused_constraint_text(resolved, constraint, reference)
+    }
+
     /// The reused annotation as printed at `reference`
     /// (`ctx.enclosingDeclaration`), so `trackExistingEntityName` answers for
     /// this site. `None` when the slot no longer holds the annotation's type,
@@ -565,6 +853,16 @@ impl<'a> Checker<'a, '_> {
         current: TypeId,
         reference: NodeId,
     ) -> Option<String> {
+        self.annotation_text_at_site(written, current, reference, None)
+    }
+
+    fn annotation_text_at_site(
+        &mut self,
+        written: WrittenAnnotation,
+        current: TypeId,
+        reference: NodeId,
+        pseudo_owner: Option<NodeId>,
+    ) -> Option<String> {
         if !written.is_equivalent_to(current, self.intrinsics.error)
             || !self.renamed_annotation_in_scope(written)
         {
@@ -572,6 +870,7 @@ impl<'a> Checker<'a, '_> {
         }
         let node = TypeNode::try_from(self.node_map.get(written.node)?).ok()?;
         let mut cx = ReuseContext::new(Some(reference), written.node);
+        cx.pseudo_owner = pseudo_owner;
         let text = self.try_reuse_type_node(node, false, &mut cx)?;
         if written.renamed && cx.declares_type_parameters {
             return None;
@@ -623,12 +922,44 @@ impl<'a> Checker<'a, '_> {
         } else {
             SymbolFlags::TYPE
         };
-        let text = identifier.text;
+        self.track_existing_leftmost_identifier(id, identifier.text, meaning, cx)
+    }
+
+    /// `trackExistingEntityName` for an entity-name EXPRESSION (`a`,
+    /// `a.b.c`): a computed property name's (`nodecopy.go:751`), whose
+    /// meaning is a value's.
+    fn track_existing_entity_expression(
+        &mut self,
+        expression: Expression<'a>,
+        cx: &mut ReuseContext,
+    ) -> bool {
+        let mut leftmost = expression;
+        while let Expression::PropertyAccessExpression(access) = leftmost {
+            let Some(left) = access.expression else { return true };
+            leftmost = left;
+        }
+        let Expression::Identifier(identifier) = leftmost else { return true };
+        let Some(id) = identifier.node_id else { return true };
+        self.track_existing_leftmost_identifier(
+            id,
+            identifier.text,
+            SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+            cx,
+        )
+    }
+
+    fn track_existing_leftmost_identifier(
+        &mut self,
+        id: NodeId,
+        text: &str,
+        meaning: SymbolFlags,
+        cx: &mut ReuseContext,
+    ) -> bool {
         let Some(symbol) = self.binder.resolve_name(self.nodes, self.node_map, id, text, meaning)
         else {
             return true;
         };
-        if self.declared_inside_reused_node(symbol, cx.root) {
+        if self.declared_inside_reused_node(symbol, cx) {
             return true;
         }
         // An active alias-evaluation frame that binds this name to anything
@@ -992,16 +1323,20 @@ impl<'a> Checker<'a, '_> {
     /// encloses the annotation — the printed signature's own parameters,
     /// which `enterSignatureScope`/`enterNewScope`
     /// (`nodebuilderscopes.go:53`) put in scope.
-    fn declared_inside_reused_node(&self, symbol: tsr_binder::SymbolId, root: NodeId) -> bool {
+    fn declared_inside_reused_node(&self, symbol: tsr_binder::SymbolId, cx: &ReuseContext) -> bool {
         let Some(declaration) = self.binder.symbols().get(symbol).declarations.first().copied()
         else {
             return false;
         };
-        if self.is_ancestor_or_self(root, declaration) {
+        if self.is_ancestor_or_self(cx.root, declaration) {
             return true;
         }
         let Some(parameter) = self.parameter_of_binding(declaration) else { return false };
-        self.nodes.parent(parameter).is_some_and(|owner| self.is_ancestor_or_self(owner, root))
+        let Some(owner) = self.nodes.parent(parameter) else { return false };
+        match cx.pseudo_owner {
+            Some(printed) => owner == printed,
+            None => self.is_ancestor_or_self(owner, cx.root),
+        }
     }
 
     /// `WalkUpBindingElementsAndPatterns`, answering the `Parameter` it
@@ -1183,7 +1518,7 @@ impl<'a> Checker<'a, '_> {
                         SymbolFlags::TYPE,
                     )
                     && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
-                    && !self.declared_inside_reused_node(symbol, cx.root)
+                    && !self.declared_inside_reused_node(symbol, cx)
                 {
                     let parameter = self.get_type_from_type_node(node);
                     if let Some((_, allocated)) = self
@@ -1207,7 +1542,7 @@ impl<'a> Checker<'a, '_> {
                         SymbolFlags::TYPE,
                     )
                     && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
-                    && !self.declared_inside_reused_node(symbol, cx.root)
+                    && !self.declared_inside_reused_node(symbol, cx)
                 {
                     let parameter = self.get_type_from_type_node(node);
                     return self.type_to_string_at(parameter, site);
@@ -1702,6 +2037,30 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// A type element's name as the visitor emits it: a computed name's
+    /// entity expression is tracked at the site (`nodecopy.go:751`), and one
+    /// that does not survive the move marks the whole reuse as an error
+    /// (`bound.markError`), so the node is serialized from its type
+    /// ([`ReuseContext::unnameable`]).
+    fn reused_member_name(
+        &mut self,
+        name: PropertyName<'a>,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        if let PropertyName::ComputedPropertyName(computed) = name
+            && let Some(expression) = computed.expression
+            && matches!(
+                expression,
+                Expression::Identifier(_) | Expression::PropertyAccessExpression(_)
+            )
+            && entity_name_expression_text(expression).is_some()
+            && !self.track_existing_entity_expression(expression, cx)
+        {
+            cx.unnameable = true;
+        }
+        Self::reused_property_name(name)
+    }
+
     /// A type literal's members, single-line (`Printer.emitTypeLiteral`
     /// with `LFSingleLineTypeLiteralMembers`).
     fn reused_type_members(
@@ -1736,7 +2095,7 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
                 let mut text = modifiers_prefix(property.modifiers)?;
-                text.push_str(&Self::reused_property_name(property.name)?);
+                text.push_str(&self.reused_member_name(property.name, cx)?);
                 if let Some(token) = property.postfix_token {
                     text.push_str(match token.kind {
                         SyntaxKind::QuestionToken => "?",
@@ -1748,7 +2107,7 @@ impl<'a> Checker<'a, '_> {
             }
             TypeElement::MethodSignatureDeclaration(method) => {
                 let mut text = modifiers_prefix(method.modifiers)?;
-                text.push_str(&Self::reused_property_name(method.name)?);
+                text.push_str(&self.reused_member_name(method.name, cx)?);
                 if method.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
                 {
                     text.push('?');
@@ -1779,7 +2138,7 @@ impl<'a> Checker<'a, '_> {
             TypeElement::GetAccessorDeclaration(getter) => {
                 let mut text = modifiers_prefix(getter.modifiers)?;
                 text.push_str("get ");
-                text.push_str(&Self::reused_property_name(getter.name)?);
+                text.push_str(&self.reused_member_name(getter.name, cx)?);
                 text.push_str(&self.reused_parameters(getter.parameters, cx)?);
                 if let Some(node) = getter.r#type {
                     text.push_str(": ");
@@ -1791,7 +2150,7 @@ impl<'a> Checker<'a, '_> {
             TypeElement::SetAccessorDeclaration(setter) => {
                 let mut text = modifiers_prefix(setter.modifiers)?;
                 text.push_str("set ");
-                text.push_str(&Self::reused_property_name(setter.name)?);
+                text.push_str(&self.reused_member_name(setter.name, cx)?);
                 text.push_str(&self.reused_parameters(setter.parameters, cx)?);
                 text.push(';');
                 text
