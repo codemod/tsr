@@ -283,6 +283,82 @@ impl Checker<'_, '_> {
         result
     }
 
+    /// isGenericReducibleType (checker.go:24932): a union containing an
+    /// intersection that some instantiation could reduce to `never`, or such
+    /// an intersection. getIndexedAccessType keeps an access into one
+    /// deferred (shouldDeferIndexedAccessType, `:27370`), and getIndexType
+    /// its `keyof` (shouldDeferIndexType, `:26838`), so the reduction is
+    /// applied once the type parameters are known.
+    // Its callers are r5-mapped5-reducible-indexed-access.diff and
+    // r5-mapped5-reducible-keyof.diff (`indexed.rs`, `declared.rs`); the
+    // first removes this allowance.
+    #[allow(dead_code)]
+    pub(crate) fn is_generic_reducible_type(&mut self, t: TypeId) -> bool {
+        match &self.store.get(t).data {
+            TypeData::Union { types, .. } => {
+                let types = types.clone();
+                types.iter().any(|&id| self.store.get(id).flags.contains(TypeFlags::INTERSECTION))
+                    && types.into_iter().any(|id| self.is_generic_reducible_type(id))
+            }
+            TypeData::Intersection { .. } => self.is_reducible_intersection(t),
+            _ => false,
+        }
+    }
+
+    /// isReducibleIntersection (checker.go:24937): instantiated with
+    /// `uniqueLiteralMapper` (every type parameter to `uniqueLiteralType`),
+    /// the intersection reduces.
+    ///
+    /// The port's instantiation takes an explicit mapper, so the parameters
+    /// are collected first: the constituents that are type parameters and
+    /// the property types that are (or contain, as union constituents) type
+    /// parameters. Those are the only positions getReducedType's
+    /// never-reduced-property test reads (isDiscriminantWithNeverType). A
+    /// parameter nested deeper cannot make a property's type `never` there.
+    /// Native caches the instantiation on the intersection
+    /// (`uniqueLiteralFilledInstantiation`); the port recomputes it, since
+    /// it is asked only for a union object of a type-level access whose
+    /// object and index are otherwise concrete.
+    fn is_reducible_intersection(&mut self, t: TypeId) -> bool {
+        let TypeData::Intersection { types, .. } = &self.store.get(t).data else { return false };
+        let types = types.clone();
+        let mut parameters = Vec::new();
+        let mut collect = |checker: &mut Self, ty: TypeId| {
+            let parts = match &checker.store.get(ty).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![ty],
+            };
+            for part in parts {
+                if checker.store.get(part).flags.contains(TypeFlags::TYPE_PARAMETER)
+                    && !parameters.contains(&part)
+                {
+                    parameters.push(part);
+                }
+            }
+        };
+        for constituent in types {
+            collect(self, constituent);
+            if !self.store.get(constituent).flags.contains(TypeFlags::OBJECT) {
+                continue;
+            }
+            for name in self.get_property_names_of_type(constituent).unwrap_or_default() {
+                if let Some(value) = self.get_type_of_property_of_type(constituent, &name) {
+                    collect(self, value);
+                }
+            }
+        }
+        let instantiated = if parameters.is_empty() {
+            t
+        } else {
+            let map: Vec<_> = parameters
+                .iter()
+                .map(|&parameter| (parameter, self.intrinsics.unique_literal))
+                .collect();
+            self.instantiate_type(t, &map, &parameters, &[])
+        };
+        self.get_reduced_type(instantiated) != instantiated
+    }
+
     /// `getReducedType` (`checker.go:21819`) and `getReducedUnionType`
     /// (`:21843`): an intersection with a never-reduced property
     /// (`isNeverReducedProperty`, `:21856`) is `never`, and a union containing
