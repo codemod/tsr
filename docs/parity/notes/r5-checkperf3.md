@@ -291,8 +291,11 @@ union was first asked; the same property r5-checkperf2 §4 rests on.
   tsr-checker --all-targets -- -D warnings` reports nothing in the touched
   code (it reports pre-existing stable-toolchain lints elsewhere, e.g.
   `index_signatures.rs:247`); `cargo fmt --all` clean.
-- Applied to the integration tip `c75e4af` (batch AP): see the last
-  bullet of this section.
+- On the integration tip `c75e4af` (batch AP): the three diffs apply
+  cleanly, and both dumps of the tip with the stack applied are identical
+  to the tip's own (`cmp` after cutting `ms=`/`mib=`; 12,238 diagnostics
+  rows, 556,300 type rows), each pair produced by binaries built from that
+  tip.
 
 **Ir** (callgrind; bench projects whole process, jsTyping check phase):
 
@@ -319,8 +322,6 @@ jsTyping medians: base 9.49 s wall / 19.61 s CPU, stack 8.11 s / 16.33 s,
 tsgo 2.53 s / 6.55 s. On the bench projects the stack's wall and CPU sit
 inside this container's noise (their check phases move under 1%); on
 jsTyping, where the three answers are hot, wall and CPU fall 15–17%.
-
-- **Integration tip**: the three diffs apply cleanly to `c75e4af` (batch AP); the identity re-run there is recorded below when it completes.
 
 ## §7 What is left
 
