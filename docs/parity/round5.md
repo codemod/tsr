@@ -1013,3 +1013,22 @@ With them, the first writer rewrite reaches zero RIGHT cost and is narrowed:
 GlobalAugmentation. The ADR-0048 narrowing cost falls from 4,504 to 3,030.
 r5-errorsplit6 takes indexed.rs' failed-lookup arms, the false-claim roots and
 spread propagation. Main's remainder is `.1107`.
+
+### r5-smallcodes2 finished; r5-config dispatched (`tsr-2zk.1108`)
+
+r5-smallcodes2 fixed:
+- TS2540: the constructor exemption's Property gate, and globalThis
+  read-only;
+- TS1156: no report inside a `with` body, plus the modifier-chain gate;
+- TS2300: lateBindMember conflicts;
+- TS2695: isInDiag2657, through a new ModuleHost::parse_diagnostics.
+
+That is +10 cases with no losses and Ir flat. Its error_span missing-node diff
+and its parser as-ASI diff land next, for +5 cases and +10 type lines.
+
+The freed slot went to r5-config: configuration-dependent failures (the
+weakest suite) and the harness compile root (`/.src`, `.1087`).
+
+Note for the user: main's lazy-JSDoc lane (`.17.1`) is claimed but shows one
+commit in 96 hours, while JSDoc scanning is about 40% of generic-imports' Ir.
+It is the largest open perf lever and is not taken over without the owner.
