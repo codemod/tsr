@@ -4606,6 +4606,62 @@ impl<'a> Checker<'a, '_> {
         units.intersects(bases)
     }
 
+    /// The signature [`Self::annotation_member_context`] reads a call
+    /// argument's member context from, kept per call in
+    /// [`Checker::argument_context_signatures`].
+    ///
+    /// Native op (pinned `5b1047d`): `getContextualTypeForArgumentAtIndex`
+    /// (`checker.go:29786`) reads `getResolvedSignature`'s link
+    /// (`checker.go:8410`), resolved once per call. This port resolved the
+    /// call again for every property assignment of every object-literal
+    /// argument (jsTyping: 1,561 resolutions on 261 calls, 6.6% of the
+    /// check). Key: the call node, with the callee type the answer was
+    /// resolved against (a hit needs the same callee type); private to one
+    /// `Checker`. Value: the resolution's answer, `None` included. Read and
+    /// published only from an outermost ask (no `narrow_value_stack` frame
+    /// open below this call's own) under the call-link clean context
+    /// ([`Self::argument_context_clean`]) at both ends, and
+    /// published when [`Self::publishable_since`] holds. A validation build
+    /// that re-resolved on every hit found 1,033 of 1,040 jsTyping hits
+    /// identical and 7 equal up to fresh `TypeId`s of re-minted
+    /// instantiations, which native's link never re-mints
+    /// (`docs/parity/notes/perf.md` §21).
+    fn argument_context_signature(
+        &mut self,
+        call: NodeId,
+        callee_type: TypeId,
+        arguments: &[tsr_ast::Expression<'_>],
+    ) -> Option<crate::signatures::Signature> {
+        let clean = self.argument_context_clean();
+        if clean
+            && let Some((published_callee, signature)) = self.argument_context_signatures.get(&call)
+            && *published_callee == callee_type
+        {
+            return signature.clone();
+        }
+        let mark = self.publication_mark();
+        let signature = self.resolve_call_signature(callee_type, Some(arguments));
+        if clean && self.argument_context_clean() && self.publishable_since(mark) {
+            self.argument_context_signatures.insert(call, (callee_type, signature.clone()));
+        }
+        signature
+    }
+
+    /// The clean context `call_link_context_clean` (`perf_links.rs`,
+    /// `r5-checkperf3.md` §3) states for the call link: no flow loop,
+    /// inference context, higher-order or uninstantiated contextual read,
+    /// alias-evaluation or mapped-template frame.
+    fn argument_context_clean(&self) -> bool {
+        self.flow_loop_stack.is_empty()
+            && self.active_inference_contexts.is_empty()
+            && self.higher_order_context_calls.is_empty()
+            && !self.contextual_prefers_uninstantiated
+            && self.uninstantiated_context_node.is_none()
+            && self.mapped_template_depth == 0
+            && !self.identity_unmapped_type_parameters
+            && self.alias_evaluation_bindings.iter().all(|frame| frame.is_empty())
+    }
+
     /// §56: the annotation-derived contextual type of an object-literal
     /// MEMBER, reached syntactically — property assignments and nested
     /// object literals only, ending at a `VariableDeclaration` with a written
@@ -4651,14 +4707,21 @@ impl<'a> Checker<'a, '_> {
                     // checks the ARGUMENTS, whose object-literal members
                     // walk back to this call — the cycle the first build hit
                     // as a stack overflow (`arrayToLocaleStringES2015`).
+                    let admitted = self.narrow_value_stack.is_empty();
                     if !self.narrow_value_stack.insert(holder) {
                         return None;
                     }
                     let callee_type = self.check_expression(callee);
                     let resolved_context = self.resolved_call_signatures.get(&holder).cloned();
-                    let signature = resolved_context
-                        .clone()
-                        .or_else(|| self.resolve_call_signature(callee_type, Some(call.arguments)));
+                    let signature = match resolved_context.clone() {
+                        Some(signature) => Some(signature),
+                        None if admitted => self.argument_context_signature(
+                            holder,
+                            callee_type,
+                            call.arguments,
+                        ),
+                        None => self.resolve_call_signature(callee_type, Some(call.arguments)),
+                    };
                     self.narrow_value_stack.remove(&holder);
                     // §789: an OVERLOAD SET resolves to `None` above —
                     // `resolve_call_signature` answers only for a set it can

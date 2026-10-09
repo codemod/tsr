@@ -749,3 +749,37 @@ time. The relater's property walks and discriminant checks were the askers
 jsTyping Ir 62,964,317,814 → 55,993,815,304 (−11.1%); domain-model −0.07%,
 domain-model-large −0.03%, generic-imports +0.006%. CLI output
 `cmp`-identical; dumps byte-identical.
+
+## §21 An object-literal argument's member context resolves its call once
+
+Native op (pinned `5b1047d`): `getContextualTypeForArgumentAtIndex`
+(`checker.go:29786`) reads `getResolvedSignature`'s link
+(`signatureLinks.resolvedSignature`, `checker.go:8410`), resolved once per
+call. This port's `annotation_member_context` (`symbols.rs`, §56 of the
+contextual notes) resolved the enclosing call again for every property
+assignment of an object-literal argument whose call had no
+`resolved_call_signatures` entry: jsTyping (temporary probe) 2,225 asks on
+261 calls, 1,561 of them resolving.
+
+`argument_context_signature` keeps the resolution's answer per call
+(`Checker::argument_context_signatures`):
+
+- **Key and owner**: the call `NodeId`, plus the callee type it was resolved
+  against (a hit needs the same callee type); private to one `Checker`.
+  Value: the `resolve_call_signature` answer, `None` included.
+- **Publication**: read and published only from an outermost ask (no
+  `narrow_value_stack` frame open below the call's own guard), under the
+  clean context `call_link_context_clean` states for the call link
+  (`r5-checkperf3.md` §3: no flow loop, inference context, higher-order or
+  uninstantiated contextual read, alias-evaluation or mapped-template frame)
+  at both ends, and only when `publishable_since` holds.
+- **Context**: the argument index, parameter and member path are still read
+  per ask; only the signature is shared.
+- **Work boundary**: one resolution per call instead of one per member.
+- **Evidence**: a validation build that re-resolved on every hit matched
+  1,033 of 1,040 jsTyping hits exactly and the other 7 up to the fresh
+  `TypeId`s of a re-minted instantiation (the same declaration, parameter
+  and return shapes), which native's link never re-mints.
+
+jsTyping Ir 55,993,815,304 → 51,218,758,424 (−8.5%). CLI output
+`cmp`-identical; dumps byte-identical.
