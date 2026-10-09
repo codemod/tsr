@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8419/9538 (88.27%)
-Assertion lines: 472471/478853 (98.67%)  — a gradient, not a pass rate
-Failed         : 1119
+Passed         : 8432/9538 (88.40%)
+Assertion lines: 472554/478853 (98.68%)  — a gradient, not a pass rate
+Failed         : 1106
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1119 failures:
+First 100 of 1106 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -75,8 +75,6 @@ compiler/awaitedTypeStrictNull
   awaitedTypeStrictNull.ts: >[        aaa,        bbb,    ] = await Promise.all([        MaybePromise(1),        MaybePromise('2'),        MaybePromise(true),    ]) : (MaybePromise<string> | MaybePromise<number> | MaybePromise<boolean>)[] — expected >[        aaa,        bbb,    ] = await Promise.all([        MaybePromise(1),        MaybePromise('2'),        MaybePromise(true),    ]) : [number, string, boolean]
 compiler/badInferenceLowerPriorityThanGoodInference
   badInferenceLowerPriorityThanGoodInference.ts: >result : unknown — expected >result : { BLAH: number; }
-compiler/baseClassImprovedMismatchErrors
-  baseClassImprovedMismatchErrors.ts: >fn : () => string | number — expected >fn : () => number | string
 compiler/baseConstraintOfDecorator
   baseConstraintOfDecorator.ts: >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : typeof decoratorFunc — expected >class decoratorFunc extends superClass {        constructor(...args: any[]) {            super(...args);            _instanceModifier(this, args);        }    } : { new (...args: any[]): decoratorFunc; prototype: classExtender2.decoratorFunc; } & TFunction
 compiler/baseExpressionTypeParameters
@@ -98,7 +96,7 @@ compiler/callsOnComplexSignatures
 compiler/capturedParametersInInitializers1
   capturedParametersInInitializers1.ts: >foo3 : (y?: { x: number; }, z?: number) => void — expected >foo3 : (y?: { x: typeof z; }, z?: number) => void
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
-  Uppercased_Dir/src/index.ts: >method : () => Merge<TypeA, { b: string; }> — expected >method : () => TypeB
+  Uppercased_Dir/src/index.ts: >{ } as TypeB : Merge<TypeA, { b: string; }> — expected >{ } as TypeB : TypeB
 compiler/castOfYield
   castOfYield.ts: 8 assertion(s), expected 9
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
@@ -121,8 +119,6 @@ compiler/checkingObjectWithThisInNamePositionNoCrash
   checkingObjectWithThisInNamePositionNoCrash.ts: >this : this — expected >this : { doit(): { [x: number]: string; }; }
 compiler/circularAccessorAnnotations
   circularAccessorAnnotations.ts: >c2 : { foo: any; } — expected >c2 : { foo: typeof c2.foo; }
-compiler/circularContextualReturnType
-  circularContextualReturnType.ts: >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: object | U | null | undefined; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; } — expected >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: U | null | undefined | object; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; }
 compiler/circularInlineMappedGenericTupleTypeNoCrash
   circularInlineMappedGenericTupleTypeNoCrash.ts: >...this.elements : any — expected >...this.elements : { bar: unknown; }
 compiler/circularInstantiationExpression
@@ -207,9 +203,13 @@ compiler/contextualPropertyOfGenericFilteringMappedType
   contextualPropertyOfGenericFilteringMappedType.ts: >{    foo: (value, key) => {      // implicit `any`s    },  } : any — expected >{    foo: (value, key) => {      // implicit `any`s    },  } : { foo: (value: any, key: any) => void; }
 compiler/contextualSignatureConditionalTypeInstantiationUsingDefault
   contextualSignatureConditionalTypeInstantiationUsingDefault.ts: >(ev) => {  ev.type; // should be `string`} : error — expected >(ev) => {  ev.type; // should be `string`} : (ev: { type: string; }) => void
-compiler/contextualSignatureInObjectFreeze
-  contextualSignatureInObjectFreeze.ts: >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: object | U | null | undefined; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; } — expected >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: U | null | undefined | object; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; }
 compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix3
   contextualTypeBasedOnIntersectionWithAnyInTheMix3.ts: >[1] : [number] — expected >[1] : [1]
 compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix5
   contextualTypeBasedOnIntersectionWithAnyInTheMix5.ts: >ComputedOptions : Record<string, ComputedGetter<any>> — expected >ComputedOptions : ComputedOptions
+compiler/contextualTypeCaching
+  contextualTypeCaching.ts: >() => [    {      apply: (compiler) => {},    },  ] : () => any — expected >() => [    {      apply: (compiler) => {},    },  ] : () => { apply: (compiler: MyCompiler) => void; }[]
+compiler/contextualTypeFunctionObjectPropertyIntersection
+  contextualTypeFunctionObjectPropertyIntersection.ts: >on : ({ [K in TEvent["type"]]?: Action<TEvent extends { type: K; } ? TEvent : never>; } & { "*"?: Action<TEvent>; }) | undefined — expected >on : ({ [K in TEvent["type"]]?: Action<TEvent extends { type: K; } ? TEvent : never> | undefined; } & { "*"?: Action<TEvent>; }) | undefined
+compiler/contextualTypeIterableUnions
+  contextualTypeIterableUnions.ts: >[{ b: false }] : { b: boolean; }[] — expected >[{ b: false }] : { b: false; }[]
