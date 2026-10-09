@@ -1392,3 +1392,26 @@ r5-declared4's print-arity WIP is unblocked, but its +0.22% dm Ir is with
 r6-declared to remove. r6-lazytext takes the printer lane for print-time text
 (`tsr-2zk.1138`, covering `.1120` and `.1135`), which gates two held diffs
 (+24 lines).
+
+### r6-relater finished (batch BG); r6-relater2 dispatched
+
+Batch BG lands r6-relater's commits:
+- object's apparent `{}` arm;
+- native variance: Unmeasurable/Unreliable, markers as type parameters,
+  structural fallback, getMappedTargetWithSymbol;
+- the mapped_conditionals and out-of-reach lifts;
+- conditional source arms with the bare-check-reference true type;
+- TS2321 per-side stack overflow (`.1065`);
+- the TS2322 reporter no longer reports a pair the relation relates.
+
+Measured by the box: +9 diagnostics cases, +29 type lines, dm Ir −0.15%.
+
+r5-relater8's variance WIP as written lost 10 type lines and 2 diagnostics
+cases, because it had never run verdictdump. Four native steps fixed it.
+
+Held:
+- the write-constraint lift: +23/−2, waiting on mapped.rs's
+  getMappedTypeNameTypeKind deciding Remapping;
+- the union-walk decline lift: loses correlatedUnions 181/299.
+
+r6-relater2 continues with `tsr-2zk.1139`.
