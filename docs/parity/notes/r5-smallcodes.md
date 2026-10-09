@@ -217,9 +217,12 @@ two points, one behind the other:
    pattern object keeps its complete image in `object_literal_members`
    (`binding_patterns.rs` `binding_pattern_object`), so the gate treated a
    complete `{}` as unenumerated. The diff admits a type with an
-   `object_literal_members` entry. On top of commit 5 it converts
-   `errorElaboration`, `asyncFunctionDeclarationParameterEvaluation` ×2 and
-   `asyncGeneratorParameterEvaluation` ×3 (+6).
+   `object_literal_members` entry. Measured on top of commit 5 (`202b6e0`):
+   +6 diagnostics cases (`errorElaboration`,
+   `asyncFunctionDeclarationParameterEvaluation` ×2,
+   `asyncGeneratorParameterEvaluation` ×3), zero losses on both dumps, types
+   identical, slowcases clean, Ir −0.003% domain-model and −0.003%
+   generic-imports, checker tests pass.
 
 `identifierStartAfterNumericLiteral` (×4 TS2538 `null`) is `3in[null]` after
 a scanner error: an element access with a `null` key, the `:27206` arm with
