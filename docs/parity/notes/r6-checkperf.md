@@ -17,7 +17,11 @@ in this directory, applied in this order (each on top of the previous; each
 state builds and lints clean on its own):
 
 1. [`r6-checkperf-main-park.diff`](r6-checkperf-main-park.diff) — §2
-   (`calls.rs`, `perf_links.rs`).
+   (`calls.rs`, `perf_links.rs`);
+2. [`r6-checkperf-jsdoc-deferral.diff`](r6-checkperf-jsdoc-deferral.diff) —
+   §4 (the parser, `tsr-compiler`'s driver, three benches' option literals, a
+   parser test, and the decision record ADR-0051 it needs). Independent of
+   the first: it also applies alone on the base.
 
 They are diffs rather than commits because the `perf_links.rs` functions are
 unused without their call sites in main's files, and an unused function fails
@@ -125,12 +129,22 @@ on its own `resolving_signature_calls` re-entry. Convention record:
 | dml Ir | 4,365,790,760 | 4,366,533,878 | +0.02% |
 | gi Ir | 343,689,167 | 343,673,020 | −0.005% |
 
-Wall/CPU (state/base, same rotated runs): dm 1.010 / 1.032, dml 0.983 /
-1.012, gi 1.020 / 1.030, jsTyping 1.040 / 1.022 at 31 rounds (5 for
-jsTyping); dm and gi re-run at 41 rounds, base and state only: dm 0.980 /
-1.002, gi 1.008 / 0.996. The bench projects move by the park's hash traffic
-(+0.16 M / +0.74 M Ir); jsTyping's wall at 5 rounds is inside its noise
-(the Ir fall is 1.5%).
+Wall/CPU, state/base (rotated with base, §4's state and tsgo, 31 rounds; 5
+for jsTyping): dm 0.996 / 0.976, dml 1.009 / 1.034, gi 0.934 / 0.924,
+jsTyping 1.043 / 0.930; dm, dml and gi re-run at 41 rounds, base and state
+only: dm 1.018 / 1.028, dml 1.012 / 1.008, gi 1.014 / 0.999 — inside the
+protocol's ±3% at the Ir change (+0.01%, +0.02%, −0.005%); jsTyping's 5
+rounds swing ±7% on CPU around a 1.5% Ir fall.
+
+*Correction.* The first wall run of this section (and the base row of §1's
+table, which is unaffected) used binaries copied after
+`cargo build --release -p tsr -p tsr-conformance --examples`, which builds
+only the examples: the "state" binary was the base binary, byte for byte.
+Those state/base numbers (dm 1.010 / 1.032 ...) measured nothing and are
+replaced by the ones above, from `cargo build --release -p tsr` run on its
+own; the CLI comparison was re-run on the real binary (identical). The dumps
+and the Ir were never affected (the examples and the `profiling` build were
+rebuilt).
 
 Both dumps identical; CLI output identical on all four projects; `slowcases`
 clean on both dumps; `cargo test --release -p tsr-checker` 1,762 passed.
@@ -165,3 +179,95 @@ they now decline, which `is_pure_signature_type` and every other reader of
 attempted in this lane. The fidelity half stays with main's `members.rs`
 (why `collect_declared_properties` cannot certify the `types.ts` node
 interfaces is the open question).
+
+## §4 dm and gi: the top self-cost is upstream-absent JSDoc work (diff + ADR-0051)
+
+**Profile** (callgrind, whole process, §2's state). Top self-cost after the
+allocator:
+
+| | 1st | 2nd | 3rd | then |
+|---|---|---|---|---|
+| dm | `Scanner::scan` 35.6 M (3.3%) | `Scanner::bump` 35.4 M | `Scanner::peek` 31.5 M | `jsdoc_ranges_in` 25.3 M, `scan_jsdoc_comment_text_token` 22.3 M |
+| gi | `Scanner::bump` 34.1 M (9.9%) | `Scanner::peek` 29.7 M | `Scanner::scan` 27.5 M | `jsdoc_ranges_in` 25.3 M, `scan_jsdoc_comment_text_token` 22.3 M |
+
+The native operation is `scanner.Scan`, but the cost is not scanning tokens:
+`Parser::parse_jsdoc_at` is **148.7 M Ir inclusive on dm (13.6% of the
+process) and 148.9 M on gi (43.3%)** — the same number on both, because it
+is the default lib `.d.ts` files' documentation (`lib.dom.d.ts` and the
+ES libs), parsed on every compilation. Native does not do this work:
+`withJSDoc` (`internal/parser/jsdoc.go:56`) only flags a documented node of a
+non-JavaScript file and parses its comments eagerly only when one carries
+`@see`/`@link`/`@linkcode`/`@linkplain`; everything else waits for a lazy
+`Node.JSDoc()` read, and the checker's error paths read only `EagerJSDoc`
+(`checker.go:2255`, `grammarchecks.go:916`). The two lazy readers in the
+checker feed suggestions (`GetJSDocDeprecatedTag` from
+`addDeprecatedSuggestionWorker`, `checker.go:14044`; `getAllJSDocTags` from
+`checkUnmatchedJSDocParameters`, `errorOrSuggestion` — a suggestion in a TS
+file). It is "work native caches" in the brief's sense in its strongest form:
+native defers it until a reader asks, and on the CLI's path nothing asks.
+
+**Change** (`r6-checkperf-jsdoc-deferral.diff`, with
+[ADR-0051](../../adr/0051-jsdoc-deferred-in-checked-ts-files.md) in the
+diff, since it changes ADR-0010's driver default): `ParseOptions` gains
+`defer_ts_jsdoc`; with it, `parse_jsdoc_at` parses a construct's comments
+only when one carries one of the four tags (`hasJSDocTag`'s test,
+`scanner.go:372`). `ParseOptions::deferring_ts_jsdoc(name)` sets it for
+every file that is not JavaScript by extension, and `tsr-compiler`'s loader
+and `Program::parse` — the CLI's and the conformance harness's parse sites —
+apply it. The option's default stays off. This is not a cache, so the
+checker port convention's cache record does not apply; the decision is the
+ADR's.
+
+A first probe (not shipped) dropped JSDoc in every `.d.ts` file: gi
+0.915 → 0.622 and dm 0.761 → 0.672 of tsgo's wall, CLI identical. Rejected
+for having no upstream counterpart (ADR-0051, alternatives).
+
+**Measured** (on top of §2):
+
+| | §2 | §2 + §4 | change |
+|---|---:|---:|---:|
+| dm Ir | 1,092,791,384 | 974,688,306 | **−118.1 M (−10.8%)** |
+| dml Ir | 4,366,533,878 | 4,248,089,430 | −118.4 M (−2.7%) |
+| gi Ir | 343,673,020 | 225,414,551 | **−118.3 M (−34.4%)** |
+| jsTyping check Ir | 67,672,682,180 | 67,707,544,263 | +0.05% |
+
+The same ~118 M on every bench project is the lib files' share; jsTyping's
+check phase does not parse.
+
+Wall, rotated base / §2 / §2+§4 / tsgo, 31 rounds (5 for jsTyping):
+
+| project | base/tsgo | §2/tsgo | **§2+§4/tsgo** | §2+§4 / base, wall · CPU |
+|---|---:|---:|---:|---:|
+| domain-model | 0.793 | 0.789 | **0.729** | 0.919 · 0.951 |
+| domain-model-large | 0.774 | 0.781 | **0.751** | 0.970 · 1.009 |
+| generic-imports | 0.967 | 0.903 | **0.662** | 0.686 · 0.685 |
+| jsTyping | 2.783 | 2.902 | **2.899** | 1.042 · 0.939 |
+
+(This run's base reads higher against tsgo than §1's: dm 0.793 against
+0.745, gi 0.967 against 0.910 — the container's spread between runs; compare
+within a row.)
+
+**Identity and gates** (§2 + §4 stacked): both dumps identical to the base's
+(12,238 + 556,303 rows), and the corpus's total case time fell from 724.8 s
+to 484.4 s (summed `ms=` of the diagnostics dump), which shows the harness parses through the gated
+path; CLI identical on dm, dml, gi and jsTyping; `slowcases` clean on both
+dumps; `cargo test --workspace --release` 3,484 passed, 0 failed (with the
+new `crates/tsr-parser/tests/jsdoc_deferral.rs`, 4 tests); `cargo clippy
+--no-deps --all-targets -- -D warnings` clean on `tsr-parser`,
+`tsr-compiler`, `tsr-binder` (the `Parser`'s two JSDoc bools are folded into
+one `JSDocMode`, as `struct_excessive_bools` requires); `cargo fmt` clean.
+
+**How we would know it is wrong.** ADR-0051's falsifiers: a conformance case
+whose errors depend on a TS-file comment without `@see`/`@link` (none on
+this corpus), or a checker reader of such a comment ported later.
+
+**The checker phase of dm and gi has no recomputed link left to cache.**
+Check-phase-only profile of dm (§2 + §4, 664.6 M Ir): no checker function
+above 2.1% self; the allocator is 16%. The largest cluster is name
+resolution (`BindResult::resolve_name` 3.5% inclusive): 20.0 M of it under
+`resolve_identifier_memo`, which is r5-checkperf §4's port of native's
+`links.resolvedSymbol` — 15,601 resolutions for 32,395 asks, i.e. one
+resolution per `(identifier, meaning)`, native's own work. gi's check phase
+is 5 M Ir (1.5% of the process). Nothing here is a links field the port
+recomputes; the allocator share is `tsr-2zk.1092`'s (Signature copies,
+r5-checkperf2 §2).
