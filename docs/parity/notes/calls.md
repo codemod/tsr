@@ -144,3 +144,28 @@ lane). Converts 37 EXACT cases (`functionCall11/12/13/16/17/18`,
 `genericRestArity(Strict)`, …). Native control: `function foo(a:string,
 b?:number){}; foo()` → TS2554 at `foo` with TS6210 `a:string`; `foo('x')`
 stays clean; `bar(a, b, [c])` with two arguments → TS6211 at `[c]`.
+
+## reportCallResolutionErrors' overload chain and notes (tsr-2zk.16.58)
+
+The `candidatesForArgumentError` arm (`checker.go:9651`) rewrote the last
+candidate's report head to TS2769 and dropped the rest. It now chains each
+report under `The_last_overload_gave_the_following_error` and
+`No_overload_matches_this_call` when several candidates failed (the child
+keeps its file and location: `diagnostic_file_image` attaches the reporting
+file's image before `NewDiagnosticChain`), notes
+`The_last_overload_is_declared_here` at the candidate's declaration, and
+ports `addImplementationSuccessElaboration` (`checker.go:9686`): TS2793 at
+the implementation when `chooseOverload` accepts its signature. Single
+candidates (`report_single_candidate_arguments`) get the TS2793 note too.
+The implementation check runs for a non-generic implementation over
+arguments whose checked type is independent of context (the refusal of
+`check_overload_candidates_arguments`); otherwise no note. No cache: one
+relation per argument on report paths. Converts `functionOverloads2/27`,
+`excessPropertiesInOverloads`, `specializedSignatureAsCallbackParameter1`,
+`genericCallWithOverloadedConstructorTypedArguments`. Native control: `f(true)`
+over `(string)`/`(number)` with a `string | number | boolean` implementation
+→ TS2769 + TS2771 + TS2793; with a `string | number` implementation, no
+TS2793; one overload + `any` implementation → TS2345 + TS2793.
+Remaining: the declared-here span at a method signature or constructor
+(`error_span`, check.rs), and chains under elaborated relation children
+(assignreport).

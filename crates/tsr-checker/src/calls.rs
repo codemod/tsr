@@ -1430,8 +1430,10 @@ impl Checker<'_, '_> {
             [],
         );
         for index in before..self.diagnostics.len() {
-            let placeholder =
-                Diagnostic::new(&messages::NO_OVERLOAD_MATCHES_THIS_CALL, tsr_core::Span::new(0, 0));
+            let placeholder = Diagnostic::new(
+                &messages::NO_OVERLOAD_MATCHES_THIS_CALL,
+                tsr_core::Span::new(0, 0),
+            );
             let mut reported = std::mem::replace(&mut self.diagnostics[index].1, placeholder);
             if let Some(image) = self.diagnostic_file_image(self.diagnostics[index].0) {
                 reported.set_file(image);
@@ -1474,8 +1476,8 @@ impl Checker<'_, '_> {
         if declarations.len() <= 1 {
             return None;
         }
-        let implementation = declarations.into_iter().find(|&declaration| {
-            match self.node_map.get(declaration) {
+        let implementation =
+            declarations.into_iter().find(|&declaration| match self.node_map.get(declaration) {
                 Some(tsr_ast::Node::FunctionDeclaration(n)) => n.body.is_some(),
                 Some(tsr_ast::Node::MethodDeclaration(n)) => n.body.is_some(),
                 Some(tsr_ast::Node::ConstructorDeclaration(n)) => n.body.is_some(),
@@ -1484,8 +1486,7 @@ impl Checker<'_, '_> {
                 Some(tsr_ast::Node::FunctionExpression(n)) => n.body.is_some(),
                 Some(tsr_ast::Node::ArrowFunction(n)) => n.body.is_some(),
                 _ => false,
-            }
-        })?;
+            })?;
         let candidate = self.get_signature_from_declaration(implementation)?;
         if !candidate.type_parameters.is_empty() {
             return None;
