@@ -190,6 +190,21 @@ pub trait ModuleHost {
         None
     }
 
+    /// The resolved module's `Extension` and `ResolvedUsingTsExtension`, and
+    /// whether `GetSourceFileForResolvedModule` holds its file; `None` when
+    /// it did not resolve. Read by `GetResolutionDiagnostic`
+    /// (`checker.go:15209`, `crate::isolated_alias`). `mode: None` asks for
+    /// the resolution every mode the file asked in agrees on (`None` when
+    /// they disagree), so the caller computes the usage's mode only then.
+    fn resolved_module_extension(
+        &self,
+        _importing_file: NodeId,
+        _specifier: &str,
+        _mode: Option<ResolutionMode>,
+    ) -> Option<(&str, bool, bool)> {
+        None
+    }
+
     /// `Program.GetResolvedModule(file, moduleReference, mode)`
     /// (`checker.go:558`) composed with `GetSourceFileForResolvedModule`: the
     /// file the specifier resolved to **under the usage location's mode**.

@@ -647,6 +647,8 @@ pub struct Checker<'a, 'n> {
     /// import-specifier spellings; the relative-spelling arm declines when
     /// set.
     pub(crate) allow_importing_ts_extensions: bool,
+    /// The options `GetResolutionDiagnostic` reads (`crate::isolated_alias`).
+    pub(crate) resolution_diagnostic_options: crate::isolated_alias::ResolutionDiagnosticOptions,
     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
     /// `IsTrueOrUnknown` (`checker.go:5321`) — so the default here is `true`,
     /// matching an *unset* option rather than a `false` one.
@@ -1549,6 +1551,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             standard_class_fields: false,
             allow_synthetic_defaults: false,
             allow_importing_ts_extensions: false,
+            resolution_diagnostic_options:
+                crate::isolated_alias::ResolutionDiagnosticOptions::default(),
             no_unchecked_side_effect_imports: true,
             no_unchecked_indexed_access: false,
             use_unknown_in_catch_variables: false,
@@ -1781,6 +1785,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `esModuleInterop` (explicit only — its own Node16+ default is the
         // §131 Node16/NodeNext exclusion's business); else `module == System`.
         self.allow_importing_ts_extensions = options.allow_importing_ts_extensions.is_true();
+        self.resolution_diagnostic_options = crate::isolated_alias::ResolutionDiagnosticOptions {
+            allow_js: options.get_allow_js(),
+            resolve_json_module: options.get_resolve_json_module(),
+            allow_arbitrary_extensions: options.allow_arbitrary_extensions.is_true(),
+            allow_importing_ts_extensions: options.allow_importing_ts_extensions.is_true()
+                || options.rewrite_relative_import_extensions.is_true(),
+        };
         self.allow_synthetic_defaults = match options.allow_synthetic_default_imports {
             tsr_core::Tristate::True => true,
             tsr_core::Tristate::False => false,

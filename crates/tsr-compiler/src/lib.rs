@@ -145,6 +145,10 @@ struct ModeResolution {
     /// sides were canonicalised by `to_path` under the program's directory and
     /// case sensitivity, so a case-differing pair cannot alias (`bd tsr-q89`).
     resolved_file: Option<usize>,
+    /// See [`loader::ResolutionRequest::extension`].
+    extension: std::borrow::Cow<'static, str>,
+    /// See [`loader::ResolutionRequest::resolved_using_ts_extension`].
+    resolved_using_ts_extension: bool,
 }
 
 /// A set of files compiled together.
@@ -1295,6 +1299,24 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
     ) -> Option<String> {
         self.resolution(importing_file, specifier, mode)?.resolved.as_ref().map(ToString::to_string)
     }
+
+    fn resolved_module_extension(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: Option<ResolutionMode>,
+    ) -> Option<(&str, bool, bool)> {
+        let resolution = match mode {
+            Some(mode) => self.resolution(importing_file, specifier, mode)?,
+            None => self.agreed_resolution(importing_file, specifier)?,
+        };
+        resolution.resolved.as_ref()?;
+        Some((
+            resolution.extension.as_ref(),
+            resolution.resolved_using_ts_extension,
+            resolution.resolved_file.is_some(),
+        ))
+    }
     fn jsdoc_template_parameters(&self, declaration: NodeId) -> Vec<NodeId> {
         // §110: linear over files, then over each file's (host, docs) rows —
         // the table is small and the call is bake-time-only.
@@ -1442,6 +1464,8 @@ fn resolved_modules(
                 resolved: answer,
                 extensionless_relative_import: request.extensionless_relative_import,
                 resolved_file,
+                extension: request.extension.clone(),
+                resolved_using_ts_extension: request.resolved_using_ts_extension,
             });
         }
     }
