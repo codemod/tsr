@@ -481,3 +481,13 @@ compared as (file, span). The lookup is a linear scan of this checker's
 diagnostics on the conflict path only (once per program, per recorded
 conflict). Same-file duplicates come from the binder (`binder.go:215`), whose
 related records are `tsr-binder`'s.
+
+## §21 Related records of `checkFunctionOrConstructorSymbolWorker`
+
+- TS2813/TS2814 (`checker.go:3660`): every report carries the same
+  `relatedDiagnostics`, one `Consider adding a 'declare' modifier to this
+  class.` (TS6506) per class declaration of the symbol, at its name
+  (`class_function_merge.rs`).
+- TS2394 (`checker.go:3703`): `The implementation signature is declared
+  here.` (TS2750) at the body declaration's name
+  (`check_overloads_compatible_with_implementation`).

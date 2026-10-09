@@ -55,6 +55,21 @@ impl Checker<'_, '_> {
         if !has_non_ambient_class {
             return;
         }
+        // `relatedDiagnostics`: one `Consider adding a 'declare' modifier to
+        // this class.` per class declaration, shared by every report.
+        let mut related = Vec::new();
+        for &declaration in &declarations {
+            if self.nodes.kind(declaration) == SyntaxKind::ClassDeclaration
+                && let Some(record) = self.diagnostic_for_node(
+                    declaration,
+                    &messages::CONSIDER_ADDING_A_DECLARE_MODIFIER_TO_THIS_CLASS,
+                    [],
+                )
+            {
+                related.push(record);
+            }
+        }
+        let related = std::sync::Arc::new(related);
         for declaration in declarations {
             let class = match self.nodes.kind(declaration) {
                 SyntaxKind::ClassDeclaration => true,
@@ -64,7 +79,7 @@ impl Checker<'_, '_> {
             let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
             let at = self.declaration_name_of(declaration).unwrap_or(declaration);
             let span = self.nodes.span(at);
-            let diagnostic = if class {
+            let mut diagnostic = if class {
                 Diagnostic::with_args(
                     &messages::CLASS_DECLARATION_CANNOT_IMPLEMENT_OVERLOAD_LIST_FOR_0,
                     span,
@@ -76,6 +91,7 @@ impl Checker<'_, '_> {
                     span,
                 )
             };
+            diagnostic.set_related_information(related.clone());
             self.report(file, diagnostic);
         }
     }
