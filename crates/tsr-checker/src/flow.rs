@@ -4584,6 +4584,16 @@ impl Checker<'_, '_> {
         if let Some(inner) = strip_source(self, source) {
             return self.references_match(inner, target);
         }
+        // flow.go:1645: a source comma expression matches through its right
+        // operand (`(f(), value).inner` is the reference `value.inner`).
+        if let Some(Node::BinaryExpression(binary)) = self.node_map.get(source)
+            && binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::CommaToken)
+        {
+            return binary
+                .right
+                .and_then(|right| right.node_id())
+                .is_some_and(|right| self.references_match(right, target));
+        }
 
         match (self.node_map.get(source), self.node_map.get(target)) {
             // `this` matches `this` and `super` matches `super`, nothing else

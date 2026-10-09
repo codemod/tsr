@@ -572,3 +572,13 @@ ported). No cache: native's `narrowedTypes` memo is not ported here.
 Native control: `x instanceof B` (`B: { new(): B }`) → `B` / else `A | C`;
 `x instanceof AB` (`AA | BB`) → `A | B` / else unchanged. Gained EXACT:
 `narrowByInstanceof`, `controlFlowInstanceof`, `inKeywordAndIntersection`.
+
+## 27. A source comma expression matches through its right operand (`isMatchingReference`)
+
+Pinned `flow.go:1645`: the source switch's `KindBinaryExpression` arm matches a
+comma expression's right operand against the target. `references_match`
+handled the target-side comma only, so the reference `(f(), value).inner`
+never matched a guard on `value.inner` (or on itself, whose receiver unwraps
+through the target side). Native control: `(f(), value).inner` after
+`typeof value.inner === 'number'` → `number` in both; a guard written
+`typeof (f(), value).inner` narrows `value.inner` in both.
