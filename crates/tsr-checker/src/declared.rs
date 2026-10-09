@@ -5551,6 +5551,42 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// Whether the declared type of alias `symbol` is an indexed access type:
+    /// its body (parentheses are transparent in getTypeFromTypeNodeWorker) is
+    /// an indexed access node, or a reference to a generic alias whose declared
+    /// type is one. `instantiateTypeWithAlias` maps such a declared type through
+    /// `getIndexedAccessTypeEx(objectType, indexType, .., alias)`
+    /// (checker.go:22176): a resolved access is the property type with no alias
+    /// (`type W<O, K> = Idx<O, K>` at `{ a: "x" }` is `"x"`), a deferred one
+    /// carries the outer alias. Same bounded chain as
+    /// [`Self::alias_body_receives_new_alias`].
+    fn alias_body_is_indexed_access(&mut self, symbol: SymbolId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        match self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) {
+            Some(TypeNode::IndexedAccessTypeNode(_)) => true,
+            Some(TypeNode::TypeReferenceNode(reference))
+                if !reference.type_arguments.is_empty() =>
+            {
+                reference
+                    .type_name
+                    .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                    .is_some_and(|inner| {
+                        inner != symbol
+                            && self
+                                .binder
+                                .symbols()
+                                .get(inner)
+                                .flags
+                                .contains(SymbolFlags::TYPE_ALIAS)
+                            && self.alias_body_is_indexed_access(inner, depth + 1)
+                    })
+            }
+            _ => false,
+        }
+    }
+
     /// Whether `instantiateTypeWithAlias` hands a new alias to the type the
     /// declared body of `symbol` instantiates to: an anonymous object or
     /// function type, or a mapped type without a homomorphic type variable
@@ -6862,15 +6898,9 @@ impl<'a> Checker<'a, '_> {
         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
             && let Some(declaration) = self.type_alias_declaration_of(symbol)
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && (alias.r#type.is_some_and(|mut body| {
-                // getTypeFromTypeNodeWorker: parentheses are transparent before
-                // indexed-access resolution, including an alias's declared body.
-                while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
-                    let Some(inner) = parenthesized.r#type else { return false };
-                    body = inner;
-                }
-                matches!(body, TypeNode::IndexedAccessTypeNode(_))
-            }) || self.is_closed_literal_union_alias(symbol, &arguments))
+            && alias.r#type.is_some()
+            && (self.alias_body_is_indexed_access(symbol, 0)
+                || self.is_closed_literal_union_alias(symbol, &arguments))
             && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
         {
             let text = self.type_reference_text(symbol, &arguments);
