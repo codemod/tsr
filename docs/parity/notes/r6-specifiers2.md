@@ -93,3 +93,63 @@ answer). The `Row2` hits now resolve, but their lines stay WRONG for another
 reason (§4.2).
 
 Owner: r6-declared2 (`declared.rs`). Independent of every other diff here.
+
+## 2. Default type arguments in `ObjectAssignedDefaultExport` — `r6-specifiers2-reused-module-member.diff`
+
+### 2.1 Not elision: node reuse
+
+r6-specifiers §4 read the six lines (`StyledComponent<"div">` where TSR
+printed `StyledComponent<"div", DefaultTheme, {}, never>`) as the node
+builder dropping type arguments equal to their defaults. **Native has no such
+elision**: the alias arm (`nodebuilderimpl.go:3366`) maps every
+`alias.TypeArguments()`. The short form is the **written return annotation,
+reused**: `div: (a: TemplateStringsArray) => StyledComponent<"div">`
+prints its signature through `serializeReturnTypeForSignature`, which reuses
+the annotation node (`tryReuseExistingTypeNode`). At the importing file
+`StyledComponent` is not in scope, so `tryVisitTypeReference`
+(`nodecopy.go:416`) takes the `introducesError` arm: `serializeTypeName`
+(`:436-449`) names the symbol through `symbolToTypeNode` and keeps the
+**written** type arguments: `import("styled-components").StyledComponent<"div">`.
+tsgo `--declaration` on a reduced probe agrees:
+`d: (a: TemplateStringsArray) => import("sc").SC<"div">`.
+
+TSR already reuses the node (it prints `SC<"div">` in the declaring file).
+At the other file, `serialize_type_name` (`node_reuse.rs`) names a module
+member only through `parameter_source_symbol_name_at`, a bounded walk of the
+scope tables at the site. That walk finds nothing for an unimported module's
+member and answers `None`, so the whole reuse declines (`unnameable`) and the
+type is serialized structurally, with every argument.
+
+### 2.2 The diff
+
+`node_reuse.rs` (no owner this round), `serialize_type_name`'s module-member
+arm: when the table walk declines, name the symbol through `symbol_chain`
+(the printer's `getSymbolChain` port, which spells `import("…")` for an
+unreachable module), as the arm's non-module branch already does. Plus
+`crates/tsr-conformance/tests/r6_specifiers2_reused_module_member.rs` (the
+reduced probe, against tsgo's answer).
+
+**Refused first: `reference_text_at`.** It printed the same text, measured
++15 types and 0 lost, but failed
+`signatures::tests::parameter_source_views_qualify_bound_names_and_reject_unloaded_imports_without_work`:
+a full print at `importedView` changed the type store, and that test asserts
+that printing is read-only. `symbol_chain` passes it.
+
+### 2.3 Measured (against `5e4d21b`, unfiltered)
+
+- **Types +14, 0 lost**: `declarationEmitObjectAssignedDefaultExport` 6 (all
+  six lines), `duplicatePackage` 3 (the parameter slots `(x: import("a/node_modules/x").default) => void`),
+  `declarationEmitPartialNodeReuseTypeOf` 3,
+  `importShouldNotBeElidedInDeclarationEmit` 2.
+- Diagnostics: no change.
+- `slowcases` clean; `cargo test --workspace --release` green; clippy reports
+  the same 12 pre-existing stable-toolchain errors with and without it, none
+  in these lines.
+- Ir: dm 1,090,963,052 → 1,090,926,551 (−0.003%), gi 343,064,681 →
+  343,096,295 (+0.009%).
+
+`declarationEmitObjectAssignedDefaultExport`'s remaining line (2:19) is
+r6-specifiers §4's: `NonReactStatics` takes the alias
+`hoistNonReactStatics.` (the accessibility walk, `tsr-2zk.39`). Owner of the
+diff: whoever takes `node_reuse.rs`; it touches no other file. Independent
+of §1.
