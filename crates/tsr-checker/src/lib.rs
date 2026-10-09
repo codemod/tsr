@@ -150,6 +150,7 @@ pub mod inference;
 mod instantiation_expressions;
 pub mod intersections;
 pub mod intrinsics;
+mod isolated_alias;
 mod iteration;
 mod js_case_data;
 mod jsdoc_annotations;

@@ -2567,9 +2567,18 @@ impl<'a> Checker<'a, '_> {
         if flags.intersects(SymbolFlags::NAMESPACE) {
             excluded |= SymbolFlags::NAMESPACE;
         }
-        if !target_flags.intersects(excluded) {
-            return None;
+        let conflicted = target_flags.intersects(excluded);
+        if conflicted {
+            self.report_alias_conflict(node, local);
         }
+        // The single-file-transpilation arms that follow the conflict check
+        // (`checker.go:6788`–`6858`), `isolated_alias.rs`.
+        self.check_alias_symbol_isolated(node, local, target, target_flags, conflicted);
+        None
+    }
+
+    /// `checkAliasSymbol`'s TS2440/TS2441 report.
+    fn report_alias_conflict(&mut self, node: NodeId, local: SymbolId) -> Option<()> {
         let name = self.binder.symbols().get(local).name.to_string();
         let file = self.source_file_of_for_diagnostics(node)?;
         // `c.error(node, …)`, and upstream's `error` runs the node through

@@ -717,6 +717,11 @@ pub struct Checker<'a, 'n> {
     /// `CompilerOptions.GetIsolatedModules()` (`isolatedModules` or
     /// `verbatimModuleSyntax`): the enum member reports TS18055/TS18056.
     pub(crate) isolated_modules: bool,
+    /// `compilerOptions.IsolatedModules.IsTrue()` itself, which
+    /// `checkAliasSymbol`'s TS2865 reads instead of `GetIsolatedModules()`.
+    pub(crate) isolated_modules_option: bool,
+    /// `compilerOptions.VerbatimModuleSyntax.IsTrue()`.
+    pub(crate) verbatim_module_syntax: bool,
     /// The options `module_format.rs` reads (`tsr-2zk.985`).
     pub(crate) module_format_options: crate::module_format::ModuleFormatOptions,
     /// `compilerOptions.noUnusedLocals`, read as `IsTrue()`
@@ -1549,6 +1554,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             unreachable_code_is_error: false,
             preserve_const_enums: false,
             isolated_modules: false,
+            isolated_modules_option: false,
+            verbatim_module_syntax: false,
             module_format_options: crate::module_format::ModuleFormatOptions::default(),
             exhaustive_switches: rustc_hash::FxHashSet::default(),
             no_implicit_any: false,
@@ -1844,6 +1851,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `GetIsolatedModules`, `verbatimModuleSyntax` too.
         self.preserve_const_enums = options.should_preserve_const_enums();
         self.isolated_modules = options.get_isolated_modules();
+        self.isolated_modules_option = options.isolated_modules.is_true();
+        self.verbatim_module_syntax = options.verbatim_module_syntax.is_true();
         self.module_format_options =
             crate::module_format::ModuleFormatOptions::from_options(options);
 
