@@ -647,6 +647,9 @@ pub struct Checker<'a, 'n> {
     /// import-specifier spellings; the relative-spelling arm declines when
     /// set.
     pub(crate) allow_importing_ts_extensions: bool,
+    /// `RewriteRelativeImportExtensions.IsTrue()`, read by
+    /// `resolveExternalModule`'s rewrite arm (`isolated_alias.rs`).
+    pub(crate) rewrite_relative_import_extensions: bool,
     /// The options `GetResolutionDiagnostic` reads (`crate::isolated_alias`).
     pub(crate) resolution_diagnostic_options: crate::isolated_alias::ResolutionDiagnosticOptions,
     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
@@ -1551,6 +1554,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             standard_class_fields: false,
             allow_synthetic_defaults: false,
             allow_importing_ts_extensions: false,
+            rewrite_relative_import_extensions: false,
             resolution_diagnostic_options:
                 crate::isolated_alias::ResolutionDiagnosticOptions::default(),
             no_unchecked_side_effect_imports: true,
@@ -1785,6 +1789,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `esModuleInterop` (explicit only — its own Node16+ default is the
         // §131 Node16/NodeNext exclusion's business); else `module == System`.
         self.allow_importing_ts_extensions = options.allow_importing_ts_extensions.is_true();
+        self.rewrite_relative_import_extensions =
+            options.rewrite_relative_import_extensions.is_true();
         self.resolution_diagnostic_options = crate::isolated_alias::ResolutionDiagnosticOptions {
             allow_js: options.get_allow_js(),
             resolve_json_module: options.get_resolve_json_module(),

@@ -3903,6 +3903,22 @@ impl Checker<'_, '_> {
                 ) {
                     return;
                 }
+                // The chain's last arm, `rewriteRelativeImportExtensions`
+                // (`checker.go:15261`), `isolated_alias.rs`.
+                if self.rewrite_relative_import_extensions
+                    && let Some(resolved) = resolved
+                {
+                    let compare = host.compare_paths_options();
+                    self.check_rewrite_relative_import_extensions(
+                        declaration,
+                        specifier,
+                        resolved,
+                        options,
+                        true,
+                        &compare,
+                        |file| host.source_file_may_be_emitted(file),
+                    );
+                }
             }
             self.check_untyped_module_import(declaration, specifier);
             self.check_esm_import_from_commonjs(declaration, specifier);
