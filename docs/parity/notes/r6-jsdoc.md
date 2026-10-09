@@ -302,3 +302,63 @@ const aDefault2 = [0]` with `A`'s `T` defaulting to `string`): the alias's
 default under a JS reference without arguments. `varianceAnnotations`'
 TS2636/TS2637 (variance checks) and one TS2322; `genericDefaultsErrors`' and
 `subclassThisTypeAssignable01`'s TS2344 — other producers.
+
+## 7. TS2300 on JSDoc declarations: three producers
+
+**Forcing facts.** `importTag4` (two `@import { Foo }` in one file) wants
+TS2300 on both `Foo`s; `typedefCrossModule5` (script `mod1.js` with
+`@typedef {number} Foo` and `class Bar {}`, script `mod2.js` with
+`class Foo {}` and `const Bar = 3`) wants TS2300 on both `Foo`s and TS2451
+on both `Bar`s; `jsDeclarationsDefaultsErr` wants TS2300 on `export default
+class C` and a `@typedef … default`. Read one at a time, three producers:
+
+1. **The binder's JSDoc declarations skip `declareSymbol`'s exclusion
+   test.** `declare_jsdoc_symbol` merges a same-named tag into the first
+   symbol and never reports. Native binds the reparsed `JSImportDeclaration`
+   through `declareModuleMember`'s alias arm (`binder/binder.go:380`) and the
+   `JSTypeAliasDeclaration` through `bindBlockScopedDeclaration` (`:1238`),
+   where a module-level alias is implicitly exported
+   (`IsImplicitlyExportedJSDocDeclaration`, `ast/utilities.go:4184`).
+2. **The cross-file merge reporter skips every JS declaration.**
+   `reportMergeSymbolError` (`checker.go:14215`) skips a side only when its
+   first declaration is in a *plain* JS file (`ast.IsPlainJSFile`: no
+   `@ts-check` directive and `checkJs` unset); `merge_conflicts.rs` read
+   JS-ness alone because the checker could not see `checkJs`.
+3. **Exporting a typedef by name then reported TS2484** once (1) exported it
+   implicitly (`importingExportingTypes`' `export { JSDocType }`):
+   `checkAliasSymbol`'s JS arm (`checker.go:6750`) — TS18042 for a type
+   imported in JS, TS18043 for one exported, then `return` before the
+   conflict test — was unported.
+
+**Diffs** (each measured unfiltered against the base, zero losses on both
+dumps, `slowcases` clean; types unchanged by all three):
+
+- [`r6-jsdoc-js-alias-types.diff`](r6-jsdoc-js-alias-types.diff)
+  (`symbols.rs` `check_alias_symbol` and `report_js_type_alias`;
+  `check.rs` `declaration_is_type_only` made `pub(crate)` as
+  `IsTypeOnlyImportOrExportDeclaration`): diagnostics **+2 cases**
+  (`elidedJSImport1`, `importingExportingTypes`), and
+  `jsDeclarationsInterfaces` (+4) and `jsxCheckJsxNoTypeArgumentsAllowed`
+  (+1) move only toward the baseline. `tsr-compiler/tests/js_alias_types.rs`.
+- [`r6-jsdoc-jsdoc-declarations.diff`](r6-jsdoc-jsdoc-declarations.diff),
+  **applied after** the alias diff (`binder.rs` `declare_jsdoc_alias`,
+  `declare_jsdoc_import`): **+1 case** (`importTag4`), nothing else moved
+  on top of the alias diff; alone it adds a false TS2484 to
+  `importingExportingTypes`, which is why it rides on it.
+  `tsr-binder/tests/jsdoc_declarations.rs`. A module's typedefs are now in
+  its exports, so `@import { Foo } from "./mod1"` of a typedef resolves
+  (probe, checked against `tsgo`); no corpus row reads it yet.
+- [`r6-jsdoc-plain-js-merge.diff`](r6-jsdoc-plain-js-merge.diff)
+  (`ModuleHost::is_plain_js_file` in `resolution.rs`, the program's answer
+  through `program_diagnostics::is_plain_js_file`, and the per-side test
+  plus the typedef/callback name as error node in `merge_conflicts.rs`):
+  **+1 case** (`typedefCrossModule5`).
+  `tsr-compiler/tests/plain_js_merge_conflicts.rs`.
+
+All three together: diagnostics **5,530 → 5,534 RIGHT**. Ir (all three)
+domain-model 1,092,121,372 (+0.06%), generic-imports 343,083,326 (+0.0001%).
+Every test fails without its diff; every expectation checked against `tsgo`.
+
+**Left.** `jsDeclarationsDefaultsErr`: its `@typedef … default` comment ends
+the file, so it waits on T8's EOF host (item 5); with that, the binder diff
+above reports it (the unit test shows the shape with a following statement).

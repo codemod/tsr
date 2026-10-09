@@ -1,0 +1,223 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index bd62f11..a6e9ee7 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3465,7 +3465,13 @@ impl<'a, 'n> Binder<'a, 'n> {
+                             };
+                             let Some(id) = typedef.node_id else { continue };
+                             let scope = self.jsdoc_alias_scope(*host, root);
+-                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
++                            let name_node = match typedef.name {
++                                Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
++                                    identifier.node_id
++                                }
++                                _ => None,
++                            };
++                            self.declare_jsdoc_alias(root, scope, name, id, name_node);
+                             // The tag's type expression is parsed syntax — a
+                             // `{{a: string}}` object carries members upstream
+                             // binds like any written type literal.
+@@ -3485,7 +3491,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+                         JSDocTag::JSDocImportTag(import) => {
+                             let Some(clause) = import.import_clause else { continue };
+                             if let (Some(name), Some(id)) = (clause.name, clause.node_id) {
+-                                self.declare_jsdoc_symbol(root, name.text, SymbolFlags::ALIAS, id);
++                                self.declare_jsdoc_import(root, name.text, id, name.node_id);
+                             }
+                             match clause.named_bindings {
+                                 Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
+@@ -3493,11 +3499,11 @@ impl<'a, 'n> Binder<'a, 'n> {
+                                         if let (Some(name), Some(id)) =
+                                             (specifier.name, specifier.node_id)
+                                         {
+-                                            self.declare_jsdoc_symbol(
++                                            self.declare_jsdoc_import(
+                                                 root,
+                                                 name.text,
+-                                                SymbolFlags::ALIAS,
+                                                 id,
++                                                name.node_id,
+                                             );
+                                         }
+                                     }
+@@ -3512,11 +3518,11 @@ impl<'a, 'n> Binder<'a, 'n> {
+                                     if let (Some(name), Some(id)) =
+                                         (namespace.name, namespace.node_id)
+                                     {
+-                                        self.declare_jsdoc_symbol(
++                                        self.declare_jsdoc_import(
+                                             root,
+                                             name.text,
+-                                            SymbolFlags::ALIAS,
+                                             id,
++                                            name.node_id,
+                                         );
+                                     }
+                                 }
+@@ -3532,7 +3538,13 @@ impl<'a, 'n> Binder<'a, 'n> {
+                             };
+                             let Some(id) = callback.node_id else { continue };
+                             let scope = self.jsdoc_alias_scope(*host, root);
+-                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
++                            let name_node = match callback.name {
++                                Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
++                                    identifier.node_id
++                                }
++                                _ => None,
++                            };
++                            self.declare_jsdoc_alias(root, scope, name, id, name_node);
+                             if let Some(expression) = callback.type_expression {
+                                 self.bind(tsr_ast::Node::from(expression));
+                             }
+@@ -3671,6 +3683,85 @@ impl<'a, 'n> Binder<'a, 'n> {
+         root
+     }
+ 
++    /// The reparsed `JSTypeAliasDeclaration` of a `@typedef`/`@callback`,
++    /// bound as `bindBlockScopedDeclaration(node, TypeAlias,
++    /// TypeAliasExcludes)` (`binder/binder.go:1238`): in the file's own scope
++    /// of an external or `CommonJS` module, `declareModuleMember` (`:373`) with
++    /// the alias implicitly exported (`IsImplicitlyExportedJSDocDeclaration`,
++    /// `ast/utilities.go:4184`) — a local carrying no flags and the export
++    /// symbol, as an `export type` gets; otherwise the scope's locals.
++    /// `declareSymbol`'s exclusion test reports a redeclaration (TS2300).
++    fn declare_jsdoc_alias(
++        &mut self,
++        root: NodeId,
++        scope: NodeId,
++        name: &'a str,
++        declaration: NodeId,
++        name_node: Option<NodeId>,
++    ) {
++        if let Some(name_node) = name_node {
++            self.name_nodes.push((declaration, name_node));
++        }
++        if scope == root
++            && let Some(module) = self.module_symbol
++        {
++            let local = self.declare_into_with_excludes(
++                Destination::Locals,
++                root,
++                Some(module),
++                name,
++                SymbolFlags::empty(),
++                SymbolFlags::TYPE_ALIAS.excludes(),
++                declaration,
++            );
++            let exported = self.declare_into(
++                Destination::Exports,
++                root,
++                Some(module),
++                name,
++                SymbolFlags::TYPE_ALIAS,
++                declaration,
++            );
++            self.symbols.get_mut(local).export_symbol = Some(exported);
++            self.node_symbols[declaration.index() - self.node_base] = Some(exported);
++            return;
++        }
++        let symbol = self.declare_into(
++            Destination::Locals,
++            scope,
++            None,
++            name,
++            SymbolFlags::TYPE_ALIAS,
++            declaration,
++        );
++        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
++    }
++
++    /// A binding of the `JSImportDeclaration` an `@import` tag reparses into
++    /// (`reparseUnhosted`, `parser/reparser.go:119`): `declareModuleMember`'s
++    /// alias arm (`binder/binder.go:380`) files it in the file's locals, and
++    /// `declareSymbol` reports a redeclaration (TS2300) on every declaration.
++    fn declare_jsdoc_import(
++        &mut self,
++        root: NodeId,
++        name: &'a str,
++        declaration: NodeId,
++        name_node: Option<NodeId>,
++    ) {
++        if let Some(name_node) = name_node {
++            self.name_nodes.push((declaration, name_node));
++        }
++        let symbol = self.declare_into(
++            Destination::Locals,
++            root,
++            None,
++            name,
++            SymbolFlags::ALIAS,
++            declaration,
++        );
++        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
++    }
++
+     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
+     fn declare_jsdoc_symbol(
+         &mut self,
+diff --git a/crates/tsr-binder/tests/jsdoc_declarations.rs b/crates/tsr-binder/tests/jsdoc_declarations.rs
+new file mode 100644
+index 0000000..172089a
+--- /dev/null
++++ b/crates/tsr-binder/tests/jsdoc_declarations.rs
+@@ -0,0 +1,60 @@
++//! JSDoc declarations bound through `declareSymbol`, pinned to 5b1047d1: an
++//! `@import` binding is a `JSImportDeclaration` alias in the file's locals
++//! (`declareModuleMember`'s alias arm, `binder/binder.go:380`), and a
++//! module-level `@typedef` is implicitly exported
++//! (`IsImplicitlyExportedJSDocDeclaration`, `ast/utilities.go:4184`).
++//! `docs/parity/notes/r6-jsdoc.md` §7.
++
++use tsr_ast::NodeFlags;
++use tsr_binder::{BindResult, FileInfo, SymbolFlags};
++use tsr_core::Arena;
++
++/// The binder's diagnostics as `(code, text at the span)`, and whether the
++/// file's module symbol exports `name`, with that export's flags.
++fn bind(source: &str, name: &str) -> (Vec<(u32, String)>, Option<SymbolFlags>) {
++    let arena = Arena::new();
++    let mut parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.js"));
++    assert!(parsed.diagnostics.is_empty());
++    let root = parsed.source_file.node_id.expect("registered source file");
++    parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
++    let docs: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        FileInfo { name: "t.js", text: source },
++        &docs,
++    );
++    let diagnostics = bound
++        .diagnostics()
++        .iter()
++        .map(|d| (d.message.code(), source[d.span.start as usize..d.span.end as usize].to_string()))
++        .collect();
++    let export = bound
++        .symbol_of(root)
++        .and_then(|module| bound.symbols().get(module).exports.get(name).copied())
++        .map(|symbol| bound.symbols().get(symbol).flags);
++    (diagnostics, export)
++}
++
++/// `importTag4`: the same name imported twice is TS2300 on both.
++#[test]
++fn a_repeated_import_tag_binding_is_a_duplicate() {
++    let source = "/**\n * @import { Foo } from \"./types\"\n */\n\n/**\n * @import { Foo } from \"./types\"\n */\n\n/** @param {Foo} foo */\nfunction f(foo) {}\n";
++    let (diagnostics, _) = bind(source, "Foo");
++    assert_eq!(diagnostics, [(2300, "Foo".to_string()), (2300, "Foo".to_string())]);
++}
++
++/// A module's top-level typedef is exported, and conflicts there.
++#[test]
++fn a_module_typedef_is_implicitly_exported() {
++    let source = "/** @typedef {number} Foo */\nexport const x = 1;\n";
++    let (diagnostics, export) = bind(source, "Foo");
++    assert!(diagnostics.is_empty());
++    assert!(export.is_some_and(|flags| flags.contains(SymbolFlags::TYPE_ALIAS)));
++    let source = "export default class C {}\n/** @typedef {number} default */\nvar x;\n";
++    let (diagnostics, _) = bind(source, "default");
++    assert_eq!(diagnostics, [(2300, "default".to_string()), (2300, "C".to_string())]);
++}
