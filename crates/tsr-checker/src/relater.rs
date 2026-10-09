@@ -1428,9 +1428,18 @@ impl Relater<'_, '_, '_> {
         // relater.go:4270), so `Derived extends Base` relates to `Base` even
         // when both declare privates. Such pairs take the structural walk,
         // whose privacy arm compares declarations.
+        //
+        // Only the TARGET's privacy decides: a private or protected member
+        // the source must match is one an unrelated class cannot supply
+        // (another declaration, or not a valid override). A source's own
+        // private members against a target that declares none are simply
+        // extra properties: `class C { #x } -> class D {}` relates
+        // (`privateNameDeclarationMerging`), so that pair takes the
+        // structural walk.
         if !self.class_declares_heritage(source)
             && !self.class_declares_heritage(target)
             && let Some(answer) = self.checker.nominal_class_pair_verdict(source, target)
+            && (answer || self.class_declares_own_privacy(target))
         {
             return if answer { RelationResult::Related } else { RelationResult::NotRelated };
         }
@@ -1741,6 +1750,20 @@ impl Relater<'_, '_, '_> {
                     return result;
                 }
             }
+            return RelationResult::NotRelated;
+        }
+        // isRelatedToEx (relater.go:2605): with neither side structured or
+        // instantiable, isSimpleTypeRelatedTo is the whole answer. Its only
+        // arms for a `unique symbol` are `ESSymbolLike -> ESSymbol`
+        // (relater.go:236) and identity, so a unique symbol against any other
+        // decidable type, or a decidable type against a unique symbol, is
+        // False: `Symbol() -> string`, `typeof Symbol.toPrimitive -> object`.
+        // Two distinct unique-symbol types stay undecided: a predicate's or
+        // constraint's `unique symbol` is still minted per written node
+        // (`unique_symbols.rs`), so their identity is not native's.
+        if (s == TypeFlags::UNIQUE_ES_SYMBOL && self.flag_decidable(target))
+            || (self.flag_decidable(source) && t == TypeFlags::UNIQUE_ES_SYMBOL)
+        {
             return RelationResult::NotRelated;
         }
         if self.flag_decidable(source) && self.flag_decidable(target) {
@@ -2823,6 +2846,39 @@ impl Relater<'_, '_, '_> {
 
     /// Whether `id` is a class instance whose declaration has an `extends` or
     /// `implements` clause.
+    /// Whether `id` is a class instance type whose declaration has a
+    /// property declared `private`/`protected` or named by a private
+    /// identifier: the members `propertyRelatedTo`'s privacy arms
+    /// (relater.go:4270) and private-name keying (binder.go:369) require an
+    /// unrelated source to match by declaration.
+    fn class_declares_own_privacy(&self, id: TypeId) -> bool {
+        let Some(symbol) = self.checker.class_instance_symbol(id) else { return false };
+        let Some(declaration) = self.checker.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        let Some(tsr_ast::Node::ClassDeclaration(class)) = self.checker.node_map.get(declaration)
+        else {
+            return false;
+        };
+        class.members.iter().any(|member| {
+            let Some(id) = tsr_ast::Node::from(*member).node_id() else { return false };
+            let Some(tsr_ast::Node::PropertyDeclaration(property)) = self.checker.node_map.get(id)
+            else {
+                return false;
+            };
+            matches!(property.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+                || property.modifiers.iter().any(|modifier| {
+                    tsr_ast::Node::from(*modifier).node_id().is_some_and(|m| {
+                        matches!(
+                            self.checker.nodes.kind(m),
+                            tsr_ast::SyntaxKind::PrivateKeyword
+                                | tsr_ast::SyntaxKind::ProtectedKeyword
+                        )
+                    })
+                })
+        })
+    }
+
     fn class_declares_heritage(&self, id: TypeId) -> bool {
         self.checker
             .class_instance_symbol(id)
@@ -6069,6 +6125,32 @@ impl Relater<'_, '_, '_> {
             } else {
                 self.checker.get_property_of_type(source, name).into_iter().collect()
             };
+            // A private identifier's symbol is named per declaring class
+            // (`GetSymbolNameForPrivateIdentifier`, binder.go:369:
+            // `__#<class symbol id>@#foo`). This port keys members by their
+            // text, so a source `#foo` declared in another class is native's
+            // *absent* property: getUnmatchedProperty (relater.go:4233)
+            // rejects it unless the target member is optional outside the
+            // subtype relations, and the property loop never pairs the two.
+            if name.starts_with('#')
+                && let Some(target_property) = self.checker.get_property_of_type(target, name)
+            {
+                let target_declaration =
+                    self.checker.binder.symbols().get(target_property).value_declaration;
+                if source_properties.iter().any(|&source_property| {
+                    self.checker.binder.symbols().get(source_property).value_declaration
+                        != target_declaration
+                }) {
+                    let optional_absent = target_metadata.is_some_and(|flags| flags.0)
+                        && !matches!(self.relation, Relation::Subtype | Relation::StrictSubtype);
+                    parts.push(if optional_absent {
+                        RelationResult::Related
+                    } else {
+                        RelationResult::NotRelated
+                    });
+                    continue;
+                }
+            }
             if let Some(target_property) = self.checker.get_property_of_type(target, name) {
                 let privacy = self.property_privacy_related(
                     &source_properties,
