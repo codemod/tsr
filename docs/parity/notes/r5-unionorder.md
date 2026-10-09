@@ -60,7 +60,7 @@ than the triage counted at `ccb48e7`). Classes:
 | `dependentDestructuredVariablesFromNestedPatterns:0:12,22,55` (3) | `[undefined, Error] \| [Awaited<T[K]>, undefined]` | (f) | mapped template text baked from the written tuple union | mapped.rs |
 | `noInferUnionExcessPropertyCheck1:0:3` (1) | `(() => NoInfer<T>) \| NoInfer<T>` | (d) | `NoInfer<T>` is an alias reference here, a substitution type natively | **this lane, fixed §6** |
 | `mappedTypeIndexedAccess:0:13` (1) | `{ key: "bar"; … } \| { key: "foo"; … }` | (d) | no `compareTypeMappers` arm for instantiated type literals | shipped as a diff, §5 |
-| `genericRestParameters3:0:149` (1) | `[x: string, number] \| [x: string, ...rest: A]` | (d) | see §7 | open |
+| `genericRestParameters3:0:149` (1) | `[x: string, number] \| [x: string, ...rest: A]` | (d) | variadic tuple sorted by its text as a name; no element-flag or label compare | **this lane, fixed §7** |
 | `returnTagTypeGuard:0:40` (1) | `(val: boolean \| number) => void` | (e) | JSDoc `@param` type reused | JSDoc lane |
 
 **Verdict on "diffuse vs systemic".** The triage was right that the class
@@ -209,6 +209,37 @@ nothing.
 unchanged; perf 0.986 (domain-model), 0.994 (generic-imports), 21 samples;
 `slowcases` clean.
 
-## 7. Open
+## 7. Fix: `compareTupleTypes` over both tuple representations
 
-Filled in as investigated.
+**Native.** A tuple is a reference to a synthesized target with no symbol,
+so `getTypeNameSymbol` is nil for every tuple. `compareTupleTypes`
+(`utilities.go:620`) orders by readonly, arity, each element's
+`ElementFlags` (Required 1, Optional 2, Rest 4, Variadic 8), each label
+(`compareElementLabels`, `:645`: unlabeled first, then text), and then
+`compareTypeLists` over the resolved type arguments. `[x: string, ...rest:
+A | [number]]` normalizes to `[x: string, number] | [x: string, ...rest:
+A]`: same arity, Required before Variadic (`genericRestParameters3.types:267`).
+
+**What TSR did.** A normalized variadic tuple is a `Named` image whose text
+is `[x: string, ...rest: A]`, recorded in `variadic_tuple_elements`;
+`compare_type_names` read that text as a *name*, and a named type sorts
+before the unnamed fixed tuple. The tuple arm compared only fixed tuples
+(`tuple_element_lists`), and only readonly, arity and element types: no
+flags, no labels.
+
+**Change** (`unions.rs`): `compare_type_names` answers no name for a
+variadic tuple as it already did for a fixed one; `tuple_compare_shape`
+reads either representation as (readonly, flags, labels, type arguments)
+and the arm compares in native's order. A variadic spread over an array is
+a Rest element whose argument is the element type, any other spread a
+Variadic element over the spread type (`TupleNormalizer`,
+`checker.go:23364`). The comparator is `&self`, so the array test reads the
+reference target's merged-symbol name (`Array`/`ReadonlyArray`) instead of
+resolving the global; a user type named `Array` with one type argument
+spread into a tuple would be misread as Rest.
+
+**Measured** (against the base after §6): types +1
+(`genericRestParameters3:0:149`), zero losses. Labels are now compared,
+which could have moved other lines; none moved. Diagnostics unchanged;
+perf 0.962 (domain-model), 0.995 (generic-imports), 21 samples;
+`slowcases` clean.

@@ -346,6 +346,25 @@ pub(crate) fn create_boolean_type(
     create_union(store, TypeFlags::empty(), vec![regular_false, regular_true], None)
 }
 
+/// What [`Checker::tuple_compare_shape`] reads off a tuple reference.
+struct TupleCompareShape {
+    readonly: bool,
+    flags: Vec<u8>,
+    labels: Vec<Option<String>>,
+    arguments: Vec<TypeId>,
+}
+
+/// `compareElementLabels` (`utilities.go:645`): an unlabeled element sorts
+/// before a labeled one; two labels compare by text.
+fn compare_element_labels(left: Option<&str>, right: Option<&str>) -> Ordering {
+    match (left, right) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(x), Some(y)) => x.cmp(y),
+    }
+}
+
 /// `getSortOrderFlags` (`utilities.go:581`).
 ///
 /// Every enum-like *unit* type sorts as though it were `TypeFlagsEnum`, so that
@@ -1433,7 +1452,9 @@ impl Checker<'_, '_> {
         let symbols = self.binder.symbols();
         let left_name = if let Some((alias, _)) = alias_a {
             Some(symbols.get(*alias).name)
-        } else if self.tuple_element_lists.contains_key(&a) {
+        } else if self.tuple_element_lists.contains_key(&a)
+            || self.variadic_tuple_elements.contains_key(&a)
+        {
             None
         } else if let Some((target, _)) = reference_a {
             Some(symbols.get(*target).name)
@@ -1442,7 +1463,9 @@ impl Checker<'_, '_> {
         };
         let right_name = if let Some((alias, _)) = alias_b {
             Some(symbols.get(*alias).name)
-        } else if self.tuple_element_lists.contains_key(&b) {
+        } else if self.tuple_element_lists.contains_key(&b)
+            || self.variadic_tuple_elements.contains_key(&b)
+        {
             None
         } else if let Some((target, _)) = reference_b {
             Some(symbols.get(*target).name)
@@ -1457,6 +1480,79 @@ impl Checker<'_, '_> {
             (Some(_), None) => Ordering::Less,
             (None, None) => Ordering::Equal,
         }
+    }
+
+    /// A tuple reference as `compareTupleTypes` (`utilities.go:620`) and the
+    /// type-argument arm after it see it: the target's `readonly` and
+    /// per-element `ElementFlags` and labels, and the resolved type
+    /// arguments. This port keeps a fixed tuple in `tuple_element_lists`
+    /// (with `tuple_optional_masks` and `tuple_labels`) and a normalized
+    /// variadic one in `variadic_tuple_elements`, whose spread of an array is
+    /// a Rest element over the array's element type and any other spread a
+    /// Variadic element over the spread type itself (`TupleNormalizer`,
+    /// checker.go:23364).
+    fn tuple_compare_shape(&self, id: TypeId) -> Option<TupleCompareShape> {
+        const REQUIRED: u8 = 1;
+        const OPTIONAL: u8 = 2;
+        const REST: u8 = 4;
+        const VARIADIC: u8 = 8;
+        if let Some((elements, readonly)) = self.tuple_element_lists.get(&id) {
+            let mask = self.tuple_optional_masks.get(&id);
+            let labels = self.tuple_labels.get(&id);
+            return Some(TupleCompareShape {
+                readonly: *readonly,
+                flags: (0..elements.len())
+                    .map(|index| {
+                        if mask.and_then(|m| m.get(index)).copied().unwrap_or(false) {
+                            OPTIONAL
+                        } else {
+                            REQUIRED
+                        }
+                    })
+                    .collect(),
+                labels: (0..elements.len())
+                    .map(|index| labels.and_then(|l| l.get(index)).cloned().flatten())
+                    .collect(),
+                arguments: elements.clone(),
+            });
+        }
+        let (elements, readonly) = self.variadic_tuple_elements.get(&id)?;
+        let mut shape = TupleCompareShape {
+            readonly: *readonly,
+            flags: Vec::with_capacity(elements.len()),
+            labels: Vec::with_capacity(elements.len()),
+            arguments: Vec::with_capacity(elements.len()),
+        };
+        for element in elements {
+            let (flag, argument) = if element.spread {
+                match self.spread_array_element_read_only(element.r#type) {
+                    Some(item) => (REST, item),
+                    None => (VARIADIC, element.r#type),
+                }
+            } else if element.optional {
+                (OPTIONAL, element.r#type)
+            } else {
+                (REQUIRED, element.r#type)
+            };
+            shape.flags.push(flag);
+            shape.labels.push(element.label.clone());
+            shape.arguments.push(argument);
+        }
+        Some(shape)
+    }
+
+    /// [`Checker::tuple_spread_array_element`] without its `&mut` lookup of
+    /// the global `Array`: a comparator cannot resolve globals, so the
+    /// reference's target is recognised by its merged symbol's name. A
+    /// spread whose type is `any` is a Rest over itself.
+    fn spread_array_element_read_only(&self, id: TypeId) -> Option<TypeId> {
+        if self.store.get(id).flags.contains(TypeFlags::ANY) {
+            return Some(id);
+        }
+        let (target, arguments) = self.type_reference_targets.get(&id)?;
+        let [element] = arguments.as_slice() else { return None };
+        let name = self.binder.symbols().get(self.binder.merged_symbol(*target)).name;
+        matches!(name, "Array" | "ReadonlyArray").then_some(*element)
     }
 
     /// `compareTypeLists` (`utilities.go:660`): shorter lists first, then
@@ -1552,14 +1648,22 @@ impl Checker<'_, '_> {
             // tuple test. Element flags and labels are equal by construction
             // here while the modifier tuple forms refuse
             // (`get_type_from_tuple_type_node`).
-            .then_with(|| {
-                match (self.tuple_element_lists.get(&a), self.tuple_element_lists.get(&b)) {
-                    (Some((elements_a, readonly_a)), Some((elements_b, readonly_b))) => readonly_a
-                        .cmp(readonly_b)
-                        .then(elements_a.len().cmp(&elements_b.len()))
-                        .then_with(|| self.compare_type_lists(elements_a, elements_b)),
-                    _ => Ordering::Equal,
-                }
+            .then_with(|| match (self.tuple_compare_shape(a), self.tuple_compare_shape(b)) {
+                (Some(x), Some(y)) => x
+                    .readonly
+                    .cmp(&y.readonly)
+                    .then(x.flags.len().cmp(&y.flags.len()))
+                    .then_with(|| x.flags.cmp(&y.flags))
+                    .then_with(|| {
+                        x.labels
+                            .iter()
+                            .zip(&y.labels)
+                            .map(|(l, r)| compare_element_labels(l.as_deref(), r.as_deref()))
+                            .find(|order| *order != Ordering::Equal)
+                            .unwrap_or(Ordering::Equal)
+                    })
+                    .then_with(|| self.compare_type_lists(&x.arguments, &y.arguments)),
+                _ => Ordering::Equal,
             })
             .then_with(|| match (&left.data, &right.data) {
                 // "String literal types are ordered by their values."
