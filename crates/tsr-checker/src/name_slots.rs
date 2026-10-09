@@ -137,3 +137,94 @@ impl Checker<'_, '_> {
         false
     }
 }
+
+impl Checker<'_, '_> {
+    /// Is `node` inside a decorator native never checks?
+    ///
+    /// A decorator's expression is checked only by `checkDecorators`
+    /// (`checker.go:6022`), reached from the accessor, method, class-like and
+    /// variable-like checks, which returns at once unless
+    /// `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) holds. Anything else
+    /// is a grammar error (TS1206, `checkGrammarModifiers`) and the
+    /// decorator's name is never resolved: `var v = @decorate class C {}`
+    /// under `experimentalDecorators` reports TS1206 and nothing on
+    /// `decorate` (`classExpressionWithDecorator1`).
+    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-decorator-targets.diff")]
+    pub(crate) fn names_in_unchecked_decorator(&self, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            if self.nodes.kind(parent) == SyntaxKind::Decorator {
+                return self
+                    .nodes
+                    .parent(parent)
+                    .is_some_and(|decorated| !self.names_decorators_are_checked(decorated));
+            }
+            current = parent;
+        }
+        false
+    }
+
+    fn names_decorators_are_checked(&self, decorated: NodeId) -> bool {
+        use tsr_ast::{BindingName, PropertyName, has_syntactic_modifier};
+        let legacy = self.legacy_decorators;
+        let parent = self.nodes.parent(decorated);
+        let parent_kind = parent.map(|parent| self.nodes.kind(parent));
+        let parent_is_class_declaration = parent_kind == Some(SyntaxKind::ClassDeclaration);
+        let parent_is_class_like =
+            matches!(parent_kind, Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression));
+        let private = |name: PropertyName<'_>| matches!(name, PropertyName::PrivateIdentifier(_));
+        let member = |name: PropertyName<'_>, has_body: bool| {
+            !(legacy && private(name))
+                && has_body
+                && if legacy { parent_is_class_declaration } else { parent_is_class_like }
+        };
+        match self.node_map.get(decorated) {
+            Some(Node::ClassDeclaration(_)) => true,
+            Some(Node::ClassExpression(_)) => !legacy,
+            Some(Node::PropertyDeclaration(property)) => {
+                !(legacy && private(property.name))
+                    && if legacy {
+                        parent_is_class_declaration
+                    } else {
+                        parent_is_class_like
+                            && !has_syntactic_modifier(
+                                property.modifiers,
+                                SyntaxKind::AbstractKeyword,
+                            )
+                            && !has_syntactic_modifier(
+                                property.modifiers,
+                                SyntaxKind::DeclareKeyword,
+                            )
+                    }
+            }
+            Some(Node::MethodDeclaration(method)) => member(method.name, method.body.is_some()),
+            Some(Node::GetAccessorDeclaration(accessor)) => {
+                member(accessor.name, accessor.body.is_some())
+            }
+            Some(Node::SetAccessorDeclaration(accessor)) => {
+                member(accessor.name, accessor.body.is_some())
+            }
+            Some(Node::ParameterDeclaration(_)) => {
+                if !legacy {
+                    return false;
+                }
+                let Some(function) = parent else { return false };
+                let (has_body, parameters) = match self.node_map.get(function) {
+                    Some(Node::ConstructorDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    Some(Node::MethodDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    Some(Node::SetAccessorDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    _ => return false,
+                };
+                // `GetThisParameter(parent) != node`.
+                let this_parameter = parameters.first().filter(|first| {
+                    matches!(first.name, Some(BindingName::Identifier(name)) if name.text == "this")
+                });
+                has_body
+                    && this_parameter.and_then(|p| p.node_id) != Some(decorated)
+                    && self.nodes.parent(function).map(|g| self.nodes.kind(g))
+                        == Some(SyntaxKind::ClassDeclaration)
+            }
+            _ => false,
+        }
+    }
+}

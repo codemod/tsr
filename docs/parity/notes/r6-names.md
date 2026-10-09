@@ -46,7 +46,8 @@ checks, not a resolution difference.
 | D. parameter initialisers | `resolveName`'s `useOuterVariableScopeInParameter` (`binder/nameresolver.go:74`, `:346`) | functionLikeInParameterInitializer(es2015), parameterInitializersForwardReferencing(es2015) | open |
 | E1. non-primitive keyword spellings as values | `checkAndReportErrorForUsingTypeAsValue`'s six-name `isPrimitiveTypeName` (`checker.go:1637`) | parserSymbolIndexer5 (TS2552) | §7, diff `r6-names-primitive-spellings` |
 | E2. `typeof null` | `parseTypeQuery`'s reserved-word entity name (`parser.go:3114`) | invalidTypeOfTarget | §8, diff `r6-names-typeof-null` |
-| F. parse recovery | parser trees that differ from native | arrowFunctionsMissingTokens, YieldStarExpression2_es6, bigintArbirtraryIdentifier, importDeferTypeConflict2, parserSuperExpression2, classExpressionWithDecorator1 | open |
+| F1. decorators native never checks | `checkDecorators` (`checker.go:6022`) gated by `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) | classExpressionWithDecorator1 | §10, diff `r6-names-decorator-targets` |
+| F2. parse recovery | parser trees that differ from native | arrowFunctionsMissingTokens, YieldStarExpression2_es6, bigintArbirtraryIdentifier, importDeferTypeConflict2, parserSuperExpression2 | open |
 | G. local export specifiers | `getTargetOfExportSpecifier`'s `resolveEntityName` (`checker.go:14970`) and its `onFailedToResolveSymbol` tail | duplicateErrorNameNotFound (TS2552) | §9, diff `r6-names-export-specifier` |
 | H. module augmentation | augmentation merge (`tsr-2zk.38`, main's) | moduleAugmentationInAmbientModule1, moduleAugmentationInAmbientModule5 (TS2552) | routed |
 
@@ -64,6 +65,7 @@ function it wires in `name_slots.rs`, and adds its test under
 | 4 | `r6-names-primitive-spellings.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 | 5 | `r6-names-typeof-null.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 | 6 | `r6-names-export-specifier.diff` | +1 case | 0 | 3,382/1,089 → 3,380/1,089 |
+| 7 | `r6-names-decorator-targets.diff` | +1 case | 0 | 3,382/1,089 → 3,382/1,086 |
 
 Diffs 1–3 applied together in this order: +13 cases, 0 losses on both
 dumps, rows 3,382/1,089 → 3,359/1,085, types dump identical to the base
@@ -267,3 +269,39 @@ the next commit by passing the table in; behaviour is unchanged. Measured alone:
 (`bigintArbirtraryIdentifier`'s `badExport.ts` row converts too; that case
 stays WRONG on a parse-recovery row, §2 F), no new extra row, `slowcases`
 clean.
+
+## §10 Cluster F1: decorators on a node that cannot be decorated
+
+A decorator's expression is checked only by `checkDecorators`
+(`checker.go:6022`), reached from the accessor, function-or-method,
+class-like and variable-like checks, and it returns at once unless
+`ast.NodeCanBeDecorated` holds. A decorator anywhere else is TS1206 from
+`checkGrammarModifiers` and its names are never resolved. Under
+`experimentalDecorators` a class expression cannot be decorated; under
+standard decorators a parameter cannot. The port's allow-list admitted every
+decorator expression (`is_value_reference`'s `Decorator` arm) and reported
+TS2304 beside TS1206.
+
+`Checker::names_in_unchecked_decorator` walks to the nearest decorator (a
+decorator can be `@a.b()`, so the slot test alone cannot see it) and asks a
+faithful `NodeCanBeDecorated` of the decorated node. `grammar.rs` has a
+private `node_can_be_decorated` serving TS1206, but it deliberately answers
+`true` for a legacy private name (its caller reports TS1206 for that arm
+itself) and leaves the this-parameter test to its caller, so it is not the
+predicate this question needs; the copy here follows `utilities.go:4254`
+line by line.
+
+Native probe, same file under both modes:
+
+```text
+                                     experimentalDecorators   standard
+var v = @missingA class C {…}        TS1206                   TS2304 missingA
+class D { @missingB m() {} }         TS2304                   TS2304
+function f(@missingC x: number) {}   TS1206                   TS1206
+class E { m(@missingD x: number) {}} TS2304                   TS1206
+class F { @missingE.member() p = 1 } TS2304                   TS2304
+```
+
+The port with the diff matches all ten rows. Measured alone: +1 case
+(`classExpressionWithDecorator1`), 0 losses, extra rows −3, no new missing
+row.
