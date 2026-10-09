@@ -182,7 +182,7 @@ impl Checker<'_, '_> {
                 }
             }
             Node::VariableStatement(statement) => {
-                if let Some(start) = self.await_using_keyword_start(node, statement) {
+                if let Some(start) = self.await_using_keyword_start(statement) {
                     self.check_top_level_await(node, TopLevelAwait::AwaitUsing, start);
                 }
             }
@@ -690,26 +690,12 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// The `await` of an `await using` statement. This port's parser flags
-    /// the list `USING` and drops the `await` (`check_grammar_variable_declaration_list`
-    /// in `grammar.rs`), so — as there — the `await` is the gap between a
-    /// modifier-less statement's start and its list's start; a
-    /// `CONST | USING` list (upstream's `NodeFlagsAwaitUsing`) is accepted
-    /// for when the parser keeps it.
-    fn await_using_keyword_start(
-        &self,
-        node: NodeId,
-        statement: &tsr_ast::VariableStatement<'_>,
-    ) -> Option<u32> {
+    /// The `await` of an `await using` statement: a `CONST | USING` list
+    /// (upstream's `NodeFlagsAwaitUsing`), which starts at the `await`.
+    fn await_using_keyword_start(&self, statement: &tsr_ast::VariableStatement<'_>) -> Option<u32> {
         let list = statement.declaration_list.and_then(|list| list.node_id)?;
         let block_scope = self.nodes.flags(list) & tsr_ast::NodeFlags::BLOCK_SCOPED;
-        let statement_start = self.nodes.span(node).start;
-        let list_start = self.nodes.span(list).start;
-        let awaited = block_scope == tsr_ast::NodeFlags::CONSTANT
-            || (block_scope == tsr_ast::NodeFlags::USING
-                && statement.modifiers.is_empty()
-                && statement_start != list_start);
-        awaited.then_some(statement_start.min(list_start))
+        (block_scope == tsr_ast::NodeFlags::CONSTANT).then(|| self.nodes.span(list).start)
     }
 
     /// Whether the file's name ends in `.mts` or `.cts`

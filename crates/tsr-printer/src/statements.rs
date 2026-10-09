@@ -871,7 +871,10 @@ fn list_keyword(
 ) -> &'static str {
     let Some(id) = list.node_id else { return "var" };
     let flags = nodes.flags(id);
-    if flags.contains(tsr_ast::NodeFlags::USING) {
+    // `NodeFlagsAwaitUsing` is `CONST | USING`.
+    if flags.contains(tsr_ast::NodeFlags::CONST | tsr_ast::NodeFlags::USING) {
+        "await using"
+    } else if flags.contains(tsr_ast::NodeFlags::USING) {
         "using"
     } else if flags.contains(tsr_ast::NodeFlags::CONST) {
         "const"

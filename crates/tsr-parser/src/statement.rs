@@ -46,7 +46,6 @@ impl<'a> Parser<'a> {
                 return self.parse_variable_statement(start, &[]);
             }
             SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
-                self.next_token();
                 return self.parse_variable_statement(start, &[]);
             }
             SyntaxKind::UsingKeyword if self.is_using_declaration() => {
@@ -341,25 +340,29 @@ impl<'a> Parser<'a> {
         matched
     }
 
-    /// Whether a `for` header opens with a variable declaration list.
-    ///
-    /// Not yet upstream's test (`parseForOrForInOrForOfStatement` requires
-    /// `using` to be followed on the same line by a binding, with `of`
-    /// disallowed): `await using` lists are not flagged `AwaitUsing` here, so
-    /// the printer cannot write the `await` back, and the stricter test turns
-    /// that into a round-trip difference.
+    /// Whether a `for` header opens with a variable declaration list
+    /// (`parseForOrForInOrForOfStatement`, `parser.go:1297`): `using` must be
+    /// followed on the same line by a binding identifier or `{`, with `of`
+    /// taken as a name only before `=`, `;` or `:`; `await using` admits `of`.
     fn at_variable_declaration_list(&mut self) -> bool {
         match self.token.kind {
             SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => true,
-            SyntaxKind::UsingKeyword => self.peek_kind(|kind| {
-                matches!(
-                    kind,
-                    SyntaxKind::Identifier
-                        | SyntaxKind::OpenBracketToken
-                        | SyntaxKind::OpenBraceToken
-                ) || is_contextual_keyword(kind)
+            SyntaxKind::UsingKeyword => self.look_ahead(|p| {
+                p.next_token();
+                if p.at(SyntaxKind::OfKeyword) {
+                    return p.peek_kind(|kind| {
+                        matches!(
+                            kind,
+                            SyntaxKind::EqualsToken
+                                | SyntaxKind::SemicolonToken
+                                | SyntaxKind::ColonToken
+                        )
+                    });
+                }
+                (p.is_binding_identifier() || p.at(SyntaxKind::OpenBraceToken))
+                    && !p.token.has_preceding_line_break()
             }),
-            SyntaxKind::AwaitKeyword => self.peek_kind(|kind| kind == SyntaxKind::UsingKeyword),
+            SyntaxKind::AwaitKeyword => self.is_await_using_declaration(),
             _ => false,
         }
     }
@@ -584,7 +587,6 @@ impl<'a> Parser<'a> {
                 return self.parse_variable_statement(start, modifiers);
             }
             SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
-                self.next_token();
                 return self.parse_variable_statement(start, modifiers);
             }
             SyntaxKind::FunctionKeyword => {
@@ -696,12 +698,21 @@ impl<'a> Parser<'a> {
         // so the keyword is recorded in the node flags — the binder reads it to
         // decide function scope versus block scope, and it is not recoverable from
         // the tree otherwise.
+        //
+        // `await using` is upstream's `NodeFlagsAwaitUsing`, `CONST | USING`
+        // (`nodeflags.go:51`): the list takes the `await` and starts at it
+        // (`parseVariableDeclarationList`'s `KindAwaitKeyword` arm,
+        // `parser.go:1563`; callers have checked `isAwaitUsingDeclaration`).
         let keyword = self.token.kind;
         self.next_token();
         let flags = match keyword {
             SyntaxKind::LetKeyword => tsr_ast::NodeFlags::LET,
             SyntaxKind::ConstKeyword => tsr_ast::NodeFlags::CONST,
             SyntaxKind::UsingKeyword => tsr_ast::NodeFlags::USING,
+            SyntaxKind::AwaitKeyword => {
+                self.next_token();
+                tsr_ast::NodeFlags::CONST | tsr_ast::NodeFlags::USING
+            }
             _ => tsr_ast::NodeFlags::empty(),
         };
 
@@ -899,9 +910,6 @@ impl<'a> Parser<'a> {
         let initializer: Option<ForInitializer<'a>> = if self.at(SyntaxKind::SemicolonToken) {
             None
         } else if self.at_variable_declaration_list() {
-            // `for (await using x of …)` — the `await` belongs to the declaration,
-            // not to the loop.
-            self.eat(SyntaxKind::AwaitKeyword);
             // §411: the DECLARATION half of the `in` ban — a var initializer
             // in a for head must not read `1 in X` as a comparison, or
             // `for (var a = 1 in X)` loses its ForIn shape

@@ -71,40 +71,23 @@ backwards. Porting them needs either the comma's offset recorded by the parser
 or source text in the checker; neither exists, and adding a side table for two
 cases was not worth the new owner.
 
-## `await using` is not `CONST | USING` here — and why
+## `await using` is `CONST | USING`
 
 Upstream's `NodeFlagsAwaitUsing` is `NodeFlagsConst | NodeFlagsUsing`
 (`nodeflags.go:51`) and `parseVariableDeclarationList` consumes `await using`
-itself, so the list starts at `await`. This parser eats the `await` at each
-call site and flags the list plain `USING`, so `await using` and `using` are
-the same tree. `checkGrammarVariableDeclarationList`'s TS1493/TS1494 and
-TS1547/TS1548 need the difference.
+itself, so the list starts at `await`. The parser now does the same (its
+`KindAwaitKeyword` arm; the three callers no longer eat the `await`), and the
+printer writes `await using` for `CONST | USING` (`list_keyword`). A `for`
+head takes a declaration list on upstream's exact test: `using` followed on
+the same line by a binding or `{` (`of` only before `=`, `;`, `:`), or
+`isAwaitUsingDeclaration`.
 
-**Tried and refused.** Porting the encoding (list takes the `await`, flags
-`CONST | USING`) converted `awaitUsingDeclarationsInForIn` and kept the
-diagnostics and types gates loss-free once `check_const_is_initialized`
-compared the whole block-scope kind, but the coverage run's
-`printer_round_trip` row fell from 11816/11822 to 11800/11816: the printer
-(`list_keyword` in `crates/tsr-printer/src/statements.rs`, which tests `USING`
-first) writes `using` for the list, and the reparse no longer matches. That
-file belongs to another lane, so the encoding is reverted and the printer change
-(write `await using` for `CONST | USING`) is reported to the integrator; with it
-the parser change is the `KindAwaitKeyword` arm of `parseVariableDeclarationList`
-plus dropping the three call sites' `await` skip.
-
-What stands without it:
-
-- TS1547/TS1548 (case clause): a `VariableStatement` with no modifiers starts
-  where its list does unless the parser consumed an `await` in front of it, so
-  the gap identifies `await using`, and the report spans from the statement
-  start, where upstream's list starts.
-- TS1493/TS1494 (`for…in`): no such gap is visible in a `for` head, so the arm
-  declines (`usingDeclarationsInForIn`, `awaitUsingDeclarationsInForIn` stay
-  missing). It reports TS1494 if a list ever carries `CONST | USING`.
-- `check_const_is_initialized` now compares `blockScopeKind == Const` as
-  upstream does instead of testing one bit; it doubled TS1155 on `await using a;`
-  (`awaitUsingDeclarations.8`) under the refused encoding, and is correct either
-  way.
+`checkGrammarVariableDeclarationList`'s TS1493/TS1494 (`for…in`), TS1545/
+TS1546 (ambient) and TS1547/TS1548 (case clause) read the block-scope kind;
+the `using` initializer check (`using_declaration.rs`) and
+`module_format.rs`'s `await` start read the flags instead of looking at the
+text before the list. `check_const_is_initialized` compares the whole
+block-scope kind, as upstream does.
 
 ## Reserved words are not primary expressions
 

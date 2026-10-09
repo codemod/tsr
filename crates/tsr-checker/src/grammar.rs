@@ -728,8 +728,7 @@ impl Checker<'_, '_> {
     }
 
     /// `Checker.checkGrammarVariableDeclarationList` (`grammarchecks.go:1646`)
-    /// without its ambient arm (the parser does not set `NodeFlags::AMBIENT`)
-    /// and its trailing `checkGrammarAwaitOrAwaitUsing`, which is reported
+    /// without its trailing `checkGrammarAwaitOrAwaitUsing`, which is reported
     /// elsewhere. Returns whether it reported.
     pub(crate) fn check_grammar_variable_declaration_list(&mut self, list: NodeId) -> bool {
         if self.report_disallowed_trailing_comma(list, &messages::TRAILING_COMMA_NOT_ALLOWED) {
@@ -753,58 +752,57 @@ impl Checker<'_, '_> {
             );
             return true;
         }
-        // `NodeFlagsAwaitUsing` is `Const | Using` upstream. This parser
-        // flags an `await using` list plain `USING` and drops the `await`
-        // (the printer could not write it back otherwise), so the two
-        // spellings are told apart only where the tree still shows the
-        // `await`; a `CONST | USING` list is accepted for when it does.
+        // `NodeFlagsAwaitUsing` is `Const | Using` (`nodeflags.go:51`), as the
+        // parser now flags an `await using` list, which starts at the `await`.
         let block_scope = self.nodes.flags(list) & NodeFlags::BLOCK_SCOPED;
         if block_scope != NodeFlags::USING && block_scope != NodeFlags::CONSTANT {
             return false;
         }
+        let using = block_scope == NodeFlags::USING;
         let Some(parent) = self.nodes.parent(list) else { return false };
         if self.nodes.kind(parent) == SyntaxKind::ForInStatement {
-            // `for (await using x in …)` and `for (using x in …)` parse to the
-            // same tree here, and the two messages differ; decline the
-            // ambiguous one rather than guess.
-            if block_scope != NodeFlags::CONSTANT {
-                return false;
-            }
             self.grammar_error_on_node(
                 list,
-                &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_AN_AWAIT_USING_DECLARATION,
+                if using {
+                    &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_A_USING_DECLARATION
+                } else {
+                    &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_AN_AWAIT_USING_DECLARATION
+                },
             );
             return true;
         }
-        let Some(Node::VariableStatement(statement)) = self.node_map.get(parent) else {
-            return false;
-        };
-        if !self.nodes.parent(parent).is_some_and(|clause| {
-            matches!(self.nodes.kind(clause), SyntaxKind::CaseClause | SyntaxKind::DefaultClause)
-        }) {
-            return false;
+        // `declarationList.Flags&NodeFlagsAmbient`: the parser's ambient
+        // context, which this tree answers through the declaration's context.
+        if self.file_is_ambient || self.declaration_is_in_an_ambient_context(list) {
+            self.grammar_error_on_node(
+                list,
+                if using {
+                    &messages::USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS
+                } else {
+                    &messages::AWAIT_USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS
+                },
+            );
+            return true;
         }
-        // A statement with no modifiers starts where its list does, unless the
-        // parser consumed an `await` in front of the list: that gap is the
-        // `await`, and upstream's list (and so the report) starts there.
-        let statement_start = self.nodes.span(parent).start;
-        let list_span = self.nodes.span(list);
-        let awaited = block_scope == NodeFlags::CONSTANT
-            || (statement.modifiers.is_empty() && statement_start != list_span.start);
-        let (message, span) = if awaited {
-            (
-                &messages::AWAIT_USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK,
-                tsr_core::Span::new(statement_start.min(list_span.start), list_span.end),
-            )
-        } else {
-            (
-                &messages::USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK,
-                list_span,
-            )
-        };
-        let Some(file) = self.source_file_of_for_diagnostics(list) else { return true };
-        self.report(file, Diagnostic::new(message, span));
-        true
+        if self.nodes.kind(parent) == SyntaxKind::VariableStatement
+            && self.nodes.parent(parent).is_some_and(|clause| {
+                matches!(
+                    self.nodes.kind(clause),
+                    SyntaxKind::CaseClause | SyntaxKind::DefaultClause
+                )
+            })
+        {
+            self.grammar_error_on_node(
+                list,
+                if using {
+                    &messages::USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK
+                } else {
+                    &messages::AWAIT_USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK
+                },
+            );
+            return true;
+        }
+        false
     }
 
     /// `Checker.checkGrammarForDisallowedTrailingComma` (`grammarchecks.go:671`)
