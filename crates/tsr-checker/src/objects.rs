@@ -451,12 +451,14 @@ pub(crate) fn signature_member_text(
         // The node-reuse rule on `Parameter::written_text`
         // (`crate::node_reuse`), for a printer with no print site.
         let parameter_type = checker.parameter_type(parameter);
-        match parameter
+        if let Some(written) = parameter
             .written_text
             .and_then(|written| checker.site_free_annotation_text(written, parameter_type))
         {
-            Some(written) => out.push_str(&written),
-            None => out.push_str(&checker.type_to_string(parameter_type)),
+            out.push_str(&written);
+        } else {
+            let serialized = checker.serialized_parameter_type(parameter, parameter_type);
+            out.push_str(&checker.type_to_string(serialized));
         }
     }
     out.push_str("): ");
