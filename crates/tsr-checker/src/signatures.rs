@@ -6814,13 +6814,19 @@ impl<'a> Checker<'a, '_> {
                 // confidently wrong (generatedContextualTyping's 48 G->W).
                 let grounded = self.contextual_signature_result(node).is_some_and(|signature| {
                     match signature {
-                        crate::contextual::ContextualSignature::Present(signature) => signature.parameters.iter().enumerate().all(|(index, parameter)| {
+                        // assignContextualParameterTypes (`checker.go:10350`):
+                        // a generic contextual signature lends the function its
+                        // own type parameters, so they are in scope.
+                        crate::contextual::ContextualSignature::Present(signature) => {
+                            let adopted: Vec<_> = signature.type_parameters.iter().filter_map(|parameter| parameter.resolved_type).collect();
+                            signature.parameters.iter().enumerate().all(|(index, parameter)| {
                             parts.parameters.iter().filter(|own| !Self::is_this_parameter_declaration(own)).nth(index).is_some_and(|own| own.r#type.is_some())
                                 || !{
                                     let parameter_type = self.parameter_type(parameter);
-                                    self.mentions_type_parameter_out_of_scope(parameter_type, 2, node)
+                                    self.mentions_type_parameter_out_of_scope(parameter_type, 2, node, &adopted)
                                 }
-                        }),
+                            })
+                        }
                         // A computed nil context licenses ordinary implicit
                         // parameters. Generic call failures additionally need
                         // inferSignatureInstantiationForOverloadFailure's
@@ -6863,7 +6869,11 @@ impl<'a> Checker<'a, '_> {
         id: TypeId,
         depth: u8,
         node: NodeId,
+        adopted: &[TypeId],
     ) -> bool {
+        if adopted.contains(&id) {
+            return false;
+        }
         if let Some(&symbol) = self.type_parameter_symbols.get(&id) {
             return !self.type_parameter_is_fixed_at(id, symbol, node);
         }
@@ -6872,7 +6882,7 @@ impl<'a> Checker<'a, '_> {
         }
         if let Some((_, arguments)) = self.type_reference_targets.get(&id).cloned()
             && arguments.iter().any(|&argument| {
-                self.mentions_type_parameter_out_of_scope(argument, depth - 1, node)
+                self.mentions_type_parameter_out_of_scope(argument, depth - 1, node, adopted)
             })
         {
             return true;
@@ -6883,11 +6893,12 @@ impl<'a> Checker<'a, '_> {
                 if signature.type_parameters.is_empty()
                     && (signature.parameters.iter().any(|parameter| {
                         let parameter_type = self.parameter_type(parameter);
-                        self.mentions_type_parameter_out_of_scope(parameter_type, depth - 1, node)
+                        self.mentions_type_parameter_out_of_scope(parameter_type, depth - 1, node, adopted)
                     }) || self.mentions_type_parameter_out_of_scope(
                         signature.r#type,
                         depth - 1,
                         node,
+                        adopted,
                     ))
                 {
                     return true;
