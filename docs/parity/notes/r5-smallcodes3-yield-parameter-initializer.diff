@@ -1,0 +1,138 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index 8f23e35..5f861dd 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -821,6 +821,7 @@ impl Checker<'_, '_> {
+         match typed {
+             Node::YieldExpression(_) => {
+                 self.check_yield_grammar(node);
++                self.check_yield_in_parameter_initializer(node);
+                 self.check_yield_expression_assignability(node);
+             }
+             Node::AwaitExpression(_) => {
+@@ -9890,6 +9891,53 @@ impl Checker<'_, '_> {
+         );
+     }
+ 
++    /// TS2523 — `'yield' expressions cannot be used in a parameter initializer.`
++    ///
++    /// `checkGrammarYieldExpression`'s second arm (`grammarchecks.go:1783`),
++    /// an ungated `c.error(node, …)` as TS2524's is.
++    ///
++    /// Upstream only reaches it for a node its parser built as a
++    /// `YieldExpression`. Parameters are parsed in their function's yield
++    /// context (`parseParametersWorker`), so inside a generator's parameter
++    /// list every `yield` is one; elsewhere `isYieldExpression` takes `yield`
++    /// only before an identifier, keyword or literal on the same line, and a
++    /// bare `yield` is a name. This parser builds a `YieldExpression` in both
++    /// places, so outside a generator the rule asks for the operand shapes
++    /// [`Self::check_yield_grammar`] already bounds itself to.
++    fn check_yield_in_parameter_initializer(&mut self, node: NodeId) {
++        if !self.is_in_parameter_initializer_before_containing_function(node) {
++            return;
++        }
++        let Some(Node::YieldExpression(yielded)) = self.node_map.get(node) else { return };
++        let operand_shape = yielded.asterisk_token.is_none()
++            && yielded.expression.is_some_and(|operand| {
++                !matches!(operand, tsr_ast::Expression::ParenthesizedExpression(_))
++            });
++        let in_generator_parameters = self
++            .nodes
++            .ancestors(node)
++            .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::Parameter)
++            .and_then(|parameter| self.nodes.parent(parameter))
++            .is_some_and(|function| match self.node_map.get(function) {
++                Some(Node::FunctionDeclaration(f)) => f.asterisk_token.is_some(),
++                Some(Node::FunctionExpression(f)) => f.asterisk_token.is_some(),
++                Some(Node::MethodDeclaration(f)) => f.asterisk_token.is_some(),
++                _ => false,
++            });
++        if !in_generator_parameters && !operand_shape {
++            return;
++        }
++        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
++        let span = self.nodes.span(node);
++        self.report(
++            file,
++            Diagnostic::new(
++                &messages::YIELD_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
++                span,
++            ),
++        );
++    }
++
+     /// TS1308 — `'await' expressions are only allowed within async functions
+     /// and at the top levels of modules.`
+     ///
+diff --git a/crates/tsr-checker/tests/yield_in_parameter_initializer.rs b/crates/tsr-checker/tests/yield_in_parameter_initializer.rs
+new file mode 100644
+index 0000000..68567ac
+--- /dev/null
++++ b/crates/tsr-checker/tests/yield_in_parameter_initializer.rs
+@@ -0,0 +1,66 @@
++//! TS2523 — `checkGrammarYieldExpression`'s parameter-initializer arm
++//! (`grammarchecks.go:1783`), mirroring TS2524's climb
++//! (`await_in_parameter_initializer.rs`). Every expectation below was
++//! checked against a native `tsgo` built from the pinned submodule.
++
++use tsr_ast::NodeId;
++use tsr_checker::Checker;
++use tsr_checker::check::FileContext;
++use tsr_core::Arena;
++
++fn ts2523_count(source: &str) -> usize {
++    let arena = Arena::new();
++    let mut nodes = tsr_ast::NodeTable::default();
++    let mut node_map = tsr_ast::NodeMap::default();
++    let file = tsr_parser::parse_into(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("a.ts"),
++        &mut nodes,
++        &mut node_map,
++    );
++    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
++    let bound = tsr_binder::bind_into(
++        tsr_binder::BindResult::empty(),
++        &arena,
++        file.source_file,
++        &nodes,
++        tsr_binder::FileInfo { name: "a.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &nodes, &node_map);
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    checker.diagnostics().iter().filter(|(_, d)| d.code() == "TS2523").count()
++}
++
++#[test]
++fn a_yield_in_a_generators_parameter_default_reports() {
++    assert_eq!(ts2523_count("function* g(a = yield 1) {}"), 1);
++    assert_eq!(ts2523_count("async function* g(a = yield) {}"), 1);
++}
++
++#[test]
++fn a_binding_elements_default_inside_a_generator_parameter_reports() {
++    assert_eq!(ts2523_count("function* g({ b = yield }: any = 0) {}"), 1);
++}
++
++#[test]
++fn a_method_generators_parameter_default_reports() {
++    assert_eq!(ts2523_count("const o = { *m(z = yield 3) {} };"), 1);
++}
++
++#[test]
++fn a_yield_with_an_operand_outside_a_generator_still_reports() {
++    // `isYieldExpression` takes `yield 2` as a yield outside the yield
++    // context too; native reports TS1163 and TS2523 together.
++    assert_eq!(ts2523_count("function f(c = yield 2) {}"), 1);
++}
++
++#[test]
++fn a_bare_yield_outside_a_generator_is_a_name() {
++    assert_eq!(ts2523_count("function h(d = yield) {}"), 0);
++}
++
++#[test]
++fn a_yield_inside_a_nested_function_is_not_a_parameter_initializer() {
++    assert_eq!(ts2523_count("function* g(a = function* () { yield 1; }) {}"), 0);
++}
