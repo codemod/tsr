@@ -6814,15 +6814,11 @@ impl Checker<'_, '_> {
     /// `narrowTypeByDiscriminantProperty` (`flow.go:702`). §752 — the
     /// equality arm's swap onto the pair, replacing §51.1's inline test.
     ///
-    /// The key-property fast path (`:703`-`:719`) is **not ported**: it needs
-    /// `getKeyPropertyName` and `getConstituentTypeForKeyType`, and this port
-    /// interns no key-property index for a union. Declining it is upstream's
-    /// own behaviour for every union whose `keyPropertyName` is empty, which
-    /// is the general case; for a union that HAS one, the filter below
-    /// reaches the same constituent by comparability instead of by lookup,
-    /// losing only the `removeType` shortcut on the negative `===` branch and
-    /// the O(1). It is an optimisation with one behavioural edge, not a
-    /// mechanism the arm depends on.
+    /// The key-property arm (`:703`-`:719`) answers first for `===`/`!==` on
+    /// a union with a key property (`getKeyPropertyName`): the matching
+    /// constituent, or `t` without it. It is not only an optimisation: the
+    /// lookup drops non-object constituents (`undefined`) that the
+    /// comparability filter below keeps.
     fn narrow_type_by_discriminant_property(
         &mut self,
         t: TypeId,
@@ -6831,6 +6827,33 @@ impl Checker<'_, '_> {
         value: NodeId,
         assume_true: bool,
     ) -> TypeId {
+        if matches!(
+            operator,
+            SyntaxKind::EqualsEqualsEqualsToken | SyntaxKind::ExclamationEqualsEqualsToken
+        ) && let Some((key_property, map)) = self.get_key_property_name_and_map(t)
+            && self.get_accessed_property_name(access).as_deref() == Some(key_property.as_str())
+            && let Some(value_expression) =
+                self.node_map.get(value).and_then(|node| tsr_ast::Expression::try_from(node).ok())
+        {
+            let key_type = self.check_expression(value_expression);
+            let key_type = self.get_regular_type_of_literal_type(key_type);
+            if let Some(&Some(candidate)) = map.get(&key_type) {
+                if assume_true == (operator == SyntaxKind::EqualsEqualsEqualsToken) {
+                    return candidate;
+                }
+                if self.get_type_of_property_of_type(candidate, &key_property).is_some_and(
+                    |property| self.store.get(property).flags.intersects(TypeFlags::UNIT),
+                ) {
+                    let TypeData::Union { types, .. } = &self.store.get(t).data else {
+                        return t;
+                    };
+                    let kept: Vec<TypeId> =
+                        types.iter().copied().filter(|&member| member != candidate).collect();
+                    return self.rebuild_union_subset(t, &kept);
+                }
+                return t;
+            }
+        }
         // Upstream passes `narrowTypeByEquality` with no chain flag: the
         // optional-chain strip belongs to `narrowTypeByDiscriminant`, which
         // does it on the RECEIVER before reading the property, so passing it
@@ -6838,6 +6861,93 @@ impl Checker<'_, '_> {
         self.narrow_type_by_discriminant(t, access, |checker, prop| {
             checker.narrow_type_by_equality(prop, operator, value, assume_true, false)
         })
+    }
+
+    /// `getKeyPropertyName` and the constituent map of
+    /// `computeKeyPropertyNameAndMap` (`relater.go:1118-1205`): for a union of
+    /// at least ten object constituents, the first unit-typed property of the
+    /// first object constituent, and each constituent keyed by the regular
+    /// literal types of that property (`None` marks a duplicate key). `None`
+    /// when the union has no key property.
+    ///
+    /// Native memoizes both on the union type (`UnionType.keyPropertyName`,
+    /// `constituentMap`). Not ported: this recomputes per narrowing query. The
+    /// ≥10-object gate runs first and rejects nearly every union before any
+    /// property work; the property walk is the expensive part and runs only
+    /// for unions that pass it.
+    #[allow(clippy::type_complexity)]
+    fn get_key_property_name_and_map(
+        &mut self,
+        t: TypeId,
+    ) -> Option<(String, rustc_hash::FxHashMap<TypeId, Option<TypeId>>)> {
+        let TypeData::Union { types, .. } = &self.store.get(t).data else { return None };
+        let is_object_like = |checker: &Self, member: TypeId| {
+            checker
+                .store
+                .get(member)
+                .flags
+                .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+        };
+        if types.len() < 10
+            || types.iter().filter(|&&member| is_object_like(self, member)).count() < 10
+        {
+            return None;
+        }
+        let types = types.clone();
+        // `getKeyPropertyCandidateName`.
+        let mut key_property = None;
+        'search: for &member in &types {
+            if !is_object_like(self, member) {
+                continue;
+            }
+            for name in self.get_property_names_of_type(member)? {
+                let Some(property) = self.get_type_of_property_of_type(member, &name) else {
+                    continue;
+                };
+                if self.store.get(property).flags.intersects(TypeFlags::UNIT) {
+                    key_property = Some(name);
+                    break 'search;
+                }
+            }
+        }
+        let key_property = key_property?;
+        // `mapTypesByKeyProperty`.
+        let mut map: rustc_hash::FxHashMap<TypeId, Option<TypeId>> =
+            rustc_hash::FxHashMap::default();
+        let mut count = 0usize;
+        for &member in &types {
+            if !self.store.get(member).flags.intersects(
+                TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE_NON_PRIMITIVE,
+            ) {
+                continue;
+            }
+            let discriminant = self.get_type_of_property_of_type(member, &key_property)?;
+            if !self.is_literal_type(discriminant) {
+                return None;
+            }
+            let distributed = match &self.store.get(discriminant).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![discriminant],
+            };
+            let mut duplicate = false;
+            for part in distributed {
+                let key = self.get_regular_type_of_literal_type(part);
+                match map.get(&key) {
+                    None => {
+                        map.insert(key, Some(member));
+                    }
+                    Some(Some(_)) => {
+                        map.insert(key, None);
+                        duplicate = true;
+                    }
+                    Some(None) => {}
+                }
+            }
+            if !duplicate {
+                count += 1;
+            }
+        }
+        (count >= 10 && count * 2 >= types.len()).then_some((key_property, map))
     }
 
     /// `narrowTypeByDiscriminant` (`flow.go:725`). §750.

@@ -614,3 +614,19 @@ Native control: `[x] = [true]` → `true`, `[x = ""] = [1]` → `string | number
 `({y: x = /a/} = {y: 1})` → `number | RegExp` in both. Gained EXACT:
 `controlFlowAssignmentPatternOrder`; `assignmentTypeNarrowing` and `for-of45`
 lines converge.
+
+## 30. `narrowTypeByDiscriminantProperty`'s key-property arm
+
+Pinned `flow.go:703-719` with `getKeyPropertyName` /
+`getConstituentTypeForKeyType` (`relater.go:1118-1205`): for `===`/`!==` on a
+union of ten or more object constituents whose key property is the accessed
+name, the matching constituent is the answer (or is removed when its key is a
+unit type). The arm was declined as "an optimisation"; it is not — the
+lookup drops non-object constituents such as `undefined` that the
+comparability filter of `narrowTypeByDiscriminant` keeps. Native memoizes
+the key name and constituent map on the union type; this port recomputes per
+query behind the ≥10-object gate, which rejects nearly every union before any
+property walk (no new side table). Native control
+(`narrowingUnionWithBang`): `working.thing!.name !== "Correct"` else-branch
+→ `{ name: 'Correct'; id: string; }` in both; the true branch keeps
+`| undefined` in both.
