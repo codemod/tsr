@@ -234,10 +234,13 @@ Two global augmentations of `namespace FullCalendarVDom`: the first file's
 reaches `mergeSymbol`'s alias arm with the alias as target, resolves it to
 the type alias, and reports `reportMergeSymbolError` on both (TS2300). The
 binder records alias-target pairs (`alias_merges`) and
-`report_alias_merge_conflict` (`merge_conflicts.rs`) resolves them; the pair
-reports nothing here, so either the nested namespace merge does not record
-it or `resolve_alias_fully` stops at the `react` namespace import.
-Hypothesis only, not probed; the binder half is main's.
+`report_alias_merge_conflict` (`merge_conflicts.rs`) resolves them. Probed
+with a temporary trace there: the binder does record the pair
+(`VNode`, `VNode`), and `resolve_alias_fully` (`symbols.rs`) answers the
+alias itself (flags `ALIAS`), so the arm declines. The alias it cannot follow
+is `react.ReactNode`: a qualified name whose left side is a namespace import
+of an `export =` module (`@types/react`), named from inside a
+`declare global` block. That resolution is `symbols.rs` (main's); one case.
 
 ## 4. Not taken
 
