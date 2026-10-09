@@ -1,0 +1,21 @@
+diff --git a/crates/tsr-parser/src/declaration.rs b/crates/tsr-parser/src/declaration.rs
+index 4de6be9..ed6063b 100644
+--- a/crates/tsr-parser/src/declaration.rs
++++ b/crates/tsr-parser/src/declaration.rs
+@@ -539,15 +539,8 @@ impl<'a> Parser<'a> {
+                 self.parse_semicolon();
+                 return None;
+             }
+-            match missing_open_brace {
+-                Some(message) => self.error_at_current(message),
+-                None => {
+-                    self.expect(SyntaxKind::OpenBraceToken);
+-                }
+-            }
+-            return None;
+         }
+-        Some(FunctionBody::Block(self.parse_block()))
++        Some(FunctionBody::Block(self.parse_block_with(missing_open_brace)))
+     }
+ 
+     /// typescript-go's `Parser.parseTypeMemberSemicolon` (`parser.go`): type

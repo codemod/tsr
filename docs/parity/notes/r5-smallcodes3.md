@@ -326,9 +326,32 @@ returns no body at all. The faithful fix has two halves:
 - every checker reader of "has a body" must tell `Body() == nil` apart from
   `NodeIsMissing(body)`. TS7010, for one, is reported on a missing body.
 
-That reaches TS7010, which batch AP's span diff also moves
-(`parserErrantEqualsGreaterThanAfterFunction1`/`2` are in both), so it
-waits.
+**The parser half, measured** (`r5-smallcodes3-parser-missing-brace-body.diff`,
+held). `parse_block_with` (`statement.rs`) already ports `parseBlock`'s
+missing-brace arm. Only `parse_function_block_or_semicolon`'s error path
+bypassed it and returned no body. The diff routes that path through it.
+
+Against the frozen base, unfiltered:
+
+- diagnostics: +2 cases (`dottedModuleName`,
+  `objectTypesWithOptionalProperties2`) and −2 (`commonMissingSemicolons`,
+  `overloadConsecutiveness`);
+- types: −31 lines.
+
+Every loss is a checker reader that still treats "has a `Block`" as "has a
+body", where upstream asks `NodeIsMissing(body)`:
+
+| Reader (upstream) | Effect of the missing `Block` in TSR | Rows |
+|---|---|---|
+| `getReturnTypeOfSignature`: `NodeIsMissing(body) ? anyType : getReturnTypeFromBody` | `function f(x: number)=>2*x` prints `=> void`, native `=> any` | −31 type lines (`dottedModuleName`, `overloadConsecutiveness`, `reservedWords2`/`3`, …) |
+| `checkFunctionOrMethodDeclaration`'s TS7010: `NodeIsMissing(body)` | TS7010 no longer reported | 10 TS7010 rows lost (`reservedWords3` ×5, `destructuringParameterDeclaration6` ×2, `parserErrantEqualsGreaterThanAfterFunction1`/`2`, `parserSkippedTokens16`) |
+| `checkFunctionOrConstructorSymbol`: `bodyIsPresent := NodeIsPresent(body)` (`checker.go:3627`) | the missing body counts as an implementation | TS2393 ×6 and TS2389 ×2 extra, TS2391 ×4 lost (`overloadConsecutiveness`, `commonMissingSemicolons`) |
+
+The diff lands together with those three readers. They are spread over
+`check.rs`, `signatures.rs` and the declared-type road, which are main's and
+r5-printer3's. The parser half also removes 15 extra TS2391 rows, which is
+what the cluster needs. TS7010's positions were moved by batch AP, so this
+is re-measured on a head that has it.
 
 **TS17006.** `parseUnaryExpressionOrHigher` (`parser.go:4694`) reports when
 a simple unary expression is followed by `**`. The report spans
@@ -370,6 +393,7 @@ baseline's TS2538 (`Type 'null' cannot be used as an index type`) is
 | TS2702/TS2713 type used as namespace | diff, held (`callbackTagNamespace`: JSDoc dotted names) | +3 / −1 |
 | TS2721–2723 cannot invoke possibly-nullish | diff, lossless on the flow diff below | +8 |
 | `isMatchingReference` `super`/`MetaProperty` arms | diff, lossless (`flow.rs`) | +10 type lines |
-| TS2391, TS17006 | wait for batches AP/AU | 10 |
+| TS2391 parser half (`parser-missing-brace-body.diff`) | held: needs the three `NodeIsMissing(body)` readers (§4.1) | +2 / −2, −31 type lines alone |
+| TS17006 | diff prepared; measured once batch AU lands | 4 (+1 not sole) |
 | TS2307, TS2883, TS1238, TS2403, TS2538 | routed, owners above | 19 |
 | TS2540 | 2 on r5-smallcodes2's branch, 2 `mapped.rs` | 4 |
