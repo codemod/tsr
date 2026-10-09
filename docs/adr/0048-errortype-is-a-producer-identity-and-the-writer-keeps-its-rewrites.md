@@ -344,3 +344,33 @@ The other four rewrites still cost RIGHT lines (`HadErrorBaseline` 2,353,
 `AtLocation` 586, `AccessOrQualifiedParent` 62, `StatementName` 29) and stay.
 The falsifier ("the residual stops falling") has not fired: the residual fell
 4,504 → 3,030 in this step.
+
+### 2026-10-09 — step 6, commit 1: element access's failed lookups by identity; no rewrite narrowed
+
+r5-errorsplit6 (tsr-2zk.1038) rebuilt the probe and ran it over the whole
+corpus (notes [r5-errorsplit6](../parity/notes/r5-errorsplit6.md) §1). The
+base is the integration branch with batch AO's two diffs applied.
+
+**Item 1: `getPropertyTypeForIndexType`'s failures.** Each one returns `nil`,
+and `checkElementAccessExpression` turns that into `errorType`
+(`checker.go:8176`). Probed arm by arm (notes §2):
+
+- the const-enum non-literal read (`:8157`), a union key with a miss, and the
+  generic-write index-signature refusal move only `errorType` lines;
+- the readonly-write arms (`:27036`) move only `errorType` lines once a
+  readonly tuple's non-property index is left on its index-signature road;
+- the two lookup tails are `errorType` only where the port's lookup over the
+  receiver is complete. The probe found false claims under generic
+  receivers, `unique symbol` keys, mapped receivers, unions with an object
+  literal, functions' types (unbound late-bound assignment members) and
+  unexpanded alias references. Those stay the gap, each exclusion naming the
+  unported upstream piece. `globalThis`'s members arm is ported on the
+  element-access road instead.
+
+**Measured** (unfiltered, both dumps, against the AO base): zero losses; types
++5 WRONG→RIGHT; 396 lines move to `native_error`, all `errorType` natively.
+Credited gap 2,577 → **2,210**.
+
+**Narrowing**, per rewrite: `HadErrorBaseline` 2,053, `AtLocation` 576,
+`AccessOrQualifiedParent` 62, `StatementName` 29. None costs zero, so none is
+narrowed. The residual fell 3,032 → 2,720.
