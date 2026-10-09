@@ -1240,3 +1240,11 @@ TSR/tsgo wall time, from r5-checkperf3's container with its stack applied:
 | jsTyping | 3.203 |
 
 The 0.50 target is not met.
+
+Correction after batch AZ's first gate: r5-nodereuse2's merge and its
+predicate-at-site diff were backed out (84ef78b5). With them,
+`shadowed_names::constraints_and_defaults_keep_outer_parameter_names` fails:
+a written constraint naming the local alias `Outer` is reused where `Outer`
+is out of scope. Native prints `T_1 extends T = T`. The +26 type lines they
+measured are not in this round. `tsr-2zk.1118` holds the work, with that test
+as its falsifier.
