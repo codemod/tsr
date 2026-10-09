@@ -179,3 +179,17 @@ Measured together on top of §3: +8 lines, 0 lost, +1 case
 `func4?` twice. `get_type_from_type_literal` replaced the property on
 each overload, keeping the last declaration's `?`. Measured on top of §3:
 +1 line, 0 lost, +1 case (`methodSignaturesWithOverloads`).
+
+## 5. Diff for checker.rs: the member printer reuses the written constraint
+
+r5-mapped4 §2 ported `typeParameterToDeclaration`'s reusable constraint
+node (`typeToTypeNodeHelperWithPossibleReusableTypeNode`,
+`nodebuilderimpl.go:1597`) into `signature_to_string` and left the two
+member printers. `r5-printer2-member-constraint-reuse.diff` adds the arm to
+`Checker::signature_member_text_at`: +21 type lines, 0 lost, +2 cases
+(`circularContextualReturnType`, `contextualSignatureInObjectFreeze`),
+measured on top of §4. It applies on its own or stacked on §2's diff.
+
+The same arm in `objects::signature_member_text` measured **zero**
+transitions (no corpus line reaches that printer with an unwritten,
+reusable constraint), so it is not shipped.
