@@ -146,12 +146,10 @@ The diff updates the `import_types` parser test, which asserted that
 
 Measured against `base3` (commit 3): +4 cases (`importAssertionsDeprecated`,
 `…Ignored`, `importTypeAssertionDeprecation`, `…Ignored`), zero losses on
-both dumps, types identical, slowcases clean. Ir: domain-model 1,200,108,041
-against 1,199,400,542 (+0.06%), generic-imports 342,895,757 against
-342,901,856 (−0.002%). The domain-model delta is within this session's
-binary-to-binary spread: the TS2652/TS2306 binary read −0.07% against its own
-base. Parser and workspace tests pass; clippy and fmt are clean on the
-diff.
+both dumps, types identical, slowcases clean. Ir (corrected, §4):
+domain-model 1,200,318,372 → 1,200,337,632 (+0.002%), generic-imports
+342,880,757 → 342,880,840 (+0.00002%). Parser and workspace tests pass;
+clippy and fmt are clean on the diff.
 
 ### 3.4 TS1238 (routed to main's calls lane)
 
@@ -181,7 +179,7 @@ had. TSR only had the import-*clause* form (`check_deferred_import_clause`).
 Measured: +4 cases (`dynamicImportDefer` commonjs, es2015, es2020,
 nodenext).
 
-### 3.6 TS2538 (routed to r5-relater6)
+### 3.6 TS2538
 
 Probe (`target es2017`, no annotations):
 
@@ -192,19 +190,40 @@ declare const o: { a: number };
 const { [q]: w } = o;                       // both: TS2304 + TS2538
 ```
 
-The variable-declaration form already works. The **parameter** form does
-not. Its parent type is the implied type of the binding pattern (no
-annotation), and `getIndexedAccessType(parentType, errorType)` there finds no
-index info and takes `getPropertyTypeForIndexType`'s final arm
-(`checker.go:27206`). `report_missing_index_signature`
-(`index_access_reports.rs`, r5-relater6's) declines this parent: the
-object-type gates at the top of that function (`is_type_any(object_type)` /
-unenumerated `Named`) are the suspects. The cases are `errorElaboration`,
-`asyncFunctionDeclarationParameterEvaluation` ×2 and
-`asyncGeneratorParameterEvaluation` ×3. `identifierStartAfterNumericLiteral`
-(×4 TS2538 `null`) is `3in[null]` after a scanner error: an element access
-with a `null` key, the `:27206` arm with `TypeToString(null)`. It is
-unprobed, and the same file owns it.
+The variable-declaration form already worked. The parameter form failed at
+two points, one behind the other:
+
+1. **The implied type (fixed, commit 5).** An unannotated, uncontextual
+   pattern parameter's type is `getTypeFromObjectBindingPattern`
+   (`checker.go:17921`). That function **skips** an element whose computed
+   name is not `isTypeUsableAsPropertyName`, setting
+   `ObjectLiteralPatternWithComputedProperties`. So `{ [foo.bar]: c }` is
+   `{}`, and the baseline prints `({ [foo.bar]: c }: {}) => any`.
+   `object_pattern_implied_type` declined the whole pattern instead, which
+   made the parameter `error`, and `check_binding_element_index_access`
+   returned on that `any`. It now skips such elements. Only a
+   context-independent name expression is checked, as before. A unique-symbol
+   name, which upstream keeps as a member, still declines.
+   `ObjectLiteralPatternWithComputedProperties` itself is not a type flag here.
+   Its consumers (`isExcessPropertyCheckTarget`, the optionality copy) already
+   read the pattern syntactically (`objects.rs` `matching_pattern_element`,
+   `assignreport.rs`). Measured alone: +2 type lines (`errorElaboration`
+   0:17/0:18 `({ [foo.bar]: c }: {}) => any`), no diagnostics change, zero
+   losses.
+2. **The reporter gate (measured diff for r5-relater6,
+   `r5-smallcodes-binding-pattern-index-image.diff`).**
+   `report_missing_index_signature` declines an object whose `TypeData` is
+   `Named { members: None }` unless it is a reference or a tuple. A binding
+   pattern object keeps its complete image in `object_literal_members`
+   (`binding_patterns.rs` `binding_pattern_object`), so the gate treated a
+   complete `{}` as unenumerated. The diff admits a type with an
+   `object_literal_members` entry. On top of commit 5 it converts
+   `errorElaboration`, `asyncFunctionDeclarationParameterEvaluation` ×2 and
+   `asyncGeneratorParameterEvaluation` ×3 (+6).
+
+`identifierStartAfterNumericLiteral` (×4 TS2538 `null`) is `3in[null]` after
+a scanner error: an element access with a `null` key, the `:27206` arm with
+`TypeToString(null)`. It is unprobed and stays with r5-relater6.
 
 ### 3.7 TS2307
 
@@ -226,3 +245,27 @@ Probed with native `tsgo`:
   import syntactically. This is binder/reparser territory (main's), with
   `module_specifiers`/`module_exports` adjacent (r5-modules2). Not probed
   further.
+
+## 4. Correction: Ir for commits 2 and 3
+
+The Ir figures first written for commits 2 and 3 and for the parser diff
+were taken from a stale `tsr` binary. `cargo build -p tsr-conformance
+--examples -p tsr` builds only the examples, not the `tsr` binary, so the
+"after" binary was commit 1's. Re-measured on binaries rebuilt at each commit
+(callgrind, `--singleThreaded --pretty false`):
+
+| Binary | domain-model Ir | generic-imports Ir |
+|---|---|---|
+| base `d57fffe` | 1,200,220,508 | 342,911,212 |
+| commit 1 `066297b` | 1,199,401,579 (−0.07%) | 342,901,910 (−0.003%) |
+| commit 2 `b06602c` | 1,199,514,643 (+0.009%) | 342,877,152 (−0.007%) |
+| commit 3 `4e639ba` | 1,200,318,372 (+0.067%) | 342,880,757 (+0.001%) |
+| parser diff on commit 3 | 1,200,337,632 (+0.002%) | 342,880,840 (+0.00002%) |
+| commit 5 (implied type) | 1,199,653,527 (−0.055%) | 342,890,683 (+0.003%) |
+
+Each delta is against the row above, except the last two, which are
+against commit 3. None of the changes is on a path the bench projects
+exercise heavily. domain-model moves by about ±0.07% between binaries that
+differ only in cold code, which is code-layout noise; generic-imports stays
+within ±0.01%. The commit messages of `b06602c` and `4e639ba` carry the stale
+numbers. This table supersedes them.
