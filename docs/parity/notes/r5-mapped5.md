@@ -362,3 +362,48 @@ not started.** The brief places them after item 1's route lands, and the
 route is held on Ir (§2). Both rewrite the written-text mint arm that the
 route diff changes. A diff written now would have to be rebased once the
 route's fate is decided.
+
+## 8. Head summary and what is needed outside this lane
+
+**Head (`235424e`) against the frozen base `e20cdd4`, no diffs applied:**
+- types 548,751 → 548,755 RIGHT (+4: `mappedTypeIndexedAccess:13`,
+  `correlatedUnions:469/470/475`);
+- diagnostics unchanged; zero losses on both dumps; slowcases clean;
+- coverage: checker_types 8,358 → 8,359 (configured 1,670), diagnostics
+  4,589 (configured 842);
+- Ir: domain-model 1,156,103,804 → 1,155,171,529 (−0.08%), generic-imports
+  342,935,869 → 342,950,569 (+0.004%);
+- median CPU (41 samples): 1.016 and 1.012; `diagnostics_match: true`.
+
+**Diffs, in landing order (each measured on top of the commit named):**
+
+| diff | file (owner) | on | effect |
+|---|---|---|---|
+| `r5-mapped5-declared-route.diff` | `declared.rs` (r5-declared3) | §1 | +86 types, +1 case; Ir dm +0.48% (held, §2) |
+| `r5-mapped5-generic-mapped-keys-constraint.diff` | `constraints.rs` | §3 | 0; feeds r5-relater7 |
+| `r5-mapped5-contextual-name-type.diff` | `contextual.rs` (main) | §4 | 0; feeds r5-relater7 |
+| `r5-mapped5-reducible-indexed-access.diff` | `indexed.rs` (r5-errorsplit5) | §6 | with the next two: +14 types |
+| `r5-mapped5-unique-literal-flow.diff` | `flow.rs` (main) | §6 | (same) |
+| `r5-mapped5-reducible-keyof.diff` | `declared.rs` (r5-declared3) | §6 | (same) |
+| `r5-mapped5-keyof-primitive.diff` | `declared.rs` (r5-declared3) | §6 | +2 types |
+
+Files touched outside the listed ownership, both flagged:
+- `objects.rs` (§1, the `Slot::Mapped` variant);
+- `crates/tsr-conformance/tests/undefined_widening_modes.rs` (§6, one count,
+  30 → 31).
+
+**Remaining, with hypotheses:**
+- **The route's Ir (§2).** The +0.48% on domain-model is the semantic
+  evaluation of 40 `KeysOfType<…>` bodies, not printing. Next step: profile
+  how the base answers `KeysOfType<ModelNNNLine, number>` without per-key
+  conditional instantiation. Either the base skips work that native does
+  (then the cost is the price of parity), or the route evaluates a body
+  twice.
+- **`.16.71`/`.16.100`**: wait on the route (§7).
+- **`mappedTypeNotMistakenlyHomomorphic:0:26`** (§6): an instance of a
+  reducible generic union keeps an undistributed `{ v: A } & (X | Y)`, so
+  its deferred `keyof` does not resolve.
+- **`.16.253`**: `keyof String` lacks `unique symbol` (§7).
+- **Lazy text (ADR-0050 alternative 1)**: would remove the remaining eager
+  member resolution at mint. It needs `type_to_string` to take `&mut`, a
+  cross-cutting change.
