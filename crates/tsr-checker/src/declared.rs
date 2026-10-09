@@ -8824,10 +8824,10 @@ impl<'a> Checker<'a, '_> {
                 target
             };
             let operand = self.type_to_string(operand_type);
-            let operand = if deferred_intersection
-                && self.store.get(operand_type).flags.contains(TypeFlags::INTERSECTION)
-                && !crate::printing::prints_as_a_single_token(self.store.get(operand_type))
-            {
+            // emitTypeOperator emits the operand at TypePrecedenceTypeOperator
+            // (printer.go:2274): a union, intersection, conditional or
+            // function operand is parenthesised (`keyof (A | B)`).
+            let operand = if crate::node_reuse::binds_below_type_operator(&operand) {
                 format!("({operand})")
             } else {
                 operand
