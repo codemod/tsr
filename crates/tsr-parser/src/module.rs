@@ -539,10 +539,20 @@ impl<'a> Parser<'a> {
 
     /// `with { type: "json" }` — import attributes, if present.
     ///
-    /// Also accepts the older `assert` spelling, which TypeScript still parses.
+    /// Also accepts the older `assert` spelling on the same line, reporting
+    /// TS2880 at the keyword: `tryParseImportAttributes`
+    /// (`internal/parser/parser.go:2497`). Upstream reports it whatever
+    /// `ignoreDeprecations` says (`importAssertionsDeprecatedIgnored`).
     pub(crate) fn parse_import_attributes(&mut self) -> Option<&'a ImportAttributes<'a>> {
-        if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
+        let assert_here =
+            self.at(SyntaxKind::AssertKeyword) && !self.token.has_preceding_line_break();
+        if !self.at(SyntaxKind::WithKeyword) && !assert_here {
             return None;
+        }
+        if self.at(SyntaxKind::AssertKeyword) {
+            self.error_at_current(
+                &messages::IMPORT_ASSERTIONS_HAVE_BEEN_REPLACED_BY_IMPORT_ATTRIBUTES_USE_WITH_INSTEAD_OF_ASSERT,
+            );
         }
         let start = self.pos();
         let token = self.take_token();
@@ -561,6 +571,12 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::OpenBraceToken);
         if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
             return None;
+        }
+        // `parser.go:3039`.
+        if self.at(SyntaxKind::AssertKeyword) {
+            self.error_at_current(
+                &messages::IMPORT_ASSERTIONS_HAVE_BEEN_REPLACED_BY_IMPORT_ATTRIBUTES_USE_WITH_INSTEAD_OF_ASSERT,
+            );
         }
         let token = self.take_token();
         self.expect(SyntaxKind::ColonToken);

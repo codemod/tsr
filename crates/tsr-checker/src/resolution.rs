@@ -124,6 +124,20 @@ pub trait ModuleHost {
         None
     }
 
+    /// The parse diagnostics of `file`: native's `sourceFile.Diagnostics()`,
+    /// which the checker reads in one place, `checkBinaryLikeExpressionWorker`'s
+    /// comma arm (`checker.go:12537`). Witnessed against `nodes` as
+    /// [`ModuleHost::source_text`] is. Hosts without parse results answer
+    /// none, which costs the comma arm's one exemption and nothing else.
+    /// `docs/parity/notes/r5-smallcodes2.md` §2.2.
+    fn parse_diagnostics(
+        &self,
+        _file: NodeId,
+        _nodes: &NodeTable,
+    ) -> &[tsr_diagnostics::Diagnostic] {
+        &[]
+    }
+
     /// §110: the `TypeParameterDeclaration` node ids a declaration's JSDoc
     /// `@template` tags carry, in tag order. Id-vocabulary per ADR-0034;
     /// default empty so hosts without JSDoc (unit checkers) change nothing.

@@ -835,6 +835,13 @@ pub struct Checker<'a, 'n> {
     pub(crate) synthetic_default_types:
         FxHashMap<(crate::module_exports::SyntheticDefaultKind, TypeId), TypeId>,
     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    /// The inverse of [`Self::instantiated_objects`] for a freshly minted
+    /// object: its source and mapper. Native keeps `ObjectType.mapper` on the
+    /// instantiation, and `CompareTypes` orders two instantiations of one
+    /// anonymous symbol by it (`compareTypeMappers`, utilities.go:683).
+    /// Written once, by the producer that mints the result.
+    pub(crate) instantiated_object_mappers:
+        rustc_hash::FxHashMap<TypeId, (TypeId, Vec<(TypeId, TypeId)>)>,
     /// `instantiationExpressionTypes` (checker.go:10667) and its parked reports.
     pub(crate) instantiation_expressions:
         crate::instantiation_expressions::InstantiationExpressionLinks,
@@ -903,6 +910,13 @@ pub struct Checker<'a, 'n> {
     /// shape property road may search (a WRITTEN intersection answering
     /// confidently was 134 G→W in the discriminated-union family).
     pub(crate) alias_evaluated_types: rustc_hash::FxHashSet<TypeId>,
+    /// getConditionalTypeInstantiation's `root.instantiations`
+    /// (checker.go:22485) for conditional alias roots: (alias symbol, ordered
+    /// type arguments, result alias, inside a mapped template) → the
+    /// evaluated type. Completed evaluations only; see `declared.rs`'
+    /// `evaluate_conditional_alias`.
+    pub(crate) conditional_alias_instantiations:
+        FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>, Option<tsr_binder::SymbolId>, bool), TypeId>,
     /// §107: while true, `instantiate_type` answers an UNMAPPED type
     /// parameter with ITSELF instead of refusing — the print-clone's
     /// substitution runs over signatures that legitimately mention ENCLOSING
@@ -1273,6 +1287,8 @@ pub struct Checker<'a, 'n> {
     /// The statement/deferred-node reset sites remain outside this port's
     /// on-demand expression traversal.
     pub(crate) instantiation_count: u32,
+    /// Upstream's `c.currentNode` (`checker.go:596`); `current_node.rs`.
+    pub(crate) current_node: Option<NodeId>,
     /// Whether the program declares any pattern ambient module
     /// (`declare module "*.css"`).
     ///
@@ -1483,6 +1499,7 @@ impl<'a, 'n> Checker<'a, 'n> {
 
             instantiation_depth: 0,
             instantiation_count: 0,
+            current_node: None,
             has_pattern_ambient_modules: binder.globals().keys().any(|name| name.contains('*')),
             strict_null_checks: true,
             strict_function_types: true,
@@ -1554,6 +1571,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             module_value_clones: FxHashMap::default(),
             synthetic_default_types: FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),
+            instantiated_object_mappers: rustc_hash::FxHashMap::default(),
             instantiation_expressions:
                 crate::instantiation_expressions::InstantiationExpressionLinks::default(),
             any_function_type: None,
@@ -1580,6 +1598,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             type_literal_origins: FxHashMap::default(),
             key_names_in_progress: rustc_hash::FxHashSet::default(),
             alias_evaluated_types: rustc_hash::FxHashSet::default(),
+            conditional_alias_instantiations: FxHashMap::default(),
             alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,
@@ -2297,12 +2316,9 @@ impl<'a, 'n> Checker<'a, 'n> {
                         }
                     };
                     if let Some(part) = self.type_to_string_at(entry, reference) {
-                        let intersection =
-                            matches!(
-                                self.store.get(entry).data,
-                                crate::types::TypeData::Intersection { .. }
-                            ) && !crate::printing::prints_as_a_single_token(self.store.get(entry));
-                        parts.push(if multiple && intersection {
+                        let parenthesised =
+                            crate::unions::union_constituent_needs_parentheses(&self.store, entry);
+                        parts.push(if multiple && parenthesised {
                             format!("({part})")
                         } else {
                             part
@@ -2581,9 +2597,11 @@ impl<'a, 'n> Checker<'a, 'n> {
         {
             return name;
         }
+        // `getNameOfSymbolAsWritten`: the declaration's name as written.
+        let own = self.symbol_name_as_written(symbol);
         match self.symbol_chain(symbol, reference, SymbolFlags::VALUE, 0) {
             Some(prefix) => format!("{prefix}{own}"),
-            None => own.to_string(),
+            None => own,
         }
     }
 
@@ -2659,9 +2677,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             {
                 out.push_str(&text);
             } else {
+                // `serializeTypeForDeclaration`'s fallback serializes the
+                // symbol's type, optionality included.
+                let serialized = self.serialized_parameter_type(parameter, parameter_type);
                 let rendered = self
-                    .type_to_string_at(parameter_type, reference)
-                    .unwrap_or_else(|| self.type_to_string(parameter_type));
+                    .type_to_string_at(serialized, reference)
+                    .unwrap_or_else(|| self.type_to_string(serialized));
                 out.push_str(&rendered);
             }
         }

@@ -81,6 +81,13 @@ mod property_slot {
         /// progress (the accessor's own, or a variable whose initializer holds
         /// the literal) — a re-entry native never makes. Read on demand.
         Accessor(SymbolId),
+        /// A mapped type's property whose type is not instantiated yet:
+        /// native `getTypeOfMappedSymbol` (`checker.go:20984`) instantiates
+        /// the template on the first read and publishes it on the symbol's
+        /// links. The owner is the `index`th property of `owner`'s member
+        /// table, where the first read publishes a [`Slot::Resolved`]
+        /// (`crate::mapped`, ADR-0050).
+        Mapped { owner: TypeId, index: u32, key: TypeId, strip_optional: bool },
     }
 
     impl PropertySlot {
@@ -92,6 +99,28 @@ mod property_slot {
         /// The type of an object-literal accessor symbol, read on demand.
         pub(crate) fn of_accessor(symbol: SymbolId) -> Self {
             Self(Slot::Accessor(symbol))
+        }
+
+        /// A mapped property read on demand ([`Slot::Mapped`]): the template
+        /// instantiated with `key`, stripping `undefined` when the modifier
+        /// removes the source's optionality.
+        pub(crate) fn of_mapped(
+            owner: TypeId,
+            index: u32,
+            key: TypeId,
+            strip_optional: bool,
+        ) -> Self {
+            Self(Slot::Mapped { owner, index, key, strip_optional })
+        }
+
+        /// The owner table position of a mapped slot not yet read.
+        pub(crate) fn mapped(self) -> Option<(TypeId, u32, TypeId, bool)> {
+            match self.0 {
+                Slot::Mapped { owner, index, key, strip_optional } => {
+                    Some((owner, index, key, strip_optional))
+                }
+                _ => None,
+            }
         }
 
         /// The stored slot, for the canonical accessors only.
@@ -191,17 +220,23 @@ impl Checker<'_, '_> {
         match slot.get() {
             property_slot::Slot::Resolved(r#type) => r#type,
             property_slot::Slot::Accessor(symbol) => self.get_type_of_symbol(symbol),
+            property_slot::Slot::Mapped { owner, index, key, strip_optional } => {
+                self.get_type_of_mapped_symbol(owner, index, key, strip_optional)
+            }
         }
     }
 
     /// The type of one anonymous-object property for a read that cannot
     /// resolve — a `&self` structural walk over completed types. `None` is an
-    /// accessor slot whose symbol type is not yet published; such a walk
+    /// accessor or mapped slot whose type is not yet published; such a walk
     /// follows no edge for it.
     pub(crate) fn peek_property_type(&self, property: &AnonymousProperty) -> Option<TypeId> {
         match property.slot.get() {
             property_slot::Slot::Resolved(r#type) => Some(r#type),
             property_slot::Slot::Accessor(symbol) => self.symbol_types.get(&symbol).copied(),
+            property_slot::Slot::Mapped { owner, index, .. } => {
+                self.peek_mapped_symbol_type(owner, index)
+            }
         }
     }
 
@@ -315,6 +350,30 @@ pub(crate) enum Member {
         /// The value type's printed form.
         value: String,
     },
+}
+
+/// The printed name of a property whose binder-merged symbol has two written
+/// declarations spelled `previous` and `current` (the same escaped name).
+///
+/// `getPropertyNameNodeForSymbol` (`nodebuilderimpl.go:2426`) classifies the
+/// symbol's name once, over **every** declaration: it is string-named only
+/// if every declaration's name is a string literal (`isStringNamed`,
+/// `:2405`), and single-quoted only if every one is single-quoted
+/// (`:2421`). A numeric name that is not string-named prints as a numeric
+/// literal (`classifyPropertyName`, `:2384`). So `{ "0": '', 0: '' }`
+/// prints `{ 0: string; }` (`numericStringNamedPropertyEquivalence`).
+///
+/// Each spelling already carries its own classification: an unquoted one
+/// (a numeric or identifier name) is not string-named, a `"` one is
+/// string-named but not single-quoted. Folding the declarations pairwise
+/// keeps the classification the whole list would give.
+fn merged_written_name<'n>(previous: &'n str, current: &'n str) -> &'n str {
+    let quoted = |name: &str| name.starts_with('"') || name.starts_with('\'');
+    match (quoted(previous), quoted(current)) {
+        (true, false) => current,
+        (true, true) if current.starts_with('"') => current,
+        _ => previous,
+    }
 }
 
 /// The structural form upstream's printer emits for an anonymous object type.
@@ -451,12 +510,14 @@ pub(crate) fn signature_member_text(
         // The node-reuse rule on `Parameter::written_text`
         // (`crate::node_reuse`), for a printer with no print site.
         let parameter_type = checker.parameter_type(parameter);
-        match parameter
+        if let Some(written) = parameter
             .written_text
             .and_then(|written| checker.site_free_annotation_text(written, parameter_type))
         {
-            Some(written) => out.push_str(&written),
-            None => out.push_str(&checker.type_to_string(parameter_type)),
+            out.push_str(&written);
+        } else {
+            let serialized = checker.serialized_parameter_type(parameter, parameter_type);
+            out.push_str(&checker.type_to_string(serialized));
         }
     }
     out.push_str("): ");
@@ -2151,12 +2212,13 @@ impl Checker<'_, '_> {
                         // name, so `26` and `"26"` are one entry. A computed
                         // entry carries its own `nameType` (`[+1]` prints `1`,
                         // `[-1]` prints `[-1]`); a written name prints from the
-                        // binder-merged symbol, whose first spelling wins.
+                        // binder-merged symbol ([`merged_written_name`]).
                         let previous = &typed_properties[index];
                         if previous.printed_name != name {
                             if !matches!(name_node, tsr_ast::PropertyName::ComputedPropertyName(_))
                             {
-                                property.printed_name.clone_from(&previous.printed_name);
+                                property.printed_name =
+                                    merged_written_name(&previous.printed_name, &name).to_string();
                             }
                             replaced_name = Some((
                                 previous.printed_name.clone(),

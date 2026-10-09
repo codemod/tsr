@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 846/1089 (77.69%)
-Failed         : 243
+Passed         : 875/1089 (80.35%)
+Failed         : 214
 Skipped        : 3079 (excluded from the denominator)
 
   1333  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3079 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 243 failures:
+First 100 of 214 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -50,8 +50,6 @@ compiler/commonJsExportTypeDeclarationError(target=es2015)
   1 unexpected (first TS1110 at types2.ts(3,1)), 2 missing
 compiler/complicatedPrivacy(target=es2015)
   1 missing (first TS2694 at complicatedPrivacy.ts(73,55))
-compiler/constDeclarations-invalidContexts(alwaysstrict=true)
-  1 unexpected (first TS1156 at constDeclarations-invalidContexts.ts(16,5)), 0 missing
 compiler/declarationEmitUnknownImport(target=es2015)
   4 missing (first TS2303 at declarationEmitUnknownImport.ts(1,1))
 compiler/declarationEmitUnknownImport2(target=es2015)
@@ -86,8 +84,6 @@ compiler/emitDecoratorMetadata_isolatedModules(module=esnext)
   3 missing (first TS1272 at index.ts(9,23))
 compiler/es5-asyncFunctionWithStatements(alwaysstrict=true,target=es2015)
   1 unexpected (first TS2410 at es5-asyncFunctionWithStatements.ts(25,9)), 4 missing
-compiler/es5-oldStyleOctalLiteralInEnums(target=es2015)
-  1 unexpected (first TS1121 at es5-oldStyleOctalLiteralInEnums.ts(2,8)), 1 missing
 compiler/es5ExportDefaultClassDeclaration3(target=es2015)
   1 missing (first TS2449 at es5ExportDefaultClassDeclaration3.ts(1,21))
 compiler/es6ImportNamedImportNoNamedExports(target=es2015)
@@ -144,8 +140,6 @@ compiler/optionalChainWithInstantiationExpression1(target=es2020)
   1 missing (first TS2532 at optionalChainWithInstantiationExpression1.ts(12,1))
 compiler/optionalParamReferencingOtherParams2(target=es2015)
   1 unexpected (first TS2454 at optionalParamReferencingOtherParams2.ts(2,29)), 1 missing
-compiler/readonlyMembers(target=es2015)
-  2 missing (first TS2540 at readonlyMembers.ts(16,14))
 compiler/regExpWithOpenBracketInCharClass(target=es2015)
   2 missing (first TS1005 at regExpWithOpenBracketInCharClass.ts(4,7))
 compiler/regExpWithOpenBracketInCharClass(target=esnext)
@@ -168,16 +162,6 @@ compiler/templateStringsArrayTypeDefinedInES5Mode(target=es2015)
   1 unexpected (first TS2345 at templateStringsArrayTypeDefinedInES5Mode.ts(7,3)), 1 missing
 compiler/templateStringsArrayTypeNotDefinedES5Mode(target=es2015)
   1 unexpected (first TS2345 at templateStringsArrayTypeNotDefinedES5Mode.ts(4,3)), 1 missing
-compiler/tripleSlashTypesReferenceWithMissingExports(module=commonjs)
-  1 missing (first TS2688 at usage.ts(1,23))
-compiler/tripleSlashTypesReferenceWithMissingExports(module=node16)
-  1 missing (first TS2688 at usage.ts(1,23))
-compiler/tripleSlashTypesReferenceWithMissingExports(module=node18)
-  1 missing (first TS2688 at usage.ts(1,23))
-compiler/tripleSlashTypesReferenceWithMissingExports(module=node20)
-  1 missing (first TS2688 at usage.ts(1,23))
-compiler/tripleSlashTypesReferenceWithMissingExports(module=nodenext)
-  1 missing (first TS2688 at usage.ts(1,23))
 compiler/trivialSubtypeReductionNoStructuralCheck(target=es2015)
   1 missing (first TS7023 at trivialSubtypeReductionNoStructuralCheck.ts(3,7))
 compiler/unusedSetterInClass(target=es2015)
@@ -186,43 +170,59 @@ compiler/useBeforeDeclaration_classDecorators.2(experimentaldecorators=false)
   6 unexpected (first TS2449 at useBeforeDeclaration_classDecorators.2.ts(46,22)), 0 missing
 conformance/ES5For-of30(target=es2015)
   1 missing (first TS2488 at ES5For-of30.ts(3,6))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=commonjs)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2020)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=es2022)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=es6)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=esnext)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=node16)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=node18)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=node20)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=nodenext)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
-conformance/arbitraryModuleNamespaceIdentifiers_module(module=preserve)
-  2 missing (first TS2322 at arbitraryModuleNamespaceIdentifiers_module.ts(20,7))
 conformance/arrowFunctionContexts(alwaysstrict=true)
   1 unexpected (first TS2331 at arrowFunctionContexts.ts(44,23)), 0 missing
 conformance/asyncFunctionDeclaration15_es5(target=es2015)
   1 missing (first TS1058 at asyncFunctionDeclaration15_es5.ts(17,16))
-conformance/asyncFunctionDeclarationParameterEvaluation(target=es2015)
-  2 missing (first TS2538 at asyncFunctionDeclarationParameterEvaluation.ts(3,21))
-conformance/asyncFunctionDeclarationParameterEvaluation(target=es2017)
-  2 missing (first TS2538 at asyncFunctionDeclarationParameterEvaluation.ts(3,21))
-conformance/asyncGeneratorParameterEvaluation(target=es2015)
-  1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
-conformance/asyncGeneratorParameterEvaluation(target=es2017)
-  1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
-conformance/asyncGeneratorParameterEvaluation(target=es2018)
-  1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
 conformance/autoAccessorDisallowedModifiers(target=es2017)
   3 unexpected (first TS1191 at autoAccessorDisallowedModifiers.ts(34,1)), 20 missing
 conformance/autoAccessorDisallowedModifiers(target=esnext)
   3 unexpected (first TS1191 at autoAccessorDisallowedModifiers.ts(34,1)), 20 missing
 conformance/bundlerImportTsExtensions(allowimportingtsextensions=false,noemit=false)
   8 missing (first TS5097 at /project/main.ts(3,16))
+conformance/bundlerImportTsExtensions(allowimportingtsextensions=false,noemit=true)
+  8 missing (first TS5097 at /project/main.ts(3,16))
+conformance/bundlerImportTsExtensions(allowimportingtsextensions=true,noemit=false)
+  3 missing (first TS2846 at /project/main.ts(8,16))
+conformance/bundlerImportTsExtensions(allowimportingtsextensions=true,noemit=true)
+  3 missing (first TS2846 at /project/main.ts(8,16))
+conformance/bundlerRelative1(module=esnext)
+  1 missing (first TS5097 at /main.ts(4,16))
+conformance/bundlerRelative1(module=preserve)
+  1 missing (first TS5097 at /main.ts(4,16))
+conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=false)
+  6 missing (first TS2554 at jsfile.js(6,1))
+conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=true)
+  6 missing (first TS2554 at jsfile.js(6,1))
+conformance/cjsErrors(module=node18)
+  1 missing (first TS2876 at index.ts(1,22))
+conformance/cjsErrors(module=node20)
+  1 missing (first TS2876 at index.ts(1,22))
+conformance/cjsErrors(module=nodenext)
+  1 missing (first TS2876 at index.ts(1,22))
+conformance/classStaticBlock22(target=es2022)
+  1 unexpected (first TS1109 at classStaticBlock22.ts(25,16)), 7 missing
+conformance/classStaticBlock22(target=esnext)
+  1 unexpected (first TS1109 at classStaticBlock22.ts(25,16)), 7 missing
+conformance/classStaticBlock23(target=es2022)
+  2 missing (first TS18038 at classStaticBlock23.ts(5,9))
+conformance/classStaticBlock23(target=esnext)
+  2 missing (first TS18038 at classStaticBlock23.ts(5,9))
+conformance/classStaticBlock26(target=es2022)
+  1 unexpected (first TS18004 at classStaticBlock26.ts(17,12)), 11 missing
+conformance/classStaticBlock26(target=esnext)
+  1 unexpected (first TS18004 at classStaticBlock26.ts(17,12)), 11 missing
+conformance/classStaticBlock6(target=es2015)
+  8 missing (first TS18037 at classStaticBlock6.ts(13,9))
+conformance/controlFlowAliasingCatchVariables(useunknownincatchvariables=true)
+  1 missing (first TS18046 at controlFlowAliasingCatchVariables.ts(20,9))
+conformance/declarationFileForHtmlImport(allowarbitraryextensions=false)
+  1 missing (first TS6263 at file.ts(1,22))
+conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,module=node18)
+  1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
+conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,module=node20)
+  1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
+conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,module=nodenext)
+  1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
+conformance/decoratorMetadata-jsdoc(target=es2015)
+  1 missing (first TS8020 at decoratorMetadata-jsdoc.ts(9,9))

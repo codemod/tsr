@@ -936,3 +936,200 @@ It refused narrowing the JS decline in check_type_reference_name on its
 number: +1 / −6. That waits on JS value-reference arms in declared.rs. The
 freed slot went to r5-js: the 113 cases blocked only by JS-file causes, with a
 rule not to duplicate main's `.5` epic.
+
+### r5-unionorder finished; r5-nodereuse dispatched (`tsr-2zk.1101`)
+
+r5-unionorder corrected the brief's premise. tsgo orders union members with
+CompareTypes (utilities.go:415); the type id is only the last tiebreak, so no
+id or init-order change was needed. It fixed the real sort and origin bugs:
+- origin entries per addNamedUnions, printed with formatUnionTypes;
+- enum named unions;
+- NoInfer as a substitution type;
+- compareTupleTypes.
+
+That is +15 type lines with no losses. Its printing-parentheses and
+object-mapper diffs land later, for +7.
+
+37 of the 54 union-order lines are node reuse: native re-emits the written
+node. node_reuse.rs therefore moves from r5-mapped5 to a new owner,
+r5-nodereuse, which takes those lines together with r5-shapes' pseudochecker
+group.
+
+### r5-declared3: batch AC re-landed zero-loss
+
+r5-declared3's branch reverts the revert (`58ead272` and `b52e2e5`), adding
+r5-declared2's work back. It then fixes the batch-AC loss at its root.
+r5-declared2's decline used "the alias body does not evaluate" as a proxy for
+"a `typeof Class<T>` alias reference is a member-less mint". Once
+instantiation expressions landed, the proxy never fired. The decline is now
+narrowed to the real missing piece.
+
+Measured unfiltered on the current integration head:
+- +15 diagnostics cases and +118 type lines, with no losses;
+- slowcases clean;
+- Ir −3.6% on domain-model, from `.1066`'s guard and cache;
+- recursiveConditionalCrash3 finishes in 81 s, down from more than 120 s.
+
+Filed: `.1102`, the instantiation-expression cache ignoring alias frames, and
+`.1103`, the per-statement instantiation_count reset and TS2589's currentNode.
+
+### r5-smallcodes finished; r5-spans dispatched (`tsr-2zk.1104`)
+
+r5-smallcodes converted 21 diagnostics rows, none lost:
+- TS2652;
+- the TS2306 side-effect-import gate;
+- the TS2686 alias value-meaning test;
+- TS18060 on `import.defer`;
+- TS2688 through the loader's existing diagnostic channel;
+- non-literal computed names in implied binding patterns.
+
+Its TS2880 parser diff and TS2538 index-image diff land later, for +10. It
+also found that two of its commit messages quoted Ir from a stale tsr binary:
+`cargo build -p tsr-conformance --examples -p tsr` does not rebuild the bin. The
+numbers are corrected in its notes §4.
+
+The freed slot went to r5-spans: 20 cases that are wrong only on position, and
+TS2589's currentNode reporting (`.1103`).
+
+Most of the unowned pool is now spent. The largest remaining clusters (TS2345,
+TS2769, TS2339, TS7006, TS2304, flow and contextual typing) sit in main's
+active lanes (`.4`, `.6`, `.9`, `.11`) or in main's files.
+
+### r5-errorsplit5 finished; r5-errorsplit6 dispatched (`tsr-2zk.1106`)
+
+r5-errorsplit5 ran the native identity probe over the whole corpus (12,157
+baselines) and switched four producers, each verified line by line:
+- nullable `+`;
+- JSX elements (errorType) vs fragments (anyType);
+- checkSuperExpression, including GetSuperContainer's static-block and
+  decorator arms;
+- the indexed twin.
+
+That is +84 type lines with no losses. Its symbols.rs diff (alias not-a-value,
+the getTypeOfSymbol fallthrough) and members.rs diff (the property twin) land
+in batch AO.
+
+With them, the first writer rewrite reaches zero RIGHT cost and is narrowed:
+GlobalAugmentation. The ADR-0048 narrowing cost falls from 4,504 to 3,030.
+r5-errorsplit6 takes indexed.rs' failed-lookup arms, the false-claim roots and
+spread propagation. Main's remainder is `.1107`.
+
+### r5-smallcodes2 finished; r5-config dispatched (`tsr-2zk.1108`)
+
+r5-smallcodes2 fixed:
+- TS2540: the constructor exemption's Property gate, and globalThis
+  read-only;
+- TS1156: no report inside a `with` body, plus the modifier-chain gate;
+- TS2300: lateBindMember conflicts;
+- TS2695: isInDiag2657, through a new ModuleHost::parse_diagnostics.
+
+That is +10 cases with no losses and Ir flat. Its error_span missing-node diff
+and its parser as-ASI diff land next, for +5 cases and +10 type lines.
+
+The freed slot went to r5-config: configuration-dependent failures (the
+weakest suite) and the harness compile root (`/.src`, `.1087`).
+
+Note for the user: main's lazy-JSDoc lane (`.17.1`) is claimed but shows one
+commit in 96 hours, while JSDoc scanning is about 40% of generic-imports' Ir.
+It is the largest open perf lever and is not taken over without the owner.
+
+### r5-js finished; r5-jsdoc5 dispatched (`tsr-2zk.1110`)
+
+r5-js triaged the 100 cases blocked only by JS-file causes; 53 of them are
+JSDoc. Every producer sat in an owned or hub file, so it shipped measured
+diffs only. Three land in a later batch:
+- the JS setter-parameter gate (+4 lines);
+- shorthand ambient modules in import() (+48 lines, 8 cases);
+- the assignment-context nil arms (+9 lines).
+
+Its super-in-static-block diff is not landed, because r5-errorsplit5's
+`abf502e` already ports GetSuperContainer's static-block arm.
+
+The remainder in main's files (late-bound expandos, require-destructuring
+aliases, inference from `any`) is `.1111`. The JSDoc bucket goes to
+r5-jsdoc5.
+
+### r5-mapped5 finished; r5-mapped6 dispatched (`tsr-2zk.1112`)
+
+r5-mapped5 recorded ADR-0050:
+- mapped property types are instantiated on first read (getTypeOfMappedSymbol);
+- mapped member prints truncate as the node builder does.
+
+hugeDeclarationOutputGetsTruncatedWithError is now 295 ms instead of 2,060 ms,
+with its native truncation point matched exactly. It also ported:
+- getIndexTypeForMappedType over generic key domains;
+- symbol-keyed computed properties;
+- mapped info for concrete mapped alias instances;
+- reducible indexed access (isGenericReducibleType and the uniqueLiteral
+  intrinsic).
+
+Six diffs land in batch AR.
+
+**Refused on its number:** the semantic mapped-node route gains +86 type lines
+and +1 case but costs domain-model Ir +0.48%, from evaluating 40
+`KeysOfType<…>` bodies. The performance rule rejects it as it stands.
+r5-mapped6 must find native's cache or deferral for that path and land the
+route within noise.
+
+### r5-checkperf2 finished; r5-checkperf3 dispatched (`tsr-2zk.1113`)
+
+r5-checkperf2 made two byte-identical changes:
+- the pending-signature-return walk goes by reference;
+- union_index_infos reuses each primitive's apparent answer.
+
+Ir fell 0.70% on dm and 0.81% on dml. Its relater.rs enum-payload diff cuts
+jsTyping's check by 7.5% of Ir.
+
+Wall vs tsgo on its container: dm 0.76, dml 0.74, gi 0.89, jsTyping 3.6. The
+0.50 target is not met. On dm and dml no checker function is above 1.5% self
+any more; about 16% is the allocator, mostly Signature copies (`.1092`, single
+owner between rounds).
+
+r5-checkperf3 takes the two largest jsTyping levers. Both are in main's files,
+so they ship as small measured diffs: native's per-call resolvedSignature link,
+and a union property certification memo.
+
+### r5-printer2 finished; r5-printer3 dispatched (`tsr-2zk.1114`)
+
+r5-printer2 ported:
+- the optional parameter's symbol `| undefined` (`.16.60`);
+- written-annotation reuse in type-literal properties;
+- the merged object-literal name spelling;
+- divergent accessor pairs printed as get/set.
+
+That is +178 type lines and about +27 cases, with no losses. Its four diffs (two
+member-form arms in checker.rs, an overloaded optional method in declared.rs,
+names as written `.16.125`) land later, for +76 lines and +11 cases.
+
+Defaulted type arguments dropped in printed references (28 lines) live in
+declared.rs (`.1115`). r5-printer3 takes the synthetic optional parameters,
+the enum-member producer, object-literal accessor identity and contextual
+signature type parameters.
+
+### r5-declared3 finished; r5-declared4 dispatched
+
+r5-declared3's work (the `.1066` guard and cache, and the batch AC re-land)
+landed in batch AM. It declined `.1115` as new work past its session rhythm.
+r5-declared4 is now declared.rs' single owner, and also owns
+instantiation_expressions.rs and unique_symbols.rs. It takes `.1115`, `.1102`
+and the `.1078` leftovers, and lands declared.rs diffs other lanes send it.
+
+### r5-spans finished (batch AU); r5-smallcodes3 dispatched
+
+r5-spans landed four diffs: the scanner's octal-minus and unterminated-comment
+spans, the parser's `this`-parameter modifier span, the missing-node raw-span
+sites (stacked on r5-smallcodes2's `error_span` arm), and the currentNode
+tracking TS2589 needs. `tsr-2zk.1104` is closed. Three diffs stay held, each
+with its blocker:
+
+- TS2589 report sites: 8 losses, because this port's instantiation depth
+  reaches 100 where upstream's does not. They wait on lazy anonymous-type
+  instantiation and the conditional tail guard (`tsr-2zk.1116`, which blocks
+  `tsr-2zk.1103`). That work is in main's laziness lane, `tsr-2zk.11.5`.
+- The `await using` list span waits on the parser's `AwaitUsing` flag
+  (`tsr-2zk.2.3`).
+- The delete exact-optional arm waits on `Partial`'s members carrying their
+  own symbols.
+
+r5-smallcodes3 takes the slot, with the single-code clusters outside main's
+active lanes (`tsr-2zk.1117`).

@@ -123,6 +123,14 @@ pub struct Intrinsics {
     pub unreachable_never: TypeId,
     /// `nonPrimitiveType` — `checker.go:1009`, spelled `object`.
     pub non_primitive: TypeId,
+    /// `uniqueLiteralType` — `checker.go:1015`: a `never` that
+    /// `uniqueLiteralMapper` substitutes for every type parameter when
+    /// isReducibleIntersection tests whether an instantiation could reduce.
+    /// A property of this type is not `CheckFlagsHasNeverType`
+    /// (createUnionOrIntersectionProperty, `:21621`), so it reduces an
+    /// intersection only by conflicting with a literal. Created last, so
+    /// every earlier intrinsic keeps its identity order.
+    pub unique_literal: TypeId,
     /// `trueType` — the **fresh** `true`, which is what a `true` *expression*
     /// has. Upstream creates `regularTrueType` first and `trueType` as its fresh
     /// twin; that pair is what makes `let b = true` widen to `boolean` while
@@ -229,6 +237,7 @@ impl Intrinsics {
             implicit_never: store.new_intrinsic(TypeFlags::NEVER, "never"),
             unreachable_never: store.new_intrinsic(TypeFlags::NEVER, "never"),
             non_primitive: store.new_intrinsic(TypeFlags::NON_PRIMITIVE, "object"),
+            unique_literal: store.new_intrinsic(TypeFlags::NEVER, "never"),
             regular_true,
             regular_false,
             true_type,

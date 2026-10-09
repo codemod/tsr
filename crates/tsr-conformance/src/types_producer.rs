@@ -1853,7 +1853,15 @@ fn render_file_with_kinds<'a>(
                 // an arm can be correct and unmeasurable until an unrelated
                 // fix creates the nodes it acts on. Neither zero was wrong;
                 // both were about a different tree.
+                //
+                // ADR-0048, narrowed (r5-errorsplit5 notes §6): the guard is
+                // upstream's condition on upstream's `errorType`, so it applies
+                // to `native_error` only, and the port's gap keeps printing
+                // `error`. Measured at zero RIGHT cost once
+                // `get_type_of_symbol`'s fallthrough answers `native_error`
+                // for `declare global`'s namespace.
                 if answer == "error"
+                    && !gap
                     && let Some(parent) = nodes.parent(id)
                     && matches!(
                         node_map.get(parent),

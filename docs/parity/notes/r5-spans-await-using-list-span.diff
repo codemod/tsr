@@ -1,0 +1,44 @@
+diff --git a/crates/tsr-parser/src/statement.rs b/crates/tsr-parser/src/statement.rs
+index daa8c1c..54dfa31 100644
+--- a/crates/tsr-parser/src/statement.rs
++++ b/crates/tsr-parser/src/statement.rs
+@@ -46,7 +46,6 @@ impl<'a> Parser<'a> {
+                 return self.parse_variable_statement(start, &[]);
+             }
+             SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
+-                self.next_token();
+                 return self.parse_variable_statement(start, &[]);
+             }
+             SyntaxKind::UsingKeyword if self.is_using_declaration() => {
+@@ -584,7 +583,6 @@ impl<'a> Parser<'a> {
+                 return self.parse_variable_statement(start, modifiers);
+             }
+             SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
+-                self.next_token();
+                 return self.parse_variable_statement(start, modifiers);
+             }
+             SyntaxKind::FunctionKeyword => {
+@@ -687,6 +685,13 @@ impl<'a> Parser<'a> {
+ 
+     pub(crate) fn parse_variable_declaration_list(&mut self) -> &'a VariableDeclarationList<'a> {
+         let start = self.pos();
++        // `parseVariableDeclarationList` (`parser.go:1563`) consumes the
++        // `await` of `await using` itself, so the list's `pos` is the
++        // `await`'s and a report on the list (TS2354's helper request) spans
++        // it. The list is still flagged `Using` alone, as before.
++        if self.at(SyntaxKind::AwaitKeyword) {
++            self.next_token();
++        }
+         // `var`, `let`, `const`, or `using`. All four produce the same node kind,
+         // so the keyword is recorded in the node flags — the binder reads it to
+         // decide function scope versus block scope, and it is not recoverable from
+@@ -877,8 +882,7 @@ impl<'a> Parser<'a> {
+             None
+         } else if self.at_variable_declaration_list() {
+             // `for (await using x of …)` — the `await` belongs to the declaration,
+-            // not to the loop.
+-            self.eat(SyntaxKind::AwaitKeyword);
++            // not to the loop; the list consumes it.
+             // §411: the DECLARATION half of the `in` ban — a var initializer
+             // in a for head must not read `1 in X` as a comparison, or
+             // `for (var a = 1 in X)` loses its ForIn shape

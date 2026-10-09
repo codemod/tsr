@@ -424,6 +424,30 @@ fn tuples_order_by_element_flags_before_their_arguments() {
 }
 
 #[test]
+fn a_conditional_constituent_is_parenthesised_and_an_aliased_signature_is_not() {
+    // emitUnionTypeConstituent (printer.go:2038) parenthesises below
+    // TypePrecedenceTypeOperator: a ConditionalTypeNode is the lowest, while
+    // an alias of a signature literal is a TypeReferenceNode
+    // (`nonNullableReduction.types`, `narrowByInstanceof.types`).
+    let source = "type BB = { new(): string };
+                  function f<T>(x: T | (string extends T ? null : never), y: BB | undefined) {}";
+    with_checker(source, |checker, _bound, statements| {
+        let Statement::FunctionDeclaration(function) = statements[1] else {
+            panic!("statement 1 must be the function");
+        };
+        let printed: Vec<String> = function
+            .parameters
+            .iter()
+            .map(|parameter| {
+                let id = checker.get_type_from_type_node(parameter.r#type.expect("annotated"));
+                checker.type_to_string(id)
+            })
+            .collect();
+        assert_eq!(printed, ["T | (string extends T ? null : never)", "BB | undefined"]);
+    });
+}
+
+#[test]
 fn a_partly_removed_named_union_does_not_resurrect_its_alias() {
     with_checker(
         "interface Broad { tag: 'a' }

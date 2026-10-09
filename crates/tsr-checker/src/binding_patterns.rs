@@ -60,6 +60,24 @@ impl<'a> Checker<'a, '_> {
                 }];
                 continue;
             }
+            // `!isTypeUsableAsPropertyName(exprType)` (`checker.go:17932`): a
+            // computed name whose type is no property-name literal is left
+            // out of the implied type. Only a context-independent name is
+            // checked here; any other still declines.
+            if let Some(PropertyName::ComputedPropertyName(computed)) = element.property_name {
+                let expression = computed.expression?;
+                if !binding_default_is_context_independent(expression) {
+                    return None;
+                }
+                let key = self.check_expression(expression);
+                // A unique symbol is usable as a name; its member is not built
+                // here, so it declines below as before.
+                if self.property_name_from_index(key).is_none()
+                    && !self.store.get(key).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL)
+                {
+                    continue;
+                }
+            }
             let name = self.binding_pattern_property_name(element)?;
             let ty = self.binding_element_implied_type(element)?;
             let property = self.binding_pattern_property(name, ty, element.initializer.is_some());

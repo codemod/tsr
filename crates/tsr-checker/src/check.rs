@@ -192,6 +192,17 @@ impl Checker<'_, '_> {
     /// `compiler/binderBinaryExpressionStress` is 4,971 operands of one
     /// left-leaning chain.
     fn check_node(&mut self, node: NodeId, ambient: bool, depth: u32) {
+        // `checkSourceElement`'s save/set/restore of `c.currentNode`
+        // (`checker.go:2243`); `current_node.rs`.
+        if !crate::current_node::is_current_node_kind(self.nodes.kind(node)) {
+            return self.check_node_worker(node, ambient, depth);
+        }
+        let saved = self.enter_current_node(node);
+        self.check_node_worker(node, ambient, depth);
+        self.leave_current_node(saved);
+    }
+
+    fn check_node_worker(&mut self, node: NodeId, ambient: bool, depth: u32) {
         if depth > MAX_CHECK_DEPTH {
             return;
         }
@@ -353,7 +364,6 @@ impl Checker<'_, '_> {
                     || self.is_ambient_module_node(node)
             }
             Node::VariableStatement(statement) => {
-                self.check_block_scoped_statement_container(node);
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
@@ -1334,7 +1344,18 @@ impl Checker<'_, '_> {
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
             return;
         }
+        // `checkTypeAliasDeclaration` resolves the body under
+        // `checkSourceElement(typeNode)` (`checker.go:6897`), so the body's
+        // node is current, not the declaration.
+        let body = match self.node_map.get(node) {
+            Some(Node::TypeAliasDeclaration(alias)) => alias.r#type.and_then(|t| t.node_id()),
+            _ => None,
+        };
+        let saved = body.map(|body| self.enter_current_node(body));
         self.get_declared_type_of_symbol(symbol);
+        if let Some(saved) = saved {
+            self.leave_current_node(saved);
+        }
     }
 
     /// TS1042 — `'{0}' modifier cannot be used here.`
@@ -2905,6 +2926,11 @@ impl Checker<'_, '_> {
             return;
         };
         let Some(id) = first.node_id else { return };
+        // `findFirstIllegalModifier` is an arm of `checkGrammarModifiers`, and
+        // a report returns `true` from it: the rules its callers gate on
+        // `!checkGrammarModifiers(node)` stay quiet (§876; TS1156 for a
+        // variable statement, `r5-smallcodes2.md` §2.1).
+        self.modifier_chain_reported.insert(node);
         let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
         let span = self.nodes.span(id);
         self.report(file, Diagnostic::new(&messages::MODIFIERS_CANNOT_APPEAR_HERE, span));
@@ -3498,6 +3524,13 @@ impl Checker<'_, '_> {
         } else {
             return;
         };
+        // `checkWithStatement` (`checker.go:4156`) checks the expression and
+        // never hands the statement to `checkSourceElement`, so nothing below
+        // a `with` is checked; this walk descends there anyway.
+        // `r5-smallcodes2.md` §2.1.
+        if self.is_inside_with_statement(node) {
+            return;
+        }
         if !self.container_allows_block_scoped(node) {
             self.report_block_scoped_container(node, keyword);
         }
@@ -3508,6 +3541,13 @@ impl Checker<'_, '_> {
     /// `containerAllowsBlockScopedVariable` with §395's variable form and could
     /// not reach it while the predicate lived inside that rule. §624's rule,
     /// third instance. §660.
+    ///
+    /// Also the entry of §395's variable form, so that it runs after the
+    /// modifier chain: `checkVariableStatement` (`checker.go:5767`) asks
+    /// `checkGrammarForDisallowedBlockScopedVariableStatement` only
+    /// `!checkGrammarModifiers(node) && …`, and `if (true) export const x`
+    /// reports TS1184 and not TS1156. The type alias and interface sites are
+    /// not gated that way (`checker.go:6878`, `:4996`). `r5-smallcodes2.md` §2.1.
     fn check_declaration_statement_container(&mut self, node: NodeId, typed: Node<'_>) {
         if self.file_has_parse_errors {
             return;
@@ -3515,8 +3555,19 @@ impl Checker<'_, '_> {
         let keyword = match typed {
             Node::TypeAliasDeclaration(_) => "type",
             Node::InterfaceDeclaration(_) => "interface",
+            Node::VariableStatement(_) => {
+                if !self.modifier_chain_reported.contains(&node) {
+                    self.check_block_scoped_statement_container(node);
+                }
+                return;
+            }
             _ => return,
         };
+        // See `check_block_scoped_statement_container`: a `with` body is never
+        // checked.
+        if self.is_inside_with_statement(node) {
+            return;
+        }
         if !self.container_allows_block_scoped(node) {
             self.report_block_scoped_container(node, keyword);
         }
@@ -7773,17 +7824,22 @@ impl Checker<'_, '_> {
         // `getSymbolOfDeclaration(member)` is `getLateBoundSymbol` of the
         // member's own symbol: a late-bindable computed name answers the
         // late-bound symbol `lateBindMember` gathered by its property name.
-        let keys: Vec<DuplicateMemberKey> = entries
+        let mut keys: Vec<DuplicateMemberKey> = entries
             .iter()
             .map(|&(name, symbol, _, _)| match self.late_bound_duplicate_key(name) {
                 Some(key) => key,
                 None => DuplicateMemberKey::Early(symbol),
             })
             .collect();
+        // `lateBindMember` runs while the late-bound table is built, before
+        // `combineSymbolTables` merges it into the early one.
+        let late_conflicts = self.late_bound_member_conflicts(&entries, &keys);
+        let merged_late = self.merge_late_bound_into_early(&entries, &mut keys);
         let declaration_count = |index: usize| -> usize {
             match &keys[index] {
                 DuplicateMemberKey::Early(symbol) => {
                     self.binder.symbols().get(*symbol).declarations.len()
+                        + merged_late.get(&(*symbol, entries[index].3)).copied().unwrap_or(0)
                 }
                 late @ DuplicateMemberKey::Late(..) => entries
                     .iter()
@@ -7848,6 +7904,12 @@ impl Checker<'_, '_> {
                 diagnostics.push((name_node, name.clone()));
             }
         }
+        diagnostics.extend(late_conflicts);
+        // Upstream's diagnostic collection drops a repeat of the same message
+        // at the same node; `lateBindMember` and the walk above can both name
+        // one declaration.
+        let mut seen = rustc_hash::FxHashSet::default();
+        diagnostics.retain(|(name_node, name)| seen.insert((*name_node, name.clone())));
         for (name_node, name) in diagnostics {
             let Some(file) = self.source_file_of_for_diagnostics(name_node) else { continue };
             let span = self.error_span(name_node);
@@ -10355,7 +10417,9 @@ impl Checker<'_, '_> {
         // this one difference, all in the `deleteOperatorWith*Type` family.
         let at = if skip_assertions { target } else { spine };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
+        // `c.error(expr, …)` → `GetErrorRangeForNode`: a missing operand
+        // (`delete ;`) reports zero-width at its full start.
+        let span = self.error_span(at);
         self.report(file, Diagnostic::new(message, span));
     }
 
@@ -12415,6 +12479,21 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(left) else { return };
+        // `isInDiag2657` (`checker.go:12537`): adjacent JSX elements parse as a
+        // synthetic comma expression under a TS2657 parse diagnostic, and the
+        // comma report stands down for a left operand starting inside one.
+        // `r5-smallcodes2.md` §2.2.
+        let start = self.nodes.span(left).start;
+        if self.module_host.is_some_and(|host| {
+            host.parse_diagnostics(file, self.nodes).iter().any(|diagnostic| {
+                diagnostic.message.code()
+                    == messages::JSX_EXPRESSIONS_MUST_HAVE_ONE_PARENT_ELEMENT.code()
+                    && diagnostic.span.start <= start
+                    && start < diagnostic.span.end
+            })
+        }) {
+            return;
+        }
         let span = self.error_span(left);
         self.report(
             file,
@@ -13595,7 +13674,7 @@ impl Checker<'_, '_> {
     /// prints the source text; a string literal is respelled with double
     /// quotes and a computed name from its expression, which only the
     /// message argument can tell apart.
-    fn overload_name_to_string(&self, name: NodeId) -> Option<String> {
+    pub(crate) fn overload_name_to_string(&self, name: NodeId) -> Option<String> {
         match self.node_map.get(name)? {
             Node::Identifier(identifier) => Some(identifier.text.to_string()),
             Node::PrivateIdentifier(identifier) => Some(identifier.text.to_string()),
@@ -14487,16 +14566,33 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn error_span(&self, node: NodeId) -> tsr_core::Span {
-        self.declaration_name_of(node).map_or_else(
-            || self.nodes.span(node),
-            |name| {
-                // `if errorNode == nil` upstream falls back to the node's own
-                // first token; a name node with an empty span is the same
-                // "missing" case and takes the same fallback.
-                let span = self.error_span(name);
-                if span.start == span.end { self.nodes.span(node) } else { span }
-            },
-        )
+        if let Some(name) = self.declaration_name_of(node) {
+            return self.error_span(name);
+        }
+        let span = self.nodes.span(node);
+        // `GetErrorRangeForNode` (`scanner.go:2649`) skips trivia only for a
+        // node that is not missing: a missing node (a missing declaration
+        // name included) reports zero-width at its own `Pos()`, the end of the
+        // previous token. This port's missing node sits at the next token's
+        // start, so step back over the whitespace between. A comment there is
+        // not stepped over. `r5-smallcodes2.md` §3.1.
+        if span.start == span.end {
+            return tsr_core::Span::at(self.missing_node_full_start(node, span.start));
+        }
+        span
+    }
+
+    /// `node.Pos()` for a zero-width (missing) node whose span sits at the
+    /// next token's start: the source position before the whitespace in
+    /// front of it. Without source text, `start`.
+    fn missing_node_full_start(&self, node: NodeId, start: u32) -> u32 {
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return start };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return start;
+        };
+        let Some(before) = text.get(..start as usize) else { return start };
+        u32::try_from(before.trim_end().len()).unwrap_or(start)
     }
 
     /// Append to the collection upstream keeps as `c.diagnostics`
@@ -15294,7 +15390,7 @@ fn is_trivia_only(text: &str) -> bool {
 /// binder's symbol for an early-bound member, the property name (or the
 /// unique-symbol type) for a late-bound one.
 #[derive(Debug, PartialEq, Eq, Hash)]
-enum DuplicateMemberKey {
+pub(crate) enum DuplicateMemberKey {
     Early(tsr_binder::SymbolId),
     Late(String, Option<TypeId>),
 }

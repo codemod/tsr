@@ -828,13 +828,21 @@ impl Checker<'_, '_> {
             return value;
         }
         // §32 (`checker-notes-narrow.md`): a receiver minted for an
-        // UNRESOLVED type reference is upstream's `errorType`, and member
-        // access through it answers the same — printed `any`. The §31
-        // structural gate applies: in an import-machinery file the mint may
-        // be the PORT's resolution miss.
+        // UNRESOLVED type reference is upstream's any-flagged reference with an
+        // alias, so `isAnyLike` then `isErrorType(apparentType)` answer
+        // `errorType` (`checker.go:11314-11320`). It answered `anyType`.
+        // ADR-0048: verified line by line against the native identity probe,
+        // 3,196 of 3,205 moved lines (`docs/parity/notes/r5-errorsplit5.md`
+        // §7). The §31 structural gate applies: in an import-machinery file
+        // the mint may be the PORT's resolution miss, and 40 of 43 probed
+        // lines there are. The OBJECT-flagged deferred mints are the port's
+        // gap, not upstream's type, and keep the `any` stand-in.
         if self.unresolved_types.contains(&receiver_type)
             && node_id.is_some_and(|id| !self.file_has_import_machinery(id))
         {
+            if !self.is_gap(receiver_type) {
+                return self.intrinsics.native_error;
+            }
             return self.intrinsics.any;
         }
         // No explicit test for an `errorType` receiver: it is an intrinsic and

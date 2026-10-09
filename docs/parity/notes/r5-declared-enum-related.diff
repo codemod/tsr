@@ -1,0 +1,98 @@
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index b59ee1d9..c8d330aa 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -206,8 +206,8 @@ impl RelationResult {
+ /// simple arm means "unported", not "unrelated". Enum literals carry their
+ /// primitive flags together with `ENUM_LITERAL`; computed members carry ENUM.
+ /// The value/owner relation runs before primitive and composite relations.
+-/// Same-named enums from different declarations still require the unported
+-/// isEnumTypeRelatedTo member walk and remain undecidable.
++/// Same-named enums from different declarations relate through
++/// isEnumTypeRelatedTo's member walk.
+ const FLAG_DECIDABLE: TypeFlags = TypeFlags::ANY
+     .union(TypeFlags::UNKNOWN)
+     .union(TypeFlags::UNDEFINED)
+@@ -2726,6 +2726,66 @@ impl Relater<'_, '_, '_> {
+         })
+     }
+ 
++    /// isEnumTypeRelatedTo (relater.go:282), for two enum symbols (members
++    /// already mapped to their parent enum by the caller). Two distinct
++    /// enums relate only when they have the same name, both are regular
++    /// (non-const) enums, and every member of the source exists in the target
++    /// with the same value; a member whose value is unknown on one side is
++    /// assumed numeric, so it mismatches a known string. Native memoises the
++    /// answer per symbol pair (`c.enumRelation`); this port recomputes it, a
++    /// walk over one enum's members, only for same-named enum pairs.
++    fn is_enum_type_related_to(&mut self, source: SymbolId, target: SymbolId) -> bool {
++        use tsr_binder::SymbolFlags;
++        if source == target {
++            return true;
++        }
++        let symbols = self.checker.binder.symbols();
++        let (source_data, target_data) = (symbols.get(source), symbols.get(target));
++        if source_data.name != target_data.name
++            || !source_data.flags.contains(SymbolFlags::REGULAR_ENUM)
++            || !target_data.flags.contains(SymbolFlags::REGULAR_ENUM)
++        {
++            return false;
++        }
++        let mut source_members: Vec<(String, SymbolId)> = source_data
++            .members
++            .as_ref()
++            .map(|table| table.iter().map(|(name, &id)| (name.to_string(), id)).collect())
++            .unwrap_or_default();
++        source_members.sort_by_key(|&(_, id)| id);
++        for (name, source_member) in source_members {
++            let symbols = self.checker.binder.symbols();
++            if !symbols.get(source_member).flags.contains(SymbolFlags::ENUM_MEMBER) {
++                continue;
++            }
++            let Some(target_member) = symbols
++                .get(target)
++                .members
++                .as_ref()
++                .and_then(|table| table.get(name.as_str()).copied())
++                .filter(|&member| symbols.get(member).flags.contains(SymbolFlags::ENUM_MEMBER))
++            else {
++                return false;
++            };
++            let source_type = self.checker.get_declared_type_of_symbol(source_member);
++            let target_type = self.checker.get_declared_type_of_symbol(target_member);
++            let source_value = self.checker.enum_member_value(source_type).map(|(_, key)| key);
++            let target_value = self.checker.enum_member_value(target_type).map(|(_, key)| key);
++            if source_value != target_value {
++                if source_value.is_some() && target_value.is_some() {
++                    return false;
++                }
++                let is_string = |value: &Option<String>| {
++                    value.as_deref().is_some_and(|value| value.starts_with("s:"))
++                };
++                if is_string(&source_value) || is_string(&target_value) {
++                    return false;
++                }
++            }
++        }
++        true
++    }
++
+     /// The non-recursive arms: everything decidable from flags alone.
+     ///
+     /// Ported from `Checker.isSimpleTypeRelatedTo`
+@@ -2787,9 +2847,12 @@ impl Relater<'_, '_, '_> {
+                 if source_owner == target_owner {
+                     return Some(source_key == target_key);
+                 }
+-                let same_name = self.checker.binder.symbols().get(*source_owner).name
+-                    == self.checker.binder.symbols().get(*target_owner).name;
+-                return if same_name { None } else { Some(false) };
++                // `relater.go:238`: equal values of two enums related by
++                // isEnumTypeRelatedTo. Otherwise two distinct literals.
++                return Some(
++                    source_key == target_key
++                        && self.is_enum_type_related_to(*source_owner, *target_owner),
++                );
+             }
+             let numeric = source_key.starts_with("n:");
+             // `relater.go:219`/`:225`: an enum literal relates to the PLAIN

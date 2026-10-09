@@ -1,0 +1,48 @@
+diff --git a/crates/tsr-checker/src/grammar.rs b/crates/tsr-checker/src/grammar.rs
+index c42a1e3..75bb425 100644
+--- a/crates/tsr-checker/src/grammar.rs
++++ b/crates/tsr-checker/src/grammar.rs
+@@ -84,8 +84,13 @@ impl Checker<'_, '_> {
+         };
+         self.modifier_chain_reported.insert(node);
+         self.decorator_error_reported.insert(node);
+-        // `grammarErrorOnFirstToken(node, …)`: the node starts at its first
+-        // decorator or modifier.
++        // `grammarErrorOnFirstToken(node, …)`: silent in a file with parse
++        // diagnostics (the parser already reported TS1433 on a `this`
++        // parameter, `parser.go:3334`); the node starts at its first decorator
++        // or modifier.
++        if self.file_has_parse_errors {
++            return true;
++        }
+         let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+         let start = self.nodes.span(node).start;
+         self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, start + 1)));
+diff --git a/crates/tsr-parser/src/expression.rs b/crates/tsr-parser/src/expression.rs
+index ded5333..613daa9 100644
+--- a/crates/tsr-parser/src/expression.rs
++++ b/crates/tsr-parser/src/expression.rs
+@@ -2974,7 +2974,23 @@ impl<'a> Parser<'a> {
+ 
+     fn parse_parameter_worker(&mut self) -> &'a ParameterDeclaration<'a> {
+         let start = self.pos();
++        // The first modifier's `Loc` starts at its full start, leading trivia
++        // included: where the previous token ended.
++        let modifiers_full_start = self.node_end();
+         let modifiers = self.parse_modifiers();
++        // `parseParameterWorker`'s `KindThisKeyword` arm (`parser.go:3334`):
++        // a `this` parameter with modifiers is a parse error at
++        // `modifiers.Nodes[0].Loc` — full start, no `SkipTrivia` — so the
++        // checker's `grammarErrorOnFirstToken` for the same rule stays silent.
++        if self.at(SyntaxKind::ThisKeyword)
++            && let Some(first) = modifiers.first().and_then(ModifierLike::node_id)
++        {
++            let end = self.nodes.span(first).end;
++            self.error_at(
++                &messages::NEITHER_DECORATORS_NOR_MODIFIERS_MAY_BE_APPLIED_TO_THIS_PARAMETERS,
++                Span::new(modifiers_full_start, end),
++            );
++        }
+         let dot_dot_dot =
+             if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
+         // A `this` parameter is the one reserved word a parameter name admits:

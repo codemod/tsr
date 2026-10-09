@@ -309,18 +309,61 @@ pub(crate) fn union_print_parts(store: &TypeStore, types: &[TypeId]) -> Vec<Unio
 /// `TypeLiteralNode` at `NonArray`, the highest precedence, despite containing
 /// `=>`.
 fn parenthesised(store: &TypeStore, id: TypeId) -> String {
+    let text = printing::type_to_string(store.get(id));
+    if union_constituent_needs_parentheses(store, id) { format!("({text})") } else { text }
+}
+
+/// Whether a union constituent prints parenthesised: [`parenthesised`]'s
+/// test, shared with the site renderers so every road agrees.
+pub(crate) fn union_constituent_needs_parentheses(store: &TypeStore, id: TypeId) -> bool {
     let ty = store.get(id);
-    let needs = match &ty.data {
+    match &ty.data {
         // An intersection **that prints as `A & B`**. One that a type alias
         // names prints as that name, which the node builder emits as a
         // `TypeReferenceNode` at the highest precedence — the distinction this
         // rule got wrong on its first run, at 19 lines.
         TypeData::Intersection { .. } => !printing::prints_as_a_single_token(ty),
-        TypeData::Anonymous { signature, .. } => *signature,
+        // A signature type that a type alias names prints as the alias
+        // reference (`type BB = { new(): B }` is `AA | BB`,
+        // `narrowByInstanceof.types`), a `TypeReferenceNode` at the highest
+        // precedence. The `signature` bit is set where the literal is built
+        // and survives the naming, so the printed text decides which node the
+        // builder emits: a function or constructor type node always starts
+        // with its parameter list, its type parameters, or `new`/`abstract new`.
+        TypeData::Anonymous { signature, text, .. } => {
+            *signature
+                && (text.starts_with('(')
+                    || text.starts_with('<')
+                    || text.starts_with("new ")
+                    || text.starts_with("abstract new "))
+        }
+        // `TypePrecedenceConditional` is the lowest (`ast/precedence.go`), so a
+        // conditional constituent prints `T | (A extends B ? C : D)`. A
+        // conditional that a type alias names prints as its reference; the
+        // text tells the two apart by a depth-0 `extends`, which a reference's
+        // type arguments can only hold inside their brackets.
+        _ if ty.flags.contains(TypeFlags::CONDITIONAL) => {
+            has_top_level_extends(&printing::type_to_string(ty))
+        }
         _ => false,
-    };
-    let text = printing::type_to_string(ty);
-    if needs { format!("({text})") } else { text }
+    }
+}
+
+/// Whether `text` holds ` extends ` outside every bracket: the printed shape
+/// of a `ConditionalTypeNode` rather than of a reference to one.
+fn has_top_level_extends(text: &str) -> bool {
+    let mut depth = 0i32;
+    let bytes = text.as_bytes();
+    for (index, &byte) in bytes.iter().enumerate() {
+        match byte {
+            b'(' | b'[' | b'{' | b'<' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b'>' if index == 0 || bytes[index - 1] != b'=' => depth -= 1,
+            b' ' if depth == 0 && text[index..].starts_with(" extends ") => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// `booleanType` — the union `false | true` (`checker.go:1002`).
@@ -1610,6 +1653,35 @@ impl Checker<'_, '_> {
             // to the type-id tiebreak below, which is this port's creation
             // order and not upstream's.
             .then_with(|| self.compare_type_symbols(a, b, left, right))
+            // compareTypeMappers (utilities.go:683) for two instantiations of
+            // one anonymous literal: an object without a mapper sorts after
+            // one with a mapper; two flat mappers compare their sources, then
+            // their targets (`TypeMapperKindArray`, :706).
+            .then_with(|| {
+                if !left.flags.intersects(TypeFlags::OBJECT)
+                    || !right.flags.intersects(TypeFlags::OBJECT)
+                    || !matches!(left.data, TypeData::Named { .. })
+                    || !matches!(right.data, TypeData::Named { .. })
+                {
+                    return Ordering::Equal;
+                }
+                match (
+                    self.instantiated_object_mappers.get(&a),
+                    self.instantiated_object_mappers.get(&b),
+                ) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Greater,
+                    (Some(_), None) => Ordering::Less,
+                    (Some((_, left)), Some((_, right))) => {
+                        let sources =
+                            |m: &[(TypeId, TypeId)]| m.iter().map(|p| p.0).collect::<Vec<_>>();
+                        let targets =
+                            |m: &[(TypeId, TypeId)]| m.iter().map(|p| p.1).collect::<Vec<_>>();
+                        self.compare_type_lists(&sources(left), &sources(right))
+                            .then_with(|| self.compare_type_lists(&targets(left), &targets(right)))
+                    }
+                }
+            })
             // compareTypeMappers orders instantiations of the same anonymous
             // member by their mapped types. Equal source lists identify the
             // flat mapper shape retained by instantiate_signature_type.

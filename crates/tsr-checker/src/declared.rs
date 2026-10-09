@@ -76,13 +76,7 @@ impl<'a> Checker<'a, '_> {
         if !self.store.get(parameter).flags.contains(TypeFlags::TYPE_PARAMETER) {
             return TypeParameterDefaultState::Resolved(None);
         }
-        let bindings: rustc_hash::FxHashMap<_, _> = self
-            .alias_evaluation_bindings
-            .iter()
-            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
-            .collect();
-        let mut bindings: Vec<_> = bindings.into_iter().collect();
-        bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
+        let bindings = self.flattened_alias_bindings();
         let key = TypeParameterDefaultKey {
             parameter,
             bindings,
@@ -110,8 +104,11 @@ impl<'a> Checker<'a, '_> {
                     let names: Vec<_> = instance.names.iter().map(String::as_str).collect();
                     let image =
                         self.instantiate_type(default, &instance.map, &instance.parameters, &names);
+                    // ADR-0048: only the port's gap withholds publication;
+                    // native caches the resolved default unconditionally
+                    // (`getResolvedTypeParameterDefault`, `checker.go:22007`).
                     if matches!(target_default, TypeParameterDefaultState::Unsupported(_))
-                        || self.is_error(image)
+                        || self.is_gap(image)
                     {
                         TypeParameterDefaultState::Unsupported(image)
                     } else {
@@ -134,7 +131,8 @@ impl<'a> Checker<'a, '_> {
             match node {
                 Some(node) => {
                     let default = self.get_type_from_type_node(node);
-                    if self.is_error(default) {
+                    // ADR-0048: as above, the gap alone is unsupported.
+                    if self.is_gap(default) {
                         TypeParameterDefaultState::Unsupported(default)
                     } else {
                         TypeParameterDefaultState::Resolved(Some(default))
@@ -611,13 +609,30 @@ impl<'a> Checker<'a, '_> {
                 {
                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
                 }
+                // getIndexTypeEx's default arm (checker.go:26701) over a
+                // primitive operand, or a union of them: the literal keys of
+                // its apparent type's properties (getLiteralTypeFromProperties
+                // reads getPropertiesOfType, which takes the apparent type).
+                if self.is_primitive_keyof_operand(target)
+                    && let Some(keys) = self.resolved_keyof_type(target)
+                {
+                    return keys;
+                }
                 // getIndexType over a concrete object operand: the semantic
                 // key union, so a numeric-literal property name contributes a
                 // NUMBER literal key (`getLiteralTypeFromPropertyName`,
                 // `checker.go:26773`) where `keys_of` spells every key as a
                 // string. Generic, unresolved and non-object operands keep
-                // the legacy road below.
-                if self.store.get(target).flags.contains(TypeFlags::OBJECT)
+                // the legacy road below. getIndexTypeEx's intersection and
+                // never arms (checker.go:26693/26701) take the same road: an
+                // intersection-bodied alias reference is its instantiated
+                // intersection, or the reduced constituent when it reduced
+                // (`Wrapped<T>` for `type Wrapped<T> = T & never` is `never`).
+                if self
+                    .store
+                    .get(target)
+                    .flags
+                    .intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION | TypeFlags::NEVER)
                     && !self.unresolved_types.contains(&target)
                     && !self.mentions_any_type_parameter(target, 4)
                     && let Some(keys) = self.resolved_keyof_type(target)
@@ -766,13 +781,8 @@ impl<'a> Checker<'a, '_> {
                             ) {
                                 let check = self.get_type_from_type_node(check);
                                 let extends = self.get_type_from_type_node(extends);
-                                let bindings = self
-                                    .alias_evaluation_bindings
-                                    .iter()
-                                    .flat_map(|frame| {
-                                        frame.iter().map(|(&symbol, &ty)| (symbol, ty))
-                                    })
-                                    .collect();
+                                let bindings =
+                                    self.flattened_alias_bindings().into_iter().collect();
                                 self.mapped_conditionals.insert(
                                     id,
                                     crate::mapped::MappedConditionalInfo {
@@ -785,11 +795,7 @@ impl<'a> Checker<'a, '_> {
                         } else if let TypeNode::ConditionalTypeNode(conditional) = node
                             && let Some(declaration) = conditional.node_id
                         {
-                            let bindings = self
-                                .alias_evaluation_bindings
-                                .iter()
-                                .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
-                                .collect();
+                            let bindings = self.flattened_alias_bindings().into_iter().collect();
                             self.conditional_inference_nodes
                                 .insert(id, ConditionalInferenceNode { declaration, bindings });
                             self.capture_inline_conditional_constraint(id, conditional);
@@ -863,8 +869,12 @@ impl<'a> Checker<'a, '_> {
                 // getIndexTypeEx consumes an alias's instantiated body, not
                 // its display identity. Resolve the whole operand first so
                 // absorbing any/never constituents reduce before distribution.
-                if let Some(operand @ TypeNode::TypeReferenceNode(_)) = direct_operand {
+                if let Some(operand @ TypeNode::TypeReferenceNode(reference)) = direct_operand {
                     let target = self.get_type_from_type_node(operand);
+                    // An intersection-bodied alias reference that reduced to
+                    // one constituent carries no alias (getIntersectionTypeEx,
+                    // checker.go:26127): `Wrapped<T>` for `type Wrapped<T> =
+                    // T & unknown` is `T`, and its keys are `keyof T`.
                     let alias_reference =
                         self.type_reference_targets.get(&target).is_some_and(|(symbol, _)| {
                             self.binder
@@ -872,7 +882,11 @@ impl<'a> Checker<'a, '_> {
                                 .get(*symbol)
                                 .flags
                                 .contains(SymbolFlags::TYPE_ALIAS)
-                        });
+                        }) || reference
+                            .type_name
+                            .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                            .and_then(|symbol| self.intersection_alias_body(symbol))
+                            .is_some();
                     if alias_reference && let Some(keys) = self.resolved_keyof_type(target) {
                         return keys;
                     }
@@ -1888,6 +1902,39 @@ impl<'a> Checker<'a, '_> {
             } else {
                 None
             };
+        // A RENAMED ES import specifier (`import { type "<A>" as typeA }`)
+        // resolves through the alias like any other: resolveTypeReferenceName
+        // calls resolveAlias whatever the local name is. Only the PRINTED name
+        // depends on the site (the §158 wall above), so a target whose
+        // declared type prints no name of its own (a non-generic type alias
+        // to a literal or primitive) answers that type here
+        // (`arbitraryModuleNamespaceIdentifiers_module`, `tsr-2zk.1059`).
+        if alias_road.is_none()
+            && node.type_arguments.is_empty()
+            && self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS)
+            && matches!(
+                self.declaration_of_alias_symbol(symbol).and_then(|d| self.node_map.get(d)),
+                Some(Node::ImportSpecifier(specifier)) if specifier.property_name.is_some()
+            )
+        {
+            // resolveAlias follows the whole chain (`export { type T as "<A>" }`
+            // is itself an alias).
+            let merged = self.binder.merged_symbol(self.resolve_alias_fully(symbol));
+            if self.binder.symbols().get(merged).flags.contains(SymbolFlags::TYPE_ALIAS)
+                && self.local_type_parameters_of(merged).is_empty()
+                && !self.resolutions.deferred_since(merged, PropertyName::DeclaredType)
+            {
+                let declared = self.get_declared_type_of_symbol(merged);
+                let regular = self.get_regular_type_of_literal_type(declared);
+                let flags = self.store.get(regular).flags;
+                if flags.intersects(TypeFlags::PRIMITIVE)
+                    && !flags.intersects(TypeFlags::UNION | TypeFlags::ENUM_LIKE)
+                    && !self.is_error(regular)
+                {
+                    return regular;
+                }
+            }
+        }
         if let Some(required_name) = alias_road {
             if let Some(target) = self.resolve_alias(symbol) {
                 let merged = self.binder.merged_symbol(target);
@@ -2040,14 +2087,38 @@ impl<'a> Checker<'a, '_> {
     /// signatures. That is why the grouping happens here, where the member kind
     /// is known, and not in the shared renderer.
     pub(crate) fn type_literal_key(&self, node: tsr_ast::NodeId) -> TypeLiteralKey {
-        let bindings: rustc_hash::FxHashMap<_, _> = self
-            .alias_evaluation_bindings
-            .iter()
-            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
-            .collect();
-        let mut bindings: Vec<_> = bindings.into_iter().collect();
-        bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
-        TypeLiteralKey { node, bindings, mapped_template: self.mapped_template_depth > 0 }
+        TypeLiteralKey {
+            node,
+            bindings: self.flattened_alias_bindings(),
+            mapped_template: self.mapped_template_depth > 0,
+        }
+    }
+
+    /// The open alias-evaluation frames as one environment, sorted by symbol:
+    /// each bound symbol once, with its innermost frame's binding (the frame
+    /// pushed last shadows the ones below it, as a later `FxHashMap` insert
+    /// overwrote an earlier one in the collect this replaces).
+    ///
+    /// It is the identity half of [`Self::type_literal_key`],
+    /// `get_resolved_type_parameter_default`'s key and the two conditional
+    /// mint captures, so it must answer exactly what the old per-call
+    /// `FxHashMap` flattening answered (`r5-declared3.md` §1.3). It builds no
+    /// hash table: one vector of every entry, innermost frame first, a stable
+    /// sort by symbol and a dedup that keeps each symbol's first (innermost)
+    /// entry. No open frame, or only empty ones, allocates nothing.
+    pub(crate) fn flattened_alias_bindings(&self) -> Vec<(SymbolId, TypeId)> {
+        let total: usize =
+            self.alias_evaluation_bindings.iter().map(rustc_hash::FxHashMap::len).sum();
+        if total == 0 {
+            return Vec::new();
+        }
+        let mut bindings = Vec::with_capacity(total);
+        for frame in self.alias_evaluation_bindings.iter().rev() {
+            bindings.extend(frame.iter().map(|(&symbol, &ty)| (symbol, ty)));
+        }
+        bindings.sort_by_key(|&(symbol, _)| symbol);
+        bindings.dedup_by_key(|&mut (symbol, _)| symbol);
+        bindings
     }
 
     pub(crate) fn cached_type_literal(&self, node: tsr_ast::NodeId) -> Option<TypeId> {
@@ -2135,6 +2206,7 @@ impl<'a> Checker<'a, '_> {
         let placeholder = self.type_to_string(id);
         let reserved = self.store.new_named(TypeFlags::OBJECT, placeholder, Some(owner));
         self.instantiated_objects.insert(cache_key.clone(), reserved);
+        self.instantiated_object_mappers.insert(reserved, cache_key.clone());
         let mut failed = false;
         for property in properties.iter_mut().flatten() {
             let current = self.property_type(property);
@@ -2547,6 +2619,13 @@ impl<'a> Checker<'a, '_> {
                         overloads.len() == 1,
                     );
                     self.signature_types.insert(method_type, overloads);
+                    // The binder ORs `SymbolFlagsOptional` across a merged
+                    // symbol's declarations, and `addPropertyToElementList`
+                    // reads the symbol's flag for every overload
+                    // (`nodebuilderimpl.go:2524`): one `?` overload makes
+                    // them all print `func4?(…)`.
+                    let optional =
+                        optional || existing.is_some_and(|index| typed_properties[index].optional);
                     let property = crate::objects::AnonymousProperty {
                         accessor_write: None,
                         method: true,
@@ -3201,8 +3280,105 @@ impl<'a> Checker<'a, '_> {
                     true,
                     !no_supertype_reduction,
                 ),
+            // A generic alias's own body: getAliasForTypeNode's alias carries
+            // the alias's own type parameters as its arguments, and
+            // getIntersectionTypeEx attaches it only to a result that is still
+            // an intersection (checker.go:26127 returns the reduced singleton
+            // first).
+            Some(alias)
+                if self
+                    .intersection_alias_body(alias)
+                    .and_then(|body| Node::from(body).node_id())
+                    == node.node_id =>
+            {
+                let reduced = self.get_intersection_type_with_reduction(
+                    &types,
+                    None,
+                    true,
+                    !no_supertype_reduction,
+                );
+                let Some(parameters) = self.own_type_parameter_types(alias) else {
+                    return error;
+                };
+                self.attach_intersection_alias(reduced, alias, parameters, None)
+            }
             Some(_) => error,
         }
+    }
+
+    /// The declared types of a symbol's local type parameters, in order —
+    /// the type arguments of the alias getAliasForTypeNode attaches to the
+    /// alias's own body.
+    fn own_type_parameter_types(&mut self, symbol: SymbolId) -> Option<Vec<TypeId>> {
+        let local = self.local_type_parameters_of(symbol);
+        let mut parameters = Vec::with_capacity(local.len());
+        for parameter in local.iter() {
+            let owner = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            parameters.push(self.get_declared_type_of_symbol(owner));
+        }
+        Some(parameters)
+    }
+
+    /// getIntersectionTypeEx's alias attachment (checker.go:26164): `alias`
+    /// with `arguments` names `reduced` only when it is still an
+    /// intersection; a singleton, `never` or `any` is answered as built.
+    /// `shown` is the written arity a default-filled reference prints.
+    fn attach_intersection_alias(
+        &mut self,
+        reduced: TypeId,
+        alias: SymbolId,
+        arguments: Vec<TypeId>,
+        shown: Option<usize>,
+    ) -> TypeId {
+        if !matches!(
+            self.store.get(reduced).data,
+            crate::types::TypeData::Intersection { .. }
+                | crate::types::TypeData::Union { symbol: None, .. }
+        ) {
+            return reduced;
+        }
+        let written = arguments.len();
+        let shown = shown.unwrap_or(written).min(written);
+        let text = self.type_reference_text(alias, &arguments[..shown]);
+        let named = self.attach_intersection_alias_text(reduced, alias, arguments, text);
+        if shown < written {
+            self.reference_display_arity.insert(named, shown);
+        }
+        named
+    }
+
+    /// [`Self::attach_intersection_alias`] with the alias's printed spelling
+    /// supplied by the caller (a qualified reference prints its written path).
+    fn attach_intersection_alias_text(
+        &mut self,
+        reduced: TypeId,
+        alias: SymbolId,
+        arguments: Vec<TypeId>,
+        text: String,
+    ) -> TypeId {
+        let types = match self.store.get(reduced).data.clone() {
+            crate::types::TypeData::Intersection { types, .. } => types,
+            // getIntersectionTypeEx's cross-product arm (checker.go:26213)
+            // hands the alias to getUnionTypeEx: `keyof T & string` over a
+            // concrete `T` is a union named `Keyof<Registry>`.
+            crate::types::TypeData::Union { types, symbol: None, .. } => {
+                let named = crate::unions::create_union(
+                    &mut self.store,
+                    TypeFlags::empty(),
+                    types,
+                    Some((alias, text)),
+                );
+                self.type_reference_targets.insert(named, (alias, arguments));
+                return named;
+            }
+            _ => return reduced,
+        };
+        let named = self.store.intern_intersection(
+            self.store.get(reduced).flags,
+            crate::types::TypeData::Intersection { types, text, symbol: Some(alias) },
+        );
+        self.type_reference_targets.insert(named, (alias, arguments));
+        named
     }
 
     /// emptyTypeLiteralType's completed source identity (checker.go:22933).
@@ -3481,62 +3657,18 @@ impl<'a> Checker<'a, '_> {
             if structural == error {
                 return error;
             }
-            // §956: a rest-bearing body is named ONLY when it stayed a PRINT-ONLY
-            // variadic. §40's 13 `RIGHT->WRONG` on `excessivelyLargeTupleSpread`
-            // reproduce exactly when this is left out, which is what established
-            // the distinction: a rest over a CONCRETE tuple SPLICES into a real
-            // element list, and that list is what access, instantiation and the
-            // relater consume — putting a bare name over it loses them. A body
-            // that stayed a spelling has no such consumers, so the name is free.
-            //
-            // `variadic_tuple_nodes` is the print-only mint's own registration
-            // (§791), so the test is "did the body remain a spelling" rather than
-            // a syntactic re-derivation of the same question.
-            // A rest whose operand is written as a NAMED REFERENCE also loses the
-            // alias, and that was derived from the oracle rather than guessed —
-            // 42 non-generic rest-bearing tuple aliases across the corpus
-            // baselines split cleanly:
-            //
-            // ```
-            // type T06 = [string, ...string[]]          >T06 : T06                    NAME
-            // type NonEmptyStringArray =
-            //            [string, ...Array<string>]     >… : [string, ...string[]]     STRUCT
-            // type Unbounded = [...Numbers, boolean]    >… : [...number[], boolean]    STRUCT
-            // type T04 = [...[...string[]]]             >T04 : T04                    NAME
-            // ```
-            //
-            // The axis is whether NORMALISATION REWROTE anything. `...string[]` is
-            // already normal, so the tuple upstream creates carries the alias;
-            // `...Array<string>` and `...Numbers` normalise to `...string[]` and
-            // `...number[]`, which creates a DIFFERENT tuple and the alias is not
-            // on it. A rest over a tuple LITERAL that splices is the same story and
-            // the `variadic_tuple_nodes` test above already catches it
-            // (`MixedSpread`), while `[...[...string[]]]` splices to itself and
-            // keeps the name.
-            let rest_over_a_reference = node.elements.iter().any(|element| {
-                let TypeNode::RestTypeNode(rest) = element else { return false };
-                match rest.r#type {
-                    Some(TypeNode::TypeReferenceNode(_)) => true,
-                    Some(TypeNode::NamedTupleMember(member)) => {
-                        matches!(member.r#type, Some(TypeNode::TypeReferenceNode(_)))
-                    }
-                    _ => false,
-                }
-            });
-            // §959 corrects §956's proxy here. It read
-            // `!variadic_tuple_nodes.contains_key(&structural)` — "the body did not
-            // stay a print-only spelling" — which was right while a rest-bearing body
-            // had only TWO outcomes, a spelling or a spliced tuple. The reduction
-            // above adds a THIRD, an ARRAY, and the old test sent
-            // `type T03 = [...string[]]` and `type V15 = [...string[], ...number[]]`
-            // to the structure where upstream names both.
-            //
-            // The question was always *"did normalisation produce a positional TUPLE
-            // this name would hide"*, so ask that directly: a spliced tuple registers
-            // in `tuple_element_lists` and neither a spelling nor an array does.
-            if node.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
-                && (self.tuple_element_lists.contains_key(&structural) || rest_over_a_reference)
-            {
+            // getTypeFromArrayOrTupleTypeNode (checker.go:24121): a tuple
+            // with a VARIADIC element is built by createNormalizedTupleType,
+            // which takes no alias, so the alias prints its structure
+            // (`type List = [item: any, ...any]` records
+            // `>List : [item: any, ...any[]]`, `namedTupleMembersErrors`). Any
+            // other alias body is a deferred reference carrying the alias
+            // (`type T06 = [string, ...string[]]` records `>T06 : T06`;
+            // `type T04 = [...[...string[]]]` records `>T04 : T04`).
+            // This replaces §956/§959's proxies ("a rest over a reference", "a
+            // spliced element list"), which approximated getTupleElementFlags'
+            // Rest/Variadic split (`docs/parity/notes/r5-declared2.md` §2).
+            if node.elements.iter().any(|&element| Self::is_variadic_tuple_element(element)) {
                 return structural;
             }
             let name = self.binder.symbols().get(alias).name.to_string();
@@ -3556,6 +3688,100 @@ impl<'a> Checker<'a, '_> {
             return named;
         }
         self.tuple_type_node_structural(node)
+    }
+
+    /// getArrayElementTypeNode (checker.go:24185): the element type node of
+    /// an array type node, of a parenthesized one, or of a one-element tuple
+    /// whose only element is a rest over one. A labelled rest is
+    /// `RestTypeNode(NamedTupleMember(..))` in this parser (native's
+    /// `NamedTupleMember` with a `...` token), so the member is unwrapped.
+    fn array_element_type_node(node: TypeNode<'a>) -> Option<TypeNode<'a>> {
+        match node {
+            TypeNode::ParenthesizedTypeNode(parenthesized) => {
+                Self::array_element_type_node(parenthesized.r#type?)
+            }
+            TypeNode::TupleTypeNode(tuple) => match tuple.elements {
+                [TypeNode::RestTypeNode(rest)] => {
+                    Self::array_element_type_node(Self::rest_element_operand(rest)?)
+                }
+                [TypeNode::NamedTupleMember(member)] if member.dot_dot_dot_token.is_some() => {
+                    Self::array_element_type_node(member.r#type?)
+                }
+                _ => None,
+            },
+            TypeNode::ArrayTypeNode(array) => array.element_type,
+            _ => None,
+        }
+    }
+
+    /// The operand of a rest element, through this parser's labelled-rest
+    /// nesting (`...name: T` is `RestTypeNode(NamedTupleMember(T))`).
+    fn rest_element_operand(rest: &tsr_ast::RestTypeNode<'a>) -> Option<TypeNode<'a>> {
+        match rest.r#type? {
+            TypeNode::NamedTupleMember(member) => member.r#type,
+            operand => Some(operand),
+        }
+    }
+
+    /// getTupleElementFlags' VARIADIC arm (checker.go:24709): a rest element
+    /// whose operand has no array element type node (`...T`, `...Array<X>`,
+    /// `...[a: string]`, `...any`). getTypeFromArrayOrTupleTypeNode
+    /// (checker.go:24121) builds a tuple with such an element through
+    /// createNormalizedTupleType, which takes no alias; every other tuple
+    /// written as an alias's body is a deferred reference carrying the alias.
+    fn is_variadic_tuple_element(element: TypeNode<'a>) -> bool {
+        let operand = match element {
+            TypeNode::RestTypeNode(rest) => Self::rest_element_operand(rest),
+            TypeNode::NamedTupleMember(member) if member.dot_dot_dot_token.is_some() => {
+                member.r#type
+            }
+            _ => return false,
+        };
+        operand.is_some_and(|operand| Self::array_element_type_node(operand).is_none())
+    }
+
+    /// The generic type alias a written reference with type arguments names,
+    /// if any.
+    fn alias_reference_target(
+        &self,
+        reference: &tsr_ast::TypeReferenceNode<'a>,
+    ) -> Option<SymbolId> {
+        if reference.type_arguments.is_empty() {
+            return None;
+        }
+        let target = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
+        let target = self.binder.merged_symbol(target);
+        (self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS)
+            && !self.local_type_parameters_of(target).is_empty())
+        .then_some(target)
+    }
+
+    /// Whether a generic alias's declared type is a tuple built by
+    /// createNormalizedTupleType (a body with a variadic element,
+    /// checker.go:24121), directly or through a chain of alias references
+    /// that each re-create it (getObjectTypeInstantiation's non-deferred
+    /// reference arm). Such a type carries no alias, so neither does any
+    /// alias declared as a reference to it. Bounded by `depth`.
+    fn alias_declares_normalized_tuple(&self, symbol: SymbolId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        let Some(mut body) = self.type_alias_body(symbol) else { return false };
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+            let Some(inner) = parenthesized.r#type else { return false };
+            body = inner;
+        }
+        match body {
+            TypeNode::TupleTypeNode(tuple) => {
+                tuple.elements.iter().any(|&element| Self::is_variadic_tuple_element(element))
+            }
+            TypeNode::TypeReferenceNode(reference) => {
+                self.alias_reference_target(reference).is_some_and(|target| {
+                    target != symbol && self.alias_declares_normalized_tuple(target, depth + 1)
+                })
+            }
+            _ => false,
+        }
     }
 
     /// The structural mint behind [`Checker::get_type_from_tuple_type_node`].
@@ -3642,6 +3868,23 @@ impl<'a> Checker<'a, '_> {
                 } else {
                     resolved
                 };
+                // TupleNormalizer.normalize (checker.go:23374): a variadic
+                // operand that is neither any, generic, a tuple nor array-like
+                // becomes a rest of `errorType` (`[...string]` records
+                // `any[]`, `[first: string, ...rest: number]` records
+                // `[first: string, ...rest: any[]]`). Only primitive operands
+                // are decided here: they are never array-like.
+                let operand_flags = self.store.get(resolved).flags;
+                let resolved = if spread
+                    && Self::is_variadic_tuple_element(*element)
+                    && operand_flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::UNKNOWN)
+                    && !operand_flags
+                        .intersects(TypeFlags::UNION | TypeFlags::INSTANTIABLE | TypeFlags::ANY)
+                {
+                    self.intrinsics.native_error
+                } else {
+                    resolved
+                };
                 resolved_elements.push(crate::tuples::TupleElement {
                     r#type: resolved,
                     spread,
@@ -3714,7 +3957,8 @@ impl<'a> Checker<'a, '_> {
                 element.spread
                     && (self.store.get(element.r#type).flags.contains(TypeFlags::UNION)
                         || self.variadic_tuple_elements.contains_key(&element.r#type)
-                        || element.r#type == self.intrinsics.any)
+                        || element.r#type == self.intrinsics.any
+                        || element.r#type == self.intrinsics.native_error)
             }) {
                 // Native createNormalizedTupleTypeEx distributes variadic union
                 // operands before positional normalization. Reuse the existing
@@ -3775,11 +4019,14 @@ impl<'a> Checker<'a, '_> {
             // The ALIAS road is untouched, which is §956's rule doing its work:
             // `type T03 = [...string[]]` still prints `T03` because nothing was
             // rewritten, while `V16 = [...string[], ...Array<number>]` prints the
-            // structure — the two differ only in §956's reference test.
+            // structure — the two differ in getTupleElementFlags' Rest/Variadic
+            // split (`is_variadic_tuple_element`).
             //
-            // A rest over something that is NOT an array-like keeps the decline:
-            // `[...string]` is upstream's `any[]` by way of an ERROR, and answering
-            // it here would be inventing that error's recovery.
+            // A rest over a PRIMITIVE never reaches here: it is TupleNormalizer's
+            // errorType rest (above). Any other non-array-like operand keeps the
+            // decline until the port answers isArrayLikeType for it
+            // (`docs/parity/notes/r5-declared2.md` §2.3 corrects §959's
+            // reading of `[...string]`).
             if node.elements.iter().all(|element| matches!(element, TypeNode::RestTypeNode(_))) {
                 let mut element_types = Vec::with_capacity(node.elements.len());
                 let mut every_operand_is_an_array = true;
@@ -4923,7 +5170,7 @@ impl<'a> Checker<'a, '_> {
             // can be a print-only variadic, and resolving every alias body
             // eagerly to find out re-enters this road on unrelated shapes.
             && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type.and_then(Self::skip_type_parentheses)
-            && body_tuple.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+            && body_tuple.elements.iter().any(|&element| Self::is_variadic_tuple_element(element))
             && self.variadic_alias_in_progress.insert(symbol)
         {
             let body = self.get_type_from_type_node(body_node);
@@ -4951,9 +5198,49 @@ impl<'a> Checker<'a, '_> {
                         self.variadic_alias_in_progress.remove(&symbol);
                         return resolved;
                     }
+                    // instantiateType over a rest whose operand is a deferred
+                    // conditional (`...(T extends 0 ? [c: "c"] : [])`): the
+                    // conditional is instantiated with the mapper and the
+                    // tuple normalized around its result. The print-only
+                    // conditional mint cannot be instantiated here, so the
+                    // body is evaluated under the alias's bindings instead
+                    // (§92's frame-bound evaluation of the same mapper), and
+                    // the normalized tuple or array it builds is the answer.
+                    if let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
+                        && (self.tuple_element_lists.contains_key(&evaluated)
+                            || self.variadic_tuple_elements.contains_key(&evaluated)
+                            || self.tuple_spread_array_element(evaluated).is_some())
+                    {
+                        self.variadic_alias_in_progress.remove(&symbol);
+                        return evaluated;
+                    }
                 }
             }
             self.variadic_alias_in_progress.remove(&symbol);
+        }
+        // An alias declared as a reference to a normalized-tuple alias
+        // (`type V30<A> = Tup3<A, string[], number[]>`) declares that
+        // alias's instantiation, which carries no alias
+        // (getObjectTypeInstantiation re-creates a non-deferred reference
+        // through createNormalizedTypeReference); its own instantiation is
+        // the same evaluation under its arguments.
+        if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            && matches!(
+                self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::TypeReferenceNode(_))
+            )
+            && self.alias_declares_normalized_tuple(symbol, 0)
+            && self.variadic_alias_in_progress.insert(symbol)
+        {
+            let evaluated = self.evaluate_alias_body(symbol, &arguments);
+            self.variadic_alias_in_progress.remove(&symbol);
+            if let Some(evaluated) = evaluated
+                && (self.tuple_element_lists.contains_key(&evaluated)
+                    || self.variadic_tuple_elements.contains_key(&evaluated)
+                    || self.tuple_spread_array_element(evaluated).is_some())
+            {
+                return evaluated;
+            }
         }
         // §952: a generic alias whose body is a HOMOMORPHIC IDENTITY mapped
         // type — `{ [P in keyof T]: T[P] }`, with any combination of the `?` and
@@ -5404,6 +5691,10 @@ impl<'a> Checker<'a, '_> {
             if let Some(&existing) = self.qualified_reference_types.get(&key) {
                 return existing;
             }
+            if let Some(twin) = self.qualified_declared_type_twin(resolved, &text, node.node_id) {
+                self.qualified_reference_types.insert(key, twin);
+                return twin;
+            }
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
             if self.binder.symbols().get(resolved).flags.contains(SymbolFlags::ENUM_MEMBER) {
                 let declared = self.get_declared_type_of_symbol(resolved);
@@ -5477,12 +5768,105 @@ impl<'a> Checker<'a, '_> {
             if let Some(&existing) = self.qualified_generic_reference_types.get(&key) {
                 return existing;
             }
+            // An intersection-bodied alias is its instantiated intersection
+            // (getTypeAliasInstantiation), named with the qualified spelling
+            // this mint would print, or the reduced singleton without it.
+            if let Some(instantiated) = self.instantiate_intersection_alias(resolved, &arguments) {
+                let result = self.attach_intersection_alias_text(
+                    instantiated,
+                    resolved,
+                    arguments.clone(),
+                    text,
+                );
+                self.qualified_generic_reference_types.insert(key, result);
+                return result;
+            }
             let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(resolved));
             self.qualified_generic_reference_types.insert(key, minted);
             self.type_reference_targets.insert(minted, (resolved, arguments));
             return minted;
         }
         self.unresolved_type_reference(node)
+    }
+
+    /// getTypeReferenceType's declared type for an argument-less qualified
+    /// reference to a non-generic type alias or an enum (getTypeFromTypeAliasReference,
+    /// checker.go:23580; getDeclaredTypeOfEnum), spelled with the qualified
+    /// `text` the print-only mint carried. Native prints such a reference by
+    /// qualifying its symbol chain (NB-SYMBOL-CHAIN), which this port's
+    /// print-at-creation types cannot do from the declared type itself; the
+    /// twin shares the declared type's semantics (its constituents and owner
+    /// symbol, or its literal's member owner) and differs only in its text,
+    /// so no printed line moves and the relater sees the real type
+    /// (`tsr-2zk.979`). `None` where the declared type's semantics live in
+    /// TypeId-keyed side tables a twin would not share: the mint stays.
+    fn qualified_declared_type_twin(
+        &mut self,
+        resolved: SymbolId,
+        text: &str,
+        site: Option<NodeId>,
+    ) -> Option<TypeId> {
+        let flags = self.binder.symbols().get(resolved).flags;
+        let alias = flags.intersects(SymbolFlags::TYPE_ALIAS)
+            && self.local_type_parameters_of(resolved).is_empty();
+        let enumeration =
+            flags.intersects(SymbolFlags::ENUM) && !flags.intersects(SymbolFlags::ENUM_MEMBER);
+        if !alias && !enumeration {
+            return None;
+        }
+        if self.resolutions.on_stack(resolved, PropertyName::DeclaredType) {
+            return None;
+        }
+        let declared = self.get_declared_type_of_symbol(resolved);
+        if self.is_gap(declared) {
+            return None;
+        }
+        match self.store.get(declared).data.clone() {
+            // Stated divergence: a named union written as a constituent of
+            // a union type node keeps the mint. `get_union_type` answers
+            // `errorType` for a union holding a named union, because
+            // getUnionType's origin denormalisation (checker.go:25705) is
+            // unported; `boolean | X.Foo` printed `any` (3 lines in
+            // `enumLiteralAssignableToEnumInsideUnion`).
+            crate::types::TypeData::Union { .. } if self.written_in_union_type_node(site) => None,
+            crate::types::TypeData::Union { types, symbol: Some(owner), .. }
+                if owner == resolved =>
+            {
+                let extra = self.store.get(declared).flags
+                    & (TypeFlags::ENUM | TypeFlags::ENUM_LITERAL | TypeFlags::BOOLEAN);
+                Some(crate::unions::create_union(
+                    &mut self.store,
+                    extra,
+                    types,
+                    Some((resolved, text.to_string())),
+                ))
+            }
+            crate::types::TypeData::Named { members: Some(owner), .. }
+                if alias
+                    && self.type_literal_origins.contains_key(&declared)
+                    && !self.anonymous_properties.contains_key(&declared)
+                    && !self.signature_types.contains_key(&declared)
+                    && !self.object_literal_index_infos.contains_key(&declared) =>
+            {
+                let flags = self.store.get(declared).flags;
+                Some(self.store.new_named(flags, text.to_string(), Some(owner)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether the type node `site` is a constituent of a union type node,
+    /// parentheses skipped.
+    fn written_in_union_type_node(&self, site: Option<NodeId>) -> bool {
+        let mut current = site;
+        while let Some(parent) = current.and_then(|id| self.nodes.parent(id)) {
+            match self.node_map.get(parent) {
+                Some(Node::ParenthesizedTypeNode(_)) => current = Some(parent),
+                Some(Node::UnionTypeNode(_)) => return true,
+                _ => return false,
+            }
+        }
+        false
     }
 
     /// Whether a type alias's declared type carries the alias — upstream's
@@ -6267,6 +6651,27 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;
         }
+        let shown = display.unwrap_or(arguments.len()).min(arguments.len());
+        // getTypeAliasInstantiation over an INTERSECTION body
+        // (instantiateTypeWithAlias → getIntersectionTypeEx(…, alias),
+        // checker.go:26056): the body's constituents are instantiated and
+        // intersected, and the alias is attached to the result only when it is
+        // still an intersection. A body that reduces to one constituent
+        // answers that constituent with no alias (`:26127`, `typeSet[0]` is
+        // returned before the alias is considered); `never`/`any` carry none
+        // either. The print-only `Named` mint below has no member table of its
+        // own, so a reference such as `React.DetailedHTMLProps<…>` enumerated
+        // as an empty object and related to everything (`tsr-2zk.1010`).
+        if let Some(instantiated) = self.instantiate_intersection_alias(symbol, &arguments) {
+            let result = self.attach_intersection_alias(
+                instantiated,
+                symbol,
+                arguments.clone(),
+                Some(shown),
+            );
+            self.instantiations.insert((symbol, arguments), result);
+            return result;
+        }
         if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), template);
             return template;
@@ -6275,7 +6680,6 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
         }
-        let shown = display.unwrap_or(arguments.len()).min(arguments.len());
         let printed = self.type_reference_text(symbol, &arguments[..shown]);
         // §90 (`checker-notes-narrow.md`): a TYPE_ALIAS target with a
         // TypeLiteral body mints the BODY's symbol — §46's admission, one
@@ -6338,6 +6742,134 @@ impl<'a> Checker<'a, '_> {
             return mapped;
         }
         id
+    }
+
+    /// The body of a generic type alias whose declaration (parentheses
+    /// skipped) is an intersection, built once without a mapper and
+    /// instantiated with the alias's parameters mapped to `arguments` —
+    /// getTypeAliasInstantiation's `instantiateTypeWithAlias(declaredType,
+    /// mapper)` (checker.go:23659). `None` for any other alias, or when the
+    /// body cannot be built (the existing mint stands).
+    fn instantiate_intersection_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return None;
+        }
+        self.intersection_alias_body(symbol)?;
+        let local = self.local_type_parameters_of(symbol);
+        if local.is_empty() || local.len() != arguments.len() {
+            return None;
+        }
+        // A reference met while the alias's own declared type is resolving
+        // (`type List<T> = T & { next: List<T> }`) is one native resolves
+        // lazily, inside the member it is written in; forcing the declared
+        // type here would report a circularity native never sees. The
+        // existing name mint stands in for that deferral, as it does for the
+        // other generic alias bodies (`deferred_since`).
+        if self.resolutions.on_stack(symbol, PropertyName::DeclaredType) {
+            return None;
+        }
+        // Stated divergence: a body that names its own alias
+        // (`type LinkedList<T> = T & { next: LinkedList<T> }`) keeps the name
+        // mint. Native's `next` reads `LinkedList<Entity>`; here the member
+        // read goes through the receiver's frame-bound body evaluation
+        // (`members.rs`, `evaluate_alias_body`), whose nested reference
+        // answers the alias-free body, so the instantiated intersection lost
+        // 12 RIGHT lines in `recursiveIntersectionTypes`
+        // (`docs/parity/notes/r5-declared.md` §2).
+        if self.intersection_alias_names_itself(symbol) {
+            return None;
+        }
+        let mut names = Vec::with_capacity(local.len());
+        for parameter in local.iter() {
+            names.push(parameter.name?.text);
+        }
+        let parameters = self.own_type_parameter_types(symbol)?;
+        let declared = self.get_declared_type_of_symbol(symbol);
+        if self.is_error(declared) {
+            return None;
+        }
+        // The declared type is the alias-carrying intersection itself; its
+        // constituents are what instantiateTypeWithAlias maps.
+        let constituents = match self.store.get(declared).data.clone() {
+            crate::types::TypeData::Intersection { types, .. } => types,
+            _ => vec![declared],
+        };
+        // Native relates an intersection structurally, constituent by
+        // constituent, and probes alias variance only for object and
+        // conditional types (relater.go:3389). A constituent that is a
+        // reference to an alias whose body is an instantiation expression
+        // (`type ClassAlias<T> = typeof Class<T>`) is still a member-less name
+        // mint in this port: the body evaluates (`tsr-2zk.1006`), but a
+        // reference to the alias does not carry its members (`new a()` on
+        // `a: ClassAlias<number>` answers `error`). Against such a mint the
+        // structural relation is undecidable, so keep the alias's own name
+        // mint, whose relation reads the alias's arguments, until those
+        // references carry the instantiated structure
+        // (`docs/parity/notes/r5-declared3.md` §5).
+        for &constituent in &constituents {
+            if let Some(&(owner, _)) = self.type_reference_targets.get(&constituent)
+                && self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS)
+                && let Some(declaration) = self.type_alias_declaration_of(owner)
+                && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+                && let Some(TypeNode::TypeQueryNode(query)) =
+                    alias.r#type.and_then(Self::skip_type_parentheses)
+                && !query.type_arguments.is_empty()
+            {
+                return None;
+            }
+        }
+        let mapper: Vec<_> = parameters.iter().copied().zip(arguments.iter().copied()).collect();
+        let mut instantiated = Vec::with_capacity(constituents.len());
+        for constituent in constituents {
+            let image = self.instantiate_type(constituent, &mapper, &parameters, &names);
+            if self.is_error(image) {
+                return None;
+            }
+            instantiated.push(image);
+        }
+        let result = self.get_intersection_type(&instantiated, None);
+        (!self.is_error(result)).then_some(result)
+    }
+
+    /// Whether the alias's written body contains a type reference that
+    /// resolves to the alias itself. A bounded walk over the body's nodes.
+    fn intersection_alias_names_itself(&self, symbol: SymbolId) -> bool {
+        let Some(body) = self.type_alias_body(symbol) else { return false };
+        let name = self.binder.symbols().get(symbol).name.to_string();
+        let mut pending: Vec<NodeId> = Node::from(body).node_id().into_iter().collect();
+        while let Some(id) = pending.pop() {
+            let Some(node) = self.node_map.get(id) else { continue };
+            if let Node::TypeReferenceNode(reference) = node
+                && let Some(tsr_ast::EntityName::Identifier(identifier)) = reference.type_name
+                && identifier.text == &*name
+                && let Some(site) = identifier.node_id
+                && self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    site,
+                    identifier.text,
+                    SymbolFlags::TYPE,
+                ) == Some(symbol)
+            {
+                return true;
+            }
+            tsr_ast::for_each_child_id(node, |child| pending.push(child));
+        }
+        false
+    }
+
+    /// The alias's written body when it is an intersection type node,
+    /// parentheses skipped (getTypeFromTypeNodeWorker is transparent to them).
+    fn intersection_alias_body(&self, symbol: SymbolId) -> Option<TypeNode<'a>> {
+        let mut body = self.type_alias_body(symbol)?;
+        while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
+            body = parenthesized.r#type?;
+        }
+        matches!(body, TypeNode::IntersectionTypeNode(_)).then_some(body)
     }
 
     /// `getGlobalNonNullableTypeInstantiation` (`checker.go:31207`). Preserve
@@ -6737,7 +7269,7 @@ impl<'a> Checker<'a, '_> {
                     let per_name = if identifier_like {
                         format!("{name}.{member_name}")
                     } else {
-                        format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
+                        format!("(typeof {name})[{}]", crate::printing::quote_ascii(&member_name))
                     };
                     let (flags, data) = literal_data(per_name);
                     let fresh = self.store.intern_literal(flags, data, true);
@@ -6752,7 +7284,7 @@ impl<'a> Checker<'a, '_> {
                 let member_text = if identifier_like {
                     format!("{name}.{member_name}")
                 } else {
-                    format!("(typeof {name})[{}]", crate::printing::quote(&member_name))
+                    format!("(typeof {name})[{}]", crate::printing::quote_ascii(&member_name))
                 };
                 // Value-keyed interning: a later member with a seen value
                 // REUSES the first member's type (`B = A` prints `E9.A`);
@@ -6941,11 +7473,34 @@ impl<'a> Checker<'a, '_> {
             if let Some(declaration) = self.type_alias_declaration_of(symbol)
                 && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
                 && let Some(TypeNode::TupleTypeNode(body)) = alias.r#type
-                && body.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+                && body.elements.iter().any(|&element| Self::is_variadic_tuple_element(element))
             {
                 let structural = self.get_type_from_type_node(TypeNode::TupleTypeNode(body));
                 if structural != error {
                     return structural;
+                }
+            }
+            // getTypeFromTypeAliasReference over such an alias
+            // (instantiateTypeWithAlias → getObjectTypeInstantiation): a
+            // non-deferred tuple reference is re-created by
+            // createNormalizedTypeReference, and the new alias is dropped
+            // with it. `type V30<A extends unknown[]> = Tup3<A, string[],
+            // number[]>` over `type Tup3<…> = [...T, ...U, ...V]` records
+            // `>V30 : [...A, ...(string | number)[]]` (`variadicTuples2`).
+            if let Some(TypeNode::TypeReferenceNode(reference)) = self.type_alias_body(symbol)
+                && let Some(target) = self.alias_reference_target(reference)
+                && target != symbol
+                && self.alias_declares_normalized_tuple(target, 0)
+            {
+                if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+                    return error;
+                }
+                let resolved = self.get_type_from_type_node(TypeNode::TypeReferenceNode(reference));
+                if !self.resolutions.pop() {
+                    return self.report_type_alias_circularity(symbol);
+                }
+                if resolved != error {
+                    return resolved;
                 }
             }
             // getDeclaredTypeOfTypeAlias (checker.go:23837) declares the body
@@ -7017,6 +7572,38 @@ impl<'a> Checker<'a, '_> {
             };
             if self.resolutions.deferred_since(symbol, PropertyName::DeclaredType) {
                 return mint(self);
+            }
+            // An INTERSECTION body is declared as built
+            // (getTypeFromIntersectionTypeNode with the alias's own
+            // parameters as the alias's arguments): the alias-carrying
+            // intersection, or the reduced singleton without the alias —
+            // `type Id<T> = { [K in keyof T]: T[K] } & {}` records
+            // `>Id : { [K in keyof T]: T[K]; }`
+            // (declarationEmitOptionalMappedTypePropertyNoStrictNullChecks1).
+            if let Some(body) = self.intersection_alias_body(symbol) {
+                if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
+                    return error;
+                }
+                let resolved = self.get_type_from_type_node(body);
+                if !self.resolutions.pop() {
+                    return self.report_type_alias_circularity(symbol);
+                }
+                if resolved != error {
+                    // Resolved inside another alias's evaluation frame, the
+                    // node answers without its alias (§92); the declared
+                    // type is the node's type with the alias, wherever it is
+                    // first asked for.
+                    let unaliased = match &self.store.get(resolved).data {
+                        crate::types::TypeData::Intersection { symbol: owner, .. }
+                        | crate::types::TypeData::Union { symbol: owner, .. } => owner.is_none(),
+                        _ => false,
+                    };
+                    if !unaliased {
+                        return resolved;
+                    }
+                    let Some(own) = self.own_type_parameter_types(symbol) else { return error };
+                    return self.attach_intersection_alias(resolved, symbol, own, None);
+                }
             }
             if let Some(body) = self.type_alias_body(symbol) {
                 if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
@@ -7347,7 +7934,10 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::Node::Identifier(identifier) if identifier.text.is_empty() => {
                     Some("(Missing)".to_string())
                 }
-                tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
+                tsr_ast::Node::Identifier(identifier) => Some(match identifier.node_id {
+                    Some(id) => self.identifier_text_as_written(id, identifier.text),
+                    None => identifier.text.to_string(),
+                }),
                 _ => None,
             });
         // §305: an anonymous class expression's INSTANCE type takes the same
@@ -7687,9 +8277,14 @@ impl<'a> Checker<'a, '_> {
             let parameter = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
             frame.insert(parameter, argument);
         }
-        // The same guard as `instantiate_type`: a self-recursive conditional
-        // alias re-enters here through the branch's own references.
-        if self.instantiation_depth == 100 {
+        // instantiateTypeWithAlias' guard (checker.go:22111), the same one
+        // `instantiate_type` carries: a self-recursive conditional alias
+        // re-enters here through the branch's own references, and an
+        // expansion that keeps minting new argument lists stops at the
+        // per-check instantiation budget. Native reports TS2589 at
+        // `currentNode` and answers errorType; this road declines, which the
+        // callers already treat as "not computable" (`r5-declared3.md` §1.1).
+        if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
             return None;
         }
         // getTypeFromTypeNodeWorker resolves parenthesized bodies transparently;
@@ -7701,6 +8296,17 @@ impl<'a> Checker<'a, '_> {
             }
             _ => return None,
         };
+        // getConditionalTypeInstantiation's `root.instantiations`
+        // (checker.go:22485): one result per root, ordered type arguments and
+        // alias (`r5-declared3.md` §1.2). Print mode is never admitted
+        // (`docs/architecture/mapper-mode.md`); a mapped-template frame is
+        // part of the key, as it is of `type_literal_key`.
+        let memoizable = !self.identity_unmapped_type_parameters;
+        let key = (symbol, arguments.to_vec(), result_alias, self.mapped_template_depth > 0);
+        if memoizable && let Some(&cached) = self.conditional_alias_instantiations.get(&key) {
+            return Some(cached);
+        }
+        self.instantiation_count += 1;
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(frame);
         let result = self.evaluate_conditional_node(conditional, result_alias);
@@ -7708,6 +8314,9 @@ impl<'a> Checker<'a, '_> {
         self.instantiation_depth -= 1;
         if let Some(evaluated) = result {
             self.alias_evaluated_types.insert(evaluated);
+            if memoizable {
+                self.conditional_alias_instantiations.insert(key, evaluated);
+            }
         }
         result
     }
@@ -7930,28 +8539,50 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// inferToConditionalType pairs the four operands of two deferred roots.
-    /// Only read extends when the ordinary evaluator deferred its check before
-    /// reaching that operand; concrete-check roots can already have resolved a
-    /// recursive infer target and must not resolve it a second time here.
+    /// A root is deferred when its check or its extends type is generic
+    /// (getConditionalType). Read extends for a concrete check only when the
+    /// root declares no `infer`: such a root has already inferred against
+    /// extends, and resolving a recursive infer target a second time here is
+    /// the hazard (`r5-declared3.md` §4).
     pub(crate) fn conditional_inference_operands(&mut self, id: TypeId) -> Option<[TypeId; 4]> {
         if let Some(info) = self.mapped_conditionals.get(&id) {
             return Some(info.operands);
         }
         self.with_conditional_inference_node(id, |checker, node| {
             let check = checker.get_type_from_type_node(node.check_type?);
-            if checker.signature_types.contains_key(&check)
-                || !(checker
-                    .store
-                    .get(check)
-                    .flags
-                    .intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-                    || checker.mentions_registered_type_parameter(check))
-            {
+            if checker.signature_types.contains_key(&check) {
                 return None;
             }
+            let generic = |checker: &mut Self, ty: TypeId| {
+                checker.store.get(ty).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                    || checker.mentions_registered_type_parameter(ty)
+            };
+            let extends = if generic(checker, check) {
+                checker.get_type_from_type_node(node.extends_type?)
+            } else {
+                // `.1034`(e): getConditionalType (checker.go:24300) also
+                // defers a concrete check whose extends type is generic, so
+                // the root has operands. Reading extends is safe only for a
+                // root that declares no `infer` (the binder files those in
+                // the conditional's locals, as bindTypeParameter does): a
+                // concrete check has already inferred against extends, and a
+                // second read can resolve a recursive infer target again.
+                if node
+                    .node_id
+                    .and_then(|id| checker.binder.locals(id))
+                    .is_some_and(|locals| !locals.is_empty())
+                {
+                    return None;
+                }
+                let extends = checker.get_type_from_type_node(node.extends_type?);
+                if !generic(checker, extends) {
+                    return None;
+                }
+                extends
+            };
             Some([
                 check,
-                checker.get_type_from_type_node(node.extends_type?),
+                extends,
                 checker.get_type_from_type_node(node.true_type?),
                 checker.get_type_from_type_node(node.false_type?),
             ])
@@ -8787,10 +9418,32 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
+    /// A `keyof` operand getIndexTypeEx answers through its default arm
+    /// from the apparent type: a primitive (`string`, a literal, `boolean`,
+    /// `bigint`, a symbol) or a union of them. `any`, `never` and `unknown`
+    /// have arms of their own.
+    fn is_primitive_keyof_operand(&self, target: TypeId) -> bool {
+        let primitive = |ty: TypeId| {
+            self.store.get(ty).flags.intersects(
+                TypeFlags::STRING_LIKE
+                    | TypeFlags::NUMBER_LIKE
+                    | TypeFlags::BIG_INT_LIKE
+                    | TypeFlags::BOOLEAN_LIKE
+                    | TypeFlags::ES_SYMBOL_LIKE,
+            ) && !self.store.get(ty).flags.intersects(TypeFlags::INSTANTIABLE)
+        };
+        match &self.store.get(target).data {
+            crate::types::TypeData::Union { types, .. } => types.iter().all(|&ty| primitive(ty)),
+            _ => primitive(target),
+        }
+    }
+
     fn resolved_keyof_type_worker(&mut self, target: TypeId) -> Option<TypeId> {
         if target == self.intrinsics.error {
             return None;
         }
+        // getIndexTypeEx reduces its operand first (checker.go:26685).
+        let target = self.get_reduced_type(target);
         if let Some(keys) = self.mapped_index_type(target) {
             return Some(keys);
         }
@@ -8809,8 +9462,16 @@ impl<'a> Checker<'a, '_> {
         let deferred_intersection = matches!(&self.store.get(target).data, crate::types::TypeData::Intersection { types, .. }
                 if self.maybe_type_of_kind(target, TypeFlags::INSTANTIABLE)
                     && types.iter().any(|&part| self.is_empty_anonymous_object_type(part)));
+        // shouldDeferIndexType's union arm (checker.go:26838): a union an
+        // instantiation could reduce keeps its `keyof` deferred. Native's
+        // keyof-target relation arm (relater.go:3514) passes
+        // IndexFlagsNoReducibleCheck; the port's (`relater.rs`) has no index
+        // flags, so a reducible union constraint defers there too.
+        let reducible_union = self.store.get(target).flags.contains(TypeFlags::UNION)
+            && self.is_generic_reducible_type(target);
         if self.store.get(target).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
             || deferred_intersection
+            || reducible_union
             || self.is_generic_tuple_type(target)
             || self.is_generic_homomorphic_mapped_type(target)
             || self.mapped_types.get(&target).cloned().is_some_and(|info| {
@@ -8862,7 +9523,12 @@ impl<'a> Checker<'a, '_> {
                     false,
                 )
             }));
-            return Some(self.get_union_type(&keys));
+            // getLiteralTypeFromProperties (checker.go:26723): a tuple is a
+            // Reference, so the key union carries `keyof [A, B]` as its
+            // origin (`partiallyNamedTuples`).
+            let union = self.get_union_type(&keys);
+            let text = format!("keyof {}", self.type_to_string(target));
+            return Some(self.union_with_origin_text(union, text));
         }
         if self.store.get(target).flags.contains(TypeFlags::UNKNOWN) {
             return Some(self.intrinsics.never);
@@ -9674,6 +10340,136 @@ mod conditional_error_tests {
         let result = checker.evaluate_conditional_alias(symbol, &[genuine_any], None).unwrap();
         assert_eq!(checker.type_to_string(result), "1 | 2");
     }
+
+    /// `r5-declared3.md` §1: getConditionalTypeInstantiation's
+    /// `root.instantiations` (checker.go:22485) answers the same alias with
+    /// the same arguments once; different arguments stay distinct; and
+    /// instantiateTypeWithAlias' count guard (checker.go:22111) declines.
+    #[test]
+    fn conditional_alias_instantiations_are_shared_per_arguments_and_bounded() {
+        let arena = tsr_core::Arena::new();
+        let source = "type Box<T> = T extends string ? { a: T } : { b: T };";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0]
+        else {
+            panic!("Box alias")
+        };
+        let symbol = bound.symbol_of(alias.node_id.unwrap()).unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let (string, number) = (checker.intrinsics.string, checker.intrinsics.number);
+        let first = checker.evaluate_conditional_alias(symbol, &[string], None).unwrap();
+        let count = checker.instantiation_count;
+        let again = checker.evaluate_conditional_alias(symbol, &[string], None).unwrap();
+        assert_eq!(first, again);
+        assert_eq!(checker.instantiation_count, count, "a memo hit is no new instantiation");
+        let other = checker.evaluate_conditional_alias(symbol, &[number], None).unwrap();
+        assert_ne!(first, other);
+        assert_eq!(checker.type_to_string(first), "{ a: string; }");
+        assert_eq!(checker.type_to_string(other), "{ b: number; }");
+        checker.instantiation_count = 5_000_000;
+        let boolean = checker.intrinsics.boolean;
+        assert_eq!(checker.evaluate_conditional_alias(symbol, &[boolean], None), None);
+        // The guard sits before the memo, as instantiateTypeWithAlias' guard
+        // sits before getConditionalTypeInstantiation's lookup.
+        assert_eq!(checker.evaluate_conditional_alias(symbol, &[string], None), None);
+    }
+
+    /// `.1034`(e), `r5-declared3.md` §4: a root whose check is concrete and
+    /// whose extends type is generic is deferred natively and has operands;
+    /// one that declares `infer` keeps the decline.
+    #[test]
+    fn concrete_check_roots_have_operands_when_only_extends_is_generic() {
+        let arena = tsr_core::Arena::new();
+        let source = "type F<T> = string extends T ? 1 : 2;\n\
+                      type G<T> = string extends [infer U, T] ? U : 2;";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let symbol_of = |index: usize| {
+            let tsr_ast::Statement::TypeAliasDeclaration(alias) =
+                parsed.source_file.statements[index]
+            else {
+                panic!("alias")
+            };
+            bound.symbol_of(alias.node_id.unwrap()).unwrap()
+        };
+        let (f, g) = (symbol_of(0), symbol_of(1));
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let t = checker.local_type_parameter_types_of(f).unwrap()[0].0;
+        let reference = checker.create_type_reference(f, vec![t]);
+        let [check, extends, yes, no] =
+            checker.conditional_inference_operands(reference).expect("operands");
+        assert_eq!(check, checker.intrinsics.string);
+        assert_eq!(extends, t);
+        assert_eq!(checker.type_to_string(yes), "1");
+        assert_eq!(checker.type_to_string(no), "2");
+        let u = checker.local_type_parameter_types_of(g).unwrap()[0].0;
+        let reference = checker.create_type_reference(g, vec![u]);
+        assert_eq!(checker.conditional_inference_operands(reference), None);
+    }
+
+    /// `flattened_alias_bindings` answers exactly what the `FxHashMap`
+    /// collect it replaced answered: one entry per symbol, the innermost
+    /// frame's binding, sorted by symbol (`r5-declared3.md` §1.3).
+    #[test]
+    fn flattened_alias_bindings_match_the_hash_map_flattening() {
+        let arena = tsr_core::Arena::new();
+        let source = "type A<T, U, V> = T;";
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0]
+        else {
+            panic!("A alias")
+        };
+        let symbols: Vec<SymbolId> = alias
+            .type_parameters
+            .iter()
+            .map(|parameter| bound.symbol_of(parameter.node_id.unwrap()).unwrap())
+            .collect();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        assert!(checker.flattened_alias_bindings().is_empty());
+        let i = checker.intrinsics;
+        let frames: [&[(usize, TypeId)]; 4] = [
+            &[(0, i.string), (1, i.number)],
+            &[],
+            &[(1, i.boolean), (2, i.any)],
+            &[(0, i.unknown)],
+        ];
+        for frame in frames {
+            checker
+                .alias_evaluation_bindings
+                .push(frame.iter().map(|&(index, ty)| (symbols[index], ty)).collect());
+        }
+        let old: rustc_hash::FxHashMap<_, _> = checker
+            .alias_evaluation_bindings
+            .iter()
+            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
+            .collect();
+        let mut old: Vec<_> = old.into_iter().collect();
+        old.sort_unstable_by_key(|&(symbol, _)| symbol);
+        assert_eq!(checker.flattened_alias_bindings(), old);
+        assert_eq!(
+            checker.flattened_alias_bindings(),
+            vec![(symbols[0], i.unknown), (symbols[1], i.boolean), (symbols[2], i.any)]
+        );
+    }
 }
 
 #[cfg(test)]
@@ -10307,7 +11103,7 @@ mod parameter_default_state_tests {
     }
 
     #[test]
-    fn an_unresolved_default_preserves_its_named_identity_without_completed_reuse() {
+    fn an_unresolved_default_preserves_its_named_identity_and_is_published_once() {
         inspect_defaults_source(
             "interface Box<T, U=Missing<T>> { value:U }",
             |checker, _, u, _| {
@@ -10320,15 +11116,17 @@ mod parameter_default_state_tests {
                 let written = checker.get_type_from_type_node(node.default_type.unwrap());
                 assert!(checker.is_error(written));
                 assert_ne!(written, checker.intrinsics.error);
+                // ADR-0048: the unresolved reference is upstream's any-flagged
+                // type, not the gap, so the default is published once and every
+                // later read answers the same identity (`checker.go:22007`).
+                let first = checker.get_default_from_type_parameter(u).unwrap();
                 for _ in 0..2 {
                     let returned = checker.get_default_from_type_parameter(u).unwrap();
                     assert!(checker.is_error(returned));
                     assert_ne!(returned, checker.intrinsics.error);
-                    // Unresolved references currently mint a fresh identity on an
-                    // uncached AST evaluation. Preserve its named payload, without
-                    // converting it to the intrinsic gap or claiming completion.
+                    assert_eq!(returned, first);
                     assert_eq!(checker.store.get(returned).data, checker.store.get(written).data);
-                    assert!(checker.type_parameter_default_cache.is_empty());
+                    assert_eq!(checker.type_parameter_default_cache.len(), 1);
                 }
             },
         );

@@ -6984,7 +6984,12 @@ impl Checker<'_, '_> {
                 let Some(value) = self.get_type_of_property_of_type(part, &name) else {
                     continue 'property;
                 };
-                if self.is_gap(value) || self.store.get(value).flags.contains(TypeFlags::NEVER) {
+                // createUnionOrIntersectionProperty (checker.go:21621): a
+                // `never` other than uniqueLiteralType marks HasNeverType.
+                if self.is_gap(value)
+                    || self.store.get(value).flags.contains(TypeFlags::NEVER)
+                        && value != self.intrinsics.unique_literal
+                {
                     continue 'property;
                 }
                 optional &= self.property_is_optional(property);

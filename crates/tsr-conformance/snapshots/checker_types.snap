@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8376/9538 (87.82%)
-Assertion lines: 472138/478853 (98.60%)  — a gradient, not a pass rate
-Failed         : 1162
+Passed         : 8419/9538 (88.27%)
+Assertion lines: 472471/478853 (98.67%)  — a gradient, not a pass rate
+Failed         : 1119
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,13 +12,11 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1162 failures:
+First 100 of 1119 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >[[s, false]] : [symbol, boolean][] — expected >[[s, false]] : [symbol, false][]
-compiler/accessorDeclarationEmitJs
-  /a.js: >v : any — expected >v : string
 compiler/aliasBug
   aliasBug.ts: >p2 : foo.Provide — expected >p2 : provide.Provide
 compiler/aliasDoesNotDuplicateSignatures
@@ -53,8 +51,6 @@ compiler/arrayFlatNoCrashInference
   arrayFlatNoCrashInference.ts: >foo : <T>(arr: T[], depth: number) => FlatArray<T[], number>[] — expected >foo : <T>(arr: T[], depth: number) => FlatArray<T, -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20>[]
 compiler/arrayFlatNoCrashInferenceDeclarations
   arrayFlatNoCrashInferenceDeclarations.ts: >foo : <T>(arr: T[], depth: number) => FlatArray<T[], number>[] — expected >foo : <T>(arr: T[], depth: number) => FlatArray<T, -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20>[]
-compiler/arrayconcat
-  arrayconcat.ts: >this.options.sort : (compareFn?: (a: IOptions, b: IOptions) => number) => IOptions[] — expected >this.options.sort : (compareFn?: ((a: IOptions, b: IOptions) => number) | undefined) => IOptions[]
 compiler/arrowExpressionBodyJSDoc
   mytest.js: >{ ...value } : T | {} — expected >{ ...value } : {}
 compiler/arrowExpressionJs
@@ -124,7 +120,7 @@ compiler/checkerInitializationCrash
 compiler/checkingObjectWithThisInNamePositionNoCrash
   checkingObjectWithThisInNamePositionNoCrash.ts: >this : this — expected >this : { doit(): { [x: number]: string; }; }
 compiler/circularAccessorAnnotations
-  circularAccessorAnnotations.ts: >c1 : any — expected >c1 : { readonly foo: typeof c1.foo; }
+  circularAccessorAnnotations.ts: >c2 : { foo: any; } — expected >c2 : { foo: typeof c2.foo; }
 compiler/circularContextualReturnType
   circularContextualReturnType.ts: >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: object | U | null | undefined; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; } — expected >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: U | null | undefined | object; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; }
 compiler/circularInlineMappedGenericTupleTypeNoCrash
@@ -145,14 +141,10 @@ compiler/classAccessorInitializationInferenceWithElementAccess1
   classAccessorInitializationInferenceWithElementAccess1.ts: >x : any — expected >x : number[]
 compiler/classPropInitializationInferenceWithElementAccess
   classPropInitializationInferenceWithElementAccess.ts: >x : any — expected >x : number[]
-compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
-  classReferencedInContextualParameterWithinItsOwnBaseExpression.ts: >Class<A>("A") : <Fields>(fields: Fields, annotations?: Schema<A>) => Class<OutputFrom<Fields>> — expected >Class<A>("A") : <Fields>(fields: Fields, annotations?: Schema<A> | undefined) => Class<OutputFrom<Fields>>
 compiler/coAndContraVariantInferences3
   coAndContraVariantInferences3.ts: >args : OverloadParameters<T> — expected >args : Parameters<{ [P in Extract<keyof T, number>]: T[P]; }[Extract<keyof T, number>]>
 compiler/coAndContraVariantInferences6
   coAndContraVariantInferences6.ts: >{ value: "C" } : { value: string; } — expected >{ value: "C" } : { value: "C"; }
-compiler/collisionRestParameterInType
-  collisionRestParameterInType.ts: >v2 : { (_i: number, ...restParameters: any[]): any; new (_i: number, ...restParameters: any[]): any; foo(_i: number, ...restParameters: any[]): any; prop: (_i: number, ...restParameters: any[]) => void; } — expected >v2 : { (_i: number, ...restParameters: any[]): any; new (_i: number, ...restParameters: any[]): any; foo(_i: number, ...restParameters: any[]): any; prop: (_i: number, ...restParameters: any) => void; }
 compiler/commentsOnObjectLiteral2
   commentsOnObjectLiteral2.ts: >{        /**         This is just another way to define a constructor.         @constructs         @param {string} name The name of the person.         */        initialize: function(name) {            this.name = name;        } /* trailing comment 1*/,    } : any — expected >{        /**         This is just another way to define a constructor.         @constructs         @param {string} name The name of the person.         */        initialize: function(name) {            this.name = name;        } /* trailing comment 1*/,    } : { initialize: (name: any) => void; }
 compiler/commonJsImportClassExpression
@@ -174,7 +166,7 @@ compiler/computedPropertiesWithSetterAssignment
 compiler/computedPropertyBindingElementDeclarationNoCrash1
   computedPropertyBindingElementDeclarationNoCrash1.ts: >key : any — expected >key : string
 compiler/computedTypesKeyofNoIndexSignatureType
-  computedTypesKeyofNoIndexSignatureType.ts: >Compute : Compute<A> — expected >Compute : { [K in keyof A]: A[K] extends infer T ? { [K_1 in keyof T]: T[K_1] extends infer T_1 ? { [K_2 in keyof T_1]: T_1[K_2] extends infer T_2 ? { [K_3 in keyof T_2]: T_2[K_3] extends infer T_3 ? { [K_4 in keyof T_3]: T_3[K_4] extends infer T_4 ? { [K_5 in keyof T_4]: T_4[K_5] extends infer T_5 ? { [K_6 in keyof T_5]: T_5[K_6] extends infer T_6 ? { [K_7 in keyof T_6]: T_6[K_7] extends infer T_7 ? { [K_8 in keyof T_7]: T_7[K_8] extends infer T_8 ? { [K_9 in keyof T_8]: T_8[K_9] extends infer T_9 ? { [K_10 in keyof T_9]: any; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; }
+  computedTypesKeyofNoIndexSignatureType.ts: >Compute : { [K in keyof A]: Compute<A[K]>; } — expected >Compute : { [K in keyof A]: A[K] extends infer T ? { [K_1 in keyof T]: T[K_1] extends infer T_1 ? { [K_2 in keyof T_1]: T_1[K_2] extends infer T_2 ? { [K_3 in keyof T_2]: T_2[K_3] extends infer T_3 ? { [K_4 in keyof T_3]: T_3[K_4] extends infer T_4 ? { [K_5 in keyof T_4]: T_4[K_5] extends infer T_5 ? { [K_6 in keyof T_5]: T_5[K_6] extends infer T_6 ? { [K_7 in keyof T_6]: T_6[K_7] extends infer T_7 ? { [K_8 in keyof T_7]: T_7[K_8] extends infer T_8 ? { [K_9 in keyof T_8]: T_8[K_9] extends infer T_9 ? { [K_10 in keyof T_9]: any; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; }
 compiler/concatTuples
   concatTuples.ts: >[[3, 4], [5, 6]] : number[][] — expected >[[3, 4], [5, 6]] : [number, number][]
 compiler/conditionalEqualityTestingNullability
@@ -213,3 +205,11 @@ compiler/contextualParamTypeVsNestedReturnTypeInference4
   contextualParamTypeVsNestedReturnTypeInference4.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
 compiler/contextualPropertyOfGenericFilteringMappedType
   contextualPropertyOfGenericFilteringMappedType.ts: >{    foo: (value, key) => {      // implicit `any`s    },  } : any — expected >{    foo: (value, key) => {      // implicit `any`s    },  } : { foo: (value: any, key: any) => void; }
+compiler/contextualSignatureConditionalTypeInstantiationUsingDefault
+  contextualSignatureConditionalTypeInstantiationUsingDefault.ts: >(ev) => {  ev.type; // should be `string`} : error — expected >(ev) => {  ev.type; // should be `string`} : (ev: { type: string; }) => void
+compiler/contextualSignatureInObjectFreeze
+  contextualSignatureInObjectFreeze.ts: >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: object | U | null | undefined; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; } — expected >Object.freeze : { <T extends Function>(f: T): T; <T extends { [idx: string]: U | null | undefined | object; }, U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>; <T>(o: T): Readonly<T>; }
+compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix3
+  contextualTypeBasedOnIntersectionWithAnyInTheMix3.ts: >[1] : [number] — expected >[1] : [1]
+compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix5
+  contextualTypeBasedOnIntersectionWithAnyInTheMix5.ts: >ComputedOptions : Record<string, ComputedGetter<any>> — expected >ComputedOptions : ComputedOptions

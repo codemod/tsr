@@ -510,6 +510,9 @@ impl Checker<'_, '_> {
             || matches!(self.store.get(object_type).data, TypeData::Named { members: None, .. })
                 && !self.type_reference_targets.contains_key(&object_type)
                 && !self.tuple_element_lists.contains_key(&object_type)
+                // A binding pattern's implied object type publishes its
+                // complete member image here (`binding_patterns.rs`).
+                && !self.object_literal_members.contains_key(&object_type)
         {
             return;
         }
