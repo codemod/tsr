@@ -558,12 +558,8 @@ impl Checker<'_, '_> {
                     crate::unions::UnionPrintPart::Keyword(text) => return Some(text.to_string()),
                 };
                 let text = self.type_to_string_at(member, reference)?;
-                let ty = self.store.get(member);
-                let parentheses = !prints_as_a_single_token(ty)
-                    && matches!(
-                        ty.data,
-                        TypeData::Intersection { .. } | TypeData::Anonymous { signature: true, .. }
-                    );
+                let parentheses =
+                    crate::unions::union_constituent_needs_parentheses(&self.store, member);
                 Some(if parentheses { format!("({text})") } else { text })
             })
             .collect::<Option<Vec<_>>>()
