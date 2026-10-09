@@ -4560,7 +4560,9 @@ impl Checker<'_, '_> {
         // reports TS2339 on the `.z` instead. Like `null`, `this` is not a
         // spellable binding in any scope, so declining it can hide no real
         // diagnostic.
-        if text == "null" || text == "this" {
+        // r6-names: `typeof null` is an identifier natively too
+        // (`parseTypeQuery` allows reserved words), and native reports it.
+        if (text == "null" && !self.names_in_type_query_entity_name(node)) || text == "this" {
             return;
         }
         // `checkAndReportErrorForUsingTypeAsValue` (`checker.go:1681`) runs

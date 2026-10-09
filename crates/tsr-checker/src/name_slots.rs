@@ -141,7 +141,6 @@ impl Checker<'_, '_> {
     /// with `allowReservedWords`, so `typeof null` is an identifier natively
     /// too, and `checkIdentifier` reports TS2304 *Cannot find name 'null'*
     /// (`invalidTypeOfTarget`). The decline must not fire there.
-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-typeof-null.diff")]
     pub(crate) fn names_in_type_query_entity_name(&self, node: NodeId) -> bool {
         let mut current = node;
         while let Some(parent) = self.nodes.parent(current) {
