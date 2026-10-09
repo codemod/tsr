@@ -1511,3 +1511,28 @@ type literal recursing through a union alias answers Unknown, and fixing that
 needs lazy type-literal members.
 
 r6-typesroots2 takes `.16.65/.69/.73/.74/.7/.6/.76/.79`.
+
+### r6-declared finished (batch BM); r6-declared2 dispatched
+
+Batch BM lands r6-declared's commits:
+- getObjectTypeInstantiation's referenced-parameter key
+  (isTypeParameterPossiblyReferenced);
+- an indexed type literal resolves only the selected member. That removes
+  the 54 MB `__Reverse` text with no count bound: native needs only 48,750
+  instantiations and reports no TS2589;
+- the import-equals written name;
+- memoized conditional extends instantiations (ramdaToolsNoInfinite2 31 s →
+  2.1 s once its imports resolve);
+- a namespace-rooted qualified enum reference answers the enum (+2 diagnostics);
+- an intersection alias's deferred conditional constituent;
+- r5-declared4's print arity at Ir within noise (+37 types). Its +0.22% cost
+  came from resolving the Iterable targets per print, not once per checker.
+
+It also lands the unresolved-alias written-name diff (+21 types).
+
+Held:
+- the binder declare-module imports diff: +3 diagnostics, but it still loses
+  ramdaToolsNoInfinite2 448/449/485/490–492;
+- the conditional-typed print: dm Ir +0.16%, waiting on `.1135`.
+
+r6-declared2 takes `tsr-2zk.1143`.
