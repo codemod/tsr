@@ -44,27 +44,53 @@ pub(crate) fn value_reference_slot(node: NodeId, parent: Node<'_>) -> bool {
 }
 
 impl Checker<'_, '_> {
-    /// Is `node` inside the expression of a `for…of` whose declaration list is
-    /// empty?
+    /// Is `node` inside a region native never checks?
     ///
-    /// `checkForOfStatement` (`checker.go:4051`) checks a declaration-list
-    /// initializer **only** through `checkVariableDeclarationList`; the
-    /// right-hand side is reached from each declaration's type
-    /// (`getTypeForVariableLikeDeclaration`, `checker.go:16664`,
-    /// `checkRightHandSideOfForOf`). `for (var of X)` is TS1123 with no
-    /// declaration, so nothing ever checks `X` or anything inside it.
-    /// `checkForInStatement` (`checker.go:3988`) checks its expression
-    /// unconditionally and is not affected.
-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-empty-for-of.diff")]
-    pub(crate) fn in_unchecked_for_of_expression(&self, node: NodeId) -> bool {
+    /// Two native checks skip a whole subtree, so no identifier in it is ever
+    /// resolved or reported:
+    ///
+    /// - **An empty `for…of` declaration list.** `checkForOfStatement`
+    ///   (`checker.go:4051`) checks a declaration-list initializer **only**
+    ///   through `checkVariableDeclarationList`; the right-hand side is reached
+    ///   from each declaration's type (`getTypeForVariableLikeDeclaration`,
+    ///   `checker.go:16664`, `checkRightHandSideOfForOf`). `for (var of X)` is
+    ///   TS1123 with no declaration, so nothing checks `X` or anything inside
+    ///   it. `checkForInStatement` (`checker.go:3988`) checks its expression
+    ///   unconditionally and is not affected.
+    /// - **A decorator on a node that cannot be decorated.** A decorator's
+    ///   expression is checked only by `checkDecorators` (`checker.go:6022`),
+    ///   reached from the accessor, method, class-like and variable-like
+    ///   checks, which returns at once unless `ast.NodeCanBeDecorated`
+    ///   (`ast/utilities.go:4254`) holds. Anything else is a grammar error
+    ///   (TS1206, `checkGrammarModifiers`): `var v = @decorate class C {}`
+    ///   under `experimentalDecorators` reports TS1206 and nothing on
+    ///   `decorate` (`classExpressionWithDecorator1`).
+    ///
+    /// One walk answers both, testing the kind column before building a typed
+    /// node: it runs for every value identifier, and a typed node per ancestor
+    /// was most of its cost (`docs/parity/notes/r6-names.md` §12).
+    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-unchecked-regions.diff")]
+    pub(crate) fn names_in_unchecked_region(&self, node: NodeId) -> bool {
         let mut current = node;
         while let Some(parent) = self.nodes.parent(current) {
-            if let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(parent)
-                && statement.kind.kind == SyntaxKind::ForOfStatement
-                && statement.expression.and_then(|e| e.node_id()) == Some(current)
-            {
-                return matches!(statement.initializer,
-                    Some(ForInitializer::VariableDeclarationList(list)) if list.declarations.is_empty());
+            match self.nodes.kind(parent) {
+                SyntaxKind::ForOfStatement
+                    if matches!(self.node_map.get(parent), Some(Node::ForInOrOfStatement(statement))
+                        if statement.expression.and_then(|e| e.node_id()) == Some(current)
+                            && matches!(statement.initializer,
+                                Some(ForInitializer::VariableDeclarationList(list)) if list.declarations.is_empty())) =>
+                {
+                    return true;
+                }
+                SyntaxKind::Decorator
+                    if self
+                        .nodes
+                        .parent(parent)
+                        .is_some_and(|decorated| !self.names_decorators_are_checked(decorated)) =>
+                {
+                    return true;
+                }
+                _ => {}
             }
             current = parent;
         }
@@ -139,31 +165,9 @@ impl Checker<'_, '_> {
 }
 
 impl Checker<'_, '_> {
-    /// Is `node` inside a decorator native never checks?
-    ///
-    /// A decorator's expression is checked only by `checkDecorators`
-    /// (`checker.go:6022`), reached from the accessor, method, class-like and
-    /// variable-like checks, which returns at once unless
-    /// `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) holds. Anything else
-    /// is a grammar error (TS1206, `checkGrammarModifiers`) and the
-    /// decorator's name is never resolved: `var v = @decorate class C {}`
-    /// under `experimentalDecorators` reports TS1206 and nothing on
-    /// `decorate` (`classExpressionWithDecorator1`).
-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-decorator-targets.diff")]
-    pub(crate) fn names_in_unchecked_decorator(&self, node: NodeId) -> bool {
-        let mut current = node;
-        while let Some(parent) = self.nodes.parent(current) {
-            if self.nodes.kind(parent) == SyntaxKind::Decorator {
-                return self
-                    .nodes
-                    .parent(parent)
-                    .is_some_and(|decorated| !self.names_decorators_are_checked(decorated));
-            }
-            current = parent;
-        }
-        false
-    }
-
+    /// `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) of `decorated`,
+    /// under this program's decorator mode; see
+    /// [`Checker::names_in_unchecked_region`].
     fn names_decorators_are_checked(&self, decorated: NodeId) -> bool {
         use tsr_ast::{BindingName, PropertyName, has_syntactic_modifier};
         let legacy = self.legacy_decorators;

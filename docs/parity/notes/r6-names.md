@@ -40,38 +40,49 @@ checks, not a resolution difference.
 | Cluster | Native operation | Cases | Status |
 |---|---|---|---|
 | A. value slots missing from the allow-list | `checkWithStatement` (`checker.go:4162`); JSX value tags, `resolveJsxOpeningLikeElement` (`jsx.go:562`), `checkJsxElementDeferred` (`jsx.go:84`) | parserStrictMode14, parserWithStatement1.d, jsxSpreadTag ×2, jsxAttributeWithoutExpressionReact, parseJsxExtends2 | §4, diff `r6-names-value-slots` |
-| B. `for…of` with an empty declaration list | `checkForOfStatement` (`checker.go:4051`) reaches the expression only through a declaration | parserForOfStatement2, parserForOfStatement21, parserES5ForOfStatement2, parserES5ForOfStatement21 | §5, diff `r6-names-empty-for-of` |
+| B. `for…of` with an empty declaration list | `checkForOfStatement` (`checker.go:4051`) reaches the expression only through a declaration | parserForOfStatement2, parserForOfStatement21, parserES5ForOfStatement2, parserES5ForOfStatement21 | §5, diff `r6-names-unchecked-regions` |
 | C1. TypeScript-only annotations in JavaScript files | `getTypeFromTypeReference` reached by `checkSourceElement` in a `.js` file | fillInMissingTypeArgsOnJSConstructCalls, parserArrowFunctionExpression10, parserArrowFunctionExpression17 | §6, diff `r6-names-js-type-annotations` |
-| C2. JSDoc type names | JSDoc arms of `resolveTypeReferenceName`; script-file typedefs in `globals` | jsdocResolveNameFailureInTypedef, typedefScope1, recursiveResolveDeclaredMembers | open |
+| C2. JSDoc type names | JSDoc arms of `resolveTypeReferenceName`; script-file typedefs in `globals` | jsdocResolveNameFailureInTypedef, typedefScope1, recursiveResolveDeclaredMembers | routed, §13 |
 | D. parameter initialisers | `resolveName`'s `useOuterVariableScopeInParameter` (`binder/nameresolver.go:74`, `:346`) | functionLikeInParameterInitializer(es2015), parameterInitializersForwardReferencing(es2015) | §11, diff `r6-names-parameter-scope` |
 | E1. non-primitive keyword spellings as values | `checkAndReportErrorForUsingTypeAsValue`'s six-name `isPrimitiveTypeName` (`checker.go:1637`) | parserSymbolIndexer5 (TS2552) | §7, diff `r6-names-primitive-spellings` |
 | E2. `typeof null` | `parseTypeQuery`'s reserved-word entity name (`parser.go:3114`) | invalidTypeOfTarget | §8, diff `r6-names-typeof-null` |
-| F1. decorators native never checks | `checkDecorators` (`checker.go:6022`) gated by `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) | classExpressionWithDecorator1 | §10, diff `r6-names-decorator-targets` |
-| F2. parse recovery | parser trees that differ from native | arrowFunctionsMissingTokens, YieldStarExpression2_es6, bigintArbirtraryIdentifier, importDeferTypeConflict2, parserSuperExpression2 | open |
+| F1. decorators native never checks | `checkDecorators` (`checker.go:6022`) gated by `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) | classExpressionWithDecorator1 | §10, diff `r6-names-unchecked-regions` |
+| F2. parse recovery | parser trees that differ from native | arrowFunctionsMissingTokens, YieldStarExpression2_es6, bigintArbirtraryIdentifier, importDeferTypeConflict2, parserSuperExpression2 | routed, §13 |
 | G. local export specifiers | `getTargetOfExportSpecifier`'s `resolveEntityName` (`checker.go:14970`) and its `onFailedToResolveSymbol` tail | duplicateErrorNameNotFound (TS2552) | §9, diff `r6-names-export-specifier` |
-| H. module augmentation | augmentation merge (`tsr-2zk.38`, main's) | moduleAugmentationInAmbientModule1, moduleAugmentationInAmbientModule5 (TS2552) | routed |
+| H. module augmentation | augmentation merge (`tsr-2zk.38`, main's) | moduleAugmentationInAmbientModule1, moduleAugmentationInAmbientModule5 (TS2552) | routed, §13 |
 
 ## §3 Hook diffs, in apply order
 
-Each diff touches `check.rs` (main's), removes the `allow(dead_code)` on the
-function it wires in `name_slots.rs`, and adds its test under
-`crates/tsr-conformance/tests/`. Each was measured alone on the base.
+Each diff wires one root cause into main's files (`check.rs`; for #7 the
+binder and `checker.rs`), removes the `allow(dead_code)` on the function it
+wires, and adds its test under `crates/tsr-conformance/tests/`. Every diff
+applies on the branch tip alone and in this order stacked (checked with
+`git apply` in a clean worktree, and the stacked tree is byte-identical to
+the one measured below).
 
 | # | Diff | Converts | Losses | Rows (miss/extra) |
 |---|---|---|---|---|
 | 1 | `r6-names-value-slots.diff` | +6 cases | 0 | 3,382/1,089 → 3,363/1,089 |
-| 2 | `r6-names-empty-for-of.diff` | +4 cases | 0 | 3,382/1,089 → 3,382/1,085 |
+| 2 | `r6-names-unchecked-regions.diff` | +5 cases | 0 | see below |
 | 3 | `r6-names-js-type-annotations.diff` | +3 cases | 0 | 3,382/1,089 → 3,378/1,089 |
 | 4 | `r6-names-primitive-spellings.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 | 5 | `r6-names-typeof-null.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 | 6 | `r6-names-export-specifier.diff` | +1 case | 0 | 3,382/1,089 → 3,380/1,089 |
-| 7 | `r6-names-decorator-targets.diff` | +1 case | 0 | 3,382/1,089 → 3,382/1,086 |
-| 8 | `r6-names-parameter-scope.diff` | +5 cases, +38 type lines | 0 | 3,382/1,089 → 3,373/1,088 |
+| 7 | `r6-names-parameter-scope.diff` | +5 cases, +38 type lines | 0 | 3,382/1,089 → 3,373/1,088 |
 
-Diffs 1–3 applied together in this order: +13 cases, 0 losses on both
-dumps, rows 3,382/1,089 → 3,359/1,085, types dump identical to the base
-(549,853 RIGHT / 843 GAP / 5,607 WRONG). Each diff applies on the base alone
-as well as stacked.
+Diff 2 replaces two earlier diffs, `r6-names-empty-for-of` (measured alone:
++4 cases, extra rows −4) and `r6-names-decorator-targets` (+1 case, extra
+rows −3). Each put an ancestor walk in front of every value identifier; §12
+merged them into one walk asked only on the paths that report. Both earlier
+files are deleted from this directory; their measurements stay here.
+
+**All seven stacked** (base `b18aec06`): diagnostics 5,530 → **5,552 RIGHT**
+(+22), EMPTY_RIGHT 5,596 unchanged, WRONG 1,063 → 1,041; types **549,853 →
+549,891 RIGHT** (+38), WRONG 5,607 → 5,569; 0 losses on either dump; rows
+3,382/1,089 → 3,346/1,081; `slowcases` clean on both; `cargo test
+--workspace --release` 3,494 passed, 0 failed; clippy reports only the 12
+pre-existing stable-toolchain findings, none in these files. Ir and CPU in
+§12.
 
 ## §4 Cluster A: value slots the allow-list lacks
 
@@ -119,21 +130,21 @@ it. `checkForInStatement` (`checker.go:3988`) checks its expression before
 looking at the initializer, so `for (var in X)` still reports `X`.
 
 The port's walk visits every identifier, so the decline is
-`Checker::in_unchecked_for_of_expression`: a parent walk to the nearest
-`for…of` whose `expression` slot contains the node. The hook runs right after
-the allow-list test in `check_value_identifier`, so it covers every code that
-reporter emits (TS2304, TS2552, TS2583, TS2693…), as native's silence does.
-The walk is O(depth) per value identifier, beside the existing
-`is_inside_with_statement` walk; Ir with diffs 1 and 2 applied: +0.03%
-domain-model, −0.007% generic-imports, inside the base's ±50k noise.
+`Checker::names_in_unchecked_region`: a parent walk that finds a `for…of`
+whose `expression` slot contains the node (§10 adds the decorator arm to the
+same walk). As first shipped it ran right after the allow-list test for every
+value identifier; §12 moved it onto the reporting paths of
+`check_value_identifier` (the failure cascade and the three arms that report
+before resolution), which still covers every code that reporter emits
+(TS2304, TS2552, TS2583, TS2693, TS2301) as native's silence does.
 
 Native probe: `for (var of missingOf) { }` → TS1123 only; `for (var x of
 missingDeclared)` → TS2304; `for (var in missingIn)` → TS1123 and TS2304. The
 port with the diff matches.
 
-Measured alone: +4 cases, 0 losses, extra rows 1,089 → 1,085 and no new
-missing row; types dump unchanged (diffs 1 and 2 together); `slowcases`
-clean.
+Measured alone (as `r6-names-empty-for-of`): +4 cases, 0 losses, extra rows
+1,089 → 1,085 and no new missing row; types dump unchanged; `slowcases`
+clean. The merged diff 2 reproduces it (§3).
 
 **What it does not cover.** Other diagnostics inside such an expression
 (a type error in a call, say) come from other checks that do not consult this
@@ -283,9 +294,10 @@ standard decorators a parameter cannot. The port's allow-list admitted every
 decorator expression (`is_value_reference`'s `Decorator` arm) and reported
 TS2304 beside TS1206.
 
-`Checker::names_in_unchecked_decorator` walks to the nearest decorator (a
-decorator can be `@a.b()`, so the slot test alone cannot see it) and asks a
-faithful `NodeCanBeDecorated` of the decorated node. `grammar.rs` has a
+`Checker::names_in_unchecked_region`'s decorator arm walks to any enclosing
+decorator (a decorator can be `@a.b()`, so the slot test alone cannot see it)
+and asks a faithful `NodeCanBeDecorated` of the decorated node
+(`names_decorators_are_checked`). `grammar.rs` has a
 private `node_can_be_decorated` serving TS1206, but it deliberately answers
 `true` for a legacy private name (its caller reports TS1206 for that arm
 itself) and leaves the this-parameter test to its caller, so it is not the
@@ -303,9 +315,9 @@ class E { m(@missingD x: number) {}} TS2304                   TS1206
 class F { @missingE.member() p = 1 } TS2304                   TS2304
 ```
 
-The port with the diff matches all ten rows. Measured alone: +1 case
-(`classExpressionWithDecorator1`), 0 losses, extra rows −3, no new missing
-row.
+The port with the diff matches all ten rows. Measured alone (as
+`r6-names-decorator-targets`): +1 case (`classExpressionWithDecorator1`), 0
+losses, extra rows −3, no new missing row. Now part of diff 2.
 
 ## §11 Cluster D: parameter initialisers do not see the body
 
@@ -370,7 +382,7 @@ the diff it matches native at both targets.
 (549,853 → 549,891), 0 lost; `slowcases` clean on both dumps.
 
 **Ir: +0.1% on domain-model, above the base's noise.** Base reads
-1,091,41x,xxx–1,091,51x,xxx over five runs (±50k). With the diff:
+1,091,410,570–1,091,505,064 over five runs (±50k). With the diff:
 1,092.5–1,093.1 M (+0.10–0.15%); generic-imports unchanged (343.06–343.09 M).
 Callgrind attributes it to `lookup_scoped` (+1.48 M) and `merged_symbol`
 (+0.33 M) at **identical call counts** (229,359 and 138,712 calls in both
@@ -381,6 +393,96 @@ arm's `IsParameterDeclaration(lastLocation)` test is inline at the call site
 and the rest is `#[cold]` (that took the first draft from +0.32% to +0.10%),
 and a redundant `merged_symbol` call was dropped (`lookup_scoped` already
 answers the merged symbol). The integrator decides whether +0.1% Ir for
-+5 cases and +38 type lines is acceptable; the falsifier for "layout, not
++5 cases and +38 type lines is acceptable (§12 has the stacked numbers); the falsifier for "layout, not
 work" is a build that moves the options out of `BindResult` and still reads
 +0.1%.
+
+## §12 Cost of the stack
+
+Ir (`valgrind --tool=callgrind`, §1's command), domain-model; base
+1,091,410,570–1,091,505,064 over five runs:
+
+| State | Ir | vs base |
+|---|---|---|
+| diffs 1+2 as first built (value slots, for-of walk) | 1,091,880,439 | +0.03% |
+| first stack of all, each walk in front of every value identifier | 1,095,370,570–1,095,403,967 | +0.36% |
+| for-of walk tests the kind column before building a typed node | 1,094,592,326–1,094,653,800 | +0.29% |
+| one merged walk, still in front of every identifier | 1,094,265,555–1,094,896,990 | +0.26% |
+| **merged walk asked only on reporting paths (shipped)** | **1,093,539,345–1,094,125,133** | **+0.19–0.25%** |
+
+generic-imports stays at 343.06–343.11 M against 343.08 M (flat). The
+patched binaries show ±0.3 M run-to-run spread where the base shows ±50k;
+the cause was not found, so each state above is two runs, low to high.
+
+Attribution of the shipped residual (callgrind, per function, against the
+base profile): `lookup_scoped` +1.48 M and `merged_symbol` +0.33 M against
+`resolve_name` −0.37 M, at identical call counts — diff 7's `BindResult`
+layout, §11; `check_node_worker` +0.66 M, not attributed to any new call (no
+new function appears under it beyond the export-specifier tail, which returns
+at its first test for an import specifier); `value_reference_slot` +0.25 M
+(the allow-list fallback, one match per identifier no other arm takes);
+`check_value_identifier` +0.11 M (the region walk, now off the hot path).
+
+CPU (`whole_project_perf.py`, 21 samples, median user+sys, against the base
+binary): domain-model 1.028, generic-imports 1.028, diagnostics identical.
+Inside the protocol's 1.03 bound, but at its edge; with the Ir numbers above
+it is a real cost of roughly 0.2%, not noise. Diffs 1–6 without 7 read
+1,093,124,214 (+0.15%) before the walk was moved off the hot path.
+
+The integrator decides whether +0.2% Ir buys +22 cases and +38 type lines.
+Two further reductions were not tried: keeping the scope-change options out
+of `BindResult` (§11's falsifier), and moving `value_reference_slot` inline
+into the allow-list match (a `check.rs` edit, main's).
+
+## §13 Remaining, with causes and routing
+
+**C2. JSDoc type names (3 cases).** The JSDoc half of the type-reference
+decline stays (§6). Lifting it converts `typedefScope1` and fixes the
+missing row of `jsdocResolveNameFailureInTypedef`, but costs 6 cases whose
+JSDoc resolution differs from native: a `@typedef` used before its
+declaration in the same comment run (`jsdocResolveNameFailureInTypedef`'s
+own `@param {Ty}`, `jsdocTypeDefAtStartOfFile`), `import()` types in JSDoc
+(`importTypeResolutionJSDocEOF`), `@callback` names (`callbackTag2`),
+CommonJS class references (`commonJSImportClassTypeReference`,
+`commonJSImportExportedClassExpression`) and the TS2583 lib arm in a JSDoc
+type (`checkJsdocTypeTag8`). Route to r6-jsdoc: once those resolve, delete
+the decline. `recursiveResolveDeclaredMembers` is different: a `@typedef` in a
+*script* `.js` file is a global natively, so `types.ts` resolves `E` through
+it; this binder does not merge script-file JSDoc typedefs into `globals`
+(binder, main's).
+
+**F2. Parser trees that differ from native (5 cases), route to the parser
+(main's).**
+- `YieldStarExpression2_es6`: `parse_assignment_expression_worker` parses
+  every `yield` keyword as a `YieldExpression`. Native's `isYieldExpression`
+  (`parser.go:4150`) does so only in a yield context or when the next token
+  is an identifier, keyword or literal on the same line; otherwise `yield`
+  is an identifier (TS2304 *Cannot find name 'yield'*, and TS1212 in strict
+  code).
+- `parserSuperExpression2`: native's `parseSuperExpression` parses
+  `super<T>`'s type arguments, reports TS2754 and **drops** them when a call
+  follows, so `T` is never in the tree. The port keeps them and resolves `T`.
+- `arrowFunctionsMissingTokens`: `var c = (x) { };` is an arrow function
+  with a missing `=>` natively (TS1005 *'=>' expected*, `x` a parameter);
+  the port parses a parenthesised expression (TS1005 *',' expected*) and
+  resolves `x`. Same code, different message, which is why the verdict sees
+  only the TS2304.
+- `bigintArbirtraryIdentifier`: `import { 0n as foo } from "./foo"` recovers
+  differently; native never reaches `foo` (TS1003, TS1141, TS1128, TS1434 and
+  TS2304 on `from`). The case's `badExport.ts` row is already fixed by diff 6.
+- `importDeferTypeConflict2`: `import defer type * as ns1 from "./a"`; the
+  port reports TS2304 on `as`, which native's recovery never resolves.
+
+**H. Module augmentation (2 cases), route to `tsr-2zk.38`.**
+`moduleAugmentationInAmbientModule1` and `…5`: a name imported inside
+`declare module "Map"` (or `"array"`) is used inside an augmentation nested
+in that module (`module "Observable" { interface … { foo(): Cls } }`,
+`global { interface Array<T> { getA(): A } }`). Native resolves it through
+the enclosing ambient module's locals; the port reports TS2552. Not taken,
+per the brief.
+
+**Pre-existing gaps seen while probing, not in these cases:** TS2303
+(circular alias) for `namespace N { export { inner } }`; TS1003 for `export
+{ "str" as s2 }` without a module specifier; TS7006 under the conformance
+harness's default `strict` differs from tsgo's test runner for a JS arrow
+parameter (§6's probe).
