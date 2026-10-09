@@ -1,0 +1,122 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 9ecc0b6..aa72380 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -2577,9 +2577,11 @@ impl<'a, 'n> Checker<'a, 'n> {
+         {
+             return name;
+         }
++        // `getNameOfSymbolAsWritten`: the declaration's name as written.
++        let own = self.symbol_name_as_written(symbol);
+         match self.symbol_chain(symbol, reference, SymbolFlags::VALUE, 0) {
+             Some(prefix) => format!("{prefix}{own}"),
+-            None => own.to_string(),
++            None => own,
+         }
+     }
+ 
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index f4415e6..6b4ce49 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -7347,7 +7347,10 @@ impl<'a> Checker<'a, '_> {
+                 tsr_ast::Node::Identifier(identifier) if identifier.text.is_empty() => {
+                     Some("(Missing)".to_string())
+                 }
+-                tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
++                tsr_ast::Node::Identifier(identifier) => Some(match identifier.node_id {
++                    Some(id) => self.identifier_text_as_written(id, identifier.text),
++                    None => identifier.text.to_string(),
++                }),
+                 _ => None,
+             });
+         // §305: an anonymous class expression's INSTANCE type takes the same
+diff --git a/crates/tsr-checker/src/printing.rs b/crates/tsr-checker/src/printing.rs
+index b19d85c..574ee86 100644
+--- a/crates/tsr-checker/src/printing.rs
++++ b/crates/tsr-checker/src/printing.rs
+@@ -847,6 +847,62 @@ impl Checker<'_, '_> {
+ }
+ 
+ impl<'a> Checker<'a, '_> {
++    /// `scanner.DeclarationNameToString` (`scanner/utilities.go:76`) for an
++    /// identifier name: the name's **source text**, which keeps a unicode
++    /// escape the scanner cooked out of the identifier's value
++    /// (`class C\u0032` prints `C\u0032`; `parserClassDeclaration23`). The
++    /// node builder prints a symbol's name through it
++    /// (`getNameOfSymbolAsWritten`, `nodebuilderimpl.go:1002`).
++    ///
++    /// The cooked text is the answer whenever the source ends with it, which
++    /// is every name written without an escape, so the file text is read
++    /// only to confirm that. A node span starts at its leading trivia, so
++    /// the written name is the trailing run of identifier characters and
++    /// escape syntax. No host source text keeps the cooked text.
++    pub(crate) fn identifier_text_as_written(&self, name: tsr_ast::NodeId, cooked: &str) -> String {
++        let written = self
++            .source_file_of(name)
++            .and_then(|file| self.module_host?.source_text(file, self.nodes))
++            .and_then(|text| {
++                let span = self.nodes.span(name);
++                text.get(span.start as usize..span.end as usize)
++            });
++        let Some(written) = written.filter(|written| !written.ends_with(cooked)) else {
++            return cooked.to_string();
++        };
++        let start = written
++            .char_indices()
++            .rev()
++            .find(|&(_, c)| !(c.is_alphanumeric() || matches!(c, '_' | '$' | '\\' | '{' | '}')))
++            .map_or(0, |(index, c)| index + c.len_utf8());
++        let tail = &written[start..];
++        if tail.contains('\\') { tail.to_string() } else { cooked.to_string() }
++    }
++
++    /// `getNameOfSymbolAsWritten`'s declaration arm
++    /// (`nodebuilderimpl.go:987-1002`) for a symbol whose first named
++    /// declaration is an identifier: that name as written
++    /// ([`Self::identifier_text_as_written`]). Any other shape keeps the
++    /// symbol's name.
++    pub(crate) fn symbol_name_as_written(&self, symbol: tsr_binder::SymbolId) -> String {
++        let record = self.binder.symbols().get(symbol);
++        let name = record
++            .declarations
++            .iter()
++            .find_map(|&declaration| self.node_map.get(declaration)?.name_id());
++        match name.and_then(|id| self.node_map.get(id)) {
++            Some(tsr_ast::Node::Identifier(identifier))
++                if identifier.text == record.name && !identifier.text.is_empty() =>
++            {
++                match identifier.node_id {
++                    Some(id) => self.identifier_text_as_written(id, identifier.text),
++                    None => identifier.text.to_string(),
++                }
++            }
++            _ => record.name.to_string(),
++        }
++    }
++
+     /// `addPropertyToElementList`'s accessor arm (`nodebuilderimpl.go:2524`):
+     /// an accessor property whose read type differs from its write type
+     /// (`getWriteTypeOfSymbol`) prints as its getter and setter signatures,
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 31f1444..2c5ea71 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -3751,7 +3751,6 @@ impl<'a> Checker<'a, '_> {
+             }
+             return self.intrinsics.error;
+         }
+-        let name = self.binder.symbols().get(symbol).name;
+         // `shouldEmitTypeOfSymbol` tests enum and value module *after* class but
+         // as an `||`, so a merged `function f() {} namespace f {}` symbol takes
+         // the `typeof` form. Ordering the class test first therefore changes
+@@ -3777,7 +3776,8 @@ impl<'a> Checker<'a, '_> {
+         if merged_flags
+             .intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS)
+         {
+-            let printed = format!("typeof {name}");
++            // `getNameOfSymbolAsWritten`: the declaration's name as written.
++            let printed = format!("typeof {}", self.symbol_name_as_written(symbol));
+             // A `TypeQueryNode`. Upstream gives it `TypePrecedenceTypeOperator`
+             // so that it parenthesises in *postfix* position — `(typeof C)[]` —
+             // and not as a union constituent.

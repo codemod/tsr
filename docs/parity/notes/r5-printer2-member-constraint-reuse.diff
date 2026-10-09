@@ -1,0 +1,15 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 9ecc0b6..580e4d6 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -2616,6 +2616,10 @@ impl<'a, 'n> Checker<'a, 'n> {
+                     out.push_str(" extends ");
+                     if let Some(written) = &parameter.written_constraint {
+                         out.push_str(written);
++                    } else if let Some(text) = parameter.resolved_type.and_then(|parameter| {
++                        self.reused_constraint_text(parameter, constraint, Some(reference))
++                    }) {
++                        out.push_str(&text);
+                     } else {
+                         let rendered = self
+                             .type_to_string_at(constraint, reference)

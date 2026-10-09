@@ -317,6 +317,30 @@ pub(crate) enum Member {
     },
 }
 
+/// The printed name of a property whose binder-merged symbol has two written
+/// declarations spelled `previous` and `current` (the same escaped name).
+///
+/// `getPropertyNameNodeForSymbol` (`nodebuilderimpl.go:2426`) classifies the
+/// symbol's name once, over **every** declaration: it is string-named only
+/// if every declaration's name is a string literal (`isStringNamed`,
+/// `:2405`), and single-quoted only if every one is single-quoted
+/// (`:2421`). A numeric name that is not string-named prints as a numeric
+/// literal (`classifyPropertyName`, `:2384`). So `{ "0": '', 0: '' }`
+/// prints `{ 0: string; }` (`numericStringNamedPropertyEquivalence`).
+///
+/// Each spelling already carries its own classification: an unquoted one
+/// (a numeric or identifier name) is not string-named, a `"` one is
+/// string-named but not single-quoted. Folding the declarations pairwise
+/// keeps the classification the whole list would give.
+fn merged_written_name<'n>(previous: &'n str, current: &'n str) -> &'n str {
+    let quoted = |name: &str| name.starts_with('"') || name.starts_with('\'');
+    match (quoted(previous), quoted(current)) {
+        (true, false) => current,
+        (true, true) if current.starts_with('"') => current,
+        _ => previous,
+    }
+}
+
 /// The structural form upstream's printer emits for an anonymous object type.
 ///
 /// `{ a: string; }` — one space inside each brace, `; ` after every member
@@ -451,12 +475,14 @@ pub(crate) fn signature_member_text(
         // The node-reuse rule on `Parameter::written_text`
         // (`crate::node_reuse`), for a printer with no print site.
         let parameter_type = checker.parameter_type(parameter);
-        match parameter
+        if let Some(written) = parameter
             .written_text
             .and_then(|written| checker.site_free_annotation_text(written, parameter_type))
         {
-            Some(written) => out.push_str(&written),
-            None => out.push_str(&checker.type_to_string(parameter_type)),
+            out.push_str(&written);
+        } else {
+            let serialized = checker.serialized_parameter_type(parameter, parameter_type);
+            out.push_str(&checker.type_to_string(serialized));
         }
     }
     out.push_str("): ");
@@ -2151,12 +2177,13 @@ impl Checker<'_, '_> {
                         // name, so `26` and `"26"` are one entry. A computed
                         // entry carries its own `nameType` (`[+1]` prints `1`,
                         // `[-1]` prints `[-1]`); a written name prints from the
-                        // binder-merged symbol, whose first spelling wins.
+                        // binder-merged symbol ([`merged_written_name`]).
                         let previous = &typed_properties[index];
                         if previous.printed_name != name {
                             if !matches!(name_node, tsr_ast::PropertyName::ComputedPropertyName(_))
                             {
-                                property.printed_name.clone_from(&previous.printed_name);
+                                property.printed_name =
+                                    merged_written_name(&previous.printed_name, &name).to_string();
                             }
                             replaced_name = Some((
                                 previous.printed_name.clone(),

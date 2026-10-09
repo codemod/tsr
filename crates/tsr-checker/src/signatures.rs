@@ -103,6 +103,18 @@ mod parameter {
         /// computed *from*. See [`crate::node_reuse`] for the decision and the
         /// printer.
         pub written_text: Option<WrittenAnnotation>,
+        /// The declaration carries a `?` token: `isOptionalDeclaration`
+        /// (`utilities.go:299`), so `getTypeForVariableLikeDeclaration`
+        /// (`checker.go:16675`) adds optionality to the symbol's type under
+        /// strictNullChecks. The slot holds the type **without** it (the
+        /// written annotation's), so a printer that serializes the type
+        /// rather than reusing the annotation adds it back
+        /// ([`crate::checker::Checker::serialized_parameter_type`]).
+        ///
+        /// Distinct from [`Self::optional`], which is `isOptionalParameter`
+        /// and also holds for a trailing initializer, whose symbol type
+        /// takes no `undefined`.
+        pub question: bool,
     }
 
     impl Parameter {
@@ -115,14 +127,28 @@ mod parameter {
             r#type: TypeId,
             written_text: Option<WrittenAnnotation>,
         ) -> Self {
-            Self { name, optional, rest, slot: Slot::Resolved(r#type), written_text }
+            Self {
+                name,
+                optional,
+                rest,
+                slot: Slot::Resolved(r#type),
+                written_text,
+                question: false,
+            }
         }
 
         /// A parameter whose type is its symbol's, read on demand
         /// ([`Slot::Symbol`]).
         #[must_use]
         pub(crate) fn of_symbol(name: String, rest: bool, symbol: SymbolId) -> Self {
-            Self { name, optional: false, rest, slot: Slot::Symbol(symbol), written_text: None }
+            Self {
+                name,
+                optional: false,
+                rest,
+                slot: Slot::Symbol(symbol),
+                written_text: None,
+                question: false,
+            }
         }
 
         /// Replace the slot with a resolved type — an instantiation's or a
@@ -1699,8 +1725,26 @@ impl<'a> Checker<'a, '_> {
         // The index upstream compares is the one in the *declaration's* list,
         // which includes any `this` parameter.
         let offset = usize::from(this_parameter.is_some());
+        // Which `?` parameters' symbol types carry the optionality
+        // `addOptionalityEx` adds ([`Parameter::question`]). A declaration's
+        // parameter takes it only where `getTypeForVariableLikeDeclaration`
+        // answers from an annotation or an initializer (`checker.go:16693`,
+        // `:16742`); an unannotated name, or a binding pattern's implied type
+        // (`:16791`), returns without it. A function expression, arrow or
+        // object-literal method has its parameters assigned by
+        // `assignParameterType` (`checker.go:10418`), which adds it to
+        // whatever type it assigns.
+        let assigned_parameters = match self.nodes.kind(declaration) {
+            SyntaxKind::FunctionExpression | SyntaxKind::ArrowFunction => true,
+            SyntaxKind::MethodDeclaration => self.nodes.parent(declaration).is_some_and(|parent| {
+                self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+            }),
+            _ => false,
+        };
         for (index, node) in parameter_nodes.iter().enumerate().skip(offset) {
             let Some(slot) = parameters.get_mut(index - offset) else { continue };
+            slot.question = node.question_token.is_some()
+                && (node.r#type.is_some() || node.initializer.is_some() || assigned_parameters);
             if node.question_token.is_some() || slot.optional {
                 slot.optional = true;
             } else if node.initializer.is_some() {
@@ -1994,6 +2038,45 @@ impl<'a> Checker<'a, '_> {
             parameter::Slot::Resolved(r#type) => r#type,
             parameter::Slot::Symbol(symbol) => self.get_type_of_symbol(symbol),
         }
+    }
+
+    /// The type a printer serializes for `parameter` when it does **not**
+    /// reuse the written annotation.
+    ///
+    /// `symbolToParameterDeclaration` (`nodebuilderimpl.go:1654`) hands
+    /// `getTypeOfSymbol` to `serializeTypeForDeclaration` (`:2181`). For a
+    /// `?` parameter that type carries the `undefined` that
+    /// `getTypeForVariableLikeDeclaration` adds (`checker.go:16675`,
+    /// `addOptionalityEx`), and the reuse arm forgives exactly that
+    /// difference (`pseudoTypeEquivalentToType`'s optional flag, `:2249`).
+    /// So the written annotation prints bare, but an instantiated parameter
+    /// — whose annotation no longer matches — prints `X | undefined`:
+    /// `sort(compareFn?: ((a: T, b: T) => number) | undefined)`.
+    ///
+    /// The slot holds the annotation's type without optionality (see
+    /// [`Parameter::question`]), so the optionality is added here, at the
+    /// one point a printer leaves the reuse arms. A union this port's
+    /// printing guard refuses (`errorType`) keeps the slot's type.
+    pub(crate) fn serialized_parameter_type(
+        &mut self,
+        parameter: &Parameter,
+        parameter_type: TypeId,
+    ) -> TypeId {
+        // The reuse arm's gate is type equivalence alone: an equivalent
+        // annotation prints through `pseudoTypeToNodeWithCheckerFallback`,
+        // which re-serializes only the sub-nodes it refuses, never adding
+        // the optionality. A printer here that fell through only because its
+        // site visitor refused the node keeps the bare type.
+        if !parameter.question
+            || !self.strict_null_checks
+            || parameter.written_text.is_some_and(|written| {
+                written.is_equivalent_to(parameter_type, self.intrinsics.error)
+            })
+        {
+            return parameter_type;
+        }
+        let optional = self.get_optional_type(parameter_type, false);
+        if optional == self.intrinsics.error { parameter_type } else { optional }
     }
 
     /// The type of one signature parameter for a read that cannot resolve —
@@ -7770,7 +7853,8 @@ impl<'a> Checker<'a, '_> {
             {
                 out.push_str(&text);
             } else {
-                let text = render(self, parameter_type);
+                let serialized = self.serialized_parameter_type(parameter, parameter_type);
+                let text = render(self, serialized);
                 out.push_str(&text);
             }
             if out.len() > separator_at {
@@ -7900,12 +7984,14 @@ impl<'a> Checker<'a, '_> {
             }
             out.push_str(&parameter.name);
             out.push_str(if parameter.optional { "?: " } else { ": " });
-            match parameter
+            if let Some(written) = parameter
                 .written_text
                 .and_then(|written| self.site_free_annotation_text(written, parameter_type))
             {
-                Some(written) => out.push_str(&written),
-                None => out.push_str(&self.type_to_string(parameter_type)),
+                out.push_str(&written);
+            } else {
+                let serialized = self.serialized_parameter_type(parameter, parameter_type);
+                out.push_str(&self.type_to_string(serialized));
             }
             emitted = true;
         }
