@@ -5274,7 +5274,7 @@ impl<'a> Checker<'a, '_> {
             // can be a print-only variadic, and resolving every alias body
             // eagerly to find out re-enters this road on unrelated shapes.
             && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type.and_then(Self::skip_type_parentheses)
-            && body_tuple.elements.iter().any(|&element| Self::is_variadic_tuple_element(element))
+            && body_tuple.elements.iter().any(Self::tuple_element_is_rest)
             && self.variadic_alias_in_progress.insert(symbol)
         {
             let body = self.get_type_from_type_node(body_node);
