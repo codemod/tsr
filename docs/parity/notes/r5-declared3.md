@@ -243,3 +243,62 @@ caches unconditionally, `:22007`) and `r5-typetriage-enum-member-ascii-escape.di
 (`quote_ascii` at the two `(typeof {name})[…]` enum-member sites) were
 both folded by r5-declared2 in `62d62f3`, which landed in batch AC. Nothing
 to apply. Their measurements are in [`r5-declared2.md`](r5-declared2.md).
+
+## 4. `.1078` leftovers
+
+### 4.1 `.1034`(e): operands when only the extends type is generic
+
+getConditionalType (`:24300`) defers a root when its check type *or* its
+(inferred) extends type is generic. `conditional_inference_operands` (read by
+inferToConditionalType's pairing in `inference.rs` and by the relater's
+conditional arms) answered only for a generic check. r5-declared §1.4 gave
+the reason: for a concrete check, reading extends again can resolve a
+recursive `infer` target a second time.
+
+**Port.** A concrete check now has operands when the root declares no
+`infer` and its extends type is generic. A root declares `infer` exactly when
+the binder filed an infer type parameter in the conditional's locals, as
+bindTypeParameter does, so the test is `binder.locals(root)` being non-empty.
+That hazard is the only reason the decline existed, and roots with `infer`
+keep it.
+
+**Measured** unfiltered, against the frozen base `d91243e` (§1–§2 under it):
+no verdict and no printed text moved against §2's dumps, on either dump.
+That makes it 0 losses and 0 gains. The relater's conditional arms do not yet
+decide a pair through these operands in any corpus case. The arm does run:
+domain-model Ir 1,153,379,821 → 1,154,017,055 (+0.055%), generic-imports
+flat (342,894,718 → 342,894,711). Median child CPU vs the base binary, 21
+samples: domain-model 1.011, generic-imports 0.990; `diagnostics_match: true`.
+`slowcases` clean. It lands because it narrows a decline toward native at no
+cost. The unit test `concrete_check_roots_have_operands_when_only_extends_is_generic`
+pins both sides: `string extends T` has operands, and
+`string extends [infer U, T]` keeps `None`.
+
+### 4.2 Not converted
+
+- **`singletonLabeledTuple:0:17`** (`AliasRest extends [unknown] ? true :
+  false` with `type AliasRest = [...p: number[]]`; native `false`). The
+  alias's tuple road (`get_type_from_tuple_type_node`, §79.1) mints the name
+  `AliasRest` and copies the structural tuple's side tables onto it. Here
+  the structural answer is an *array* normalization, which has no tuple side
+  tables, so the name carries nothing a relation can read, and the
+  conditional defers. Native's deferred reference resolves to a tuple
+  target with one Rest element, which is not assignable to `[unknown]`. The
+  fix is for the named copy to carry the array identity, through the
+  completed array-alias body `index_signatures.rs` already reads
+  (`completed_original_array_alias_body`). That file is not mine. Not
+  attempted.
+- **`namedTupleMembersErrors` 11/12** (`type RecusiveRestUnlabeled = [string,
+  ...RecusiveRestUnlabeled]`; native TS2456 and declared `any`). The rest
+  operand is a reference, so the element is variadic and native builds it
+  with createNormalizedTupleType. That reads the operand's type, re-enters
+  getDeclaredTypeOfTypeAlias, and pushTypeResolution reports the circularity.
+  This port keeps a rest over an unresolved reference print-only
+  (`tuple_type_node_structural`), so the declared-type computation never
+  re-enters and prints `[string, ...RecusiveRestUnlabeled]`. The cause is in
+  `declared.rs`, not `circular_alias.rs` (which handles import aliases). The
+  case cannot convert here either way: it also misses five parser-grammar
+  diagnostics (TS5085/5086/5087/17019/2574) and reports two extra TS1110.
+  Not attempted in this session.
+- **`namedTupleMembersErrors` 8** (`[first: string, rest: ...string[]?]`) is
+  the parser's postfix-`...` form, as r5-declared2 §2.5 said.

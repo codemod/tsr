@@ -8495,28 +8495,50 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// inferToConditionalType pairs the four operands of two deferred roots.
-    /// Only read extends when the ordinary evaluator deferred its check before
-    /// reaching that operand; concrete-check roots can already have resolved a
-    /// recursive infer target and must not resolve it a second time here.
+    /// A root is deferred when its check or its extends type is generic
+    /// (getConditionalType). Read extends for a concrete check only when the
+    /// root declares no `infer`: such a root has already inferred against
+    /// extends, and resolving a recursive infer target a second time here is
+    /// the hazard (`r5-declared3.md` §4).
     pub(crate) fn conditional_inference_operands(&mut self, id: TypeId) -> Option<[TypeId; 4]> {
         if let Some(info) = self.mapped_conditionals.get(&id) {
             return Some(info.operands);
         }
         self.with_conditional_inference_node(id, |checker, node| {
             let check = checker.get_type_from_type_node(node.check_type?);
-            if checker.signature_types.contains_key(&check)
-                || !(checker
-                    .store
-                    .get(check)
-                    .flags
-                    .intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-                    || checker.mentions_registered_type_parameter(check))
-            {
+            if checker.signature_types.contains_key(&check) {
                 return None;
             }
+            let generic = |checker: &mut Self, ty: TypeId| {
+                checker.store.get(ty).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                    || checker.mentions_registered_type_parameter(ty)
+            };
+            let extends = if generic(checker, check) {
+                checker.get_type_from_type_node(node.extends_type?)
+            } else {
+                // `.1034`(e): getConditionalType (checker.go:24300) also
+                // defers a concrete check whose extends type is generic, so
+                // the root has operands. Reading extends is safe only for a
+                // root that declares no `infer` (the binder files those in
+                // the conditional's locals, as bindTypeParameter does): a
+                // concrete check has already inferred against extends, and a
+                // second read can resolve a recursive infer target again.
+                if node
+                    .node_id
+                    .and_then(|id| checker.binder.locals(id))
+                    .is_some_and(|locals| !locals.is_empty())
+                {
+                    return None;
+                }
+                let extends = checker.get_type_from_type_node(node.extends_type?);
+                if !generic(checker, extends) {
+                    return None;
+                }
+                extends
+            };
             Some([
                 check,
-                checker.get_type_from_type_node(node.extends_type?),
+                extends,
                 checker.get_type_from_type_node(node.true_type?),
                 checker.get_type_from_type_node(node.false_type?),
             ])
@@ -10283,6 +10305,45 @@ mod conditional_error_tests {
         // The guard sits before the memo, as instantiateTypeWithAlias' guard
         // sits before getConditionalTypeInstantiation's lookup.
         assert_eq!(checker.evaluate_conditional_alias(symbol, &[string], None), None);
+    }
+
+    /// `.1034`(e), `r5-declared3.md` §4: a root whose check is concrete and
+    /// whose extends type is generic is deferred natively and has operands;
+    /// one that declares `infer` keeps the decline.
+    #[test]
+    fn concrete_check_roots_have_operands_when_only_extends_is_generic() {
+        let arena = tsr_core::Arena::new();
+        let source = "type F<T> = string extends T ? 1 : 2;\n\
+                      type G<T> = string extends [infer U, T] ? U : 2;";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let symbol_of = |index: usize| {
+            let tsr_ast::Statement::TypeAliasDeclaration(alias) =
+                parsed.source_file.statements[index]
+            else {
+                panic!("alias")
+            };
+            bound.symbol_of(alias.node_id.unwrap()).unwrap()
+        };
+        let (f, g) = (symbol_of(0), symbol_of(1));
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let t = checker.local_type_parameter_types_of(f).unwrap()[0].0;
+        let reference = checker.create_type_reference(f, vec![t]);
+        let [check, extends, yes, no] =
+            checker.conditional_inference_operands(reference).expect("operands");
+        assert_eq!(check, checker.intrinsics.string);
+        assert_eq!(extends, t);
+        assert_eq!(checker.type_to_string(yes), "1");
+        assert_eq!(checker.type_to_string(no), "2");
+        let u = checker.local_type_parameter_types_of(g).unwrap()[0].0;
+        let reference = checker.create_type_reference(g, vec![u]);
+        assert_eq!(checker.conditional_inference_operands(reference), None);
     }
 
     /// `flattened_alias_bindings` answers exactly what the `FxHashMap`
