@@ -325,6 +325,85 @@ batch's totals are in §2.8.
 Unit test: `tests/qualified_reference_arity.rs` (a required parameter, and a
 defaulted one that still reports TS2454), in the diff.
 
+### 2.7 A repeated `@import` binding is TS2300 — binder diff, no new file
+
+Case on the base: `importTag4`, missing TS2300 at `/foo.js(2,14)` and
+`(6,14)`: two `@import { Foo } from "./types"` tags in one JS file.
+
+Native: the reparser turns each `@import` tag into a `JSImportDeclaration`,
+and the binder binds each binding with `declareSymbolAndAddToSymbolTable(…,
+SymbolFlagsAlias, SymbolFlagsAliasExcludes)` into the file's locals
+(`declareModuleMember`, `binder.go:380`). The second binding conflicts with
+the first, and `declareSymbol` reports TS2300 on both names.
+
+TSR binds `@import` tags directly (`binder.rs` §269), through
+`declare_jsdoc_symbol`, which merges into an existing type alias or type
+parameter and otherwise creates a fresh symbol and keeps the first one in
+the table: no excludes test, so no report. The diff
+(`r6-smallcodes5-jsdoc-import-duplicates.diff`, `binder.rs`, main's) adds
+`declare_jsdoc_import_binding`, which records the binding's name node (the
+position `GetNameOfDeclaration` gives) and calls the ordinary
+`declare_into(Destination::Locals, …, ALIAS, …)`, so the alias excludes and
+the TS2300/TS2451 choice are the written import's. There is no new file: the
+change is the binder's own declaration path, called from three sites.
+
+A behaviour change beyond the report: an `@import` binding that shares a
+name with a non-alias local (a function, say) now merges into it, as the
+written `import` does, where it used to stay a separate symbol behind it.
+Upstream merges too (`AliasExcludes` is `Alias` only). No case moved because
+of it.
+
+Probe (the case's two files): native and TSR with the diff report TS2300 at
+(2,14) and (6,14).
+
+Unit test: `tsr-binder/tests/jsdoc_import_duplicates.rs`, in the diff.
+
+### 2.8 The receiver check runs in a file with parse errors — `check.rs` diff, no new file
+
+Cases on the base: `optionalChainWithInstantiationExpression1` (es2019,
+es2020), missing TS2532 at (12,1) on `a?.b<c>.d`. That line also has the
+parser's TS1477 (`parser.go:5408`), so the file has a parse error.
+
+Native: `checkPropertyAccessExpression` checks its receiver with
+`checkNonNullExpression`, an ordinary `c.error` with no parse-error test.
+`a?.b<c>` is an instantiation expression, which ends the optional chain, so
+`.d` reads a receiver typed `typeof A.b | undefined`, which reports.
+
+TSR: `check_null_or_undefined_receiver` (`check.rs`, main's) returned at
+entry for any file with parse errors. That gate has no upstream counterpart
+and no recorded reason at its site. The diff removes it. The TSR CLI, like
+native's, prints only syntactic diagnostics for such a file, so the CLI
+cannot show the row; the dump and the unit test can.
+
+Unit test: `tests/receiver_parse_errors.rs`, in the diff.
+
+### 2.9 §2.6–§2.8 measured
+
+The three diffs were applied together on §2.1–§2.5. Their codes are
+disjoint (TS2454 and type lines; TS2300; the receiver codes TS2532/TS18048/
+TS18050), so each changed row is attributed by code. Unfiltered against the
+frozen base, the seven-diff stack reads:
+
+- Diagnostics: 5,543 RIGHT and 5,597 EMPTY_RIGHT (11,140 right, +14 on the
+  base's 11,126), zero losses. The three new diffs add five cases:
+  `genericCloduleInModule2` and `genericTypeReferenceWithoutTypeArgument`
+  (§2.6), `importTag4` (§2.7), `optionalChainWithInstantiationExpression1`
+  es2019 and es2020 (§2.8).
+- Rows that moved toward the baseline in cases that stay WRONG:
+  `genericTypeReferenceWithoutTypeArgument2` (§2.6, one extra TS2352 gone),
+  `functionsMissingReturnStatementsAndExpressions(target=es2015)` (§2.8,
+  its missing TS18050 at (152,15) now reported; the file has a parse error),
+  and `typeofThis` (§2.2).
+- Types dump: 549,862 RIGHT (+9, all §2.6), zero losses.
+- slowcases: clean on both dumps.
+- Ir: domain-model 1,090,875,735, generic-imports 343,071,930, inside the
+  base's own spread (§2.5). CLI output is byte-identical on both projects.
+
+`cargo clippy -p tsr-checker --all-targets -- -D warnings` flags only
+pre-existing code (`signatures.rs`, `enum_initializer.rs`,
+`index_signatures.rs`, `templates.rs`, `unique_symbols.rs`, `members.rs`);
+`cargo fmt --all --check` is clean, with every diff applied and without.
+
 ## 3. Apply order
 
 | # | Diff | New file | Cases |
@@ -334,6 +413,8 @@ defaulted one that still reports TS2454), in the diff.
 | 3 | `r6-smallcodes5-implemented-alias.diff` (`heritage_conformance.rs`) | `implemented_alias.rs` | +1 |
 | 4 | `r6-smallcodes5-import-type-constraints.diff` (`check.rs`, `constraints.rs`) | `import_type_constraints.rs` | +1 |
 | 5 | `r6-smallcodes5-qualified-reference-arity.diff` (`declared.rs`) | `qualified_reference_arity.rs` | +2, +9 type lines |
+| 6 | `r6-smallcodes5-jsdoc-import-duplicates.diff` (`binder.rs`) | none | +1 |
+| 7 | `r6-smallcodes5-receiver-parse-errors.diff` (`check.rs`) | none | +2 |
 
-Each later diff is relative to the ones before it. Stacked, the four diffs
+Each later diff is relative to the ones before it. Stacked, the seven diffs
 reproduce the measured tree byte for byte.
