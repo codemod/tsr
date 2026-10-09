@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1722/1928 (89.32%)
-Assertion lines: 76924/78552 (97.93%)  — a gradient, not a pass rate
-Failed         : 206
+Passed         : 1728/1928 (89.63%)
+Assertion lines: 76936/78552 (97.94%)  — a gradient, not a pass rate
+Failed         : 200
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 206 failures:
+First 100 of 200 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -186,16 +186,10 @@ conformance/arrowFunctionContexts(alwaysstrict=true)
   arrowFunctionContexts.ts: >window.setTimeout : (handler: TimerHandler, timeout?: number, ...arguments: any[]) => number — expected >window.setTimeout : ((handler: TimerHandler, timeout?: number, ...arguments: any[]) => number) & ((handler: TimerHandler, timeout?: number, ...arguments: any[]) => number)
 conformance/asyncArrowFunctionCapturesThis_es5(target=es2015)
   asyncArrowFunctionCapturesThis_es5.ts: >fn : error — expected >fn : () => Promise<this>
-conformance/asyncAwaitIsolatedModules_es5(target=es2015)
-  asyncAwaitIsolatedModules_es5.ts: >mp : any — expected >mp : MyPromise<number>
 conformance/asyncFunctionDeclaration15_es5(target=es2015)
   asyncFunctionDeclaration15_es5.ts: >fn13 : any — expected >fn13 : () => Promise<any>
 conformance/asyncGetter_es5(target=es2015)
   asyncGetter_es5.ts: >foo : any — expected >foo : void
-conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=false)
-  builtinIteratorReturn.ts: >i13 : IterableIterator<number, any> — expected >i13 : IterableIterator<number>
-conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=true)
-  builtinIteratorReturn.ts: >i13 : IterableIterator<number, any> — expected >i13 : IterableIterator<number>
 conformance/classStaticBlock22(target=es2022)
   classStaticBlock22.ts: 62 assertion(s), expected 61
 conformance/classStaticBlock22(target=esnext)
@@ -210,12 +204,6 @@ conformance/declarationFileForHtmlImport(allowarbitraryextensions=false)
   file.ts: >mod : typeof mod — expected >mod : any
 conformance/decoratorOnClassMethod11(target=es2015)
   decoratorOnClassMethod11.ts: >(this.decorator) : (target: Object, key: string) => void — expected >(this.decorator) : any
-conformance/defaultExportsCannotMerge01(target=es2015)
-  m2.ts: >x : any — expected >x : Entity
-conformance/defaultExportsCannotMerge02(target=es2015)
-  m2.ts: >x : any — expected >x : Entity
-conformance/defaultExportsCannotMerge03(target=es2015)
-  m2.ts: >x : any — expected >x : Entity
 conformance/destructuringVariableDeclaration1ES5iterable(target=es2015)
   destructuringVariableDeclaration1ES5iterable.ts: >[3, false, { t1: false, t2: "hello" }] : [number, boolean, { t1: boolean; t2: string; }] — expected >[3, false, { t1: false, t2: "hello" }] : [number, false, { t1: false; t2: string; }]
 conformance/dynamicImportDefer(module=commonjs)
@@ -228,3 +216,15 @@ conformance/dynamicImportDefer(module=esnext)
   b.ts: 13 assertion(s), expected 12
 conformance/dynamicImportDefer(module=nodenext)
   b.ts: 13 assertion(s), expected 12
+conformance/dynamicImportDefer(module=preserve)
+  b.ts: 13 assertion(s), expected 12
+conformance/emitArrowFunctionWhenUsingArguments08(alwaysstrict=true,target=es2015)
+  emitArrowFunctionWhenUsingArguments08.ts: >a : () => any — expected >a : () => (arguments: any) => any
+conformance/emitArrowFunctionWhenUsingArguments08_ES6(alwaysstrict=true)
+  emitArrowFunctionWhenUsingArguments08_ES6.ts: >a : () => any — expected >a : () => (arguments: any) => any
+conformance/emitCompoundExponentiationAssignmentWithIndexingOnLHS3(target=es2015)
+  emitCompoundExponentiationAssignmentWithIndexingOnLHS3.ts: >object : error — expected >object : { _0: number; 0: number; }
+conformance/emptyVariableDeclarationBindingPatterns01_ES5(target=es2015)
+  emptyVariableDeclarationBindingPatterns01_ES5.ts: >f : ({}?: any, []?: any, { p: {} }?: any) => any — expected >f : ({}?: any, []?: any, { p: {} }?: any) => ({}?: any, []?: any, { p: {} }?: any) => any
+conformance/emptyVariableDeclarationBindingPatterns01_ES5iterable(target=es2015)
+  emptyVariableDeclarationBindingPatterns01_ES5iterable.ts: >f : ({}?: any, []?: any, { p: {} }?: any) => any — expected >f : ({}?: any, []?: any, { p: {} }?: any) => ({}?: any, []?: any, { p: {} }?: any) => any
