@@ -1587,6 +1587,22 @@ impl Relater<'_, '_, '_> {
                 return RelationResult::NotRelated;
             }
         }
+        // The rest of that arm (structuredTypeRelatedToWorker, relater.go:3762
+        // then :3864): the apparent `{}` meets an object target with members
+        // through the structural conjuncts, so `object -> { a?: string }`
+        // relates and `object -> { (): void }` does not. `sourceIsPrimitive`
+        // is false for `object`, so the index conjunct keeps its
+        // `[x: string]: any` shortcut. A generic mapped target keeps its own
+        // arm (relater.go:3593), and a qualified alias mint's flags are not
+        // evidence of an object.
+        if s.contains(TypeFlags::NON_PRIMITIVE)
+            && t.contains(TypeFlags::OBJECT)
+            && self.has_members(target)
+            && !self.is_generic_mapped_target(target)
+            && !self.is_qualified_alias_mint(target)
+        {
+            return self.non_primitive_source_related_to(target);
+        }
         // Two object types with members reach the structural arm; upstream's
         // gate is `source.flags&TypeFlags::StructuredOrInstantiable != 0 &&
         // target.flags&...`, and `Named { members: Some(_) }` is the whole of
@@ -1839,6 +1855,30 @@ impl Relater<'_, '_, '_> {
             }
             RelationResult::Unknown
         }
+    }
+
+    /// structuredTypeRelatedToWorker's structural arm (relater.go:3864) for
+    /// the non-primitive `object`, whose apparent type is the empty object
+    /// type (getApparentType, checker.go): properties, then call and
+    /// construct signatures, then index infos, each a conjunct that stops
+    /// the walk on False.
+    fn non_primitive_source_related_to(&mut self, target: TypeId) -> RelationResult {
+        let empty = self.checker.intrinsics.empty_object;
+        let properties = self.properties_related_to(empty, target);
+        if properties == RelationResult::NotRelated {
+            return properties;
+        }
+        let signatures = if self.call_or_construct_bearing(target) {
+            self.related_signatures(empty, target).unwrap_or(RelationResult::Unknown)
+        } else {
+            RelationResult::Related
+        };
+        if signatures == RelationResult::NotRelated {
+            return signatures;
+        }
+        let indexes =
+            self.related_index_signatures(empty, target).unwrap_or(RelationResult::Unknown);
+        RelationResult::all([properties, signatures, indexes])
     }
 
     /// `isValidOverrideOf` (`checker.go:11928`) for a non-synthetic source
