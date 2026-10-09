@@ -5683,8 +5683,8 @@ impl<'a> Checker<'a, '_> {
     /// never attaches `newAlias` to a non-union answer, so a generic alias whose
     /// body references `symbol` declares the instantiation as built
     /// (`getTypeFromTypeAliasReference`, checker.go:23580). Native: a type
-    /// parameter answers the mapper's image; literal, template, `keyof` and
-    /// `typeof` constructors take no alias; a homomorphic mapped type
+    /// parameter answers the mapper's image; literal, template, `keyof`,
+    /// `typeof` and intrinsic constructors take no alias; a homomorphic mapped type
     /// (`instantiateMappedType`) maps a non-union variable through
     /// `instantiateConstituent` with a nil alias and keeps its own. A chain of
     /// alias references inherits the answer. Bounded like the other chains.
@@ -5699,6 +5699,12 @@ impl<'a> Checker<'a, '_> {
         }
         match self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) {
             Some(TypeNode::MappedTypeNode(mapped)) => self.is_homomorphic_mapped_type_node(mapped),
+            // getTypeAliasInstantiation's intrinsic arm (`NoInfer`, string
+            // mappings) builds getNoInferType/getStringMappingType results,
+            // which take no alias.
+            Some(TypeNode::KeywordTypeNode(keyword)) => {
+                keyword.kind == SyntaxKind::IntrinsicKeyword
+            }
             Some(TypeNode::TypeReferenceNode(reference)) => {
                 self.alias_reference_target(reference).is_some_and(|inner| {
                     inner != symbol

@@ -216,3 +216,13 @@ distributed union (through `attach_intersection_alias`), except for a
 aliased union (previously indexed-access bodies only) also covers
 intersection bodies. No new cache: `instantiations[(NonNullable, [t])]`.
 Known gap (out of lane): relation-report heads print the expansion.
+
+## Intrinsic targets keep no alias (tsr-2zk.16.56)
+
+`getTypeAliasInstantiation`'s intrinsic arm builds `getNoInferType` /
+`getStringMappingType` results, which never take the new alias, so a generic
+alias whose body references an `intrinsic` alias declares that result:
+`type T20<T> = NoInfer<T>` records `>T20 : NoInfer<T>`,
+and `TX1<S> = Uppercase<...>` over a template prints the mapped template.
+`alias_instantiation_keeps_declared_alias` admits an `intrinsic` keyword body.
+No new cache.
