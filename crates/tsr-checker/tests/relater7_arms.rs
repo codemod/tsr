@@ -170,3 +170,17 @@ const p: { Origin: string } = Point; // error
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn union_fast_paths_keep_their_answers() {
+    let source = r#"type L = "a" | "b" | "c" | undefined;
+type O = { a: string } | { b: number };
+function f(x: L, y: L & O, s: string | number, t: "a" | "b") {
+  x = y;
+  s = t;
+  const u: "a" | "b" = "c"; // error
+  const v: string | number = "c";
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}

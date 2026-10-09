@@ -275,3 +275,38 @@ reading `typeof E`'s members) belongs to `inference.rs` (main's). The diff
 lands once that inference yields `E`; re-measure to zero losses then.
 
 Test: `tests/relater7_arms.rs` `a_function_merged_with_a_namespace_relates_over_its_exports`.
+
+## 8. Native's union fast paths, and the pure-signature test's order
+
+Found while profiling item 3's `relationComplexityError`; each is a native step
+the port skipped, so each pair walked the long way.
+
+1. **`unionOrIntersectionRelatedTo`'s origin fast paths** (relater.go, before
+   `eachTypeRelatedToType`). A source union normalized from an intersection
+   whose origin contains the (aliased) target relates, since `A & B` relates
+   to `A`; a source alias listed in a target union's origin relates. For
+   `f1`'s `x = y` (`T1 & T2 -> T1`, a 4,096-literal `T1` distributed over `{ a }
+   | { b }`) native answers at once; the port walked 8,192 intersections
+   against 4,097 constituents (33 M pairs). Ported as
+   `union_target_is_origin_member`, over the port's `union_origin` record
+   (`intersections.rs` records a distributed intersection as the union's single
+   origin entry). Native's alias test is a union printing as a symbol here.
+2. **`typeRelatedToSomeType`'s fast paths** (relater.go:2974-3005):
+   `containsType`, then a string/boolean/bigint literal (a number literal too
+   under the subtype relations), not an enum literal, against a primitive
+   union (`ObjectFlagsPrimitiveUnion`, getUnionType's `includes &
+   TypeFlagsNotPrimitiveUnion == 0`, checker.go:25730) outside the comparable
+   relation: related exactly when the union holds its base primitive or its
+   other fresh/regular form, else False. Ported as `literal_in_union_shortcut`.
+3. **`is_pure_signature_type`** (a port gate, no native counterpart) enumerated
+   the member names and index infos of both sides of every pair before
+   looking at the signature list it needs. It now tests the signature list
+   first; the boolean is unchanged. It was 53% of the `relationComplexityError`
+   profile, and is most of the domain-model saving below.
+
+**Measured** against §7's commit, both loss checks (vs §0) empty; no verdict
+or line moves (diagnostics and types identical to §7):
+- `Ir`: generic-imports 342,990,563 → 342,947,034 (−0.013%); domain-model
+  1,200,282,532 → 1,179,272,821 (−1.75%). CLI output identical;
+- `relationComplexityError`: 67 s (base) → 24 s (CLI, `--strict`), still
+  above the 10 s slowcases bar; §9's budget takes it the rest of the way.

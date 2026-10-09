@@ -2990,6 +2990,11 @@ impl Relater<'_, '_, '_> {
     }
 
     fn is_pure_signature_type(&mut self, id: TypeId) -> bool {
+        // The signature list decides most calls; test it before enumerating
+        // members and index infos, which every relation pair reaches here.
+        if !self.checker.signature_types.get(&id).is_some_and(|signatures| !signatures.is_empty()) {
+            return false;
+        }
         if self.checker.get_property_names_of_type_shared(id).is_some_and(|names| !names.is_empty())
             || self.checker.get_index_infos_of_type(id).is_none_or(|infos| !infos.is_empty())
         {
@@ -4060,6 +4065,104 @@ impl Relater<'_, '_, '_> {
         self.maybe_keys.truncate(start);
     }
 
+    /// typeRelatedToSomeType's fast paths (relater.go:2974-3005), before
+    /// the walk over the target union's constituents:
+    /// - `containsType`: the source is one of the constituents;
+    /// - a string, boolean or bigint literal (a number literal too under the
+    ///   subtype relations), not an enum literal, against an
+    ///   `ObjectFlagsPrimitiveUnion` target outside the comparable relation
+    ///   relates exactly when the union contains its base primitive or its
+    ///   other fresh/regular form.
+    ///
+    /// `ObjectFlagsPrimitiveUnion` is getUnionType's `includes &
+    /// TypeFlagsNotPrimitiveUnion == 0` (checker.go:25730): no `any`,
+    /// `unknown`, `void`, `never`, object, intersection or instantiable
+    /// constituent. `None` when neither path decides.
+    fn literal_in_union_shortcut(
+        &mut self,
+        source: TypeId,
+        constituents: &[TypeId],
+    ) -> Option<RelationResult> {
+        if constituents.contains(&source) {
+            return Some(RelationResult::Related);
+        }
+        if self.relation == Relation::Comparable {
+            return None;
+        }
+        let s = self.checker.type_of(source).flags;
+        let literal = s.intersects(
+            TypeFlags::STRING_LITERAL | TypeFlags::BOOLEAN_LITERAL | TypeFlags::BIG_INT_LITERAL,
+        ) || (matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && s.intersects(TypeFlags::NUMBER_LITERAL));
+        if !literal || s.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::UNION) {
+            return None;
+        }
+        let not_primitive_union = TypeFlags::ANY
+            | TypeFlags::UNKNOWN
+            | TypeFlags::VOID
+            | TypeFlags::NEVER
+            | TypeFlags::OBJECT
+            | TypeFlags::INTERSECTION
+            | TypeFlags::INSTANTIABLE;
+        if constituents.iter().any(|&constituent| {
+            self.checker.type_of(constituent).flags.intersects(not_primitive_union)
+        }) {
+            return None;
+        }
+        let regular = self.checker.get_regular_type_of_literal_type(source);
+        let alternate = if regular == source {
+            self.checker.get_fresh_type_of_literal_type(source)
+        } else {
+            regular
+        };
+        let primitive = if s.intersects(TypeFlags::STRING_LITERAL) {
+            Some(self.checker.intrinsics.string)
+        } else if s.intersects(TypeFlags::NUMBER_LITERAL) {
+            Some(self.checker.intrinsics.number)
+        } else if s.intersects(TypeFlags::BIG_INT_LITERAL) {
+            Some(self.checker.intrinsics.bigint)
+        } else {
+            None
+        };
+        Some(
+            if primitive.is_some_and(|primitive| constituents.contains(&primitive))
+                || constituents.contains(&alternate)
+            {
+                RelationResult::Related
+            } else {
+                RelationResult::NotRelated
+            },
+        )
+    }
+
+    /// The two origin tests of unionOrIntersectionRelatedTo for a source
+    /// union against a target union: the source's origin is an
+    /// intersection with the target among its constituents, or the target's
+    /// origin is a union with the source among its entries. Native asks the
+    /// contained side to carry an alias; here that is a union printing as a
+    /// symbol (`TypeData::Union { symbol: Some(_) }`).
+    fn union_target_is_origin_member(&self, source: TypeId, target: TypeId) -> bool {
+        let aliased = |id: TypeId| {
+            matches!(self.checker.type_of(id).data, TypeData::Union { symbol: Some(_), .. })
+        };
+        if !self.checker.type_of(target).flags.contains(TypeFlags::UNION) {
+            return false;
+        }
+        if aliased(target)
+            && let Some([origin]) = self.checker.union_origin.get(&source).map(Vec::as_slice)
+            && let TypeData::Intersection { types, .. } = &self.checker.type_of(*origin).data
+            && types.contains(&target)
+        {
+            return true;
+        }
+        aliased(source)
+            && self
+                .checker
+                .union_origin
+                .get(&target)
+                .is_some_and(|entries| entries.contains(&source))
+    }
+
     /// Union and intersection dispatch.
     ///
     /// Ported from `Checker.structuredTypeRelatedTo`
@@ -4231,6 +4334,15 @@ impl Relater<'_, '_, '_> {
             return self.indexed_access_pair_after_components(source, target_object, target_index);
         }
         if let Some(constituents) = self.union_constituents(source) {
+            // unionOrIntersectionRelatedTo's origin fast paths (relater.go,
+            // before eachTypeRelatedToType): a source union distributed from
+            // an intersection that contains the (aliased) target relates,
+            // since `A & B` relates to `A`; and a source alias listed in the
+            // target union's origin relates. The normalized unions can be
+            // very large (`T1 & T2` with a 4,096-literal `T1`).
+            if self.union_target_is_origin_member(source, target) {
+                return RelationResult::Related;
+            }
             // Every constituent of a source union must be related.
             // Upstream's `eachTypeRelatedToType` — except under the
             // comparable relation, where SOME constituent suffices
@@ -4301,6 +4413,9 @@ impl Relater<'_, '_, '_> {
             // Related to *some* constituent of a target union.
             // Upstream's `typeRelatedToSomeType`.
             let regular = self.checker.get_regular_type_of_object_literal(source);
+            if let Some(answer) = self.literal_in_union_shortcut(regular, &constituents) {
+                return answer;
+            }
             let parts = constituents
                 .iter()
                 .map(|&c| self.is_related_to_with_flags(regular, c, RecursionFlags::TARGET));
