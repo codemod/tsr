@@ -108,6 +108,49 @@ asserted `"error"` with a comment saying upstream answers `errorType`, and
 `G<number>` for `G<T, R, N>` "a slot this port cannot fill"; it is outside
 the window, so native's annotation is `errorType` and the yield is `any`.
 
+## 3. `.16.28`: a computed type-literal member that does not late-bind (diff)
+
+**Forcing constraint.** The binder gives a member with a dynamic name an
+anonymous symbol (`bindPropertyOrMethodOrAccessor`, `binder.go:978`), so it
+is in no members table. `getResolvedMembersOrExportsOfSymbol` then gives it
+one of three fates: it late-binds as a real member (`isLateBindableName`,
+`checker.go:19961`); or it joins the `__index` symbol when its name is an
+entity-name expression (`isLateBindableAST`, `checker.go:19990`) whose type
+is assignable to `string | number | symbol` (`isLateBindableIndexSignature`,
+`checker.go:19976`), keyed `number`, else `symbol`, else `string`
+(`getIndexInfosOfIndexSymbol`, `checker.go:19676-19690`); or it is dropped.
+`build_type_literal` (`declared.rs`) handled only the property half of fate
+2. A METHOD whose name did not late-bind declined the whole literal
+(`var v: { [e](): number }` printed `any`, `parserComputedPropertyName14`).
+An unannotated property did the same (`{ [index]; }`, `propertyAssignment`).
+The property half also took the object-literal key dispatch
+(`computed_member_index_key`), which has no entity-name gate, so
+`["" + ""]` would have keyed a `string` index where native drops it
+(`computedPropertyNamesDeclarationEmit4` records `{}`).
+
+**Port.** `crate::type_literal_index_symbols` holds fates 2 and 3
+(`type_literal_computed_name`) and the method's `getTypeOfSymbol`: its
+function type, plus `undefined` when optional under `strictNullChecks`
+(`type_literal_computed_method_type`). The hook routes both arms of
+`build_type_literal` through it. An unannotated property is the implicit
+`any`, as §355 already had for named properties.
+
+**Known deviation, kept.** Aggregation stays the literal's existing one: a
+single key kind, and the union of the computed members' values only.
+Native's `getObjectLiteralIndexInfo` (`checker.go:19720`) also unions the
+literal's other properties into a `string` index, and numerically named
+ones into a `number` index. No case in this cluster reaches that.
+
+**Measured** (on top of §2's diff): types +7 WRONG→RIGHT, zero losses,
+diagnostics unchanged. Converts propertyAssignment (2 lines),
+computedPropertyNamesDeclarationEmit4_ES6 and its ES5 twin,
+parserComputedPropertyName14/18/19. slowcases clean. Ir ×1.00049 /
+×0.99993 against the base binary (§2's share included).
+
+**Falsifier.** A type literal whose computed member native keeps as a real
+member while this port drops it would show as a loss. The unit tests
+(`tests/type_literal_index_symbols.rs`, in the diff) pin all three fates.
+
 ## Diffs, in apply order
 
 Every diff applies to `b18aec06` plus this branch's commits and the diffs
@@ -115,3 +158,5 @@ above it.
 
 1. `r6-typesroots-arity-error-type.diff` (§2): `declared.rs`,
    `reference_arity.rs`, tests. +31 types, zero losses.
+2. `r6-typesroots-late-bound-index.diff` (§3): `declared.rs`,
+   `type_literal_index_symbols.rs`, tests. +7 types, zero losses.

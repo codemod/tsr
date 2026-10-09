@@ -212,6 +212,7 @@ mod this_expression;
 pub mod truthiness;
 mod tuples;
 pub mod type_argument_arity;
+mod type_literal_index_symbols;
 pub mod types;
 mod union_signatures;
 pub mod unions;
