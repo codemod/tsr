@@ -539,3 +539,11 @@ re-spelled a computed name from its entity expression and wrote
 `[(Missing)]` for anything that is not one. `Checker::node_source_text` reads
 the name's span from the module host's text; the re-spelling remains only for
 a host without text.
+
+## §27 TS2842: names as written and the "add a type for the entire parameter" record
+
+`checkUnusedRenamedBindingElements` (`checker.go:7314`) formats both names
+with `DeclarationNameToString` (source text; `"a"` keeps its quotes) and,
+when the wrapping parameter has no type annotation, relates TS2843 at the
+zero-width range at the parameter's end. `check_renamed_binding_element_in_signature`
+now does both; the reference scan still matches the cooked name.

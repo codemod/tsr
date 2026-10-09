@@ -14470,20 +14470,18 @@ impl Checker<'_, '_> {
         // `IsPartOfParameterDeclaration` — the walk out of nested patterns ends
         // at a parameter — and `NodeIsMissing(GetContainingFunction(node).Body())`.
         let mut at = self.nodes.parent(node);
-        let mut in_parameter = false;
+        let mut parameter = None;
         while let Some(current) = at {
             match self.nodes.kind(current) {
                 SyntaxKind::BindingElement
                 | SyntaxKind::ObjectBindingPattern
                 | SyntaxKind::ArrayBindingPattern => {}
-                SyntaxKind::Parameter => in_parameter = true,
+                SyntaxKind::Parameter => parameter = Some(current),
                 _ => break,
             }
             at = self.nodes.parent(current);
         }
-        if !in_parameter {
-            return;
-        }
+        let Some(parameter) = parameter else { return };
         let Some(function) = at else { return };
         if !self.is_function_like_or_static_block(function) {
             return;
@@ -14510,19 +14508,37 @@ impl Checker<'_, '_> {
             return;
         }
         let span = self.nodes.span(name_id);
-        let original = property_name
-            .node_id()
-            .and_then(|id| self.identifier_text(id))
-            .unwrap_or_default()
-            .to_string();
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::_0_IS_AN_UNUSED_RENAMING_OF_1_DID_YOU_INTEND_TO_USE_IT_AS_A_TYPE_ANNOTATION,
-                span,
-                [renamed, original],
-            ),
+        // Both arguments are `scanner.DeclarationNameToString`: the names as
+        // written (`"a"` keeps its quotes). `docs/parity/notes/decls.md` §27.
+        let property_name_id = property_name.node_id();
+        let written = |checker: &Self, id: Option<NodeId>| {
+            id.and_then(|id| checker.node_source_text(id))
+                .or_else(|| id.and_then(|id| checker.identifier_text(id)))
+                .unwrap_or_default()
+                .to_string()
+        };
+        let original = written(self, property_name_id);
+        let renamed = written(self, Some(name_id));
+        let mut diagnostic = Diagnostic::with_args(
+            &messages::_0_IS_AN_UNUSED_RENAMING_OF_1_DID_YOU_INTEND_TO_USE_IT_AS_A_TYPE_ANNOTATION,
+            span,
+            [renamed, original.clone()],
         );
+        // An unannotated parameter relates the zero-width range at its end
+        // (`checker.go:7320`).
+        if let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter)
+            && declaration.r#type.is_none()
+            && let Some(parameter_file) = self.source_file_of_for_diagnostics(parameter)
+        {
+            let end = self.nodes.span(parameter).end;
+            diagnostic.add_related_information(self.diagnostic_in_file(
+                parameter_file,
+                tsr_core::Span::at(end),
+                &messages::WE_CAN_ONLY_WRITE_A_TYPE_FOR_0_BY_ADDING_A_TYPE_FOR_THE_ENTIRE_PARAMETER_HERE,
+                [original],
+            ));
+        }
+        self.report(file, diagnostic);
     }
 
     /// Does this subtree mention `text` as an identifier, other than at
