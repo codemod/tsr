@@ -2877,11 +2877,16 @@ impl Checker<'_, '_> {
         } else {
             return false;
         };
+        // `ast.GetDeclarationOfKind` takes the first declaration of the kind,
+        // and `decl.Flags & NodeFlagsAmbient` is set by native's parser on
+        // every node of a `.d.ts` or under `declare`; this port's parser sets
+        // no ambient flag, so the any-file stand-in answers it.
         !record.flags.intersects(SymbolFlags::ALIAS)
-            && record.declarations.iter().any(|&declaration| {
-                self.nodes.kind(declaration) == kind
-                    && self.combined_node_flags(declaration).contains(tsr_ast::NodeFlags::AMBIENT)
-            })
+            && record
+                .declarations
+                .iter()
+                .find(|&&declaration| self.nodes.kind(declaration) == kind)
+                .is_some_and(|&declaration| self.is_ambient_declaration(declaration))
     }
 
     /// resolveExternalModuleTypeByLiteral's symbol half. Keep the original
