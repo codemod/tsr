@@ -1,0 +1,130 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index b5ba3ff..fed0f2d 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -5728,6 +5728,11 @@ impl<'a> Checker<'a, '_> {
+     /// unqualified module object (both are the `bd tsr-e2u` naming wall), and
+     /// written type arguments (the instantiated print is its own row).
+     fn get_type_from_import_type_node(&mut self, node: &tsr_ast::ImportTypeNode<'a>) -> TypeId {
++        // A non-generic type target resolves to its declared type
++        // (`crate::import_type_node`); the rest keeps the minted name below.
++        if let Some(resolved) = self.import_type_node_declared_type(node) {
++            return resolved;
++        }
+         let error = self.intrinsics.error;
+         if node.is_type_of || !node.type_arguments.is_empty() {
+             return error;
+@@ -6285,7 +6290,7 @@ impl<'a> Checker<'a, '_> {
+     /// `getExportsOfModule`, which first follows `export =`
+     /// (`resolveExternalModuleSymbol` with `dontResolveAlias = false`) and then
+     /// adds `export *` re-exports; any other symbol answers its own `exports`.
+-    fn get_symbol_of_exports(
++    pub(crate) fn get_symbol_of_exports(
+         &mut self,
+         namespace: SymbolId,
+         name: &str,
+diff --git a/crates/tsr-checker/src/import_type_node.rs b/crates/tsr-checker/src/import_type_node.rs
+new file mode 100644
+index 0000000..3a8651a
+--- /dev/null
++++ b/crates/tsr-checker/src/import_type_node.rs
+@@ -0,0 +1,87 @@
++//! `import("…").T` in a type position, resolved to `T`'s declared type.
++//!
++//! `getTypeFromImportTypeNode` (`checker.go:24575`) for the type meaning:
++//!
++//! 1. resolve the argument's module (`resolveExternalModuleName`) and follow
++//!    its `export =` (`resolveExternalModuleSymbol`);
++//! 2. walk the qualifier's identifier chain through each namespace's exports,
++//!    with `SymbolFlagsNamespace` for every segment but the last and
++//!    `SymbolFlagsType` for the last (`getSymbol(getExportsOfSymbol(…))`);
++//! 3. `resolveImportSymbolType` (`:24657`): resolve the found alias and hand
++//!    the symbol to `getTypeReferenceType` (`:23146`).
++//!
++//! The port answers only a target that takes no type parameters and is
++//! written with no type arguments, where `getTypeReferenceType`'s three arms
++//! (class or interface, type alias, enum or type parameter) all answer the
++//! symbol's declared type in regular form. Every other shape answers `None`,
++//! and the caller keeps its own answer for it: `typeof import(…)`, a
++//! qualifier-less import, a generic target, and every miss upstream reports
++//! (TS2694, TS2307), which this file does not report.
++//!
++//! No cache: the caller's type-node cache memoises the answer, as
++//! `typeNodeLinks.resolvedType` does upstream.
++//!
++//! `docs/parity/notes/r6-smallcodes4.md` §3.2 records the hook and its
++//! measurement.
++
++use tsr_ast::{EntityName, ImportTypeNode, TypeNode};
++use tsr_binder::SymbolFlags;
++
++use crate::{checker::Checker, types::TypeId};
++
++impl<'a> Checker<'a, '_> {
++    /// `getTypeFromImportTypeNode` (`checker.go:24575`) for a non-generic
++    /// type target; `None` where the port does not answer (module doc).
++    pub(crate) fn import_type_node_declared_type(
++        &mut self,
++        node: &ImportTypeNode<'a>,
++    ) -> Option<TypeId> {
++        if node.is_type_of || !node.type_arguments.is_empty() {
++            return None;
++        }
++        let site = node.node_id?;
++        let Some(TypeNode::LiteralTypeNode(literal)) = node.argument else { return None };
++        let specifier = literal.literal.and_then(|l| l.node_id())?;
++        let inner_module = self.resolve_external_module_name(site, specifier)?;
++        let module = self.resolve_external_module_symbol(inner_module);
++        // `getIdentifierChain(qualifier)`, leftmost first.
++        let mut chain: Vec<&str> = Vec::new();
++        let mut current = node.qualifier?;
++        loop {
++            match current {
++                EntityName::Identifier(name) => {
++                    chain.push(name.text);
++                    break;
++                }
++                EntityName::QualifiedName(qualified) => {
++                    chain.push(qualified.right?.text);
++                    current = qualified.left?;
++                }
++            }
++        }
++        chain.reverse();
++        let mut namespace = module;
++        for (index, segment) in chain.iter().enumerate() {
++            let meaning =
++                if index + 1 == chain.len() { SymbolFlags::TYPE } else { SymbolFlags::NAMESPACE };
++            // `getMergedSymbol(resolveSymbol(currentNamespace))`.
++            let mut resolved = self.binder.merged_symbol(namespace);
++            if self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ALIAS) {
++                resolved = self.binder.merged_symbol(self.resolve_alias(resolved)?);
++            }
++            namespace = self.get_symbol_of_exports(resolved, segment, meaning)?;
++        }
++        // `resolveImportSymbolType`: `resolveSymbol`, then `getTypeReferenceType`.
++        let mut symbol = self.binder.merged_symbol(namespace);
++        if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::ALIAS) {
++            symbol = self.binder.merged_symbol(self.resolve_alias(symbol)?);
++        }
++        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE)
++            || !self.local_type_parameters_of(symbol).is_empty()
++        {
++            return None;
++        }
++        let declared = self.get_declared_type_of_symbol(symbol);
++        Some(self.get_regular_type_of_literal_type(declared))
++    }
++}
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index d3fbcc2..91bc11a 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -144,6 +144,7 @@ mod import_attributes;
+ mod import_call;
+ mod import_call_grammar;
+ mod import_meta;
++mod import_type_node;
+ mod index_access_reports;
+ pub mod index_constraint;
+ pub mod index_signatures;

@@ -1,0 +1,74 @@
+diff --git a/crates/tsr-checker/src/for_of_destructuring.rs b/crates/tsr-checker/src/for_of_destructuring.rs
+new file mode 100644
+index 0000000..bd9f742
+--- /dev/null
++++ b/crates/tsr-checker/src/for_of_destructuring.rs
+@@ -0,0 +1,43 @@
++//! The source type of an array literal written as a `for (… of …)` target.
++//!
++//! `checkForInOrForOfStatement` (`checker.go:4095`) hands a destructuring
++//! initializer of a `for…of` to `checkDestructuringAssignment(varExpr,
++//! iteratedType)`, where `iteratedType` is `checkRightHandSideOfForOf`'s
++//! answer. An array literal target then reaches `checkArrayLiteralAssignment`
++//! (`:12648`), which iterates that type and reports TS2488 on the literal
++//! when it is not iterable: `for ([a = 1, b = ""] of tuple)` over a
++//! `[number, string]` destructures each `number | string` element.
++//!
++//! `destructuring_assignment_source` (`iteration.rs`) answered the `=`
++//! assignment and nested-element positions only. This file is the `for…of`
++//! one, built on `for_of_iterated_type`.
++//!
++//! `docs/parity/notes/r6-smallcodes4.md` §3.3 records the hook and its
++//! measurement.
++
++use tsr_ast::{Node, NodeId, SyntaxKind};
++
++use crate::{checker::Checker, types::TypeId};
++
++impl Checker<'_, '_> {
++    /// The iterated type of `statement` when `target` is its initializer and
++    /// `statement` is a `for…of`; `None` otherwise, and where the type is
++    /// undecided.
++    pub(crate) fn for_of_destructuring_source(
++        &mut self,
++        statement: NodeId,
++        target: NodeId,
++    ) -> Option<TypeId> {
++        if self.nodes.kind(statement) != SyntaxKind::ForOfStatement {
++            return None;
++        }
++        let Some(Node::ForInOrOfStatement(for_of)) = self.node_map.get(statement) else {
++            return None;
++        };
++        if for_of.initializer.and_then(|initializer| initializer.node_id()) != Some(target) {
++            return None;
++        }
++        let iterated = self.for_of_iterated_type(statement)?;
++        (!self.is_gap(iterated)).then_some(iterated)
++    }
++}
+diff --git a/crates/tsr-checker/src/iteration.rs b/crates/tsr-checker/src/iteration.rs
+index 20ecf54..bef2f15 100644
+--- a/crates/tsr-checker/src/iteration.rs
++++ b/crates/tsr-checker/src/iteration.rs
+@@ -1336,6 +1336,8 @@ impl Checker<'_, '_> {
+                 };
+                 (!self.is_gap(element)).then_some(element)
+             }
++            // `for ([a, b] of xs)` (`crate::for_of_destructuring`).
++            Node::ForInOrOfStatement(_) => self.for_of_destructuring_source(parent, node),
+             _ => None,
+         }
+     }
+diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
+index 3cc556d..a2cd28d 100644
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -135,6 +135,7 @@ mod export_star_conflicts;
+ pub mod expressions;
+ pub mod flags;
+ pub mod flow;
++mod for_of_destructuring;
+ pub mod function_types;
+ mod grammar;
+ pub mod heritage_conformance;
