@@ -30,7 +30,6 @@ use crate::types::TypeId;
 
 /// What a non-late-bound computed member of a type literal contributes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[expect(dead_code, reason = "consumer: r6-typesroots-late-bound-index.diff (declared.rs)")]
 pub(crate) enum TypeLiteralComputedName {
     /// Not a late-bindable index signature: the member is dropped.
     Dropped,
@@ -42,7 +41,6 @@ impl<'a> Checker<'a, '_> {
     /// Fate 2 or 3 of the module doc for a computed name that did not
     /// late-bind (`hasLateBindableIndexSignature`, then the key dispatch of
     /// `getIndexInfosOfIndexSymbol`).
-    #[expect(dead_code, reason = "consumer: r6-typesroots-late-bound-index.diff (declared.rs)")]
     pub(crate) fn type_literal_computed_name(
         &mut self,
         computed: &tsr_ast::ComputedPropertyName<'a>,
@@ -80,7 +78,6 @@ impl<'a> Checker<'a, '_> {
     /// symbol: its function type, plus `undefined` when the method is
     /// optional under `strictNullChecks` (`addOptionality`). `None` when this
     /// port cannot build the signature.
-    #[expect(dead_code, reason = "consumer: r6-typesroots-late-bound-index.diff (declared.rs)")]
     pub(crate) fn type_literal_computed_method_type(
         &mut self,
         method: tsr_ast::NodeId,

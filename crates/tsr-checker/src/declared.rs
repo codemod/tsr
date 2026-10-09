@@ -8,6 +8,7 @@
 //! Not to be confused with [`crate::symbols`], which answers what type a
 //! *value* symbol has.
 
+use crate::type_literal_index_symbols::TypeLiteralComputedName;
 use std::borrow::Cow;
 
 use tsr_ast::{Expression, Node, NodeId, Statement, SyntaxKind, TypeNode};
@@ -2610,7 +2611,25 @@ impl<'a> Checker<'a, '_> {
                         tsr_ast::PropertyName::ComputedPropertyName(computed) => {
                             match self.late_bound_symbol_member_name(computed) {
                                 Some((name, _)) => name,
-                                None => return error,
+                                // A name that does not late-bind joins the
+                                // index symbol or is dropped
+                                // (`crate::type_literal_index_symbols`).
+                                None => match self.type_literal_computed_name(computed) {
+                                    TypeLiteralComputedName::Dropped => continue,
+                                    TypeLiteralComputedName::Index(key) => {
+                                        let optional = method.postfix_token.is_some_and(|token| {
+                                            token.kind == SyntaxKind::QuestionToken
+                                        });
+                                        let Some(id) = method.node_id else { return error };
+                                        let Some(method_type) =
+                                            self.type_literal_computed_method_type(id, optional)
+                                        else {
+                                            return error;
+                                        };
+                                        computed_indexes.push((key, method_type));
+                                        continue;
+                                    }
+                                },
                             }
                         }
                         // §586 REVERTED: the symmetric arm for the METHOD half
@@ -2928,12 +2947,18 @@ impl<'a> Checker<'a, '_> {
                             // `isolatedModulesConstEnum` (a full case) for
                             // that one line; the ungated form is kept on that
                             // measurement.
-                            match self.computed_member_index_key(computed) {
-                                crate::objects::ComputedNameKey::LateBound => return error,
-                                crate::objects::ComputedNameKey::Nothing => continue,
-                                crate::objects::ComputedNameKey::Index(key) => {
-                                    let Some(annotation) = property.r#type else { return error };
-                                    let mut member_type = self.get_type_from_type_node(annotation);
+                            // `hasLateBindableIndexSignature`, else dropped
+                            // (`crate::type_literal_index_symbols`).
+                            match self.type_literal_computed_name(computed) {
+                                TypeLiteralComputedName::Dropped => continue,
+                                TypeLiteralComputedName::Index(key) => {
+                                    // No annotation: the implicit `any` (§355).
+                                    let mut member_type = match property.r#type {
+                                        Some(annotation) => {
+                                            self.get_type_from_type_node(annotation)
+                                        }
+                                        None => self.intrinsics.any,
+                                    };
                                     if member_type == error {
                                         return error;
                                     }
