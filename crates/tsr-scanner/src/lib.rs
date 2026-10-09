@@ -1494,40 +1494,95 @@ impl<'a> Scanner<'a> {
             self.token.kind,
             SyntaxKind::SlashToken | SyntaxKind::SlashEqualsToken
         ));
-        self.pos = self.token.span.start;
-        self.token_start = self.pos;
-        self.bump(); // '/'
-
+        self.token_start = self.token.span.start;
+        // `ReScanSlashToken` (`scanner.go:1067`). The first pass walks
+        // **bytes**, as upstream's `rune(s.text[p])` does: only `\n` and `\r`
+        // end the body there, and an escape skips one byte.
+        let bytes = self.source.as_bytes();
+        let end = self.limit as usize;
+        let start_of_body = self.token_start as usize + 1;
+        let mut p = start_of_body;
+        let mut in_escape = false;
         let mut in_class = false;
         let mut terminated = false;
-        while let Some(ch) = self.peek() {
-            if is_line_break(ch) {
+        while p < end {
+            let ch = bytes[p];
+            if ch == b'\n' || ch == b'\r' {
                 break;
             }
-            match ch {
-                '\\' => {
-                    self.bump();
-                    self.bump();
-                    continue;
-                }
-                '[' => in_class = true,
-                ']' => in_class = false,
-                '/' if !in_class => {
-                    self.bump();
-                    terminated = true;
-                    break;
-                }
-                _ => {}
+            if in_escape {
+                in_escape = false;
+            } else if ch == b'/' && !in_class {
+                terminated = true;
+                break;
+            } else if ch == b'[' {
+                in_class = true;
+            } else if ch == b'\\' {
+                in_escape = true;
+            } else if ch == b']' {
+                in_class = false;
             }
-            self.bump();
+            p += 1;
         }
 
         if terminated {
-            // Flags are identifier parts: /a/gi
+            // Consume the slash; flags are identifier parts: /a/gi
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                self.pos = (p + 1) as u32;
+            }
             while self.peek().is_some_and(is_identifier_part) {
                 self.bump();
             }
         } else {
+            // Recovery: the nearest unbalanced bracket outside a character
+            // class ends the body, then trailing whitespace and `;` are
+            // dropped; the token ends there too.
+            let end_of_body = p;
+            p = start_of_body;
+            let mut in_escape = false;
+            let mut class_depth = 0u32;
+            let mut in_decimal_quantifier = false;
+            let mut group_depth = 0u32;
+            while p < end_of_body {
+                let ch = bytes[p];
+                if in_escape {
+                    in_escape = false;
+                } else if ch == b'\\' {
+                    in_escape = true;
+                } else if ch == b'[' {
+                    class_depth += 1;
+                } else if ch == b']' && class_depth != 0 {
+                    class_depth -= 1;
+                } else if class_depth == 0 {
+                    if ch == b'{' {
+                        in_decimal_quantifier = true;
+                    } else if ch == b'}' && in_decimal_quantifier {
+                        in_decimal_quantifier = false;
+                    } else if !in_decimal_quantifier {
+                        if ch == b'(' {
+                            group_depth += 1;
+                        } else if ch == b')' && group_depth != 0 {
+                            group_depth -= 1;
+                        } else if matches!(ch, b')' | b']' | b'}') {
+                            break;
+                        }
+                    }
+                }
+                p += 1;
+            }
+            while p > start_of_body {
+                let Some(ch) = self.source[..p].chars().next_back() else { break };
+                if is_whitespace_single_line(ch) || is_line_break(ch) || ch == ';' {
+                    p -= ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                self.pos = p as u32;
+            }
             self.error(
                 &messages::UNTERMINATED_REGULAR_EXPRESSION_LITERAL,
                 Span::new(self.token_start, self.pos),

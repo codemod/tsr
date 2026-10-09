@@ -551,3 +551,9 @@ per-file flag must become per-node.
 - Numbers (`Scanner.Scan` `case '.'`, `case '0'`): a `.` before a digit is
   `scanNumber` from the dot (so `.1n` reports TS1353), and an empty `0b`/`0o`
   literal reports TS1177/TS1178 rather than the hex message.
+- Regular expression bodies (`ReScanSlashToken`'s first pass) walk bytes; an
+  unterminated body is cut at the nearest unbalanced `)`/`]`/`}` outside a
+  class and decimal quantifier, then trailing whitespace and `;` are dropped:
+  TS1161 spans that range and the token ends there, so the `;`/`)` after
+  `/ b` and `foo(/notregexp)` are scanned again. The `regExpParser`
+  validation pass (TS1125/TS1198/TS1499/TS1527/...) is not ported.
