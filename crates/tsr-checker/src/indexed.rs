@@ -39,7 +39,6 @@
 //! # What is a gap
 //!
 //! - **An optional chain**, `a?.[b]`.
-//! - **A `unique symbol` index**, the third arm of `getPropertyNameFromType`.
 //! - **A name that is not a property of the receiver.** Upstream reports
 //!   "Property 0 does not exist" and answers `errorType`; so does this, for the
 //!   same reason property access does — including every receiver whose members
@@ -467,6 +466,9 @@ impl Checker<'_, '_> {
                     return member;
                 }
             }
+            if let Some(member) = self.unique_symbol_property_type(object_type, index_type) {
+                return member;
+            }
         }
         let writing = node.node_id.is_some_and(|id| {
             self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
@@ -757,8 +759,6 @@ impl Checker<'_, '_> {
     /// - a generic index or receiver: upstream defers `T[K]` before any
     ///   lookup (`getIndexedAccessTypeOrUndefined`), and the port defers only
     ///   a key it can admit (20 false claims);
-    /// - a `unique symbol` index: `getPropertyNameFromType`'s third arm,
-    ///   unported (this module's doc; 8);
     /// - a mapped receiver: the port's member image misses enum-keyed and
     ///   other unresolved mapped members (2);
     /// - a union with an object-literal constituent:
@@ -769,7 +769,14 @@ impl Checker<'_, '_> {
     ///   `getResolvedMembersOrExportsOfSymbol`) are unbound (24);
     /// - a named reference without a members table, which the type's own
     ///   contract marks as a lookup that would be wrong, or whose members
-    ///   symbol is an unexpanded type alias (`constr<{}, …>`; 2);
+    ///   symbol is an unexpanded type alias (`constr<{}, …>`; 2). `typeof
+    ///   globalThis` has no members table and is complete all the same: its
+    ///   lookup is [`Checker::global_this_property_type`]'s globals table.
+    ///
+    /// A `unique symbol` index was excluded until its arm of
+    /// `getPropertyNameFromType` was ported
+    /// ([`Checker::unique_symbol_property_type`]); lifting it moved 6 lines,
+    /// all `errorType` natively (`docs/parity/notes/r6-errorsplit.md` §2).
     /// - index signatures the port could not decide (`None` from
     ///   [`Checker::get_index_infos_of_type`], a cycle in the base graph):
     ///   upstream empties the bases and still reads the receiver's own
@@ -779,14 +786,18 @@ impl Checker<'_, '_> {
         object_type: TypeId,
         index_type: TypeId,
     ) -> bool {
-        use crate::flags::TypeFlags;
         if self.indexed_access_index_is_generic(index_type)
             || self.indexed_access_object_is_generic(object_type)
-            || self.store.get(index_type).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL)
             || self.mapped_types.contains_key(&object_type)
             || self.get_index_infos_of_type(object_type).is_none()
         {
             return false;
+        }
+        // r5-errorsplit6 §2.4 ported `typeof globalThis`' lookup; the
+        // named-reference exclusion below covered it only because it has no
+        // members table (`docs/parity/notes/r6-errorsplit.md` §3).
+        if Some(object_type) == self.global_this_type {
+            return true;
         }
         match self.store.get(object_type).data.clone() {
             TypeData::Union { types, .. } => {
@@ -808,6 +819,58 @@ impl Checker<'_, '_> {
             }),
             _ => true,
         }
+    }
+
+    /// `getPropertyNameFromType`'s third arm (`utilities.go`): a `unique
+    /// symbol` index names the member whose late-bound key is that same
+    /// symbol, whatever expression spells the index (`o[N["s"]]` reads the
+    /// member declared `[N.s]`, `uniqueSymbols`).
+    ///
+    /// Upstream keys the member by the symbol's escaped name
+    /// (`__@s@<id>`), so the lookup is one table read. This port names a
+    /// late-bound symbol member by its declaration's entity text
+    /// ([`Checker::late_bound_symbol_member_name`]), and the arm above reads
+    /// that spelling off the index's syntax. An index whose syntax is no
+    /// entity name reaches here, and the key identity is recovered the other
+    /// way round: the receiver's bracketed members are scanned for the one
+    /// whose computed name checks to `index_type`.
+    ///
+    /// Checker port boundary (`docs/conventions.md`): no cache and no side
+    /// table. Native operation `getPropertyOfType(objectType,
+    /// getPropertyNameFromType(indexType))`; key identity is the unique
+    /// symbol type `index_type`, owned by `unique_es_symbol_types`; the
+    /// receiver is `getApparentType(objectType)`, the same one the named
+    /// road reads; the expensive work is one name enumeration and one
+    /// `check_expression` per bracketed member, paid only by a unique-symbol
+    /// index the entity-name read missed.
+    /// `docs/parity/notes/r6-errorsplit.md` §2.
+    fn unique_symbol_property_type(
+        &mut self,
+        object_type: TypeId,
+        index_type: TypeId,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        if !self.store.get(index_type).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL) {
+            return None;
+        }
+        let apparent = self.apparent_type(object_type);
+        let names = self.get_property_names_of_type(apparent)?;
+        for name in names.iter().filter(|name| name.starts_with('[')) {
+            let Some(property) = self.get_property_of_type(apparent, name) else { continue };
+            let declarations: Vec<tsr_ast::NodeId> =
+                self.binder.symbols().get(property).declarations.iter().copied().collect();
+            for declaration in declarations {
+                let Some(expression) =
+                    self.node_map.get(declaration).and_then(computed_name_expression)
+                else {
+                    continue;
+                };
+                if self.check_expression(expression) == index_type {
+                    return self.get_type_of_property_of_type(apparent, name);
+                }
+            }
+        }
+        None
     }
 
     /// Whether `getPropertyOfType` finds `name` on a tuple: `length`, or a
@@ -1329,5 +1392,24 @@ impl Checker<'_, '_> {
             } => Some(value.clone()),
             _ => None,
         }
+    }
+}
+
+/// The expression of a member declaration's computed name, if it has one.
+fn computed_name_expression(node: tsr_ast::Node<'_>) -> Option<tsr_ast::Expression<'_>> {
+    use tsr_ast::{Node, PropertyName};
+    let name = match node {
+        Node::PropertyDeclaration(n) => n.name,
+        Node::PropertySignatureDeclaration(n) => n.name,
+        Node::MethodDeclaration(n) => n.name,
+        Node::MethodSignatureDeclaration(n) => n.name,
+        Node::GetAccessorDeclaration(n) => n.name,
+        Node::SetAccessorDeclaration(n) => n.name,
+        Node::PropertyAssignment(n) => n.name,
+        _ => return None,
+    };
+    match name {
+        PropertyName::ComputedPropertyName(computed) => computed.expression,
+        _ => None,
     }
 }
