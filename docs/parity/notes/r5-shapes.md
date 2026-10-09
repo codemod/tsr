@@ -4,9 +4,9 @@ Round-5 cloud lane. Native source is `vendor/typescript-go` @ `5b1047d`,
 `internal/checker/checker.go` unless noted. Measured at integration head
 `22a5e1a`. Owned: this note and its diffs, `crates/tsr-checker/tests/*.rs`
 for these items, and the producer files no active lane lists:
-`destructure.rs`, `objects.rs`, `indexed.rs`, `printing.rs` (the
-r5-typetriage part, that lane being finished), and new functions in the hub
-`expressions.rs`.
+`destructure.rs`, `objects.rs`, `printing.rs` (r5-typetriage is finished),
+and one new function in the hub `expressions.rs`. `indexed.rs` belongs to
+r5-errorsplit5, so this lane changes it only through a diff (§5.4).
 
 ## 1. What was split, and why it had to be
 
@@ -166,27 +166,29 @@ against the frozen base (`22a5e1a`). They touch disjoint code paths, and each
 case named below flips on its own commit's change alone (probed per witness).
 Both loss checks printed nothing on the combined run:
 
-- types: RIGHT 544,668 → 544,693 (+25 lines, 0 lost);
+- types: RIGHT 544,668 → 544,693 (+25 lines, 0 lost); after §4.1's
+  `indexed.rs` half moved to a diff, 544,685 (+17);
 - diagnostics: RIGHT 5,374 → 5,375 (`initializedDestructuringAssignmentTypes`:
   its TS2551 now names `string`), 0 lost;
 - median child CPU, new/old, 21 samples: domain-model 0.974,
   generic-imports 1.000; diagnostics identical to the base binary.
 
-### 4.1 Binding elements (`destructure.rs`, `indexed.rs`)
+### 4.1 Binding elements (`destructure.rs`)
 
 Five ports, all from `getBindingElementTypeFromParentType` and the
 `getPropertyTypeForIndexType` it reaches:
 
-- **String-index fallback for a computed key.** The applicable-signature
-  choice with upstream's string fallback was already written inside
-  `resolved_indexed_access_type`; it is now `index_info_for_property_key`
-  (`indexed.rs`) and the destructuring arm calls it, rather than
-  `get_applicable_index_info` alone.
-- **Late-bound member for a symbol key.** `late_bound_entity_name`
-  (`indexed.rs`) is §381's entity-text key, lifted out of the element-access
-  arm so the destructuring arm spells it identically. Rejected: resolving
-  the unique symbol to upstream's `__@iterator@N` name. This port does not
-  name late-bound members that way anywhere, so the lookup would miss.
+- **String-index fallback for a computed key.** `destructuring_index_info`
+  is upstream's applicable-signature choice with its string fallback. The
+  same rule already sits inline in `resolved_indexed_access_type`
+  (`indexed.rs`).
+- **Late-bound member for a symbol key.** `late_bound_entity_name` spells
+  §381's entity-text key exactly as the element-access arm in `indexed.rs`
+  does. Rejected: resolving the unique symbol to upstream's `__@iterator@N`
+  name. This port does not name late-bound members that way anywhere, so
+  the lookup would miss.
+- Both helpers duplicate code in `indexed.rs`, because that file belongs to
+  r5-errorsplit5. §5.4's diff removes the duplication.
 - **Union parent, array pattern.** `isArrayLikeType` is
   `isTypeAssignableTo(t, anyReadonlyArrayType)`. The relater answers
   Unknown for `RegExpMatchArray | []`. A union source is related exactly
@@ -195,25 +197,29 @@ Five ports, all from `getBindingElementTypeFromParentType` and the
   relation that does decide is never second-guessed. A nullable
   constituent asks the relation, because `isArrayLikeType`'s `Nullable`
   gate is on the whole type and strictness belongs to the relation.
-- **`never` object.** `getPropertyTypeForIndexType`'s index arm answers an
-  `any` or `never` object read with a property-key type as itself. `any`
-  already returned early; `never` now returns at upstream's position, after
-  the property lookups.
 - **Rest of `object`.** `getPropertiesOfType` reads the apparent type, which
   for `object` is `{}`.
 
-Cases converted: `arrayDestructuringInSwitch2`,
-`destructuredLateBoundNameHasCorrectTypes`,
+Cases converted: `destructuredLateBoundNameHasCorrectTypes`,
 `initializedDestructuringAssignmentTypes`,
 `lateBoundDestructuringImplicitAnyError`, `nonPrimitiveAccessProperty`. Also
-+2 lines each in `declarationEmitComputedNameCausesImportToBePainted` and
-`indexingTypesWithNever`, and +6 in `checkJsdocSatisfiesTag15`.
++2 lines in `declarationEmitComputedNameCausesImportToBePainted` and +1 in
+`indexingTypesWithNever`.
+
+CORRECTED: the first version of this commit (`e3af572`) also edited
+`indexed.rs`. The integrator records that file as r5-errorsplit5's, so the
+helpers moved into `destructure.rs` in a follow-up commit, and the
+`indexed.rs` half became §5.4's diff. Re-measured unfiltered after the
+move against the frozen base: types 544,668 → 544,685 (+17), diagnostics
++1 case, both loss checks empty. The 8 lines no longer gained
+(`arrayDestructuringInSwitch2` 1, `indexingTypesWithNever` 1,
+`checkJsdocSatisfiesTag15` 6) are the `never` arm's, and they are in the
+diff.
 
 **How this would be wrong.** The per-constituent array-like answer would be
 wrong if the relater someday decided a union differently from its
 constituents. That cannot happen for a union *source* under
-`eachTypeRelatedToType`. The `never` arm would be wrong if a caller relied
-on `None` for a `never` object to mean "decline"; none lost a line.
+`eachTypeRelatedToType`.
 
 ### 4.2 `void` answers `undefinedWideningType` (`expressions.rs`)
 
@@ -305,3 +311,22 @@ domain-model, 1.021 generic-imports, both under the 1.03 bar.
 
 The three diffs touch different files and each applies to this branch's
 head on its own.
+
+### 5.4 `r5-shapes-indexed-never-and-shared-keys.diff` (`indexed.rs`)
+
+**Owner:** r5-errorsplit5. The diff also makes one `destructure.rs` helper
+`pub(crate)`.
+
+**What it ports.** In `resolved_indexed_access_type`, the `never` half of
+`getPropertyTypeForIndexType`'s index arm (`checker.go:27072`): once no
+property has answered, an `any` or `never` object read with a property-key
+type is itself. The `any` half already returned early. The diff also
+removes the two duplicates §4.1 had to leave in place: the inline
+string-index fallback now calls `destructuring_index_info`, and the §381
+entity-text key calls `late_bound_entity_name`.
+
+**Measured** unfiltered on top of `e80f37e`: types +8 lines, 0 lost against
+`e80f37e` or the frozen base. The lines are `arrayDestructuringInSwitch2`
+0:17, `indexingTypesWithNever` 0:119 and `checkJsdocSatisfiesTag15` (6).
+Case converted: `arrayDestructuringInSwitch2`. The code is the
+behaviour that `e3af572` carried and that §4's first measurement gated.

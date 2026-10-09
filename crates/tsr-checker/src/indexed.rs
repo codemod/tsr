@@ -412,7 +412,23 @@ impl Checker<'_, '_> {
         // ADR-0006, the generated Go wins). A miss falls through to the
         // index-signature road unchanged.
         if self.type_of(index_type).flags.intersects(crate::flags::TypeFlags::ES_SYMBOL_LIKE) {
-            if let Some(name) = late_bound_entity_name(&index) {
+            fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
+                match expression {
+                    tsr_ast::Expression::Identifier(identifier) => {
+                        Some(identifier.text.to_string())
+                    }
+                    tsr_ast::Expression::PropertyAccessExpression(access) => {
+                        let base = chain_text(access.expression.as_ref()?)?;
+                        let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
+                            return None;
+                        };
+                        Some(format!("{base}.{}", name.text))
+                    }
+                    _ => None,
+                }
+            }
+            if let Some(chain) = chain_text(&index) {
+                let name = format!("[{chain}]");
                 if let Some(member) = self.get_type_of_property_of_type(object_type, &name) {
                     // getPropertyTypeForIndexType: a known symbol property,
                     // like a known string property, does not use index fallback.
@@ -773,16 +789,28 @@ impl Checker<'_, '_> {
                 return Some(value);
             }
         }
-        // getPropertyTypeForIndexType (`checker.go:27072`): once no property
-        // answered, an `any` or `never` object read with a property-key type
-        // is itself. `any` returned above; `never` reaches here, so the
-        // first element of `const [n] = a` with `a: never` is `never`
-        // (`arrayDestructuringInSwitch2`, r5-shapes §2.7).
-        if object == self.intrinsics.never && self.is_property_key_type(index) {
-            return Some(object);
-        }
         let apparent = self.apparent_type(object);
-        if let Some(info) = self.index_info_for_property_key(apparent, index) {
+        let info = self.get_applicable_index_info(apparent, index).or_else(|| {
+            // getPropertyTypeForIndexType (checker.go:27085): a string
+            // signature is the fallback for every non-null property key,
+            // including symbols. This matters when a generic indexed type's
+            // base constraint projects keyof T to string | number | symbol.
+            if self.store.get(index).flags.intersects(TypeFlags::NULLABLE) {
+                return None;
+            }
+            let keys = self.get_union_type(&[
+                self.intrinsics.string,
+                self.intrinsics.number,
+                self.intrinsics.es_symbol,
+            ]);
+            if !self.is_type_assignable_to(index, keys) {
+                return None;
+            }
+            self.get_index_infos_of_type(apparent)?
+                .into_iter()
+                .find(|info| info.key == self.intrinsics.string)
+        });
+        if let Some(info) = info {
             return Some(self.include_unchecked_undefined(
                 info.value,
                 include_undefined,
@@ -1112,47 +1140,6 @@ impl Checker<'_, '_> {
     /// string `Number::toString` gives upstream: `a[1.0]` and `a[1]` name the same
     /// property `1`, and the payload is already normalised for exactly this
     /// reason (see [`crate::printing::normalise_number`]).
-    /// `getPropertyTypeForIndexType`'s index-signature choice
-    /// (`checker.go:27075`–`:27079`): the applicable signature, and when none
-    /// applies, *"we default to the string index signature. In effect, this
-    /// means the string index signature applies even when accessing with a
-    /// symbol-like type."* Upstream reaches the choice only for a non-null key
-    /// assignable to `string | number | symbol`; the fallback carries that
-    /// gate here. This matters for a generic indexed type whose base
-    /// constraint projects `keyof T` to `string | number | symbol`, and for a
-    /// destructuring key of type `symbol` against `{ [k: string]: V }`
-    /// (`lateBoundDestructuringImplicitAnyError`, r5-shapes §2.7).
-    pub(crate) fn index_info_for_property_key(
-        &mut self,
-        object: TypeId,
-        index: TypeId,
-    ) -> Option<crate::index_signatures::IndexInfo> {
-        if let Some(info) = self.get_applicable_index_info(object, index) {
-            return Some(info);
-        }
-        if !self.is_property_key_type(index) {
-            return None;
-        }
-        self.get_index_infos_of_type(object)?
-            .into_iter()
-            .find(|info| info.key == self.intrinsics.string)
-    }
-
-    /// The gate of `getPropertyTypeForIndexType`'s index arm
-    /// (`checker.go:27072`): `indexType.flags&TypeFlagsNullable == 0 &&
-    /// isTypeAssignableToKind(indexType, StringLike|NumberLike|ESSymbolLike)`.
-    fn is_property_key_type(&mut self, index: TypeId) -> bool {
-        if self.store.get(index).flags.intersects(crate::flags::TypeFlags::NULLABLE) {
-            return false;
-        }
-        let keys = self.get_union_type(&[
-            self.intrinsics.string,
-            self.intrinsics.number,
-            self.intrinsics.es_symbol,
-        ]);
-        self.is_type_assignable_to(index, keys)
-    }
-
     pub(crate) fn property_name_from_index(&self, index: TypeId) -> Option<String> {
         match &self.store.get(index).data {
             TypeData::StringLiteral(value)
@@ -1166,28 +1153,4 @@ impl Checker<'_, '_> {
             _ => None,
         }
     }
-}
-
-/// §381's member key for a symbol-typed entity: `[Symbol.iterator]` for the
-/// expression `Symbol.iterator`. This port names a late-bound member by the
-/// entity it was declared with (`late_bound_members_of`, `members.rs`) where
-/// upstream names it by the unique symbol's `__@iterator@N`
-/// (`getPropertyNameFromType`), so a reader that holds the key EXPRESSION
-/// spells it the same way to find the member. `None` for anything that is
-/// not an identifier or a property-access chain of identifiers.
-pub(crate) fn late_bound_entity_name(expression: &tsr_ast::Expression<'_>) -> Option<String> {
-    fn chain_text(expression: &tsr_ast::Expression<'_>) -> Option<String> {
-        match expression {
-            tsr_ast::Expression::Identifier(identifier) => Some(identifier.text.to_string()),
-            tsr_ast::Expression::PropertyAccessExpression(access) => {
-                let base = chain_text(access.expression.as_ref()?)?;
-                let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
-                    return None;
-                };
-                Some(format!("{base}.{}", name.text))
-            }
-            _ => None,
-        }
-    }
-    chain_text(expression).map(|chain| format!("[{chain}]"))
 }
