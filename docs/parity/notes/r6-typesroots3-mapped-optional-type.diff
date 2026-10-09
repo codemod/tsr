@@ -1,0 +1,87 @@
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index 77c1c51..8ac05c3 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -1490,9 +1490,28 @@ impl<'a> Checker<'a, '_> {
+         self.publish_mapped_symbol_type(owner, index, self.intrinsics.error);
+         let mut value =
+             self.instantiate_type(info.template, &[(info.parameter, key)], &[info.parameter], &[]);
+-        // getTypeOfMappedSymbol (checker.go:20993). Excluding optionality
+-        // strips missing in exact mode, otherwise undefined.
+-        if strip_optional {
++        // getTypeOfMappedSymbol (checker.go:20993): an optional mapped
++        // property's type includes `undefined` under strictNullChecks
++        // (getOptionalType(propType, isProperty)), unless the instantiated
++        // template already admits it; otherwise excluding optionality strips
++        // missing in exact mode, else undefined. The property's own type
++        // therefore prints `a?: 1 | undefined`, as native's
++        // addPropertyToElementList reads getNonMissingTypeOfSymbol. Readers
++        // that add the optional `undefined` themselves see the same union.
++        let optional = self
++            .anonymous_properties
++            .get(&owner)
++            .and_then(|(properties, _)| properties.get(index as usize))
++            .is_some_and(|property| property.optional);
++        if self.strict_null_checks
++            && optional
++            && !self.maybe_type_of_kind(
++                value,
++                crate::flags::TypeFlags::UNDEFINED | crate::flags::TypeFlags::VOID,
++            )
++        {
++            value = self.get_optional_type(value, true);
++        } else if strip_optional {
+             value = self.remove_missing_or_undefined_type(value);
+         }
+         self.publish_mapped_symbol_type(owner, index, value);
+diff --git a/crates/tsr-conformance/tests/r6_typesroots3_mapped_optional_type.rs b/crates/tsr-conformance/tests/r6_typesroots3_mapped_optional_type.rs
+new file mode 100644
+index 0000000..7ccfc22
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_typesroots3_mapped_optional_type.rs
+@@ -0,0 +1,45 @@
++//! An optional mapped property's own type includes `undefined` under
++//! strictNullChecks (`getTypeOfMappedSymbol`, checker.go:20993), so the
++//! resolved mapped type prints it. `docs/parity/notes/r6-typesroots3.md` §2.
++//! Expectations from the pinned `tsgo` (5b1047d).
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Every assertion line the corpus pipeline produces for `source`.
++fn lines(name: &str, source: &str) -> Vec<String> {
++    let case = TestCase::parse(name, "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect()
++}
++
++fn assert_lines(name: &str, source: &str, wanted: &[&str]) {
++    let lines = lines(name, source);
++    for wanted in wanted {
++        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
++    }
++}
++
++#[test]
++fn an_optional_mapped_property_prints_its_undefined() {
++    let source = r#"// @strict: true
++// @target: es2020
++type M = { a: 1; b: 2; c: 3 };
++export declare const qo: { [K in keyof M]?: K };
++export declare const inter: { [K in keyof (Omit<M, "c"> & Partial<Pick<M, "c">>)]: K };
++"#;
++    assert_lines(
++        "probe/mapped-optional-type",
++        source,
++        &[
++            r#"qo : { a?: "a" | undefined; b?: "b" | undefined; c?: "c" | undefined; }"#,
++            r#"inter : { a: "a"; b: "b"; c?: "c" | undefined; }"#,
++        ],
++    );
++}
