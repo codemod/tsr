@@ -1070,3 +1070,21 @@ and +1 case but costs domain-model Ir +0.48%, from evaluating 40
 `KeysOfType<…>` bodies. The performance rule rejects it as it stands.
 r5-mapped6 must find native's cache or deferral for that path and land the
 route within noise.
+
+### r5-checkperf2 finished; r5-checkperf3 dispatched (`tsr-2zk.1113`)
+
+r5-checkperf2 made two byte-identical changes:
+- the pending-signature-return walk goes by reference;
+- union_index_infos reuses each primitive's apparent answer.
+
+Ir fell 0.70% on dm and 0.81% on dml. Its relater.rs enum-payload diff cuts
+jsTyping's check by 7.5% of Ir.
+
+Wall vs tsgo on its container: dm 0.76, dml 0.74, gi 0.89, jsTyping 3.6. The
+0.50 target is not met. On dm and dml no checker function is above 1.5% self
+any more; about 16% is the allocator, mostly Signature copies (`.1092`, single
+owner between rounds).
+
+r5-checkperf3 takes the two largest jsTyping levers. Both are in main's files,
+so they ship as small measured diffs: native's per-call resolvedSignature link,
+and a union property certification memo.
