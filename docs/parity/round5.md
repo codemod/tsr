@@ -1434,3 +1434,20 @@ The credited gap goes from 2,164 to about 2,129.
 
 S's value half was refused at +8/−2: it prints `typeof x` where native has
 `typeof a` (tsr-4jk). r6-errorsplit2 takes ADR-0048 step 8 (`tsr-2zk.1140`).
+
+### r6-smallcodes5 finished (batch BI); r6-jsx dispatched
+
+Batch BI lands r6-smallcodes5's nine hook diffs, measured lossless as a stack
+(+16 diagnostics, +9 types):
+- relater.go:988's per-class private names;
+- checkQualifiedName's receiver check;
+- `implements` of a non-generic alias;
+- import-type constraint checks;
+- argument-less generic qualified references as errorType;
+- @import alias excludes;
+- removal of a parse-error gate that has no upstream counterpart;
+- TS18042/TS18043's JS arm;
+- JS module @typedef exports.
+
+19 cases remain, routed in r6-smallcodes5.md §4. r6-jsx takes the 55 still-WRONG
+JSX/TSX diagnostics cases (`tsr-2zk.1141`).
