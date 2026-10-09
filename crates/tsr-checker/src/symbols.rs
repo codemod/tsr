@@ -1375,6 +1375,25 @@ impl<'a> Checker<'a, '_> {
                     {
                         return Some(found);
                     }
+                    // `resolveEntityName(…, SymbolFlagsNamespace, …,
+                    // dontResolveAlias)` (`checker.go:14486`) reaches the
+                    // alias through `getSymbol`, which accepts an alias whose
+                    // *target* carries the meaning (`getSymbolFlags`). An
+                    // import of a type-only namespace has no value to clone,
+                    // so the arm above never saw it: `import { JSXInternal }
+                    // from '..'` then `export import JSX = JSXInternal`
+                    // (`docs/parity/notes/r5-errorsplit6.md` §4). Only for a
+                    // target with no value meaning: a value namespace resolved
+                    // here would print under the importing alias's name
+                    // (`typeof x` where upstream records `typeof a`,
+                    // `es6ImportNamedImportInIndirectExportAssignment`), the
+                    // naming hazard this function's other declines record.
+                    let target_flags = self.get_symbol_flags(found);
+                    if target_flags.intersects(SymbolFlags::NAMESPACE)
+                        && !target_flags.intersects(SymbolFlags::VALUE)
+                    {
+                        return Some(found);
+                    }
                 }
                 None
             }
