@@ -179,22 +179,28 @@ fn predicates_retain_resolved_mapped_and_indexed_types() {
     // The transforming mapped member is now resolved by per-key template
     // instantiation. Its Box<string> is the same semantic type verified by
     // the pinned declaration control in forward_mapped.rs, and remains the
-    // predicate's type rather than making the whole signature a gap.
+    // predicate's type rather than making the whole signature a gap. The
+    // declaration prints its WRITTEN predicate node: the node is the Direct
+    // pseudo return, reused while its type is the predicate's
+    // (`pseudoReturnTypeMatchesPredicate`, `docs/parity/notes/r5-nodereuse.md`
+    // §2); the resolved type itself is what the call answers.
     assert_eq!(
         type_of_declaration(
             "type Box<V> = { v: V };\ntype B<T> = { [K in keyof T]: Box<T[K]> };\ndeclare function f<T>(x: unknown, o: T): x is B<{ a: string }>[\"a\"];",
             "f"
         ),
-        "<T>(x: unknown, o: T) => x is Box<string>"
+        "<T>(x: unknown, o: T) => x is B<{ a: string; }>[\"a\"]"
     );
     // And the construct §953 DID port, pinned as the answer it now gives, so the
-    // fourth stand-in's retirement is recorded rather than merely deleted.
+    // fourth stand-in's retirement is recorded rather than merely deleted. It
+    // resolves (the signature is not a gap), and the declaration prints the
+    // written node it resolved from, as above.
     assert_eq!(
         type_of_declaration(
             "declare function f<T>(x: unknown, o: T): x is { a: keyof T }[\"a\"];",
             "f"
         ),
-        "<T>(x: unknown, o: T) => x is keyof T"
+        "<T>(x: unknown, o: T) => x is { a: keyof T; }[\"a\"]"
     );
     assert_eq!(
         type_of_declaration("declare function g<T>(x: unknown, o: T): x is T;", "g"),

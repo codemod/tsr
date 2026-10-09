@@ -526,12 +526,9 @@ pub(crate) fn signature_member_text(
     // the return type (`nodebuilderimpl.go:1748`), whichever signature-shaped
     // node the builder is filling. `interface I { m(): this is S[]; }` is the
     // form that needs it, and the corpus records it on lib's `every`.
-    let written_return = signature
-        .written_return
-        .and_then(|written| checker.site_free_annotation_text(written, signature.r#type));
-    match (&signature.predicate, written_return) {
-        (Some(predicate), _) => out.push_str(&checker.type_predicate_to_string(predicate)),
-        (None, Some(written)) => out.push_str(&written),
+    match (checker.reused_return_text(signature, None), &signature.predicate) {
+        (Some(written), _) => out.push_str(&written),
+        (None, Some(predicate)) => out.push_str(&checker.type_predicate_to_string(predicate)),
         (None, None) => out.push_str(&checker.type_to_string(signature.r#type)),
     }
     out

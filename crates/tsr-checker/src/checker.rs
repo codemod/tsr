@@ -2689,13 +2689,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         out.push_str("): ");
-        let written_return = signature.written_return.and_then(|written| {
-            let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
-            self.written_annotation_text_at(written, current, reference)
-        });
-        match (&signature.predicate, written_return) {
-            (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
-            (None, Some(text)) => out.push_str(&text),
+        match (self.reused_return_text(signature, Some(reference)), &signature.predicate) {
+            (Some(text), _) => out.push_str(&text),
+            (None, Some(predicate)) => out.push_str(&self.type_predicate_to_string(predicate)),
             (None, None) => {
                 let return_type =
                     self.get_return_type_of_signature(signature).unwrap_or(self.intrinsics.error);

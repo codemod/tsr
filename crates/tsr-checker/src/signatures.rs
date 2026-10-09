@@ -1783,7 +1783,8 @@ impl<'a> Checker<'a, '_> {
 
         // `serializeReturnTypeForSignature` (`nodebuilderimpl.go:2023`): the
         // written return annotation is reused (see `crate::node_reuse`). A
-        // predicate annotation prints through `predicate` instead.
+        // predicate node is not carried: `Checker::reused_return_text` derives
+        // it at print time and gates it on `pseudoReturnTypeMatchesPredicate`.
         let written_return = return_annotation
             .filter(|annotation| !matches!(annotation, TypeNode::TypePredicateNode(_)))
             .and_then(|annotation| self.reuse_annotation(annotation, r#type));
@@ -7904,10 +7905,7 @@ impl<'a> Checker<'a, '_> {
             }
         }
         out.push_str(") => ");
-        if let Some(text) = signature.written_return.and_then(|written| {
-            let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
-            self.written_annotation_text_at(written, current, reference)
-        }) {
+        if let Some(text) = self.reused_return_text(signature, Some(reference)) {
             out.push_str(&text);
         } else if let Some(text) = self.signature_return_alias_text_at(signature, reference) {
             out.push_str(&text);
@@ -8041,12 +8039,9 @@ impl<'a> Checker<'a, '_> {
         // over both the written text and the computed type, and
         // `(x: unknown) => boolean` is never printed for a declaration that
         // wrote `x is string`.
-        let written_return = signature
-            .written_return
-            .and_then(|written| self.site_free_annotation_text(written, signature.r#type));
-        match (&signature.predicate, written_return) {
-            (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
-            (None, Some(written)) => out.push_str(&written),
+        match (self.reused_return_text(signature, None), &signature.predicate) {
+            (Some(written), _) => out.push_str(&written),
+            (None, Some(predicate)) => out.push_str(&self.type_predicate_to_string(predicate)),
             (None, None) => out.push_str(&self.type_to_string(signature.r#type)),
         }
         out
