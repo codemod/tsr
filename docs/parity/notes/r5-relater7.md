@@ -310,3 +310,67 @@ or line moves (diagnostics and types identical to §7):
   1,200,282,532 → 1,179,272,821 (−1.75%). CLI output identical;
 - `relationComplexityError`: 67 s (base) → 24 s (CLI, `--strict`), still
   above the 10 s slowcases bar; §9's budget takes it the rest of the way.
+
+## 9. Item 3 (`tsr-2zk.1065`): the relation-complexity budget
+
+**Forcing constraint.** `checkTypeRelatedToEx` (relater.go:369) gives every
+top-level check `relationCount = (16,000,000 − relation.size()) / 8`.
+`recursiveTypeRelatedTo` spends one unit per published result (`:3163`,
+`:3174`), and when the budget is gone sets `overflow` (`:3086`), after which
+every structured comparison of that check is False (`:3062`). The check then
+records the top pair as `Failed | ComplexityOverflow` and reports TS2859
+instead of the relation's error. The port had none of it, so
+`relationComplexityError`'s `f2` (`T1 & T2 -> T1 | null`, 8,192 intersections
+against 4,098 constituents) walked to completion: 46-67 s, and no TS2859.
+
+**Ported** (`Relater::relation_count`, `Relater::overflow`):
+- the budget is computed in `Relater::new` from the persistent store's size
+  (`RelationResults::len`, no longer test-only), so a nested top-level check
+  (a variance measurement, say) gets its own, as native's `getRelater` pool
+  does;
+- `publish_result` spends one unit per result, in the persistent store or a
+  framed walk's local one;
+- `recursive_type_related_to` answers False once overflowed, and overflows
+  when the budget is gone, in native's order (after the cache, before the
+  maybe-key test);
+- a new `CachedRelation::ComplexityOverflow` (native's
+  `RelationComparisonResultComplexityOverflow`) records the top pair, so a
+  later check reads it instead of walking again; a nested read is False, as
+  native's.
+
+**Stated divergence: the answer and the report.** Native's overflowing check
+answers False and reports TS2859, at `errorNode` or, for a check with none,
+at `c.currentNode`. The port has no `currentNode`, and its reporting site
+(`report_relation_failure`) is `assignreport.rs` (r5-ts2322). Until that site
+issues TS2859, an overflowing check answers `Unknown`, so the reporter
+declines rather than printing a TS2322 native never prints, and a silent
+caller reads `false` as native's. The reporter half is
+[`r5-relater7-ts2859-reporter.diff`](r5-relater7-ts2859-reporter.diff).
+
+The stack-depth half (TS2321, `sourceStack`/`targetStack` at 100) is not
+ported: the port's raw `MAX_DEPTH` refusal stays an unpublished `Unknown`.
+It counts every recursion, not native's per-side stacks, so turning it into
+TS2321 would report where native's stacks never reach 100.
+
+**Measured** against §8's commit, both loss checks (vs §0) empty; no verdict
+or line moves:
+- `relationComplexityError`: 24 s → 2.9 s (base: 67 s), off the slowcases
+  list. The f2 check overflows as native's does (one overflow per
+  top-level check that reaches it);
+- `Ir`: generic-imports 342,947,034 → 342,948,787 (+0.0005%); domain-model
+  1,179,272,821 → 1,179,657,930 (+0.033%). CLI output identical. The cost is
+  the per-publication decrement and the two tests in
+  `recursive_type_related_to`.
+
+**Convention record** (the new cache state): native operation
+`relation.set(id, Failed|ComplexityOverflow)` (relater.go:373); key identity
+the port's `RelationKey` of the regular source and target, per relation, owned
+by `Checker::relation_results` for the checker's lifetime; published only when
+a check overflowed; read by `recursive_type_related_to` (False) and
+`cached_object_relation` (`Unknown`, the divergence above); no receiver
+context; the expensive work it saves is the whole overflowing walk.
+
+**Falsifier.** A check that overflows in the port but not natively: the port
+publishes more results per pair than native in places (it caches identity
+and literal pairs native answers without `recursiveTypeRelatedTo`), so its
+budget can run out sooner. None is known in the corpus (no verdict moved).

@@ -28,16 +28,21 @@ use crate::types::TypeId;
 pub(crate) type RelationKey = (TypeId, TypeId, bool);
 
 /// The completed states of native `RelationComparisonResult` this port
-/// publishes. `Reported`, `ComplexityOverflow`/`StackDepthOverflow` and the
+/// publishes. `Reported`, `StackDepthOverflow` and the
 /// `ReportsUnmeasurable`/`ReportsUnreliable` variance flags are not
-/// represented: the port has no relation-count budget, its depth refusal is an
-/// unpublished `Unknown`, and it does not propagate reliability flags.
+/// represented: the port's depth refusal is an unpublished `Unknown`, and it
+/// does not propagate reliability flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CachedRelation {
     /// `RelationComparisonResultSucceeded`.
     Succeeded,
     /// `RelationComparisonResultFailed`.
     Failed,
+    /// `RelationComparisonResultFailed | RelationComparisonResultComplexityOverflow`:
+    /// the top-level pair of a check whose relation-count budget ran out
+    /// (`checkTypeRelatedToEx`, relater.go:373), so the overflowing walk is
+    /// not attempted again.
+    ComplexityOverflow,
 }
 
 /// The compiler options a relation answer reads, directly in the relater or
@@ -101,7 +106,7 @@ impl RelationResults {
         }
     }
 
-    #[cfg(test)]
+    /// `relation.size()`: the completed results stored for `relation`.
     pub(crate) fn len(&self, relation: Relation) -> usize {
         self.map(relation).len()
     }

@@ -469,6 +469,12 @@ struct Relater<'c, 'a, 'n> {
     intersection_target: bool,
     /// Optional direct diagnostic consumer. No storage allocation on verdict-only walks.
     diagnostic_pair: Option<(TypeId, TypeId)>,
+    /// Native `relationCount` (relater.go:369): how many more completed
+    /// results this check may publish before it overflows.
+    relation_count: isize,
+    /// Native `overflow` (relater.go:3086): the budget ran out; every
+    /// further structured comparison in this check answers False.
+    overflow: bool,
     signature_error: Option<(usize, usize)>,
 }
 
@@ -829,7 +835,22 @@ impl Checker<'_, '_> {
         let mut relater = Relater::new(self, relation, report_errors.then_some((source, target)));
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
-        let answer = relater.is_related_to(source, target).public_answer();
+        let mut answer = relater.is_related_to(source, target).public_answer();
+        if relater.overflow {
+            // checkTypeRelatedToEx (relater.go:371): the pair is recorded as
+            // a complexity overflow so the walk is not attempted again, and
+            // native reports TS2859 instead of the relation's own error.
+            // That report belongs to the reporting sites (`assignreport.rs`,
+            // `docs/parity/notes/r5-relater7.md` §9); until they issue it,
+            // the answer is `Unknown`, so no TS2322 stands in for it.
+            let key = (
+                relater.checker.get_regular_type_of_literal_type(source),
+                relater.checker.get_regular_type_of_literal_type(target),
+                false,
+            );
+            relater.publish_result(key, CachedRelation::ComplexityOverflow);
+            answer = Ternary::Unknown;
+        }
         reasons::finish(outer, answer == Ternary::Unknown);
         let diagnostic = if answer == Ternary::NotRelated {
             relater.signature_error.map(|(minimum, count)| {
@@ -878,6 +899,7 @@ impl Checker<'_, '_> {
         Some(match self.relation_results.get(relation, (source, target, false))? {
             CachedRelation::Succeeded => Ternary::Related,
             CachedRelation::Failed => Ternary::NotRelated,
+            CachedRelation::ComplexityOverflow => Ternary::Unknown,
         })
     }
 
@@ -1187,6 +1209,10 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
             let options = checker.relation_options();
             checker.relation_results.validate(options);
         }
+        // `relationCount = (16_000_000 - relation.size()) / 8`
+        // (checkTypeRelatedToEx, relater.go:369).
+        let relation_count_base =
+            isize::try_from(checker.relation_results.len(relation)).unwrap_or(isize::MAX);
         Relater {
             checker,
             relation,
@@ -1200,6 +1226,8 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
             intersection_target: false,
             diagnostic_pair,
             signature_error: None,
+            relation_count: (16_000_000 - relation_count_base) / 8,
+            overflow: false,
         }
     }
 
@@ -1213,6 +1241,9 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
 
     /// `relation.set(id, ...)` (`relater.go:3162`, `:3173`).
     fn publish_result(&mut self, key: RelationKey, result: CachedRelation) {
+        // Every published result spends one unit of the budget
+        // (`r.relationCount--`, relater.go:3163, :3174).
+        self.relation_count -= 1;
         match &mut self.local_results {
             Some(local) => {
                 local.insert(key, result);
@@ -3978,9 +4009,17 @@ impl Relater<'_, '_, '_> {
         target: TypeId,
         flags: RecursionFlags,
     ) -> RelationResult {
+        // Once the budget has overflowed, every structured comparison of this
+        // check is False (relater.go:3062).
+        if self.overflow {
+            return RelationResult::NotRelated;
+        }
         let key = (source, target, self.intersection_target);
         match self.cached_result(key) {
             Some(CachedRelation::Succeeded) => return RelationResult::Related,
+            // A pair that overflowed before is not attempted again
+            // (relater.go:3068-3082).
+            Some(CachedRelation::ComplexityOverflow) => return RelationResult::NotRelated,
             // Native re-runs a cached failure when it elaborates errors
             // (`relater.go:3069`). This port elaborates only the direct pair's
             // signature arity, so only that pair is re-run.
@@ -3988,6 +4027,11 @@ impl Relater<'_, '_, '_> {
                 return RelationResult::NotRelated;
             }
             _ => {}
+        }
+        // relater.go:3085: the budget is exhausted.
+        if self.relation_count <= 0 {
+            self.overflow = true;
+            return RelationResult::NotRelated;
         }
         if self.maybe_keys_set.contains(&key) {
             return RelationResult::Maybe;

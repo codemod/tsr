@@ -1,0 +1,52 @@
+diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
+index a5497f5..c519651 100644
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -2307,6 +2307,26 @@ impl<'a> Checker<'a, '_> {
+                 true,
+             )
+         };
++        // checkTypeRelatedToEx (relater.go:371): an overflowing check reports
++        // TS2859 instead of its relation error. Native's preceding silent
++        // isTypeRelatedTo overflows too and reports at `c.currentNode`
++        // (the second TS2859 of `relationComplexityError`); the port has no
++        // currentNode, so that report needs the check site's node.
++        if relation == crate::relater::Ternary::Unknown
++            && self.assignability_overflowed(source, target)
++        {
++            let source_text = self.type_to_string(source);
++            let target_text = self.type_to_string(target);
++            self.report(
++                file,
++                tsr_diagnostics::Diagnostic::with_args(
++                    &tsr_diagnostics::messages::EXCESSIVE_COMPLEXITY_COMPARING_TYPES_0_AND_1,
++                    span,
++                    [source_text, target_text],
++                ),
++            );
++            return true;
++        }
+         let not_related = relation == crate::relater::Ternary::NotRelated;
+         if !not_related && !self.object_against_primitive(source, target) {
+             probe!(PROBE_RELATION_DECLINED);
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 47c0378..7ef11b8 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -903,6 +903,16 @@ impl Checker<'_, '_> {
+         })
+     }
+ 
++    /// Whether the assignable check of `source -> target` overflowed its
++    /// relation-count budget (`CachedRelation::ComplexityOverflow`, native's
++    /// `RelationComparisonResultComplexityOverflow`): its report is TS2859.
++    pub(crate) fn assignability_overflowed(&mut self, source: TypeId, target: TypeId) -> bool {
++        let source = self.get_regular_type_of_literal_type(source);
++        let target = self.get_regular_type_of_literal_type(target);
++        self.relation_results.get(Relation::Assignable, (source, target, false))
++            == Some(CachedRelation::ComplexityOverflow)
++    }
++
+     /// The options [`crate::relation_cache::RelationOptions`] names.
+     fn relation_options(&self) -> crate::relation_cache::RelationOptions {
+         [

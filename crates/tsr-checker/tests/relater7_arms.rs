@@ -184,3 +184,21 @@ function f(x: L, y: L & O, s: string | number, t: "a" | "b") {
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn an_overflowing_check_is_not_reported_as_ts2322() {
+    // relationComplexityError's f2: native reports TS2859 (the reporter half
+    // is held, docs/parity/notes/r5-relater7.md section 9); the relater's
+    // overflow answer must not surface as a TS2322 meanwhile.
+    let source = r#"type Digits = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7';
+type T1 = `${Digits}${Digits}${Digits}${Digits}` | undefined;
+type T2 = { a: string } | { b: number };
+function f1(x: T1, y: T1 & T2) {
+    x = y;
+}
+function f2(x: T1 | null, y: T1 & T2) {
+    x = y;
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
