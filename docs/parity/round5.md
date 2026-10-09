@@ -1309,3 +1309,21 @@ Measured by the box: +28 type lines and 0 lost, with Ir flat.
 The property slot's spreads.rs half (+19 types, 0 lost) is held. It costs dm
 Ir +0.12%, because spread members bake their text at creation. It lands with
 `tsr-2zk.1120`, on-demand spread member text.
+
+### r6-smallcodes4 finished (batch BC); r6-typesroots and r6-smallcodes5 dispatched
+
+r6-smallcodes4's six diffs land in batch BC, +25 diagnostics cases:
+- onFailedToResolveSymbol's Namespace arm (TS2503/TS2833);
+- processPragmasIntoFields (TS1453/TS1084);
+- TS1009 on `import(x,)`;
+- IsInTopLevelContext (TS1262);
+- IsExternalOrCommonJSModule (TS2686);
+- getTypeOnlyAliasDeclarationEx's Alias && !Value test (TS1362).
+
+Held:
+- unknown-operand: +5/−4, waits on inference;
+- import-type-node: +38/−8, waits on alias names through symbol_chain;
+- for-of destructuring: +0, waits on a tuple's `[Symbol.iterator]` in members.rs.
+
+Dispatched: r6-typesroots took r6-nodereuse's slot (fourteen stale `.16.x`
+clusters, re-measured), and r6-smallcodes5 takes this one (`tsr-2zk.1134`).
