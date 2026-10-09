@@ -1,0 +1,463 @@
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index f876fdc..df1c813 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -1016,8 +1016,39 @@ impl<'a> BindResult<'a> {
+             return false;
+         }
+         let flags = self.symbols.get(self.merged_symbol(symbol)).flags;
+-        meaning.intersects(flags & SymbolFlags::TYPE)
+-            && !flags.contains(SymbolFlags::TYPE_PARAMETER)
++        if !meaning.intersects(flags & SymbolFlags::TYPE) || nodes.kind(last) == SyntaxKind::JSDoc {
++            return false;
++        }
++        if !flags.contains(SymbolFlags::TYPE_PARAMETER) {
++            return true;
++        }
++        // A type parameter is visible from the parameter list, the return
++        // type and the type-parameter list only (`nameresolver.go:64`); a
++        // member's computed name or a decorator does not see it.
++        let return_type = match node_map.get(location) {
++            Some(tsr_ast::Node::FunctionDeclaration(f)) => f.r#type,
++            Some(tsr_ast::Node::FunctionExpression(f)) => f.r#type,
++            Some(tsr_ast::Node::ArrowFunction(f)) => f.r#type,
++            Some(tsr_ast::Node::MethodDeclaration(m)) => m.r#type,
++            Some(tsr_ast::Node::MethodSignatureDeclaration(m)) => m.r#type,
++            Some(tsr_ast::Node::GetAccessorDeclaration(a)) => a.r#type,
++            Some(tsr_ast::Node::SetAccessorDeclaration(a)) => a.r#type,
++            Some(tsr_ast::Node::CallSignatureDeclaration(c)) => c.r#type,
++            Some(tsr_ast::Node::ConstructSignatureDeclaration(c)) => c.r#type,
++            Some(tsr_ast::Node::IndexSignatureDeclaration(i)) => i.r#type,
++            Some(tsr_ast::Node::FunctionTypeNode(f)) => f.r#type,
++            Some(tsr_ast::Node::ConstructorTypeNode(c)) => c.r#type,
++            Some(tsr_ast::Node::ConstructorDeclaration(c)) => c.r#type,
++            _ => None,
++        };
++        !(return_type.and_then(|t| tsr_ast::Node::from(t).node_id()) == Some(last)
++            || matches!(
++                nodes.kind(last),
++                SyntaxKind::Parameter
++                    | SyntaxKind::JSDocParameterTag
++                    | SyntaxKind::JSDocReturnTag
++                    | SyntaxKind::TypeParameter
++            ))
+     }
+ 
+     /// `useResult`'s parameter arm (`binder/nameresolver.go:72`): *"parameters
+@@ -1236,6 +1267,22 @@ impl<'a> BindResult<'a> {
+             {
+                 return Some(symbol);
+             }
++            // `nameresolver.go:216`: a computed property name of a class or
++            // interface member cannot reference that container's type
++            // parameters. Upstream reports TS2467 and returns nil when the
++            // container's members table has the name with Type meaning.
++            if nodes.kind(node) == SyntaxKind::ComputedPropertyName
++                && let Some(grandparent) = nodes.parent(node).and_then(|p| nodes.parent(p))
++                && matches!(
++                    nodes.kind(grandparent),
++                    SyntaxKind::ClassDeclaration
++                        | SyntaxKind::ClassExpression
++                        | SyntaxKind::InterfaceDeclaration
++                )
++                && self.lookup_type_member(grandparent, name, meaning & SymbolFlags::TYPE).is_some()
++            {
++                return None;
++            }
+             if matches!(
+                 nodes.kind(node),
+                 SyntaxKind::ClassDeclaration
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 83c56a3..5ab38f7 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -2979,13 +2979,9 @@ impl<'a, 'n> Checker<'a, 'n> {
+         // `A`, `A.B` outside). `resolve_name` is the shadow-exact test: a
+         // shadowing `B` at the site resolves to the OTHER symbol and the
+         // qualifier proceeds.
+-        if let Some(resolved) = self.binder.resolve_name(
+-            self.nodes,
+-            self.node_map,
+-            reference,
+-            name,
+-            SymbolFlags::TYPE | SymbolFlags::VALUE,
+-        ) {
++        if let Some(resolved) =
++            self.resolve_name_at_print_site(reference, name, SymbolFlags::TYPE | SymbolFlags::VALUE)
++        {
+             let resolved = self.binder.merged_symbol(resolved);
+             let own = self.binder.merged_symbol(symbol);
+             // Identity, or the same written name in the same CONTAINER - the
+@@ -3257,10 +3253,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+                     });
+                 let unresolved_export = same_file
+                     && held_by_exports
+-                    && self
+-                        .binder
+-                        .resolve_name(self.nodes, self.node_map, reference, name, meaning)
+-                        .is_none();
++                    && self.resolve_name_at_print_site(reference, name, meaning).is_none();
+                 if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
+                     // `getSpecifierForModuleSymbol`'s spelling
+                     // (`crate::module_specifiers`, r5-modules2 §3): the
+@@ -3389,7 +3382,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+         reference: NodeId,
+         meaning: SymbolFlags,
+     ) -> bool {
+-        match self.binder.resolve_name(self.nodes, self.node_map, reference, name, meaning) {
++        match self.resolve_name_at_print_site(reference, name, meaning) {
+             Some(found) => self.binder.merged_symbol(found) != self.binder.merged_symbol(symbol),
+             None => true,
+         }
+@@ -4482,9 +4475,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+     /// §3.4).
+     fn own_name_alias_at(&mut self, symbol: SymbolId, reference: NodeId) -> bool {
+         let name = self.binder.symbols().get(symbol).name;
+-        let Some(hit) = self.binder.resolve_name(
+-            self.nodes,
+-            self.node_map,
++        let Some(hit) = self.resolve_name_at_print_site(
+             reference,
+             name,
+             SymbolFlags::TYPE | SymbolFlags::VALUE,
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 5b97aa1..57277d4 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5991,6 +5991,10 @@ impl<'a> Checker<'a, '_> {
+             Some(Node::FunctionTypeNode(node)) => node.type_parameters,
+             _ => return signature,
+         };
++        // typeParameterShadowsOtherTypeParameterInScope resolves from the
++        // node builder's enclosing declaration, the assertion's parent
++        // (`type_symbol_baseline.go:394`), never from the printed name.
++        let enclosing = self.nodes.parent(reference).unwrap_or(reference);
+         let mut map = Vec::new();
+         let mut renames: Vec<Option<String>> = Vec::with_capacity(own.len());
+         for ((parameter, &own_type), declaration) in
+@@ -6010,7 +6014,7 @@ impl<'a> Checker<'a, '_> {
+                         .resolve_name(
+                             self.nodes,
+                             self.node_map,
+-                            reference,
++                            enclosing,
+                             &parameter.name,
+                             tsr_binder::SymbolFlags::TYPE,
+                         )
+@@ -6029,7 +6033,7 @@ impl<'a> Checker<'a, '_> {
+             // holds ZERO renames at neutral sites — the byText half does not
+             // exist in this corpus and regressed 763 lines when built.
+             let fresh_name = shadowed.then(|| {
+-                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), reference)
++                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), enclosing)
+             });
+             if let Some(fresh_name) = fresh_name {
+                 let fresh = self.store.new_named(
+diff --git a/crates/tsr-checker/src/node_reuse.rs b/crates/tsr-checker/src/node_reuse.rs
+index f230c04..c75da1d 100644
+--- a/crates/tsr-checker/src/node_reuse.rs
++++ b/crates/tsr-checker/src/node_reuse.rs
+@@ -159,6 +159,9 @@ struct ReuseContext {
+     /// against the names already allocated; this visitor emits them as
+     /// written. See [`Checker::renamed_annotation_in_scope`].
+     declares_type_parameters: bool,
++    /// The names those declarations write, for
++    /// [`Checker::renamed_declarations_collide`].
++    declared_type_parameter_names: Vec<String>,
+     /// For a pseudochecker node taken from a function BODY
+     /// ([`Checker::reused_return_text`]), the declaration whose signature is
+     /// printed. Upstream's `enterNewScope` for that signature binds only its
+@@ -179,6 +182,7 @@ impl ReuseContext {
+             mapped: false,
+             unnameable: false,
+             declares_type_parameters: false,
++            declared_type_parameter_names: Vec::new(),
+             pseudo_owner: None,
+         }
+     }
+@@ -470,6 +474,27 @@ impl<'a> Checker<'a, '_> {
+                     Some(WrittenAnnotation { node, r#type: image, renamed: true });
+             }
+         }
++        // typeParameterToDeclaration (`nodebuilderimpl.go:1611`) keeps the
++        // parameter's identity under typeParameterToName's rename, so its
++        // constraint is still the written node's type and is reused, naming
++        // the renamed parameters through this render's allocations.
++        for (source, target) in
++            original.type_parameters.iter().zip(renamed.type_parameters.iter_mut())
++        {
++            let (Some(parameter), Some(constraint)) = (source.resolved_type, source.constraint)
++            else {
++                continue;
++            };
++            // The source's baked text names the parameters as written; the
++            // clone re-reads the node under this render's names.
++            if let Some(text) = self.renamed_constraint_text(
++                parameter,
++                constraint,
++                source.written_constraint.is_some(),
++            ) {
++                target.written_constraint = Some(text);
++            }
++        }
+         if renamed.written_return.is_none()
+             && let Some(written) = original.written_return
+             && self.get_return_type_of_signature(original).unwrap_or(original.r#type)
+@@ -565,6 +590,36 @@ impl<'a> Checker<'a, '_> {
+     /// serialized fresh. Printed at `reference` when the printer has a site,
+     /// else from the annotation's own scope. `None` when the node is not the
+     /// constraint's or the visitor refuses it.
++    /// [`Checker::reused_constraint_text`] for a rename clone: the written
++    /// constraint, when it is still the parameter's constraint, printed with
++    /// the renamed parameters named through this render's allocations.
++    /// `reused` is the original signature's own decision (its baked
++    /// `written_constraint`): that node is re-read without deciding again.
++    fn renamed_constraint_text(
++        &mut self,
++        parameter: TypeId,
++        constraint: TypeId,
++        reused: bool,
++    ) -> Option<String> {
++        let symbol = *self.type_parameter_symbols.get(&parameter)?;
++        let node =
++            self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
++                match self.node_map.get(id)? {
++                    Node::TypeParameterDeclaration(declaration) => declaration.constraint,
++                    _ => None,
++                }
++            })?;
++        if !reused && self.get_type_from_type_node(node) != constraint {
++            return None;
++        }
++        let written = WrittenAnnotation {
++            node: Node::from(node).node_id()?,
++            r#type: constraint,
++            renamed: true,
++        };
++        self.site_free_annotation_text(written, constraint)
++    }
++
+     pub(crate) fn reused_constraint_text(
+         &mut self,
+         parameter: TypeId,
+@@ -1510,12 +1565,36 @@ impl<'a> Checker<'a, '_> {
+         let mut cx = ReuseContext::new(Some(reference), written.node);
+         cx.pseudo_owner = pseudo_owner;
+         let text = self.try_reuse_type_node(node, false, &mut cx)?;
+-        if written.renamed && cx.declares_type_parameters {
++        if written.renamed && self.renamed_declarations_collide(&cx, reference) {
+             return None;
+         }
+         (!cx.unnameable).then_some(text)
+     }
+ 
++    /// Whether a renamed node's own type-parameter declarations would be
++    /// renamed by `typeParameterToName` (`nodebuilderimpl.go:1404`) inside
++    /// their `enterNewScope`: a written name already claimed in this render
++    /// (an allocation or an enclosing render's parameter), or one that
++    /// resolves at the print site to a type parameter. Such a declaration
++    /// needs an allocation of its own, which the visitor does not model, so
++    /// the node is refused; any other declaration keeps its written name, as
++    /// upstream's does.
++    fn renamed_declarations_collide(&self, cx: &ReuseContext, site: NodeId) -> bool {
++        // The node builder's enclosing declaration: the assertion's parent
++        // (`type_symbol_baseline.go:394`).
++        let enclosing = self.nodes.parent(site).unwrap_or(site);
++        cx.declared_type_parameter_names.iter().any(|name| {
++            self.render_type_parameter_names.allocations.iter().any(|(_, text)| text == name)
++                || self.render_type_parameter_scope.iter().any(|(text, _)| text == name)
++                || self
++                    .binder
++                    .resolve_name(self.nodes, self.node_map, enclosing, name, SymbolFlags::TYPE)
++                    .is_some_and(|found| {
++                        self.binder.symbols().get(found).flags.contains(SymbolFlags::TYPE_PARAMETER)
++                    })
++        })
++    }
++
+     /// A [`WrittenAnnotation::renamed`] node names its renamed parameters
+     /// from the render's allocations, which live only while the rename
+     /// clone's render runs; printed outside one, the clone's image is
+@@ -2410,6 +2489,7 @@ impl<'a> Checker<'a, '_> {
+                 }
+                 let parameter = mapped.type_parameter?;
+                 cx.declares_type_parameters = true;
++                cx.declared_type_parameter_names.push(parameter.name?.text.to_string());
+                 let readonly = match mapped.readonly_token.map(|token| token.kind) {
+                     None => "",
+                     Some(SyntaxKind::ReadonlyKeyword) => "readonly ",
+@@ -2449,6 +2529,7 @@ impl<'a> Checker<'a, '_> {
+             TypeNode::InferTypeNode(infer) => {
+                 let parameter = infer.type_parameter?;
+                 cx.declares_type_parameters = true;
++                cx.declared_type_parameter_names.push(parameter.name?.text.to_string());
+                 let mut text = format!("infer {}", parameter.name?.text);
+                 if let Some(constraint) = parameter.constraint {
+                     text.push_str(" extends ");
+@@ -2638,6 +2719,9 @@ impl<'a> Checker<'a, '_> {
+             return Some(String::new());
+         }
+         cx.declares_type_parameters = true;
++        for parameter in parameters {
++            cx.declared_type_parameter_names.push(parameter.name?.text.to_string());
++        }
+         let mut parts = Vec::with_capacity(parameters.len());
+         for parameter in parameters {
+             parts.push(self.reused_type_parameter(parameter, cx)?);
+@@ -2720,6 +2804,9 @@ impl<'a> Checker<'a, '_> {
+             }
+         }
+         cx.declares_type_parameters = true;
++        for parameter in parameters {
++            cx.declared_type_parameter_names.push(parameter.name?.text.to_string());
++        }
+         let mut parts = Vec::with_capacity(parameters.len());
+         for parameter in parameters {
+             let root = std::mem::replace(&mut cx.root, parameter.node_id?);
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index 2fd667c..a46a2d4 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -7684,7 +7684,7 @@ impl<'a> Checker<'a, '_> {
+         // method declares the parameter (§107's first refusal). The §102
+         // composite arm keeps the assertion anchor: its per-site layouts
+         // ([T,T_1] vs [T_1,T]) are the decoded evidence for it.
+-        let site_anchor = signature.declaration;
++        let site_anchor = reference;
+         let names_depth = self.render_type_parameter_names.allocations.len();
+         let mut renamed =
+             self.rename_type_parameters_for_site(signature.clone(), site_anchor, &mut throwaway);
+diff --git a/crates/tsr-conformance/tests/r6_typesroots2_shadowed_rename.rs b/crates/tsr-conformance/tests/r6_typesroots2_shadowed_rename.rs
+new file mode 100644
+index 0000000..4ddcfd4
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_typesroots2_shadowed_rename.rs
+@@ -0,0 +1,117 @@
++//! `typeParameterToName`'s shadow rename (`nodebuilderimpl.go:1404`), resolved
++//! from the node builder's enclosing declaration with `enterNewScope`'s
++//! synthesized signature scopes, and `resolveNameHelper`'s function-like and
++//! computed-name visibility rules (`binder/nameresolver.go:54-70, 216`).
++//! `docs/parity/notes/r6-typesroots2.md` §5.
++//!
++//! Every expectation is a line of the pinned baseline
++//! (`testdata/baselines/reference/submodule/…` @ 5b1047d) named at each test.
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++fn lines(source: &str) -> Vec<String> {
++    let case = TestCase::parse("probe/r6_typesroots2_shadowed_rename", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect()
++}
++
++fn expect(source: &str, wanted: &[&str]) {
++    let lines = lines(source);
++    for line in wanted {
++        assert!(lines.iter().any(|actual| actual == line), "missing {line}: {lines:?}");
++    }
++}
++
++/// `conformance/subtypesOfTypeParameter.types`: an arrow's own `T` printed
++/// where the enclosing function's `T` is in scope is renamed.
++#[test]
++fn an_inner_signature_parameter_shadowed_at_the_site_is_renamed() {
++    expect(
++        r"// @target: es2015
++function f<T>(x: T) {
++    var r8 = true ? <T>(x: T) => { return x } : x;
++}
++",
++        &["r8 : T | (<T_1>(x: T_1) => T_1)", "<T>(x: T) => { return x } : <T_1>(x: T_1) => T_1"],
++    );
++}
++
++/// `conformance/computedPropertyNames32_ES6.types`: a class's type
++/// parameters are not in scope in its member's computed name, so `foo`'s own
++/// `T` prints as written there.
++#[test]
++fn a_computed_name_does_not_see_its_class_type_parameters() {
++    expect(
++        r"// @target: es2015
++function foo<T>() { return '' }
++class C<T> {
++    bar() {
++        return 0;
++    }
++    [foo<T>()]() { }
++}
++",
++        &["foo : <T>() => string"],
++    );
++}
++
++/// `compiler/typeParametersAndParametersInComputedNames.types`: nor are the
++/// method's own type parameters.
++#[test]
++fn a_computed_name_does_not_see_its_method_type_parameters() {
++    expect(
++        r"// @target: es2015
++function foo<T>(a: T) : string {
++    return '';
++}
++class A {
++    [foo<T>(a)]<T>(a: T) {
++    }
++}
++",
++        &["foo : <T>(a: T) => string"],
++    );
++}
++
++/// `compiler/declarationEmitTypeParameterNameInOuterScope.types`: inside the
++/// printed signature's scope `A` is its type parameter, so the class `A`
++/// takes its `globalThis.` qualifier, at the declaration's name and at the
++/// arrow expression alike.
++#[test]
++fn a_signature_scope_shadows_an_outer_class_while_it_prints() {
++    expect(
++        r"// @target: es2015
++class A { }
++var a3 = <A,>(x: A) => new A();
++function a4<A,>(x: A) { return new A() }
++",
++        &["a4 : <A>(x: A) => globalThis.A", "<A,>(x: A) => new A() : <A>(x: A) => globalThis.A"],
++    );
++}
++
++/// `compiler/conditionalTypeAssignabilityWhenDeferred.types`: a renamed
++/// parameter's written constraint is reused under the rename.
++#[test]
++fn a_renamed_parameter_keeps_its_written_constraint() {
++    expect(
++        r"// @target: es2015
++declare function onlyNullablePlease2<
++  T extends [null] extends [T] ? any : never
++>(value: T): void;
++function f<T>(t: T) {
++  var x: T | null = Math.random() > 0.5 ? null : t;
++  onlyNullablePlease2(x);
++}
++",
++        &[
++            "onlyNullablePlease2 : <T_1 extends [null] extends [T_1] ? any : never>(value: T_1) => void",
++        ],
++    );
++}
+diff --git a/crates/tsr-checker/src/render_scope_resolution.rs b/crates/tsr-checker/src/render_scope_resolution.rs
+--- a/crates/tsr-checker/src/render_scope_resolution.rs
++++ b/crates/tsr-checker/src/render_scope_resolution.rs
+@@ -46,7 +46,6 @@
+ impl Checker<'_, '_> {
+     /// `resolveName` from a print site, inside the node builder's signature
+     /// scopes.
+-    #[expect(dead_code, reason = "consumer: r6-typesroots2-shadowed-type-parameter-rename.diff")]
+     pub(crate) fn resolve_name_at_print_site(
+         &self,
+         reference: tsr_ast::NodeId,
