@@ -1451,3 +1451,20 @@ Batch BI lands r6-smallcodes5's nine hook diffs, measured lossless as a stack
 
 19 cases remain, routed in r6-smallcodes5.md §4. r6-jsx takes the 55 still-WRONG
 JSX/TSX diagnostics cases (`tsr-2zk.1141`).
+
+### r6-names finished (batch BJ); r6-names2 dispatched
+
+Batch BJ lands r6-names' commits and six hook diffs:
+- value slots for `with` and JSX tags;
+- unchecked regions;
+- TS-only annotations in JS;
+- primitive spellings;
+- `typeof null`;
+- the export-specifier failure tail.
+
+Measured by the box: +17 diagnostics cases.
+
+The parameter-scope diff (resolveName's useOuterVariableScopeInParameter:
++5 diagnostics, +38 types) is held. Its BindResult options slot adds about
+1.5M Ir on dm through layout, and the stack read dm +0.19–0.25%.
+r6-names2 lands it without that cost (`tsr-2zk.1142`).
