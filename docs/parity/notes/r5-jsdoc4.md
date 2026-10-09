@@ -78,6 +78,13 @@ walk asks the same host rule the relation check uses; no behaviour change.
   gated on `file_is_js`.
 - `crates/tsr-checker/tests/jsdoc_reparsed_checks.rs`: nine tests; six fail
   without the change.
+  *Corrected after §4:* the tests first asserted TS2304 on unresolved names
+  and passed only because their harness stamped `JAVASCRIPT_FILE` on the
+  file root and not on comment roots, as the loader does. In production
+  `check_type_reference_name` declines every node `in_js_file`, comment
+  nodes included, so no TS2304 is reported inside JSDoc (§4.2). The tests
+  now stamp like the loader and assert TS2344 against a
+  `@template {string}` typedef; six still fail without this section's walk.
 
 **Not covered, with the piece they wait on.**
 
