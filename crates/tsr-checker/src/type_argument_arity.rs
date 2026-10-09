@@ -413,6 +413,13 @@ impl Checker<'_, '_> {
                 Some(Node::ClassExpression(class)) => class.type_parameters,
                 Some(Node::InterfaceDeclaration(interface)) => interface.type_parameters,
                 Some(Node::TypeAliasDeclaration(alias)) => alias.type_parameters,
+                // A `@typedef`/`@callback` is a reparsed `JSTypeAliasDeclaration`
+                // whose parameters are its comment's `@template` tags
+                // (`gatherTypeParameters(jsDoc, true)`, `parser/reparser.go:293`).
+                Some(Node::JSDocTypedefTag(_) | Node::JSDocCallbackTag(_)) => {
+                    reparsed = self.local_type_parameters_of(symbol).into_owned();
+                    &reparsed[..]
+                }
                 // Neither an enum nor a type parameter declares a parameter
                 // list, so each answers `(0, 0)` — an answer, not a refusal.
                 // §681, §683.
