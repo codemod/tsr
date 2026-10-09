@@ -125,3 +125,67 @@ answers (TS2769 positions, the silent choice, the class pair, and the
 parameterless candidate). A JSX overload set where TSR reports TS2769 and
 the oracle chooses a candidate would show the subtype pass or the
 per-candidate contextual type is wrong.
+
+## 2. TS2879: the fragment factory is not in scope (`getJSXFragmentType`)
+
+**Forcing constraint.** `resolveJsxOpeningLikeElement` types an opening
+fragment through `getJSXFragmentType` (`jsx.go:499-522`), which resolves the
+fragment factory (`getJsxNamespace` at the fragment) as a value with TS2879,
+`Using JSX fragments requires fragment factory '{0}' to be in scope, but it
+could not be found.`, as the not-found message. The port typed no fragment,
+so the line was missing beside TS2874 in `jsxFragmentFactoryReference`
+(`jsx=react`) and `inlineJsxFactoryWithFragmentIsError` (`index.tsx`, an
+`@jsx dom` pragma with no `@jsxFrag`: the fragment factory falls back to
+`React`).
+
+**What is ported** (`jsx_factory.rs`, `check_jsx_fragment_factory_in_scope`,
+dispatched from the existing per-node `check_jsx_fragment_factory` on a
+`JsxOpeningFragment`): the guard `(jsx == react || jsxFragmentFactory set)
+&& name != "null"`, the implicit-import container first, the value lookup
+(Enum excluded under `preserve`/`react-native`) through the same
+`onFailedToResolveSymbol` arms `markJsxAliasReferenced` uses
+(`resolve_jsx_factory_name`, now taking the not-found message).
+
+**Once per file.** Upstream caches the answer in `sourceFileLinks.jsxFragmentType`,
+so only the first fragment it types can report. Asked from each fragment,
+the first opening fragment of a pre-order walk stands for that first
+request — the same substitution `r5-jsx3.md` §7 made for TS2875's
+`firstJSXTagInFile`, and with the same cost shape: the walk enters only
+subtrees that start no later than the fragment, and only runs when the
+factory guard holds. Where the first-typed fragment is not the first in
+source order (a fragment typed early through contextual typing elsewhere)
+the two could differ; no corpus case has two fragments under different
+scopes for the factory name.
+
+**Not ported:** the fragment's type (`React.Fragment`'s `typeof` and its
+signatures, so `resolveCall` on a fragment and TS2604 on one).
+
+**Measured** against the frozen base, on top of §1: WRONG → RIGHT
+`jsxFragmentFactoryReference(jsx=react)`, `inlineJsxFactoryWithFragmentIsError`;
+no new missing or extra row in any case; type lines byte-identical;
+slowcases clean on both dumps.
+
+## 9. Diffs for files this lane does not own
+
+Each diff is against the frozen base plus this lane's commits, measured
+alone on top of them (both dumps unfiltered, row-level diff of every case).
+
+### D1. Value tag names are value references (`check.rs`, main)
+
+`r6-jsx-tag-name-value-reference.diff`. `resolveJsxOpeningLikeElement`
+checks a non-intrinsic tag name as an expression (`jsx.go:562`) and
+`checkJsxElementDeferred` checks the closing tag's name the same way
+(`jsx.go:82`), so an unresolved `<Comp />` reports TS2304 through
+`getResolvedSymbol` like any identifier expression. TS2304 here is keyed on
+`is_value_reference`'s allow-list, which had no arm for a tag name, so
+`<View>…</View>` with nothing named `View` was silent. The diff adds the
+three tag positions (opening, self-closing, closing), excluding intrinsic
+names (`isIntrinsicJsxName`: a lowercase first letter or a hyphen), which
+resolve through `JSX.IntrinsicElements` instead. A dotted tag
+(`<a.B />`) was already covered by the property-access arm.
+
+Measured: WRONG → RIGHT `jsxAttributeWithoutExpressionReact`,
+`jsxSpreadTag(target=es2015)`, `jsxSpreadTag(target=esnext)`,
+`parseJsxExtends2`; rows fixed in `jsxElementType` (98:2, 99:2) and
+`jsxUnclosedParserRecovery` (95:5); +17 rows, no new missing or extra row,
+type lines byte-identical, slowcases clean, `tsr-checker` tests pass.

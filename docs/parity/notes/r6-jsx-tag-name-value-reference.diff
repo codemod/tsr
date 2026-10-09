@@ -1,0 +1,42 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index dd7bed4..1265e84 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -5502,6 +5502,14 @@ impl Checker<'_, '_> {
+         reason = "one arm per expression-bearing node kind; splitting it would \
+                   hide the exhaustiveness that is the point of the list"
+     )]
++    /// `isIntrinsicJsxName` (`checker/utilities.go`) for an identifier tag.
++    fn is_intrinsic_jsx_tag_identifier(&self, node: NodeId) -> bool {
++        match self.node_map.get(node) {
++            Some(Node::Identifier(name)) => crate::jsx_intrinsic::is_intrinsic_jsx_name(name.text),
++            _ => false,
++        }
++    }
++
+     pub(crate) fn is_value_reference(&self, node: NodeId) -> bool {
+         let Some(parent) = self.nodes.parent(node) else { return false };
+         let Some(typed) = self.node_map.get(parent) else { return false };
+@@ -5589,6 +5597,22 @@ impl Checker<'_, '_> {
+             Node::Decorator(n) => is(n.expression.and_then(|e| e.node_id())),
+             Node::ExportAssignment(n) => is(n.expression.and_then(|e| e.node_id())),
+             Node::JsxExpression(n) => is(n.expression.and_then(|e| e.node_id())),
++            // A value tag name: `resolveJsxOpeningLikeElement` checks it as an
++            // expression (`jsx.go:562`) and `checkJsxElementDeferred` checks the
++            // closing tag the same way (`jsx.go:82`); an intrinsic name
++            // (`isIntrinsicJsxName`) is looked up in `JSX.IntrinsicElements`.
++            Node::JsxOpeningElement(n) => {
++                is(n.tag_name.and_then(|t| t.node_id()))
++                    && !self.is_intrinsic_jsx_tag_identifier(node)
++            }
++            Node::JsxSelfClosingElement(n) => {
++                is(n.tag_name.and_then(|t| t.node_id()))
++                    && !self.is_intrinsic_jsx_tag_identifier(node)
++            }
++            Node::JsxClosingElement(n) => {
++                is(n.tag_name.and_then(|t| t.node_id()))
++                    && !self.is_intrinsic_jsx_tag_identifier(node)
++            }
+             // `class C extends B` resolves `B` as a value; `implements I` does
+             // not, and the two share this node kind. The heritage clause's
+             // keyword is what separates them.
