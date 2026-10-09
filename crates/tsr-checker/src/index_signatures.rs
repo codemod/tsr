@@ -93,8 +93,11 @@ impl<'a> Checker<'a, '_> {
         }
         let id = self.apparent_mapped_type(id);
         self.resolve_mapped_type_members(id);
-        match self.store.get(id).data.clone() {
+        // Borrow to choose the arm; only a union's or intersection's member
+        // list is copied out (`r5-checkperf.md` §5).
+        match &self.store.get(id).data {
             TypeData::Union { types, .. } => {
+                let types = types.clone();
                 return self.union_index_infos(&types);
             }
             // resolveIntersectionTypeMembers / appendIndexInfo (checker.go).
@@ -105,6 +108,7 @@ impl<'a> Checker<'a, '_> {
             // `string & { brand }` contributes `String`'s number index.
             // `docs/parity/notes/r4-index3.md` §2.
             TypeData::Intersection { types, .. } => {
+                let types = types.clone();
                 let mut infos: Vec<IndexInfo> = Vec::new();
                 for ty in types {
                     let ty = self.apparent_type(ty);

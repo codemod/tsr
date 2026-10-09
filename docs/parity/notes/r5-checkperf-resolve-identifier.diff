@@ -1,0 +1,143 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index c921581..d03152e 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1212,9 +1212,7 @@ impl Checker<'_, '_> {
+         if !tsr_binder::is_external_module_in(source, self.nodes) {
+             return;
+         }
+-        let Some(symbol) = self.binder.resolve_name(
+-            self.nodes,
+-            self.node_map,
++        let Some(symbol) = self.resolve_identifier_memo(
+             node,
+             text,
+             SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+@@ -6363,14 +6361,7 @@ impl Checker<'_, '_> {
+         }
+         let Some(symbol) = self
+             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
+-            .binder
+-            .resolve_name(
+-                self.nodes,
+-                self.node_map,
+-                node,
+-                text,
+-                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+-            )
++            .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
+             // **`a.C` is not a name in scope.** Upstream reaches this use
+             // through `resolveEntityName`, which resolves the receiver and
+             // takes the member from its exports; this rule is dispatched per
+@@ -6999,13 +6990,7 @@ impl Checker<'_, '_> {
+         }
+         let Some(symbol) =
+             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
+-            self.binder.resolve_name(
+-                self.nodes,
+-                self.node_map,
+-                node,
+-                text,
+-                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+-            )
++            self.resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
+         else {
+             return false;
+         };
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index a144b55..cf2ff6c 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -3059,13 +3059,8 @@ impl Checker<'_, '_> {
+     fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
+         match self.node_map.get(node) {
+             Some(Node::Identifier(identifier)) => {
+-                let symbol = self.binder.resolve_name(
+-                    self.nodes,
+-                    self.node_map,
+-                    node,
+-                    identifier.text,
+-                    SymbolFlags::VALUE,
+-                )?;
++                let symbol =
++                    self.resolve_identifier_memo(node, identifier.text, SymbolFlags::VALUE)?;
+                 // `getExportSymbolOfValueSymbolIfExported`.
+                 let symbol = self.binder.merged_symbol(symbol);
+                 self.get_explicit_type_of_symbol(symbol)
+diff --git a/crates/tsr-checker/src/perf_links.rs b/crates/tsr-checker/src/perf_links.rs
+index a61703e..d0309e7 100644
+--- a/crates/tsr-checker/src/perf_links.rs
++++ b/crates/tsr-checker/src/perf_links.rs
+@@ -83,6 +83,14 @@ pub(crate) struct PerfLinks {
+     /// declarations or parameters (`r5-typeparams2.md` §2). Interior-mutable
+     /// because the reader, `Checker::local_type_parameters_of`, takes `&self`.
+     pub(crate) local_type_parameters: std::cell::RefCell<Vec<Option<LocalTypeParametersLink>>>,
++
++    // ---- r5-checkperf (`tsr-2zk.996`). ----
++    /// `(identifier, meaning bits) -> symbol`: `resolveName` from an
++    /// identifier for its own text, the answer native keeps in the
++    /// identifier's `links.resolvedSymbol` (`getResolvedSymbol`,
++    /// `checker.go`). Every entry is a completed answer, `None` included
++    /// (`r5-checkperf.md` §4).
++    pub(crate) resolved_identifiers: FxHashMap<(NodeId, u32), Option<SymbolId>>,
+ }
+ 
+ /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
+@@ -284,6 +292,57 @@ impl Checker<'_, '_> {
+     }
+ }
+ 
++// ---- r5-checkperf (`tsr-2zk.996`): identifier name resolution. ----
++
++impl Checker<'_, '_> {
++    /// [`tsr_binder::BindResult::resolve_name`] from the identifier `node`
++    /// for its own text, memoised per `(node, meaning)`.
++    ///
++    /// **Native operation.** `getResolvedSymbol` (`checker.go`, pinned
++    /// `5b1047d`) resolves an identifier once and keeps the answer in
++    /// `links.resolvedSymbol`; `checkIdentifier`'s rules then read that one
++    /// symbol. This port's identifier rules resolve per rule, three of them
++    /// with `getResolvedSymbol`'s own meaning, and the flow walk's dotted-name
++    /// reads resolve per query.
++    ///
++    /// **Identity and owner.** Key: the identifier's `NodeId` and the meaning
++    /// bits; the name is the identifier's text, so it is not in the key — a
++    /// `start` that is not an identifier spelled `name` bypasses the memo.
++    /// Private `Checker`, Program lifetime.
++    ///
++    /// **Publication.** Exact, so every answer publishes, `None` included:
++    /// the walk reads only the binder's tables, the node table and the node
++    /// map, all immutable `&'a` borrows for the checker's lifetime, and
++    /// takes no checker callback (the export-alias variant, which does, is
++    /// not routed here).
++    ///
++    /// **Context.** None: no receiver, mapper or alias frame enters the walk.
++    ///
++    /// **Work boundary.** One ancestor walk per `(identifier, meaning)`
++    /// (`r5-checkperf.md` §4).
++    pub(crate) fn resolve_identifier_memo(
++        &mut self,
++        node: NodeId,
++        name: &str,
++        meaning: tsr_binder::SymbolFlags,
++    ) -> Option<SymbolId> {
++        let is_own_text = matches!(
++            self.node_map.get(node),
++            Some(tsr_ast::Node::Identifier(identifier)) if identifier.text == name
++        );
++        if !is_own_text {
++            return self.binder.resolve_name(self.nodes, self.node_map, node, name, meaning);
++        }
++        let key = (node, meaning.bits());
++        if let Some(&symbol) = self.perf_links.resolved_identifiers.get(&key) {
++            return symbol;
++        }
++        let symbol = self.binder.resolve_name(self.nodes, self.node_map, node, name, meaning);
++        self.perf_links.resolved_identifiers.insert(key, symbol);
++        symbol
++    }
++}
++
+ #[cfg(test)]
+ mod receiver_signature_kinds_tests {
+     use tsr_ast::{HasNodeId, NodeId};
