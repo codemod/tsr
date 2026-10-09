@@ -66,7 +66,17 @@ three are span cases in the shared `error_span`, not in `implicit_any.rs`.
 
 ### 2.4 TS2540
 
-*In progress.*
+- `isAssignmentToReadonlyEntity` (`checker.go:27296`) grants the constructor
+  exemption only when `symbol.Flags&SymbolFlagsProperty != 0`. A getter-only
+  accessor is readonly in its own constructor too (`readonlyMembers`'s
+  `this.c = 1`, directly and inside an IIFE). The exemption in
+  `assignment_is_inside_the_declaring_constructor` was asked of any symbol.
+- `globalThisSymbol` is minted with `CheckFlagsReadonly` (`checker.go:962`)
+  and is the `globalThis` entry of the globals table it exports, so
+  `globalThis.globalThis = …` is TS2540. This port has no such symbol (the
+  global-augmentation merge comment in `binder.rs` explains why), and the
+  diagnostic road answers the one name on the `typeof globalThis` receiver
+  directly. The type road already printed `any` there.
 
 ## 3. Measured diffs and reports for other files
 
