@@ -70,27 +70,8 @@ impl Checker<'_, '_> {
         if intrinsic {
             self.check_jsx_intrinsic_type_arguments(typed);
         }
-        let overloads = if intrinsic || self.jsx_implicit_import_unresolved(node) {
-            JsxOverloads::Declined
-        } else {
-            match Expression::try_from(Node::from(tag)) {
-                Ok(expression) => {
-                    let tag_type = self.check_expression(expression);
-                    if self.is_error(tag_type)
-                        || self
-                            .store
-                            .get(tag_type)
-                            .flags
-                            .intersects(TypeFlags::ANY | TypeFlags::UNION)
-                    {
-                        JsxOverloads::Declined
-                    } else {
-                        self.choose_jsx_overload(node, typed, tag_type)
-                    }
-                }
-                Err(_) => JsxOverloads::Declined,
-            }
-        };
+        let overloads =
+            if intrinsic { JsxOverloads::Declined } else { self.jsx_overloads_at(node) };
         let failure = match overloads {
             JsxOverloads::Failed { last, props, count } => Some((*last, props, count)),
             JsxOverloads::TypeArgumentArity(arities) => {
@@ -1524,8 +1505,8 @@ impl Checker<'_, '_> {
 }
 
 /// `chooseOverload`'s answer for a value tag with several candidates
-/// ([`Checker::choose_jsx_overload`]).
-enum JsxOverloads {
+/// ([`Checker::jsx_overloads_at`]).
+pub(crate) enum JsxOverloads {
     /// Not an overload set, or a shape this port does not decide: the
     /// single-candidate road (the published signature) or nothing.
     Declined,
@@ -1562,6 +1543,38 @@ enum JsxPropertiesName {
 }
 
 impl Checker<'_, '_> {
+    /// [`Checker::choose_jsx_overload`] for the value tag of the opening-like
+    /// element `node`: declined for a tag whose type is an error, `any` or a
+    /// union, and where the automatic runtime's namespace is unresolved
+    /// (`r5-jsx3.md` §3). Both the component check and the attributes
+    /// resolver (`jsx_attributes_context`) ask it; a chosen candidate is
+    /// published once, so the second asker declines and reads the published
+    /// signature.
+    pub(crate) fn jsx_overloads_at(&mut self, node: NodeId) -> JsxOverloads {
+        let Some(typed) = self.node_map.get(node) else { return JsxOverloads::Declined };
+        let tag = match typed {
+            Node::JsxOpeningElement(element) => element.tag_name,
+            Node::JsxSelfClosingElement(element) => element.tag_name,
+            _ => return JsxOverloads::Declined,
+        };
+        let Some(tag) = tag else { return JsxOverloads::Declined };
+        if crate::jsx_intrinsic::jsx_intrinsic_tag_text(tag).is_some()
+            || self.jsx_implicit_import_unresolved(node)
+        {
+            return JsxOverloads::Declined;
+        }
+        let Ok(expression) = Expression::try_from(Node::from(tag)) else {
+            return JsxOverloads::Declined;
+        };
+        let tag_type = self.check_expression(expression);
+        if self.is_error(tag_type)
+            || self.store.get(tag_type).flags.intersects(TypeFlags::ANY | TypeFlags::UNION)
+        {
+            return JsxOverloads::Declined;
+        }
+        self.choose_jsx_overload(node, typed, tag_type)
+    }
+
     /// `resolveCall` (`checker.go:8843`) for a JSX value tag whose
     /// uninstantiated signature list (`getUninstantiatedJsxSignaturesOfType`,
     /// `jsx.go:898`: construct signatures, else call signatures) has more than

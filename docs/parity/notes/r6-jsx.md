@@ -237,3 +237,24 @@ Measured: WRONG → RIGHT `jsxAttributeWithoutExpressionReact`,
 `parseJsxExtends2`; rows fixed in `jsxElementType` (98:2, 99:2) and
 `jsxUnclosedParserRecovery` (95:5); +17 rows, no new missing or extra row,
 type lines byte-identical, slowcases clean, `tsr-checker` tests pass.
+
+### D2. The attributes resolver asks the chooser (`jsx_intrinsic.rs`, r6-errorsplit2)
+
+`r6-jsx-resolver-chooses-overloads.diff`. `resolve_jsx_attributes_context`
+answers the contextual type of every attribute and child; with several
+candidates it answered nothing, so attributes of an overloaded component
+were checked with no contextual type even when §1's chooser later picked
+a candidate. Native has one resolution (`getResolvedSignature` caches
+`resolveCall`'s answer), and the attributes are contextually typed by the
+chosen candidate. The diff makes the resolver ask
+[`jsx_overloads_at`](../../../crates/tsr-checker/src/jsx_component.rs) for
+a list of more than one and read the signature it published; a failed or
+declined set still has no context (native would use
+`getCandidateForOverloadFailure`'s pick — not ported). The chooser runs at
+most twice per failing element (resolver, then the component check), and
+once per chosen one (the second asker finds the published signature).
+
+Measured on top of §1–§3 (lane commit `jsx_overloads_at` included):
+diagnostics byte-identical; type lines +5 RIGHT, 0 lost
+(`contextuallyTypedStringLiteralsInJsxAttributes02` 0:36–0:39, 0:42:
+literal attributes of an overloaded component keep their literal type).
