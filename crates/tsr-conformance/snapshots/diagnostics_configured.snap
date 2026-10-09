@@ -157,7 +157,7 @@ compiler/regularExpressionScanning(target=esnext)
 compiler/regularExpressionUnicodePropertyValueExpressionSuggestions(target=es2015)
   5 missing (first TS1529 at regularExpressionUnicodePropertyValueExpressionSuggestions.ts(1,19))
 compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)
-  1 unexpected (first TS18004 at shorthandPropertyAssignmentsInDestructuring.ts(111,12)), 5 missing
+  1 unexpected (first TS18004 at shorthandPropertyAssignmentsInDestructuring.ts(111,12)), 1 missing
 compiler/sourceMapValidationDecorators(target=es2015)
   4 missing (first TS1239 at sourceMapValidationDecorators.ts(12,8))
 compiler/strictNullEmptyDestructuring(target=es2015)

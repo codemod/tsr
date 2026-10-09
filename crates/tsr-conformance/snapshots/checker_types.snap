@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8312/9538 (87.15%)
-Assertion lines: 471794/478855 (98.53%)  — a gradient, not a pass rate
-Failed         : 1226
+Passed         : 8354/9538 (87.59%)
+Assertion lines: 472010/478853 (98.57%)  — a gradient, not a pass rate
+Failed         : 1184
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1226 failures:
+First 100 of 1184 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -89,8 +89,6 @@ compiler/bigintIndex
   a.ts: >key : any — expected >key : string | number | symbol
 compiler/bigintPropertyName
   a.ts: >({1n: 123}) : any — expected >({1n: 123}) : {}
-compiler/bindingPatternCannotBeOnlyInferenceSource
-  bindingPatternCannotBeOnlyInferenceSource.ts: >useReduxDispatch1 : <T extends IDestructuring<{ funcA: (a: boolean) => void; funcB: (b: string, bb: string) => void; funcC: (c: number, cc: number, ccc: boolean) => void; }>>(destructuring: Destructuring<TFuncs1, T>) => T — expected >useReduxDispatch1 : <T extends IDestructuring<TFuncs1>>(destructuring: Destructuring<TFuncs1, T>) => T
 compiler/booleanFilterAnyArray
   booleanFilterAnyArray.ts: >anys.filter(Bullean) : error — expected >anys.filter(Bullean) : Ari<any>
 compiler/builtinIterator
@@ -101,8 +99,6 @@ compiler/callbacksDontShareTypes
   callbacksDontShareTypes.ts: >r5a : any — expected >r5a : Collection<string>
 compiler/callsOnComplexSignatures
   callsOnComplexSignatures.tsx: >React : typeof import("react").React — expected >React : typeof React
-compiler/cannotIndexGenericWritingError
-  cannotIndexGenericWritingError.ts: >foo2 : <T extends number[] & { [s: string]: string | number; }>(target: T, p: string | number) => void — expected >foo2 : <T extends number[] & { [s: string]: number | string; }>(target: T, p: string | number) => void
 compiler/capturedParametersInInitializers1
   capturedParametersInInitializers1.ts: >foo3 : (y?: { x: number; }, z?: number) => void — expected >foo3 : (y?: { x: typeof z; }, z?: number) => void
 compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
@@ -213,3 +209,7 @@ compiler/constraintWithIndexedAccess
   constraintWithIndexedAccess.ts: >allAreFunctionsAsExpected : TypeHardcodedAsParameterWithoutReturnType<"Boat", "description" | "displacement" | "maxGroundSpeed" | "name" | "requiresLicense"> — expected >allAreFunctionsAsExpected : allAreFunctionsAsExpected
 compiler/contextualOuterTypeParameters
   contextualOuterTypeParameters.ts: >t => {    type isArray = (typeof t)[] extends string[] ? true : false;    type IsObject = { x: typeof t } extends { x: string } ? true : false;} : error — expected >t => {    type isArray = (typeof t)[] extends string[] ? true : false;    type IsObject = { x: typeof t } extends { x: string } ? true : false;} : <T>(t: T) => void
+compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny
+  contextualOverloadListFromUnionWithPrimitiveNoImplicitAny.ts: >{    field: {        validate: (_t, _p, _s) => false,        normalize: match => match.x,    }} : any — expected >{    field: {        validate: (_t, _p, _s) => false,        normalize: match => match.x,    }} : { field: { validate: (_t: string, _p: number, _s: Rule) => false; normalize: (match: any) => any; }; }
+compiler/contextualParamTypeVsNestedReturnTypeInference2
+  contextualParamTypeVsNestedReturnTypeInference2.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
