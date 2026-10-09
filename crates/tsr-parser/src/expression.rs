@@ -1209,6 +1209,7 @@ impl<'a> Parser<'a> {
                 // Untagged: re-scan reporting invalid escapes, since the first
                 // pass is silent (`scanner.go:522`). §223.
                 self.token = self.scanner.rescan_template(false);
+                self.drain_scanner_diagnostics();
                 let raw = self.token_text();
                 let (text, flags) = self.take_literal();
                 let node = self.finish_node(
@@ -1220,6 +1221,7 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::TemplateHead => {
                 self.token = self.scanner.rescan_template(false);
+                self.drain_scanner_diagnostics();
                 self.parse_template_expression()
             }
             // `<` is a type assertion in `.ts` and a JSX element in `.tsx`. The
@@ -2279,6 +2281,7 @@ impl<'a> Parser<'a> {
     /// invents thirty-two lines that way. §223.
     fn parse_template_literal(&mut self, is_tagged: bool) -> TemplateLiteral<'a> {
         self.token = self.scanner.rescan_template(is_tagged);
+        self.drain_scanner_diagnostics();
         if self.at(SyntaxKind::NoSubstitutionTemplateLiteral) {
             let start = self.pos();
             let raw = self.token_text();

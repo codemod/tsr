@@ -364,30 +364,15 @@ impl<'a> Parser<'a> {
     /// Consume the parser, returning its diagnostics and node table.
     #[must_use]
     pub fn finish(mut self) -> (Vec<Diagnostic>, NodeTable, JSDocTable<'a>, tsr_ast::NodeMap<'a>) {
-        // Scanner diagnostics are interleaved by position so a caller sees one
-        // ordered list rather than two.
-        //
-        // **And `parseErrorAtRange`'s same-position guard is applied across
-        // both** (`parser.go:327`). Upstream has a single list — the scanner's
-        // error callback routes through the same function — so its guard
-        // compares across the two sources by construction. Here the scanner
-        // owns a `Vec` and the guard in `error_at` can only see the parser's,
-        // which left a parser error surviving at a position the scanner had
-        // already reported: `parserErrorRecovery_Block2` wants `TS1127` alone
-        // and got `TS1012` beside it. §195.
-        //
-        // The scanner's entries go first at an equal start because upstream
-        // keeps whichever was reported **first**, and the scanner reports while
-        // scanning the token — before the parser can say anything about it.
-        // Tagged before sorting rather than counted during it: `sort_by_key`
-        // calls its key function an unpredictable number of times, so a
-        // positional counter inside one is not a source ordinal.
-        let mut tagged: Vec<(u8, Diagnostic)> =
-            self.scanner.take_diagnostics().into_iter().map(|d| (0, d)).collect();
-        tagged.extend(self.diagnostics.into_iter().map(|d| (1, d)));
-        tagged.sort_by_key(|(source, d)| (d.span.start, *source, d.span.end));
-        let mut diagnostics: Vec<Diagnostic> = tagged.into_iter().map(|(_, d)| d).collect();
-        diagnostics.dedup_by_key(|d| d.span.start);
+        // Scanner diagnostics joined the list in report order as each token
+        // was scanned (`drain_scanner_diagnostics`), through
+        // `parseErrorAtRange`'s guard, which compares with the *previous*
+        // report only (`parser.go:327`): two reports at one position survive
+        // when another came between them. The list is put in source order
+        // (stable, so equal starts keep report order).
+        self.drain_scanner_diagnostics();
+        let mut diagnostics = self.diagnostics;
+        diagnostics.sort_by_key(|d| d.span.start);
         let mut jsdoc_diagnostics = self.jsdoc_diagnostics;
         // A comment re-read after a speculative parse rewinds reports again;
         // upstream's `SortAndDeduplicateDiagnostics` folds the repeats.
@@ -403,6 +388,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn next_token(&mut self) -> Token {
         let previous = self.token;
         self.token = self.scanner.scan();
+        self.drain_scanner_diagnostics();
         self.token_value = capture_value(&self.scanner);
         previous
     }
@@ -495,46 +481,54 @@ impl<'a> Parser<'a> {
     /// Re-scan the current `>`-family token as a single `>`.
     pub(crate) fn rescan_greater_than(&mut self) {
         self.token = self.scanner.rescan_greater_than();
+        self.drain_scanner_diagnostics();
     }
 
     /// Re-scan a compound `<` token as a single `<`.
     pub(crate) fn rescan_less_than(&mut self) {
         self.token = self.scanner.rescan_less_than();
+        self.drain_scanner_diagnostics();
     }
 
     /// Re-scan a `/` as a regular expression literal.
     pub(crate) fn rescan_regular_expression(&mut self) {
         self.token = self.scanner.rescan_as_regular_expression();
+        self.drain_scanner_diagnostics();
         self.token_value = capture_value(&self.scanner);
     }
 
     /// Re-scan the current token as JSX child content.
     pub(crate) fn rescan_jsx_token(&mut self) {
         self.token = self.scanner.rescan_jsx_token();
+        self.drain_scanner_diagnostics();
         self.token_value = capture_value(&self.scanner);
     }
 
     /// Scan the next token as JSX child content.
     pub(crate) fn scan_jsx_token(&mut self) {
         self.token = self.scanner.scan_jsx_token();
+        self.drain_scanner_diagnostics();
         self.token_value = capture_value(&self.scanner);
     }
 
     /// Extend the current identifier with JSX's `-`.
     pub(crate) fn scan_jsx_identifier(&mut self) {
         self.token = self.scanner.scan_jsx_identifier();
+        self.drain_scanner_diagnostics();
         self.token_value = capture_value(&self.scanner);
     }
 
     /// Re-scan the current token as a JSX attribute value.
     pub(crate) fn rescan_jsx_attribute_value(&mut self) {
         self.token = self.scanner.rescan_jsx_attribute_value();
+        self.drain_scanner_diagnostics();
         self.token_value = capture_value(&self.scanner);
     }
 
     /// Re-scan a `}` as the continuation of a template literal.
     pub(crate) fn rescan_template_continuation(&mut self) {
         self.token = self.scanner.rescan_template_continuation();
+        self.drain_scanner_diagnostics();
         self.token_value = capture_value(&self.scanner);
     }
 
@@ -692,6 +686,22 @@ impl<'a> Parser<'a> {
     /// location. See `checker-notes-diag2.md` §192.
     pub(crate) fn would_repeat_last_error(&self, span: Span) -> bool {
         self.diagnostics.last().is_some_and(|last| last.span.start == span.start)
+    }
+
+    /// The scanner's error callback (`Parser.scanError` → `parseErrorAtRange`):
+    /// what the scanner reported while producing the current token joins the
+    /// parser's list at once, in report order, through the same
+    /// same-position guard. Called after every scan; a rewind truncates both
+    /// lists together.
+    pub(crate) fn drain_scanner_diagnostics(&mut self) {
+        if self.scanner.diagnostics().is_empty() {
+            return;
+        }
+        for diagnostic in self.scanner.take_diagnostics() {
+            if !self.would_repeat_last_error(diagnostic.span) {
+                self.diagnostics.push(diagnostic);
+            }
+        }
     }
 
     // ---- node construction ----------------------------------------------
