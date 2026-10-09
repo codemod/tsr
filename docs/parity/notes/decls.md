@@ -556,3 +556,14 @@ label the binder marked unreferenced, through `errorOrSuggestion` with
 `NodeFacts::UNUSED_LABEL`; the checker gains `unused_label_is_error`
 (set in `apply_compiler_options` beside `unreachable_code_is_error`) and
 `check_unused_label`. The suggestion form is not collected by any consumer.
+
+## §29 TS2378 from the binder's return facts
+
+`checkAccessorDeclaration` (`checker.go:2941`) reports `A 'get' accessor must
+return a value.` with `c.error` when a non-ambient getter with a body has
+`NodeFlagsHasImplicitReturn` and not `NodeFlagsHasExplicitReturn`. The binder
+now publishes both (`NodeFacts::HAS_IMPLICIT_RETURN`/`HAS_EXPLICIT_RETURN`,
+`bindContainer`'s placement), so `check_get_accessor_returns` reads them
+instead of §267's syntactic slice (no `return`/`throw` anywhere), and no
+longer declines in a file with parse diagnostics (not a grammar error).
+`subtree_has_return_or_throw` had no other caller and is removed.
