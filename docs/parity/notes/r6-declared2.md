@@ -270,3 +270,37 @@ object-literal check happened to resolve members first.
 A narrower decline (only sources whose owner enumerates no names) was not
 taken: spreads and property reads answer correctly through either road, and
 the only principled boundary is native's, which has no identity road.
+
+## 4. `NoStrictNullChecks3`: an optional member read adds `undefined` without strictNullChecks (diff, MAIN)
+
+**Forcing constraint.** With `strictNullChecks: false`, tsgo types
+`h(1)()` for `declare function h<D>(d: D): () => Id<{ a?: never; d?: D }>`
+(`type Id<T> = { [K in keyof T]: T[K] } & {}`) as `{ a?: never; d?:
+number; }`; the port printed `a?: undefined`. r6-accessible §3c placed it in
+the intersection alias body under an outer mapper. Probed further, the
+intersection is not needed: a plain `M<T> = { [K in keyof T]: T[K] }` under
+the same outer mapper reads `.a` as `undefined` (printed `any` after
+widening), and so does any instantiated type literal's optional member. The
+non-generic `{ a?: never }["a"]` and the uninstantiated `Id<{ a?: never }>`
+are right.
+
+**Cause.** `get_type_of_property_with_this_argument` (`members.rs`, MAIN)
+reads an instantiated object's (`anonymous_properties`) optional member with
+`get_optional_type` unconditionally. Native adds optionality only under
+strictNullChecks: addOptionality (`strictNullChecks && isOptional`), and
+getTypeOfMappedSymbol (checker.go:20993) the same. Every `declared.rs` and
+`mapped.rs` site already gates on `strict_null_checks`; `never | undefined`
+is `undefined`, which is the printed `a?: undefined`.
+
+**Diff.** [`r6-declared2-nonstrict-optional-read.diff`](r6-declared2-nonstrict-optional-read.diff)
+gates that read on `strict_null_checks`. Measured on §3(a)'s commit
+`9d6bd2c`, unfiltered:
+- types **+1**, 0 lost: `declarationEmitOptionalMappedTypePropertyNoStrictNullChecks3:1:11`;
+- diagnostics unchanged; slowcases clean; Ir flat (domain-model
+  1,094,340,348, generic-imports 343,216,186).
+
+The case's other three lines (`:1:1/1:2/1:12`) now print `originalArgs?:
+never` too, but stay WRONG on the alias: native expands the non-exported
+`Id<…>` of another file at the declaration site (IsTypeSymbolAccessible),
+which is r6-accessible §3(b)/ADR-0045's cross-file accessibility, not this
+cause.
