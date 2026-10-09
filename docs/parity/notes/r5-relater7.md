@@ -433,3 +433,89 @@ or line moves:
 **Falsifier.** A relation native decides that now ends `Maybe` (Related) at the
 expansion cut because two distinct written references to one generic class
 count as one identity. None moved in either dump.
+
+## 11. Item 5: the binder's declare-module imports, and the TS2536 reporter — both held
+
+### 11.0 Rebased baseline ("base2")
+
+Before item 5 the branch merged the integration head `51d8da2` (batch AM,
+which carries batch AF with r5-relater6). The merge was clean. Frozen there:
+- `diagverdictdump`: RIGHT 5460, EMPTY_RIGHT 5595, WRONG 1131, EMPTY_WRONG 52;
+- `verdictdump`: RIGHT 549033, WRONG 6382, GAP 876;
+- `Ir`: generic-imports 342,889,305; domain-model 1,099,819,306;
+- no slowcases rows.
+
+### 11.1 The binder fix (held)
+
+**Forcing constraint.** `declareModuleMember` (binder.go:376-380) decides an
+alias *before* `container.Flags & NodeFlagsExportContext`: only an export
+specifier, or an import-equals declaration with `export`, goes to the
+container's exports; every other alias (`import { B } from …`, `import * as
+N`, an unexported `import x = …`) is a local, for every container. The port's
+`is_exported_from_container` (`tsr-binder` `binder.rs`) applied that only when
+the container is a source file; inside `declare module "U" { … }` (an
+ExportContext container) imports fell through to `export_context` and were
+filed as exports, where name resolution declines an ambient alias. Repro:
+`declare module "B" { export type Bit = 0|1 } declare module "U" { import { Bit }
+from "B"; export const y: Bit }` reported a false TS2552 for `Bit`. Its own
+comment already described native's rule.
+
+**The fix** ([`r5-relater7-binder-declare-module-imports.diff`](r5-relater7-binder-declare-module-imports.diff))
+makes the alias arm container-independent, as native's. The repro is clean.
+
+**Measured unfiltered** against base2: both dumps abort (OOM row) at
+`ramdaToolsNoInfinite2`, the case the fix was for. Once its `Boolean`/`Bit`
+imports resolve, the port evaluates its recursive conditional aliases to
+a 54 MB type text (`evaluate_conditional_alias` → `get_instantiated_type_reference`
+→ `type_reference_text`, recursively). Native bounds that walk with
+`instantiationDepth == 100 || instantiationCount >= 5,000,000` (TS2589,
+checker.go:22111); the port's conditional-alias road counts neither (r5-harness
+§5 item 2). Re-measured with every other case (a `TSR_FILTER` prefix list
+that excludes `ramdaToolsNoInfinite2` and, unavoidably, `ramdaToolsNoInfinite`,
+whose name is its prefix), base2's binaries against the fix's:
+- diagnostics: `moduleAugmentationInAmbientModule1` WRONG → RIGHT,
+  `moduleAugmentationInAmbientModule5` EMPTY_WRONG → EMPTY_RIGHT;
+- types: +18 lines (`moduleAugmentationInAmbientModule1`/`5`, `privacyGloImport`,
+  `privacyGloImportParseErrors`), **5 lost**:
+  - `privacyImportParseErrors:0:564`, `:569`, `:594`, `:599`: `var v:
+    use_glo_M2_public` where the name is an unexported `import x =
+    require("glo_M2_public")` inside `export declare module "use_glo_M1_public"`.
+    Native prints the written name (a type reference to an alias with no type
+    meaning); as a local alias the port's `declared.rs` road answers `any`
+    (types-triage `TYPEREF-UNRESOLVED-ALIAS-TARGET-SYMBOL`);
+  - `moduleAugmentationImportsAndExports3:3:4`: `a.foo().n` where `foo(): B`
+    is declared in `declare module "./f1" { import {B} from "./f2"; … }`; `B`
+    now answers `any` from the augmentation's locals. Not traced further
+    (name resolution of an augmentation's locals, `symbols.rs`/`module_*.rs`).
+
+**Held until** the conditional-alias evaluation is bounded (`declared.rs`,
+r5-declared3) and the two type-reference roads above read a local alias as
+they read an exported one; then re-measure unfiltered.
+
+### 11.2 The TS2536 reporter (still held)
+
+r5-relater6's [`r5-relater6-ts2536-reporter.diff`](r5-relater6-ts2536-reporter.diff)
+still applies to this branch. Its two false TS2536s
+(`ramdaToolsNoInfinite2` 45:83 and 60:42) are exactly the unresolved imports
+§11.1 fixes, so it waits on §11.1.
+
+## 12. Item 6: `for_constraint_extra` retired; `keyofAndIndexedAccessErrors` 114 not reached
+
+**`for_constraint_extra`.** The relater joined `getConditionalType`'s
+`forConstraint` extra true branch onto the captured distributive constraint of
+a conditional source, because `declared.rs`'s capture once evaluated without
+it. Both capture paths now apply it themselves: `with_for_constraint_extras`
+for an alias reference and `distributive_conditional_constraint` for an
+inline mint (`declared.rs`, `getConditionalTypeInstantiation(…, forConstraint
+= true)`, checker.go:24383). The relater's copy only re-derived the same
+union, so the conditional source arm now relates the capture directly and the
+function is deleted.
+
+**Measured** against base2: both dumps byte-identical to base2's (verdicts and
+lines); `Ir`: generic-imports 342,889,305 → 342,908,758 (+0.006%); domain-model
+1,099,819,306 → 1,099,819,162 (−0.00001%). CLI output identical.
+
+**`keyofAndIndexedAccessErrors` 114** (`tj = tk`, `T[K] -> T[J]` with `K
+extends Extract<keyof T, string>`, `J extends K`) still fails on `K -> J`,
+which ends `Unknown` in the conditional source arms (r5-relater4 §2's
+decline, as r5-relater6 §4 recorded). Not taken up this session.

@@ -5361,56 +5361,6 @@ impl Relater<'_, '_, '_> {
         self.checker.type_of(union).flags.contains(TypeFlags::NEVER)
     }
 
-    /// getConditionalType's `forConstraint` extra (checker.go): instantiated
-    /// at the check type's constraint `C`, a check that is not assignable to
-    /// the extends type `E` still includes the true branch when some
-    /// constituent of `E` is assignable to `C` (`Foo<T extends string>` with
-    /// `T extends "abc" | 42 ? true : false` is `boolean`, not `false`).
-    /// `declared.rs`'s capture evaluates without it, so it is added here.
-    /// `None` where the permissive instantiations are not the written types
-    /// (a generic `E`) or the true branch mentions the check type.
-    fn for_constraint_extra(
-        &mut self,
-        captured: TypeId,
-        operands: Option<[TypeId; 4]>,
-    ) -> Option<TypeId> {
-        let [check, extends, yes, _] = operands?;
-        let constraint = if self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER) {
-            self.checker.type_parameter_constraint(check)?
-        } else {
-            self.checker.base_constraint_of_type(check)?
-        };
-        if self.checker.mentions_registered_type_parameter(extends)
-            || self.checker.mentions_registered_type_parameter(constraint)
-        {
-            return None;
-        }
-        let forward = self.is_related_to(constraint, extends);
-        if forward.is_success() {
-            return Some(captured);
-        }
-        if forward == RelationResult::Unknown {
-            return None;
-        }
-        if self.checker.type_of(extends).flags.contains(TypeFlags::NEVER) {
-            return Some(captured);
-        }
-        let parts = self.union_constituents(extends).unwrap_or_else(|| vec![extends]);
-        let mut overlaps = RelationResult::NotRelated;
-        for part in parts {
-            overlaps = RelationResult::any([overlaps, self.is_related_to(part, constraint)]);
-            if overlaps.is_success() {
-                break;
-            }
-        }
-        match overlaps {
-            RelationResult::NotRelated => Some(captured),
-            RelationResult::Unknown => None,
-            _ if self.checker.mentions_type_parameter(yes, &[check], &[]) => None,
-            _ => Some(self.checker.get_union_type(&[captured, yes])),
-        }
-    }
-
     /// The conditional-target arm of structuredTypeRelatedToWorker
     /// (relater.go:3540). Applies when the root has no `infer` positions, is
     /// not distribution dependent, and the source is not an instantiation of
@@ -5633,27 +5583,17 @@ impl Relater<'_, '_, '_> {
                 };
                 match captured {
                     Some(captured) => {
-                        // The forConstraint extra only adds a constituent, so
-                        // a failure without it is already a failure.
+                        // The capture is getConditionalTypeInstantiation with
+                        // `forConstraint` set: `declared.rs` already joins
+                        // each distributed constituent's extra true branch
+                        // (`with_for_constraint_extras`,
+                        // `distributive_conditional_constraint`).
                         let result =
                             self.is_related_to_with_flags(captured, target, RecursionFlags::SOURCE);
                         if result.is_success() {
-                            let result = match self.for_constraint_extra(captured, operands) {
-                                Some(distributive) if distributive == captured => result,
-                                Some(distributive) => self.is_related_to_with_flags(
-                                    distributive,
-                                    target,
-                                    RecursionFlags::SOURCE,
-                                ),
-                                None => RelationResult::Unknown,
-                            };
-                            if result.is_success() {
-                                return result;
-                            }
-                            undecided |= result == RelationResult::Unknown;
-                        } else {
-                            undecided |= result == RelationResult::Unknown;
+                            return result;
                         }
+                        undecided |= result == RelationResult::Unknown;
                     }
                     None => undecided = true,
                 }
