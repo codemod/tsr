@@ -28,19 +28,19 @@ the pinned submodule (`scripts/offline-cargo/build-tsgo.sh`).
 | TS7010 (missing) | `wideningTuples7` | `reportErrorsFromWidening` with `WideningKindFunctionReturn` (`'bar' … implicitly has an '[any]' return type`) | no widening report on a function expression's inferred return | tsr-2zk.11 (implicit-any widening, main's); not taken |
 | TS2300 (missing) | `symbolProperty44` | `lateBindMember` (`checker.go:16035`): a late-bound name whose flags conflict (`getExcludedSymbolFlags`) reports on every declaration | no late-bound conflict report | §2.3 |
 | TS2300 (missing) | `checkerInitializationCrash` | global-augmentation merge (`mergeSymbolTable` → `reportMergeSymbolError`) of `type VNode` with `export import VNode` from two files | — | §3.4 |
-| TS2300 (missing) | `importTag4`, `jsDeclarationsDefaultsErr` | JSDoc `@import` / `@typedef` declarations in the binder | JSDoc | r5-jsdoc4 |
+| TS2300 (missing) | `importTag4`, `jsDeclarationsDefaultsErr` | JSDoc `@import` / `@typedef` declarations in the binder | JSDoc | r5-js (r5-jsdoc4 has finished) |
 | TS2540 (missing) | `readonlyMembers(target=es2015)` (`this.c = 1` on a getter-only `c`, in the constructor and in an IIFE inside it) | `isAssignmentToReadonlyEntity` (`checker.go:27296`): the constructor exemption needs `symbol.Flags&SymbolFlagsProperty` | the exemption is asked of any symbol | §2.4, `readonly_target.rs` |
 | TS2540 (missing) | `globalThisReadonlyProperties` | `globalThisSymbol` is minted with `CheckFlagsReadonly` (`checker.go:962`) | this port has no `globalThis` symbol (`binder.rs`, the global-augmentation merge), so `globalThis.globalThis` finds nothing to ask | §2.4 |
 | TS2540 (missing) | `omitTypeHelperModifiers01`, `readonlyAssignmentInSubclassOfClassExpression` | `CheckFlagsReadonly` on a mapped member (`Omit`'s `Pick`, an inherited `Readonly<…>`) | the reused member owner does not carry the mapped modifier off the receiver itself | r5-mapped5 (`mapped.rs`) |
 | TS2352 (extra) | `asOperatorASI` | `parseBinaryExpressionRest`: `as`/`satisfies` after a line break ends the expression | TSR's parser takes `10\nas \`…\`` as an as-expression | parser (main's), §3.2 |
 | TS2352 (extra) | `genericTypeReferenceWithoutTypeArgument` (`<M.E>null`) | `getTypeFromClassOrInterfaceReference`: wrong type-argument count → `errorType` | a **qualified** generic reference without arguments is not `errorType` (the unqualified `<C>null` is) | errorType producers, r5-errorsplit5 §3.3 |
 | TS2454 (extra) | `genericCloduleInModule2` (`var b: A.B; b.foo()`) | `checkIdentifier`: `assumeInitialized` for an `any` declared type | the same `A.B` producer: the type lines print `A.B` where upstream prints `any` | r5-errorsplit5 §3.3 |
-| TS2352 (missing) | `checkJsTypeDefNoUnusedLocalMarked`, `jsDeclarationsDefault` | JSDoc `@type` casts | JSDoc | r5-jsdoc4 |
+| TS2352 (missing) | `checkJsTypeDefNoUnusedLocalMarked`, `jsDeclarationsDefault` | JSDoc `@type` casts | JSDoc | r5-js (r5-jsdoc4 has finished) |
 | TS2352 (missing) | `parenthesisDoesNotBlockAliasSymbolCreation` (*pos*) | comparability of `null` to an intersection with an alias-wrapped `InvalidKeys` | relater | r5-relater7 |
 | TS2403 (missing) | `typeOfEnumAndVarRedeclarations`, `FunctionAndModuleWithSameNameAndCommonRoot`, `parserCastVersusArrowFunction1` | `checkVariableLikeDeclaration` → `isTypeIdenticalTo` | the unannotated-primary pair takes the assignability road; r5-vardecl §2 measured the structural arm at −5 | relater identity (r5-relater7); `r5-vardecl.md` §2 |
 | TS2403 (missing) | `objectLiteralContextualTyping` (`var b = bar({})`) | inference: `T` with no candidate infers `unknown` | TSR infers `any` (type lines `unknown` vs `any`) | `inference.rs` (main's) |
-| TS2454 (missing) | `augmentExportEquals5` | module augmentation of an `export =` module | `Request` resolves to `any` (type lines) | r5-modules2 |
-| TS2454 (missing) | `moduleResolutionWithSymlinks`, `…_withOutDir` | symlinked package resolution | `MyClass2` resolves to `any` (type lines) | loader / r5-modules2 |
+| TS2454 (missing) | `augmentExportEquals5` | module augmentation of an `export =` module | `Request` resolves to `any` (type lines) | tsr-2zk.1098 (r5-modules2 has finished) |
+| TS2454 (missing) | `moduleResolutionWithSymlinks`, `…_withOutDir` | symlinked package resolution | `MyClass2` resolves to `any` (type lines) | loader, tsr-2zk.1098 |
 
 No case needs a `flow.rs` change: every TS2454 difference comes from the
 declared type, not from the flow analysis.
@@ -116,7 +116,8 @@ that is not stored. Two getters `get [Symbol.hasInstance]()`
 2) says nothing.
 
 This port has no member-resolution step to hang it on, so
-`late_bound_member_conflicts` replays the table build over the members
+`late_bound_member_conflicts` (`late_bound_members.rs`, a module of its own
+so that `check.rs`, main's file, carries only the hook) replays the table build over the members
 `check_object_type_for_duplicate_declarations` already gathers, in source
 order, instance and static separately, and its reports join that function's
 (deduplicated by node and name, as upstream's diagnostic collection does).
@@ -256,8 +257,8 @@ of an `export =` module (`@types/react`), named from inside a
   (TS2540): the readonly modifier of a mapped member reached through `Pick`
   or an inherited `Readonly<…>`; `mapped.rs`.
 - `augmentExportEquals5`, `moduleResolutionWithSymlinks`, `…_withOutDir`
-  (TS2454): the declared type resolves to `any`; modules.
-- JSDoc: `importTag4`, `jsDeclarationsDefaultsErr`, `checkJsTypeDefNoUnusedLocalMarked`,
+  (TS2454): the declared type resolves to `any`; tsr-2zk.1098.
+- JSDoc (r5-js): `importTag4`, `jsDeclarationsDefaultsErr`, `checkJsTypeDefNoUnusedLocalMarked`,
   `jsDeclarationsDefault`.
 - `parenthesisDoesNotBlockAliasSymbolCreation` (TS2352): the relater's
   comparability to an intersection.
