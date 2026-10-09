@@ -20,7 +20,7 @@
 //! type meaning, an `extends` clause or an export specifier, none of which a
 //! namespace lookup has.
 //!
-//! `docs/parity/notes/r6-smallcodes4.md` §2.2 records the hooks and their
+//! `docs/parity/notes/r6-smallcodes4.md` §2.1 records the hooks and their
 //! measurement.
 
 use tsr_ast::NodeId;

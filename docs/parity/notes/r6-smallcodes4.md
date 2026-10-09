@@ -20,26 +20,39 @@ tree.
 
 ## 1. Ownership and how the work ships
 
-Every hook this lane needs lands in a file it does not own (`check.rs`,
-`nullable_operand.rs`). So the logic lives in new files this lane creates.
-Each new file is committed with its `mod` line in `lib.rs`. Its `impl` block
-carries `#[expect(dead_code)]` until its hook diff is applied, and the diff
-removes the attribute (the r5-jsdoc2/3 precedent). A hook diff also carries
-its unit test, because the test fails without the hook.
+Every hook this lane needs lands in a file it does not own: `check.rs`,
+`nullable_operand.rs`, `declared.rs`, and the parser's `lib.rs` and
+`parsed_file.rs`. So the logic lives in new files this lane creates, in one of
+three ways:
+
+- **A checker file**: committed with its `mod` line in `tsr-checker`'s
+  `lib.rs`, which is a hub file where adding is allowed. Its `impl` block
+  carries `#[expect(dead_code)]` until its hook diff is applied, and the diff
+  removes the attribute (the r5-jsdoc2/3 precedent).
+- **A parser file**: committed but not compiled. The parser's `lib.rs` is
+  main's, so its `mod` line ships in the hook diff.
+- **A held port that needs another file's private function**
+  (`import_type_node.rs` needs `get_symbol_of_exports` made `pub(crate)`):
+  ships whole in its diff.
+
+A hook diff also carries its unit test, because the test fails without the
+hook.
 
 Apply order and status:
 
 | # | Diff | New file | Status |
 |---|---|---|---|
-| 1 | `r6-smallcodes4-namespace-not-found.diff` | `namespace_not_found.rs` | lossless, §2.2 |
-| 2 | `r6-smallcodes4-unknown-operand.diff` | `unknown_operand.rs` | **held**: four losses from inference producers, §3.1 |
+| 1 | `r6-smallcodes4-namespace-not-found.diff` | `namespace_not_found.rs` | lossless, §2.1 |
+| 2 | `r6-smallcodes4-pragma-diagnostics.diff` | `tsr-parser/src/pragma_diagnostics.rs` | lossless, §2.2 |
+| 3 | `r6-smallcodes4-unknown-operand.diff` | `unknown_operand.rs` | **held**: four losses from inference producers, §3.1 |
+| 4 | `r6-smallcodes4-import-type-node.diff` | `import_type_node.rs` (in the diff) | **held**: +38/−10 type lines, all losses printer-side, §3.2 |
 
-The diffs touch disjoint hunks of `check.rs`. Each applies to the base alone,
-and 2 applies on top of 1.
+Diffs 1 and 3 touch disjoint hunks of `check.rs`. Every diff applies to the
+base alone, and each applies on top of the ones before it.
 
 ## 2. Lossless
 
-### 2.2 TS2503 / TS2833 — `namespace_not_found.rs`
+### 2.1 TS2503 / TS2833 — `namespace_not_found.rs`
 
 Cases on the base, each WRONG on TS2503 alone:
 
@@ -150,6 +163,49 @@ is still not `X`. `resolve_entity_name` (`declared.rs`) cannot find the
 namespace either. The type dump has no line for that case, so nothing
 measures it. The faithful fix is a `globalThis` symbol in the binder (main's).
 
+### 2.2 TS1453 / TS1084 — `tsr-parser/src/pragma_diagnostics.rs`
+
+Cases on the base: `nodeModulesTripleSlashReferenceModeOverrideModeError`
+(`module=node16`, `node18`, `node20`, `nodenext`). Each is missing TS1453 at
+`/// <reference types="pkg" resolution-mode="esm"/>` (1,45).
+
+Native: `processPragmasIntoFields` (`parser.go:6581`) runs at the end of
+`parseSourceFile` and reports two parse errors:
+
+- `parseResolutionMode` (`:6641`): TS1453 at the value's range for anything
+  but `import` or `require`;
+- `parseErrorAtRange(pragma.TextRange, Invalid_reference_directive_syntax)`
+  (`:6623`): TS1084 for a `reference` pragma naming none of `types`, `lib`
+  and `path`.
+
+TSR: `pragma::parse_file_references` already collects both shapes
+(`invalid_resolution_modes`, `invalid_reference_directives`), and its own
+unit test checks them. No caller reported them.
+
+The new file appends both, pragma by pragma in source order, after every other
+parse error, with `parseErrorAt`'s same-position guard (`parser.go:327`). The
+diff adds the `mod` line and calls it from the two places a file's parse
+diagnostics are assembled: `parse_into` (`lib.rs`) and
+`ParsedFile::parse_with_options` (`parsed_file.rs`).
+
+Probe (`resolution-mode="esm"`, `<reference foo="x" />`): native and TSR both
+give `TS1453` at (1,45) and `TS1084` at (2,1).
+
+**Measured** unfiltered against the frozen base:
+
+- Diagnostics: +5 cases, zero losses. The four `…ModeOverrideModeError`
+  cases convert, and `invalidReferenceSyntax1` (TS1084) converts too. 5 rows
+  matched, none unmatched.
+- Types dump: verdicts unchanged.
+- slowcases: clean on both dumps.
+- Ir: domain-model 1,091,398,238 → 1,091,517,113 (+0.011%), generic-imports
+  343,069,926 → 343,073,172 (+0.001%). This base run read 0.05% above the one
+  in §2.1, which is the box's own spread. CLI output is byte-identical.
+- Cost: `ParsedFile::parse_with_options` now reads the pragmas at parse time
+  as well as at publication. The read only scans the leading comments.
+
+Unit test: `tsr-parser/tests/pragma_diagnostics.rs`, which ships in the diff.
+
 ## 3. Held
 
 ### 3.1 TS18046 / TS2571 — `unknown_operand.rs`
@@ -192,8 +248,80 @@ TSR type is wrong upstream of the report, as the types dump shows:
 | `inferFromGenericFunctionReturnTypes2` | `n > 10` in `wrap(n => n > 10)` (operator) | `Mapper<unknown, any>` (0:139, 0:141–145 WRONG) |
 
 These are the producers `nullable_operand.rs`'s own decline comment named.
-Muting the report for those shapes would be the §3a heuristic.
+Muting the report for those shapes would be the heuristic `box-protocol.md` §3a rejects.
 
 - **Owner:** `inference.rs` and `calls.rs` (main's).
 - **Falsifier:** once those four inferences match native, the diff measures
   +5 with no loss. If any of the four still reports then, the diff is wrong.
+
+### 3.2 `import("…").T` as `T`'s declared type — `import_type_node.rs`
+
+Found while classifying TS2883. In `declarationEmitUsingTypeAlias1`, TSR
+types `thing.arg` as `any`, where `thing: SomeType` and
+`SomeType = import('./inner').SomeType`. Native types it `Other`. The cause
+is `get_type_from_import_type_node` (`declared.rs`, r6-declared's file). It
+does not resolve `import("…").T`. It mints an opaque named object type whose
+text is the written node, so every member access on it is a gap.
+
+Native: `getTypeFromImportTypeNode` (`checker.go:24575`) works in three
+steps:
+
+1. resolve the module and follow `export =`;
+2. walk the qualifier through each namespace's exports (`Namespace` meaning,
+   then `Type` for the last segment);
+3. `resolveImportSymbolType` (`:24657`), which resolves the alias and calls
+   `getTypeReferenceType`.
+
+The port answers the non-generic, argument-free target, where every arm of
+`getTypeReferenceType` is the declared type in regular form. Anything else
+keeps the minted name. The diff:
+
+- calls it first from `get_type_from_import_type_node`;
+- makes `get_symbol_of_exports` `pub(crate)`.
+
+Probe: `declare const o: import("./inner").Other; const e: number = o.other;`
+and the same through an alias. TSR's TS2322 rows (`'string'`, `'Other'`,
+`'SomeType'`) now match native's.
+
+**Measured** unfiltered against the frozen base:
+
+- Diagnostics: unchanged. No TS2883 case converts. Each still prints a
+  different type or specifier (§4).
+- Types dump: +38 RIGHT (38 WRONG → RIGHT), from
+  `nodeModulesImportTypeModeDeclarationEmit1`,
+  `nodeModulesImportAttributesTypeModeDeclarationEmit` and `…Errors` (3 lines
+  each, over node16..nodenext) and `allowsImportingTsExtension` (2).
+- **Losses: 6 RIGHT → WRONG and 2 GAP → WRONG.** Every one is a print where
+  the minted written text was right only by coincidence:
+
+| Lines | Native | TSR with the diff | Cause |
+|---|---|---|---|
+| `declarationEmitUsingTypeAlias1` 1:0, 1:1 | `import("./inner").Other` | `Other` | the alias name prints bare: `symbol_chain` (`checker.rs`) is never asked for it |
+| `declarationEmitCrossFileCopiedGeneratedImportType` 2:2 | `import("../projA").Foo` | `Foo` | same |
+| `declarationEmitForGlobalishSpecifierSymlink2` 3:0 | `import("typescript-fsa").A` | `A` | same |
+| `declarationEmitForGlobalishSpecifierSymlink` 5:0 (GAP) | `import("typescript-fsa").A` | `import("../p1/node_modules/typescript-fsa/src/impl").A` | symlinked package specifier (r5-modules §5.2, not ported) |
+| `symbolLinkDeclarationEmitModuleNamesImportRef` 0:0–0:2 | `import("styled-components").InterpolationValue[]` | `import("../../../folder/node_modules/…").InterpolationValue[]` | same symlink cause |
+
+- **Owners:** the alias-name qualification is `checker.rs`/`printing.rs`
+  (main's, r6-printer). The symlink specifiers are `module_specifiers.rs` and
+  the loader (`tsr-2zk.1098`).
+- **Falsifier:** once a type alias's name goes through the same
+  `getSymbolChain` as a class name, and symlinked packages generate their
+  package specifier, the diff measures +38 with no loss. A loss outside those
+  rows means the port is wrong.
+
+## 4. TS2883 — not converted
+
+The four cases. Each needs a print that TSR does not produce yet. The
+r5-modules §6 sink reports what the printer generates.
+
+| Case | What blocks it |
+|---|---|
+| `declarationEmitUsingTypeAlias1` | §3.2's import-type resolution, then the alias-name chain printing `import("../node_modules/some-dep/dist/inner").SomeType` from `src/index.ts`. TSR prints `import("./inner")…`, the written text, today. |
+| `declarationEmitCommonJsModuleReferencedType` | a tuple-returning signature's members print bare (`[SomeProps, …]` against `[import("foo").SomeProps, …, import("foo/node_modules/nested").NestedProps]`), so no `node_modules` specifier reaches the sink |
+| `declarationEmitObjectAssignedDefaultExport` | the default export's intersection prints `NonReactStatics<"div">` bare, where native prints `import("styled-components/node_modules/hoist-non-react-statics").NonReactStatics<"div">` |
+| `declarationEmitReexportedSymlinkReference3` | symlinked package path (r5-modules §5.2) |
+
+All four blockers are printer qualification inside composite types
+(`checker.rs`/`printing.rs`) or symlink specifiers. None of them is in this
+lane's files.

@@ -17,7 +17,7 @@
 //! `checkPrefixUnaryExpression` and `checkPostfixUnaryExpression`). The call
 //! head already has its own copy (`check_non_null_callee`, `calls.rs`).
 //!
-//! `docs/parity/notes/r6-smallcodes4.md` §2.1 records the hooks and their
+//! `docs/parity/notes/r6-smallcodes4.md` §3.1 records the hooks and their
 //! measurement.
 
 use tsr_ast::NodeId;

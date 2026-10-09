@@ -1,0 +1,95 @@
+diff --git a/crates/tsr-parser/src/lib.rs b/crates/tsr-parser/src/lib.rs
+index 7135a9a..5f191ad 100644
+--- a/crates/tsr-parser/src/lib.rs
++++ b/crates/tsr-parser/src/lib.rs
+@@ -41,6 +41,7 @@ mod module;
+ mod parsed_file;
+ mod parser;
+ pub mod pragma;
++mod pragma_diagnostics;
+ pub mod references;
+ mod statement;
+ mod types;
+@@ -161,16 +162,18 @@ pub fn parse_into<'a>(
+     } else {
+         parser.parse_source_file()
+     };
+-    let (diagnostics, node_table, jsdoc, map) = parser.finish();
++    let (mut diagnostics, node_table, jsdoc, map) = parser.finish();
+     *nodes = node_table;
+     *node_map = map;
+     let end_node = u32::try_from(nodes.len()).expect("node count exceeds u32");
++    let file_references = pragma::parse_file_references(source);
++    pragma_diagnostics::append_pragma_diagnostics(&file_references, &mut diagnostics);
+ 
+     ParsedInto {
+         source_file,
+         diagnostics,
+         jsdoc,
+-        file_references: pragma::parse_file_references(source),
++        file_references,
+         node_range: first_node..end_node,
+     }
+ }
+diff --git a/crates/tsr-parser/src/parsed_file.rs b/crates/tsr-parser/src/parsed_file.rs
+index e7ad8e9..0dd7a28 100644
+--- a/crates/tsr-parser/src/parsed_file.rs
++++ b/crates/tsr-parser/src/parsed_file.rs
+@@ -121,6 +121,11 @@ impl ParsedFile {
+             };
+             let (parsed_diagnostics, parsed_nodes, jsdoc, node_map) = parser.finish();
+             diagnostics = parsed_diagnostics;
++            // `processPragmasIntoFields`' reports (`crate::pragma_diagnostics`).
++            crate::pragma_diagnostics::append_pragma_diagnostics(
++                &crate::pragma::parse_file_references(&owner.source),
++                &mut diagnostics,
++            );
+             nodes = parsed_nodes;
+             Ast { source_file, jsdoc, node_map }
+         });
+diff --git a/crates/tsr-parser/tests/pragma_diagnostics.rs b/crates/tsr-parser/tests/pragma_diagnostics.rs
+new file mode 100644
+index 0000000..9200f6d
+--- /dev/null
++++ b/crates/tsr-parser/tests/pragma_diagnostics.rs
+@@ -0,0 +1,40 @@
++//! `processPragmasIntoFields`' parse diagnostics (`parser.go:6581`): TS1084
++//! for a `reference` pragma naming none of `types`, `lib` and `path`, and
++//! TS1453 for a `resolution-mode` other than `require` or `import`.
++//! Expectations were checked against a native `tsgo` built from the pinned
++//! submodule. Needs `docs/parity/notes/r6-smallcodes4-pragma-diagnostics.diff`.
++
++use tsr_core::Arena;
++
++fn reports(source: &str) -> Vec<(String, u32, u32)> {
++    let arena = Arena::new();
++    let source = arena.alloc_str(source);
++    tsr_parser::parse(&arena, source)
++        .diagnostics
++        .iter()
++        .map(|d| (d.code().to_string(), d.span.start, d.span.end))
++        .collect()
++}
++
++#[test]
++fn an_invalid_resolution_mode_is_ts1453_on_its_value() {
++    // `/index.ts(1,45)` in `nodeModulesTripleSlashReferenceModeOverrideModeError`.
++    let source = "/// <reference types=\"pkg\" resolution-mode=\"esm\"/>\nexport {};\n";
++    assert_eq!(reports(source), [("TS1453".to_string(), 44, 47)]);
++}
++
++#[test]
++fn a_reference_naming_no_target_is_ts1084() {
++    let source = "/// <reference foo=\"x\" />\nexport {};\n";
++    let reports = reports(source);
++    assert_eq!(reports.len(), 1);
++    assert_eq!(reports[0].0, "TS1084");
++}
++
++#[test]
++fn valid_references_do_not_report() {
++    let source = "/// <reference types=\"pkg\" resolution-mode=\"import\"/>\n\
++                  /// <reference types=\"pkg\" resolution-mode=\"require\"/>\n\
++                  /// <reference path=\"a.ts\" />\n/// <reference lib=\"es2015\" />\n";
++    assert!(reports(source).is_empty());
++}
