@@ -725,6 +725,9 @@ impl Checker<'_, '_> {
         if object == self.intrinsics.error || index == self.intrinsics.error {
             return None;
         }
+        // getIndexedAccessTypeOrUndefined reduces the object first
+        // (checker.go:26939).
+        let object = self.get_reduced_type(object);
         // getIndexedAccessTypeOrUndefined normalizes generic string/number
         // keys when every object constituent has only a string index signature.
         if !self.store.get(index).flags.intersects(TypeFlags::NULLABLE)
@@ -743,7 +746,13 @@ impl Checker<'_, '_> {
             return Some(t);
         }
         let index_generic = self.indexed_access_index_is_generic(index);
-        if self.indexed_access_object_is_generic(object) || index_generic {
+        // shouldDeferIndexedAccessType's third disjunct (checker.go:27370):
+        // a union that an instantiation could reduce stays deferred, so the
+        // reduction applies once its type parameters are known.
+        if self.indexed_access_object_is_generic(object)
+            || index_generic
+            || self.is_generic_reducible_type(object)
+        {
             if self.store.get(object).flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN) {
                 return Some(object);
             }

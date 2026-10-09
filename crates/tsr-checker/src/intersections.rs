@@ -289,10 +289,6 @@ impl Checker<'_, '_> {
     /// deferred (shouldDeferIndexedAccessType, `:27370`), and getIndexType
     /// its `keyof` (shouldDeferIndexType, `:26838`), so the reduction is
     /// applied once the type parameters are known.
-    // Its callers are r5-mapped5-reducible-indexed-access.diff and
-    // r5-mapped5-reducible-keyof.diff (`indexed.rs`, `declared.rs`); the
-    // first removes this allowance.
-    #[allow(dead_code)]
     pub(crate) fn is_generic_reducible_type(&mut self, t: TypeId) -> bool {
         match &self.store.get(t).data {
             TypeData::Union { types, .. } => {
