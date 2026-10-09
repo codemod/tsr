@@ -6398,13 +6398,19 @@ impl<'a> Checker<'a, '_> {
                 checker.qualified_written_text.insert(id, text);
             }
         };
-        spell(self, node.constraint);
-        let constraint = match resolve(self, node.constraint) {
+        // `gatherTypeParameters` (`parser/reparser.go:293`): a JSDoc
+        // `@template {C} T` gives its first parameter the reparsed
+        // constraint `C`, which the declaration node does not carry here.
+        let constraint_node = node.constraint.or_else(|| {
+            node.node_id.and_then(|parameter| self.jsdoc_template_constraint(parameter))
+        });
+        spell(self, constraint_node);
+        let constraint = match resolve(self, constraint_node) {
             Some(constraint) => constraint,
             None => Some(self.intrinsics.any),
         };
         let default = resolve(self, node.default_type)?;
-        let written_constraint = node.constraint.and_then(|annotation| {
+        let written_constraint = constraint_node.and_then(|annotation| {
             self.written_annotation_text(annotation).or_else(|| {
                 // A mapped reference can resolve to a tuple while the node
                 // builder reuses the reference written in the constraint.
