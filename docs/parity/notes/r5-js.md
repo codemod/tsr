@@ -46,7 +46,7 @@ the witness fails the same way (probed with `probefile`).
 | S2a | `require("x")` of an ambient module prints through the local alias (`typeof fs`, `typeof _`) | the symbol-chain printer | main `.39` | 4 | 4 | `ambientRequireFunction` ×2, `bundlerSyntaxRestrictions` ×2 |
 | S5 | uncontextual parameter: an undocumented JS setter parameter reads the getter | `symbols.rs` `get_type_for_variable_like_declaration` | main (diff, §3.1) | 2 | 4 | `accessorDeclarationEmitJs`, `privateNamesIncompatibleModifiersJs` |
 | S6 | `super` in a `static {}` block (TS too) | `expressions.rs` `check_super_expression` | hub (diff, §3.3) | 2 | 21 | `classFieldSuperAccessibleJs1`, `javascriptThisAssignmentInStaticBlock` |
-| S2b | `module.exports = { [sym]() {} }` gaps | `symbols.rs` export= literal | main | 1 | 9 | `jsDeclarationsComputedNames` |
+| S2b | `module.exports = { [sym](x = 12) {} }`: a context-sensitive function on an assignment declaration's right gaps | `signatures.rs` `has_no_contextual_type` | r5-printer2 (diff, §3.4) | 1 | 9 | `jsDeclarationsComputedNames` |
 | S2d | a module that default-imports itself | `symbols.rs` alias circularity | main | 1 | 3 | `selfReferentialDefaultNoStackOverflow` |
 
 Reading it:
@@ -113,8 +113,9 @@ domain-model 1,155,945,043 and generic-imports 342,949,755.
 | [`r5-js-super-static-block.diff`](r5-js-super-static-block.diff) | +45 (548,796) | 6: `classFieldSuperAccessible`, `classFieldSuperAccessibleJs1`, `javascriptThisAssignmentInStaticBlock`, `classStaticBlock5` ×3 | unchanged | none | 1,155,899,389 (−0.004%) | 342,928,996 (−0.006%) | clean |
 | [`r5-js-setter-parameter.diff`](r5-js-setter-parameter.diff) | +4 (548,755) | 2: `accessorDeclarationEmitJs`, `privateNamesIncompatibleModifiersJs` | unchanged | none | 1,155,964,693 (+0.002%) | 342,922,580 (−0.008%) | clean |
 | [`r5-js-shorthand-dynamic-import.diff`](r5-js-shorthand-dynamic-import.diff) | +48 (548,799) | 8: `nodeModulesAllowJsDynamicImport` ×4, `nodeModulesDynamicImport` ×4 | unchanged | none | 1,155,878,692 (−0.006%) | 342,913,942 (−0.010%) | clean |
+| [`r5-js-assignment-context.diff`](r5-js-assignment-context.diff) | +9 (548,760) | 1: `jsDeclarationsComputedNames` | unchanged | none; no non-RIGHT line changed text | 1,155,961,326 (+0.001%) | 342,926,441 (−0.007%) | clean |
 
-The three touch disjoint functions and apply in any order.
+The four touch disjoint functions and apply in any order.
 
 ### 3.1 S5: the JS setter parameter (`symbols.rs`)
 
@@ -181,6 +182,39 @@ It is a TypeScript fix as much as a JS one: `classStaticBlock5` and
 `classFieldSuperAccessible` are `.ts`. `expressions.rs` is a hub file and
 the function is not this lane's, hence a diff.
 
+### 3.4 S2b: no contextual type for an assignment declaration (`signatures.rs`)
+
+**Forcing fact.** `G.z = (a = 1) => a` answered `error` — in TypeScript
+too — and so did `module.exports = { f: (a = 1) => a }` and
+`exports.x = { … }`: the function is context-sensitive, and
+`get_type_of_function_expression`'s guard refuses one unless
+`has_no_contextual_type` proves the context absent, and that walk answered
+"may have context" for every `=`.
+
+**Native.** `getContextualTypeForAssignmentExpression` (`checker.go:29843`)
+answers nil, from the shape and one symbol lookup, for the right operand of
+`module.exports = expr` (the receiver resolves to the `ModuleExports`
+symbol), and of an assignment declaration (`binary.Symbol != nil`) whose
+receiver is an identifier not declared by an annotated variable, or is
+itself a property or element access.
+
+**Port.** `assignment_context.rs` (new, registered in `lib.rs`):
+`assignment_has_no_contextual_type`, the nil arms only, mirroring the
+contextual arm in `contextual.rs` (`contextual_type_for_binary_operand`),
+including its TypeScript-class exception. The walk's assignment arm asks
+it for the right operand and keeps its refusal otherwise. No cache; one
+`resolve_name` per context-sensitive assignment RHS.
+
+**Measured.** +9 lines, +1 case (`jsDeclarationsComputedNames`); no
+non-RIGHT line changed its text, so nothing turned gap→wrong.
+`exportNestedNamespaces2` does not convert: its `exports = require(…)`
+rebinding leaves the binary without a symbol in this binder.
+
+**Falsifier.** A case where an expando's receiver is an annotated `const`
+(`const o: T = …; o.f = (a) => …`) and the arrow still gaps: this arm
+leaves that shape to the contextual path, so the gap would be there, not
+here.
+
 ## 4. Needed outside this lane's files
 
 | function (file) | change | cases | owner |
@@ -188,6 +222,9 @@ the function is not this lane's, hence a diff.
 | `check_super_expression` (`expressions.rs`) | §3.3's diff | 6 | hub |
 | `get_type_for_variable_like_declaration` (`symbols.rs`) | §3.1's diff | 2 | main |
 | `check_import_call_expression` (`calls.rs`) | §3.2's diff | 8 | main |
+| `has_no_contextual_type` (`signatures.rs`) + new `assignment_context.rs` | §3.4's diff | 1 | r5-printer2 |
+| unmapped type parameter after inference from an `any` argument (`inference.rs` / `calls.rs`) | native gets no candidate from `any` and takes the default (`unknown`, or `any` in JS under `InferenceFlagsAnyDefault`); TSR gaps the call | 1 (`inferingFromAny`, 17 lines) | main `.9` |
+| require-destructuring binding elements as aliases (`binder.rs`, `symbols.rs` `declaration_of_alias_symbol`) | `const { K } = require(…)` binds `K` as an alias in native; needed before declared.rs can resolve `@param {K}` | 2 | main `.5` |
 | late-bound expando members (`binder.rs`, `members.rs`) | `exports["__assignment"]` and its late binding (§2.2) | 2 (`declarationEmitLateBoundJSAssignments`, `expandoFunctionSymbolPropertyJs`) | main `tsr-2zk.5` |
 | `get_type_from_type_reference` (`declared.rs`) | admit an unrenamed require-destructuring `BindingElement` on the alias road (§2.2) | up to 2 (`commonJSImportClassTypeReference`, `commonJSImportExportedClassExpression`), unmeasured | r5-declared3 |
 | getSymbolChain through a local require alias (printer) | `require("fs")` names the module by the alias in scope (S2a) | 4 | main `.39` |
