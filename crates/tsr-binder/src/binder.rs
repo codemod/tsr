@@ -4160,6 +4160,38 @@ impl<'a, 'n> Binder<'a, 'n> {
         self.symbols.get_mut(table).declarations.push(id);
     }
 
+    /// `bindThisPropertyAssignment`'s dynamic-name arm (`binder.go:1129`):
+    /// `declareSymbolEx(..., Property, isReplaceableByMethod, isComputedName)`
+    /// and `addLateBoundAssignmentDeclarationToSymbol(node, classSymbol)`.
+    /// The `__computed` property follows this binder's convention for a
+    /// late-bound member, an anonymous symbol in no table (a reserved name is
+    /// never enumerated upstream either); the assignment joins the class's
+    /// `__assignment` declarations, which only the class's static resolution
+    /// reads (`getResolvedMembersOrExportsOfSymbol`, `checker.go:15962`).
+    fn bind_late_bound_this_property_assignment(
+        &mut self,
+        id: NodeId,
+        class: SymbolId,
+    ) -> SymbolId {
+        let computed = self
+            .symbols
+            .create(INTERNAL_COMPUTED, SymbolFlags::PROPERTY | SymbolFlags::REPLACEABLE_BY_METHOD);
+        self.symbols.get_mut(computed).declarations.push(id);
+        self.symbols.get_mut(computed).value_declaration = Some(id);
+        self.symbols.get_mut(computed).parent = Some(class);
+        let existing =
+            self.symbols.get(class).exports.get(INTERNAL_ASSIGNMENT_DECLARATION).copied();
+        let table = if let Some(table) = existing {
+            table
+        } else {
+            let table = self.symbols.create(INTERNAL_ASSIGNMENT_DECLARATION, SymbolFlags::empty());
+            self.symbols.get_mut(class).exports.insert(INTERNAL_ASSIGNMENT_DECLARATION, table);
+            table
+        };
+        self.symbols.get_mut(table).declarations.push(id);
+        computed
+    }
+
     /// Resolve a name, or a dotted chain of them, against one container.
     ///
     /// Upstream's `lookupEntity`/`lookupName`. Deliberately *not* a scope walk:
@@ -4263,9 +4295,17 @@ impl<'a, 'n> Binder<'a, 'n> {
         {
             return None;
         }
-        // A computed `this[k] = 1` is late-bound; see `lib.rs`.
-        let name = access_name(self.arena, left)?;
         let owner = self.owner?;
+        // A dynamic `this[k] = v` (`ast.HasDynamicName`) is late-bound:
+        // upstream declares it as a `__computed` property and files the
+        // assignment under the class symbol's `__assignment` export
+        // (`binder.go:1129-1131`).
+        let Some(name) = access_name(self.arena, left) else {
+            if matches!(left, Expression::ElementAccessExpression(_)) {
+                return Some(self.bind_late_bound_this_property_assignment(id, owner));
+            }
+            return None;
+        };
 
         // `getThisClassAndSymbolTable` (`binder.go:1137`): a static this
         // container (a static block or static member) files the property in
