@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 902/1091 (82.68%)
-Failed         : 189
+Passed         : 915/1091 (83.87%)
+Failed         : 176
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 189 failures:
+First 100 of 176 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -80,8 +80,6 @@ compiler/duplicateIdentifierBindingElementInParameterDeclaration1(target=es2015)
   1 missing (first TS7006 at duplicateIdentifierBindingElementInParameterDeclaration1.ts(8,24))
 compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)
   1 missing (first TS7006 at duplicateIdentifierBindingElementInParameterDeclaration2.ts(9,24))
-compiler/emitDecoratorMetadata_isolatedModules(module=esnext)
-  3 missing (first TS1272 at index.ts(9,23))
 compiler/es5-asyncFunctionWithStatements(alwaysstrict=true,target=es2015)
   1 unexpected (first TS2410 at es5-asyncFunctionWithStatements.ts(25,9)), 4 missing
 compiler/es5ExportDefaultClassDeclaration3(target=es2015)
@@ -106,10 +104,8 @@ compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties3.ts(19,1)), 2 missing
 compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=false,verbatimmodulesyntax=true)
   1 missing (first TS1295 at good.ts(2,10))
-compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=true,verbatimmodulesyntax=false)
-  2 missing (first TS2866 at bad.ts(1,10))
 compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=true,verbatimmodulesyntax=true)
-  3 missing (first TS2866 at bad.ts(1,10))
+  1 missing (first TS1295 at good.ts(2,10))
 compiler/jsFileCompilationBindReachabilityErrors(alwaysstrict=true)
   1 missing (first TS7028 at a.js(19,1))
 compiler/jsxChildrenArrayWrongType(target=es2015)
@@ -172,18 +168,6 @@ conformance/autoAccessorDisallowedModifiers(target=es2017)
   3 unexpected (first TS1191 at autoAccessorDisallowedModifiers.ts(34,1)), 20 missing
 conformance/autoAccessorDisallowedModifiers(target=esnext)
   3 unexpected (first TS1191 at autoAccessorDisallowedModifiers.ts(34,1)), 20 missing
-conformance/bundlerImportTsExtensions(allowimportingtsextensions=false,noemit=false)
-  8 missing (first TS5097 at /project/main.ts(3,16))
-conformance/bundlerImportTsExtensions(allowimportingtsextensions=false,noemit=true)
-  8 missing (first TS5097 at /project/main.ts(3,16))
-conformance/bundlerImportTsExtensions(allowimportingtsextensions=true,noemit=false)
-  3 missing (first TS2846 at /project/main.ts(8,16))
-conformance/bundlerImportTsExtensions(allowimportingtsextensions=true,noemit=true)
-  3 missing (first TS2846 at /project/main.ts(8,16))
-conformance/bundlerRelative1(module=esnext)
-  1 missing (first TS5097 at /main.ts(4,16))
-conformance/bundlerRelative1(module=preserve)
-  1 missing (first TS5097 at /main.ts(4,16))
 conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=false)
   6 missing (first TS2554 at jsfile.js(6,1))
 conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=true)
@@ -210,14 +194,6 @@ conformance/classStaticBlock6(target=es2015)
   8 missing (first TS18037 at classStaticBlock6.ts(13,9))
 conformance/controlFlowAliasingCatchVariables(useunknownincatchvariables=true)
   1 missing (first TS18046 at controlFlowAliasingCatchVariables.ts(20,9))
-conformance/declarationFileForHtmlImport(allowarbitraryextensions=false)
-  1 missing (first TS6263 at file.ts(1,22))
-conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,module=node18)
-  1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
-conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,module=node20)
-  1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
-conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,module=nodenext)
-  1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
 conformance/decoratorMetadata-jsdoc(target=es2015)
   1 missing (first TS8020 at decoratorMetadata-jsdoc.ts(9,9))
 conformance/decoratorOnClass8(target=es2015)
@@ -225,4 +201,28 @@ conformance/decoratorOnClass8(target=es2015)
 conformance/decoratorOnClassAccessor7(target=es2015)
   2 missing (first TS1207 at decoratorOnClassAccessor7.ts(26,5))
 conformance/decoratorOnClassConstructor2(target=es2015)
-  3 missing (first TS5097 at 2.ts(1,20))
+  1 missing (first TS1239 at 2.ts(4,18))
+conformance/decoratorOnClassConstructor3(target=es2015)
+  1 missing (first TS1239 at 2.ts(6,18))
+conformance/decoratorOnClassConstructorParameter1(target=es2015)
+  1 missing (first TS1239 at decoratorOnClassConstructorParameter1.ts(4,18))
+conformance/decoratorOnClassMethod10(target=es2015)
+  1 missing (first TS1241 at decoratorOnClassMethod10.ts(4,6))
+conformance/decoratorOnClassMethod8(target=es2015)
+  2 missing (first TS1241 at decoratorOnClassMethod8.ts(4,6))
+conformance/decoratorOnClassProperty11(target=es2015)
+  1 missing (first TS1329 at decoratorOnClassProperty11.ts(4,5))
+conformance/decoratorOnClassProperty6(target=es2015)
+  1 missing (first TS1240 at decoratorOnClassProperty6.ts(4,6))
+conformance/decoratorOnClassProperty7(target=es2015)
+  1 missing (first TS1240 at decoratorOnClassProperty7.ts(4,5))
+conformance/derivedClassSuperProperties(target=es2015)
+  3 unexpected (first TS2376 at derivedClassSuperProperties.ts(113,5)), 11 missing
+conformance/derivedClassSuperStatementPosition(target=es2015)
+  4 unexpected (first TS2376 at derivedClassSuperStatementPosition.ts(58,5)), 4 missing
+conformance/emitModuleCommonJS(module=commonjs)
+  1 missing (first TS2307 at a.js(4,11))
+conformance/emitModuleCommonJS(module=nodenext)
+  1 missing (first TS2307 at a.js(4,11))
+conformance/esDecorators-classDeclaration-fields-staticAmbient(target=es2015)
+  3 unexpected (first TS1039 at esDecorators-classDeclaration-fields-staticAmbient.ts(6,37)), 0 missing
