@@ -118,7 +118,7 @@ domain-model 1,155,945,043 and generic-imports 342,949,755.
 | [`r5-js-jsdoc-cast-context.diff`](r5-js-jsdoc-cast-context.diff) | +28 (548,779) | 1: `jsdocSignatureOnReturnedFunction` | unchanged | none; no non-RIGHT line changed text | 1,155,987,415 (+0.004%) | 342,914,191 (−0.010%) | clean |
 | [`r5-js-jsdoc-cast-overlap.diff`](r5-js-jsdoc-cast-overlap.diff) | unchanged | diagnostics 2: `checkJsTypeDefNoUnusedLocalMarked`, `jsDeclarationsDefault(target=es2015)` | 5,431 → 5,433 RIGHT | none | 1,155,974,041 (+0.003%) | 342,918,828 (−0.009%) | clean |
 
-The seven touch disjoint functions and apply in any order. Stacked (all four applied, unfiltered against `e20cdd4`): types **548,751 → 548,857 RIGHT (+106)**, GAP 900 → 865, WRONG 6,640 → 6,569, **17 cases converted** — exactly the sum of the four rows — diagnostics unchanged (5,431 RIGHT / 5,590 EMPTY_RIGHT), zero losses on both dumps.
+The seven apply cleanly in table order (three touch `signatures.rs`, two `symbols.rs`, in different functions). Stacked, unfiltered against `e20cdd4`: types **548,751 → 548,902 RIGHT (+151)**, GAP 900 → 865, WRONG 6,640 → 6,524, **20 type cases** — exactly the sum of the rows. Diagnostics **5,431 → 5,433 RIGHT** (EMPTY_RIGHT 5,590 unchanged). Zero losses on both dumps.
 
 ### 3.1 S5: the JS setter parameter (`symbols.rs`)
 
