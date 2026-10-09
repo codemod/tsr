@@ -9533,6 +9533,12 @@ impl<'a> Checker<'a, '_> {
         // later substitution must run this same query on the rebuilt operand.
         let original = target;
         let target = self.binding_type_alias_body(target);
+        // getIndexTypeEx's getReducedType (checker.go:26685) reads the
+        // instantiation itself, which is the alias body here: a distributed
+        // `{ v: A } & ({ v: A; a: string } | { v: B; b: string })` drops its
+        // never-reduced constituent before shouldDeferIndexType asks
+        // isGenericReducibleType.
+        let target = if target == original { target } else { self.get_reduced_type(target) };
         if target != original
             && let Some(keys) = self.mapped_index_type(target)
         {
