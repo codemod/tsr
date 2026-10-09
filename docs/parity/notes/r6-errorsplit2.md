@@ -563,3 +563,80 @@ reads above, and fails without the diff.
 slowcases clean; `cargo test --workspace --release` passes; clippy reports
 nothing in the touched code. Ir: domain-model +0.045%, +0.094% and −0.022%,
 the same bimodal spread as C alone (§11); generic-imports +0.009%.
+
+## §14 Item 4: `AtLocation`, `AccessOrQualifiedParent`, `StatementName`
+
+Probed on §10's base with N–M applied:
+
+| rewrite | RIGHT `errorType` | RIGHT `anyType` | WRONG |
+|---|---:|---:|---:|
+| `AtLocation` | 532 | 11 | 174 |
+| `StatementName` | 20 | 7 | 24 |
+| `AccessOrQualifiedParent` | 7 | 1 | 21 |
+
+None has a clean sub-category, so none is taken:
+
+- **`AtLocation`** lines are the name sides of property accesses (377
+  "member name, the receiver has no such property", 60 "the receiver is a
+  gap") and unresolved names. They are typed as their access, so they move
+  with the access's producer: P and M moved 33 of them, and the rest wait
+  on §3's refused read-reference miss.
+- **`StatementName`** and **`AccessOrQualifiedParent`** sit on aliases with
+  no value declaration, and the native identity is mixed within that one
+  producer label. `untypedModuleImport`, `packageJsonMain` and
+  `moduleResolution_packageJson_*` are `errorType`.
+  `ambientShorthand_reExport`, `importExportInternalComments` and
+  `recursiveExportAssignmentAndFindAliasedType7` are `anyType`. That is
+  `getTypeOfAlias`' `None` arm, which r5-errorsplit5's diff A already found
+  mixed in every declaration form.
+
+## §15 Everything, stacked, and what remains
+
+All eight diffs in the order N, P, Q, W, M, C, A, B on §10's base (`b9ede2e`),
+unfiltered, both dumps:
+
+- **zero losses**;
+- types 550,131 → **550,142** RIGHT (+11 WRONG→RIGHT: M's 9, C's 2), GAP 768
+  unchanged, WRONG 5,404 → 5,393;
+- diagnostics EMPTY_RIGHT 5,606 → **5,607** (C), RIGHT 5,612, WRONG 981,
+  EMPTY_WRONG 39 → 38;
+- 555 lines to `native_error`, every one `errorType` natively; 2 to
+  `anyType`, both `anyType` natively;
+- credited gap 2,131 → **1,602**; narrowing 2,650 → **2,097**
+  (`HadErrorBaseline` 1,985 → 1,519);
+- slowcases clean on both dumps; `cargo test --workspace --release` passes.
+
+**Apply order and what each needs:**
+
+1. N `r6-errorsplit2-type-of-node-fallthrough.diff` (harness);
+2. P `r6-errorsplit2-property-access-miss.diff` (`members.rs`, `indexed.rs`);
+3. Q `r6-errorsplit2-private-name-without-declaration.diff` (`members.rs`,
+   `readonly_target.rs`, `tests/private_names.rs`);
+4. W `r6-errorsplit2-with-statement-body.diff` (harness);
+5. M `r6-errorsplit2-meta-property-type.diff` (`import_meta.rs`,
+   `check.rs`, `tests/tagged_templates.rs`);
+6. C `r6-errorsplit2-expando-element-context.diff` (`contextual.rs`);
+7. A `r6-errorsplit2-late-bound-union.diff` (`assignment_declarations.rs`);
+8. B `r6-errorsplit2-late-bound-this-assignment.diff` (binder).
+
+Each applies alone on `b9ede2e` except W, whose context is N's.
+
+**What remains, with causes:**
+
+- `HadErrorBaseline`'s 1,519 RIGHT lines (1,459 `errorType`, 60 `anyType`):
+  - the property-access miss on a flow-reference receiver (§3: +391 to +430
+    against 40 to 46 false claims). It waits on the port's narrowing
+    (`instanceof`, `in`, aliased conditions, truthiness; `flow.rs`) and on
+    module augmentation (`exportAsNamespace_augment`). The calls, variable
+    declarations and binding elements downstream of it make up most of
+    the rest;
+  - aliases with no value declaration (116), mixed natively (§14);
+  - the 60 `anyType` producers (§1.1): binding elements with neither
+    annotation nor initializer (`destructure.rs`), a class extending `any`
+    (`anyBaseTypeIndexInfo` in `index_signatures.rs`), and `yield` results.
+- §3's read-reference refusal is the largest single block. It is a
+  narrowing-port prerequisite, not a gate to add.
+- Diff A's limit: a receiver that is not an identifier (`a.b[k] = v`) keeps
+  one declaration per late name.
+- C's Ir: +0.045% on domain-model from codegen layout (§11), with zero
+  executions of the new path there.
