@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4626/5502 (84.08%)
-Failed         : 876
+Passed         : 4636/5502 (84.26%)
+Failed         : 866
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 876 failures:
+First 100 of 866 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -82,8 +82,6 @@ compiler/betterErrorForUnionCall
   1 missing (first TS2349 at betterErrorForUnionCall.ts(8,1))
 compiler/bigintArbirtraryIdentifier
   1 unexpected (first TS2304 at badImport.ts(1,16)), 1 missing
-compiler/bigintIndex
-  1 missing (first TS2322 at a.ts(15,1))
 compiler/bigintPropertyName
   3 unexpected (first TS2322 at g.ts(26,18)), 22 missing
 compiler/bigintWithLib
@@ -117,7 +115,7 @@ compiler/circularOptionalityRemoval
 compiler/circularReferenceInReturnType
   2 missing (first TS7022 at circularReferenceInReturnType.ts(3,7))
 compiler/circularReferenceInReturnType2
-  3 unexpected (first TS2313 at circularReferenceInReturnType2.ts(12,18)), 2 missing
+  2 unexpected (first TS7024 at circularReferenceInReturnType2.ts(41,11)), 2 missing
 compiler/circularResolvedSignature
   1 missing (first TS2322 at circularResolvedSignature.ts(11,9))
 compiler/circularTypeArgumentsLocalAndOuterNoCrash1
@@ -151,7 +149,7 @@ compiler/complexRecursiveCollections
 compiler/complicatedGenericRecursiveBaseClassReference
   2 missing (first TS2554 at complicatedGenericRecursiveBaseClassReference.ts(4,10))
 compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
-  1 unexpected (first TS2322 at complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts(40,7)), 1 missing
+  2 unexpected (first TS2322 at complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts(40,7)), 1 missing
 compiler/computedPropertyBindingElementDeclarationNoCrash1
   1 missing (first TS2739 at computedPropertyBindingElementDeclarationNoCrash1.ts(12,21))
 compiler/conditionalTypeAssignabilityWhenDeferred
@@ -212,3 +210,5 @@ compiler/declarationEmitExpandoPropertyPrivateName
   1 missing (first TS4032 at b.ts(4,1))
 compiler/declarationEmitExpressionInExtends4
   1 missing (first TS2315 at declarationEmitExpressionInExtends4.ts(5,17))
+compiler/declarationEmitInvalidReferenceAllowJs
+  1 unexpected (first TS6053 at declarationEmitInvalidReferenceAllowJs.ts(1,22)), 1 missing
