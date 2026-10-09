@@ -17,10 +17,13 @@ pub enum ScriptKind {
     /// `.ts`, `.mts`, `.cts`, `.d.ts` — `<T>expr` is a type assertion.
     #[default]
     TypeScript,
-    /// `.tsx`, `.jsx`, `.js`, `.cjs`, `.mjs` — `<` opens JSX; type assertions
-    /// must use `as`. `getLanguageVariant` (`parser/utilities.go:11`) answers
-    /// `LanguageVariantJSX` for every JavaScript kind, not only `.jsx`.
+    /// `.tsx` — `<` opens JSX; type assertions must use `as`.
     Tsx,
+    /// `.js`, `.cjs`, `.mjs`, `.jsx` — `ScriptKindJS`/`ScriptKindJSX`. Also the
+    /// JSX language variant: `getLanguageVariant` (`parser/utilities.go:11`)
+    /// answers `LanguageVariantJSX` for every JavaScript kind, not only
+    /// `.jsx`. The parser's `NodeFlagsJavaScriptFile` context.
+    JavaScript,
     /// `.json`. A file is a single value, not a statement list.
     ///
     /// Not merely a dialect flag: it selects a different entry point
@@ -38,7 +41,8 @@ impl ScriptKind {
             .unwrap_or_default()
             .to_ascii_lowercase();
         match extension.as_str() {
-            "tsx" | "jsx" | "js" | "cjs" | "mjs" => Self::Tsx,
+            "tsx" => Self::Tsx,
+            "js" | "cjs" | "mjs" | "jsx" => Self::JavaScript,
             "json" => Self::Json,
             _ => Self::TypeScript,
         }
@@ -47,7 +51,13 @@ impl ScriptKind {
     /// Whether `<` in expression position opens JSX.
     #[must_use]
     pub const fn allows_jsx(self) -> bool {
-        matches!(self, Self::Tsx)
+        matches!(self, Self::Tsx | Self::JavaScript)
+    }
+
+    /// Whether the file is JavaScript (`contextFlags&NodeFlagsJavaScriptFile`).
+    #[must_use]
+    pub const fn is_javascript(self) -> bool {
+        matches!(self, Self::JavaScript)
     }
 }
 

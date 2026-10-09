@@ -379,13 +379,13 @@ impl<'a> Parser<'a> {
         }
         let tag_name = self.parse_jsx_element_name();
         // Upstream skips type arguments in JavaScript files
-        // (`contextFlags&NodeFlagsJavaScriptFile`); this parser has no such
-        // flag yet, so `.jsx` parses them too (`docs/parity/notes/jsx.md`).
-        let type_arguments = if self.at(SyntaxKind::LessThanToken) {
-            self.parse_type_arguments()
-        } else {
-            Vec::new()
-        };
+        // (`contextFlags&NodeFlagsJavaScriptFile`).
+        let type_arguments =
+            if !self.script_kind.is_javascript() && self.at(SyntaxKind::LessThanToken) {
+                self.parse_type_arguments()
+            } else {
+                Vec::new()
+            };
         let type_arguments = self.arena.alloc_slice(&type_arguments);
         let attributes = self.parse_jsx_attributes();
         if self.at_jsx_greater_than() {

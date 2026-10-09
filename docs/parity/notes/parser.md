@@ -506,8 +506,11 @@ per-file flag must become per-node.
   one starts on the same line. The checker's TS1163 declines that stood in
   for the missing context are removed.
 - JavaScript files parse in the JSX language variant (`getLanguageVariant`:
-  TSX, JSX, JS and JSON), whatever `--jsx` says: `ScriptKind::from_file_name`
-  maps `.js`/`.cjs`/`.mjs` to `Tsx`. The loader's `jsx != None` condition in
+  TSX, JSX, JS and JSON), whatever `--jsx` says: `ScriptKind::allows_jsx`
+  holds for `.js`/`.cjs`/`.mjs`. The loader's `jsx != None` condition in
   `tsr-compiler` `parse_options` is now dead for those names (out of lane).
   The checker's TS17004 for JSX in a `.js` file without `--jsx`
   (`checkJsxPreconditions`) is still missing (`parseUnaryExpressionNoTypeAssertionInJsx1/3`).
+- `ScriptKind::JavaScript` (`.js`/`.cjs`/`.mjs`/`.jsx`) is the parser's
+  `NodeFlagsJavaScriptFile` context: JSX tags skip type arguments there
+  (`parseJsxOpeningOrSelfClosingElementOrOpeningFragment`).
