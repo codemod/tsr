@@ -1048,3 +1048,25 @@ Its super-in-static-block diff is not landed, because r5-errorsplit5's
 The remainder in main's files (late-bound expandos, require-destructuring
 aliases, inference from `any`) is `.1111`. The JSDoc bucket goes to
 r5-jsdoc5.
+
+### r5-mapped5 finished; r5-mapped6 dispatched (`tsr-2zk.1112`)
+
+r5-mapped5 recorded ADR-0050:
+- mapped property types are instantiated on first read (getTypeOfMappedSymbol);
+- mapped member prints truncate as the node builder does.
+
+hugeDeclarationOutputGetsTruncatedWithError is now 295 ms instead of 2,060 ms,
+with its native truncation point matched exactly. It also ported:
+- getIndexTypeForMappedType over generic key domains;
+- symbol-keyed computed properties;
+- mapped info for concrete mapped alias instances;
+- reducible indexed access (isGenericReducibleType and the uniqueLiteral
+  intrinsic).
+
+Six diffs land in batch AR.
+
+**Refused on its number:** the semantic mapped-node route gains +86 type lines
+and +1 case but costs domain-model Ir +0.48%, from evaluating 40
+`KeysOfType<…>` bodies. The performance rule rejects it as it stands.
+r5-mapped6 must find native's cache or deferral for that path and land the
+route within noise.
