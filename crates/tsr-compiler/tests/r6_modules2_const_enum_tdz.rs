@@ -1,0 +1,85 @@
+//! r6-modules2's const-enum TDZ diff (`docs/parity/notes/r6-modules2.md` §4):
+//! `checkResolvedBlockScopedVariable`'s const-enum arm (`checker.go:1911`).
+
+use tsr_checker::check::FileContext;
+use tsr_compiler::{LoadOptions, Program};
+use tsr_core::{CompilerOptions, ScriptTarget, Tristate};
+
+struct Host {
+    fs: tsr_vfs::InMemoryFileSystem,
+}
+
+impl tsr_module::types::ResolutionHost for Host {
+    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
+        &self.fs
+    }
+
+    fn current_directory(&self) -> &'static str {
+        "/"
+    }
+}
+
+/// The `(line, code)` pairs the checker reports in `file`, sorted.
+fn reported(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<(u32, u32)> {
+    let host = Host {
+        fs: tsr_vfs::InMemoryFileSystem::new(
+            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
+            [],
+            true,
+        ),
+    };
+    let arena = tsr_core::Arena::new();
+    let program = Program::from_root_files(
+        &arena,
+        &host,
+        LoadOptions {
+            compiler_options: options,
+            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
+            ..Default::default()
+        },
+    );
+    let text = files.iter().find(|(name, _)| *name == file).expect("listed").1;
+    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
+    let mut checker = tsr_checker::Checker::with_module_host(
+        program.binder(),
+        program.nodes(),
+        program.node_map(),
+        Some(&program),
+    );
+    checker.apply_compiler_options(program.compiler_options());
+    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
+    let mut reported: Vec<(u32, u32)> = checker
+        .diagnostics()
+        .iter()
+        .filter(|(at, _)| *at == id)
+        .map(|(_, diagnostic)| {
+            let line = text[..diagnostic.span.start as usize].matches('\n').count() as u32 + 1;
+            (line, diagnostic.message.code())
+        })
+        .collect();
+    reported.sort_unstable();
+    reported
+}
+
+/// `compiler/blockScopedEnumVariablesUseBeforeDef_isolatedModules`.
+const FILE: [(&str, &str); 1] = [(
+    "/a.ts",
+    "function foo1() {\n    return E.A\n    enum E { A }\n}\nfunction foo2() {\n    return E.A\n    const enum E { A }\n}\nconst config = {\n    a: AfterObject.A,\n};\nconst enum AfterObject {\n    A = 2,\n}\n",
+)];
+
+fn options(isolated_modules: bool, preserve_const_enums: bool) -> CompilerOptions {
+    CompilerOptions {
+        target: ScriptTarget::ES2015,
+        isolated_modules: Tristate::from_bool(isolated_modules),
+        preserve_const_enums: Tristate::from_bool(preserve_const_enums),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_const_enum_used_early_is_ts2450_only_under_isolated_modules() {
+    assert_eq!(reported(&FILE, options(true, false), "/a.ts"), [(2, 2450), (6, 2450), (10, 2450)]);
+    // Native: only the regular enum, with or without `preserveConstEnums`.
+    assert_eq!(reported(&FILE, options(false, true), "/a.ts"), [(2, 2450)]);
+    assert_eq!(reported(&FILE, options(false, false), "/a.ts"), [(2, 2450)]);
+}

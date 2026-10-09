@@ -9235,6 +9235,26 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// The typed print of a deferred conditional minted with its written
+    /// text: the root and mapper its mint captured (an inline root's
+    /// `conditional_inference_nodes` entry, or a mapped template's
+    /// `mapped_conditionals` one), printed at print time by
+    /// [`Checker::deferred_conditional_text`]
+    /// (`docs/parity/notes/r6-lazytext.md` §2). `None` for any other type.
+    pub(crate) fn deferred_conditional_text_at(&mut self, id: TypeId) -> Option<String> {
+        let (declaration, bindings, mapped_template) =
+            if let Some(info) = self.conditional_inference_nodes.get(&id) {
+                (info.declaration, info.bindings.clone(), false)
+            } else {
+                let info = self.mapped_conditionals.get(&id)?;
+                (info.declaration, info.bindings.clone(), true)
+            };
+        let Some(Node::ConditionalTypeNode(node)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        self.deferred_conditional_text(id, node, bindings, mapped_template)
+    }
+
     /// Read a conditional root under its original mapper without evaluating it.
     /// Branch inference and conditional-source matching share this alias walk.
     fn with_conditional_inference_node<R>(

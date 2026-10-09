@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8552/9538 (89.66%)
-Assertion lines: 473344/478853 (98.85%)  — a gradient, not a pass rate
-Failed         : 986
+Passed         : 8565/9538 (89.80%)
+Assertion lines: 473390/478853 (98.86%)  — a gradient, not a pass rate
+Failed         : 973
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 986 failures:
+First 100 of 973 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -23,8 +23,6 @@ compiler/aliasDoesNotDuplicateSignatures
   user.ts: >f : any — expected >f : () => void
 compiler/aliasErrors
   aliasErrors.ts: >p2 : foo.Provide — expected >p2 : provide.Provide
-compiler/aliasInaccessibleModule2
-  aliasInaccessibleModule2.ts: >X : any — expected >X : typeof N
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
   aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >e : ErrAlias<number> — expected >e : { new (): ErrImpl<number>; prototype: ErrImpl<any>; } & (() => number)
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -97,8 +95,6 @@ compiler/castOfYield
   castOfYield.ts: 8 assertion(s), expected 9
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
   chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2.ts: >(new Chain(t)).then(tt => s).then : <S extends S>(cb: (x: S) => S) => Chain<S> — expected >(new Chain(t)).then(tt => s).then : <S extends S_1>(cb: (x: S_1) => S) => Chain<S>
-compiler/chainedImportAlias
-  chainedImportAlias_file1.ts: >y : any — expected >y : typeof x
 compiler/checkJsdocTypeTagOnExportAssignment1
   b.js: >a : any — expected >a : import("./a").Foo
 compiler/checkJsdocTypeTagOnExportAssignment2
@@ -122,7 +118,7 @@ compiler/circularReferenceInReturnType
 compiler/circularReferenceInReturnType2
   circularReferenceInReturnType2.ts: >({    a: field({      type: A,      resolve() {        return {          foo: 100,        };      },    }),  }) : any — expected >({    a: field({      type: A,      resolve() {        return {          foo: 100,        };      },    }),  }) : { a: Field<Something, "a">; }
 compiler/circularTypeArgumentsLocalAndOuterNoCrash1
-  circularTypeArgumentsLocalAndOuterNoCrash1.ts: >X : NumArray<X extends {} ? number : number> — expected >X : f.NumArray<any>
+  circularTypeArgumentsLocalAndOuterNoCrash1.ts: >X : NumArray<NumArray<X extends {} ? number : number> extends {} ? number : number> — expected >X : f.NumArray<any>
 compiler/circularlyReferentialInterfaceAccessNoCrash
   circularlyReferentialInterfaceAccessNoCrash.ts: >Mxs : any — expected >Mxs : Mxs
 compiler/circularlySimplifyingConditionalTypesNoCrash
@@ -146,7 +142,7 @@ compiler/complicatedGenericRecursiveBaseClassReference
 compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
   complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts: >ChannelType : Channel extends { type: infer R; } ? R : never — expected >ChannelType : "email" | "text"
 compiler/complicatedIndexesOfIntersectionsAreInferencable
-  complicatedIndexesOfIntersectionsAreInferencable.ts: >x : string extends "validate" | "initialValues" | keyof ExtraProps ? Readonly<FormikConfig<Values> & ExtraProps> : Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validate" | "initialValues" | Exclude<keyof ExtraProps, "validateOnChange">> & Partial<Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validateOnChange" | Extract<keyof ExtraProps, "validateOnChange">>> — expected >x : string extends "initialValues" | "validate" | keyof ExtraProps ? Readonly<FormikConfig<Values> & ExtraProps> : Pick<Readonly<FormikConfig<Values> & ExtraProps>, "initialValues" | "validate" | Exclude<keyof ExtraProps, "validateOnChange">> & Partial<Pick<Readonly<FormikConfig<Values> & ExtraProps>, "validateOnChange" | Extract<keyof ExtraProps, "validateOnChange">>>
+  complicatedIndexesOfIntersectionsAreInferencable.ts: >{    initialValues: {        foo: ""    },    validate: props => {        props.foo;    }} : error — expected >{    initialValues: {        foo: ""    },    validate: props => {        props.foo;    }} : { initialValues: { foo: string; }; validate: (props: { foo: string; }) => void; }
 compiler/computedPropertiesInDestructuring1
   computedPropertiesInDestructuring1.ts: >{[foo]: bar} : any — expected >{[foo]: bar} : { [foo]: any; }
 compiler/computedPropertiesInDestructuring1_ES6
@@ -213,3 +209,7 @@ compiler/contextualTypingOfTooShortOverloads
   contextualTypingOfTooShortOverloads.ts: >app.use((err: any, req, res, next) => { return; }) : error — expected >app.use((err: any, req, res, next) => { return; }) : MyApp
 compiler/contextualTypingWithGenericAndNonGenericSignature
   contextualTypingWithGenericAndNonGenericSignature.ts: >f2 = (x, y) => { return x } : any — expected >f2 = (x, y) => { return x } : (x: any, y: any) => any
+compiler/contextualTypingWithGenericSignature
+  contextualTypingWithGenericSignature.ts: >f2 = (x, y) => { return x } : error — expected >f2 = (x, y) => { return x } : <T, U>(x: T, y: U) => T
+compiler/contextuallyTypeGeneratorReturnTypeFromUnion
+  contextuallyTypeGeneratorReturnTypeFromUnion.ts: >function* () {    const next = yield ''    return next[0]} : error — expected >function* () {    const next = yield ''    return next[0]} : () => Generator<string, string, string[]>
