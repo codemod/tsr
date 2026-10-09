@@ -2427,30 +2427,6 @@ impl<'a> Checker<'a, '_> {
         // the target narrows to one type, the missing-property report is the
         // plain one again (unless the excess check already failed).
         let missing_property_report = union_literal.is_none() || (narrowed && !excess_failed);
-        if REPORT_MISSING_REQUIRED_PROPERTY
-            && missing_property_report
-            && let Some(properties) = self.missing_required_property(source, normalized)
-        {
-            probe!(PROBE_REPORTED);
-            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
-                MissingPropertyHead::Suppressed => {
-                    self.report_missing_properties(file, span, source, normalized, &properties);
-                }
-                MissingPropertyHead::Kept(chain) => {
-                    self.report_relation_head(
-                        at,
-                        file,
-                        span,
-                        source,
-                        display_target,
-                        head,
-                        None,
-                        chain,
-                    );
-                }
-            }
-            return true;
-        }
         // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
         // three-valued (`crate::relater::Ternary`) and its own doc comment names
         // the caller this distinction exists for: *"one that acts on a
@@ -2491,8 +2467,44 @@ impl<'a> Checker<'a, '_> {
             );
             return true;
         }
+        // The missing-property report is checkTypeRelatedToEx's elaboration of
+        // a failed relation (propertiesRelatedTo's unmatched arm,
+        // relater.go:4233): a pair the relation relates reports nothing
+        // (`boolean -> NotBoolean` through an augmented `Boolean`,
+        // `assignFromBooleanInterface2`).
+        if REPORT_MISSING_REQUIRED_PROPERTY
+            && missing_property_report
+            && relation != crate::relater::Ternary::Related
+            && let Some(properties) = self.missing_required_property(source, normalized)
+        {
+            probe!(PROBE_REPORTED);
+            match self.missing_property_chain(span, source, chain_target, normalized, &properties) {
+                MissingPropertyHead::Suppressed => {
+                    self.report_missing_properties(file, span, source, normalized, &properties);
+                }
+                MissingPropertyHead::Kept(chain) => {
+                    self.report_relation_head(
+                        at,
+                        file,
+                        span,
+                        source,
+                        display_target,
+                        head,
+                        None,
+                        chain,
+                    );
+                }
+            }
+            return true;
+        }
         let not_related = relation == crate::relater::Ternary::NotRelated;
-        if !not_related && !self.object_against_primitive(source, target) {
+        // `object_against_primitive` stands in for a relation the relater
+        // could not decide; it never overrides a decided Related (native
+        // reports nothing for a related pair: `true -> NotBoolean` through
+        // an augmented `Boolean`, `assignFromBooleanInterface2`).
+        if relation == crate::relater::Ternary::Related
+            || (!not_related && !self.object_against_primitive(source, target))
+        {
             probe!(PROBE_RELATION_DECLINED);
             return false;
         }

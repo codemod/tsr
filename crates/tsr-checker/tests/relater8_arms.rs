@@ -219,3 +219,17 @@ function f2<U>() {
     assert_eq!(ts2321_lines(source), Vec::<usize>::new());
     assert_eq!(ts2322_lines(source), Vec::<usize>::new());
 }
+
+#[test]
+fn a_related_primitive_source_is_not_reported() {
+    let source = r#"interface Boolean { doStuff(): string; }
+interface NotBoolean { doStuff(): string; }
+var x = true;
+declare var a: Boolean;
+declare var b: NotBoolean;
+b = a;
+b = x;
+x = b; // error
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}

@@ -444,3 +444,82 @@ Test: `tests/relater8_arms.rs`
 `a_literal_alias_expanding_through_its_arguments_is_cut_not_overflowed`
 (no positive TS2321 test: no small program found that tsgo reports TS2321
 for).
+
+## 8. TS2322 remainder: re-triage, and the reporter acting on a Related pair
+
+### 8.1 Re-triage (§7's commit)
+
+On §0 there are 94 single-code TS2322 cases (WRONG/EMPTY_WRONG whose only
+differing code is 2322); on §7's commit, 90. Joined with r5-ts2322's
+`map.tsv`, 30 rows name the relater or `assignreport.rs`:
+
+| Row | Cases | Status this round |
+|---|---|---|
+| R-apparent | `assignFromBooleanInterface2`, `assignFromNumberInterface2`, `invalidBooleanAssignments` | **converted, §8.2** |
+| R-variance | `genericIndexedAccessVarianceComparisonResultCorrect` | its type line converted (§2); the extra TS2322 at 29 stays |
+| R-variance | `inferFromNestedSameShapeTuple`, `invariantGenericErrorElaboration` | not reached |
+| R-conditional | `deepComparisons` | §6.3: `constraints.rs` (MAIN) |
+| R-conditional | `conditionalTypeAssignabilityWhenDeferred` | §6.3: `declared.rs` visibility (r6-declared) |
+| R-conditional | `flatArrayNoExcessiveStackDepth` | §6.3: unmeasured indexed-access body |
+| R-conditional | `conditionalTypesExcessProperties` | not reached |
+| R-identity | `exactOptionalPropertyTypesIdentical` | the generic signature pair is `Unknown` because `canonical_signature` declines for `<T>() => T extends … ? 0 : 1` (`signatures.rs`, r6-printer) |
+| R-signatures | `identicalTypesNoDifferByCheckOrder` | §8.3 |
+| R-signatures | `assignmentCompatWithGenericCallSignatures4` | `inference.rs` (MAIN; r5-relater8 §4) |
+| R-index-primitive | `assignmentCompat1` | held `r5-relater7-primitive-index.diff` (waits on `contextual.rs`, `tsr-2zk.1121`) |
+| R-enum | `enumAssignmentCompat3`, `enumLiteralAssignableToEnumInsideUnion` | `declared.rs` (r5-relater7 §1) |
+| R-mapped | `mappedTypeAsClauseRelationships` | per-instance mapped parameters (`mapped.rs`, §3) |
+| R-mapped | `mappedTypeInferenceFromApparentType`, `unionTypeInference` | not reached |
+| R-this | `thisTypeInFunctions` (6 extras) | not reached |
+| R-circular-constraint | `typeParameterHasSelfAsConstraint` | the check site declines first (r5-relater7 §1) |
+| R-indexed | `undefinedAssignableToGenericMappedIntersection` | not reached |
+| S-write-type | `divergentAccessorsTypes8`, `noUncheckedIndexedAccess`, `symbolProperty46`, `symbolProperty47` | the write type of an element access (`members.rs`/`expressions.rs`, MAIN; r5-relater6 §4) |
+| S-generator-return, E-duplicate-member, R-gate, S-destructuring | `generatorReturnContextualType`, `lastPropertyInLiteralWins`, `logicalOrOperatorWithTypeParameters`, `objectRestNegative` | not reached |
+
+### 8.2 The reporter reported pairs the relation relates
+
+**Forcing constraint.** checkTypeRelatedToEx (relater.go:369) reports only
+when `isRelatedToEx` fails. The missing-property report is an elaboration of
+that failure (propertiesRelatedTo's unmatched arm, relater.go:4233).
+`report_relation_failure` (`assignreport.rs`) has two stand-ins for an
+undecided relation, and both fired on a pair the relation *relates*:
+- `missing_required_property` ran before the relation was asked;
+- `object_against_primitive` (an object against a primitive, or a primitive
+  against a target with a required property) let the report through for
+  any non-NotRelated answer, Related included.
+
+In `assignFromBooleanInterface2` 18 (`b = x`, `x` narrowed to `true`,
+`NotBoolean { doStuff(): string }`, `Boolean` augmented with `doStuff`)
+the relation is Related through `true`'s apparent `Boolean`, and the
+second stand-in reported TS2322.
+
+**Ported.** The relation (and its overflow report) is computed first. The
+missing-property report and the `object_against_primitive` road are taken
+only when the relation is not Related. Both stay the port's stand-ins for an
+`Unknown` relation.
+
+**Measured** against §7's commit, both loss checks (against §0) empty,
+slowcases clean:
+- diagnostics: `assignFromBooleanInterface2`, `assignFromNumberInterface2`,
+  `invalidBooleanAssignments` WRONG → RIGHT (RIGHT 5536, EMPTY_RIGHT 5599,
+  WRONG 1057, EMPTY_WRONG 46);
+- types unchanged;
+- `Ir`: generic-imports 343,075,857 → 343,076,453 (+0.0002%); domain-model
+  1,091,570,495 → 1,089,884,049 (−0.15%). CLI output identical.
+
+**Falsifier.** A pair whose port relation is a wrong Related, previously
+masked by a stand-in report: a lost TS2322 in a future dump with the
+relation Related.
+
+Test: `tests/relater8_arms.rs` `a_related_primitive_source_is_not_reported`.
+
+### 8.3 `identicalTypesNoDifferByCheckOrder`: not the relater
+
+Natively `FunctionComponent1<SomePropsX> -> FunctionComponent1<SomeProps>`
+fails on the contravariant `SomeProps -> Required<Pick<SomeProps, "x">>`
+(`x` is optional in the source). The port's variance is right, but it
+relates that pair at once: the image `Required<Pick<SomeProps, "x">>` takes
+its member table from the inner `Pick` image (the same members symbol as
+`Required<PX>`), so the `-?` is lost and `x` stays optional. `Required<{ x?:
+string }>` (a literal argument) is right. Owner: member resolution of a
+nested identity mapped alias (`declared.rs`'s
+`instantiate_identity_mapped_alias` / `mapped.rs`).
