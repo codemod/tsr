@@ -45,10 +45,11 @@ Apply order and status:
 | 1 | `r6-smallcodes4-namespace-not-found.diff` | `namespace_not_found.rs` | lossless, §2.1 |
 | 2 | `r6-smallcodes4-pragma-diagnostics.diff` | `tsr-parser/src/pragma_diagnostics.rs` | lossless, §2.2 |
 | 3 | `r6-smallcodes4-import-call-trailing-comma.diff` | `import_call_grammar.rs` | lossless, §2.3 |
-| 4 | `r6-smallcodes4-unknown-operand.diff` | `unknown_operand.rs` | **held**: four losses from inference producers, §3.1 |
-| 5 | `r6-smallcodes4-import-type-node.diff` | `import_type_node.rs` (in the diff) | **held**: +38/−8 type lines, all losses printer-side, §3.2 |
+| 4 | `r6-smallcodes4-top-level-context.diff` | `top_level_context.rs` | lossless, §2.4 |
+| 5 | `r6-smallcodes4-unknown-operand.diff` | `unknown_operand.rs` | **held**: four losses from inference producers, §3.1 |
+| 6 | `r6-smallcodes4-import-type-node.diff` | `import_type_node.rs` (in the diff) | **held**: +38/−8 type lines, all losses printer-side, §3.2 |
 
-Diffs 1, 3 and 4 touch disjoint hunks of `check.rs`. Every diff applies to the
+Diffs 1, 3 and 5 touch disjoint hunks of `check.rs`. Every diff applies to the
 base alone, and each applies on top of the ones before it.
 
 ## 2. Lossless
@@ -256,6 +257,59 @@ Probe (`import(path,)`, `import(path /* x */ , )`, `import(path)` under
   byte-identical.
 
 Unit test: `comma_after` in the file itself.
+
+### 2.4 TS1262 on a declaration named `await` — `top_level_context.rs`
+
+Cases on the base, each missing one TS1262 on `export function await() {}`:
+`exportDefaultAsyncFunction2` (`asyncawait.ts(2,17)`) and
+`topLevelAwaitErrors.6` (`module=es2022`, `esnext`).
+
+Native: `checkContextualIdentifier` (`binder.go:1300`) reports TS1262 for an
+`await` identifier in an external module when `ast.IsInTopLevelContext`
+(`ast/utilities.go:1778`) holds. That function has two steps:
+
+1. the name of a class or function **declaration** moves to the declaration,
+   because it binds in the surrounding scope;
+2. `GetThisContainer(node, includeArrowFunctions=true, false)` must be the
+   source file. The walk stops at an arrow, every function-like, a namespace,
+   an enum, a class property and a static block. A member's computed name and
+   its decorators skip to the class.
+
+TSR: the arm in `strict_mode.rs` asked "is there a function-like ancestor"
+(§1044). That misses step 1, so a function's own name never reported. It also
+treats a namespace, an enum and a class property as the top level, and a
+class member's decorator as inside the member. The new file is the two steps
+over the existing `get_this_container` (`assignment_declarations.rs`). The
+diff makes it the arm's test. `module_format.rs` has a private
+`is_in_top_level_context` without step 1. Its callers ask it about `await`
+expressions, which are never a declaration's name.
+
+Probe (`export function await() {}`, `var await` at the top level, in a
+namespace and in a method, `class await {}` in a class property, commonjs):
+native and TSR identical, TS1262 at (1,17) and (4,5) only.
+
+**Measured** unfiltered against the frozen base:
+
+- Diagnostics: +3 cases, zero case losses.
+- Rows: 3 matched, and 12 unmatched rows appear in a case that stays WRONG,
+  `topLevelAwaitErrors.1` (`es2022` ×1 row, `esnext` ×6 rows, each counted on
+  both sides of the row diff). Each is a TS1262 on `@await` decorating a
+  class member or a parameter. Native's binder would report them too, since a
+  member's decorator resolves its container from the class. It does not,
+  because its parser reads `@await` in a module's top-level await context as
+  an `AwaitExpression` with a missing operand (TS1109). The file then has
+  parse errors, and `checkContextualIdentifier` reports nothing in a file
+  with parse errors. TSR's parser reports none of that file's 15 TS1109/TS1005
+  rows, and it already reported TS1262 on the file's other top-level `await`
+  identifiers before this diff. The cause is the parser's top-level await
+  context (main's). With it fixed, the rows disappear with the parse errors.
+- Types dump: verdicts unchanged.
+- slowcases: clean on both dumps.
+- Ir: domain-model 1,091,397,023 → 1,090,896,784 (−0.05%), generic-imports
+  343,069,155 → 343,077,519 (+0.002%). Both are noise. CLI output is
+  byte-identical.
+
+Unit test: `tests/top_level_await_name.rs`, which ships in the diff.
 
 ## 3. Held
 
