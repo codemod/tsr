@@ -228,3 +228,92 @@ pass over the contextual return type. If the port's
 `live_contextual_return_mapper` carried inferences native's does not, a
 literal would be kept where native widens. The unfiltered run moved no
 line the other way.
+
+### 3.2 `mappedTypeOverlappingStringEnumKeys` (5): a mapped template that is a conditional fails
+
+The literal widens because the `cat` property has no contextual type, and
+that is because the mapped type's member itself is `error`:
+
+```ts
+type M5 = { [V in T]: Extract<TC | SD, { type: V }> };
+declare const m5: M5; const a5 = m5.cat;   // native TC, port error
+type M7 = { [V in "cat" | "dog"]: Extract<TC | SD, { type: V }> };  // same
+type X8 = Extract<TC | SD, { type: T.CAT }>;                         // RIGHT
+```
+
+Instantiating a mapped template that is a conditional alias over the
+mapped type parameter yields `error`, even with plain string keys. That is
+mapped-type instantiation (`mapped.rs`, r6-mapped), not this lane.
+Routed with the probe above.
+
+**Also found, shipped as a measured-zero diff:**
+[`r6-printer-entity-name-discriminant.diff`](r6-printer-entity-name-discriminant.diff)
+(main's `symbols.rs`). `discriminate_union_root` reads only string, numeric
+and boolean literal initializers as discriminators.
+`isPossiblyDiscriminantValue` also admits an entity-name expression, so an
+enum member `E.A` discriminates. With the diff,
+`const v: (TC | SD)[] = [{ type: T.CAT, address: "" }]` prints
+`{ type: T.CAT; address: string; }` as native does (probe). Without it, the
+§927 decline answers no contextual type and the member widens to `T`.
+Measured on top of §3.1: types +0 / −0, diagnostics unchanged, slowcases
+clean. No corpus line reaches the shape on its own; land it when someone
+lands the mapped fix above.
+
+### 3.3 Contextual rest-tuple labels from combined overloads: not ported, no population
+
+Native (probed): `h((...args) => {})` against
+`{ (a: string): void; (a: number): void }` prints
+`(args_0: string | number) => void`, `args : [string | number]`. The port
+prints `(a: string | number) => void`, `args : [a: string | number]`.
+`getRestTypeAtPosition` names tuple elements by
+`getNameableDeclarationAtPosition`. A combined signature's parameters are
+synthetic symbols with no declaration, so the tuple has no labels. The
+port's `Parameter` has no declaration, and `signature_tuple_arguments`
+(main's `inference.rs`) labels every element with the parameter's name. A
+faithful port needs a "has a nameable declaration" bit on `Parameter`
+(signatures.rs), set off by the combiners (union_signatures.rs, main's
+contextual.rs) and read in inference.rs. The rest-tuple form
+(`{ (...a: [string]): void; … }`) also differs in optionality
+(`args_0?: string | number | undefined` natively). No WRONG or GAP line in
+the corpus prints `name_N` where the port prints a label (searched at the
+base), so this is recorded, not built.
+
+## 4. Untagged template escapes cook on the rescan (item 4, `tsr-2zk.1127`)
+
+**Forcing constraint.** `octalLiteralAndEscapeSequence` (14 lines):
+`` `\55` `` is `"-"` natively and `"\\55"` in the port. `scanEscapeSequence`
+(`scanner.go:1700`) cooks a legacy octal escape only when
+`ReportInvalidEscapeErrors` is set. The initial scan of a template does not
+set it (`scanner.go:522`). The parser re-scans an untagged template with
+reporting on (`reScanTemplateToken(false)`, `parser.go:3692`). The port's
+scanner already had both arms (§147, §223). Two things stopped the cooked
+value reaching the node:
+
+1. **The parser** (main's) caches the token value on every rescan wrapper
+   (`rescan_regular_expression`, `rescan_template_continuation`, …) except
+   the template head. Its three call sites (`parse_primary_expression`'s
+   two template arms and `parse_template_literal`) called
+   `self.scanner.rescan_template` directly and kept the initial scan's raw
+   value.
+2. **The scanner** (this lane): `rescan_template` did not clear
+   `self.value`, and `scan_template_body` seeds its buffer from it. Once the
+   parser read the rescan, `` `\55` `` would have cooked to `"\\55-"`.
+
+**Port.**
+
+- Commit: `Scanner::rescan_template` clears the value before re-scanning,
+  as `ReScanTemplateToken` resets the scan. The test is
+  `crates/tsr-scanner/tests/template_rescan.rs`. Alone it is inert, because
+  the parser never read the rescan value. Types +0 / −0 beyond §3.1,
+  diagnostics unchanged, slowcases clean. Ir domain-model 1,090,802,692,
+  generic-imports 343,084,721 (within §3.1's noise band). CLI output
+  identical.
+- Diff (main's parser):
+  [`r6-printer-parser-rescan-template.diff`](r6-printer-parser-rescan-template.diff).
+  It adds `Parser::rescan_template`, which refreshes `token_value` like the
+  other rescan wrappers, and routes the three call sites through it.
+
+**Measured, diff on top of the commit**, unfiltered against the base: types
+**+14 / −0** beyond §3.1 (`octalLiteralAndEscapeSequence:0:94`–`0:100`,
+`0:119`–`0:131`; the case has no non-RIGHT line left), diagnostics
+unchanged, slowcases clean. Probe and whole case identical to the oracle.

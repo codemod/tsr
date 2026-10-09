@@ -1455,6 +1455,11 @@ impl<'a> Scanner<'a> {
         ));
         self.report_template_escapes = !is_tagged;
         self.pos = self.token.span.start;
+        // `ReScanTemplateToken` resets the scan (`s.pos = s.tokenStart`) and
+        // recomputes the value from scratch; the initial scan's value is not a
+        // prefix of the cooked one (`scan_template_body` seeds its buffer from
+        // `self.value`).
+        self.value = None;
         let mut flags = TokenFlags::empty();
         self.bump(); // '`'
         let kind = self.scan_template_body(&mut flags, true, !is_tagged);

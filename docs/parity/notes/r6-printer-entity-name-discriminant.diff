@@ -1,0 +1,33 @@
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index b1368e0..6d06e66 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -4279,6 +4279,18 @@ impl<'a> Checker<'a, '_> {
+                 _ => continue,
+             };
+             let Some(initializer) = assignment.initializer else { continue };
++            // `isPossiblyDiscriminantValue` (`checker.go`) admits an entity
++            // name expression too: an enum member `E.A` (and a dotted
++            // namespace path to one) is read context-free like a literal.
++            fn entity_name_expression(expression: tsr_ast::Expression<'_>) -> bool {
++                match expression {
++                    tsr_ast::Expression::Identifier(_) => true,
++                    tsr_ast::Expression::PropertyAccessExpression(access) => {
++                        access.expression.is_some_and(entity_name_expression)
++                    }
++                    _ => false,
++                }
++            }
+             let context_free = match initializer {
+                 tsr_ast::Expression::StringLiteral(_) | tsr_ast::Expression::NumericLiteral(_) => {
+                     true
+@@ -4286,6 +4298,9 @@ impl<'a> Checker<'a, '_> {
+                 tsr_ast::Expression::KeywordExpression(keyword) => {
+                     matches!(keyword.kind, SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword)
+                 }
++                tsr_ast::Expression::PropertyAccessExpression(access) => {
++                    access.expression.is_some_and(entity_name_expression)
++                }
+                 _ => false,
+             };
+             if !context_free {
