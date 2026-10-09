@@ -777,6 +777,7 @@ impl Checker<'_, '_> {
             }
             Node::TypeQueryNode(_) => {
                 self.check_instantiation_expression_reports(node);
+                self.check_type_query_nullable_receivers(node);
                 ambient
             }
             Node::TypeLiteralNode(_) => {

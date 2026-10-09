@@ -32,7 +32,6 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
 impl Checker<'_, '_> {
     /// The receiver reports of one `TypeQuery` node's entity name.
     pub(crate) fn check_type_query_nullable_receivers(&mut self, node: NodeId) {
