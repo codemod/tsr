@@ -79,7 +79,7 @@ impl<'a> ProgramFile<'a> {
             source_file: parsed.source_file,
             jsdoc: parsed.jsdoc,
             node_range: parsed.node_range,
-            diagnostics: parsed.diagnostics,
+            diagnostics: attach_file_to_related_information(file_name, text, parsed.diagnostics),
             file_references: parsed.file_references,
         }
     }
@@ -150,4 +150,40 @@ impl<'a> ProgramFile<'a> {
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
+}
+
+/// The related-information half of `attachFileToDiagnostics`
+/// (`parser.go:6392`): the parser builds TS1007 with a nil file, and the file
+/// is set once the source file exists. A head's file is its slot in the
+/// program, so only related records need one. The file image (name and text)
+/// is built at most once per file, and only when a related record exists.
+fn attach_file_to_related_information(
+    file_name: &str,
+    text: &str,
+    mut diagnostics: Vec<Diagnostic>,
+) -> Vec<Diagnostic> {
+    let mut file: Option<std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>> = None;
+    for diagnostic in &mut diagnostics {
+        if diagnostic.related_information().iter().all(|related| related.file().is_some()) {
+            continue;
+        }
+        let file = file
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(tsr_diagnostics::format::DiagnosticFile::new(file_name, text))
+            })
+            .clone();
+        let related = diagnostic
+            .related_information()
+            .iter()
+            .cloned()
+            .map(|mut related| {
+                if related.file().is_none() {
+                    related.set_file(file.clone());
+                }
+                related
+            })
+            .collect();
+        diagnostic.set_related_information(std::sync::Arc::new(related));
+    }
+    diagnostics
 }
