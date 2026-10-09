@@ -887,7 +887,13 @@ impl<'a> Checker<'a, '_> {
                 if let TypeData::Union { types, .. } = &self.store.get(key).data {
                     pending.extend(types.iter().rev().copied());
                 } else if info.name_type.is_some()
-                    || self.store.get(key).flags.intersects(TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL)
+                    // isTypeUsableAsPropertyName (utilities.go:879): string, number
+                    // and unique-symbol literals name a property.
+                    || self.store.get(key).flags.intersects(
+                        TypeFlags::STRING_LITERAL
+                            | TypeFlags::NUMBER_LITERAL
+                            | TypeFlags::UNIQUE_ES_SYMBOL,
+                    )
                     // Native 5b1047d resolveMappedTypeMembers (checker.go:20956)
                     // also admits concrete index keys, including string & {}.
                     // Reuse the existing validity worker; retain the original
@@ -956,7 +962,10 @@ impl<'a> Checker<'a, '_> {
                 value: EnumLiteralValue::String(name) | EnumLiteralValue::Number(name),
                 ..
             } => Some(name.clone()),
-            _ => None,
+            // getPropertyNameFromType's third arm (utilities.go:886): a
+            // unique symbol names its property by its escaped name
+            // (`crate::unique_symbol_keys`).
+            _ => self.unique_symbol_property_name(ty),
         }
     }
 
@@ -1106,7 +1115,11 @@ impl<'a> Checker<'a, '_> {
             let was_readonly = inherited.and_then(|modifiers| modifiers.1).unwrap_or(was_readonly);
             let optional = info.optionality.unwrap_or(was_optional);
             let readonly = info.readonly.unwrap_or(was_readonly);
-            let printed_name = if info.name_type.is_some() {
+            let printed_name = if let Some(symbol) = self.unique_symbol_type_symbol(name_type) {
+                // getPropertyNameNodeForSymbolFromNameType's UniqueESSymbol
+                // arm, printed with no site (`nodebuilderimpl.go:2482`).
+                format!("[{}]", self.binder.symbols().get(symbol).name)
+            } else if info.name_type.is_some() {
                 if crate::objects::is_identifier_text(&name)
                     || matches!(self.store.get(name_type).data, TypeData::NumberLiteral(_))
                 {
@@ -1466,8 +1479,16 @@ impl<'a> Checker<'a, '_> {
         if property.readonly {
             budget.approximate_length += 9;
         }
+        let name = match budget.site {
+            Some(site)
+                if let Some(symbol) = self.symbol_of_unique_property_name(&property.name) =>
+            {
+                self.unique_symbol_property_name_at(symbol, Some(site))
+            }
+            _ => property.printed_name.clone(),
+        };
         crate::objects::Member::Property {
-            name: property.printed_name.clone(),
+            name,
             optional: property.optional,
             readonly: property.readonly,
             printed,
