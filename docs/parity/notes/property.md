@@ -623,3 +623,25 @@ property-access arms now use `containing` (`is_minted_this_type` →
 (`getPropertyTypeForIndexType` has no such substitution). No cache.
 Converts 25 cases, among them `autoLift2`, `es6DeclOrdering`, `statics`,
 `typeOfThisInInstanceMember`, `destructuringParameterProperties2/5`.
+
+## 26. Members inherited through an `extends` expression (tsr-2zk.16.88)
+
+`resolveObjectTypeMembers` (`checker.go:19127`) merges the members of
+`getTypeWithThisArgument(base, thisArgument)` for every type `getBaseTypes`
+returns, and `resolveBaseTypesOfClass` types an `extends` expression through
+`getBaseConstructorTypeOfClass` (a class expression, `(await
+import("./0")).B`, a mixin call). The member walk here is symbol-based
+(`base_symbols_of_ex`), which gaps on any entry that names no class or
+interface symbol, so `c.a` on such a class answered `errorType`.
+`expression_heritage_member` reads the member through `get_base_types`
+(`base_type_links`, already published) when that symbol walk gaps, for a
+non-generic class's own declared type only (a generic reference would need
+the base instantiated with its arguments). No new cache.
+Converts `classExpression3`, `classExpressionES63`,
+`importCallExpression3ES2020`, `importCallExpressionInCJS4`,
+`mixinClassesMembers`, `declarationEmitExpressionInExtends`.
+The same base answers `isAssignmentToReadonlyEntity`
+(`is_assignment_to_readonly_property`, `readonly_target.rs`) when the
+receiver's own symbol road misses: `this.attrib = 2` under `class C extends
+(class {} as new () => Readonly<{ attrib: number }>)` is TS2540 and
+`errorType` (`readonlyAssignmentInSubclassOfClassExpression`).

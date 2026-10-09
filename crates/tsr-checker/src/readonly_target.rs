@@ -616,7 +616,20 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        let Some(property) = self.get_property_of_type(receiver_type, &name) else { return false };
+        let Some(property) = self.get_property_of_type(receiver_type, &name) else {
+            // A member inherited through an `extends` expression is the
+            // base type's property (`resolveObjectTypeMembers`' base merge;
+            // `expression_heritage_member`): its readonly-ness is the base's.
+            for base in self.expression_heritage_bases(receiver_type) {
+                let base = self.apparent_type(base);
+                if self.get_property_of_type(base, &name).is_some()
+                    || self.mapped_identity_optionality.contains_key(&base)
+                {
+                    return self.is_assignment_to_readonly_property(node, base, &name);
+                }
+            }
+            return false;
+        };
         // `checkObjectLiteral` (`checker.go:13175`) gives every member of a
         // const-context literal `CheckFlagsReadonly`; this port records it on
         // the literal's captured member image, not the binder symbol.
