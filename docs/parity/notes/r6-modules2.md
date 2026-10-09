@@ -262,3 +262,57 @@ Applied on the base:
   identifier site, which returns on `isolated_modules == false`.
 - `cargo test --workspace --release` with the diff applied: 3,510 passed, 0
   failed.
+
+## 3. TS2503 on `import f1 = NonExistent` (item 3): already covered
+
+`conformance/verbatimModuleSyntaxInternalImportEquals` misses only TS2503 at
+`(2,13)`. That has nothing to do with `verbatimModuleSyntax`: native `tsgo`
+reports the same TS2503 without the option, and TSR reports nothing in either
+configuration. The cause is that the identifier arm of `import a = b`
+(`getSymbolOfPartOfRightHandSideOfImportEquals`'s case 1) was never checked.
+
+r6-smallcodes4's `r6-smallcodes4-namespace-not-found.diff` (its notes §2.1)
+ports that check (`check_import_equals_identifier_reference`). Its table
+lists this case among its lossless conversions, so it lands with batch BC.
+Nothing here duplicates it.
+
+## 4. TS2450 on an early `const enum` use under `isolatedModules` (item 4, a held diff)
+
+### Classification against native
+
+`blockScopedEnumVariablesUseBeforeDef_isolatedModules` and
+`_verbatimModuleSyntax` (`target=es2015`) each miss TS2450 at `(7,12)` and
+`(12,8)`. Both are uses of a `const enum` before its declaration.
+`checkResolvedBlockScopedVariable` (`checker.go:1888`) picks the message by
+flags: block-scoped variable, class, `RegularEnum`, and then a last arm
+(`:1911`–`1914`) that reports a `ConstEnum` only under
+`GetIsolatedModules()`. TSR's port (`check.rs`, the TS2448/TS2449/TS2450
+selection) stopped at `RegularEnum`. That is right without the option (a
+const enum is inlined) and missing with it.
+
+### The diff: `r6-modules2-const-enum-tdz.diff`
+
+The diff adds one arm to the selection in main's `check.rs`: a `CONST_ENUM`
+(not a class, matching upstream's arm order) answers TS2450 when
+`isolated_modules` (`GetIsolatedModules()`), and returns otherwise. The
+declaration lookup and the before-use test below it are shared, as upstream
+shares them. The diff adds
+`crates/tsr-compiler/tests/r6_modules2_const_enum_tdz.rs`. Under
+`isolatedModules` it expects all three lines. Without the option, with or
+without `preserveConstEnums`, it expects only the regular enum's line, which
+is native's answer.
+
+### Measured
+
+Applied on the base:
+
+- diagnostics **+2 rows**: both cases WRONG → RIGHT. Zero losses, types
+  identical, `slowcases` clean.
+- Native `tsgo` and TSR print identical lines on the case under
+  `isolatedModules`, under `verbatimModuleSyntax` and under
+  `preserveConstEnums` alone.
+- Callgrind Ir: domain-model 1,091,989,234 → 1,091,266,664 (−0.07%, the
+  same spread as two runs of the base binary), generic-imports 343,080,966 →
+  343,063,120.
+- `cargo test --workspace --release` with the diff applied: 3,509 passed, 0
+  failed.
