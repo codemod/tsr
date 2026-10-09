@@ -103,3 +103,24 @@ Tests: `tests/r6_declared.rs`:
 alias road, for example a non-generic alias body evaluated under the caller's
 frames. Such a literal would merge two different instances, and a print
 would show the first instance's members.
+
+### 1.1 r5-mapped6's conditional-typed-print diff, re-measured (sent to r6-mapped)
+
+[`r5-mapped6-conditional-typed-print.diff`](r5-mapped6-conditional-typed-print.diff)
+applies unchanged on top of §1's commit `f9339d0` (only the line offsets
+move). Unfiltered against `f9339d0`:
+- types: **+5 RIGHT, 0 losses**:
+  - `complicatedIndexesOfIntersectionsAreInferencable:0:5`;
+  - `simplifyingConditionalWithInteriorConditionalIsRelated:0:17/19`;
+  - `wideningWithTopLevelTypeParameter:0:47`;
+  - `mappedTypeAsClauses:0:106`.
+
+  r5-mapped6's four held losses (`controlFlowGenericTypes:298/300/301/303`)
+  are gone.
+- diagnostics unchanged; slowcases clean on both dumps.
+- Ir: domain-model 1,090,253,218 -> 1,092,009,836 (+0.16%, the same +0.15%
+  r5-mapped6 §2 measured), generic-imports +0.002%.
+
+It touches `declared.rs` and `node_reuse.rs`, so it stays a diff. It was sent
+to r6-mapped as the round-6 brief asks; the integrator orders it after
+`f9339d0`.
