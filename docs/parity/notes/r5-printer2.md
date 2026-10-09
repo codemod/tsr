@@ -193,3 +193,58 @@ measured on top of §4. It applies on its own or stacked on §2's diff.
 The same arm in `objects::signature_member_text` measured **zero**
 transitions (no corpus line reaches that printer with an unwritten,
 reusable constraint), so it is not shipped.
+
+## 6. Diff: names as written (`.16.125`)
+
+`r5-printer2-names-as-written.diff` (declared.rs, symbols.rs, checker.rs,
+and the two helpers it adds to printing.rs; shipped whole because the
+helpers have no caller in owned files). `getNameOfSymbolAsWritten`
+(`nodebuilderimpl.go:973`) prints a symbol through
+`scanner.DeclarationNameToString` (`:1002`, `scanner/utilities.go:76`): the
+declaration name's **source text**, which keeps a unicode escape the
+scanner cooks out of the identifier value (`class C2` prints
+`C2`). This port bakes names from the cooked `Identifier.text`.
+
+- `identifier_text_as_written` reads the host's source text over the name's
+  span, only to confirm the cooked text (which it returns whenever the
+  source ends with it); a span starts at leading trivia, so the written
+  name is the trailing run of identifier and escape characters.
+- `symbol_name_as_written`: the first named declaration's identifier, as
+  written, when it spells the symbol's name.
+- Call sites: `new_named_type` (instance types), the `typeof` mint in
+  `get_type_of_func_class_enum_module` (symbols.rs), and
+  `value_symbol_name_at` (checker.rs).
+
+Measured on top of §4: +19 type lines, 0 lost, +2 cases (`escapedIdentifiers`,
+`parserClassDeclaration23`); diagnostics unchanged; slowcases clean; CPU
+against this branch's head 0.992 / 0.995.
+
+## 7. Not in this lane's files (routed)
+
+- **Defaulted type arguments dropped in print** (`AsyncIterator<string,
+  undefined>` vs native `…, any>`; 28 lines / 6 cases:
+  `awaitUsingDeclarationsWithAsyncIteratorObject`,
+  `jsxExcessPropsAndAssignability`, `reactReadonlyHOCAssignabilityReal`, …).
+  Native's `typeReferenceToTypeNode` prints every resolved argument; the
+  reference's text is baked from the written list in `declared.rs`
+  (`get_type_from_type_reference`'s partially-written arm). Removing
+  `partially_written` from the `qualified_written_text` composition alone
+  changed nothing (measured), so the baked `Named` text is minted elsewhere
+  in that function. r5-declared3.
+- **Type-literal numeric names** (`var a: { "1": number; 1.0: string }`
+  prints `{ "1": number; }`, native `{ 1: number; }`): §4.2's rule in
+  `declared.rs`. r5-declared3.
+- **Scanner** (parser lane): octal escapes in templates
+  (`octalLiteralAndEscapeSequence`: `` `\5` `` cooks to `"\u0005"`
+  natively, the port keeps `"\\5"`); lone surrogates
+  (`unicodeExtendedEscapesIn{Strings,Templates}1{0,1}`: `"\u{D800}"` prints
+  `"\uD800"` natively, the port `"�"` since a Rust `String` cannot hold a
+  lone surrogate).
+- **Enum-member element-access escaping** (`enumWithUnicodeEscape1`):
+  r5-typetriage's held enum-member ASCII-escape diff (declared.rs).
+- **Signature type parameters from a generic contextual signature**
+  (`contextuallyTypedGenericAssignment`, `promisePermutations2`): a
+  signature-construction question in `contextual.rs`, not printing.
+- **`circularObjectLiteralAccessors`**: native prints the accessor form for
+  a `string`/`string` object-literal pair; needs native's read/write
+  identity for object-literal accessor symbols.
