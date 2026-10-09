@@ -11,15 +11,6 @@ use crate::{
 };
 
 impl Checker<'_, '_> {
-    /// A spread property's baked text: `addPropertyToElementList`'s
-    /// `serializeTypeForDeclaration` reuse arm on the property's declaration
-    /// ([`Checker::reused_property_type_text`]), else the type's print.
-    fn spread_property_text(&mut self, origin: Option<SymbolId>, displayed: TypeId) -> String {
-        origin
-            .and_then(|symbol| self.reused_property_type_text(symbol, displayed, None))
-            .unwrap_or_else(|| self.type_to_string(displayed))
-    }
-
     pub(crate) fn check_object_spread_literal(
         &mut self,
         node: &ObjectLiteralExpression<'_>,
@@ -212,9 +203,8 @@ impl Checker<'_, '_> {
                     right_property.method = false;
                     right_property.accessor_write = None;
                     let displayed = self.remove_missing_type(value);
-                    right_property.printed_slot = PrintedSlot::printed(
-                        self.spread_property_text(right_property.origin, displayed),
-                    );
+                    right_property.printed_slot =
+                        PrintedSlot::printed(self.type_to_string(displayed));
                 }
             } else {
                 properties.push(left_property);
@@ -342,9 +332,7 @@ impl Checker<'_, '_> {
                     origin,
                     checked_declaration: None,
                     printed_name: self.spread_property_name(origin?, &name)?,
-                    printed_slot: PrintedSlot::printed(
-                        self.spread_property_text(origin, displayed),
-                    ),
+                    printed_slot: PrintedSlot::printed(self.type_to_string(displayed)),
                     optional: origin.is_some_and(|symbol| self.property_is_optional(symbol)),
                     readonly: origin.is_some_and(|symbol| self.is_readonly_symbol(symbol)),
                     name,
@@ -420,8 +408,7 @@ impl Checker<'_, '_> {
             combined.accessor_write = None;
             combined.slot = PropertySlot::resolved(value);
             let displayed = self.remove_missing_type(value);
-            combined.printed_slot =
-                PrintedSlot::printed(self.spread_property_text(combined.origin, displayed));
+            combined.printed_slot = PrintedSlot::printed(self.type_to_string(displayed));
             properties.push(combined);
         }
         Some((properties, skipped_private))
