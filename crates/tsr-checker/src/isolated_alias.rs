@@ -1126,21 +1126,32 @@ impl Checker<'_, '_> {
         flags
     }
 
-    /// `getTypeOnlyAliasDeclarationEx(symbol, meaning)` (`checker.go:2143`).
-    /// Upstream reads each hop's `aliasSymbolLinks.typeOnlyDeclaration`, which
-    /// `resolveAlias` publishes as the first type-only declaration on that
-    /// hop's own chain; [`Checker::type_only_alias_declaration_node`] answers
-    /// that for the first hop, so only the entry test on `meaning` remains.
+    /// `getTypeOnlyAliasDeclarationEx(symbol, meaning)` (`checker.go:2143`):
+    /// while the hop is an alias **with no `meaning`**, answer its
+    /// `aliasSymbolLinks.typeOnlyDeclaration`
+    /// ([`Checker::type_only_alias_declaration_node`]), else step to its
+    /// target. An alias merged with a local value (`import { A }` beside
+    /// `const A`) ends the walk under `Value`, whatever its import says; the
+    /// same condition as `check.rs`'s [`Checker::type_only_alias_declaration`]
+    /// (`r6-smallcodes4`). Each hop's link already covers the pure-alias hops
+    /// behind it, so re-reading them on the way is redundant, never wrong.
     fn type_only_alias_declaration_node_ex(
         &mut self,
         symbol: SymbolId,
         meaning: SymbolFlags,
     ) -> Option<NodeId> {
-        let flags = self.binder.symbols().get(symbol).flags;
-        if !flags.intersects(SymbolFlags::ALIAS) || flags.intersects(meaning) {
-            return None;
+        let mut current = symbol;
+        for _ in 0..16 {
+            let flags = self.binder.symbols().get(current).flags;
+            if !flags.intersects(SymbolFlags::ALIAS) || flags.intersects(meaning) {
+                return None;
+            }
+            if let Some(declaration) = self.type_only_alias_declaration_node(current) {
+                return Some(declaration);
+            }
+            current = self.resolve_alias(current)?;
         }
-        self.type_only_alias_declaration_node(symbol)
+        None
     }
 
     /// `getIsolatedModulesLikeFlagName` (`checker.go`).
@@ -1181,19 +1192,26 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `getTypeOnlyAliasDeclaration(symbol)` (`checker.go:1861`) as the
+    /// `getTypeOnlyAliasDeclaration(symbol)` (`checker.go:2133`; this
+    /// comment cited `:1861`, the TS1361 caller, until r6-modules2) as the
     /// declaration itself: the first alias declaration on the chain that is
     /// type-only, or that reaches its name through a type-only `export *`.
-    /// The walk is [`Checker::type_only_alias_declaration`]'s, bounded the
-    /// same way; that function answers only *which kind* it found.
+    /// Bounded like [`Checker::type_only_alias_declaration`], which answers
+    /// only *which kind* it found.
+    ///
+    /// The link is the alias's own type-only declaration
+    /// (`markSymbolOfAliasDeclarationIfTypeOnly`, `checker.go:15083`), else the
+    /// link `resolveIndirectionAlias` (`:16293`) copies from its target. That
+    /// copy happens only when the target is a pure alias,
+    /// `ast.IsNonLocalAlias(target, Value|Type|Namespace)` (`:16280`): an alias
+    /// merged with a local meaning keeps the chain behind it out of the link.
     fn type_only_alias_declaration_node(&mut self, symbol: SymbolId) -> Option<NodeId> {
         let mut current = self.binder.merged_symbol(symbol);
+        if !self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
+            return None;
+        }
         for _ in 0..16 {
-            let entry = self.binder.symbols().get(current);
-            if !entry.flags.intersects(SymbolFlags::ALIAS) {
-                return None;
-            }
-            let declaration = *entry.declarations.first()?;
+            let declaration = *self.binder.symbols().get(current).declarations.first()?;
             if self.is_type_only_import_or_export_declaration(declaration) {
                 return Some(declaration);
             }
@@ -1201,8 +1219,22 @@ impl Checker<'_, '_> {
                 return Some(star);
             }
             current = self.binder.merged_symbol(self.resolve_alias(current)?);
+            if !self.is_non_local_alias(
+                current,
+                SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+            ) {
+                return None;
+            }
         }
         None
+    }
+
+    /// `ast.IsNonLocalAlias(symbol, excludes)` (`ast/utilities.go:2608`): an
+    /// alias with none of `excludes`, or an assignment alias.
+    fn is_non_local_alias(&self, symbol: SymbolId, excludes: SymbolFlags) -> bool {
+        let flags = self.binder.symbols().get(symbol).flags;
+        flags & (SymbolFlags::ALIAS | excludes) == SymbolFlags::ALIAS
+            || flags.contains(SymbolFlags::ALIAS | SymbolFlags::ASSIGNMENT)
     }
 
     /// `ast.IsInternalModuleImportEqualsDeclaration`: `import x = N.M`.
