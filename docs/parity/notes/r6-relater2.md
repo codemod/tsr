@@ -354,3 +354,69 @@ TS2741, 9 TS2353 cases). Triaged so far beyond the rows above:
   is `any` (`mapValues(foos, f => f.foo)` is not inferred; `inference.rs`).
 - `objectFreezeLiteralsDontWiden`: `Object.freeze`'s literal keeps widened
   members (`const T` inference, `inference.rs`/`objects.rs`).
+- `excessPropertyCheckWithEmptyObject` 4 (TS2353 on
+  `Object.defineProperty(window, "prop", { value, readonly: false })`): the
+  relation is NotRelated, but `calls.rs` (MAIN) returns before the excess
+  report because the parameter `PropertyDescriptor & ThisType<any>`
+  mentions a literal type (`type_mentions_literal`).
+- `mappedTypeWithAsClauseAndLateBoundProperty` 3 (TS2741): the source `{ [K
+  in keyof number[] as Exclude<K, "length">]: … }` has no member table
+  (an `as`-clause mapped type over an array with late-bound keys), so the
+  pair falls to the relater's "no members table" `Unknown` (`mapped.rs`).
+- `narrowingGenericTypeFromInstanceof01` 13 (TS2741, `acceptA(x)` with `x`
+  narrowed to `B<T>`): no relation is asked for the call argument; the
+  `instanceof` narrowing or the call's inference declines first (`flow.rs`
+  / `calls.rs`, MAIN).
+
+## 8. Round summary
+
+Commits, each zero-loss on both dumps against its frozen base, slowcases
+clean, CLI output identical on both bench projects:
+
+| § | Commit | Diagnostics | Types |
+|---|---|---|---|
+| 1 | `bd95b15` union-walk decline lifted; mapped `[constraint of X]` step | 0 | 0 |
+| 2 | `60ff518` write constraint asks isGenericObjectType | +1 | 0 |
+| 3 | `f750317` tuple/array alias relates as its body; node recursion identity | +1 | 0 |
+| 4 | `b1db13b` intersection-bodied alias measured | +1 | 0 |
+| 5 | `8d0c535`, `093c62c` distributeIndexOverObjectType | 0 | 0 |
+
+Against the re-frozen base `10fe6c6` (with §1–§5 merged, `fb29088`):
+diagnostics RIGHT 5612 → 5615, WRONG 981 → 978 (+3 cases); types
+unchanged (550,143); `coverage` checker_types 89.26%, diagnostics 85.28%;
+`Ir` generic-imports 343,055,585 → 343,043,425 (−0.004%), domain-model
+1,092,753,470 → 1,091,945,383 (−0.07%).
+
+Diffs, in apply order:
+1. r6-declared's `55cbd3f` (an intersection alias instantiates its deferred
+   conditional constituent; r6-declared's branch);
+2. [`r6-relater2-inline-conditional-root.diff`](r6-relater2-inline-conditional-root.diff)
+   (`declared.rs` visibility + `relater.rs` arm): +1 alone
+   (`conditionalTypeAssignabilityWhenDeferred`), +2 with (1)
+   (`conditionalTypesExcessProperties`); 0 lost, Ir flat.
+
+Held: [`r6-relater-write-constraint.diff`](r6-relater-write-constraint.diff)
+(r6-relater §4), still waiting on getMappedTypeNameTypeKind's Remapping.
+
+Needed outside the lane (function, file, reason, cases), beyond r6-relater
+§9's list:
+- `evaluate_alias_body` under variance markers for an indexed-access body
+  (`declared.rs`): `flatArrayNoExcessiveStackDepth`;
+- inferFromObjectTypes' mapped-to-mapped arm (`inference.rs`, MAIN):
+  `mappedTypeInferenceFromApparentType`;
+- resolveTypeReferenceMembers' `this` padding (`members.rs`, MAIN):
+  `invariantGenericErrorElaboration`, `thisTypeInFunctions`;
+- the async-generator return operand's contextual type (`contextual.rs`,
+  MAIN), then lifting `return_type_from_annotation`'s async-generator
+  decline: `generatorReturnContextualType`;
+- last-wins member types of a fresh literal (`objects.rs`, r6-lazytext):
+  `lastPropertyInLiteralWins`;
+- `check_logical_or_coalescing`'s type-parameter decline (`binary.rs`):
+  `logicalOrOperatorWithTypeParameters` (its bare lift overflows the stack);
+- object-rest assignment relation (`destructure.rs`, MAIN):
+  `objectRestNegative`;
+- `calls.rs`'s object-literal argument gates (`head_could_contain_type_variables`,
+  `type_mentions_literal`, MAIN): `indexedAccessRelation`,
+  `excessPropertyCheckWithEmptyObject`;
+- `as`-clause mapped members over an array (`mapped.rs`):
+  `mappedTypeWithAsClauseAndLateBoundProperty`.
