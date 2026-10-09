@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8358/9538 (87.63%)
-Assertion lines: 472033/478853 (98.58%)  — a gradient, not a pass rate
-Failed         : 1180
+Passed         : 8364/9538 (87.69%)
+Assertion lines: 472077/478853 (98.58%)  — a gradient, not a pass rate
+Failed         : 1174
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1180 failures:
+First 100 of 1174 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -143,10 +143,6 @@ compiler/circularlySimplifyingConditionalTypesNoCrash
   circularlySimplifyingConditionalTypesNoCrash.ts: >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<unknown, unknown> — expected >function(    mapStateToProps?: any,    mapDispatchToProps?: any,    mergeProps?: any,    options: unknown = {},) {    return connect(        mapStateToProps,        mapDispatchToProps,        mergeProps,        options,    );} : (mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options?: unknown) => InferableComponentEnhancerWithProps<TStateProps, Omit<P, Extract<keyof TStateProps, keyof P>> & TOwnProps>
 compiler/classAccessorInitializationInferenceWithElementAccess1
   classAccessorInitializationInferenceWithElementAccess1.ts: >x : any — expected >x : number[]
-compiler/classFieldSuperAccessible
-  classFieldSuperAccessible.ts: >super.name : error — expected >super.name : string
-compiler/classFieldSuperAccessibleJs1
-  index.js: >super.blah1 : any — expected >super.blah1 : number
 compiler/classPropInitializationInferenceWithElementAccess
   classPropInitializationInferenceWithElementAccess.ts: >x : any — expected >x : number[]
 compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression
@@ -213,3 +209,7 @@ compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny
   contextualOverloadListFromUnionWithPrimitiveNoImplicitAny.ts: >{    field: {        validate: (_t, _p, _s) => false,        normalize: match => match.x,    }} : any — expected >{    field: {        validate: (_t, _p, _s) => false,        normalize: match => match.x,    }} : { field: { validate: (_t: string, _p: number, _s: Rule) => false; normalize: (match: any) => any; }; }
 compiler/contextualParamTypeVsNestedReturnTypeInference2
   contextualParamTypeVsNestedReturnTypeInference2.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
+compiler/contextualParamTypeVsNestedReturnTypeInference3
+  contextualParamTypeVsNestedReturnTypeInference3.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
+compiler/contextualParamTypeVsNestedReturnTypeInference4
+  contextualParamTypeVsNestedReturnTypeInference4.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
