@@ -13415,13 +13415,16 @@ impl Checker<'_, '_> {
                 continue;
             }
             let span = self.error_span(declaration);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
-                    span,
-                ),
+            let mut diagnostic = Diagnostic::new(
+                &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
+                span,
             );
+            diagnostic.add_related_information(self.diagnostic_for_node(
+                body,
+                &messages::THE_IMPLEMENTATION_SIGNATURE_IS_DECLARED_HERE,
+                [],
+            ));
+            self.report(file, diagnostic);
             break;
         }
     }
