@@ -5462,7 +5462,11 @@ impl<'a> Checker<'a, '_> {
             && owner == symbol
             && let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
             && self.local_type_parameters_of(alias).is_empty()
-            && self.alias_body_is_indexed_access(symbol, 0)
+            && (self.alias_body_is_indexed_access(symbol, 0)
+                || matches!(
+                    self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                    Some(TypeNode::IntersectionTypeNode(_))
+                ))
         {
             return self.get_named_union_type(&types, TypeFlags::empty(), alias);
         }
@@ -7436,18 +7440,28 @@ impl<'a> Checker<'a, '_> {
         let Some(evaluated) = self.evaluate_alias_body(symbol, &[t]) else {
             return self.intrinsics.error;
         };
-        let result = if let crate::types::TypeData::Intersection { types, .. } =
-            self.store.get(evaluated).data.clone()
-        {
-            let text = self.type_reference_text(symbol, &[t]);
-            let named = self.store.intern_intersection(
-                TypeFlags::INTERSECTION,
-                crate::types::TypeData::Intersection { types, text, symbol: Some(symbol) },
-            );
-            self.type_reference_targets.insert(named, (symbol, vec![t]));
-            named
-        } else {
-            evaluated
+        let result = match self.store.get(evaluated).data.clone() {
+            crate::types::TypeData::Intersection { types, .. } => {
+                let text = self.type_reference_text(symbol, &[t]);
+                let named = self.store.intern_intersection(
+                    TypeFlags::INTERSECTION,
+                    crate::types::TypeData::Intersection { types, text, symbol: Some(symbol) },
+                );
+                self.type_reference_targets.insert(named, (symbol, vec![t]));
+                named
+            }
+            // getIntersectionTypeEx's cross-product arm (checker.go:26213)
+            // builds the distributed union with the alias:
+            // `NonNullable<string | number | undefined>` prints that way. A
+            // `boolean` or enum union operand carries DefinitelyNonNullable
+            // flags, so `{}` is removed first and the operand returns as is.
+            crate::types::TypeData::Union { symbol: None, .. }
+                if t != self.intrinsics.boolean
+                    && !self.store.get(t).flags.intersects(TypeFlags::ENUM_LIKE) =>
+            {
+                self.attach_intersection_alias(evaluated, symbol, vec![t], None)
+            }
+            _ => evaluated,
         };
         self.instantiations.insert((symbol, vec![t]), result);
         result
