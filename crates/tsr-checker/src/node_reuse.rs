@@ -258,6 +258,14 @@ pub(crate) fn binds_below_intersection(text: &str) -> bool {
     text_precedence(text) < Precedence::Intersection
 }
 
+/// `emitTypeOperator` emits its operand at `TypePrecedenceTypeOperator`
+/// (`printer.go:2274`), so `keyof (A | B)` and `keyof (T extends U ? X : Y)`
+/// keep their parentheses. Same text reader as
+/// [`binds_below_intersection`].
+pub(crate) fn binds_below_type_operator(text: &str) -> bool {
+    text_precedence(text) < Precedence::TypeOperator
+}
+
 /// A string literal printed with its WRITTEN quote character — the clone keeps
 /// `TokenFlagsSingleQuote` (`nodecopy.go:811`), and the emitter's
 /// `getLiteralText` escapes for that quote.
@@ -1831,7 +1839,23 @@ impl<'a> Checker<'a, '_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Precedence, quoted_literal, text_precedence};
+    use super::{
+        Precedence, binds_below_intersection, binds_below_type_operator, quoted_literal,
+        text_precedence,
+    };
+
+    #[test]
+    fn constituent_and_operand_parentheses_follow_the_printed_node() {
+        // A `keyof` origin is a TypeOperator node; a conditional binds lowest.
+        assert!(!binds_below_intersection("keyof NameMap"));
+        assert!(binds_below_intersection("T extends C ? number : string"));
+        assert!(binds_below_intersection("A | B"));
+        assert!(!binds_below_intersection("A & B"));
+        assert!(binds_below_type_operator("A & B"));
+        assert!(binds_below_type_operator("keyof T extends never ? {} : { id: T; }"));
+        assert!(!binds_below_type_operator("Foo<A | B>"));
+        assert!(!binds_below_type_operator("keyof T"));
+    }
 
     #[test]
     fn fallback_text_precedence_reads_the_top_level_operator() {
