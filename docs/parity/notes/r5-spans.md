@@ -116,4 +116,134 @@ the diff once `Partial`'s members carry their own symbol.
 
 ## 2. TS2589 and currentNode (`tsr-2zk.1103`)
 
-*In progress.*
+### 2.1 What upstream does
+
+`c.currentNode` (`checker.go:596`) is set, with `c.instantiationCount` reset
+to zero, by `checkSourceElement` (`:2243`), `checkDeferredNode` (`:2507`) and
+`checkExpressionEx` (`:7561`). Each saves the previous value and restores it.
+The current node is where these report TS2589:
+
+- `instantiateTypeWithAlias`'s guard (`:22111`): depth 100 or 5M
+  instantiations in one node;
+- `getConditionalType`'s tail-recursion guard (`:24311`): 1,000 tail steps.
+
+Eight corpus cases expect TS2589: `awaitedType`, `awaitedTypeStrictNull`,
+`circularInlineMappedGenericTupleTypeNoCrash`, `limitDeepInstantiations`,
+`recursiveConditionalCrash4`, `recursiveConditionalTypes`,
+`circularIndexedAccessErrors` and `recursiveMappedTypes`.
+
+### 2.2 The tracking (shipped as a diff)
+
+`r5-spans-current-node-tracking.diff` touches only main's files plus the new
+module, so the whole of it ships as one patch:
+
+- new `current_node.rs`: `enter_current_node` / `leave_current_node`, the
+  save, set, reset-count and restore pair;
+- `checker.rs`: the `current_node: Option<NodeId>` field;
+- `lib.rs`: the `mod` line;
+- `check.rs`: `check_node` becomes a thin wrapper that makes the node
+  current around the unchanged body, renamed `check_node_worker`;
+- `check.rs`: `check_type_alias_circularity` makes the alias's **type node**
+  current while it resolves the declared type, because
+  `checkTypeAliasDeclaration` resolves the body under
+  `checkSourceElement(typeNode)` (`:6897`);
+- `expressions.rs`: `check_expression` takes over its existing count reset
+  as the `checkExpressionEx` entry.
+
+The walk visits every node, while upstream hands only source elements to
+`checkSourceElement`. So `is_current_node_kind` skips names and bare tokens
+(`Identifier`, `PrivateIdentifier`, `QualifiedName`,
+`ComputedPropertyName`, every token kind). An identifier that is an
+expression becomes current through `check_expression`, as upstream's does.
+This port has no deferred-node queue, so `checkDeferredNode`'s entry has no
+counterpart.
+
+Two first attempts:
+
+- **The hook inside `check_node`'s body** kept the saved value live across
+  that function's very large body: Ir +0.217% on domain-model. The wrapper
+  is the shipped shape.
+- **Without the alias-node hook**, every alias-body report landed on the
+  alias's name (`type P2 = …` at col 6), not the type reference (col 11).
+
+Measured with the patch applied, against the frozen base:
+
+- both dumps: no row changed at all (nothing reads the node yet);
+- slowcases: only the KNOWN_SLOW cases;
+- Ir: domain-model 1,156,271,836 → 1,157,101,812 (+0.072%), generic-imports
+  342,948,063 → 342,918,617 (−0.009%);
+- median child CPU, 21 samples against the base binary: domain-model 1.010,
+  generic-imports 1.003; `diagnostics_match: true`;
+- workspace tests: §2.4.
+
+### 2.3 The reports (held)
+
+`r5-spans-ts2589-report-sites.diff` applies on top of §2.2. It adds
+`report_excessive_instantiation_depth` and calls it at:
+
+- `instantiate_type`'s guard (`inference.rs`, the faithful `:22111` site);
+- the three depth-100 refusals of the alias re-evaluation road in
+  `declared.rs`, which is this port's way of instantiating an alias body:
+  - the conditional-node evaluation;
+  - `evaluate_conditional_alias`;
+  - the distributive union arm.
+
+A fourth site, the non-conditional generic alias body, added only false
+reports and was dropped.
+
+It is **not shippable**. Unfiltered, against the frozen base:
+
+- right: every TS2589 row of `awaitedType` and `awaitedTypeStrictNull` (both
+  still WRONG on two unrelated TS2322 rows), `limitDeepInstantiations` `4:9`,
+  `recursiveConditionalCrash4` `16:7`, and `recursiveConditionalTypes` `16:11`
+  and `47:12`;
+- still missing: `circularInlineMappedGenericTupleTypeNoCrash`,
+  `recursiveConditionalCrash4` `10:7`, `recursiveConditionalTypes` `35:11`
+  (the tail guard), `circularIndexedAccessErrors`, `recursiveMappedTypes`;
+- false rows in cases that were already WRONG: `limitDeepInstantiations`
+  `3:33` and `5:9`, and `recursiveConditionalTypes` `46:12` (`B2`, where
+  upstream reports only at `B3 = B2[0]`);
+- 8 losses, all from reports that upstream does not make:
+
+| Lost case | Site | Current node |
+|---|---|---|
+| `contextualTypeSelfReferencing` | conditional-node evaluation | array/object literal |
+| `declarationEmitRecursiveConditionalAliasPreserved` | conditional node, `evaluate_conditional_alias` | conditional type |
+| `genericCallOnMemberReturningClosedOverObject` | `instantiate_type` | call |
+| `mappedTypeRecursiveInference2` | `evaluate_conditional_alias` | array literal, arrow |
+| `ramdaToolsNoInfinite` | conditional-node evaluation | indexed access, reference |
+| `tailRecursiveConditionalTypes` | `instantiate_type`, `evaluate_conditional_alias` | type reference |
+| `mappedTypeAsClauseRecursiveNoCrash1` | conditional-node evaluation | mapped type, type operator |
+| `recursiveTypesWithTypeof` (RIGHT → WRONG) | `instantiate_type` | call, new |
+
+The cause is not the reporter: **this port's instantiation depth reaches 100
+on programs where upstream's does not.**
+`genericCallOnMemberReturningClosedOverObject` is the smallest case:
+`example<number>()` instantiates `{ foo: <T2>(t2: T2) => typeof x; … }`,
+whose members mention the object itself. Upstream's
+`instantiateAnonymousType` makes a deferred instance whose members are
+resolved only on demand, and it caches the instance per mapper, so the
+recursion never happens. This port instantiates the members eagerly and
+recurses until the guard silently returns `errorType`. That was invisible
+until now, since an `errorType` that nobody prints changes nothing. The
+alias road has the same shape: `limitDeepInstantiations`' generic
+declaration `{ "true": Foo<T, Foo<T, B>> }[T]` and the out-of-constraint
+`Foo<"false", {}>` both recurse here, while upstream defers the generic
+indexed access and never resolves a missing `"false"` property.
+
+So TS2589 waits on lazy anonymous-type instantiation with per-mapper
+instance caching (`instantiateAnonymousType`, `resolveObjectTypeMembers`).
+That is an objects/declared-road change, not a reporting one. The
+conditional tail-recursion guard (`:24311`, 1,000 steps) has no counterpart
+here either; `recursiveConditionalTypes`' `TupleOf<number, 1000>` needs it.
+When those land, apply the held diff and re-measure: the eight rows above
+are its falsifier.
+
+### 2.4 Tests
+
+`cargo test --workspace --release` passes with the scanner, parser and
+tracking patches applied together. Clippy reports nothing in the touched
+code; stable flags pre-existing code in `members.rs`, `signatures.rs`,
+`templates.rs` and four other files. No new test file: the tracking has
+no observable output until the reporter lands, and the reporter's test
+belongs with it.
