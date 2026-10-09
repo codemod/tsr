@@ -1032,3 +1032,19 @@ weakest suite) and the harness compile root (`/.src`, `.1087`).
 Note for the user: main's lazy-JSDoc lane (`.17.1`) is claimed but shows one
 commit in 96 hours, while JSDoc scanning is about 40% of generic-imports' Ir.
 It is the largest open perf lever and is not taken over without the owner.
+
+### r5-js finished; r5-jsdoc5 dispatched (`tsr-2zk.1110`)
+
+r5-js triaged the 100 cases blocked only by JS-file causes; 53 of them are
+JSDoc. Every producer sat in an owned or hub file, so it shipped measured
+diffs only. Three land in a later batch:
+- the JS setter-parameter gate (+4 lines);
+- shorthand ambient modules in import() (+48 lines, 8 cases);
+- the assignment-context nil arms (+9 lines).
+
+Its super-in-static-block diff is not landed, because r5-errorsplit5's
+`abf502e` already ports GetSuperContainer's static-block arm.
+
+The remainder in main's files (late-bound expandos, require-destructuring
+aliases, inference from `any`) is `.1111`. The JSDoc bucket goes to
+r5-jsdoc5.
