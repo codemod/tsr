@@ -250,3 +250,76 @@ Both come from the port computing a type's text at mint (`TypeData::Named`,
 therefore reads, its members when it is created. Deferring the text is
 ADR-0050's alternative 1. It needs the printer to compute text on demand,
 which is `printing.rs`/`types.rs`, not this lane.
+
+## 2. `.16.71`: a deferred conditional printed from its typed parts (diff, held on 4 losses); `.16.100` not reached
+
+**Forcing constraint.** getTypeFromConditionalTypeNode (`checker.go:24269`)
+builds a ConditionalType from typed parts. conditionalTypeToTypeNode
+(`nodebuilderimpl.go:2916`) prints it:
+- the check type;
+- the extends type, with `ctx.inferTypeParameters` set so that an `infer`
+  parameter prints as `infer P`;
+- getTrueTypeFromConditionalType and getFalseTypeFromConditionalType, the
+  written branches instantiated by the conditional's mapper.
+
+emitConditionalType (`printer.go:2058`) emits the check type at
+`TypePrecedenceUnion` and the extends type in the extends clause, where a
+conditional is parenthesised (`:2275`). It emits the branches at the lowest
+precedence. The port's deferred-conditional arm in `declared.rs` mints the
+written text instead. That keeps the author's union order, the local alias
+names and the `keyof Omit<…>` spelling, where native prints sorted unions,
+expanded local aliases and `Exclude<…>`.
+
+**Diff** ([`r5-mapped6-conditional-typed-print.diff`](r5-mapped6-conditional-typed-print.diff),
+`declared.rs` (r5-declared3) and `node_reuse.rs` (r5-nodereuse), on top of
+§1's route diff):
+- `conditional_type_text` prints the deferred conditional from
+  `get_type_from_type_node` of its four parts under the current
+  alias-evaluation frames, which are the conditional's mapper.
+- `node_reuse` gains `binds_below_union` and `binds_below_function`, two
+  more rungs of its existing text precedence reader.
+- **Divergence kept:** an extends clause that declares an `infer` keeps its
+  written text. Native's `infer P` spelling is print context
+  (`ctx.inferTypeParameters`) that `type_to_string(&Type)` cannot carry.
+- A part that evaluates to `error` keeps the whole written text, as before.
+
+**Measured** on top of §1's commit and route diff, both dumps unfiltered:
+- types **+5 RIGHT**:
+  - `complicatedIndexesOfIntersectionsAreInferencable:5`
+    (`Exclude<keyof …>` for `keyof Omit<…>`);
+  - `simplifyingConditionalWithInteriorConditionalIsRelated:17/19` (the local
+    alias `One` expanded);
+  - `wideningWithTopLevelTypeParameter:47` (`string | T`, sorted);
+  - `mappedTypeAsClauses:106`.
+- **−4 RIGHT**: `controlFlowGenericTypes:298/300/301/303`;
+- diagnostics unchanged; slowcases clean;
+- Ir against §1: domain-model 1,159,835,827 → 1,161,583,616 (+0.15%, plain
+  run; see §1 on the layout term), generic-imports +0.002%.
+
+**Why it is held.** `type Column<T> = (keyof T extends never ? { id?: number | string } : { id: T }) & …`.
+Under `keyof Column<T>` the port evaluates the alias body under the frame
+`T := T`. That frame mints a fresh type literal for `{ id?: number | string }`
+(`type_literal_key` keys on every binding in scope), and the fresh
+literal's members print as types: `string | number`. Native's true branch
+is `instantiateType(trueType, mapper)`. getObjectTypeInstantiation
+(`checker.go`) keys an anonymous type's instantiation only on the outer
+type parameters for which `isTypeParameterPossiblyReferenced` holds, and
+with none it answers the type itself. So native prints the original literal,
+whose member reuses its written annotation (`number | string`). The
+written-text mint hid this. The typed print exposes it.
+
+**What would unblock it.** `type_literal_key` (declared.rs) keys only the
+bindings whose parameter the node can reference: a port of
+isTypeParameterPossiblyReferenced over the literal's node. That changes
+every type literal evaluated under alias frames, so it needs its own
+measurement. It is r5-declared3's file.
+
+**`.16.100` (mapped nodes under alias bindings): not reached.** With §1's
+route diff, `deeplyNestedMappedTypes` drops from 18 non-RIGHT lines to 13,
+and `conditionalTypes2` from 14 to 12. The rest of its eight cases are
+untouched.
+`deeplyNestedMappedTypes:124–131` prints `PropertiesReduce<…>` where native
+resolves the conditional to the mapped object. `mappedArrayTupleIntersections:11`
+maps an array-intersection's members where native keeps the tuple.
+`declarationAssertionNodeNotReusedWhenTypeNotEquivalent1:16/17` keeps the
+generic mapped form of an instance. These are not traced further.
