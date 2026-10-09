@@ -166,12 +166,95 @@ base, both loss checks empty:
 
 ## 3. Measured diffs and reports for other files
 
-### 3.1 `error_span` on a missing node
+### 3.1 `error_span` on a missing node — `r5-smallcodes2-error-span-missing-node.diff`
 
-*In progress.*
+`GetErrorRangeForNode` (`scanner.go:2649`) skips leading trivia only for a
+node that is not missing; a missing node reports a zero-width range at its
+own `Pos()`, which is the end of the previous token. That holds for a missing
+declaration name too, since `errorNode` is the name whenever the declaration
+has one, present or missing. `error_span` (`check.rs`, shared by every
+reporter) did two other things:
 
-### 3.2 `as` after a line break (parser)
+- a zero-width node kept the next token's start (`( , )`: TS2695 at col 3
+  for 2);
+- a declaration whose name span was empty fell back to the whole
+  declaration (`function =>`: TS7010 at col 1 for 9; `class C { * }`: col 4
+  for 5).
 
-### 3.3 Qualified generic reference without type arguments
+The diff answers a zero-width span at the position before the whitespace in
+front of it (`missing_node_full_start`, which reads `ModuleHost::source_text`)
+and drops the declaration fallback. A comment between the previous token and
+the missing node is not stepped over; no corpus case has one.
+
+Measured with §3.2 applied, against this branch's head (`8f862c5`), both
+dumps unfiltered, both loss checks empty: diagnostics +4
+(`commaOperatorWithoutOperand`, `MemberFunctionDeclaration5_es6`,
+`parserEqualsGreaterThanAfterFunction1`, `…2`), no other row changed. Type
+lines unchanged by this diff. Ir for both diffs together: domain-model
+1,155,964,115 → 1,155,453,215 (−0.04%), generic-imports 342,943,020 →
+342,930,931 (−0.004%), CLI output identical; tests pass.
+
+Owner: the integrator (`error_span` is a hub helper).
+
+### 3.2 `as` after a line break (parser) — `r5-smallcodes2-parser-as-asi.diff`
+
+`parseBinaryExpressionRest` (`parser.go:4619`) breaks out of the binary
+loop when an `as` or `satisfies` operator follows a line break, so
+
+```ts
+var x = 10
+as `Hello world`;
+```
+
+is a variable statement and a tagged call of a function named `as`. TSR's
+loop (`tsr-parser/src/expression.rs`) took `10 as \`Hello world\`` as an
+assertion and reported TS2352 on it. One `has_preceding_line_break` test.
+
+Measured with §3.1 (same run): diagnostics +1 (`asOperatorASI`, EMPTY_WRONG
+→ EMPTY_RIGHT); type lines +10 RIGHT (`asOperatorASI` gains the 9 lines of
+the now-aligned second statement, and line 3 turns RIGHT), 548,751 →
+548,761. Owner: the parser (main's).
+
+### 3.3 A qualified generic reference without type arguments is not `errorType`
+
+`getTypeFromClassOrInterfaceReference` answers `errorType` when a generic
+class or interface is referenced with the wrong number of type arguments,
+after TS2314. `<C>null` behaves (no TS2352), but the qualified `<M.E>null` in
+`genericTypeReferenceWithoutTypeArgument` gets an extra TS2352, and
+`var b: A.B` in `genericCloduleInModule2` prints `A.B` where upstream prints
+`any`, which also makes `b.foo()` an extra TS2454 (`checkIdentifier`'s
+`assumeInitialized` holds for an `any` declared type). Two cases, one
+producer, for r5-errorsplit5. Not probed further here.
 
 ### 3.4 `checkerInitializationCrash`
+
+Two global augmentations of `namespace FullCalendarVDom`: the first file's
+`export import VNode = react.ReactNode` (an alias to a type alias through an
+`export =` module's namespace import) and the second's `type VNode`. Upstream
+reaches `mergeSymbol`'s alias arm with the alias as target, resolves it to
+the type alias, and reports `reportMergeSymbolError` on both (TS2300). The
+binder records alias-target pairs (`alias_merges`) and
+`report_alias_merge_conflict` (`merge_conflicts.rs`) resolves them; the pair
+reports nothing here, so either the nested namespace merge does not record
+it or `resolve_alias_fully` stops at the `react` namespace import.
+Hypothesis only, not probed; the binder half is main's.
+
+## 4. Not taken
+
+- `wideningTuples7` (TS7010 from `reportErrorsFromWidening`): tsr-2zk.11.
+- `objectLiteralContextualTyping` (TS2403): `bar<T>(param: { x?: T }): T`
+  called with `{}` has no inference candidate and upstream infers `unknown`;
+  this port's `bar({})` prints `any` (type lines 41, 42, 45). `inference.rs`
+  (main's).
+- `typeOfEnumAndVarRedeclarations`, `FunctionAndModuleWithSameNameAndCommonRoot`,
+  `parserCastVersusArrowFunction1` (TS2403): the identity relation; see
+  `r5-vardecl.md` §2.
+- `omitTypeHelperModifiers01`, `readonlyAssignmentInSubclassOfClassExpression`
+  (TS2540): the readonly modifier of a mapped member reached through `Pick`
+  or an inherited `Readonly<…>`; `mapped.rs`.
+- `augmentExportEquals5`, `moduleResolutionWithSymlinks`, `…_withOutDir`
+  (TS2454): the declared type resolves to `any`; modules.
+- JSDoc: `importTag4`, `jsDeclarationsDefaultsErr`, `checkJsTypeDefNoUnusedLocalMarked`,
+  `jsDeclarationsDefault`.
+- `parenthesisDoesNotBlockAliasSymbolCreation` (TS2352): the relater's
+  comparability to an intersection.
