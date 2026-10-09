@@ -30,11 +30,24 @@ pub(crate) struct MappedTypeInfo {
     /// when the info was captured from a written node: two captures under one
     /// key are one native type and share one member table (ADR-0050).
     pub(crate) node_key: Option<std::rc::Rc<crate::declared::TypeLiteralKey>>,
+    /// For an instance minted by [`Checker::instantiate_mapped_type`]: the
+    /// mapped type it instantiates and the mapper, native's
+    /// `MappedType.target` and `.mapper`, which
+    /// getResolvedApparentTypeOfMappedType re-instantiates with the
+    /// homomorphic type variable prepended ([`Checker::apparent_mapped_type`]).
+    pub(crate) instance: Option<std::rc::Rc<MappedInstance>>,
+}
+
+/// The target and mapper of a mapped instance ([`MappedTypeInfo::instance`]).
+#[derive(Debug)]
+pub(crate) struct MappedInstance {
+    pub(crate) target: TypeId,
+    pub(crate) mapper: CombinedMapper,
 }
 
 /// A type mapper in `instantiate_type`'s form: the pairs, the parameters
 /// they may mention, and those parameters' names.
-type CombinedMapper = (Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>);
+pub(crate) type CombinedMapper = (Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>);
 
 /// `ReverseMappedType` (types.go): the source, mapped target and constraint
 /// whose members resolveReverseMappedTypeMembers produces on first read.
@@ -489,6 +502,7 @@ impl<'a> Checker<'a, '_> {
                 if operator.operator.kind == SyntaxKind::KeyOfKeyword),
             homomorphic_symbol,
             node_key,
+            instance: None,
         })
     }
 
@@ -1190,6 +1204,14 @@ impl<'a> Checker<'a, '_> {
             return mapped;
         }
         info.node_key = None;
+        info.instance = Some(std::rc::Rc::new(MappedInstance {
+            target: id,
+            mapper: (
+                map.to_vec(),
+                parameters.to_vec(),
+                names.iter().map(|&name| name.to_owned()).collect(),
+            ),
+        }));
         info.constraint = self.instantiate_type(info.constraint, map, parameters, names);
         // instantiateAnonymousType (checker.go:22461): the instance iterates a
         // fresh clone of the declared parameter, whose mapper combines
@@ -1232,6 +1254,18 @@ impl<'a> Checker<'a, '_> {
             || info.name_type == Some(self.intrinsics.error)
         {
             return self.intrinsics.error;
+        }
+        // createTypeNodeFromObjectType (nodebuilderimpl.go:2690) prints an
+        // instance that is still isGenericMappedType from its parts
+        // (createMappedTypeNodeFromType), as getTypeFromMappedTypeNode's
+        // generic arm does: `{ -readonly [P in keyof T]: … }` for
+        // `Promise.allSettled`'s mapped return under `T_1 := T`, where the
+        // member print listed the constraint's array members.
+        if self.is_generic_mapped_info(&info) {
+            let Some(text) = self.mapped_type_text(&info) else { return self.intrinsics.error };
+            let ty = self.store.new_named(TypeFlags::OBJECT, text, None);
+            self.mapped_types.insert(ty, info);
+            return ty;
         }
         self.resolved_mapped_object(info).unwrap_or(self.intrinsics.error)
     }
@@ -1408,6 +1442,16 @@ impl<'a> Checker<'a, '_> {
         let Some(info) = self.mapped_types.get(&ty).cloned() else { return false };
         self.anonymous_properties.get(&ty).is_some_and(|&(_, complete)| complete)
             && !self.is_generic_mapped_info(&info)
+    }
+
+    /// isGenericMappedType (checker.go:24908) of a type: a mapped type
+    /// whose parts are generic ([`Checker::is_generic_mapped_info`]).
+    // Read by `contextual_argument_type` (contextual.rs, main's) in
+    // `r6-mapped-apparent-instance.diff` (r6-mapped.md §1).
+    #[allow(dead_code)]
+    pub(crate) fn is_generic_mapped_type(&mut self, id: TypeId) -> bool {
+        let Some(info) = self.mapped_types.get(&id).cloned() else { return false };
+        self.is_generic_mapped_info(&info)
     }
 
     /// isGenericMappedType (checker.go:24908): a generic key domain, or an
@@ -1801,6 +1845,45 @@ impl<'a> Checker<'a, '_> {
         .unwrap_or(id);
         self.mapped_apparent_types.insert(id, resolved);
         resolved
+    }
+
+    /// getResolvedApparentTypeOfMappedType (checker.go:21772) for a mapped type
+    /// that is not an alias reference: `instantiateType(target,
+    /// prependTypeMapping(typeVariable, baseConstraint, t.mapper))`, where
+    /// `target` is the instantiated mapped type ([`MappedTypeInfo::instance`])
+    /// or the type itself. `Promise.allSettled(fn())` under
+    /// `T extends readonly unknown[]` reads `map` from
+    /// `PromiseSettledResult<unknown>[]`, not from the mapped members.
+    // Read by `apparent_mapped_type` once the contextual rest-argument
+    // hunk of `r6-mapped-apparent-instance.diff` lands (r6-mapped.md §1).
+    #[allow(dead_code)]
+    fn apparent_mapped_instance(
+        &mut self,
+        id: TypeId,
+        info: &MappedTypeInfo,
+        base: TypeId,
+    ) -> Option<TypeId> {
+        let (target, (mut map, mut parameters, names)) = match &info.instance {
+            Some(instance) => (instance.target, instance.mapper.clone()),
+            None => (id, (Vec::new(), Vec::new(), Vec::new())),
+        };
+        let target_info = self.mapped_types.get(&target)?;
+        // getHomomorphicTypeVariable(target), and no `as` clause on the
+        // declaration.
+        if target_info.name_type.is_some() {
+            return None;
+        }
+        let variable =
+            self.deferred_keyof_operands.get(&target_info.constraint).copied().filter(|&ty| {
+                self.store.get(ty).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+            })?;
+        map.retain(|&(parameter, _)| parameter != variable);
+        map.insert(0, (variable, base));
+        if !parameters.contains(&variable) {
+            parameters.push(variable);
+        }
+        let names: Vec<_> = names.iter().map(String::as_str).collect();
+        Some(self.instantiate_type(target, &map, &parameters, &names))
     }
 }
 
