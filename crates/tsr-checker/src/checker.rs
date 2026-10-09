@@ -2594,9 +2594,11 @@ impl<'a, 'n> Checker<'a, 'n> {
         {
             return name;
         }
+        // `getNameOfSymbolAsWritten`: the declaration's name as written.
+        let own = self.symbol_name_as_written(symbol);
         match self.symbol_chain(symbol, reference, SymbolFlags::VALUE, 0) {
             Some(prefix) => format!("{prefix}{own}"),
-            None => own.to_string(),
+            None => own,
         }
     }
 

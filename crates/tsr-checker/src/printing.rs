@@ -844,6 +844,62 @@ impl Checker<'_, '_> {
 }
 
 impl<'a> Checker<'a, '_> {
+    /// `scanner.DeclarationNameToString` (`scanner/utilities.go:76`) for an
+    /// identifier name: the name's **source text**, which keeps a unicode
+    /// escape the scanner cooked out of the identifier's value
+    /// (`class C\u0032` prints `C\u0032`; `parserClassDeclaration23`). The
+    /// node builder prints a symbol's name through it
+    /// (`getNameOfSymbolAsWritten`, `nodebuilderimpl.go:1002`).
+    ///
+    /// The cooked text is the answer whenever the source ends with it, which
+    /// is every name written without an escape, so the file text is read
+    /// only to confirm that. A node span starts at its leading trivia, so
+    /// the written name is the trailing run of identifier characters and
+    /// escape syntax. No host source text keeps the cooked text.
+    pub(crate) fn identifier_text_as_written(&self, name: tsr_ast::NodeId, cooked: &str) -> String {
+        let written = self
+            .source_file_of(name)
+            .and_then(|file| self.module_host?.source_text(file, self.nodes))
+            .and_then(|text| {
+                let span = self.nodes.span(name);
+                text.get(span.start as usize..span.end as usize)
+            });
+        let Some(written) = written.filter(|written| !written.ends_with(cooked)) else {
+            return cooked.to_string();
+        };
+        let start = written
+            .char_indices()
+            .rev()
+            .find(|&(_, c)| !(c.is_alphanumeric() || matches!(c, '_' | '$' | '\\' | '{' | '}')))
+            .map_or(0, |(index, c)| index + c.len_utf8());
+        let tail = &written[start..];
+        if tail.contains('\\') { tail.to_string() } else { cooked.to_string() }
+    }
+
+    /// `getNameOfSymbolAsWritten`'s declaration arm
+    /// (`nodebuilderimpl.go:987-1002`) for a symbol whose first named
+    /// declaration is an identifier: that name as written
+    /// ([`Self::identifier_text_as_written`]). Any other shape keeps the
+    /// symbol's name.
+    pub(crate) fn symbol_name_as_written(&self, symbol: tsr_binder::SymbolId) -> String {
+        let record = self.binder.symbols().get(symbol);
+        let name = record
+            .declarations
+            .iter()
+            .find_map(|&declaration| self.node_map.get(declaration)?.name_id());
+        match name.and_then(|id| self.node_map.get(id)) {
+            Some(tsr_ast::Node::Identifier(identifier))
+                if identifier.text == record.name && !identifier.text.is_empty() =>
+            {
+                match identifier.node_id {
+                    Some(id) => self.identifier_text_as_written(id, identifier.text),
+                    None => identifier.text.to_string(),
+                }
+            }
+            _ => record.name.to_string(),
+        }
+    }
+
     /// `addPropertyToElementList`'s accessor arm (`nodebuilderimpl.go:2524`):
     /// an accessor property whose read type differs from its write type
     /// (`getWriteTypeOfSymbol`) prints as its getter and setter signatures,

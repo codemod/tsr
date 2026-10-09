@@ -7934,7 +7934,10 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::Node::Identifier(identifier) if identifier.text.is_empty() => {
                     Some("(Missing)".to_string())
                 }
-                tsr_ast::Node::Identifier(identifier) => Some(identifier.text.to_string()),
+                tsr_ast::Node::Identifier(identifier) => Some(match identifier.node_id {
+                    Some(id) => self.identifier_text_as_written(id, identifier.text),
+                    None => identifier.text.to_string(),
+                }),
                 _ => None,
             });
         // §305: an anonymous class expression's INSTANCE type takes the same

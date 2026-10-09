@@ -3780,7 +3780,6 @@ impl<'a> Checker<'a, '_> {
             }
             return self.intrinsics.error;
         }
-        let name = self.binder.symbols().get(symbol).name;
         // `shouldEmitTypeOfSymbol` tests enum and value module *after* class but
         // as an `||`, so a merged `function f() {} namespace f {}` symbol takes
         // the `typeof` form. Ordering the class test first therefore changes
@@ -3806,7 +3805,8 @@ impl<'a> Checker<'a, '_> {
         if merged_flags
             .intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS)
         {
-            let printed = format!("typeof {name}");
+            // `getNameOfSymbolAsWritten`: the declaration's name as written.
+            let printed = format!("typeof {}", self.symbol_name_as_written(symbol));
             // A `TypeQueryNode`. Upstream gives it `TypePrecedenceTypeOperator`
             // so that it parenthesises in *postfix* position — `(typeof C)[]` —
             // and not as a union constituent.
