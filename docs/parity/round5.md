@@ -1590,3 +1590,20 @@ which is within the base's own 0.06% run spread.
 Refused: typing unannotated initializers for TS2475 (+1/−3). It waits on lazy
 signature resolution. r6-modules3 takes the remaining module rows
 (`tsr-2zk.1146`).
+
+### r6-jsx finished (batch BQ); r6-jsx2 dispatched
+
+Batch BQ lands r6-jsx's ports:
+- chooseOverload for JSX value tags;
+- getJSXFragmentType (TS2879);
+- resolveCall's JSX type-argument arms (TS2558/TS2344);
+- TS2608;
+- getCandidateForOverloadFailure's TS2786;
+- the tag-name value-reference arm (TS2304);
+- the attributes resolver reading the chosen overload.
+
+Measured by the box: about 11 cases and 78 rows to RIGHT, +5 types, 0 lost,
+perf within noise.
+
+A TS6229 port was measured and not committed: declining at the factory text
+lost 30 cases. r6-jsx2 takes the remainder (`tsr-2zk.1147`).
