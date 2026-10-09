@@ -1,0 +1,112 @@
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -2668,13 +2668,9 @@
+             }
+         }
+         out.push_str("): ");
+-        let written_return = signature.written_return.and_then(|written| {
+-            let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
+-            self.written_annotation_text_at(written, current, reference)
+-        });
+-        match (&signature.predicate, written_return) {
+-            (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
+-            (None, Some(text)) => out.push_str(&text),
++        match (self.reused_return_text(signature, Some(reference)), &signature.predicate) {
++            (Some(text), _) => out.push_str(&text),
++            (None, Some(predicate)) => out.push_str(&self.type_predicate_to_string(predicate)),
+             (None, None) => {
+                 let return_type =
+                     self.get_return_type_of_signature(signature).unwrap_or(self.intrinsics.error);
+--- a/crates/tsr-checker/src/objects.rs
++++ b/crates/tsr-checker/src/objects.rs
+@@ -465,12 +465,9 @@
+     // the return type (`nodebuilderimpl.go:1748`), whichever signature-shaped
+     // node the builder is filling. `interface I { m(): this is S[]; }` is the
+     // form that needs it, and the corpus records it on lib's `every`.
+-    let written_return = signature
+-        .written_return
+-        .and_then(|written| checker.site_free_annotation_text(written, signature.r#type));
+-    match (&signature.predicate, written_return) {
+-        (Some(predicate), _) => out.push_str(&checker.type_predicate_to_string(predicate)),
+-        (None, Some(written)) => out.push_str(&written),
++    match (checker.reused_return_text(signature, None), &signature.predicate) {
++        (Some(written), _) => out.push_str(&written),
++        (None, Some(predicate)) => out.push_str(&checker.type_predicate_to_string(predicate)),
+         (None, None) => out.push_str(&checker.type_to_string(signature.r#type)),
+     }
+     out
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -1739,7 +1739,8 @@
+ 
+         // `serializeReturnTypeForSignature` (`nodebuilderimpl.go:2023`): the
+         // written return annotation is reused (see `crate::node_reuse`). A
+-        // predicate annotation prints through `predicate` instead.
++        // predicate node is not carried: `Checker::reused_return_text` derives
++        // it at print time and gates it on `pseudoReturnTypeMatchesPredicate`.
+         let written_return = return_annotation
+             .filter(|annotation| !matches!(annotation, TypeNode::TypePredicateNode(_)))
+             .and_then(|annotation| self.reuse_annotation(annotation, r#type));
+@@ -7778,10 +7779,7 @@
+             }
+         }
+         out.push_str(") => ");
+-        if let Some(text) = signature.written_return.and_then(|written| {
+-            let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
+-            self.written_annotation_text_at(written, current, reference)
+-        }) {
++        if let Some(text) = self.reused_return_text(signature, Some(reference)) {
+             out.push_str(&text);
+         } else if let Some(text) = self.signature_return_alias_text_at(signature, reference) {
+             out.push_str(&text);
+@@ -7913,12 +7911,9 @@
+         // over both the written text and the computed type, and
+         // `(x: unknown) => boolean` is never printed for a declaration that
+         // wrote `x is string`.
+-        let written_return = signature
+-            .written_return
+-            .and_then(|written| self.site_free_annotation_text(written, signature.r#type));
+-        match (&signature.predicate, written_return) {
+-            (Some(predicate), _) => out.push_str(&self.type_predicate_to_string(predicate)),
+-            (None, Some(written)) => out.push_str(&written),
++        match (self.reused_return_text(signature, None), &signature.predicate) {
++            (Some(written), _) => out.push_str(&written),
++            (None, Some(predicate)) => out.push_str(&self.type_predicate_to_string(predicate)),
+             (None, None) => out.push_str(&self.type_to_string(signature.r#type)),
+         }
+         out
+--- a/crates/tsr-checker/tests/type_predicates.rs
++++ b/crates/tsr-checker/tests/type_predicates.rs
+@@ -179,22 +179,28 @@
+     // The transforming mapped member is now resolved by per-key template
+     // instantiation. Its Box<string> is the same semantic type verified by
+     // the pinned declaration control in forward_mapped.rs, and remains the
+-    // predicate's type rather than making the whole signature a gap.
++    // predicate's type rather than making the whole signature a gap. The
++    // declaration prints its WRITTEN predicate node: the node is the Direct
++    // pseudo return, reused while its type is the predicate's
++    // (`pseudoReturnTypeMatchesPredicate`, `docs/parity/notes/r5-nodereuse.md`
++    // §2); the resolved type itself is what the call answers.
+     assert_eq!(
+         type_of_declaration(
+             "type Box<V> = { v: V };\ntype B<T> = { [K in keyof T]: Box<T[K]> };\ndeclare function f<T>(x: unknown, o: T): x is B<{ a: string }>[\"a\"];",
+             "f"
+         ),
+-        "<T>(x: unknown, o: T) => x is Box<string>"
++        "<T>(x: unknown, o: T) => x is B<{ a: string; }>[\"a\"]"
+     );
+     // And the construct §953 DID port, pinned as the answer it now gives, so the
+-    // fourth stand-in's retirement is recorded rather than merely deleted.
++    // fourth stand-in's retirement is recorded rather than merely deleted. It
++    // resolves (the signature is not a gap), and the declaration prints the
++    // written node it resolved from, as above.
+     assert_eq!(
+         type_of_declaration(
+             "declare function f<T>(x: unknown, o: T): x is { a: keyof T }[\"a\"];",
+             "f"
+         ),
+-        "<T>(x: unknown, o: T) => x is keyof T"
++        "<T>(x: unknown, o: T) => x is { a: keyof T; }[\"a\"]"
+     );
+     assert_eq!(
+         type_of_declaration("declare function g<T>(x: unknown, o: T): x is T;", "g"),
