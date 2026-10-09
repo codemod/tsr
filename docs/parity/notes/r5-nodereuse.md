@@ -216,7 +216,7 @@ apply in order on top of it.
 |---|---|---|
 | `r5-nodereuse-constraint-printers.diff` | `signatures.rs`, `checker.rs`, `objects.rs` | R3: every printer asks `type_parameter_constraint_text` |
 | `r5-nodereuse-return-slot.diff` | `signatures.rs`, `checker.rs`, `objects.rs`, `tests/type_predicates.rs` | R1/R2: every printer asks `reused_return_text` first, then falls back to the predicate and the type; the test's written-predicate expectations (§2) |
-| `r5-nodereuse-property-slot.diff` | `printing.rs`, `spreads.rs` | R4 at the type-literal printer and the spread producers |
+| `r5-nodereuse-property-slot.diff` | `printing.rs`, `spreads.rs` | R4 at the type-literal printer and the spread producers. **Applies on top of r5-printer2's `1f1fdfd`** (§8): it replaces that lane's `reused_property_annotation_text_at` |
 
 Measurements are in §7.
 
@@ -309,3 +309,36 @@ which moves the reuse to print time as native has it. That belongs to
 - Asking `resolves_from_file_top_level` before `is_global_name` in the
   site-free tracker. It is neutral, because `is_global_name` exits on
   `is_external_module` before resolving anything.
+
+## 8. Rebased onto r5-printer2 (`1f1fdfd`)
+
+r5-printer2 finished without landing these hunks and asked for a rebase onto
+its branch. Its `ce7f64d` ported the same native slot in `printing.rs`
+`type_literal_text_at`, as `reused_property_annotation_text_at`. That helper
+accepts an annotation when its type is the property's, or the property's
+with optionality forgiven, and it covers only type-literal annotations.
+`ee03332` added an accessor-pair arm in front of it.
+
+The rebased `r5-nodereuse-property-slot.diff` **replaces** that helper with
+`reused_property_type_text` and deletes it. The accessor arm stays ahead of
+it, as native's `addPropertyToElementList` checks accessors first. The
+constraint and return-slot diffs apply to that tree unchanged. r5-printer2's
+`r5-printer2-member-constraint-reuse.diff` (`checker.rs`, the member
+printer's constraint) is subsumed by the constraint-printers diff; the
+integrator lands one of the two, not both.
+
+**Measured** against a baseline frozen at `aa37348`, main `e20cdd4` merged
+into r5-printer2's head (types 548,929 RIGHT / 900 GAP / 6,462 WRONG), with
+this lane's commits and all three diffs applied:
+
+- types +101 RIGHT, 0 lost; diagnostics 0 lost; slowcases clean;
+- `cargo test -p tsr-checker` passes, r5-printer2's
+  `property_annotation_reuse` and `optional_parameter_printing` included;
+- median CPU new/old (41 samples): domain-model 0.990, generic-imports
+  1.011; callgrind Ir domain-model 1,156,985,204 → 1,161,520,733 (+0.39%).
+
+Zero losses against a base that already held the helper's gains (+106 lines
+by r5-printer2's count) means the replacement is a superset at verdict
+level. The +101 is what remains of this lane's +207 once r5-printer2's own
+property and constraint ports are counted in the base.
+
