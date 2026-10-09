@@ -1289,3 +1289,23 @@ Main's own claims stay untouched: `.11.5`, `.16.2`, `.17`, `.17.1`, `.22`,
   owner.
 
 r6-names takes the slot with TS2304/TS2552 (`tsr-2zk.1133`).
+
+### r6-nodereuse finished (batch BB)
+
+The scope fix gives each entered type parameter and object-literal member
+its own visitor root, as native's reuseNode/reuseName do. It re-lands r5-nodereuse2's
+structural pseudo types with `shadowed_names` green. The accessor arm
+(GetTypeOfAccessor, nodebuilderimpl.go:2233) explains the batch-AW refusal
+of the property slot.
+
+Batch BB lands:
+- the three owned commits;
+- r6-printer's global-augmentation visibility diff
+  (IsExternalModuleAugmentation, the prerequisite for r5-declared4's print arity);
+- the object-literal-slot, predicate-at-site and property-slot printing diffs.
+
+Measured by the box: +28 type lines and 0 lost, with Ir flat.
+
+The property slot's spreads.rs half (+19 types, 0 lost) is held. It costs dm
+Ir +0.12%, because spread members bake their text at creation. It lands with
+`tsr-2zk.1120`, on-demand spread member text.
