@@ -45,7 +45,7 @@ checks, not a resolution difference.
 | C2. JSDoc type names | JSDoc arms of `resolveTypeReferenceName`; script-file typedefs in `globals` | jsdocResolveNameFailureInTypedef, typedefScope1, recursiveResolveDeclaredMembers | open |
 | D. parameter initialisers | `resolveName`'s `useOuterVariableScopeInParameter` (`binder/nameresolver.go:74`, `:346`) | functionLikeInParameterInitializer(es2015), parameterInitializersForwardReferencing(es2015) | open |
 | E1. non-primitive keyword spellings as values | `checkAndReportErrorForUsingTypeAsValue`'s six-name `isPrimitiveTypeName` (`checker.go:1637`) | parserSymbolIndexer5 (TS2552) | §7, diff `r6-names-primitive-spellings` |
-| E2. `typeof null` | `parseTypeQuery`'s reserved-word entity name | invalidTypeOfTarget | open |
+| E2. `typeof null` | `parseTypeQuery`'s reserved-word entity name (`parser.go:3114`) | invalidTypeOfTarget | §8, diff `r6-names-typeof-null` |
 | F. parse recovery | parser trees that differ from native | arrowFunctionsMissingTokens, YieldStarExpression2_es6, bigintArbirtraryIdentifier, importDeferTypeConflict2, parserSuperExpression2, classExpressionWithDecorator1 | open |
 | G. spelling suggestions | `getSpellingSuggestionForName` at an export specifier | duplicateErrorNameNotFound (TS2552) | open |
 | H. module augmentation | augmentation merge (`tsr-2zk.38`, main's) | moduleAugmentationInAmbientModule1, moduleAugmentationInAmbientModule5 (TS2552) | routed |
@@ -62,6 +62,7 @@ function it wires in `name_slots.rs`, and adds its test under
 | 2 | `r6-names-empty-for-of.diff` | +4 cases | 0 | 3,382/1,089 → 3,382/1,085 |
 | 3 | `r6-names-js-type-annotations.diff` | +3 cases | 0 | 3,382/1,089 → 3,378/1,089 |
 | 4 | `r6-names-primitive-spellings.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
+| 5 | `r6-names-typeof-null.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 
 Diffs 1–3 applied together in this order: +13 cases, 0 losses on both
 dumps, rows 3,382/1,089 → 3,359/1,085, types dump identical to the base
@@ -197,3 +198,21 @@ matches every row.
 The diff deletes the four-name early return and corrects the §948 comment
 in place. Measured alone: +1 case (`parserSymbolIndexer5`), 0 losses,
 missing rows −1, no new extra row.
+
+## §8 Cluster E2: `typeof null`
+
+`check_value_identifier` declines a reference spelled `null` because this
+parser makes an identifier of `class C extends null`, where native makes a
+`NullKeyword` (a parser divergence worked around at the reader). A type
+query is where both parsers make an identifier: `parseTypeQuery`
+(`parser.go:3114`) parses the entity name with `allowReservedWords`, and
+`checkIdentifier` then fails to resolve it. Native: `var x6: typeof null;`
+→ TS2304 *Cannot find name 'null'* at the name; `typeof null.a` the same at
+`null`; `class C extends null {}` → nothing.
+
+`Checker::names_in_type_query_entity_name` keeps the decline off the
+leftmost name of a `typeof` entity name. `this` stays declined everywhere:
+`typeof this.x` is the `this`-type path natively, not a name lookup.
+
+Measured alone: +1 case (`invalidTypeOfTarget`), 0 losses, missing rows −1,
+no new extra row.

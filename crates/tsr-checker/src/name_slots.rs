@@ -107,3 +107,33 @@ impl Checker<'_, '_> {
         }
     }
 }
+
+impl Checker<'_, '_> {
+    /// Is `node` the leftmost name of a `typeof` entity name?
+    ///
+    /// `check_value_identifier` declines a reference spelled `null` because
+    /// this parser makes an identifier of `class C extends null`, where
+    /// native's makes a `NullKeyword`. A type query is the place both parsers
+    /// make one: `parseTypeQuery` (`parser.go:3114`) parses its entity name
+    /// with `allowReservedWords`, so `typeof null` is an identifier natively
+    /// too, and `checkIdentifier` reports TS2304 *Cannot find name 'null'*
+    /// (`invalidTypeOfTarget`). The decline must not fire there.
+    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-typeof-null.diff")]
+    pub(crate) fn names_in_type_query_entity_name(&self, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            match self.node_map.get(parent) {
+                Some(Node::TypeQueryNode(query)) => {
+                    return query.expr_name.and_then(|name| name.node_id()) == Some(current);
+                }
+                Some(Node::QualifiedName(name))
+                    if name.left.and_then(|left| left.node_id()) == Some(current) =>
+                {
+                    current = parent;
+                }
+                _ => return false,
+            }
+        }
+        false
+    }
+}
