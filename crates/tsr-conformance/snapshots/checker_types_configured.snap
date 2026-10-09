@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1728/1928 (89.63%)
-Assertion lines: 76936/78552 (97.94%)  — a gradient, not a pass rate
-Failed         : 200
+Passed         : 1731/1928 (89.78%)
+Assertion lines: 76966/78552 (97.98%)  — a gradient, not a pass rate
+Failed         : 197
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 200 failures:
+First 100 of 197 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -104,8 +104,6 @@ compiler/es5ModuleInternalNamedImports(target=es2015)
   es5ModuleInternalNamedImports.ts: >M_A : any — expected >M_A : typeof M_M
 compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)
   client.ts: >c : typeof c — expected >c : typeof import("./server").c
-compiler/functionLikeInParameterInitializer(target=es2015)
-  functionLikeInParameterInitializer.ts: >bar : (func?: () => string) => void — expected >bar : (func?: () => any) => void
 compiler/importHelpers(target=es2015)
   external.ts: >result : error — expected >result : TemplateStringsArray
 compiler/inKeywordTypeguard(strict=false)
@@ -136,8 +134,6 @@ compiler/optionalChainWithInstantiationExpression1(target=es2019)
   optionalChainWithInstantiationExpression1.ts: >a?.b<c> : { new (x: unknown): b<unknown>; d: number; prototype: b<any>; } | undefined — expected >a?.b<c> : { new (x: unknown): A.b<unknown>; d: number; prototype: A.b<any>; } | undefined
 compiler/optionalChainWithInstantiationExpression1(target=es2020)
   optionalChainWithInstantiationExpression1.ts: >a?.b<c> : { new (x: unknown): b<unknown>; d: number; prototype: b<any>; } | undefined — expected >a?.b<c> : { new (x: unknown): A.b<unknown>; d: number; prototype: A.b<any>; } | undefined
-compiler/optionalParamReferencingOtherParams2(target=es2015)
-  optionalParamReferencingOtherParams2.ts: >strange : (x?: number, y?: string) => string — expected >strange : (x?: number, y?: any) => any
 compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsx)
   index.tsx: >React : typeof import("react").React — expected >React : typeof React
 compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsxdev)
@@ -228,3 +224,7 @@ conformance/emptyVariableDeclarationBindingPatterns01_ES5(target=es2015)
   emptyVariableDeclarationBindingPatterns01_ES5.ts: >f : ({}?: any, []?: any, { p: {} }?: any) => any — expected >f : ({}?: any, []?: any, { p: {} }?: any) => ({}?: any, []?: any, { p: {} }?: any) => any
 conformance/emptyVariableDeclarationBindingPatterns01_ES5iterable(target=es2015)
   emptyVariableDeclarationBindingPatterns01_ES5iterable.ts: >f : ({}?: any, []?: any, { p: {} }?: any) => any — expected >f : ({}?: any, []?: any, { p: {} }?: any) => ({}?: any, []?: any, { p: {} }?: any) => any
+conformance/es6modulekindWithES5Target11(target=es2015)
+  es6modulekindWithES5Target11.ts: >C : any — expected >C : typeof C
+conformance/esDecorators-classDeclaration-outerThisReference(target=es2015)
+  esDecorators-classDeclaration-outerThisReference.ts: >this : this — expected >this : typeof globalThis
