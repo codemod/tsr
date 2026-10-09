@@ -221,3 +221,168 @@ is byte-identical on domain-model, domain-model-large and generic-imports.
 `N.X[K]` at a site outside the namespace, where the mint baked `X`), and
 `print_time_mapped_form` (in the diff: `TN2` and the `P_1` rename through the
 whole renderer).
+
+## 2. Printer lines routed this round (item 2)
+
+Read on the frozen base `8e2f8dd`:
+
+- **`conditionalTypes2` `T_1` renaming** (0:39, 0:47, 0:139): already RIGHT
+  on the base. r6-mapped §3 (e) listed them before the shadow-rename work
+  that landed since. The case's other non-RIGHT lines (0:172–184, 0:227) are
+  r6-mapped §3 (a)'s alias-declared `error` arm (`declared.rs`, r6-declared2).
+- **`recursiveGenericMethodCall`** (0:1, 0:4): RIGHT on the base. A local
+  `interface Generator<T>` merges with the global
+  `Generator<T, TReturn = any, TNext = any>`, and native prints every filled
+  argument; r6-declared's `ebac88b` (`reference_print_arity`, landed before
+  batch BO) converted both. Nothing is left for the printer lane.
+- **`declarationEmitPartialNodeReuseTypeReferences` `c.ts`** (2:0, 2:2,
+  2:3): still WRONG, routed to main's `tsr-2zk.39`. Native's reuse of the
+  annotation `N.SpecialString` in `c.ts` fails `trackExistingEntityName`
+  (`N` is not in scope there), so `serializeTypeName` names the symbol
+  through `symbolToTypeNode`, and getSymbolChain reaches `N` only through
+  its module: `import("./a").N.SpecialString`. The port's
+  `serialize_type_name` (node_reuse.rs) names it with `reference_text_at`,
+  whose `symbol_chain` (checker.rs) refuses the module specifier because
+  `c.ts` imports `"./a"` under some binding (the `imported_here` gate, "our
+  resolver just cannot walk every re-export form yet"). r6-triage's row 6
+  (`GET-SYMBOL-CHAIN-NEEDS-QUALIFICATION/EXPORT-SPECIFIER-NOT-IN-SCOPE`,
+  23 cases) has the same gate as its port location. It is the symbol-chain
+  printer's, not this lane's; §3's resolver `symbol_chain_at` is the
+  faithful walk that gate stands in for.
+
+## 3. Well-known-symbol keys: `[Symbol.iterator]` (item 3)
+
+### Forcing constraint
+
+A mapped type over an array's keys resolves the array's well-known-symbol
+members (r6-accessible §4, `unique_symbol_keys.rs`). The port printed them
+`[iterator]` and `[unscopables]`; native prints `[Symbol.iterator]` and
+`[Symbol.unscopables]`. Seven corpus lines carry them, all in
+`mappedTypeWithAsClauseAndLateBoundProperty{,2}`.
+
+### What native does
+
+`getPropertyNameNodeForSymbolFromNameType` prints
+`[symbolToExpression(nameType.symbol, Value)]`; `lookupSymbolChain` →
+`getSymbolChain` (`nodebuilderimpl.go:1087`). `iterator` has no accessible
+chain at the site, so getSymbolChain walks `getContainersOfSymbol`
+(`symbolaccessibility.go:280`). The parent is the interface
+`SymbolConstructor`, which has no value meaning, so
+`getWithAlternativeContainers` (`:117`) looks for a variable in scope whose
+type is the interface's declared type (`:137`, "`Symbol` acts like a
+namespace when looking up `Symbol.toStringTag`") and offers it beside the
+interface. Parents are tried in `sortByBestName` order (module specifiers,
+else `compareSymbols`); the first with a chain of its own wins. Probes:
+
+```ts
+interface Ctor { readonly it: unique symbol }
+declare var Sym: Ctor;
+declare function f<T>(t: T): { [K in typeof Sym.it]: T };
+const m = f(1);          // tsgo: { [Ctor.it]: number; }  (Ctor sorts first)
+// with `declare var Sym: Ctor;` written first: { [Sym.it]: number; }
+```
+
+### The port (diff)
+
+The resolver (`symbol_accessibility.rs`) already ports
+`getContainersOfSymbol` with the variable-match arm. What was missing is
+getSymbolChain over it: the printer's own `symbol_chain` (checker.rs)
+qualifies through modules and namespaces only. Both files are unowned this
+round, so this ships as
+[`r6-printer4-symbol-chain-containers.diff`](r6-printer4-symbol-chain-containers.diff):
+
+- `DeclarationEmitResolver::symbol_chain_at`: getSymbolChain as native
+  writes it (accessible chain, `needsQualification` of its root, the
+  containers sorted by `sortByBestName` with `CountPathComponents`, the
+  parent's chain under `getQualifiedLeftMeaning`, the `export =` shortcut,
+  `getAliasForSymbolInContainer`, and the `endOfChain` /
+  `yieldModuleSymbol` tail). No cache of its own: it reads the resolver's
+  `accessibility.chains`, which `accessible_symbol_chain` already owns.
+- `unique_symbol_property_name_at` asks it where the printer's
+  `symbol_chain` has no prefix, and spells a chain of identifiers with dots
+  (`createExpressionFromSymbolChain`'s property-access form). Every earlier
+  arm (the bare name, `best_name`, the unreachable module parent, the
+  printer's chain) is unchanged, so r6-accessible's measured spellings stand.
+- Test: `tests/unique_symbol_container_chain.rs`, the two probes above; both
+  fail without the diff (`{ [it]: number; }`).
+
+### Measured
+
+On top of item 1's diff, against it, both dumps unfiltered: types **+0 / −0**
+(the seven lines change text and stay WRONG), diagnostics unchanged,
+slowcases clean, CLI output identical. Ir: domain-model 1,092,152,756 /
+1,092,127,586 against item 1's 1,092,053,423 / 1,092,081,729;
+generic-imports 343,722,180 / 343,700,772. Neither new function is called
+on either project (callgrind lists no call), so the difference is code
+layout.
+
+**What still blocks the seven lines: member order.** Native lists the
+mapped object's members in `keyof number[]`'s order (the array's
+declaration order, `toString`, `toLocaleString`, `pop`, …); the port lists
+them sorted by name (`concat`, `copyWithin`, `entries`, …). That is the key
+union's order in `mapped.rs` (r6-declared2), not the printer.
+
+### The identity question (recorded, not built)
+
+A written symbol-keyed member is named by its bracketed expression text
+(`[s]`, objects.rs `late_bound_symbol_member_name`, members.rs
+`late_bound_members_of`); a mapped member keyed by the same unique symbol
+is named `__@s@<id>` (`unique_symbol_keys.rs`). Native has one identity,
+the escaped name, so the two would unify in a relation or a property read.
+No corpus line exercises the mismatch (r6-accessible §4 measured 0
+diagnostics moved), and the written side's owner is members.rs (main):
+the member table is keyed there, objects.rs only prints it. Converging on
+`__@name@id` means re-keying `late_bound_members_of` and every reader that
+looks a computed member up by its text; it is main's, with a falsifier
+that a written `[s]` member and a mapped `[K in typeof s]` member relate.
+
+## 4. r6-triage's printer-owned rows (item 4)
+
+r6-triage (`b2fc79b`, on `e6eadf4`) owns these rows to r6-lazytext, this
+lane's predecessor. None is ported this round; each is listed with what its
+port needs.
+
+| row | cluster | cases | what the port needs |
+|---|---|---|---|
+| 19 | `SHADOWED-TYPEPARAM-RENAME` | 15 (64 lines) | native's `typeParameterToName` under `GenerateNamesForShadowedTypeParams` with `enterNewScope`'s pre-naming (`nodebuilderscopes.go:223`): a signature's own type parameters are named first and shadow the site, and every other type parameter met in the print is renamed by text (`S_1`). The port renames by a token-wise text substitution (`signatures.rs` `type_parameter_renames` / `apply_renames`) plus `rename_type_parameters_for_site` (inference.rs, main). The faithful port routes every signature type parameter through `allocate_type_parameter_name` (printing.rs) at scope entry and retires the substitution; its inference.rs half is main's. |
+| 23 | `SCANNER-NUMERIC-AND-ESCAPE-DIAGNOSTICS` (family) | 15 diag | split first: `scanBinaryOrOctalDigits`, `scanEscapeSequence`, `scanNumber` reports, and the keyword-escape checks, each in `crates/tsr-scanner`. |
+| 41 | `REGEXP-SCANNER-VALIDATION` | 10 diag | `scanner/regexp.go` (the regular-expression body and flag validator) is unported; a new scanner module. |
+| 92 | `YIELD-NEXT-TYPE-FROM-CONTEXTUAL-TYPE` | 5 | `checkAndAggregateYieldOperandTypes`' next type from the yield's contextual type (`signatures.rs` `return_type_from_body`). |
+| 102 | `GENERIC-ARG-NIL-CONTEXTUAL-SIGNATURE` | 4 | `getContextualCallSignature`'s exactly-one-applicable rule (`signatures.rs` `get_type_of_function_expression`). |
+| 106, 110 | `FUNCEXPR-NIL-CONTEXTUAL-SIGNATURE-POSITIONS` | 4 + 4 | `getContextualType`'s arrow/return and parameter-initializer arms answering nil (`signatures.rs` `has_no_contextual_type`). |
+| 145 | `UNION-SIGNATURE-CALL-CONSTRUCT` | 4 diag | union-type call and construct resolution reports (`union_signatures.rs`). |
+| 160 | `INFER-TYPE-PREDICATE-FROM-BODY` | 3 | `getTypePredicateFromBody` (`signatures.rs`). |
+| 166 | `CONTEXTUAL-TYPE-FOR-ASSIGNMENT-EXPRESSION-JS` | 3 | `getContextualTypeForAssignmentExpression`'s JS arm. |
+| 170 | `SHADOWED-TYPEPARAM-RENAME/FREE-PARAM-BYTEXT` | 3 | row 19's by-text cache for a free type parameter (`rename_type_parameters_for_site`'s refused byText arm, inference.rs). |
+| 173 | `BINDING-PATTERN-IMPLIED-TYPE/EXPRESSION-PARAM-ANY-DECLINE` | 3 | `getTypeForVariableLikeDeclaration`'s initializer arm (`signatures.rs` `parameter_of`). |
+
+## 5. Report
+
+**Commits** (on `claude/beautiful-shannon-ar5gh0-r6-printer4`):
+
+| commit | what | alone |
+|---|---|---|
+| `329d8ed` | merge of r6-lazytext's branch (first freeze) | — |
+| `ca07c6c` | item 1: print-time mapped form, deferred `keyof`, deferred indexed access (printing.rs) + dispatch diff | +0 / −0 (unreached) |
+| `8e2f8dd` | merge of main `eee504b` (re-freeze, batch BO landed) | — |
+| `c14a112` | item 1 re-measured on `8e2f8dd`; the wrappers recorded | docs |
+| this commit | items 2–4 and the item-3 diff | docs |
+
+**Diffs, in apply order** (each applies on `8e2f8dd`):
+
+1. [`r6-printer4-print-time-plans.diff`](r6-printer4-print-time-plans.diff)
+   (checker.rs, main; new test): **+12 types / −0**, diagnostics unchanged,
+   slowcases clean, Ir dm +0.010%, gi +0.002%, CLI identical.
+2. [`r6-printer4-symbol-chain-containers.diff`](r6-printer4-symbol-chain-containers.diff)
+   (symbol_accessibility.rs, unique_symbol_keys.rs, unowned; new test):
+   +0 / −0, diagnostics unchanged, slowcases clean, Ir unaffected (never
+   called on either project), CLI identical. Faithful spelling, blocked on
+   member order (§3).
+
+Stacked on `8e2f8dd`: types 550,355 → 550,367 RIGHT (**+12**), 0 lost;
+diagnostics 5,630 RIGHT / 5,606 EMPTY_RIGHT unchanged, 0 lost.
+
+**Remaining, with causes:** §1's two wrappers (wait on `.16.2`'s alias
+structure); §2's `c.ts` (main's `.39`, the `imported_here` gate); §3's
+member order (mapped.rs) and the symbol-key identity (members.rs, main);
+§4's rows.
