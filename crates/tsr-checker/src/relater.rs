@@ -2951,7 +2951,10 @@ impl Relater<'_, '_, '_> {
             || match &self.checker.type_of(id).data {
                 TypeData::Named { members: Some(_), .. }
                 | TypeData::Anonymous { signature: true, .. } => true,
-                TypeData::Anonymous { symbol, .. } if self.is_namespace_object_symbol(*symbol) => {
+                TypeData::Anonymous { symbol, .. }
+                    if self.is_namespace_object_symbol(*symbol)
+                        || self.is_function_namespace_object(*symbol) =>
+                {
                     true
                 }
                 TypeData::Anonymous { .. } => {
@@ -2970,6 +2973,20 @@ impl Relater<'_, '_, '_> {
         let flags = self.checker.binder.symbols().get(symbol).flags;
         flags.intersects(SymbolFlags::VALUE_MODULE)
             && !flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::CLASS | SymbolFlags::ENUM)
+    }
+
+    /// `typeof F` for a function merged with a namespace: native's
+    /// `createObjectType(ObjectFlagsAnonymous, symbol)` whose members are the
+    /// namespace exports beside the function's call signatures
+    /// (`resolveAnonymousTypeMembers`). Like a namespace object, the
+    /// structural arm relates it over those members. An enum object
+    /// (`typeof E`) is held: deciding it exposes an inference gap
+    /// (`docs/parity/notes/r5-relater7.md` §7).
+    fn is_function_namespace_object(&self, symbol: SymbolId) -> bool {
+        let flags = self.checker.binder.symbols().get(symbol).flags;
+        flags.intersects(SymbolFlags::VALUE_MODULE)
+            && flags.intersects(SymbolFlags::FUNCTION)
+            && !flags.intersects(SymbolFlags::CLASS | SymbolFlags::ENUM)
     }
 
     fn is_pure_signature_type(&mut self, id: TypeId) -> bool {

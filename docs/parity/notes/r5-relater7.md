@@ -233,3 +233,45 @@ later arm, since none relates a non-object target.
 `Unknown`).
 
 Test: `tests/relater7_arms.rs` `a_string_mapping_meets_a_template_through_its_base_constraint`.
+
+## 7. Item 2 (`tsr-2zk.1055`): `typeof E` and a fundule's `typeof Point`
+
+Both witnesses are TS2403, whose test is `isTypeIdenticalTo`. The port asks it
+through `is_type_identical_to_by_assignability` (`identity.rs`): two object
+types are non-identical when either direction of assignability is NotRelated.
+Both directions answered `Unknown`, so no TS2403. The trace shows why: the
+relater's `has_members` admitted an anonymous type only when it carried
+signatures or was a plain namespace object (r5-relater3 §6). `typeof E` (an
+enum object) and `typeof Point` (a function merged with a namespace) fell to
+row 3 (`NoMembersTable`).
+
+**Ported (fundule).** `has_members` admits an anonymous type whose symbol is a
+function merged with a value module (not a class, not an enum):
+`is_function_namespace_object`. Native's `typeof Point` is
+`createObjectType(ObjectFlagsAnonymous, symbol)` with the namespace exports as
+members beside the function's call signatures (`resolveAnonymousTypeMembers`),
+which the structural arm relates as it does a namespace object. `() => { x;
+y } -> typeof Point` is now NotRelated (no `Origin`), so TS2403 is reported
+(`FunctionAndModuleWithSameNameAndCommonRoot` test.ts 2:5, simple.ts 13:5).
+
+**Measured** against §6's commit, both loss checks (vs §0) empty:
+- diagnostics: `FunctionAndModuleWithSameNameAndCommonRoot`,
+  `enumIsNotASubtypeOfAnythingButNumber` and
+  `unionSubtypeIfEveryConstituentTypeIsSubtype` WRONG → RIGHT;
+- types: `enumAssignabilityInInheritance:0:168` WRONG → RIGHT;
+- `Ir`: generic-imports 342,974,161 → 342,990,563 (+0.005%); domain-model
+  1,200,297,638 → 1,200,282,532 (−0.001%). CLI output identical.
+
+**Held (enum object):** [`r5-relater7-enum-object.diff`](r5-relater7-enum-object.diff)
+admits `typeof E` as well. It converts `typeOfEnumAndVarRedeclarations` (both
+TS2403) and four `useObjectValuesAndEntries1` type lines (GAP → RIGHT), and
+loses `mappedToToIndexSignatureInference` (EMPTY_RIGHT → EMPTY_WRONG, an extra
+TS2345 at 11:25). There, `enumValues<K extends string, V extends string>(e:
+Record<K, V>)` called with `E` infers `V = never` (native: `E`), and `typeof E
+-> Record<"A" | "B", never>` is now a correct NotRelated where it used to be
+`Unknown`. The relation is right and the inference is wrong: inferring to a
+mapped target from an enum object (`inferToMappedType`/`inferFromObjectTypes`
+reading `typeof E`'s members) belongs to `inference.rs` (main's). The diff
+lands once that inference yields `E`; re-measure to zero losses then.
+
+Test: `tests/relater7_arms.rs` `a_function_merged_with_a_namespace_relates_over_its_exports`.

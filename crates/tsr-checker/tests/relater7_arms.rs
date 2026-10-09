@@ -159,3 +159,14 @@ fn a_string_mapping_meets_a_template_through_its_base_constraint() {
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn a_function_merged_with_a_namespace_relates_over_its_exports() {
+    let source = r#"function Point() { return 0; }
+namespace Point { export var Origin = 1; }
+const f: () => number = Point;
+const o: { Origin: number } = Point;
+const p: { Origin: string } = Point; // error
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
