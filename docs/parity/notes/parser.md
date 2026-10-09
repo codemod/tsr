@@ -577,3 +577,8 @@ per-file flag must become per-node.
   template after `?.` is a tagged template in the optional chain; the checker
   reports TS1358 on its template (`checkGrammarTaggedTemplateChain`), also
   for a tag that is itself a chain (`a?.b`c``).
+- `import` in expression position (`parseLeftHandSideExpressionOrHigher`):
+  only `import(`/`import<` is a keyword expression and `import.` a
+  meta-property; any other `import` reaches `parsePrimaryExpression`, where a
+  reserved word is TS1109 and the import declaration that follows parses on
+  its own (`var x = import { foo } from "m"`).
