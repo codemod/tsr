@@ -668,8 +668,10 @@ impl<'a> Checker<'a, '_> {
     /// plain operand's only: a `yield*` operand's elements are related, not
     /// the written literal.
     ///
-    /// Declined: async generators (the yielded type is awaited first,
-    /// `getAwaitedType`).
+    /// An async generator relates the awaited yielded type
+    /// ([`Checker::awaited_yielded_type`]) against the annotation's async
+    /// yield iteration type; `yield*` iterates with
+    /// `IterationUseAsyncYieldStar`.
     pub(crate) fn check_yield_expression_assignability(&mut self, node: NodeId) {
         if self.in_js_file(node) {
             return;
@@ -683,16 +685,17 @@ impl<'a> Checker<'a, '_> {
             Some(Node::FunctionExpression(f)) => (f.asterisk_token, f.r#type, f.modifiers),
             _ => return,
         };
-        if asterisk.is_none() || has_async(modifiers) {
+        if asterisk.is_none() {
             return;
         }
+        let is_async = has_async(modifiers);
         let Some(annotation) = annotation else { return };
         let mut return_type = self.get_type_from_type_node(annotation);
         if self.type_of(return_type).flags.contains(TypeFlags::UNION) {
             let mut undecided = false;
             return_type = self.filter_type(return_type, |checker, constituent| {
                 checker
-                    .generator_instantiation_assignable_to_return_type(constituent, false)
+                    .generator_instantiation_assignable_to_return_type(constituent, is_async)
                     .unwrap_or_else(|()| {
                         undecided = true;
                         false
@@ -705,7 +708,7 @@ impl<'a> Checker<'a, '_> {
         let Ok(yield_type) = self.get_iteration_type_of_generator_function_return_type(
             crate::iteration::IterationTypeKind::Yield,
             return_type,
-            false,
+            is_async,
         ) else {
             return;
         };
@@ -714,12 +717,20 @@ impl<'a> Checker<'a, '_> {
             let operand_type = self.check_expression_at_node(operand);
             if yield_star {
                 // getYieldedTypeOfYieldExpression (`checker.go:11019`).
-                let Some((yielded, _)) = self.yield_star_operand_types(operand_type, false) else {
+                let Some((yielded, _)) = self.yield_star_operand_types(operand_type, is_async)
+                else {
+                    return;
+                };
+                let Some(yielded) = self.awaited_yielded_type(yielded, operand, is_async) else {
                     return;
                 };
                 self.report_assignability_failure(operand, operand, yielded, target);
                 return;
             }
+            let Some(operand_type) = self.awaited_yielded_type(operand_type, operand, is_async)
+            else {
+                return;
+            };
             let before = self.diagnostics.len();
             self.check_excess_properties(target, operand);
             if self.diagnostics.len() != before {
@@ -730,6 +741,27 @@ impl<'a> Checker<'a, '_> {
             let undefined = self.intrinsics.undefined;
             self.report_assignability_failure_with(node, None, undefined, target);
         }
+    }
+
+    /// The async tail of `getYieldedTypeOfYieldExpression` (`checker.go:11019`):
+    /// an async generator yields `getAwaitedTypeEx(yieldedType, errorNode,
+    /// TS1322)`, reported at the operand. A sync generator yields the type
+    /// unchanged. `None` declines (a gap, or native's `nil`).
+    fn awaited_yielded_type(
+        &mut self,
+        yielded: TypeId,
+        operand: NodeId,
+        is_async: bool,
+    ) -> Option<TypeId> {
+        if !is_async {
+            return Some(yielded);
+        }
+        self.check_awaited_type(
+            yielded,
+            false,
+            operand,
+            &messages::TYPE_OF_ITERATED_ELEMENTS_OF_A_YIELD_ASTERISK_OPERAND_MUST_EITHER_BE_A_VALID_PROMISE_OR_MUST_NOT_CONTAIN_A_CALLABLE_THEN_MEMBER,
+        )
     }
 
     /// `checkSignatureDeclaration`'s generator arm (`checker.go:2757`): a
