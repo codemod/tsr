@@ -6981,11 +6981,14 @@ impl<'a> Checker<'a, '_> {
             // it binds exactly as the other two do — `unique symbol[]` parses
             // as `unique (symbol[])`, so the element must wrap.
             // `uniqueSymbolsErrors` wants `(...args: (unique symbol)[]) => void`.
-            // Listed rather than folded into a shared prefix test because
-            // `readonly` is a `TypeOperator` too and does NOT reach this road —
-            // it is carried on the tuple/array *type* here, not in the element
-            // text — so a general test would claim ground nothing exercises.
             || text.starts_with("unique ")
+            // The fourth `TypeOperator` spelling: a readonly array or tuple
+            // element prints `readonly`-prefixed and binds the same way
+            // (`ParenthesizeElementTypeOfArrayType`, `readonly (readonly
+            // [K, V])[]`; `overrideInterfaceProperty`). An earlier note here
+            // said `readonly` never reached this road; it does once the
+            // element is itself a readonly array or tuple reference.
+            || text.starts_with("readonly ")
             || has_top_level_arrow(text);
         if wrap { format!("({text})") } else { text.to_string() }
     }
