@@ -1182,6 +1182,48 @@ impl Checker<'_, '_> {
                 id,
                 &messages::CATCH_CLAUSE_VARIABLE_CANNOT_HAVE_AN_INITIALIZER,
             );
+        } else {
+            self.check_catch_clause_block_redeclarations(declaration);
+        }
+    }
+
+    /// TS2492 — `checkCatchClause`'s last arm (`checker.go:4259`): an
+    /// unannotated catch variable without an initializer, each of whose
+    /// names (`node.Locals()`) the catch block redeclares as a block-scoped
+    /// variable, is reported at that variable's value declaration. A `var`
+    /// redeclaration is not block-scoped and is allowed.
+    fn check_catch_clause_block_redeclarations(&mut self, declaration: NodeId) {
+        let Some(clause) = self.nodes.parent(declaration) else { return };
+        let Some(Node::CatchClause(catch)) = self.node_map.get(clause) else { return };
+        let Some(block) = catch.block.and_then(|block| block.node_id) else { return };
+        let (Some(caught), Some(block_locals)) =
+            (self.binder.locals(clause), self.binder.locals(block))
+        else {
+            return;
+        };
+        let mut redeclared: Vec<(NodeId, String)> = Vec::new();
+        for (&name, _) in caught.iter() {
+            let Some(&local) = block_locals.get(name) else { continue };
+            let entry = self.binder.symbols().get(local);
+            if entry.flags.intersects(tsr_binder::SymbolFlags::BLOCK_SCOPED_VARIABLE)
+                && let Some(value_declaration) = entry.value_declaration
+            {
+                redeclared.push((value_declaration, name.to_string()));
+            }
+        }
+        for (value_declaration, name) in redeclared {
+            let Some(file) = self.source_file_of_for_diagnostics(value_declaration) else {
+                return;
+            };
+            let span = self.error_span(value_declaration);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::CANNOT_REDECLARE_IDENTIFIER_0_IN_CATCH_CLAUSE,
+                    span,
+                    [name],
+                ),
+            );
         }
     }
 }

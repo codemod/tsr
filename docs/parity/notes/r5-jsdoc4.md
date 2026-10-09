@@ -205,3 +205,44 @@ written arguments in `declared.rs`; then an `ImportType` arm in
 arguments, `check_type_argument_constraints_of`). Its argument `T` is a bare
 type parameter, which `bare_type_parameter_argument_is_decidable` already
 admits for a `TypeReferenceNode` argument.
+
+## 3. Catch clauses (item 3, jsdocCatchClauseWithTypeAnnotation)
+
+The case wants TS18046 ×2, TS2492, TS2339 ×2 beyond the TS1196 rows
+r5-jsdoc3 landed. Its TypeScript twin `catchClauseWithTypeAnnotation` is
+WRONG on exactly the same rows, so none of them is a JSDoc question.
+
+### 3.1 TS2492 (ported)
+
+**Native.** `checkCatchClause` (`checker.go:4247`): for an unannotated catch
+variable without an initializer, each name the clause declares
+(`node.Locals()`) that the catch block's locals hold as a block-scoped
+variable is TS2492 at that variable's value declaration
+(`grammarErrorOnNode`, the declaration's name). TSR had no TS2492 at all.
+
+**Port.** `check_catch_clause_block_redeclarations` (`grammar.rs`), called
+from `check_catch_clause_declaration`'s new `else` arm — the third branch of
+the same `if typeNode / else if initializer / else` native writes. The two
+locals tables are the binder's (`locals(catch_clause)`,
+`locals(block)`); no new table.
+
+**Measured** (on §2.2's committed walk arm, unfiltered): diagnostics
+**+1 RIGHT** (redeclareParameterInCatchBlock); catchClauseWithTypeAnnotation
+and jsdocCatchClauseWithTypeAnnotation gain their TS2492 row and stay WRONG
+on §3.2's rows. Types unchanged; zero losses. Ir domain-model 1,199,769,056, generic-imports
+342,898,629 (flat against §2.2).
+`crates/tsr-checker/tests/catch_clause_redeclaration.rs`: four tests.
+
+### 3.2 Not done: TS18046 and TS2339 on `unknown`
+
+- **TS18046** (`err.foo` with `err: unknown`): `checkNonNullTypeWithReporter`
+  (`checker.go:7413`). TSR's `check_non_null_type_reporting`
+  (`nullable_operand.rs`) deliberately does not report it: a
+  context-sensitive arrow parameter is read as `unknown` by the
+  diagnostics walk while inference answers `number`, and reporting cost two
+  EMPTY_RIGHT cases (`mapGroupBy`, `nonInferrableTypePropagation2`). The
+  property-access path (`members.rs`, main) reports nothing on an `unknown`
+  receiver either. Unblocking it is the inference cache, not this lane.
+- **TS2339** (`catch ({ x }: unknown)`): `getTypeOfDestructuredProperty`'s
+  missing-property report on an `unknown` parent — destructuring
+  (`destructure.rs`, r5-shapes).
