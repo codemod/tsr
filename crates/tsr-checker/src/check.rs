@@ -14660,6 +14660,19 @@ impl Checker<'_, '_> {
         args: impl IntoIterator<Item = String>,
     ) -> Option<Diagnostic> {
         let file = self.source_file_of_for_diagnostics(node)?;
+        let span = self.error_span(node);
+        self.diagnostic_in_file(file, span, message, args)
+    }
+
+    /// [`Checker::diagnostic_for_node`] at an already computed span in
+    /// `file` (a `SourceFile` node id).
+    pub(crate) fn diagnostic_in_file(
+        &mut self,
+        file: NodeId,
+        span: tsr_core::Span,
+        message: &'static tsr_diagnostics::Message,
+        args: impl IntoIterator<Item = String>,
+    ) -> Option<Diagnostic> {
         let image = if let Some(image) = self.diagnostic_files.get(&file) {
             image.clone()
         } else {
@@ -14671,7 +14684,7 @@ impl Checker<'_, '_> {
             self.diagnostic_files.insert(file, image.clone());
             image
         };
-        let mut diagnostic = Diagnostic::with_args(message, self.error_span(node), args);
+        let mut diagnostic = Diagnostic::with_args(message, span, args);
         diagnostic.set_file(image);
         Some(diagnostic)
     }

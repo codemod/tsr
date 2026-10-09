@@ -24,7 +24,9 @@
 //!
 //! `docs/architecture/checker-notes-diag2.md` §159.
 
+use tsr_ast::NodeId;
 use tsr_binder::{SymbolFlags, SymbolId};
+use tsr_core::Span;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
@@ -160,59 +162,141 @@ impl Checker<'_, '_> {
         // reaches, because a symbol that collides in the *global* table has no
         // container to qualify with.
         let name = self.binder.symbols().get(source).name.to_string();
-        // `addDuplicateDeclarationErrorsForSymbols` (`checker.go:14225`) walks
-        // both symbols' declarations and reports on each. The related-info
-        // chain it also builds (`X_0_was_also_declared_here`, `X_and_here`) is
-        // not ported — `Diagnostic` carries no related information, and the
-        // `errors_baseline` parser treats `!!! related` lines as hints rather
-        // than diagnostics (`errors_baseline.rs:22`), so the suite never asks.
-        let declarations: Vec<tsr_ast::NodeId> = self
-            .binder
-            .symbols()
-            .get(target)
-            .declarations
-            .iter()
-            .chain(self.binder.symbols().get(source).declarations.iter())
-            .copied()
-            .collect();
+        // `isSourcePlainJS` / `isTargetPlainJS` (`checker.go:14215-14218`):
+        // upstream suppresses the report **per side**, for whichever of the
+        // two symbols' first declaration is in a plain JavaScript file. That
+        // is why `plainJSReservedStrict`'s `const eval` reports nothing — its
+        // own side is skipped, and the other side is `lib.d.ts`, which the
+        // harness does not check.
+        //
+        // `IsPlainJSFile` also requires `checkJs` to be off; this port has
+        // no per-file `checkJs` in the checker, so the test is JS-ness
+        // alone. The difference can only *suppress* a report upstream would
+        // make, never invent one.
+        let plain_js = |checker: &Self, symbol: SymbolId| {
+            checker
+                .binder
+                .symbols()
+                .get(symbol)
+                .declarations
+                .first()
+                .is_some_and(|&first| checker.in_js_file(first))
+        };
+        let (source_plain_js, target_plain_js) = (plain_js(self, source), plain_js(self, target));
+        if !source_plain_js {
+            self.add_duplicate_declaration_errors_for_symbols(
+                source, message, needs_name, &name, target,
+            );
+        }
+        if !target_plain_js {
+            self.add_duplicate_declaration_errors_for_symbols(
+                target, message, needs_name, &name, source,
+            );
+        }
+    }
+
+    /// `addDuplicateDeclarationErrorsForSymbols` (`checker.go:14226`): one
+    /// `addDuplicateDeclarationError` per declaration of `target`, relating
+    /// every declaration of `source`.
+    fn add_duplicate_declaration_errors_for_symbols(
+        &mut self,
+        target: SymbolId,
+        message: &'static tsr_diagnostics::Message,
+        needs_name: bool,
+        name: &str,
+        source: SymbolId,
+    ) {
+        let related: Vec<NodeId> = self.binder.symbols().get(source).declarations.to_vec();
+        let declarations: Vec<NodeId> = self.binder.symbols().get(target).declarations.to_vec();
         for declaration in declarations {
-            // `isSourcePlainJS` / `isTargetPlainJS` (`checker.go:14218-14219`):
-            // upstream suppresses the report **per side**, for whichever of the
-            // two symbols is declared in a plain JavaScript file. That is why
-            // `plainJSReservedStrict`'s `const eval` reports nothing — its own
-            // side is skipped, and the other side is `lib.d.ts`, which the
-            // suite does not walk.
-            //
-            // `IsPlainJSFile` also requires `checkJs` to be off; this port has
-            // no per-file `checkJs` in the checker, so the test is JS-ness
-            // alone. The difference can only *suppress* a report upstream would
-            // make, never invent one — the safe direction, and it is why
-            // `allowJscheckJsTypeParameterNoCrash` is left where it was rather
-            // than converted.
-            if self.in_js_file(declaration) {
+            self.add_duplicate_declaration_error(declaration, message, needs_name, name, &related);
+        }
+    }
+
+    /// `getAdjustedNodeForError` then `NewDiagnosticForNode`'s span: the
+    /// declaration's *name*, which is what `error_span` centralises (§48).
+    /// `GetNameOfDeclaration` also names an `export as namespace N`, which
+    /// `error_span`'s declaration list does not; only an alias merge reaches
+    /// it here (§19).
+    fn adjusted_error_location(&self, declaration: NodeId) -> Option<(NodeId, Span)> {
+        let file = self.source_file_of_for_diagnostics(declaration)?;
+        let span = match self.node_map.get(declaration) {
+            Some(tsr_ast::Node::NamespaceExportDeclaration(export)) => export
+                .name
+                .and_then(|name| name.node_id)
+                .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
+            _ => self.error_span(declaration),
+        };
+        Some((file, span))
+    }
+
+    /// `addDuplicateDeclarationError` (`checker.go:14232`).
+    ///
+    /// `lookupOrIssueError` reuses a reported diagnostic that
+    /// `CompareDiagnostics` finds equal to the fresh one — same file, span,
+    /// code and arguments, and (the fresh one having none) no message chain
+    /// and no related information yet — else reports the fresh one. Then
+    /// each related declaration whose adjusted node is not the error node
+    /// adds `'{0}' was also declared here.` (the first) or `and here.`,
+    /// skipping one already present and stopping at five. The adjusted-node
+    /// identity is compared as (file, span): two distinct name nodes never
+    /// share a span.
+    fn add_duplicate_declaration_error(
+        &mut self,
+        node: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        needs_name: bool,
+        name: &str,
+        related_nodes: &[NodeId],
+    ) {
+        let Some((file, span)) = self.adjusted_error_location(node) else { return };
+        let args: Vec<String> = if needs_name { vec![name.to_string()] } else { Vec::new() };
+        let existing = self.diagnostics.iter().position(|(at, diagnostic)| {
+            *at == file
+                && diagnostic.span == span
+                && std::ptr::eq(diagnostic.message, message)
+                && diagnostic.args == args
+                && diagnostic.message_chain().is_empty()
+                && diagnostic.related_information().is_empty()
+        });
+        let index = existing.unwrap_or_else(|| {
+            self.report(file, Diagnostic::with_args(message, span, args));
+            self.diagnostics.len() - 1
+        });
+        for &related in related_nodes {
+            let Some((related_file, related_span)) = self.adjusted_error_location(related) else {
+                continue;
+            };
+            if (related_file, related_span) == (file, span) {
                 continue;
             }
-            let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
-            // `getAdjustedNodeForError` then `NewDiagnosticForNode` — the
-            // declaration's *name*, which is what `error_span` centralises
-            // (§48). `class c1 {}` reports at the `c1`.
-            //
-            // `GetNameOfDeclaration` also names an `export as namespace N`,
-            // which `error_span`'s declaration list does not; it is a
-            // declaration only an alias merge reaches here (§19).
-            let span = match self.node_map.get(declaration) {
-                Some(tsr_ast::Node::NamespaceExportDeclaration(export)) => export
-                    .name
-                    .and_then(|name| name.node_id)
-                    .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
-                _ => self.error_span(declaration),
+            let present = self.diagnostics[index].1.related_information();
+            let is_record = |record: &Diagnostic, message: &'static tsr_diagnostics::Message| {
+                std::ptr::eq(record.message, message)
+                    && record.span == related_span
+                    && record.file().map(tsr_diagnostics::format::DiagnosticFile::file_name)
+                        == self.diagnostic_files.get(&related_file).map(|image| image.file_name())
             };
-            let diagnostic = if needs_name {
-                Diagnostic::with_args(message, span, [name.clone()])
+            if present.len() >= 5
+                || present.iter().any(|record| {
+                    is_record(record, &messages::AND_HERE)
+                        || (is_record(record, &messages::_0_WAS_ALSO_DECLARED_HERE)
+                            && record.args.first().map(String::as_str) == Some(name))
+                })
+            {
+                continue;
+            }
+            let record = if present.is_empty() {
+                self.diagnostic_in_file(
+                    related_file,
+                    related_span,
+                    &messages::_0_WAS_ALSO_DECLARED_HERE,
+                    [name.to_string()],
+                )
             } else {
-                Diagnostic::new(message, span)
+                self.diagnostic_in_file(related_file, related_span, &messages::AND_HERE, [])
             };
-            self.report(file, diagnostic);
+            self.diagnostics[index].1.add_related_information(record);
         }
     }
 }

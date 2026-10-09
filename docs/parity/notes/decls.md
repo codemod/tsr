@@ -465,3 +465,19 @@ Side table `Checker::diagnostic_files` (convention record):
 First consumer: `errorNextVariableOrPropertyDeclarationMustHaveSameType`
 (`checker.go:5949`) adds `'{0}' was also declared here.` (TS6203) at
 `symbol.ValueDeclaration` under TS2403/TS2717.
+
+## §20 TS2451/TS2300/TS2567 across files: `addDuplicateDeclarationError`'s related records
+
+`reportMergeSymbolError` (`checker.go:14201`) now follows native structure in
+`merge_conflicts.rs`: per-side plain-JS suppression on each symbol's first
+declaration, `addDuplicateDeclarationErrorsForSymbols(source, …, target)`
+then `(target, …, source)`, and `addDuplicateDeclarationError`
+(`checker.go:14232`): `lookupOrIssueError` (reuse a reported diagnostic equal
+under `CompareDiagnostics`; the fresh one has no chain or related records, so
+only an existing one without them matches), then per related declaration
+`'{0}' was also declared here.` / `and here.` at its adjusted node, skipping
+the error node itself and duplicates, at most five. Adjusted-node identity is
+compared as (file, span). The lookup is a linear scan of this checker's
+diagnostics on the conflict path only (once per program, per recorded
+conflict). Same-file duplicates come from the binder (`binder.go:215`), whose
+related records are `tsr-binder`'s.
