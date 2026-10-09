@@ -1113,3 +1113,23 @@ landed in batch AM. It declined `.1115` as new work past its session rhythm.
 r5-declared4 is now declared.rs' single owner, and also owns
 instantiation_expressions.rs and unique_symbols.rs. It takes `.1115`, `.1102`
 and the `.1078` leftovers, and lands declared.rs diffs other lanes send it.
+
+### r5-spans finished (batch AU); r5-smallcodes3 dispatched
+
+r5-spans landed four diffs: the scanner's octal-minus and unterminated-comment
+spans, the parser's `this`-parameter modifier span, the missing-node raw-span
+sites (stacked on r5-smallcodes2's `error_span` arm), and the currentNode
+tracking TS2589 needs. `tsr-2zk.1104` is closed. Three diffs stay held, each
+with its blocker:
+
+- TS2589 report sites: 8 losses, because this port's instantiation depth
+  reaches 100 where upstream's does not. They wait on lazy anonymous-type
+  instantiation and the conditional tail guard (`tsr-2zk.1116`, which blocks
+  `tsr-2zk.1103`). That work is in main's laziness lane, `tsr-2zk.11.5`.
+- The `await using` list span waits on the parser's `AwaitUsing` flag
+  (`tsr-2zk.2.3`).
+- The delete exact-optional arm waits on `Partial`'s members carrying their
+  own symbols.
+
+r5-smallcodes3 takes the slot, with the single-code clusters outside main's
+active lanes (`tsr-2zk.1117`).
