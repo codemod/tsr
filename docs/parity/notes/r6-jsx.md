@@ -165,6 +165,54 @@ signatures, so `resolveCall` on a fragment and TS2604 on one).
 no new missing or extra row in any case; type lines byte-identical;
 slowcases clean on both dumps.
 
+## 3. Type arguments on a JSX tag (TS2558, TS2344)
+
+**Forcing constraint.** 29 rows in three cases: `jsxIntrinsicElementsTypeArgumentErrors`
+(10), `jsxUnclosedParserRecovery` (13), `tsxTypeArgumentResolution` (6).
+
+- *Intrinsic tag.* `resolveJsxOpeningLikeElement`'s intrinsic arm
+  (`jsx.go:552-558`) checks written type arguments as source elements and
+  reports `Expected 0 type arguments, but got {n}.` over the list,
+  whatever the attributes. Ported as `check_jsx_intrinsic_type_arguments`,
+  run before the intrinsic attributes check.
+- *Value tag, no candidate of the written arity.* `chooseOverload` skips
+  every candidate on `hasCorrectTypeArgumentArity` and records nothing, so
+  `reportCallResolutionErrors` falls to its last arm and
+  `getTypeArgumentArityError` (`checker.go:9853`) reports over the whole
+  list (one signature: its `min-max`; several: the nearest count below or
+  above, TS2743 with both). This answer needs no relation, so
+  `choose_jsx_overload` decides it first — before the context-sensitive
+  decline — and for a single candidate too (`isSingleNonGenericCandidate`
+  with written type arguments returns before recording anything, which is
+  the same arm).
+- *A constraint violation.* `checkTypeArguments` without reports makes a
+  candidate `candidateForTypeArgumentError`; with no argument-error
+  candidate, `checkTypeArguments` with reports puts TS2344 on the first
+  written argument outside its instantiated constraint. Written arguments
+  are completed by `fillMissingTypeArguments` (a default instantiated over
+  the arguments before it, else `unknown`), which the chooser now does
+  instead of declining a short list (`<MyComp2<Prop>>` with `P2 = {}`).
+  A single generic candidate with written type arguments now goes through
+  the chooser as well (one assignable pass; the subtype pass only runs for
+  several candidates, as `resolveCall` does).
+
+**Span.** `NewDiagnosticForNodeList` runs from the first argument to the
+list's end, which includes a trailing comma; this port's span ends at the
+last argument (the start, which the suite compares, is the same), as the
+call road's `report_type_argument_arity_error` does.
+
+**Not ported, with the owner:** TS1099 (`<div<>>`, an empty list) and
+TS1009 (a trailing comma) from `checkGrammarJsxElement`'s
+`checkGrammarTypeArguments`. The parser keeps neither an empty JSX
+type-argument list nor its trailing comma (an empty list is `&[]`, the same
+as no list), so the grammar check cannot ask; the parser (main) would need
+to record both. 6 rows (`jsxIntrinsicElementsTypeArgumentErrors` 5:15,
+7:22, 18:15, 20:22; `tsxTypeArgumentResolution` 26:12, 28:12).
+
+**Measured** on top of §1–§2: +29 rows, no new missing or extra row in any
+case, type lines byte-identical, slowcases clean. Oracle-checked fixtures
+in `tests/r6_jsx.rs`.
+
 ## 9. Diffs for files this lane does not own
 
 Each diff is against the frozen base plus this lane's commits, measured

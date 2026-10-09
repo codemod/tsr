@@ -67,6 +67,9 @@ impl Checker<'_, '_> {
             self.check_jsx_signatureless_tag(tag, tag_id);
             self.check_jsx_class_attributes_member(node, typed, tag);
         }
+        if intrinsic {
+            self.check_jsx_intrinsic_type_arguments(typed);
+        }
         let overloads = if intrinsic || self.jsx_implicit_import_unresolved(node) {
             JsxOverloads::Declined
         } else {
@@ -90,6 +93,14 @@ impl Checker<'_, '_> {
         };
         let failure = match overloads {
             JsxOverloads::Failed { last, props, count } => Some((*last, props, count)),
+            JsxOverloads::TypeArgumentArity(arities) => {
+                self.report_jsx_type_argument_arity(typed, &arities);
+                None
+            }
+            JsxOverloads::TypeArgumentError(candidate) => {
+                self.report_jsx_type_argument_constraint(node, &candidate);
+                None
+            }
             JsxOverloads::Declined | JsxOverloads::Chosen => None,
         };
         self.check_jsx_attributes_assignable(node, typed, tag, tag_id, failure);
@@ -1525,6 +1536,12 @@ enum JsxOverloads {
     /// effective first argument as the only parameter; `count` that list's
     /// length — above one, the report is TS2769.
     Failed { last: Box<crate::signatures::Signature>, props: TypeId, count: usize },
+    /// No candidate takes the written number of type arguments: each
+    /// candidate's `(getMinTypeArgumentCount, type parameter count)`.
+    TypeArgumentArity(Vec<(usize, usize)>),
+    /// No argument-error candidate, and the last candidate whose written type
+    /// arguments break a constraint (`candidateForTypeArgumentError`).
+    TypeArgumentError(Box<crate::signatures::Signature>),
 }
 
 /// [`Checker::jsx_check_candidate`]'s answer for one candidate.
@@ -1597,8 +1614,30 @@ impl Checker<'_, '_> {
                 None => return JsxOverloads::Declined,
             }
         }
-        if signatures.len() < 2 {
+        if signatures.len() < 2 && type_arguments.is_empty() {
             return JsxOverloads::Declined;
+        }
+        // `reportCallResolutionErrors`' last arm: when no candidate has the
+        // written type-argument count, `chooseOverload` skips every one and
+        // records nothing, so the report is `getTypeArgumentArityError` over
+        // the whole list, whatever the attributes are.
+        let type_argument_count = type_arguments.len();
+        if signatures
+            .iter()
+            .all(|signature| !jsx_has_correct_type_argument_arity(signature, type_argument_count))
+        {
+            let arities = signatures
+                .iter()
+                .map(|signature| {
+                    let minimum = signature
+                        .type_parameters
+                        .iter()
+                        .rposition(|parameter| parameter.default.is_none())
+                        .map_or(0, |index| index + 1);
+                    (minimum, signature.type_parameters.len())
+                })
+                .collect();
+            return JsxOverloads::TypeArgumentArity(arities);
         }
         // `getEffectiveCallArguments`' JSX arm: the attributes node when it
         // has properties or the element has children.
@@ -1620,11 +1659,17 @@ impl Checker<'_, '_> {
             .node_id
             .is_some_and(|id| self.nodes.span(id).end == self.nodes.span(node).end);
         let candidates = self.reorder_candidates(signatures);
-        let type_argument_count = type_arguments.len();
         let mut failed: Vec<(crate::signatures::Signature, TypeId)> = Vec::new();
-        let relations: &[Relation] = &[Relation::Subtype, Relation::Assignable];
+        let mut type_argument_error = None;
+        // The subtype pass only chooses among several candidates.
+        let relations: &[Relation] = if candidates.len() > 1 {
+            &[Relation::Subtype, Relation::Assignable]
+        } else {
+            &[Relation::Assignable]
+        };
         for &relation in relations {
             failed.clear();
+            type_argument_error = None;
             for candidate in &candidates {
                 if !jsx_has_correct_type_argument_arity(candidate, type_argument_count) {
                     continue;
@@ -1638,7 +1683,13 @@ impl Checker<'_, '_> {
                 else {
                     return JsxOverloads::Declined;
                 };
-                let JsxCandidate::Checked(check, props) = check else { continue };
+                let (check, props) = match check {
+                    JsxCandidate::Checked(check, props) => (check, props),
+                    JsxCandidate::TypeArgumentError => {
+                        type_argument_error = Some(candidate.clone());
+                        continue;
+                    }
+                };
                 let check = *check;
                 let verdict = self.with_jsx_candidate_context(node, &check, |checker| {
                     let source = checker.jsx_checked_attributes_type(node)?;
@@ -1658,9 +1709,124 @@ impl Checker<'_, '_> {
             }
         }
         let count = failed.len();
-        match failed.pop() {
-            Some((last, props)) => JsxOverloads::Failed { last: Box::new(last), props, count },
-            None => JsxOverloads::Declined,
+        match (failed.pop(), type_argument_error) {
+            (Some((last, props)), _) => JsxOverloads::Failed { last: Box::new(last), props, count },
+            (None, Some(candidate)) => JsxOverloads::TypeArgumentError(Box::new(candidate)),
+            (None, None) => JsxOverloads::Declined,
+        }
+    }
+
+    /// `resolveJsxOpeningLikeElement`'s intrinsic arm (`jsx.go:552-558`):
+    /// written type arguments are checked as source elements and reported as
+    /// TS2558, `Expected 0 type arguments, but got {n}.`, over the list.
+    fn check_jsx_intrinsic_type_arguments(&mut self, typed: Node<'_>) {
+        self.report_jsx_type_argument_arity(typed, &[(0, 0)]);
+    }
+
+    /// `getTypeArgumentArityError` (`checker.go:9853`) over a JSX element's
+    /// type-argument list: one signature names its own range, several the
+    /// nearest count below or above the written one (TS2743 when both
+    /// exist). The span is `NewDiagnosticForNodeList`'s from the first
+    /// argument to the last (a trailing comma, inside upstream's list end,
+    /// is not in this port's span; the start is the same).
+    fn report_jsx_type_argument_arity(&mut self, typed: Node<'_>, arities: &[(usize, usize)]) {
+        let type_arguments = match typed {
+            Node::JsxOpeningElement(element) => element.type_arguments,
+            Node::JsxSelfClosingElement(element) => element.type_arguments,
+            _ => return,
+        };
+        let (Some(first), Some(last)) = (
+            type_arguments.first().and_then(tsr_ast::TypeNode::node_id),
+            type_arguments.last().and_then(tsr_ast::TypeNode::node_id),
+        ) else {
+            return;
+        };
+        let count = type_arguments.len();
+        let span =
+            tsr_core::Span { start: self.nodes.span(first).start, end: self.nodes.span(last).end };
+        let diagnostic = if let [(min, max)] = arities {
+            let expected = if min < max { format!("{min}-{max}") } else { min.to_string() };
+            Diagnostic::with_args(
+                &messages::EXPECTED_0_TYPE_ARGUMENTS_BUT_GOT_1,
+                span,
+                [expected, count.to_string()],
+            )
+        } else {
+            let mut below: Option<usize> = None;
+            let mut above: Option<usize> = None;
+            for &(min, max) in arities {
+                if min > count {
+                    above = Some(above.map_or(min, |above| above.min(min)));
+                } else if max < count {
+                    below = Some(below.map_or(max, |below| below.max(max)));
+                }
+            }
+            match (below, above) {
+                (Some(below), Some(above)) => Diagnostic::with_args(
+                    &messages::NO_OVERLOAD_EXPECTS_0_TYPE_ARGUMENTS_BUT_OVERLOADS_DO_EXIST_THAT_EXPECT_EITHER_1_OR_2_TYPE_ARGUMENTS,
+                    span,
+                    [count.to_string(), below.to_string(), above.to_string()],
+                ),
+                (Some(expected), None) | (None, Some(expected)) => Diagnostic::with_args(
+                    &messages::EXPECTED_0_TYPE_ARGUMENTS_BUT_GOT_1,
+                    span,
+                    [expected.to_string(), count.to_string()],
+                ),
+                (None, None) => return,
+            }
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(first) else { return };
+        self.report(file, diagnostic);
+    }
+
+    /// `checkTypeArguments` with `reportErrors` (`checker.go:9259`) for
+    /// `candidateForTypeArgumentError`: the first written type argument not
+    /// assignable to its instantiated constraint reports TS2344 on that
+    /// argument. The relation's elaboration chain is not modelled; an
+    /// undecided relation reports nothing.
+    fn report_jsx_type_argument_constraint(
+        &mut self,
+        node: NodeId,
+        candidate: &crate::signatures::Signature,
+    ) {
+        let type_arguments = match self.node_map.get(node) {
+            Some(Node::JsxOpeningElement(element)) => element.type_arguments,
+            Some(Node::JsxSelfClosingElement(element)) => element.type_arguments,
+            _ => return,
+        };
+        let Some(parameters) = self.type_parameter_types(candidate) else { return };
+        let names: Vec<String> = candidate.type_parameters.iter().map(|p| p.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let Some(written) = self.jsx_filled_type_arguments(node, candidate, &parameters, &names)
+        else {
+            return;
+        };
+        for (index, type_parameter) in candidate.type_parameters.iter().enumerate() {
+            let Some(constraint) = type_parameter.constraint else { continue };
+            let constraint = self.instantiate_type(constraint, &written, &parameters, &names);
+            let argument = written[index].1;
+            if self.is_gap(constraint) || self.is_gap(argument) {
+                return;
+            }
+            match self.relate_ternary(argument, constraint, Relation::Assignable) {
+                Ternary::Related => continue,
+                Ternary::Unknown => return,
+                Ternary::NotRelated => {}
+            }
+            // A filled default is never reported against: its index has no
+            // written node (`checkTypeArguments` walks the written list).
+            let Some(at) = type_arguments.get(index).and_then(tsr_ast::TypeNode::node_id) else {
+                return;
+            };
+            let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+            let span = self.error_span(at);
+            let diagnostic = Diagnostic::with_args(
+                &messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1,
+                span,
+                [self.type_to_string(argument), self.type_to_string(constraint)],
+            );
+            self.report(file, diagnostic);
+            return;
         }
     }
 
@@ -1787,16 +1953,7 @@ impl Checker<'_, '_> {
                 checker.resolved_inference_map(&infos, &signature, &parameters, flags)
             })?
         } else {
-            let mut written = Vec::with_capacity(parameters.len());
-            for (index, &parameter) in parameters.iter().enumerate() {
-                let argument = match type_arguments.get(index) {
-                    Some(&argument) => self.get_type_from_type_node(argument),
-                    // `fillMissingTypeArguments`: the default, else the
-                    // constraint, else `unknown`; not modelled here.
-                    None => return None,
-                };
-                written.push((parameter, argument));
-            }
+            let written = self.jsx_filled_type_arguments(node, &signature, &parameters, &names)?;
             for (index, type_parameter) in signature.type_parameters.iter().enumerate() {
                 let Some(constraint) = type_parameter.constraint else { continue };
                 let constraint = self.instantiate_type(constraint, &written, &parameters, &names);
@@ -1816,6 +1973,51 @@ impl Checker<'_, '_> {
         resolved.type_parameters.clear();
         let props = self.parameter_type(&resolved.parameters[0]);
         Some(JsxCandidate::Checked(Box::new(resolved), props))
+    }
+
+    /// The written type arguments of a JSX element through
+    /// `fillMissingTypeArguments` (`checker.go`): each missing argument is
+    /// its parameter's default instantiated over the arguments before it,
+    /// else `unknown` (`any` in a JavaScript file). Pairs each type
+    /// parameter with its argument; `None` when the element has more
+    /// arguments than the candidate has parameters.
+    fn jsx_filled_type_arguments(
+        &mut self,
+        node: NodeId,
+        candidate: &crate::signatures::Signature,
+        parameters: &[TypeId],
+        names: &[&str],
+    ) -> Option<Vec<(TypeId, TypeId)>> {
+        let type_arguments = match self.node_map.get(node) {
+            Some(Node::JsxOpeningElement(element)) => element.type_arguments,
+            Some(Node::JsxSelfClosingElement(element)) => element.type_arguments,
+            _ => return None,
+        };
+        if type_arguments.len() > parameters.len() {
+            return None;
+        }
+        let fallback =
+            if self.in_js_file(node) { self.intrinsics.any } else { self.intrinsics.unknown };
+        let mut written: Vec<(TypeId, TypeId)> = Vec::with_capacity(parameters.len());
+        for (index, &parameter) in parameters.iter().enumerate() {
+            let argument = match type_arguments.get(index) {
+                Some(&argument) => self.get_type_from_type_node(argument),
+                None => match candidate.type_parameters[index].default {
+                    Some(default) => {
+                        // `newTypeMapper(typeParameters, result)`: parameters
+                        // not yet filled map to `unknown`.
+                        let mut map = written.clone();
+                        map.extend(
+                            parameters[index..].iter().map(|&p| (p, self.intrinsics.unknown)),
+                        );
+                        self.instantiate_type(default, &map, parameters, names)
+                    }
+                    None => fallback,
+                },
+            };
+            written.push((parameter, argument));
+        }
+        Some(written)
     }
 
     /// `getEffectiveFirstArgumentForJsxSignature` (`jsx.go:927`): the

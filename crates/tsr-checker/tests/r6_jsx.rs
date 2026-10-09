@@ -87,3 +87,25 @@ fn a_parameterless_candidate_takes_the_attributes_argument() {
     );
     assert_eq!(found, vec![(3, 14, "TS2769".to_string())]);
 }
+
+#[test]
+fn an_intrinsic_tag_takes_no_type_arguments() {
+    assert_eq!(codes("const x = <div<number> />;\n"), vec![(1, 16, "TS2558".to_string())]);
+}
+
+#[test]
+fn a_value_tag_with_too_many_type_arguments_reports_the_range() {
+    let found = codes(
+        "declare function F<T, U = string>(p: { a: T }): JSX.Element;\nconst x = <F<number, string, boolean> a={1} />;\n",
+    );
+    assert_eq!(found, vec![(2, 14, "TS2558".to_string())]);
+}
+
+#[test]
+fn a_written_type_argument_outside_its_constraint_reports_ts2344() {
+    // `U` is filled from its default (`fillMissingTypeArguments`).
+    let found = codes(
+        "declare function F<T extends string, U = string>(p: { a: T }): JSX.Element;\nconst x = <F<number> a={1} />;\n",
+    );
+    assert_eq!(found, vec![(2, 14, "TS2344".to_string())]);
+}
