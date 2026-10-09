@@ -94,3 +94,16 @@ const n: number | boolean = u; // error
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn a_private_identifier_of_another_class_is_an_absent_property() {
+    let source = r#"class A { #foo: number = 1; }
+interface A2 extends A {}
+class B { #foo: number = 1; }
+class C extends A {}
+const b: A2 = new B(); // error
+const c: A2 = new C();
+const a: A = new C();
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}

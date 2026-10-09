@@ -6110,6 +6110,32 @@ impl Relater<'_, '_, '_> {
             } else {
                 self.checker.get_property_of_type(source, name).into_iter().collect()
             };
+            // A private identifier's symbol is named per declaring class
+            // (`GetSymbolNameForPrivateIdentifier`, binder.go:369:
+            // `__#<class symbol id>@#foo`). This port keys members by their
+            // text, so a source `#foo` declared in another class is native's
+            // *absent* property: getUnmatchedProperty (relater.go:4233)
+            // rejects it unless the target member is optional outside the
+            // subtype relations, and the property loop never pairs the two.
+            if name.starts_with('#')
+                && let Some(target_property) = self.checker.get_property_of_type(target, name)
+            {
+                let target_declaration =
+                    self.checker.binder.symbols().get(target_property).value_declaration;
+                if source_properties.iter().any(|&source_property| {
+                    self.checker.binder.symbols().get(source_property).value_declaration
+                        != target_declaration
+                }) {
+                    let optional_absent = target_metadata.is_some_and(|flags| flags.0)
+                        && !matches!(self.relation, Relation::Subtype | Relation::StrictSubtype);
+                    parts.push(if optional_absent {
+                        RelationResult::Related
+                    } else {
+                        RelationResult::NotRelated
+                    });
+                    continue;
+                }
+            }
             if let Some(target_property) = self.checker.get_property_of_type(target, name) {
                 let privacy = self.property_privacy_related(
                     &source_properties,

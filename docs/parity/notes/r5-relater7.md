@@ -82,3 +82,38 @@ once every slot reads `uniqueESSymbolTypes`.
 or to `object` (none exists in `isSimpleTypeRelatedTo`).
 
 Test: `tests/relater7_arms.rs` `a_unique_symbol_against_a_decidable_target_is_decided`.
+
+## 3. A private identifier declared in another class is an absent property
+
+**Forcing constraint.** Native names a private identifier's symbol per
+declaring class (`GetSymbolNameForPrivateIdentifier`, binder.go:369:
+`__#<class symbol id>@#foo`). So `B`'s `#foo` is not `A`'s: against `interface
+A2 extends A {}`, `getUnmatchedProperty` (relater.go:4233) finds `A`'s `#foo`
+missing from `B` and the relation is False (`privateNamesUnique-5` 12:7). The
+port keys members by their text, found `B`'s `#foo`, and (a `#` name carries
+no `private` modifier, so the privacy arm did not fire) compared `number` to
+`number`: Related, then `Unknown` from the surrounding walk.
+
+**Ported** (`properties_related_to_excluding`): a `#` target member whose
+source counterpart has another value declaration is treated as native's
+absent member: NotRelated, or Related when the target member is optional
+outside the subtype relations (getUnmatchedProperty's `requireOptionalProperties`).
+An inherited `#foo` shares the base's declaration, so a subclass still relates.
+
+**Alternative.** Escaping private names in the binder as native does. Rejected
+for this lane: it changes every member lookup and printer that reads the name
+(`members.rs`, `printing.rs`), none of them this lane's. The declaration test
+is equivalent wherever a name lookup succeeds, which is the only place the
+two keyings differ.
+
+**Measured** against §2's commit, both loss checks (vs §0) empty:
+- diagnostics: `privateNamesUnique-5` WRONG → RIGHT;
+- types unchanged;
+- `Ir`: generic-imports 342,958,772 → 342,977,973 (+0.006%); domain-model
+  1,200,379,140 → 1,200,333,445 (−0.004%). CLI output identical.
+
+**Falsifier.** A `#` member reached through a merged declaration whose value
+declaration differs from native's single symbol (classes cannot redeclare a
+private identifier, so none is known).
+
+Test: `tests/relater7_arms.rs` `a_private_identifier_of_another_class_is_an_absent_property`.
