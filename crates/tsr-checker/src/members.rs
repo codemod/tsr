@@ -1140,7 +1140,28 @@ impl Checker<'_, '_> {
                 }
             })?;
         self.type_parameter_constraint_cache.insert(key.clone(), None);
-        let constraint = self.mapped_constraint_type(constraint_node);
+        let mut constraint = self.mapped_constraint_type(constraint_node);
+        // getConstraintFromTypeParameter (pinned 5b1047d, checker.go:17085):
+        // a written `any` constraint (not errorType) is `unknown`, or
+        // `string | number | symbol` for a mapped type's key parameter.
+        if self.store.get(constraint).flags.contains(TypeFlags::ANY) && !self.is_error(constraint) {
+            let mapped_key = constraint_node
+                .node_id()
+                .and_then(|node| self.nodes.parent(node))
+                .and_then(|parameter| self.nodes.parent(parameter))
+                .is_some_and(|owner| {
+                    matches!(self.node_map.get(owner), Some(Node::MappedTypeNode(_)))
+                });
+            constraint = if mapped_key {
+                self.get_union_type(&[
+                    self.intrinsics.string,
+                    self.intrinsics.number,
+                    self.intrinsics.es_symbol,
+                ])
+            } else {
+                self.intrinsics.unknown
+            };
+        }
         // A constraint that itself gaps leaves the parameter as it was: a gap
         // beats reading members off `errorType`.
         let constraint = (constraint != self.intrinsics.error).then_some(constraint);

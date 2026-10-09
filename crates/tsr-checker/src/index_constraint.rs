@@ -448,6 +448,24 @@ impl<'a> Checker<'a, '_> {
         Some(interface)
     }
 
+    /// `symbolToString(prop)` for a property with a named declaration:
+    /// `getNameOfSymbolAsWritten` (`nodebuilderimpl.go:987`) returns
+    /// `DeclarationNameToString` of the first declaration name, the source
+    /// text as written (`"1"` with its quotes, `["get1"]`, `[Symbol.x]`);
+    /// both computed arms (late-bound or not, no literal name type) reach
+    /// it. `None` without a named declaration or its source text.
+    fn symbol_declaration_name_as_written(&self, symbol: SymbolId) -> Option<String> {
+        let declaration = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .copied()
+            .find(|&declaration| self.declaration_name_of(declaration).is_some())?;
+        self.computed_member_name_text(declaration)
+    }
+
     /// `checkIndexConstraintForProperty` (`checker.go`).
     #[allow(clippy::too_many_arguments)]
     fn check_index_constraint_for_property(
@@ -498,12 +516,14 @@ impl<'a> Checker<'a, '_> {
             let property_text = self.type_to_string(property_type);
             let key_text = self.type_to_string(info.key);
             let value_text = self.type_to_string(info.value);
+            let printed_name =
+                self.symbol_declaration_name_as_written(property).unwrap_or_else(|| name.to_string());
             self.report(
                 file,
                 Diagnostic::with_args(
                     &messages::PROPERTY_0_OF_TYPE_1_IS_NOT_ASSIGNABLE_TO_2_INDEX_TYPE_3,
                     span,
-                    [name.to_string(), property_text, key_text, value_text],
+                    [printed_name, property_text, key_text, value_text],
                 ),
             );
         }
