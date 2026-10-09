@@ -17,13 +17,18 @@ impl Checker<'_, '_> {
     /// (`true ? E.A : x` types as `E | T` once `getTypeOfNode` asks for the
     /// regular type of the expression). A no-op for anything else.
     pub fn get_regular_type_of_literal_type(&mut self, id: TypeId) -> TypeId {
+        let ty = self.store.get(id);
         // An enum member's regular form is the union's own constituent —
         // interning would mint a twin the relater cannot match
-        // (`checker-notes-narrow.md` §18).
-        if let Some(&regular) = self.enum_member_regular.get(&id) {
+        // (`checker-notes-narrow.md` §18). Only a fresh literal or a minted
+        // qualified enum-member reference (an `OBJECT`) is ever a key, so
+        // every other type skips the lookup, as native reads the flags first
+        // (`docs/parity/notes/perf.md` §18).
+        if (ty.fresh || ty.flags.contains(TypeFlags::OBJECT))
+            && let Some(&regular) = self.enum_member_regular.get(&id)
+        {
             return regular;
         }
-        let ty = self.store.get(id);
         if ty.fresh {
             return self.store.literal_twin(id, false);
         }
@@ -46,7 +51,10 @@ impl Checker<'_, '_> {
         // the union (`regularType`); a union with no fresh member, the common
         // case, is answered by this scan without a rebuild.
         if !types.iter().any(|&member| {
-            self.store.get(member).fresh || self.enum_member_regular.contains_key(&member)
+            let ty = self.store.get(member);
+            ty.fresh
+                || (ty.flags.contains(TypeFlags::OBJECT)
+                    && self.enum_member_regular.contains_key(&member))
         }) {
             return id;
         }

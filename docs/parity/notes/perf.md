@@ -669,3 +669,21 @@ jsTyping `--singleThreaded` task-clock 9,079 → 8,654 ms (−4.7%, 3 runs
 each); mallocs 49,173,590 → 49,104,071, reallocs 3,535,777 → 3,361,937.
 Bench projects have no star re-exports (unchanged). CLI output on jsTyping
 `cmp`-identical; dumps byte-identical.
+
+## §18 `getRegularTypeOfLiteralType` reads the flags before the enum map
+
+Native `getRegularTypeOfLiteralType` (`checker.go:25273`) tests
+`TypeFlagsFreshable`, then `TypeFlagsUnion`; anything else answers itself
+without a lookup. This port's `get_regular_type_of_literal_type`
+(`literals.rs`) probed `enum_member_regular` (an `FxHashMap`) first, for
+every type, and the relater asks it for both operands of every
+`is_related_to`: 2.4% self of jsTyping's single-threaded check, nearly all
+hash probing. The map's keys are fresh literals (`declared.rs` enum member
+mints) and minted qualified enum-member references (`OBJECT` `Named` types),
+so the probe is now gated on `fresh || OBJECT`, in both the function and its
+union arm; a non-fresh non-object key never existed, and a non-fresh literal
+key mapped to itself, which the fall-through answers too.
+
+jsTyping Ir (callgrind, `--singleThreaded`, whole process) 66,899,626,033 →
+65,114,781,507 (−2.7%); domain-model, domain-model-large, generic-imports
+within ±0.02%. CLI output `cmp`-identical; dumps byte-identical.
