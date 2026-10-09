@@ -4024,9 +4024,28 @@ impl Checker<'_, '_> {
             // A file that resolved, is in the program, and exports nothing —
             // `requireOfAnEmptyFile1`. Upstream's argument is the resolved file
             // name, not the specifier.
+            //
+            // `!isSideEffectImport(errorNode)` (`checker.go:15358`): `import
+            // "./script"` consumes no module symbol, so a script target is
+            // not an error (`sideEffectImports3`, and `import './'` in
+            // `reactJsxReactResolvedNodeNext`).
+            if self.is_side_effect_import(specifier) {
+                return;
+            }
             Diagnostic::with_args(&messages::FILE_0_IS_NOT_A_MODULE, span, [path])
         };
         self.report(importing, diagnostic);
+    }
+
+    /// `isSideEffectImport` (`checker/utilities.go:229`): the nearest
+    /// `ImportDeclaration` ancestor has no import clause.
+    fn is_side_effect_import(&self, node: NodeId) -> bool {
+        std::iter::once(node)
+            .chain(self.nodes.ancestors(node))
+            .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::ImportDeclaration)
+            .is_some_and(|ancestor| {
+                matches!(self.node_map.get(ancestor), Some(Node::ImportDeclaration(import)) if import.import_clause.is_none())
+            })
     }
 
     /// The boolean core of the TS2307 emitter, shared with
