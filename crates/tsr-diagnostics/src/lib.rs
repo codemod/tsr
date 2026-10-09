@@ -178,9 +178,18 @@ fn format_template(template: &str, args: &[&str]) -> String {
             break;
         };
         let body = &after[..close];
+        // `{(\d+)}` (`diagnostics.go:115`): only a run of digits between
+        // the braces is a placeholder. Any other `{` is literal, and the scan
+        // resumes right after it, so `export type { {0} as default }` still
+        // finds its `{0}`.
+        if body.is_empty() || !body.bytes().all(|byte| byte.is_ascii_digit()) {
+            out.push('{');
+            rest = after;
+            continue;
+        }
         match body.parse::<usize>() {
             Ok(index) if index < args.len() => out.push_str(args[index]),
-            // Unknown index or non-numeric body: emit verbatim.
+            // An index with no argument: emit verbatim.
             _ => {
                 out.push('{');
                 out.push_str(body);
@@ -428,6 +437,18 @@ mod tests {
         // useless one.
         assert_eq!(format_template("'{0}' expected.", &[]), "'{0}' expected.");
         assert_eq!(format_template("{0} and {1}", &["a"]), "a and {1}");
+    }
+
+    #[test]
+    fn a_placeholder_inside_literal_braces_is_substituted() {
+        // TS1290's text (`export type { {0} as default }`): `{(\d+)}` matches
+        // the inner `{0}`, and the outer braces stay literal.
+        assert_eq!(
+            format_template("Consider using 'export type { {0} as default }'.", &["A"]),
+            "Consider using 'export type { A as default }'."
+        );
+        assert_eq!(format_template("{ x } and {0}", &["a"]), "{ x } and a");
+        assert_eq!(format_template("{} {0}", &["a"]), "{} a");
     }
 
     #[test]

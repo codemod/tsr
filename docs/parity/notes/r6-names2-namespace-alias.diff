@@ -1,0 +1,184 @@
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index f876fdc..09648bd 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -1394,13 +1394,24 @@ impl<'a> BindResult<'a> {
+                 && (mask == SymbolFlags::ENUM_MEMBER || name != binder::INTERNAL_DEFAULT)
+                 && let Some(symbol) = self.symbol_of(node)
+                 && let Some(&found) = self.symbols.get(self.merged_symbol(symbol)).exports.get(name)
++                // A pure export-specifier alias is not in scope, but only in
++                // an external module's exports: `IsSourceFile(location) ||
++                // (IsModuleDeclaration(location) && Ambient &&
++                // !IsGlobalScopeAugmentation(location))`
++                // (`nameresolver.go:105`, `:121-133`). A non-ambient
++                // namespace's walk finds it (`r6-names2.md` §3).
+                 && (self.symbols.get(self.merged_symbol(found)).flags != SymbolFlags::ALIAS
+                     || !self.symbols.get(self.merged_symbol(found)).declarations.iter().any(|&d| {
+                         matches!(
+                             nodes.kind(d),
+                             SyntaxKind::ExportSpecifier | SyntaxKind::NamespaceExport
+                         )
+-                    }))
++                    })
++                    || !(nodes.kind(node) == SyntaxKind::SourceFile
++                        || (self.facts(node).contains(NodeFacts::AMBIENT_CONTEXT)
++                            && !matches!(node_map.get(node),
++                                Some(tsr_ast::Node::ModuleDeclaration(module))
++                                    if module.keyword.kind == SyntaxKind::GlobalKeyword))))
+                 // An `export { X }` specifier's own symbol lives in the file's
+                 // **exports**, not its `locals`, so the exclusion belongs on
+                 // this arm too — §836's first measurement found the specifier
+@@ -1418,6 +1429,15 @@ impl<'a> BindResult<'a> {
+                     // Preserve the existing qualified import-equals admission.
+                     // Only external require aliases use the checker callback.
+                     for &declaration in &entry.declarations {
++                        // `getSymbol`'s alias arm (`checker.go:2183`) on an
++                        // export specifier the skip above let through: the
++                        // alias is the answer when its target carries the
++                        // meaning, which only the checker can ask.
++                        if let Some(tsr_ast::Node::ExportSpecifier(_)) = node_map.get(declaration)
++                            && exported_alias(found, meaning & mask)?
++                        {
++                            return Some(found);
++                        }
+                         if let Some(tsr_ast::Node::ImportEqualsDeclaration(alias)) =
+                             node_map.get(declaration)
+                         {
+diff --git a/crates/tsr-checker/src/circular_alias.rs b/crates/tsr-checker/src/circular_alias.rs
+index 9b09c2e..10642ee 100644
+--- a/crates/tsr-checker/src/circular_alias.rs
++++ b/crates/tsr-checker/src/circular_alias.rs
+@@ -126,6 +126,31 @@ impl Checker<'_, '_> {
+                 let owner = self.nodes.parent(declaration)?;
+                 Some((owner, self.external_module_name(owner)?))
+             }
++            // `getTargetOfExportSpecifier`'s local arm: `resolveEntityName`
++            // (`checker.go:14970`), whose `getSymbol` recurses into
++            // `resolveAlias` on the first alias the walk meets, before any
++            // meaning filter. In a non-ambient namespace that can be the
++            // specifier's own alias (`namespace N { export { inner } }`),
++            // which is the cycle. `docs/parity/notes/r6-names2.md` §3.
++            Node::ExportSpecifier(specifier) => {
++                let export = self.nodes.parent(self.nodes.parent(declaration)?)?;
++                match (self.node_map.get(export)?, specifier.property_name.or(specifier.name)?) {
++                    (
++                        Node::ExportDeclaration(export),
++                        tsr_ast::ModuleExportName::Identifier(name),
++                    ) if export.module_specifier.is_none() => {
++                        return self.binder.resolve_name_with_export_alias(
++                            self.nodes,
++                            self.node_map,
++                            name.node_id?,
++                            name.text,
++                            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
++                            |_, _| Some(true),
++                        );
++                    }
++                    _ => None,
++                }
++            }
+             _ => None,
+         };
+         let Some((owner, specifier)) = module_reference else { return self.resolve_alias(alias) };
+diff --git a/crates/tsr-conformance/tests/r6_names2_namespace_alias.rs b/crates/tsr-conformance/tests/r6_names2_namespace_alias.rs
+new file mode 100644
+index 0000000..023fe2e
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names2_namespace_alias.rs
+@@ -0,0 +1,58 @@
++//! r6-names2: a local export specifier in a non-ambient namespace. Native's
++//! walk does not skip a pure export-specifier alias there
++//! (`binder/nameresolver.go:121-133`), so `export { inner }` finds its own
++//! alias and `resolveAlias` reports TS2303, while `export { inner as x }`
++//! finds nothing and reports TS2304. Expectations are native tsgo output at
++//! the pinned 5b1047d (`--module commonjs --target es2022`).
++//! `docs/parity/notes/r6-names2.md` §3.
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(source: &str) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names2", "a.ts", source);
++    case.options.insert("module".into(), "commonjs".into());
++    case.options.insert("target".into(), "es2022".into());
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++#[test]
++fn a_namespace_export_of_an_undeclared_name_is_its_own_circular_alias() {
++    let source = "namespace N { export { inner } }
++namespace M { const inner2 = 1; export { inner2 } }
++var o = 1;
++namespace O { export { o } }
++export {};";
++    assert_eq!(
++        diagnostics(source),
++        [(1, 15, 1194), (1, 24, 2303), (2, 33, 1194), (4, 15, 1194), (4, 24, 2303)]
++    );
++}
++
++/// The lookup is for the property name, which the namespace's exports do not
++/// hold; an ambient namespace skips the alias as a source file does.
++#[test]
++fn a_renamed_or_ambient_export_is_a_failed_lookup() {
++    let source = "namespace N1 { export { inner as x } }
++declare namespace D { export { amb } }
++export {};";
++    assert_eq!(diagnostics(source), [(1, 16, 1194), (1, 25, 2304), (2, 32, 2304)]);
++}
++
++/// Two specifiers naming each other are both circular; an alias whose
++/// target resolves is not, and a reference to it resolves.
++#[test]
++fn mutual_aliases_cycle_and_a_resolved_alias_does_not() {
++    let source = "namespace P { export { q as r }; export { r as q } }
++namespace R { var x = 1; export { x as y }; let z = y; }
++namespace S { function f() {} export { f } }
++export {};";
++    assert_eq!(
++        diagnostics(source),
++        [(1, 15, 1194), (1, 24, 2303), (1, 34, 1194), (1, 43, 2303), (2, 26, 1194), (3, 31, 1194)]
++    );
++}
+diff --git a/crates/tsr-checker/src/export_specifier_names.rs b/crates/tsr-checker/src/export_specifier_names.rs
+index ed55647..6bd89e6 100644
+--- a/crates/tsr-checker/src/export_specifier_names.rs
++++ b/crates/tsr-checker/src/export_specifier_names.rs
+@@ -61,12 +61,28 @@ impl Checker<'_, '_> {
+         }
+         // Only a source file's or an ambient module's exports skip a pure
+         // export-specifier alias (`binder/nameresolver.go:121-133`). In a
+-        // non-ambient namespace the walk finds the specifier's own alias
+-        // (TS2303, a circular alias, not a failed lookup), so nothing here
+-        // applies.
+-        if let Some(namespace) = self.nodes.ancestors(node).find(|&ancestor| {
++        // non-ambient namespace the walk can find an alias in the namespace's
++        // exports, the specifier's own included, and `getSymbol` takes it
++        // (its cycle is TS2303, `circular_alias.rs`), so only a walk that
++        // finds nothing at all fails. **Corrected by r6-names2:** this
++        // declined every non-ambient namespace, which lost
++        // `namespace N { export { inner as x } }`'s TS2304
++        // (`docs/parity/notes/r6-names2.md` §3).
++        let in_namespace = self.nodes.ancestors(node).find(|&ancestor| {
+             matches!(self.node_map.get(ancestor), Some(Node::ModuleDeclaration(_)))
+-        }) && !self.is_in_ambient_context(namespace)
++        });
++        if in_namespace.is_some_and(|namespace| !self.is_in_ambient_context(namespace))
++            && self
++                .binder
++                .resolve_name_with_export_alias(
++                    self.nodes,
++                    self.node_map,
++                    named,
++                    identifier.text,
++                    SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
++                    |_, _| Some(true),
++                )
++                .is_some()
+         {
+             return;
+         }

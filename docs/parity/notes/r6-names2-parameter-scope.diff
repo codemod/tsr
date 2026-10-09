@@ -1,0 +1,214 @@
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index f876fdc..791fecf 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -70,6 +70,7 @@ mod names;
+ mod narrowing;
+ #[cfg(test)]
+ mod parallel_tests;
++mod scope_change;
+ mod suggestion;
+ mod symbol;
+ mod symbol_table;
+@@ -83,6 +84,7 @@ pub use binder::{is_declaration_file, is_external_module, is_external_module_in}
+ pub use container::{ContainerFlags, container_flags};
+ pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
+ pub use names::PreparedNames;
++pub use scope_change::ScopeChangeOptions;
+ pub use suggestion::{SuggestionHost, SuggestionWalk};
+ pub use symbol::{
+     Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable, SymbolTableField,
+@@ -899,6 +901,7 @@ impl<'a> BindResult<'a> {
+             meaning,
+             &mut |_, _| Some(false),
+             false,
++            None,
+         )
+     }
+ 
+@@ -924,6 +927,36 @@ impl<'a> BindResult<'a> {
+             meaning,
+             &mut exported_alias,
+             true,
++            None,
++        )
++    }
++
++    /// [`Self::resolve_name_with_export_alias`] with the compiler options
++    /// `useOuterVariableScopeInParameter` reads (`nameresolver.go:74`, `:346`).
++    /// Native's `NameResolver` holds `CompilerOptions`; a `BindResult` does
++    /// not, so the checker passes them per call from its own fields. The other
++    /// entry points pass none and decline that arm.
++    /// `docs/parity/notes/r6-names2.md` §1.
++    #[allow(clippy::too_many_arguments)]
++    pub fn resolve_name_with_export_alias_in_scope(
++        &self,
++        nodes: &NodeTable,
++        node_map: &NodeMap<'a>,
++        start: NodeId,
++        name: &str,
++        meaning: SymbolFlags,
++        scope_change: ScopeChangeOptions,
++        mut exported_alias: impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
++    ) -> Option<SymbolId> {
++        self.resolve_name_with_alias_meaning(
++            nodes,
++            node_map,
++            start,
++            name,
++            meaning,
++            &mut exported_alias,
++            true,
++            Some(scope_change),
+         )
+     }
+ 
+@@ -941,6 +974,7 @@ impl<'a> BindResult<'a> {
+         meaning: SymbolFlags,
+         alias_meaning: &mut impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
+         filter_local_aliases: bool,
++        scope_change: Option<ScopeChangeOptions>,
+     ) -> Option<SymbolId> {
+         let resolved = self.resolve_name_excluding_with_export_alias(
+             nodes,
+@@ -951,6 +985,7 @@ impl<'a> BindResult<'a> {
+             None,
+             alias_meaning,
+             filter_local_aliases,
++            scope_change,
+         )?;
+         // §265. `declare global { … }` does NOT declare a binding called
+         // `global` — the keyword is syntax, not a name. Upstream reports
+@@ -1127,6 +1162,7 @@ impl<'a> BindResult<'a> {
+             exclude,
+             &mut |_, _| Some(false),
+             false,
++            None,
+         )
+     }
+ 
+@@ -1141,6 +1177,7 @@ impl<'a> BindResult<'a> {
+         exclude: Option<NodeId>,
+         exported_alias: &mut impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
+         filter_local_aliases: bool,
++        scope_change: Option<ScopeChangeOptions>,
+     ) -> Option<SymbolId> {
+         // Upstream's `lastLocation`: the node the walk came *from*. The static
+         // rule below is a question about it, not about the class.
+@@ -1178,6 +1215,21 @@ impl<'a> BindResult<'a> {
+                 && !self.symbol_is_declared_within(found, exclude, nodes)
+                 && !self.parameter_hidden_from_type_parameter_list(found, node, last, nodes)
+                 && !self.local_type_hidden_outside_body(found, node, last, meaning, nodes, node_map)
++                // `useOuterVariableScopeInParameter` (`nameresolver.go:74`),
++                // whose first test (`IsParameterDeclaration(lastLocation)`)
++                // stays inline: the rest runs on almost no lookup. Without
++                // the options it still answers every parameter list whose
++                // answer does not depend on them (`scope_change.rs`).
++                && !(last.is_some_and(|last| nodes.kind(last) == SyntaxKind::Parameter)
++                    && self.use_outer_variable_scope_in_parameter(
++                        scope_change,
++                        found,
++                        node,
++                        last,
++                        meaning,
++                        nodes,
++                        node_map,
++                    ))
+                 // resolveNameHelper exposes conditional infer locals only in
+                 // the true branch; check/extends/false continue outward.
+                 && !matches!(node_map.get(node), Some(tsr_ast::Node::ConditionalTypeNode(conditional))
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 6d06e66..d5ce967 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -877,12 +877,20 @@ impl<'a> Checker<'a, '_> {
+         let binder = self.binder;
+         let nodes = self.nodes;
+         let node_map = self.node_map;
+-        binder.resolve_name_with_export_alias(
++        // `useOuterVariableScopeInParameter`'s two options, read from the
++        // checker's own fields at the call (`docs/parity/notes/r6-names2.md`
++        // §1): native's `NameResolver` holds `CompilerOptions`.
++        let scope_change = tsr_binder::ScopeChangeOptions {
++            target: self.language_version,
++            emit_standard_class_fields: self.standard_class_fields,
++        };
++        binder.resolve_name_with_export_alias_in_scope(
+             nodes,
+             node_map,
+             start,
+             name,
+             meaning,
++            scope_change,
+             |alias, mask| {
+                 let target = self.resolve_alias(alias)?;
+                 let flags = binder.symbols().get(binder.merged_symbol(target)).flags;
+diff --git a/crates/tsr-binder/src/scope_change.rs b/crates/tsr-binder/src/scope_change.rs
+index 4d53ea0..fa3e150 100644
+--- a/crates/tsr-binder/src/scope_change.rs
++++ b/crates/tsr-binder/src/scope_change.rs
+@@ -42,7 +42,6 @@ pub struct ScopeChangeOptions {
+     pub emit_standard_class_fields: bool,
+ }
+ 
+-#[allow(dead_code, reason = "hook: docs/parity/notes/r6-names2-parameter-scope.diff")]
+ impl BindResult<'_> {
+     /// The `useResult = false` arm of `resolveNameHelper`
+     /// (`nameresolver.go:72-75`): `symbol`, found in `location`'s locals on a
+diff --git a/crates/tsr-conformance/tests/r6_names2_parameter_scope.rs b/crates/tsr-conformance/tests/r6_names2_parameter_scope.rs
+new file mode 100644
+index 0000000..f11363c
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names2_parameter_scope.rs
+@@ -0,0 +1,51 @@
++//! r6-names2: `resolveName`'s `useOuterVariableScopeInParameter` arm
++//! (`crates/tsr-binder/src/scope_change.rs`). A parameter initializer does not
++//! see the function body's variables unless the parameters require a scope
++//! change. Expectations are native tsgo output at the pinned 5b1047d
++//! (`--strict`). `docs/parity/notes/r6-names2.md` §1.
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(source: &str, target: &str) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names2", "s.ts", source);
++    case.options.insert("target".into(), target.into());
++    case.options.insert("strict".into(), "true".into());
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++const SOURCE: &str = "export function bar(func = () => foo) { let foo = \"in\"; }
++let outer = \"\";
++export function f1(p = outer) { var outer: number = 2; return p; }
++export function nullish(a = c ?? 1) { var c: number | undefined; return a; }
++export function plain(a = d) { var d = 1; return a; }";
++
++/// Below ES2020 `??` in a parameter requires a scope change, so `c` is the
++/// body's (TS2373); the other initializers look outside the function.
++#[test]
++fn an_es2015_nullish_initializer_keeps_the_body_scope() {
++    assert_eq!(diagnostics(SOURCE, "es2015"), [(1, 34, 2304), (4, 29, 2373), (5, 27, 2304)]);
++}
++
++#[test]
++fn from_es2020_every_initializer_looks_outside_the_function() {
++    assert_eq!(diagnostics(SOURCE, "es2022"), [(1, 34, 2304), (4, 29, 2304), (5, 27, 2304)]);
++}
++
++/// Every resolution road answers the same: the flow road behind TS2454
++/// resolves through `BindResult::resolve_name`, which gets no options, and
++/// still finds no body variable for a parameter list without a trigger
++/// (`optionalParamReferencingOtherParams2`'s native baseline).
++#[test]
++fn a_road_without_options_agrees_when_nothing_requires_a_scope_change() {
++    let source = "var a = 1;
++function strange(x = a, y = b) {
++    var b = \"\";
++    return y;
++}";
++    assert_eq!(diagnostics(source, "es2015"), [(2, 29, 2304)]);
++}

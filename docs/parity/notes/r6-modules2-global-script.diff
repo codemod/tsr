@@ -1,0 +1,131 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -363,6 +363,8 @@
+                     )
+                 }) {
+                     self.check_exports_on_merged_declarations(node);
++                    // TS1280 (`checker.go:5168`), `isolated_alias.rs`.
++                    self.check_global_script_namespace(node);
+                 }
+                 ambient
+                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
+@@ -4678,6 +4680,11 @@
+                 // `Alias && !Value`, and this port's alias symbols answer
+                 // `VALUE` where upstream's do not (§119), so the test belongs
+                 // here rather than on the meaning ladder below. §121.
++                // TS1281, reported inside `resolveNameHelper`'s walk at the
++                // enum declaration that found the name
++                // (`binder/nameresolver.go:153`), so before the success arms
++                // below; `isolated_alias.rs`.
++                self.check_enum_member_from_another_file(node, value, text);
+                 self.report_type_only_alias_used_as_value(node, value, text);
+                 // TS2866, `resolveNameHelper`'s next success arm
+                 // (`checker.go:1872`), `isolated_alias.rs`.
+diff --git a/crates/tsr-compiler/tests/r6_modules2_global_script.rs b/crates/tsr-compiler/tests/r6_modules2_global_script.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_modules2_global_script.rs
+@@ -0,0 +1,102 @@
++//! r6-modules2's global-script diff (`docs/parity/notes/r6-modules2.md` §2):
++//! TS1280 (`checkModuleDeclaration`) and TS1281 (`resolveNameHelper`'s enum
++//! arm) under `isolatedModules`, over a real program so files merge.
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ModuleDetectionKind, ScriptTarget, Tristate};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// The `(line, code)` pairs the checker reports in `file`, sorted.
++fn reported(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<(u32, u32)> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: options,
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let text = files.iter().find(|(name, _)| *name == file).expect("listed").1;
++    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    let mut reported: Vec<(u32, u32)> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(at, _)| *at == id)
++        .map(|(_, diagnostic)| {
++            let line = text[..diagnostic.span.start as usize].matches('\n').count() as u32 + 1;
++            (line, diagnostic.message.code())
++        })
++        .collect();
++    reported.sort_unstable();
++    reported
++}
++
++fn isolated(on: bool) -> CompilerOptions {
++    CompilerOptions {
++        target: ScriptTarget::ESNext,
++        isolated_modules: Tristate::from_bool(on),
++        ..Default::default()
++    }
++}
++
++/// `compiler/isolatedModulesGlobalNamespacesAndEnums`, reduced.
++const FILES: [(&str, &str); 4] = [
++    (
++        "/script.ts",
++        "namespace Instantiated { export const x = 1; }\nnamespace Uninstantiated { export type T = number; }\ndeclare namespace Ambient { export const x: number; }\n",
++    ),
++    ("/module.ts", "export namespace Instantiated { export const x = 1; }\n"),
++    ("/enum1.ts", "enum Enum { A, B, C }\ndeclare enum Enum { X = 1_000_000 }\n"),
++    (
++        "/enum2.ts",
++        "enum Enum {\n    E = A,\n    Y = X,\n    Z = Enum.A\n}\ndeclare enum Enum {\n    F = A\n}\n",
++    ),
++];
++
++#[test]
++fn an_instantiated_namespace_in_a_script_is_ts1280() {
++    assert_eq!(reported(&FILES, isolated(true), "/script.ts"), [(1, 1280)]);
++    assert_eq!(reported(&FILES, isolated(true), "/module.ts"), []);
++    assert_eq!(reported(&FILES, isolated(false), "/script.ts"), []);
++    // `moduleDetection: force` gives every file an external module indicator.
++    let force = CompilerOptions { module_detection: ModuleDetectionKind::Force, ..isolated(true) };
++    assert_eq!(reported(&FILES, force, "/script.ts"), []);
++}
++
++#[test]
++fn an_unqualified_enum_member_from_another_file_is_ts1281() {
++    // Not in the ambient declaration, and not when qualified.
++    assert_eq!(reported(&FILES, isolated(true), "/enum2.ts"), [(2, 1281), (3, 1281)]);
++    assert_eq!(reported(&FILES, isolated(false), "/enum2.ts"), []);
++}

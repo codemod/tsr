@@ -126,6 +126,31 @@ impl Checker<'_, '_> {
                 let owner = self.nodes.parent(declaration)?;
                 Some((owner, self.external_module_name(owner)?))
             }
+            // `getTargetOfExportSpecifier`'s local arm: `resolveEntityName`
+            // (`checker.go:14970`), whose `getSymbol` recurses into
+            // `resolveAlias` on the first alias the walk meets, before any
+            // meaning filter. In a non-ambient namespace that can be the
+            // specifier's own alias (`namespace N { export { inner } }`),
+            // which is the cycle. `docs/parity/notes/r6-names2.md` §3.
+            Node::ExportSpecifier(specifier) => {
+                let export = self.nodes.parent(self.nodes.parent(declaration)?)?;
+                match (self.node_map.get(export)?, specifier.property_name.or(specifier.name)?) {
+                    (
+                        Node::ExportDeclaration(export),
+                        tsr_ast::ModuleExportName::Identifier(name),
+                    ) if export.module_specifier.is_none() => {
+                        return self.binder.resolve_name_with_export_alias(
+                            self.nodes,
+                            self.node_map,
+                            name.node_id?,
+                            name.text,
+                            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+                            |_, _| Some(true),
+                        );
+                    }
+                    _ => None,
+                }
+            }
             _ => None,
         };
         let Some((owner, specifier)) = module_reference else { return self.resolve_alias(alias) };

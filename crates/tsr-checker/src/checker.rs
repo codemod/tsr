@@ -647,6 +647,9 @@ pub struct Checker<'a, 'n> {
     /// import-specifier spellings; the relative-spelling arm declines when
     /// set.
     pub(crate) allow_importing_ts_extensions: bool,
+    /// `RewriteRelativeImportExtensions.IsTrue()`, read by
+    /// `resolveExternalModule`'s rewrite arm (`isolated_alias.rs`).
+    pub(crate) rewrite_relative_import_extensions: bool,
     /// The options `GetResolutionDiagnostic` reads (`crate::isolated_alias`).
     pub(crate) resolution_diagnostic_options: crate::isolated_alias::ResolutionDiagnosticOptions,
     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
@@ -1551,6 +1554,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             standard_class_fields: false,
             allow_synthetic_defaults: false,
             allow_importing_ts_extensions: false,
+            rewrite_relative_import_extensions: false,
             resolution_diagnostic_options:
                 crate::isolated_alias::ResolutionDiagnosticOptions::default(),
             no_unchecked_side_effect_imports: true,
@@ -1785,6 +1789,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `esModuleInterop` (explicit only — its own Node16+ default is the
         // §131 Node16/NodeNext exclusion's business); else `module == System`.
         self.allow_importing_ts_extensions = options.allow_importing_ts_extensions.is_true();
+        self.rewrite_relative_import_extensions =
+            options.rewrite_relative_import_extensions.is_true();
         self.resolution_diagnostic_options = crate::isolated_alias::ResolutionDiagnosticOptions {
             allow_js: options.get_allow_js(),
             resolve_json_module: options.get_resolve_json_module(),
@@ -2428,7 +2434,10 @@ impl<'a, 'n> Checker<'a, 'n> {
                     return Some(out);
                 }
             }
-            let printed = self.type_to_string(id);
+            // A deferred conditional's typed print stands where its baked
+            // written text did (`docs/parity/notes/r6-lazytext.md` §2).
+            let printed =
+                self.deferred_conditional_text_at(id).unwrap_or_else(|| self.type_to_string(id));
             return self.qualified_name_at(id, printed, reference);
         };
         if let Some(name) = self.module_name_at(module, reference, SymbolFlags::VALUE) {
@@ -3749,8 +3758,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 }
                 let Some(link) = self.resolve_alias(candidate) else { continue };
                 // The two-hop signature: the immediate target is the
-                // `export=` alias, and ITS target is the namespace.
-                if !self.binder.symbols().get(link).flags.intersects(SymbolFlags::ALIAS) {
+                // `export=` alias, and ITS target is the namespace. An
+                // `import x = a` whose `a` is an import alias is two alias
+                // hops too, but not this signature: native names its
+                // namespace through the accessibility walk, which prefers the
+                // earlier-declared `a` (r6-modules2 §1).
+                let link_entry = self.binder.symbols().get(link);
+                if !link_entry.flags.intersects(SymbolFlags::ALIAS) || link_entry.name != "export="
+                {
                     continue;
                 }
                 if self.binder.merged_symbol(self.resolve_alias_fully(link)) != target {

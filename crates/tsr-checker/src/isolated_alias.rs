@@ -554,7 +554,7 @@ impl Checker<'_, '_> {
         }) else {
             return;
         };
-        if !self.decorated_node_can_be_decorated(node, typed) {
+        if !self.node_can_be_decorated(node, typed) {
             return;
         }
         // `markLinkedReferences`' own guards: `canCollectSymbolAliasAccessibilityData`
@@ -783,73 +783,6 @@ impl Checker<'_, '_> {
     fn is_const_enum_or_const_enum_only_module(&self, symbol: SymbolId) -> bool {
         let flags = self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags;
         flags.intersects(SymbolFlags::CONST_ENUM)
-    }
-
-    /// `ast.NodeCanBeDecorated(c.legacyDecorators, node, node.Parent,
-    /// node.Parent.Parent)` (`ast/utilities.go:4254`), with `CanHaveDecorators`
-    /// folded in as the kinds it lists. `grammar.rs` has a port of the same
-    /// predicate, private to that file.
-    fn decorated_node_can_be_decorated(&self, node: NodeId, typed: Node<'_>) -> bool {
-        let legacy = self.legacy_decorators;
-        let parent = self.nodes.parent(node);
-        let parent_kind = parent.map(|parent| self.nodes.kind(parent));
-        let parent_is_class_declaration = parent_kind == Some(SyntaxKind::ClassDeclaration);
-        let parent_is_class_like =
-            matches!(parent_kind, Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression));
-        let private_name = |name: tsr_ast::PropertyName<'_>| {
-            matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
-        };
-        let class_member = |body: bool| {
-            body && (if legacy { parent_is_class_declaration } else { parent_is_class_like })
-        };
-        match typed {
-            Node::ClassDeclaration(_) => true,
-            Node::ClassExpression(_) => !legacy,
-            Node::PropertyDeclaration(property) => {
-                !(legacy && private_name(property.name))
-                    && ((legacy && parent_is_class_declaration)
-                        || (!legacy
-                            && parent_is_class_like
-                            && !tsr_ast::has_syntactic_modifier(
-                                property.modifiers,
-                                SyntaxKind::AbstractKeyword,
-                            )
-                            && !tsr_ast::has_syntactic_modifier(
-                                property.modifiers,
-                                SyntaxKind::DeclareKeyword,
-                            )))
-            }
-            Node::MethodDeclaration(method) => {
-                !(legacy && private_name(method.name)) && class_member(method.body.is_some())
-            }
-            Node::GetAccessorDeclaration(accessor) => {
-                !(legacy && private_name(accessor.name)) && class_member(accessor.body.is_some())
-            }
-            Node::SetAccessorDeclaration(accessor) => {
-                !(legacy && private_name(accessor.name)) && class_member(accessor.body.is_some())
-            }
-            Node::ParameterDeclaration(_) => {
-                if !legacy {
-                    return false;
-                }
-                let Some(parent) = parent else { return false };
-                let (body, parameters) = match self.node_map.get(parent) {
-                    Some(Node::ConstructorDeclaration(n)) => (n.body.is_some(), n.parameters),
-                    Some(Node::MethodDeclaration(n)) => (n.body.is_some(), n.parameters),
-                    Some(Node::SetAccessorDeclaration(n)) => (n.body.is_some(), n.parameters),
-                    _ => return false,
-                };
-                // `GetThisParameter(parent) != node`.
-                let this_parameter = parameters.first().filter(|first| {
-                    matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
-                });
-                body && this_parameter.and_then(|first| first.node_id) != Some(node)
-                    && self.nodes.parent(parent).is_some_and(|grandparent| {
-                        self.nodes.kind(grandparent) == SyntaxKind::ClassDeclaration
-                    })
-            }
-            _ => false,
-        }
     }
 
     /// `resolveExternalModule`'s resolution-diagnostic branch (pinned
@@ -1126,21 +1059,327 @@ impl Checker<'_, '_> {
         flags
     }
 
-    /// `getTypeOnlyAliasDeclarationEx(symbol, meaning)` (`checker.go:2143`).
-    /// Upstream reads each hop's `aliasSymbolLinks.typeOnlyDeclaration`, which
-    /// `resolveAlias` publishes as the first type-only declaration on that
-    /// hop's own chain; [`Checker::type_only_alias_declaration_node`] answers
-    /// that for the first hop, so only the entry test on `meaning` remains.
+    /// `getTypeOnlyAliasDeclarationEx(symbol, meaning)` (`checker.go:2143`):
+    /// while the hop is an alias **with no `meaning`**, answer its
+    /// `aliasSymbolLinks.typeOnlyDeclaration`
+    /// ([`Checker::type_only_alias_declaration_node`]), else step to its
+    /// target. An alias merged with a local value (`import { A }` beside
+    /// `const A`) ends the walk under `Value`, whatever its import says; the
+    /// same condition as `check.rs`'s [`Checker::type_only_alias_declaration`]
+    /// (`r6-smallcodes4`). Each hop's link already covers the pure-alias hops
+    /// behind it, so re-reading them on the way is redundant, never wrong.
     fn type_only_alias_declaration_node_ex(
         &mut self,
         symbol: SymbolId,
         meaning: SymbolFlags,
     ) -> Option<NodeId> {
-        let flags = self.binder.symbols().get(symbol).flags;
-        if !flags.intersects(SymbolFlags::ALIAS) || flags.intersects(meaning) {
-            return None;
+        let mut current = symbol;
+        for _ in 0..16 {
+            let flags = self.binder.symbols().get(current).flags;
+            if !flags.intersects(SymbolFlags::ALIAS) || flags.intersects(meaning) {
+                return None;
+            }
+            if let Some(declaration) = self.type_only_alias_declaration_node(current) {
+                return Some(declaration);
+            }
+            current = self.resolve_alias(current)?;
         }
-        self.type_only_alias_declaration_node(symbol)
+        None
+    }
+
+    /// TS1280, `checkModuleDeclaration`'s `GetIsolatedModules()` arm
+    /// (`checker.go:5168`–`5173`): a non-ambient instantiated namespace in a
+    /// file with no `ExternalModuleIndicator` may merge with a namespace in
+    /// another script, and single-file transpilation cannot see that.
+    ///
+    /// The guard is upstream's `symbol.Flags&ValueModule != 0 &&
+    /// !inAmbientContext && isInstantiatedModule(node,
+    /// ShouldPreserveConstEnums())` (`:5164`), on the merged symbol, as
+    /// `getSymbolOfDeclaration` answers. The caller is past
+    /// `checkGrammarModuleElementContext`'s bail-out (`:5146`).
+    ///
+    /// `ExternalModuleIndicator == nil` is read as "the binder made no file
+    /// symbol" in a TypeScript file. The binder makes one exactly for an
+    /// external module there, including one forced by `moduleDetection`
+    /// (`is_external_or_common_js_module`, ADR-0041). A JavaScript file can
+    /// also get one as a `CommonJS` module, so there the statement indicators
+    /// (`is_external_module_in`) answer instead.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules2-global-script.diff"
+    )]
+    pub(crate) fn check_global_script_namespace(&mut self, node: NodeId) {
+        if !self.isolated_modules {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE_MODULE)
+            || self.declaration_is_in_an_ambient_context(node)
+            || !self.is_instantiated_module_preserving_const_enums(node)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of(node) else { return };
+        let external = if self.in_js_file(node) {
+            matches!(self.node_map.get(file), Some(Node::SourceFile(source))
+                if tsr_binder::is_external_module_in(source, self.nodes))
+        } else {
+            self.binder.symbol_of(file).is_some()
+        };
+        if external {
+            return;
+        }
+        let Some(Node::ModuleDeclaration(declaration)) = self.node_map.get(node) else { return };
+        let Some(name) = declaration.name.and_then(|name| name.node_id()) else { return };
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::NAMESPACES_ARE_NOT_ALLOWED_IN_GLOBAL_SCRIPT_FILES_WHEN_0_IS_ENABLED_IF_THIS_FILE_IS_NOT_INTENDED_TO_BE_A_GLOBAL_SCRIPT_SET_MODULEDETECTION_TO_FORCE_OR_ADD_AN_EMPTY_EXPORT_STATEMENT,
+                span,
+                [self.isolated_modules_like_flag_name().to_string()],
+            ),
+        );
+    }
+
+    /// `isInstantiatedModule(node, ShouldPreserveConstEnums())`
+    /// (`checker.go`): `ast.GetModuleInstanceState` is `Instantiated`, or
+    /// `ConstEnumOnly` while const enums are preserved. `check.rs` has the
+    /// same reading as a private helper.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules2-global-script.diff"
+    )]
+    fn is_instantiated_module_preserving_const_enums(&self, node: NodeId) -> bool {
+        let Some(typed) = self.node_map.get(node) else { return true };
+        let mut parents: Vec<_> =
+            self.nodes.ancestors(node).filter_map(|ancestor| self.node_map.get(ancestor)).collect();
+        parents.reverse();
+        match tsr_ast::module_instance_state(typed, &parents) {
+            tsr_ast::ModuleInstanceState::Instantiated => true,
+            tsr_ast::ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
+            tsr_ast::ModuleInstanceState::NonInstantiated => false,
+        }
+    }
+
+    /// TS1281, `resolveNameHelper`'s `KindEnumDeclaration` arm
+    /// (`binder/nameresolver.go:147`–`158`), for an expression identifier
+    /// `node` named `text` that resolved to `result`.
+    ///
+    /// Upstream reports while it walks: at an enclosing enum declaration,
+    /// the name is looked up in the enum symbol's (merged) exports at
+    /// `meaning & EnumMember`. A hit ends the walk, and under
+    /// `GetIsolatedModules()` it is an error when the enum declaration is
+    /// not ambient and the member's `ValueDeclaration` is in another file
+    /// (a cross-file enum merge). The walk only reports when it has a
+    /// `nameNotFoundMessage`, which the expression-identifier resolution
+    /// does.
+    ///
+    /// `Binder::resolve_name` cannot report, so this runs on its result. The
+    /// enum arm found the name exactly when `result` is the member that the
+    /// first enclosing enum declaration exporting `text` holds: a scope
+    /// between the reference and that enum would have answered its own
+    /// symbol instead.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules2-global-script.diff"
+    )]
+    pub(crate) fn check_enum_member_from_another_file(
+        &mut self,
+        node: NodeId,
+        result: SymbolId,
+        text: &str,
+    ) {
+        if !self.isolated_modules {
+            return;
+        }
+        if !self.binder.symbols().get(result).flags.intersects(SymbolFlags::ENUM_MEMBER) {
+            return;
+        }
+        let enum_declaration = self.nodes.ancestors(node).find(|&ancestor| {
+            self.nodes.kind(ancestor) == SyntaxKind::EnumDeclaration
+                && self.binder.symbol_of(ancestor).is_some_and(|symbol| {
+                    let symbol = self.binder.merged_symbol(symbol);
+                    self.binder.symbols().get(symbol).exports.get(text).is_some_and(|&member| {
+                        self.binder.symbols().get(member).flags.intersects(SymbolFlags::ENUM_MEMBER)
+                    })
+                })
+        });
+        let Some(location) = enum_declaration else { return };
+        let Some(enum_symbol) = self.binder.symbol_of(location) else { return };
+        let enum_symbol = self.binder.merged_symbol(enum_symbol);
+        if self.binder.symbols().get(enum_symbol).exports.get(text) != Some(&result)
+            || self.declaration_is_in_an_ambient_context(location)
+        {
+            return;
+        }
+        let Some(value_declaration) = self.binder.symbols().get(result).value_declaration else {
+            return;
+        };
+        if self.source_file_of(location) == self.source_file_of(value_declaration) {
+            return;
+        }
+        let Some(file) = self.source_file_of(node) else { return };
+        let enum_name = self.binder.symbols().get(enum_symbol).name;
+        let qualified = format!("{enum_name}.{text}");
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::CANNOT_ACCESS_0_FROM_ANOTHER_FILE_WITHOUT_QUALIFICATION_WHEN_1_IS_ENABLED_USE_2_INSTEAD,
+                span,
+                [text.to_string(), self.isolated_modules_like_flag_name().to_string(), qualified],
+            ),
+        );
+    }
+
+    /// `resolveExternalModule`'s `rewriteRelativeImportExtensions` arm
+    /// (`checker.go:15261`–`15317`): TS2876 and TS2877 on a relative import
+    /// whose emitted specifier would be rewritten wrongly or not at all.
+    ///
+    /// Upstream reaches it in the `sourceFile != nil` block, as the last
+    /// `else if` after [`Checker::check_module_resolution_diagnostic`]'s
+    /// TS2846 and TS5097 arms. Those exits are tested again here, so the
+    /// caller can run this after that function returns `false`. A
+    /// non-TS6142 resolution diagnostic leaves `sourceFile` nil, so it ends
+    /// the arm too.
+    ///
+    /// The option and the program facts arrive as parameters until the hook
+    /// (`r6-modules2-rewrite-extensions.diff`) lands:
+    /// - `rewrite` is `RewriteRelativeImportExtensions.IsTrue()`;
+    /// - `compare` is the program's `ComparePathsOptions`;
+    /// - `may_be_emitted` is `program.SourceFileMayBeEmitted(file, false)`
+    ///   (`Program::source_file_may_be_emitted`).
+    ///
+    /// `GetRedirectForResolution` is nil, since this program has no project
+    /// references, so the third arm never reports.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules2-rewrite-extensions.diff"
+    )]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the option and program facts the hook passes until the host carries them"
+    )]
+    pub(crate) fn check_rewrite_relative_import_extensions(
+        &mut self,
+        declaration: NodeId,
+        specifier: NodeId,
+        resolved: ResolvedModuleFacts<'_>,
+        options: ResolutionDiagnosticOptions,
+        rewrite: bool,
+        compare: &tsr_path::ComparePathsOptions,
+        may_be_emitted: impl FnOnce(NodeId) -> bool,
+    ) {
+        if !rewrite || !resolved.in_program {
+            return;
+        }
+        let Some(importing) = self.source_file_of_for_diagnostics(specifier) else { return };
+        let Some(host) = self.module_host else { return };
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return };
+        let module_reference = literal.text;
+        // `tryFindAmbientModule` (`checker.go:15154`) answers first.
+        if !tsr_path::is_external_module_name_relative(module_reference)
+            && self.binder.globals().get(format!("\"{module_reference}\"").as_str()).is_some()
+        {
+            return;
+        }
+        let diagnostic = resolution_diagnostic(
+            resolved.extension,
+            || host.is_declaration_file(importing),
+            self.jsx_emit == tsr_core::JsxEmit::None,
+            self.no_implicit_any,
+            options,
+        );
+        if diagnostic.is_some_and(|message| {
+            message.code() != messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_JSX_IS_NOT_SET.code()
+        }) {
+            return;
+        }
+        let declaration_specifier = tsr_path::is_declaration_file_name(module_reference);
+        // The TS2846 and TS5097 arms come first in the `else if` chain.
+        if resolved.resolved_using_ts_extension
+            && (declaration_specifier
+                || !self.allow_importing_ts_extensions_from(importing, options))
+        {
+            return;
+        }
+        let type_only = std::iter::once(declaration)
+            .chain(self.nodes.ancestors(declaration))
+            .any(|at| self.is_type_only_import_or_export_declaration(at));
+        if self.declaration_is_in_an_ambient_context(declaration)
+            || declaration_specifier
+            || self.is_literal_import_type_node(declaration)
+            || type_only
+        {
+            return;
+        }
+        // `core.ShouldRewriteModuleSpecifier` (`core/core.go:701`).
+        let should_rewrite = tsr_path::path_is_relative(module_reference)
+            && !declaration_specifier
+            && tsr_path::extension::file_extension_is_one_of(
+                module_reference,
+                tsr_path::extension::SUPPORTED_TS_EXTENSIONS_FLAT,
+            );
+        let span = self.error_span(specifier);
+        if !resolved.resolved_using_ts_extension && should_rewrite {
+            let mode = self.module_resolution_mode(host, importing, declaration);
+            let Some(resolved_file_name) =
+                host.resolved_module_path_in_mode(importing, module_reference, mode)
+            else {
+                return;
+            };
+            let Some(importing_file_name) = host.file_path(importing) else { return };
+            let from = tsr_path::get_normalized_absolute_path(
+                &importing_file_name,
+                &compare.current_directory,
+            );
+            let to = tsr_path::get_normalized_absolute_path(
+                &resolved_file_name,
+                &compare.current_directory,
+            );
+            // `tspath.GetRelativePathFromFile` (`tspath/path.go:781`), with
+            // `EnsurePathIsNonModuleName` (`:924`).
+            let relative = tsr_path::get_relative_path_from_directory(
+                tsr_path::get_directory_path(&from),
+                &to,
+                compare,
+            );
+            let relative = if tsr_path::is_rooted_disk_path(&relative)
+                || tsr_path::path_is_relative(&relative)
+            {
+                relative
+            } else {
+                format!("./{relative}")
+            };
+            self.report(importing, Diagnostic::with_args(
+                &messages::THIS_RELATIVE_IMPORT_PATH_IS_UNSAFE_TO_REWRITE_BECAUSE_IT_LOOKS_LIKE_A_FILE_NAME_BUT_ACTUALLY_RESOLVES_TO_0,
+                span,
+                [relative],
+            ));
+        } else if resolved.resolved_using_ts_extension && !should_rewrite {
+            let mode = self.module_resolution_mode(host, importing, declaration);
+            let Some(target) = host.resolved_module_in_mode(importing, module_reference, mode)
+            else {
+                return;
+            };
+            if may_be_emitted(target) {
+                self.report(importing, Diagnostic::with_args(
+                    &messages::THIS_IMPORT_USES_A_0_EXTENSION_TO_RESOLVE_TO_AN_INPUT_TYPESCRIPT_FILE_BUT_WILL_NOT_BE_REWRITTEN_DURING_EMIT_BECAUSE_IT_IS_NOT_A_RELATIVE_PATH,
+                    span,
+                    [tsr_path::get_any_extension_from_path(module_reference).to_string()],
+                ));
+            }
+        }
+    }
+
+    /// `ast.IsLiteralImportTypeNode` (`ast/utilities.go:1334`): an
+    /// `import("…")` type whose argument is a string literal type.
+    fn is_literal_import_type_node(&self, node: NodeId) -> bool {
+        matches!(self.node_map.get(node), Some(Node::ImportTypeNode(import))
+            if matches!(import.argument, Some(TypeNode::LiteralTypeNode(literal))
+                if matches!(literal.literal, Some(Node::StringLiteral(_)))))
     }
 
     /// `getIsolatedModulesLikeFlagName` (`checker.go`).
@@ -1181,19 +1420,26 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `getTypeOnlyAliasDeclaration(symbol)` (`checker.go:1861`) as the
+    /// `getTypeOnlyAliasDeclaration(symbol)` (`checker.go:2133`; this
+    /// comment cited `:1861`, the TS1361 caller, until r6-modules2) as the
     /// declaration itself: the first alias declaration on the chain that is
     /// type-only, or that reaches its name through a type-only `export *`.
-    /// The walk is [`Checker::type_only_alias_declaration`]'s, bounded the
-    /// same way; that function answers only *which kind* it found.
+    /// Bounded like [`Checker::type_only_alias_declaration`], which answers
+    /// only *which kind* it found.
+    ///
+    /// The link is the alias's own type-only declaration
+    /// (`markSymbolOfAliasDeclarationIfTypeOnly`, `checker.go:15083`), else the
+    /// link `resolveIndirectionAlias` (`:16293`) copies from its target. That
+    /// copy happens only when the target is a pure alias,
+    /// `ast.IsNonLocalAlias(target, Value|Type|Namespace)` (`:16280`): an alias
+    /// merged with a local meaning keeps the chain behind it out of the link.
     fn type_only_alias_declaration_node(&mut self, symbol: SymbolId) -> Option<NodeId> {
         let mut current = self.binder.merged_symbol(symbol);
+        if !self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
+            return None;
+        }
         for _ in 0..16 {
-            let entry = self.binder.symbols().get(current);
-            if !entry.flags.intersects(SymbolFlags::ALIAS) {
-                return None;
-            }
-            let declaration = *entry.declarations.first()?;
+            let declaration = *self.binder.symbols().get(current).declarations.first()?;
             if self.is_type_only_import_or_export_declaration(declaration) {
                 return Some(declaration);
             }
@@ -1201,8 +1447,22 @@ impl Checker<'_, '_> {
                 return Some(star);
             }
             current = self.binder.merged_symbol(self.resolve_alias(current)?);
+            if !self.is_non_local_alias(
+                current,
+                SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+            ) {
+                return None;
+            }
         }
         None
+    }
+
+    /// `ast.IsNonLocalAlias(symbol, excludes)` (`ast/utilities.go:2608`): an
+    /// alias with none of `excludes`, or an assignment alias.
+    fn is_non_local_alias(&self, symbol: SymbolId, excludes: SymbolFlags) -> bool {
+        let flags = self.binder.symbols().get(symbol).flags;
+        flags & (SymbolFlags::ALIAS | excludes) == SymbolFlags::ALIAS
+            || flags.contains(SymbolFlags::ALIAS | SymbolFlags::ASSIGNMENT)
     }
 
     /// `ast.IsInternalModuleImportEqualsDeclaration`: `import x = N.M`.
@@ -1284,6 +1544,7 @@ fn annotated_accessor_type_node(accessor: Node<'_>) -> Option<TypeNode<'_>> {
     dead_code,
     reason = "built by the held hook docs/parity/notes/r6-isolated-resolution-diagnostic.diff"
 )]
+#[derive(Clone, Copy)]
 pub(crate) struct ResolvedModuleFacts<'s> {
     /// `Extension`: the resolver's, e.g. `.d.html.ts` for an arbitrary
     /// extension's declaration file, which the path alone cannot tell from

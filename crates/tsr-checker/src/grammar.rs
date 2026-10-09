@@ -75,6 +75,10 @@ impl Checker<'_, '_> {
             &messages::NEITHER_DECORATORS_NOR_MODIFIERS_MAY_BE_APPLIED_TO_THIS_PARAMETERS
         } else if !modifiers.iter().any(|m| matches!(m, ModifierLike::Decorator(_)))
             || self.node_can_be_decorated(node, typed)
+            // `NodeCanBeDecorated`'s legacy private-name exit is
+            // `check_decorated_private_name`'s report, so it is not reported
+            // a second time here.
+            || (self.legacy_decorators && member_name_is_private(typed))
         {
             return false;
         } else if matches!(typed, Node::MethodDeclaration(method) if method.body.is_none()) {
@@ -97,10 +101,13 @@ impl Checker<'_, '_> {
         true
     }
 
-    /// `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) for the kinds that
-    /// reach `checkGrammarModifiers`' decorator arm, under
-    /// `experimentalDecorators` (`legacy_decorators`) or standard decorators.
-    fn node_can_be_decorated(&self, node: NodeId, typed: Node<'_>) -> bool {
+    /// `ast.NodeCanBeDecorated(c.legacyDecorators, node, node.Parent,
+    /// node.Parent.Parent)` (`ast/utilities.go:4254`), with `CanHaveDecorators`
+    /// folded in as the kinds it lists. Shared by `checkGrammarModifiers`'
+    /// decorator arm (below) and `markDecoratorAliasReferenced`
+    /// (`isolated_alias.rs`); r6-isolated's copy there was folded into this
+    /// one (r6-modules2 §8).
+    pub(crate) fn node_can_be_decorated(&self, node: NodeId, typed: Node<'_>) -> bool {
         let legacy = self.legacy_decorators;
         let parent = self.nodes.parent(node);
         let parent_kind = parent.map(|parent| self.nodes.kind(parent));
@@ -110,68 +117,54 @@ impl Checker<'_, '_> {
         let private_name = |name: tsr_ast::PropertyName<'_>| {
             matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
         };
+        let class_member = |body: bool| {
+            body && (if legacy { parent_is_class_declaration } else { parent_is_class_like })
+        };
         match typed {
             Node::ClassDeclaration(_) => true,
             Node::ClassExpression(_) => !legacy,
             Node::PropertyDeclaration(property) => {
-                (legacy && (private_name(property.name) || parent_is_class_declaration))
-                    || (!legacy
-                        && parent_is_class_like
-                        && !tsr_ast::has_syntactic_modifier(
-                            property.modifiers,
-                            SyntaxKind::AbstractKeyword,
-                        )
-                        && !tsr_ast::has_syntactic_modifier(
-                            property.modifiers,
-                            SyntaxKind::DeclareKeyword,
-                        ))
+                !(legacy && private_name(property.name))
+                    && ((legacy && parent_is_class_declaration)
+                        || (!legacy
+                            && parent_is_class_like
+                            && !tsr_ast::has_syntactic_modifier(
+                                property.modifiers,
+                                SyntaxKind::AbstractKeyword,
+                            )
+                            && !tsr_ast::has_syntactic_modifier(
+                                property.modifiers,
+                                SyntaxKind::DeclareKeyword,
+                            )))
             }
             Node::MethodDeclaration(method) => {
-                (legacy && private_name(method.name))
-                    || (method.body.is_some()
-                        && (if legacy {
-                            parent_is_class_declaration
-                        } else {
-                            parent_is_class_like
-                        }))
+                !(legacy && private_name(method.name)) && class_member(method.body.is_some())
             }
             Node::GetAccessorDeclaration(accessor) => {
-                (legacy && private_name(accessor.name))
-                    || (accessor.body.is_some()
-                        && (if legacy {
-                            parent_is_class_declaration
-                        } else {
-                            parent_is_class_like
-                        }))
+                !(legacy && private_name(accessor.name)) && class_member(accessor.body.is_some())
             }
             Node::SetAccessorDeclaration(accessor) => {
-                (legacy && private_name(accessor.name))
-                    || (accessor.body.is_some()
-                        && (if legacy {
-                            parent_is_class_declaration
-                        } else {
-                            parent_is_class_like
-                        }))
+                !(legacy && private_name(accessor.name)) && class_member(accessor.body.is_some())
             }
             Node::ParameterDeclaration(_) => {
-                // Standard decorators do not decorate parameters yet.
                 if !legacy {
                     return false;
                 }
                 let Some(parent) = parent else { return false };
-                let has_body = match self.node_map.get(parent) {
-                    Some(Node::ConstructorDeclaration(n)) => n.body.is_some(),
-                    Some(Node::MethodDeclaration(n)) => n.body.is_some(),
-                    Some(Node::SetAccessorDeclaration(n)) => n.body.is_some(),
-                    _ => false,
+                let (body, parameters) = match self.node_map.get(parent) {
+                    Some(Node::ConstructorDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    Some(Node::MethodDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    Some(Node::SetAccessorDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    _ => return false,
                 };
-                // `GetThisParameter(parent) != node` is the TS1433 arm's,
-                // which the caller has already taken.
-                has_body
-                    && self
-                        .nodes
-                        .parent(parent)
-                        .is_some_and(|grand| self.nodes.kind(grand) == SyntaxKind::ClassDeclaration)
+                // `GetThisParameter(parent) != node`.
+                let this_parameter = parameters.first().filter(|first| {
+                    matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+                });
+                body && this_parameter.and_then(|first| first.node_id) != Some(node)
+                    && self.nodes.parent(parent).is_some_and(|grandparent| {
+                        self.nodes.kind(grandparent) == SyntaxKind::ClassDeclaration
+                    })
             }
             _ => false,
         }
@@ -1508,4 +1501,17 @@ fn is_bigint_literal_initializer(checker: &Checker<'_, '_>, node: NodeId) -> boo
         }
         _ => false,
     }
+}
+
+/// Whether a class member's name is a `#private` identifier: the members
+/// `ast.NodeCanBeDecorated`'s legacy private-name exit can apply to.
+fn member_name_is_private(typed: Node<'_>) -> bool {
+    let name = match typed {
+        Node::PropertyDeclaration(property) => property.name,
+        Node::MethodDeclaration(method) => method.name,
+        Node::GetAccessorDeclaration(accessor) => accessor.name,
+        Node::SetAccessorDeclaration(accessor) => accessor.name,
+        _ => return false,
+    };
+    matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
 }

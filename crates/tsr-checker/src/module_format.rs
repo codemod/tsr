@@ -135,8 +135,9 @@ impl Checker<'_, '_> {
             }
             Node::ExportSpecifier(specifier) => {
                 // `checkExportSpecifier` (`checker.go:5551`): the property name
-                // may be a string only with a module specifier (otherwise it is
-                // TS1003, not this check's); the exported name always may.
+                // may be a string only with a module specifier; without one,
+                // `checkModuleExportName(name, allowStringLiteral=false)` is
+                // TS1003. The exported name always may.
                 let has_module_specifier =
                     self.nodes.parent(node).and_then(|named| self.nodes.parent(named)).is_some_and(
                         |declaration| {
@@ -144,10 +145,12 @@ impl Checker<'_, '_> {
                             Some(Node::ExportDeclaration(d)) if d.module_specifier.is_some())
                         },
                     );
-                if has_module_specifier
-                    && let Some(name) = specifier.property_name.and_then(|n| n.node_id())
-                {
-                    self.check_module_export_name(node, name);
+                if let Some(name) = specifier.property_name.and_then(|n| n.node_id()) {
+                    if has_module_specifier {
+                        self.check_module_export_name(node, name);
+                    } else {
+                        self.check_module_export_name_disallowed(node, name);
+                    }
                 }
                 if let Some(name) = specifier.name.and_then(|n| n.node_id()) {
                     self.check_module_export_name(node, name);
@@ -803,6 +806,32 @@ impl Checker<'_, '_> {
             name,
             &messages::STRING_LITERAL_IMPORT_AND_EXPORT_NAMES_ARE_NOT_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ES2015_OR_ES2020,
         );
+    }
+
+    /// TS1003 — `checkModuleExportName(name, allowStringLiteral=false)`
+    /// (`checker.go:5388-5393`), reached only from `checkExportSpecifier`'s
+    /// property name when the export declaration has no module specifier
+    /// (`checker.go:5554`): `export { "s" as x }` names a local by a string,
+    /// which cannot be a binding. `grammarErrorOnNode`, so a file with parse
+    /// errors reports nothing; past `checkExportDeclaration`'s
+    /// `checkGrammarModuleElementContext` like the TS18057 arm. Unlike that
+    /// arm it does not depend on the module kind or the declaration file.
+    /// `docs/parity/notes/r6-names2.md` §3.
+    fn check_module_export_name_disallowed(&mut self, binding: NodeId, name: NodeId) {
+        if self.nodes.kind(name) != SyntaxKind::StringLiteral || self.file_has_parse_errors {
+            return;
+        }
+        let Some(declaration) = self
+            .nodes
+            .ancestors(binding)
+            .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::ExportDeclaration)
+        else {
+            return;
+        };
+        if !self.module_declaration_context_passes(declaration) {
+            return;
+        }
+        self.grammar_error_on_node(name, &messages::IDENTIFIER_EXPECTED);
     }
 
     /// `checkGrammarModuleElementContext` (`grammarchecks.go:206`) and, for a

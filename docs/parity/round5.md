@@ -1511,3 +1511,82 @@ type literal recursing through a union alias answers Unknown, and fixing that
 needs lazy type-literal members.
 
 r6-typesroots2 takes `.16.65/.69/.73/.74/.7/.6/.76/.79`.
+
+### r6-declared finished (batch BM); r6-declared2 dispatched
+
+Batch BM lands r6-declared's commits:
+- getObjectTypeInstantiation's referenced-parameter key
+  (isTypeParameterPossiblyReferenced);
+- an indexed type literal resolves only the selected member. That removes
+  the 54 MB `__Reverse` text with no count bound: native needs only 48,750
+  instantiations and reports no TS2589;
+- the import-equals written name;
+- memoized conditional extends instantiations (ramdaToolsNoInfinite2 31 s →
+  2.1 s once its imports resolve);
+- a namespace-rooted qualified enum reference answers the enum (+2 diagnostics);
+- an intersection alias's deferred conditional constituent;
+- r5-declared4's print arity at Ir within noise (+37 types). Its +0.22% cost
+  came from resolving the Iterable targets per print, not once per checker.
+
+It also lands the unresolved-alias written-name diff (+21 types).
+
+Held:
+- the binder declare-module imports diff: +3 diagnostics, but it still loses
+  ramdaToolsNoInfinite2 448/449/485/490–492;
+- the conditional-typed print: dm Ir +0.16%, waiting on `.1135`.
+
+r6-declared2 takes `tsr-2zk.1143`.
+
+### r6-names2 finished (batch BN); r6-triage dispatched
+
+Batch BN lands resolveName's useOuterVariableScopeInParameter at dm Ir
++0.03%, down from +0.15%. The options now travel as a walk parameter, not a
+BindResult field; a wrapper-only variant that lost optionalParamReferencingOtherParams2
+was refused.
+
+It also lands three more diffs:
+- value_reference_slot inlined (−0.255M Ir);
+- TS1003 through checkModuleExportName;
+- TS2303 through native's namespace export-specifier alias walk.
+
+Measured by the box: +5 diagnostics, +38 types, 0 lost.
+
+r6-triage re-clusters the remaining failures on the round-6 tip
+(`tsr-2zk.1144`), because the `.16.x` roots date from an older base.
+
+### r6-lazytext finished (batch BO); r6-printer4 dispatched
+
+ADR-0052: a print-time decision is a plan the site renderer reads. Batch BO
+lands two print-time slots, both at Ir within noise:
+- spread members (`.1120`), which lands the held property-slot spreads half:
+  +19 types, against the +0.12% dm the held diff cost;
+- deferred conditional typed parts (`.1135`): +4 types, against the +0.153%
+  dm the held diff cost.
+
+Lazy mapped member text (ADR-0050 alt 1) was measured and refused: dm
+−0.03%. The members are read anyway, and avoiding the string build needs an
+&mut printer chain across five owners.
+
+ADR numbering: 0051 is the lone-surrogate ADR and 0052 this one.
+r6-checkperf's held JSDoc-deferral ADR must take the next free number.
+
+r6-printer4 takes the printer lane (`tsr-2zk.1145`).
+
+### r6-modules2 finished (batch BP); r6-modules3 dispatched
+
+Batch BP lands r6-modules2's commits and seven diffs:
+- the import-equals value half (r5-errorsplit6's refused +8/−2, now lossless by
+  narrowing the export= two-hop rename): +10 types;
+- TS1280/TS1281;
+- the const-enum TDZ under isolatedModules;
+- `export =` of a dotted entity: +2 rows, +5 types;
+- rewriteRelativeImportExtensions TS2876/TS2877: +6 rows;
+- grammar's NodeCanBeDecorated made the single faithful copy;
+- the diagnostic formatter's nested `{0}` placeholder.
+
+Measured by the box: +11 diagnostics rows, +15 types, 0 lost, dm Ir +0.05%,
+which is within the base's own 0.06% run spread.
+
+Refused: typing unannotated initializers for TS2475 (+1/−3). It waits on lazy
+signature resolution. r6-modules3 takes the remaining module rows
+(`tsr-2zk.1146`).

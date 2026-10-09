@@ -54,7 +54,9 @@ impl TypeLiteralKey {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConditionalInferenceNode {
-    declaration: NodeId,
+    /// The conditional type node; read by the relater (r6-relater,
+    /// `conditionalTypeAssignabilityWhenDeferred`).
+    pub(crate) declaration: NodeId,
     bindings: rustc_hash::FxHashMap<SymbolId, TypeId>,
 }
 
@@ -1048,6 +1050,19 @@ impl<'a> Checker<'a, '_> {
                 match deferred {
                     Some(operand) => {
                         let printed = format!("keyof {operand}");
+                        // getIndexType's `resolvedIndexType` (checker.go):
+                        // one index type per generic operand, so two reads
+                        // of `keyof T` are one identity (`r6-declared.md` §2).
+                        let operand_type = direct_operand
+                            .map(|operand| self.get_type_from_type_node(operand))
+                            .filter(|&operand| operand != self.intrinsics.error);
+                        let memo_key = operand_type.map(|operand| (operand, printed.clone()));
+                        if let Some(key) = &memo_key
+                            && let Some(&existing) =
+                                self.instantiation_expressions.deferred_keyof_mints.get(key)
+                        {
+                            return existing;
+                        }
                         // §812: OBJECT rather than ANY, for §36's recorded
                         // reason one construct over — an ANY constituent
                         // absorbs its whole union, so `keyof T | keyof U`
@@ -1058,14 +1073,14 @@ impl<'a> Checker<'a, '_> {
                         // `x[k]` where `k: keyof T` can defer rather than
                         // answer `any`.
                         self.deferred_keyof_types.insert(id);
-                        if let Some(operand) = direct_operand {
-                            let operand = self.get_type_from_type_node(operand);
-                            if operand != self.intrinsics.error {
-                                self.deferred_keyof_operands.insert(id, operand);
-                            }
+                        if let Some(operand) = operand_type {
+                            self.deferred_keyof_operands.insert(id, operand);
                         }
                         // §813: also a DEFERRED mint, for getAdjustedTypeWithFacts.
                         self.deferred_index_mints.insert(id);
+                        if let Some(key) = memo_key {
+                            self.instantiation_expressions.deferred_keyof_mints.insert(key, id);
+                        }
                         id
                     }
                     None => self.intrinsics.error,
@@ -1101,6 +1116,9 @@ impl<'a> Checker<'a, '_> {
             // line changes. Literal indexes resolve concretely upstream and
             // stay declined here.
             TypeNode::IndexedAccessTypeNode(node) => {
+                if let Some(selected) = self.indexed_type_literal_member(node) {
+                    return selected;
+                }
                 if let (Some(object), Some(index)) = (node.object_type, node.index_type) {
                     let object = self.get_type_from_type_node(object);
                     let index = self.get_type_from_type_node(index);
@@ -1924,6 +1942,32 @@ impl<'a> Checker<'a, '_> {
                     self.qualified_reference_types.insert(key, minted);
                     return minted;
                 }
+                // resolveName's alias test (`getSymbolFlags(resolveAlias(s)) &
+                // meaning`) rejects an alias whose target has no type
+                // meaning, so resolveTypeReferenceName fails and
+                // getUnresolvedSymbolForEntityName prints the written name.
+                return self.unresolved_type_reference(node);
+            }
+            // The same holds for the unknown symbol of an unresolved
+            // `require("m")` target: `var v: m` prints `m`
+            // (`privacyImportParseErrors`, `r6-declared.md` §2.1). An
+            // unresolved qualified target (`import a = x.c`) keeps `error`:
+            // its written print is native's too, but it moves the alias
+            // declaration's own line, where a var merged into the alias prints
+            // its type (`importDeclWithClassModifiers:0:3`).
+            if !require
+                && self.declaration_of_alias_symbol(symbol).is_some_and(|declaration| {
+                    matches!(
+                        self.node_map.get(declaration),
+                        Some(Node::ImportEqualsDeclaration(import))
+                            if matches!(
+                                import.module_reference,
+                                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                            )
+                    )
+                })
+            {
+                return self.unresolved_type_reference(node);
             }
             return error;
         }
@@ -2063,17 +2107,11 @@ impl<'a> Checker<'a, '_> {
                 }
                 return error;
             }
-            return if self
-                .declaration_of_alias_symbol(symbol)
-                .and_then(|declaration| {
-                    self.external_module_name(self.import_or_export_declaration_of(declaration)?)
-                })
-                .is_some_and(|specifier| self.module_specifier_unfindable(specifier))
-            {
-                error
-            } else {
-                self.unresolved_type_reference(node)
-            };
+            // An unresolved target, an unfindable module's included, is the
+            // unknown symbol, which has no type meaning: resolveName rejects the
+            // alias and getUnresolvedSymbolForEntityName prints the written name
+            // (`r6-declared.md` §2.1).
+            return self.unresolved_type_reference(node);
         }
         self.get_type_reference_type(node, symbol)
     }
@@ -2170,11 +2208,283 @@ impl<'a> Checker<'a, '_> {
     /// signatures. That is why the grouping happens here, where the member kind
     /// is known, and not in the shared renderer.
     pub(crate) fn type_literal_key(&self, node: tsr_ast::NodeId) -> TypeLiteralKey {
-        TypeLiteralKey {
-            node,
-            bindings: self.flattened_alias_bindings(),
-            mapped_template: self.mapped_template_depth > 0,
+        let mut bindings = self.flattened_alias_bindings();
+        // getObjectTypeInstantiation (checker.go:22304-22349): an anonymous
+        // type's instance is keyed on the outer type parameters the
+        // declaration possibly references, so a literal that names none of
+        // the open bindings is the uninstantiated literal itself
+        // (`r6-declared.md` §1).
+        if !bindings.is_empty() && self.instantiation_keys_on_referenced_parameters(node) {
+            bindings
+                .retain(|&(symbol, _)| self.is_type_parameter_possibly_referenced(symbol, node));
         }
+        TypeLiteralKey { node, bindings, mapped_template: self.mapped_template_depth > 0 }
+    }
+
+    /// Whether getObjectTypeInstantiation (checker.go:22332-22343) narrows
+    /// `node`'s instantiation key to the possibly referenced type parameters:
+    /// its symbol is a `Method` or `TypeLiteral` (a type literal, a mapped
+    /// type, a function or constructor type node, a method) and the type
+    /// carries no alias type arguments, i.e. it is not the right-hand side of
+    /// a generic type alias (getAliasSymbolForTypeNode's host walk).
+    fn instantiation_keys_on_referenced_parameters(&self, node: NodeId) -> bool {
+        let filtered = matches!(
+            self.nodes.kind(node),
+            SyntaxKind::TypeLiteral
+                | SyntaxKind::JSDocTypeLiteral
+                | SyntaxKind::MappedType
+                | SyntaxKind::FunctionType
+                | SyntaxKind::ConstructorType
+                | SyntaxKind::MethodSignature
+                | SyntaxKind::MethodDeclaration
+        );
+        if !filtered {
+            return false;
+        }
+        match self.type_alias_host_for_type_node(node).and_then(|host| self.binder.symbol_of(host))
+        {
+            Some(alias) => self.local_type_parameters_of(alias).is_empty(),
+            None => true,
+        }
+    }
+
+    /// Ported from `Checker.isTypeParameterPossiblyReferenced`
+    /// (checker.go:22403), for the type-parameter symbol an alias-evaluation
+    /// frame binds. Memoized per `(node, symbol)` in
+    /// `InstantiationExpressionLinks::possibly_referenced`, as native stores
+    /// the filtered list once in `typeNodeLinks.outerTypeParameters`.
+    ///
+    /// A bound symbol that is not a type parameter (no frame binds one today)
+    /// answers `true`, the unfiltered key: native's `this`-type arm has no
+    /// counterpart in the frames.
+    pub(crate) fn is_type_parameter_possibly_referenced(
+        &self,
+        symbol: SymbolId,
+        node: NodeId,
+    ) -> bool {
+        let key = (node, symbol);
+        if let Some(&answer) = self.instantiation_expressions.possibly_referenced.borrow().get(&key)
+        {
+            return answer;
+        }
+        let answer = self.compute_type_parameter_possibly_referenced(symbol, node);
+        self.instantiation_expressions.possibly_referenced.borrow_mut().insert(key, answer);
+        answer
+    }
+
+    fn compute_type_parameter_possibly_referenced(&self, symbol: SymbolId, node: NodeId) -> bool {
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.contains(SymbolFlags::TYPE_PARAMETER) || entry.declarations.len() != 1 {
+            return true;
+        }
+        let declaration = entry.declarations[0];
+        let Some(container) = self.nodes.parent(declaration) else { return true };
+        // An intervening block, or a conditional whose `extends` clause names
+        // the parameter, makes it possibly referenced; so does a node outside
+        // the parameter's scope (`n == nil`).
+        let mut current = Some(node);
+        while current != Some(container) {
+            let Some(n) = current else { return true };
+            match self.node_map.get(n) {
+                Some(Node::Block(_)) => return true,
+                Some(Node::ConditionalTypeNode(conditional)) => {
+                    if let Some(extends) = conditional.extends_type.and_then(|t| t.node_id())
+                        && self.contains_type_parameter_reference(symbol, declaration, extends)
+                    {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+            current = self.nodes.parent(n);
+        }
+        self.contains_type_parameter_reference(symbol, declaration, node)
+    }
+
+    /// `containsReference`, the closure inside isTypeParameterPossiblyReferenced
+    /// (checker.go:22405-22441), for a non-`this` type parameter.
+    fn contains_type_parameter_reference(
+        &self,
+        symbol: SymbolId,
+        declaration: NodeId,
+        node: NodeId,
+    ) -> bool {
+        let name = self.binder.symbols().get(symbol).name;
+        let mut stack = vec![node];
+        while let Some(current) = stack.pop() {
+            let Some(typed) = self.node_map.get(current) else { continue };
+            match typed {
+                // `tp.isThisType`, false for every parameter reaching here.
+                Node::ThisTypeNode(_) => continue,
+                // getSymbolFromTypeReference: only a bare identifier can name a
+                // type parameter, so its text gates the resolution.
+                Node::TypeReferenceNode(reference) => {
+                    if reference.type_arguments.is_empty()
+                        && let Some(tsr_ast::EntityName::Identifier(identifier)) =
+                            reference.type_name
+                        && identifier.text == name
+                        && let Some(id) = identifier.node_id
+                        && self.binder.resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            id,
+                            name,
+                            SymbolFlags::TYPE,
+                        ) == Some(symbol)
+                    {
+                        return true;
+                    }
+                }
+                Node::TypeQueryNode(query) => {
+                    let mut first = query.expr_name;
+                    while let Some(tsr_ast::EntityName::QualifiedName(qualified)) = first {
+                        first = qualified.left;
+                    }
+                    let Some(tsr_ast::EntityName::Identifier(identifier)) = first else {
+                        return true;
+                    };
+                    if identifier.text == "this" {
+                        return true;
+                    }
+                    let Some(id) = identifier.node_id else { return true };
+                    // getResolvedSymbol: the unknown symbol has no declarations.
+                    let resolved = self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        id,
+                        identifier.text,
+                        SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+                    );
+                    if self.nodes.kind(declaration) == SyntaxKind::TypeParameter {
+                        let scope = self.nodes.parent(declaration);
+                        if let Some(resolved) = resolved
+                            && scope.is_some_and(|scope| {
+                                self.binder
+                                    .symbols()
+                                    .get(resolved)
+                                    .declarations
+                                    .iter()
+                                    .any(|&d| self.is_node_descendant_of_declared(d, scope))
+                            })
+                        {
+                            return true;
+                        }
+                        stack.extend(query.type_arguments.iter().filter_map(TypeNode::node_id));
+                        continue;
+                    }
+                    return true;
+                }
+                Node::MethodDeclaration(method) => {
+                    if method.r#type.is_none() && method.body.is_some() {
+                        return true;
+                    }
+                    stack.extend(method.type_parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.r#type.and_then(|t| t.node_id()));
+                    continue;
+                }
+                Node::MethodSignatureDeclaration(method) => {
+                    stack.extend(method.type_parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.r#type.and_then(|t| t.node_id()));
+                    continue;
+                }
+                _ => {}
+            }
+            tsr_ast::for_each_child_id(typed, |child| stack.push(child));
+        }
+        false
+    }
+
+    /// getIndexedAccessType (checker.go) over a written type literal with a
+    /// literal index: getPropertyTypeForIndexType reads the one property the
+    /// index names through getTypeOfSymbol, which resolves that member's
+    /// annotation alone. The literal's other members are never resolved,
+    /// because an anonymous type's members are lazy. `{ 0: Rec<…>; 1: LO }[K]`
+    /// therefore recurses only through the arm `K` selects. This port's
+    /// literal build is eager, so the arm reads the selected member's
+    /// annotation directly (`r6-declared.md` §2).
+    ///
+    /// Declines (`None`, the eager road) unless every member is a plain
+    /// property signature with a written annotation, no `?`, and a static
+    /// name, and the index evaluates to a string or number literal naming
+    /// exactly one of them. That is the shape where the property's type is
+    /// the annotation's type and no index signature, method, accessor or
+    /// optionality enters getPropertyTypeForIndexType.
+    fn indexed_type_literal_member(
+        &mut self,
+        node: &'a tsr_ast::IndexedAccessTypeNode<'a>,
+    ) -> Option<TypeId> {
+        let TypeNode::TypeLiteralNode(literal) = Self::skip_type_parentheses(node.object_type?)?
+        else {
+            return None;
+        };
+        let literal_node = literal.node_id?;
+        if self.instantiation_expressions.eager_indexed_literals.contains(&literal_node) {
+            return None;
+        }
+        let mut members = Vec::with_capacity(literal.members.len());
+        for member in literal.members {
+            let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
+                return None;
+            };
+            if property.postfix_token.is_some() {
+                return None;
+            }
+            let name = match &property.name {
+                tsr_ast::PropertyName::Identifier(identifier) if !identifier.text.is_empty() => {
+                    identifier.text.to_string()
+                }
+                tsr_ast::PropertyName::StringLiteral(literal) => literal.text.to_string(),
+                tsr_ast::PropertyName::NumericLiteral(literal) => {
+                    crate::printing::normalise_number(literal.text)
+                }
+                _ => return None,
+            };
+            members.push((name, property.r#type?));
+        }
+        let index = self.get_type_from_type_node(node.index_type?);
+        let key = match &self.store.get(index).data {
+            crate::types::TypeData::StringLiteral(text) => text.clone(),
+            crate::types::TypeData::NumberLiteral(text) => crate::printing::normalise_number(text),
+            _ => return None,
+        };
+        let mut matching = members.iter().filter(|(name, _)| *name == key);
+        let (_, annotation) = matching.next()?;
+        if matching.next().is_some() {
+            return None;
+        }
+        // The literal's publication state. A read re-entered under the same
+        // instantiation key while that key's member resolves (`Foo<T, Foo<T,
+        // B>>` inside `Foo`) is a cycle, which native closes by recursing to
+        // instantiateTypeWithAlias' depth guard and caching errorType. This
+        // port's alias road declines at that guard rather than answering
+        // errorType (`r5-spans.md` §2.3), so the cycle is handed back to the
+        // eager road, whose reserved literal identity closed it before this
+        // arm existed. The node stays on the eager road from then on: a
+        // self-re-entrant literal is a static property of its alias, and
+        // reading it lazily at the outer levels would add one eager chain per
+        // level (`r6-declared.md` §2).
+        let literal_key = self.type_literal_key(literal_node);
+        if !self.instantiation_expressions.lazy_member_reads.insert(literal_key.clone()) {
+            self.instantiation_expressions.eager_indexed_literals.insert(literal_node);
+            return None;
+        }
+        let selected = self.get_type_from_type_node(*annotation);
+        self.instantiation_expressions.lazy_member_reads.remove(&literal_key);
+        (selected != self.intrinsics.error).then_some(selected)
+    }
+
+    /// `isNodeDescendantOf` (utilities.go): `node` is `ancestor` or lies below it.
+    fn is_node_descendant_of_declared(&self, node: NodeId, ancestor: NodeId) -> bool {
+        let mut current = Some(node);
+        while let Some(n) = current {
+            if n == ancestor {
+                return true;
+            }
+            current = self.nodes.parent(n);
+        }
+        false
     }
 
     /// The open alias-evaluation frames as one environment, sorted by symbol:
@@ -2237,7 +2547,21 @@ impl<'a> Checker<'a, '_> {
         let reserved =
             self.store.new_named(TypeFlags::OBJECT, text, self.binder.symbol_of(node_id));
         self.type_literal_types.insert(key.clone(), reserved);
+        // getObjectTypeInstantiation's instance resolves its members under
+        // the mapper of the parameters it keys on; with none it is the
+        // declared literal, resolved with no mapper. Build under exactly the
+        // key's bindings, so an unreferenced open frame cannot reach the
+        // members (`r6-declared.md` §1).
+        let narrowed = key.bindings.len() != self.flattened_alias_bindings().len();
+        let saved = narrowed.then(|| {
+            let frame: rustc_hash::FxHashMap<_, _> = key.bindings.iter().copied().collect();
+            let frames = if frame.is_empty() { Vec::new() } else { vec![frame] };
+            std::mem::replace(&mut self.alias_evaluation_bindings, frames)
+        });
         let resolved = self.build_type_literal(node);
+        if let Some(saved) = saved {
+            self.alias_evaluation_bindings = saved;
+        }
         if resolved == self.intrinsics.error {
             self.type_literal_types.insert(key, resolved);
             return resolved;
@@ -3812,8 +4136,7 @@ impl<'a> Checker<'a, '_> {
             // deferred reference resolves to the body's own target, so the
             // name carries that reference's identity (target, arguments,
             // member owner) through `deferred_alias_reference`, as a class or
-            // interface reference written as an alias body does
-            // (`r5-declared4.md` §3.1).
+            // interface reference written as an alias body does.
             if !self.tuple_element_lists.contains_key(&structural)
                 && !self.variadic_tuple_elements.contains_key(&structural)
                 && self.type_reference_targets.contains_key(&structural)
@@ -5424,28 +5747,14 @@ impl<'a> Checker<'a, '_> {
             }
             return mapped;
         }
-        // getTypeAliasInstantiation caches by target and type argument
-        // identities. Printed arguments can coincide across distinct scopes
-        // (two mapped aliases can both use `Tuple[Key]`), so use the shared
-        // reference factory rather than a spelling-keyed literal-alias mint.
-        if partially_written
-            && self
-                .binder
-                .symbols()
-                .get(symbol)
-                .declarations
-                .first()
-                .is_some_and(|&declaration| self.in_default_library(declaration))
-        {
-            let written = node.type_arguments.len();
-            return self.create_type_reference_with_display(symbol, arguments, Some(written));
-        }
-        // The bare arm prints **every** argument, which is what upstream does:
+        // Every fill prints **every** argument, which is what upstream does:
         // `interface i00<T = number>` referenced as `<i00>x` prints
-        // `i00<number>` (`genericDefaults.types:2538`). §136's display
-        // truncation belongs to the partially-written arm alone — it exists so
-        // a written `Map<string>` does not grow an argument nobody typed, a
-        // question a bare reference does not raise.
+        // `i00<number>` (`genericDefaults.types:2538`), and a written
+        // `Iterator<string, undefined>` prints `Iterator<string, undefined,
+        // any>`. §136's written-arity display for partially-written lib
+        // references is retired; the only elision is the node builder's own
+        // (`reference_print_arity`, `r5-declared4.md` §1). The written spelling
+        // survives where native reuses the written node (§933.2 above).
         // serializeTypeForDeclaration reuses the written annotation node in a
         // signature when its type is the annotation's own: a reference to a
         // type-parameter-bodied alias resolves to its argument (below), yet a
@@ -5968,13 +6277,14 @@ impl<'a> Checker<'a, '_> {
             // named-constituent guard) the mint stays — routing those measured
             // 4 R→W, the NB-SYMBOL-CHAIN wall again.
             //
-            // Scoped to an ALIAS-rooted name — the population the alias walk
-            // in `resolve_entity_name_ex` newly resolves, which answered the
-            // ANY-flagged unresolved mint before. A namespace-rooted enum keeps
-            // §41's measured mint: routing it measured 3 R→W where a union's
-            // named-constituent guard (`boolean | X.Foo`) turned it into `any`.
-            if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
-                && self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM)
+            // Any root, namespace or alias (`r6-declared.md` §3). The
+            // first scoping to ALIAS-rooted names kept §41's mint for a
+            // namespace-rooted enum: routing it then measured 3 R→W, where a
+            // union's named-constituent guard (`boolean | X.Foo`) turned it
+            // into `any`. The mint is an OBJECT, so `First.E` never reached
+            // isEnumTypeRelatedTo and `z = "x"` with `z: First.E` was silent
+            // (`enumAssignmentCompat3`, `enumLiteralAssignableToEnumInsideUnion`).
+            if self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM)
                 && !self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ENUM_MEMBER)
             {
                 let declared = self.get_declared_type_of_symbol(resolved);
@@ -6759,6 +7069,90 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// [`Checker::create_type_reference`] for callers that still pass a
+    /// display arity. §136's written-arity display was an approximation of
+    /// the node builder's elision and is retired (`r5-declared4.md` §1): the
+    /// printed arity is decided by [`Checker::reference_print_arity`] from the
+    /// arguments alone, so `display` is no longer read. Its one remaining
+    /// caller (`inference.rs`'s reference rebuild) can call
+    /// `create_type_reference` directly.
+    pub(crate) fn create_type_reference_with_display(
+        &mut self,
+        symbol: SymbolId,
+        arguments: Vec<TypeId>,
+        _display: Option<usize>,
+    ) -> TypeId {
+        self.create_type_reference(symbol, arguments)
+    }
+
+    /// How many of a reference's type arguments it prints:
+    /// typeReferenceToTypeNode's elision (`nodebuilderimpl.go:3084`). A
+    /// reference prints every argument, after fillMissingTypeArguments filled
+    /// the defaults (`Iterator<string, undefined>` prints
+    /// `Iterator<string, undefined, any>`), except a reference to the global
+    /// `Iterable`, `IterableIterator`, `AsyncIterable` or
+    /// `AsyncIterableIterator` (each resolved at arity 3, `checker.go:1088`),
+    /// whose trailing arguments identical to their parameter's default are
+    /// dropped (`IterableIterator<number, any>` prints
+    /// `IterableIterator<number>`).
+    ///
+    /// Native skips the elision for a deferred reference whose own node
+    /// spells every argument (`t.node`); this port's deferred references
+    /// (`deferred_alias_reference`) are minted for alias bodies and never for
+    /// these four interfaces, so that leg has no population here.
+    pub(crate) fn reference_print_arity(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> usize {
+        // Native resolves the four targets once, at checker creation
+        // (checker.go:1088-1097); so does this port, on first use, rather than
+        // looking up four globals per reference (`r6-declared.md` §5). A
+        // target is named as its global is, so any other name answers first.
+        if !matches!(
+            self.binder.symbols().get(symbol).name,
+            "Iterable" | "IterableIterator" | "AsyncIterable" | "AsyncIterableIterator"
+        ) {
+            return arguments.len();
+        }
+        let targets =
+            if let Some(targets) = &self.instantiation_expressions.iterable_elision_targets {
+                targets.clone()
+            } else {
+                let targets: std::rc::Rc<[SymbolId]> =
+                    ["Iterable", "IterableIterator", "AsyncIterable", "AsyncIterableIterator"]
+                        .iter()
+                        .filter_map(|name| self.global_type_symbol_with_arity(name, 3))
+                        .map(|global| self.binder.merged_symbol(global))
+                        .collect();
+                self.instantiation_expressions.iterable_elision_targets = Some(targets.clone());
+                targets
+            };
+        if targets.is_empty() || !targets.contains(&self.binder.merged_symbol(symbol)) {
+            return arguments.len();
+        }
+        let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
+            return arguments.len();
+        };
+        let mut count = parameters.len().min(arguments.len());
+        while count > 0 {
+            // A default is the parameter's own declared default, read outside
+            // any alias frame (as fillMissingTypeArguments reads it).
+            let frames = std::mem::take(&mut self.alias_evaluation_bindings);
+            let default = self.get_default_from_type_parameter(parameters[count - 1].0);
+            self.alias_evaluation_bindings = frames;
+            let Some(default) = default else { break };
+            if default == self.intrinsics.error
+                || self.is_type_identical_to(arguments[count - 1], default)
+                    != crate::relater::Ternary::Related
+            {
+                break;
+            }
+            count -= 1;
+        }
+        count
+    }
+
     /// `createTypeReference(target, typeArguments)` (`checker.go`).
     ///
     /// Interned on the `(target, arguments)` pair, which is what makes
@@ -6767,22 +7161,6 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         symbol: SymbolId,
         arguments: Vec<TypeId>,
-    ) -> TypeId {
-        self.create_type_reference_with_display(symbol, arguments, None)
-    }
-
-    /// §136 (printseam §6): a default-filled reference PRINTS its written
-    /// arity while carrying the full argument list — upstream's
-    /// written-annotation reuse (`Iterable<number>` written short prints
-    /// short; `Generator<Y, any, any>` written full prints full). `display`
-    /// is the written prefix; `None` prints everything. The arity is
-    /// registered in `reference_display_arity` so instantiation rebuilds and
-    /// the composite re-render keep the spelling.
-    pub(crate) fn create_type_reference_with_display(
-        &mut self,
-        symbol: SymbolId,
-        arguments: Vec<TypeId>,
-        display: Option<usize>,
     ) -> TypeId {
         if arguments.len() == 1
             && self.global_type_symbol_with_arity("NonNullable", 1) == Some(symbol)
@@ -6960,7 +7338,7 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;
         }
-        let shown = display.unwrap_or(arguments.len()).min(arguments.len());
+        let shown = self.reference_print_arity(symbol, &arguments);
         // getTypeAliasInstantiation over an INTERSECTION body
         // (instantiateTypeWithAlias → getIntersectionTypeEx(…, alias),
         // checker.go:26056): the body's constituents are instantiated and
@@ -7134,7 +7512,13 @@ impl<'a> Checker<'a, '_> {
         let mapper: Vec<_> = parameters.iter().copied().zip(arguments.iter().copied()).collect();
         let mut instantiated = Vec::with_capacity(constituents.len());
         for constituent in constituents {
-            let image = self.instantiate_type(constituent, &mapper, &parameters, &names);
+            let mut image = self.instantiate_type(constituent, &mapper, &parameters, &names);
+            if self.is_error(image)
+                && let Some(conditional) =
+                    self.conditional_constituent_instantiation(constituent, symbol, arguments)
+            {
+                image = conditional;
+            }
             if self.is_error(image) {
                 return None;
             }
@@ -7142,6 +7526,44 @@ impl<'a> Checker<'a, '_> {
         }
         let result = self.get_intersection_type(&instantiated, None);
         (!self.is_error(result)).then_some(result)
+    }
+
+    /// getConditionalTypeInstantiation (checker.go:22485) for a deferred
+    /// conditional constituent of an intersection alias's body, where
+    /// `instantiate_type` declines. The constituent records its conditional
+    /// node and captured bindings (`ConditionalInferenceNode`). Instantiating
+    /// it with the alias's mapper is evaluating that node under those
+    /// bindings plus the alias's parameters bound to `arguments`. A check type
+    /// that stays generic gives the deferred conditional, as native defers it
+    /// (`conditionalTypesExcessProperties`, `r6-declared.md` §4).
+    fn conditional_constituent_instantiation(
+        &mut self,
+        constituent: TypeId,
+        alias: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if !self.store.get(constituent).flags.contains(TypeFlags::CONDITIONAL) {
+            return None;
+        }
+        let captured = self.conditional_inference_nodes.get(&constituent)?.clone();
+        let Some(Node::ConditionalTypeNode(conditional)) = self.node_map.get(captured.declaration)
+        else {
+            return None;
+        };
+        let mut frame = captured.bindings;
+        for (parameter, &argument) in self.local_type_parameters_of(alias).iter().zip(arguments) {
+            frame.insert(parameter.node_id.and_then(|id| self.binder.symbol_of(id))?, argument);
+        }
+        if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
+            return None;
+        }
+        self.instantiation_count += 1;
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let image = self.get_type_from_type_node(TypeNode::ConditionalTypeNode(conditional));
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        (!self.is_error(image)).then_some(image)
     }
 
     /// Whether the alias's written body contains a type reference that
@@ -8813,6 +9235,26 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// The typed print of a deferred conditional minted with its written
+    /// text: the root and mapper its mint captured (an inline root's
+    /// `conditional_inference_nodes` entry, or a mapped template's
+    /// `mapped_conditionals` one), printed at print time by
+    /// [`Checker::deferred_conditional_text`]
+    /// (`docs/parity/notes/r6-lazytext.md` §2). `None` for any other type.
+    pub(crate) fn deferred_conditional_text_at(&mut self, id: TypeId) -> Option<String> {
+        let (declaration, bindings, mapped_template) =
+            if let Some(info) = self.conditional_inference_nodes.get(&id) {
+                (info.declaration, info.bindings.clone(), false)
+            } else {
+                let info = self.mapped_conditionals.get(&id)?;
+                (info.declaration, info.bindings.clone(), true)
+            };
+        let Some(Node::ConditionalTypeNode(node)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        self.deferred_conditional_text(id, node, bindings, mapped_template)
+    }
+
     /// Read a conditional root under its original mapper without evaluating it.
     /// Branch inference and conditional-source matching share this alias walk.
     fn with_conditional_inference_node<R>(
@@ -9356,14 +9798,27 @@ impl<'a> Checker<'a, '_> {
     /// wildcard's relation. A failed instantiation answers `error` for both,
     /// which [`Checker::definite_conditional_outcome`] defers.
     fn conditional_extends_instantiations(&mut self, extends: TypeId) -> Option<(TypeId, TypeId)> {
+        // `permissiveInstantiation` and `restrictiveInstantiation` are cached
+        // on the type (getPermissiveInstantiation, getRestrictiveInstantiation):
+        // one pair per extends type (`r6-declared.md` §2.2).
+        if let Some(&cached) = self.instantiation_expressions.conditional_extends.get(&extends) {
+            return cached;
+        }
+        let answer = self.conditional_extends_instantiations_worker(extends);
+        self.instantiation_expressions.conditional_extends.insert(extends, answer);
+        answer
+    }
+
+    fn conditional_extends_instantiations_worker(
+        &mut self,
+        extends: TypeId,
+    ) -> Option<(TypeId, TypeId)> {
         if !self.mentions_registered_type_parameter(extends) {
             return None;
         }
         let candidates: Vec<TypeId> = self.type_parameter_symbols.keys().copied().collect();
-        let mentioned: Vec<TypeId> = candidates
-            .into_iter()
-            .filter(|&parameter| self.mentions_type_parameter(extends, &[parameter], &[]))
-            .collect();
+        let mut mentioned = Vec::new();
+        self.collect_mentioned_type_parameters(extends, &candidates, &mut mentioned);
         let names: Vec<String> =
             mentioned.iter().map(|&parameter| self.type_to_string(parameter)).collect();
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
@@ -9387,6 +9842,32 @@ impl<'a> Checker<'a, '_> {
             return Some((error, error));
         }
         Some((permissive, restrictive))
+    }
+
+    /// The candidates `extends` mentions, in candidate order. One graph walk
+    /// per candidate made every conditional evaluation linear in the whole
+    /// type-parameter registry (`ramdaToolsNoInfinite2` spent its 25 s here,
+    /// `r6-declared.md` §2.2). Native's permissive and restrictive mappers are
+    /// built once over the type's parameters. A walk asks a whole slice at
+    /// once and a slice no node mentions is dropped whole, so the cost is
+    /// O(k log n) walks for k mentioned of n candidates. The answer is
+    /// exactly the per-candidate filter's.
+    fn collect_mentioned_type_parameters(
+        &self,
+        extends: TypeId,
+        candidates: &[TypeId],
+        mentioned: &mut Vec<TypeId>,
+    ) {
+        if candidates.is_empty() || !self.mentions_type_parameter(extends, candidates, &[]) {
+            return;
+        }
+        if let [single] = candidates {
+            mentioned.push(*single);
+            return;
+        }
+        let (left, right) = candidates.split_at(candidates.len() / 2);
+        self.collect_mentioned_type_parameters(extends, left, mentioned);
+        self.collect_mentioned_type_parameters(extends, right, mentioned);
     }
 
     /// FALSE when even the permissive extends type rejects the check, TRUE when
