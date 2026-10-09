@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 915/1091 (83.87%)
-Failed         : 176
+Passed         : 919/1091 (84.23%)
+Failed         : 172
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 176 failures:
+First 100 of 172 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -89,7 +89,7 @@ compiler/es6ImportNamedImportNoNamedExports(target=es2015)
 compiler/functionLikeInParameterInitializer(target=es2015)
   4 missing (first TS2304 at functionLikeInParameterInitializer.ts(2,34))
 compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)
-  5 missing (first TS2355 at functionsMissingReturnStatementsAndExpressions.ts(1,16))
+  4 missing (first TS2355 at functionsMissingReturnStatementsAndExpressions.ts(1,16))
 compiler/functionsWithImplicitReturnTypeAssignableToUndefined(strictnullchecks=true)
   1 missing (first TS2366 at functionsWithImplicitReturnTypeAssignableToUndefined.ts(28,16))
 compiler/implicitAnyFromCircularInference(target=es2015)
@@ -124,10 +124,6 @@ compiler/noImplicitAnyMissingGetAccessor(target=es2015)
   4 missing (first TS7032 at noImplicitAnyMissingGetAccessor.ts(3,25))
 compiler/noImplicitAnyMissingSetAccessor(target=es2015)
   1 missing (first TS7033 at noImplicitAnyMissingSetAccessor.ts(3,25))
-compiler/optionalChainWithInstantiationExpression1(target=es2019)
-  1 missing (first TS2532 at optionalChainWithInstantiationExpression1.ts(12,1))
-compiler/optionalChainWithInstantiationExpression1(target=es2020)
-  1 missing (first TS2532 at optionalChainWithInstantiationExpression1.ts(12,1))
 compiler/optionalParamReferencingOtherParams2(target=es2015)
   1 unexpected (first TS2454 at optionalParamReferencingOtherParams2.ts(2,29)), 1 missing
 compiler/regExpWithOpenBracketInCharClass(target=es2015)
@@ -225,4 +221,8 @@ conformance/emitModuleCommonJS(module=commonjs)
 conformance/emitModuleCommonJS(module=nodenext)
   1 missing (first TS2307 at a.js(4,11))
 conformance/esDecorators-classDeclaration-fields-staticAmbient(target=es2015)
+  3 unexpected (first TS1039 at esDecorators-classDeclaration-fields-staticAmbient.ts(6,37)), 0 missing
+conformance/esDecorators-classDeclaration-fields-staticAmbient(target=es2022)
+  3 unexpected (first TS1039 at esDecorators-classDeclaration-fields-staticAmbient.ts(6,37)), 0 missing
+conformance/esDecorators-classDeclaration-fields-staticAmbient(target=esnext)
   3 unexpected (first TS1039 at esDecorators-classDeclaration-fields-staticAmbient.ts(6,37)), 0 missing
