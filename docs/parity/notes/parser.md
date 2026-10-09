@@ -557,3 +557,7 @@ per-file flag must become per-node.
   TS1161 spans that range and the token ends there, so the `;`/`)` after
   `/ b` and `foo(/notregexp)` are scanned again. The `regExpParser`
   validation pass (TS1125/TS1198/TS1499/TS1527/...) is not ported.
+- Union/intersection constituents (`parseFunctionOrConstructorTypeToError`):
+  after a `|`/`&` (leading one included), a function or constructor type is
+  parsed and reported (TS1385-TS1388) over its range from the token's full
+  start, as `parseErrorAtRange(typeNode.Loc)` does.
