@@ -123,3 +123,22 @@ access (`alias_body_is_indexed_access`, bounded chain depth 8 like
 `"x"`, `W<I, 'm'>` is `string`, `W<T, K>` / `W2<T, K>` inside a generic keep
 their own alias heads. No new cache: the existing `instantiations` and
 `alias_body_evaluations` keys.
+
+## Generic alias declared as a reference that keeps its own alias (tsr-2zk.16.56)
+
+`getDeclaredTypeOfTypeAlias` is `getTypeFromTypeNode(body)`. For a body that
+references another generic alias, `getTypeFromTypeAliasReference` passes the
+declaring alias as `newAliasSymbol` (with its own parameters), and
+`instantiateTypeWithAlias` attaches it only where the instantiation creates an
+aliasable type. It never does when the target's declared type is a type
+parameter (the mapper's image), a literal/template/`keyof`/`typeof` type, or a
+homomorphic mapped type over a non-union variable (`instantiateMappedType` →
+`instantiateConstituent` with a nil alias), nor through a chain of such
+aliases. Those declarations now publish the resolved body instead of the
+`Name<Params>` mint: `type Gaps<T> = CleanedGaps<PartialGaps<T>>`,
+`type T2<U> = T1<Same<U>>` (`Same<U>`), `type Merge3<T> = Identity<{..}>`.
+Controls that must stay distinct (alias received): `Record`/`Pick`/
+conditional/indexed targets keep `GenericStructure<K>`, `Omit<T, K>`,
+`TestBit<A, B>`; a union answer keeps the mint (`mapTypeWithAlias`).
+Predicate `alias_instantiation_keeps_declared_alias` (bounded chain, depth 8);
+no new cache: `declared_types` stays the owner.

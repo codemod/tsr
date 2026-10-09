@@ -5587,6 +5587,55 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// `getHomomorphicTypeVariable`'s test on a written mapped type: its
+    /// constraint is `keyof T` over a type parameter `T`.
+    fn is_homomorphic_mapped_type_node(&self, mapped: &tsr_ast::MappedTypeNode<'a>) -> bool {
+        let Some(constraint) = mapped.type_parameter.and_then(|p| p.constraint) else {
+            return false;
+        };
+        matches!(constraint, TypeNode::TypeOperatorNode(operator)
+        if operator.operator.kind == SyntaxKind::KeyOfKeyword
+            && operator.r#type.and_then(Self::skip_type_parentheses).is_some_and(|operand| {
+                let TypeNode::TypeReferenceNode(reference) = operand else { return false };
+                reference
+                    .type_name
+                    .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                    .is_some_and(|symbol| {
+                        self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+                    })
+            }))
+    }
+
+    /// Whether `instantiateTypeWithAlias(declared(symbol), mapper, newAlias)`
+    /// never attaches `newAlias` to a non-union answer, so a generic alias whose
+    /// body references `symbol` declares the instantiation as built
+    /// (`getTypeFromTypeAliasReference`, checker.go:23580). Native: a type
+    /// parameter answers the mapper's image; literal, template, `keyof` and
+    /// `typeof` constructors take no alias; a homomorphic mapped type
+    /// (`instantiateMappedType`) maps a non-union variable through
+    /// `instantiateConstituent` with a nil alias and keeps its own. A chain of
+    /// alias references inherits the answer. Bounded like the other chains.
+    fn alias_instantiation_keeps_declared_alias(&mut self, symbol: SymbolId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        if self.type_parameter_body_index(symbol).is_some()
+            || self.alias_free_generic_alias_body(symbol).is_some()
+        {
+            return true;
+        }
+        match self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) {
+            Some(TypeNode::MappedTypeNode(mapped)) => self.is_homomorphic_mapped_type_node(mapped),
+            Some(TypeNode::TypeReferenceNode(reference)) => {
+                self.alias_reference_target(reference).is_some_and(|inner| {
+                    inner != symbol
+                        && self.alias_instantiation_keeps_declared_alias(inner, depth + 1)
+                })
+            }
+            _ => false,
+        }
+    }
+
     /// Whether `instantiateTypeWithAlias` hands a new alias to the type the
     /// declared body of `symbol` instantiates to: an anonymous object or
     /// function type, or a mapped type without a homomorphic type variable
@@ -5606,17 +5655,8 @@ impl<'a> Checker<'a, '_> {
             | TypeNode::FunctionTypeNode(_)
             | TypeNode::ConstructorTypeNode(_) => true,
             TypeNode::MappedTypeNode(mapped) => {
-                let Some(constraint) = mapped.type_parameter.and_then(|p| p.constraint) else {
-                    return false;
-                };
-                let homomorphic = matches!(constraint, TypeNode::TypeOperatorNode(operator)
-                if operator.operator.kind == SyntaxKind::KeyOfKeyword
-                    && operator.r#type.and_then(Self::skip_type_parentheses).is_some_and(|operand| {
-                        let TypeNode::TypeReferenceNode(reference) = operand else { return false };
-                        reference.type_name.and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
-                            .is_some_and(|symbol| self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER))
-                    }));
-                !homomorphic
+                mapped.type_parameter.and_then(|p| p.constraint).is_some()
+                    && !self.is_homomorphic_mapped_type_node(mapped)
             }
             TypeNode::TypeReferenceNode(reference) => {
                 if reference.type_arguments.is_empty() {
@@ -7897,13 +7937,48 @@ impl<'a> Checker<'a, '_> {
                     return self.attach_intersection_alias(resolved, symbol, own, None);
                 }
             }
+            // getDeclaredTypeOfTypeAlias (checker.go:23837) over a body that
+            // references ANOTHER generic alias: getTypeFromTypeAliasReference
+            // passes no new alias for a generic declaring alias (lines
+            // 23609-23616), so the declared type is the target's
+            // instantiation as built, carrying the target's alias or none:
+            // `type Gaps<T> = CleanedGaps<PartialGaps<T>>` records
+            // `>Gaps : CleanedGaps<PartialGaps<T>>`, and
+            // `type Test1<K1, K2> = MustBeKey<K1 & K2>` over a
+            // parameter-bodied `MustBeKey` records `>Test1 : K1 & K2`.
+            let reference_body = self
+                .type_alias_body(symbol)
+                .and_then(Self::skip_type_parentheses)
+                .and_then(|body| match body {
+                    TypeNode::TypeReferenceNode(reference) => self
+                        .alias_reference_target(reference)
+                        .filter(|&target| {
+                            target != symbol
+                                && self.alias_instantiation_keeps_declared_alias(target, 0)
+                        })
+                        .map(|target| (body, self.type_parameter_body_index(target).is_some())),
+                    _ => None,
+                });
             if let Some(body) = self.type_alias_body(symbol) {
                 if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
                     return error;
                 }
-                let _ = self.get_type_from_type_node(body);
+                let resolved = self.get_type_from_type_node(body);
                 if !self.resolutions.pop() {
                     return self.report_type_alias_circularity(symbol);
+                }
+                // A union answer (a homomorphic mapping over a union variable,
+                // `mapTypeWithAlias`) does receive the new alias: keep the mint.
+                if let Some((_, parameter_image)) = reference_body
+                    && resolved != error
+                    && (parameter_image
+                        || !matches!(
+                            self.store.get(resolved).data,
+                            crate::types::TypeData::Union { .. }
+                                | crate::types::TypeData::Intersection { .. }
+                        ))
+                {
+                    return resolved;
                 }
             }
             return mint(self);
