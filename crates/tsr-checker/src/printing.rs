@@ -646,13 +646,27 @@ impl Checker<'_, '_> {
                         _ => None,
                     }
                 });
-                let alias = annotation.and_then(|annotation| {
+                // `serializeTypeForDeclaration`'s reuse arm first: an
+                // equivalent annotation is re-emitted at the site. The two
+                // arms after it keep their earlier spellings where the
+                // visitor refuses the node: an alias the annotation names,
+                // and the producer's written-node precedence, read from the
+                // declaration rather than by comparing two rendered strings
+                // (an unresolved annotation keeps its published spelling).
+                let printed = if let Some(text) = annotation.and_then(|annotation| {
+                    self.reused_property_annotation_text_at(
+                        annotation,
+                        property_type,
+                        property.optional,
+                        reference,
+                    )
+                }) {
+                    text
+                } else if let Some(alias) = annotation.and_then(|annotation| {
                     self.annotation_alias_text_at(annotation, property_type, reference)
-                });
-                // Preserve the producer's written-node precedence using its
-                // declaration, not equality of two rendered strings. An
-                // unresolved annotation keeps its published spelling too.
-                let written = annotation.is_some_and(|annotation| {
+                }) {
+                    alias
+                } else if annotation.is_some_and(|annotation| {
                     let semantic = self.get_type_from_type_node(annotation);
                     self.is_error(semantic)
                         || (matches!(
@@ -661,10 +675,7 @@ impl Checker<'_, '_> {
                                 | tsr_ast::TypeNode::ArrayTypeNode(_)
                                 | tsr_ast::TypeNode::UnionTypeNode(_)
                         ) && self.written_annotation_text(annotation).is_some())
-                });
-                let printed = if let Some(alias) = alias {
-                    alias
-                } else if written {
+                }) {
                     self.property_printed_type(&property).into_owned()
                 } else if let Some(text) = self.type_to_string_at(property_type, reference) {
                     text
@@ -827,6 +838,38 @@ impl Checker<'_, '_> {
             return Some((input, output));
         }
         Some((input, output))
+    }
+}
+
+impl<'a> Checker<'a, '_> {
+    /// `serializeTypeForDeclaration`'s reuse arm for a property signature
+    /// (`nodebuilderimpl.go:2231`, reached from `addPropertyToElementList`):
+    /// the written annotation is re-emitted when `pseudoTypeEquivalentToType`
+    /// holds — its type is the property's, or, for an optional property,
+    /// the property's once the optionality is forgiven (`:2249`). Emitted at
+    /// `reference` by the existing-node visitor, so an unannotated parameter
+    /// of a written function type gains `: any` (`nodecopy.go:660`) where
+    /// the type's own serialization prints the parameter's type.
+    fn reused_property_annotation_text_at(
+        &mut self,
+        annotation: tsr_ast::TypeNode<'a>,
+        property_type: TypeId,
+        optional: bool,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let semantic = self.get_type_from_type_node(annotation);
+        if self.is_error(semantic) {
+            return None;
+        }
+        let equivalent = semantic == property_type
+            || (optional
+                && self.strict_null_checks
+                && self.get_optional_type(semantic, true) == property_type);
+        if !equivalent {
+            return None;
+        }
+        let written = self.reuse_annotation(annotation, property_type)?;
+        self.written_annotation_text_at(written, property_type, reference)
     }
 }
 

@@ -87,3 +87,49 @@ synthetic symbols there take `getTypeAtPosition`'s type; unmeasured.
 **How this would be wrong.** A `?` parameter whose slot is not the
 annotation's own type but still prints the annotation natively would gain
 a spurious `| undefined`; the zero-loss run is the check.
+
+## 3. A type literal's property reuses its written annotation
+
+**Forcing constraint.** `addPropertyToElementList` prints a property
+signature's type through `serializeTypeForDeclaration`
+(`nodebuilderimpl.go:2231`). Its reuse arm re-emits the written annotation
+whenever `pseudoTypeEquivalentToType` holds: the annotation's type is the
+property's, with the optional flag forgiving the `undefined` an optional
+property adds (`:2249`). The re-emitted node goes through the existing-node
+visitor, which gives an unannotated parameter `: any` (`nodecopy.go:660`).
+So `{ func1: (...rest) => void }` prints `(...rest: any) => void`, while
+the signature's own serialization (and `var v1: (...rest) => void`, which
+reuses nothing at that level) prints `any[]`.
+
+`type_literal_text_at` (the site printer of a type-literal image) had two
+annotation arms: an alias the annotation names, and the producer's baked
+text for an unresolved annotation or a written type-literal, array or
+union node. Any other annotation, a function type included, was serialized
+from the type.
+
+**Port.** `reused_property_annotation_text_at` is the reuse arm: the same
+equivalence test, then the written node through the site visitor
+(`written_annotation_text_at`, which already ports `nodecopy.go`). It runs
+first, as native's single arm does. The two older arms stay behind it for
+the nodes the visitor refuses. Removing them was measured: 12 lines lost
+(`thisTypeErrors`, `genericTypeReferenceWithoutTypeArgument*`,
+`typeofInObjectLiteralType`), whose annotations do not resolve
+(`errorType`), which the equivalence gate (correctly) does not cover here.
+
+**Measured** on top of §2: +106 type lines, 0 lost, +18 cases:
+`collisionArgumentsInType(alwaysstrict=true)`, `collisionRestParameterInType`,
+`declarationEmitBindingPatternsUnused`, `declarationEmitComputedPropertyName1`,
+`declarationEmitNoInvalidCommentReuse3`, `jsxFragmentWrongType`, `typeName1`,
+`widenedTypes`, `assignmentCompatWithObjectMembers`, `callChain.2`,
+`destructuringParameterDeclaration10(strict=false|true)`,
+`discriminatedUnionTypes4`, `elementAccessChain.2`,
+`emitRestParametersFunctionProperty(target=es2015)`,
+`emitRestParametersFunctionPropertyES6`, `generatedContextualTyping`,
+`propertyAccessChain.2`. Running the new arm after the older two gave the
+identical dump; first is the faithful order. Diagnostics unchanged,
+slowcases clean, CPU vs base 1.009 / 0.973.
+
+**How this would be wrong.** An annotation whose type is the property's
+but which native refuses to reuse (`pseudoTypeEquivalentToType`'s other
+conditions, `RequiresWidening`) would print as written here. None showed
+in the dump.
