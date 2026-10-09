@@ -7,6 +7,7 @@ use crate::{
     Checker,
     flags::TypeFlags,
     relater::{Relation, Ternary},
+    relation_cache::Reliability,
     types::TypeId,
 };
 
@@ -20,6 +21,79 @@ pub(crate) enum Variance {
 }
 
 impl Checker<'_, '_> {
+    /// The `Unmeasurable`/`Unreliable` flags of `symbol`'s measured
+    /// variances (`VarianceFlags` beyond `VarianceFlagsVarianceMask`), one
+    /// per type parameter; empty flags where nothing was reported or the
+    /// variances were declared or not measured.
+    pub(crate) fn variance_reliability(&self, symbol: SymbolId, count: usize) -> Vec<Reliability> {
+        let symbol = self.binder.merged_symbol(symbol);
+        let mut flags =
+            self.relation_results.variance_reliability.get(&symbol).cloned().unwrap_or_default();
+        flags.resize(count, Reliability::empty());
+        flags
+    }
+
+    /// `reportUnreliableWorker` / `reportUnmeasurableWorker`
+    /// (`checker.go:1136`, `:1143`): native instantiates `ty` with a mapper
+    /// that adds `report` to `reliabilityFlags` when it meets a variance
+    /// marker, so the report fires exactly when `ty` mentions one. Markers
+    /// exist only inside a variance measurement, so outside one nothing can
+    /// fire and the walk is skipped.
+    pub(crate) fn report_variance_markers(&mut self, ty: TypeId, report: Reliability) {
+        if self.variance_in_progress.is_empty() {
+            return;
+        }
+        let Some(markers) = self.variance_markers else {
+            return;
+        };
+        if self.mentions_type_parameter(ty, &markers, &[]) {
+            self.relation_results.reliability |= report;
+        }
+    }
+
+    /// The alias bodies whose marker instantiations this port can measure:
+    /// function, constructor, object-literal, mapped and union bodies, and a
+    /// body written as a reference to a class, an interface, or another
+    /// alias with such a body (`type T<X> = Pick<X, 'x'>`), whose
+    /// instantiation getTypeAliasInstantiation builds from the referenced
+    /// type. A reference that ends at any other alias (a conditional body,
+    /// say) is not measured.
+    fn measurable_alias_body(&self, body: Option<TypeNode<'_>>, depth: usize) -> bool {
+        match body {
+            Some(
+                TypeNode::FunctionTypeNode(_)
+                | TypeNode::ConstructorTypeNode(_)
+                | TypeNode::TypeLiteralNode(_)
+                | TypeNode::MappedTypeNode(_)
+                | TypeNode::UnionTypeNode(_),
+            ) => true,
+            Some(TypeNode::TypeReferenceNode(reference)) if depth < crate::relater::MAX_DEPTH => {
+                let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
+                    return false;
+                };
+                let Some(referenced) = name.node_id.and_then(|id| {
+                    self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        id,
+                        name.text,
+                        SymbolFlags::TYPE,
+                    )
+                }) else {
+                    return false;
+                };
+                let referenced = self.binder.merged_symbol(referenced);
+                let flags = self.binder.symbols().get(referenced).flags;
+                if flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
+                    return true;
+                }
+                flags.contains(SymbolFlags::TYPE_ALIAS)
+                    && self.measurable_alias_body(self.type_alias_body(referenced), depth + 1)
+            }
+            _ => false,
+        }
+    }
+
     /// Compare instantiations with related markers, then an unrelated marker
     /// to distinguish bivariance from an unwitnessed type parameter. An
     /// unsupported comparison leaves variance unmeasured.
@@ -47,9 +121,8 @@ impl Checker<'_, '_> {
             && self.binder.symbols().get(symbol).declarations.iter().any(|id| {
                 matches!(self.node_map.get(*id), Some(Node::TypeAliasDeclaration(_)))
             })
-            && !self.binder.symbols().get(symbol).declarations.iter().any(|id| {
-                matches!(self.node_map.get(*id), Some(Node::TypeAliasDeclaration(node)) if matches!(node.r#type,
-                    Some(TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_) | TypeNode::TypeLiteralNode(_) | TypeNode::UnionTypeNode(_))))
+            && !self.binder.symbols().get(symbol).declarations.iter().any(|&id| {
+                matches!(self.node_map.get(id), Some(Node::TypeAliasDeclaration(node)) if self.measurable_alias_body(node.r#type, 0))
             })
         {
             self.variance_cache.insert(symbol, None);
@@ -59,7 +132,7 @@ impl Checker<'_, '_> {
             markers
         } else {
             let markers = ["__varianceSuper", "__varianceSub", "__varianceOther"]
-                .map(|name| self.store.new_named(TypeFlags::OBJECT, name.to_owned(), None));
+                .map(|name| self.store.new_named(TypeFlags::TYPE_PARAMETER, name.to_owned(), None));
             self.variance_markers = Some(markers);
             markers
         };
@@ -69,7 +142,12 @@ impl Checker<'_, '_> {
             self.variance_in_progress.is_empty().then(|| self.resolutions.reset_start());
         self.variance_in_progress.insert(symbol);
         let mut result = Some(Vec::with_capacity(parameters.len()));
+        let mut reliability = Vec::with_capacity(parameters.len());
         for (index, declaration) in declarations.iter().enumerate() {
+            // getVariancesWorker (relater.go:1378): each measured parameter
+            // collects its own reports, and the enclosing comparison's are
+            // restored after it.
+            let saved_reliability = std::mem::take(&mut self.relation_results.reliability);
             let input = declaration.modifiers.iter().any(|modifier| matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == SyntaxKind::InKeyword));
             let output = declaration.modifiers.iter().any(|modifier| matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == SyntaxKind::OutKeyword));
             let variance = match (input, output) {
@@ -128,11 +206,19 @@ impl Checker<'_, '_> {
                     }
                 }
             };
+            let reported =
+                std::mem::replace(&mut self.relation_results.reliability, saved_reliability);
             let Some(variance) = variance else {
                 result = None;
                 break;
             };
+            // Declared `in`/`out` modifiers are not measured, so they report
+            // nothing (the `default` arm only).
+            reliability.push(if input || output { Reliability::empty() } else { reported });
             result.as_mut().unwrap().push(variance);
+        }
+        if result.is_some() && reliability.iter().any(|flags| !flags.is_empty()) {
+            self.relation_results.variance_reliability.insert(symbol, reliability);
         }
         self.variance_in_progress.remove(&symbol);
         if let Some(saved) = saved_resolution_start {
@@ -157,7 +243,10 @@ impl Checker<'_, '_> {
             .collect();
         let result = if alias {
             let body = self.type_alias_body(symbol)?;
-            if matches!(body, TypeNode::TypeLiteralNode(_)) {
+            // A mapped body is minted as the same alias image a written
+            // `Required<T>` reference gets, which the relater resolves as a
+            // mapped type (getTypeAliasInstantiation, `relater.go:1421`).
+            if matches!(body, TypeNode::TypeLiteralNode(_) | TypeNode::MappedTypeNode(_)) {
                 self.create_type_reference(symbol, arguments)
             } else if matches!(
                 body,
@@ -172,12 +261,17 @@ impl Checker<'_, '_> {
                 let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
                 let map: Vec<_> = own.iter().copied().zip(arguments).collect();
                 self.instantiate_type(declared, &map, &own, &names)
-            } else if matches!(body, TypeNode::UnionTypeNode(_)) {
+            } else if matches!(body, TypeNode::UnionTypeNode(_) | TypeNode::TypeReferenceNode(_)) {
                 // createMarkerType's alias arm (`relater.go:1420`) is
                 // getTypeAliasInstantiation: the instantiated union body. The
                 // relater relates two instantiations of a union alias body to
                 // body (its alias-variance gate, `relater.go:3392`), so the
-                // markers measure the members' directions (tsr-2zk.927).
+                // markers measure the members' directions (tsr-2zk.927). A
+                // body written as a type reference (`type T<X> = Pick<X,
+                // 'x'>`) is instantiated the same way, so the referenced
+                // type's own variances measure it, as natively; left
+                // unmeasured, its failures would fall back structurally
+                // (`docs/parity/notes/r6-relater.md` §2).
                 self.evaluate_alias_body(symbol, &arguments)?
             } else {
                 return None;
@@ -405,8 +499,15 @@ mod tests {
         );
     }
 
+    /// `Op<X>` instantiates `Box`'s object literal with the alias `Op`
+    /// (getTypeAliasInstantiation), so its written `in out` is valid and
+    /// declares it invariant: tsgo reports TS2322 both ways between `Op<1>`
+    /// and `Op<1 | 2>`, and no TS2637 (`docs/parity/notes/r6-relater.md` §2).
     #[test]
-    fn invalid_variance_on_a_written_reference_alias_stays_unmeasured() {
-        assert_eq!(measured("type Box<T> = { value: T }; type Op<in out T> = Box<T>;", "Op"), None);
+    fn written_variance_on_a_reference_to_an_object_alias_is_declared() {
+        assert_eq!(
+            measured("type Box<T> = { value: T }; type Op<in out T> = Box<T>;", "Op"),
+            Some(vec![Variance::Invariant])
+        );
     }
 }
