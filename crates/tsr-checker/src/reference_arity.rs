@@ -31,7 +31,6 @@ impl<'a> Checker<'a, '_> {
     /// off it does not even report), so a class or interface referenced from
     /// a JavaScript file is `false` here and keeps the fill road. An alias
     /// reference has no JS exception (`checker.go:23596`).
-    #[expect(dead_code, reason = "consumer: r6-typesroots-arity-error-type.diff (declared.rs)")]
     pub(crate) fn reference_arity_answers_error_type(
         &self,
         node: &tsr_ast::TypeReferenceNode<'a>,

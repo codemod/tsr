@@ -5035,6 +5035,13 @@ impl<'a> Checker<'a, '_> {
                 self.nodes.flags(file).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
             });
         let fillable = partially_written || bare_and_fully_defaulted || js_fill;
+        // Outside native's arity window the reference is upstream's
+        // `errorType`, which composes (`C<I>` is `C<any>`); only a count
+        // inside it that this port cannot fill is the gap
+        // (`crate::reference_arity`).
+        if self.reference_arity_answers_error_type(node, symbol) {
+            return self.intrinsics.native_error;
+        }
         if node.type_arguments.len() != parameters && !fillable {
             return error;
         }

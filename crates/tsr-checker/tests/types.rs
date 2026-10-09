@@ -694,7 +694,10 @@ fn a_generic_type_is_printed_with_its_type_parameters() {
     assert_eq!(declared_type_of("class C {}", "C"), "C");
     // A generic type referenced with *no* arguments is an error upstream, which
     // answers `errorType` too.
-    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C;", "x"), "error");
+    // r6-typesroots §2: outside the window the answer is native `errorType`
+    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
+    // the gap `error`.
+    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C;", "x"), "any");
     // Type arguments on a *non*-generic type are `checkNoTypeArguments`, and
     // they must not be ignored: without this line the arguments could be
     // dropped silently and every assertion above would still pass.
@@ -884,10 +887,13 @@ fn the_arity_of_a_generic_reference_is_checked() {
     // Outside `[minTypeArgumentCount, len(parameters)]` upstream reports and
     // answers `errorType`. Inside it — fewer arguments than parameters, filled
     // from defaults — needs substitution and is a gap rather than a guess.
-    assert_eq!(type_of_declaration("class C<T, U> {}\ndeclare const x: C<number>;", "x"), "error");
+    // r6-typesroots §2: outside the window the answer is native `errorType`
+    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
+    // the gap `error`.
+    assert_eq!(type_of_declaration("class C<T, U> {}\ndeclare const x: C<number>;", "x"), "any");
     assert_eq!(
         type_of_declaration("class C<T> {}\ndeclare const x: C<number, string>;", "x"),
-        "error"
+        "any"
     );
     // **This assertion was `"error"` and is corrected.** A bare reference whose
     // every parameter is defaulted is *inside* upstream's window —
@@ -2451,7 +2457,10 @@ fn a_bare_reference_to_a_generic_without_defaults_is_still_an_arity_gap() {
     // outside upstream's window and the reference is an error — this is the arm
     // that must NOT be widened, and a fill that ignored the defaults would
     // answer `I<something>` instead.
-    assert_eq!(type_of_declaration("interface I<T> { a: T }\ndeclare const x: I;", "x"), "error");
+    // r6-typesroots §2: outside the window the answer is native `errorType`
+    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
+    // the gap `error`.
+    assert_eq!(type_of_declaration("interface I<T> { a: T }\ndeclare const x: I;", "x"), "any");
 }
 
 #[test]
@@ -2460,9 +2469,12 @@ fn a_bare_reference_whose_defaults_only_partly_cover_is_still_a_gap() {
     // bare is still outside the window. A predicate written as "any parameter
     // has a default" rather than "every parameter has a default" passes the test
     // above and fails this one.
+    // r6-typesroots §2: outside the window the answer is native `errorType`
+    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
+    // the gap `error`.
     assert_eq!(
         type_of_declaration("interface I<T, U = number> { a: T, b: U }\ndeclare const x: I;", "x"),
-        "error"
+        "any"
     );
 }
 
@@ -2470,12 +2482,15 @@ fn a_bare_reference_whose_defaults_only_partly_cover_is_still_a_gap() {
 fn a_written_argument_list_still_has_to_match() {
     // **True positive.** Nothing here loosens the ordinary arity rule: too many
     // arguments is still an error, defaults or no defaults.
+    // r6-typesroots §2: outside the window the answer is native `errorType`
+    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
+    // the gap `error`.
     assert_eq!(
         type_of_declaration(
             "interface I<T = number> { a: T }\ndeclare const x: I<string, string>;",
             "x"
         ),
-        "error"
+        "any"
     );
     assert_eq!(
         type_of_declaration("interface I<T = number> { a: T }\ndeclare const x: I<string>;", "x"),
