@@ -1653,6 +1653,35 @@ impl Checker<'_, '_> {
             // to the type-id tiebreak below, which is this port's creation
             // order and not upstream's.
             .then_with(|| self.compare_type_symbols(a, b, left, right))
+            // compareTypeMappers (utilities.go:683) for two instantiations of
+            // one anonymous literal: an object without a mapper sorts after
+            // one with a mapper; two flat mappers compare their sources, then
+            // their targets (`TypeMapperKindArray`, :706).
+            .then_with(|| {
+                if !left.flags.intersects(TypeFlags::OBJECT)
+                    || !right.flags.intersects(TypeFlags::OBJECT)
+                    || !matches!(left.data, TypeData::Named { .. })
+                    || !matches!(right.data, TypeData::Named { .. })
+                {
+                    return Ordering::Equal;
+                }
+                match (
+                    self.instantiated_object_mappers.get(&a),
+                    self.instantiated_object_mappers.get(&b),
+                ) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Greater,
+                    (Some(_), None) => Ordering::Less,
+                    (Some((_, left)), Some((_, right))) => {
+                        let sources =
+                            |m: &[(TypeId, TypeId)]| m.iter().map(|p| p.0).collect::<Vec<_>>();
+                        let targets =
+                            |m: &[(TypeId, TypeId)]| m.iter().map(|p| p.1).collect::<Vec<_>>();
+                        self.compare_type_lists(&sources(left), &sources(right))
+                            .then_with(|| self.compare_type_lists(&targets(left), &targets(right)))
+                    }
+                }
+            })
             // compareTypeMappers orders instantiations of the same anonymous
             // member by their mapped types. Equal source lists identify the
             // flat mapper shape retained by instantiate_signature_type.

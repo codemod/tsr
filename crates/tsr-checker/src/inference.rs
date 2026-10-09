@@ -5773,6 +5773,7 @@ impl<'a> Checker<'a, '_> {
         let minted = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, owner);
         self.anonymous_properties.insert(minted, (properties, true));
         self.object_literal_index_infos.insert(minted, indexes);
+        self.instantiated_object_mappers.insert(minted, key.clone());
         self.instantiated_objects.insert(key, minted);
         minted
     }

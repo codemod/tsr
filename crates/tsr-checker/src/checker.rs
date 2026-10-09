@@ -835,6 +835,13 @@ pub struct Checker<'a, 'n> {
     pub(crate) synthetic_default_types:
         FxHashMap<(crate::module_exports::SyntheticDefaultKind, TypeId), TypeId>,
     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
+    /// The inverse of [`Self::instantiated_objects`] for a freshly minted
+    /// object: its source and mapper. Native keeps `ObjectType.mapper` on the
+    /// instantiation, and `CompareTypes` orders two instantiations of one
+    /// anonymous symbol by it (`compareTypeMappers`, utilities.go:683).
+    /// Written once, by the producer that mints the result.
+    pub(crate) instantiated_object_mappers:
+        rustc_hash::FxHashMap<TypeId, (TypeId, Vec<(TypeId, TypeId)>)>,
     /// `instantiationExpressionTypes` (checker.go:10667) and its parked reports.
     pub(crate) instantiation_expressions:
         crate::instantiation_expressions::InstantiationExpressionLinks,
@@ -1554,6 +1561,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             module_value_clones: FxHashMap::default(),
             synthetic_default_types: FxHashMap::default(),
             instantiated_objects: rustc_hash::FxHashMap::default(),
+            instantiated_object_mappers: rustc_hash::FxHashMap::default(),
             instantiation_expressions:
                 crate::instantiation_expressions::InstantiationExpressionLinks::default(),
             any_function_type: None,

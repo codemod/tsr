@@ -2135,6 +2135,7 @@ impl<'a> Checker<'a, '_> {
         let placeholder = self.type_to_string(id);
         let reserved = self.store.new_named(TypeFlags::OBJECT, placeholder, Some(owner));
         self.instantiated_objects.insert(cache_key.clone(), reserved);
+        self.instantiated_object_mappers.insert(reserved, cache_key.clone());
         let mut failed = false;
         for property in properties.iter_mut().flatten() {
             let current = self.property_type(property);
