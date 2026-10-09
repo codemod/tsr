@@ -87,3 +87,93 @@ should weigh that cost when it lands the WIP.
 `declare global` became nameable where native refuses it, the result would
 be a reused name native serializes. Native's `determineIfDeclarationIsVisible`
 has the same arm, so that would need a different upstream rule.
+
+## 2. Node-reuse printer leftovers (item 2)
+
+### 2.1 Already RIGHT at the base
+
+`divergentAccessors1` has no non-RIGHT line at `b18aec06`. r5-printer2 §4.1
+(`type_literal_accessor_pair_at`) landed `addPropertyToElementList`'s
+accessor arm. `numericStringNamedPropertyEquivalence:0:7`, `0:10` and `0:11`
+are RIGHT too. r5-printer2 §4.2 (`merged_written_name`) and r5-declared4
+§1.2 landed the object-literal and type-literal halves of the quoting rule.
+Nothing is left to port for either case.
+
+### 2.2 An unexported alias is not reused where it cannot be named
+
+**Forcing constraint.** `declarationEmitPartialNodeReuseTypeReferences`:
+file `a` writes `p2: PrivateSpecialString`, a non-exported
+`type PrivateSpecialString = string`. File `b` prints `a.o`'s type. Native
+prints `p2: string` and `bar: string` there. The port printed the alias
+name, which cannot be named in `b`.
+
+Native has one decision. `tryReuseExistingTypeNode` reaches
+`trackExistingEntityName` (`nodecopy.go:317`). The name does not resolve at
+`b`'s site, so it introduces an error, and `serializeTypeName`
+(`nodebuilderimpl.go:436`) asks `IsSymbolAccessible(symbol,
+enclosingDeclaration, meaning, false)` (`:451`). No accessible chain
+reaches the alias. Its only container candidate, module `a`, has no export
+that aliases it (`getContainersOfSymbol` → `getAliasForSymbolInContainer`,
+`symbolaccessibility.go:280`). So the answer is `CannotBeNamed`, the reuse
+fails, and the slot is serialized from its type, plain `string` (an alias to
+an intrinsic carries no alias symbol).
+
+The port had two holes:
+
+1. `serialize_type_name` (node_reuse.rs) stood in for `IsSymbolAccessible`
+   with only `hasVisibleDeclarations`, which a module-level alias passes
+   (`IsLateVisibilityPaintedStatement` in a visible source file).
+2. When the reuse is refused, signature printers fall back to
+   `annotation_alias_text_at` (signatures.rs). That road re-emits an
+   *erased* alias (an alias whose declared type is an intrinsic or a
+   reduced singleton). Native has no such road. Its reuse is the visitor's
+   alone, so this road has to apply the same refusal. It named the alias
+   through `reference_text_at`, which does not ask accessibility.
+
+**Port.** Both holes ask the checker's existing faithful `IsSymbolAccessible`
+(`symbol_accessibility.rs`, `DeclarationEmitResolver::is_type_symbol_accessible`
+/ `is_value_symbol_accessible`, `shouldComputeAliasesToMakeVisible` false).
+The resolver is built per question. It owns only accessibility caches, so
+nothing outlives the call and no new cache or side table is added. The cost
+appears only on a refused or fallback reuse (see Ir below).
+
+- Commit (this lane): `annotation_alias_node_at` refuses an inaccessible
+  alias. Alone it moves **no** line, because the visitor still reuses the
+  alias first. Types +0/−0, diagnostics unchanged, slowcases clean. Ir
+  domain-model 1,091,897,193 (+0.09% against the base's 1,090,900,622),
+  generic-imports 343,082,884 (+0.0004%). CLI output identical.
+- Diff (r6-nodereuse's `node_reuse.rs`):
+  [`r6-printer-serialize-type-name-accessible.diff`](r6-printer-serialize-type-name-accessible.diff).
+  `serialize_type_name` asks the whole `IsSymbolAccessible`. It includes the
+  test `crates/tsr-conformance/tests/foreign_site_alias_reuse.rs` (native
+  lines read from the oracle).
+
+**Measured, diff on top of the commit**, unfiltered against the base:
+types **+21 / −0**, diagnostics unchanged, slowcases clean. Ir domain-model
+1,090,853,332 (−0.004% against the base), generic-imports 343,063,349
+(−0.005%). CLI output identical. Gains:
+
+- `declarationEmitPartialNodeReuseTypeReferences:1:1,1:2,1:4` (`b.ts`);
+- `declarationEmitOptionalMappedTypePropertyNoStrictNullChecks{1,2,3}`
+  (8 lines);
+- `exportEqualErrorType` and `exportEqualMemberMissing` (3 lines each);
+- `aliasOnMergedModuleInterface:0:3,0:5`;
+- `declarationEmitUnnessesaryTypeReferenceNotAdded(target=es2015):0:0,0:5`.
+
+Each of the other cases had reused a written name the site could not
+reach. For example, `exportEqualErrorType` printed
+`server.connectExport` where native's accessible chain names
+`connect.connectExport`.
+
+**Remaining in the case: `c.ts` (3 lines).** Native prints
+`import("./a").N.SpecialString`. `c.ts` imports neither `N` nor the module
+namespace, so `symbolToTypeNode` reaches `N` only through an import type.
+The port prints `N.SpecialString`. This is not reuse: the type's own print
+has the same gap (`j : N.I` where native prints `j : import("./a").N.I`,
+probed). The site namer (`reference_text_at` / `symbol_chain`,
+`checker.rs`, main's) never emits an import type. Routed to main.
+
+**How this would be wrong.** If the accessibility walk refused a name that
+native reuses, some line now RIGHT would turn WRONG. The unfiltered run
+shows none. If `annotation_alias_text_at` were retired in favour of the
+visitor alone, as native has it, this gate would go with it.
