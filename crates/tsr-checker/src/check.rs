@@ -863,6 +863,9 @@ impl Checker<'_, '_> {
                 self.check_circular_import_alias(node);
                 self.check_alias_symbol(node);
                 self.check_export_specifier_is_local(node);
+                // r6-names: `resolveEntityName`'s failure tail for a local
+                // specifier (`export_specifier_names.rs`).
+                self.names_check_export_specifier_target(node, cannot_find_name_message);
             }
             // `checkImportBinding` (`checker.go:5287`-`:5303`, `:5473`) and
             // `checkExportDeclaration`'s clause (`:5534`).
