@@ -1350,3 +1350,20 @@ Routed: the unevaluable conditional alias reference's `return error` arm
 goes to r6-declared; its +78/−21 fallthrough was measured. Cross-file alias
 accessibility at print (35 lines) and unique-symbol mapped keys (6) go to
 r6-accessible (`tsr-2zk.1136`).
+
+### r6-isolated finished (batch BE); r6-modules2 dispatched
+
+Batch BE lands r6-isolated's ports in isolated_alias.rs and five hook diffs:
+- checkExportAssignment's isolated/verbatim arms;
+- TS2866;
+- checkConstEnumAccess (TS2475/TS2748);
+- markDecoratorAliasReferenced (TS1272);
+- GetResolutionDiagnostic with the ResolvedUsingTsExtension arms
+  (TS6263/TS7042/TS6142/TS2846/TS5097).
+
+Measured by the box: +21 diagnostics rows, 0 lost, types identical; Ir within
+noise after each straight port's extra cost was removed.
+
+aliasSymbolLinks.referenced is recorded in the notes but not built: its only
+consumer is the JS emitter. The remaining module diagnostics go to r6-modules2
+(`tsr-2zk.1137`).
