@@ -113,3 +113,34 @@ instantiation runs once per diagnosed super call. Converts `baseCheck`,
 `G<number>`'s `(x: T)` → TS2345, `super(true)` against overloads
 `(x: number)`/`(x: string, y: number)` → TS2345 (one arity survivor),
 `super(0, x)` stays clean.
+
+## getArgumentArityError's missing-argument note (tsr-2zk.16.58)
+
+`getArgumentArityError` (`checker.go:9705`) adds related information to a
+too-few-arguments TS2554/TS2555: the closest signature (the first with the
+smallest `getMinArgumentCount`) names its declaration parameter at
+`len(args)` (plus one for a `this` parameter) as TS6211 (binding pattern),
+TS6236 (rest) or TS6210. `report_argument_arity_error` now builds it
+(`missing_argument_related`). The syntactic fallbacks in `call_arity.rs`
+still emit the head alone.
+
+Related notes need the declaration file's image (`Diagnostic.File()`):
+`Checker::related_diagnostic` is `NewDiagnosticForNode` for a note.
+- Native: `NewDiagnosticForNode` + `AddRelatedInfo` (5b1047d).
+- Key/owner: `diagnostic_files`, `SourceFile` NodeId of this checker's node
+  table → `Option<Arc<DiagnosticFile>>`, private to the checker; built from
+  `ModuleHost::file_path`/`source_text` (which witnesses the node table).
+- Publication: absent = not built; `Some(None)` = host cannot name the file
+  (note dropped); `Some(Some)` = completed image. Never certifies a type.
+- Work: one text copy + line map per file that receives a note, on report
+  paths only.
+
+Span: `error_span` (`GetErrorRangeForNode`). It maps a `MethodSignature` to
+its name where native keeps the whole node (scanner.go:2598 lists no
+`MethodSignature`), and a constructor keeps its node span where native scans
+to the `constructor` keyword: notes at those nodes differ (check.rs, out of
+lane). Converts 37 EXACT cases (`functionCall11/12/13/16/17/18`,
+`arityErrorRelatedSpanBindingPattern`, `callWithMissingVoid`,
+`genericRestArity(Strict)`, …). Native control: `function foo(a:string,
+b?:number){}; foo()` → TS2554 at `foo` with TS6210 `a:string`; `foo('x')`
+stays clean; `bar(a, b, [c])` with two arguments → TS6211 at `[c]`.

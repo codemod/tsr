@@ -1205,6 +1205,13 @@ pub struct Checker<'a, 'n> {
     /// port rechecks a mutable contextual signature. Diagnostic ownership only;
     /// this set never certifies completion or substitutes a semantic return.
     pub(crate) return_cycle_diagnostics: rustc_hash::FxHashSet<NodeId>,
+    /// The source image (`Diagnostic.File()`) a related-information note
+    /// located in a `SourceFile` carries, built once per file from the
+    /// module host's file name and text ([`Checker::related_diagnostic`]).
+    /// Keyed by the `SourceFile` node of this checker's node table; read only
+    /// on report paths, never certifies a type.
+    pub(crate) diagnostic_files:
+        FxHashMap<NodeId, Option<std::sync::Arc<tsr_diagnostics::DiagnosticFile>>>,
     /// reportCircularityError / getTypeOfAccessors (checker.go:18822, :18511)
     /// diagnostics already reported, keyed by the reporting declaration node.
     /// Native's diagnostic collection drops the identical report a failed push
@@ -1676,6 +1683,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             signature_returns: FxHashMap::default(),
             pending_signature_returns: FxHashMap::default(),
             return_cycle_diagnostics: rustc_hash::FxHashSet::default(),
+            diagnostic_files: FxHashMap::default(),
             circularity_reported: rustc_hash::FxHashSet::default(),
             circular_any_declarations: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),

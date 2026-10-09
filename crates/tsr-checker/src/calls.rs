@@ -1936,8 +1936,8 @@ impl Checker<'_, '_> {
         Some(true)
     }
 
-    /// `getArgumentArityError` (`checker.go:9705`), without the related
-    /// information and the decorator messages.
+    /// `getArgumentArityError` (`checker.go:9705`), without the decorator
+    /// messages.
     fn report_argument_arity_error(
         &mut self,
         node: tsr_ast::NodeId,
@@ -1961,10 +1961,14 @@ impl Checker<'_, '_> {
         let mut max_count = 0usize;
         let mut max_below: Option<usize> = None;
         let mut min_above: Option<usize> = None;
+        let mut closest: Option<&Signature> = None;
         for signature in signatures {
             let min_parameter = self.signature_min_argument_count(signature);
             let max_parameter = self.signature_parameter_count(signature);
-            min_count = min_count.min(min_parameter);
+            if min_parameter < min_count {
+                min_count = min_parameter;
+                closest = Some(signature);
+            }
             max_count = max_count.max(max_parameter);
             if min_parameter < count && max_below.is_none_or(|below| min_parameter > below) {
                 max_below = Some(min_parameter);
@@ -1999,7 +2003,21 @@ impl Checker<'_, '_> {
                     min_above.map_or_else(String::new, |n| n.to_string()),
                 ],
             )
-        } else if count < min_count || max_count >= count {
+        } else if count < min_count {
+            let mut diagnostic = Diagnostic::with_args(
+                message,
+                self.error_span(error_node),
+                [range, count.to_string()],
+            );
+            let related = closest.and_then(|closest| {
+                self.missing_argument_related(
+                    closest,
+                    count + usize::from(closest.this_parameter.is_some()),
+                )
+            });
+            diagnostic.add_related_information(related);
+            diagnostic
+        } else if max_count >= count {
             Diagnostic::with_args(message, self.error_span(error_node), [range, count.to_string()])
         } else {
             let start = self.nodes.span(arguments[max_count].node).start;
@@ -2011,6 +2029,38 @@ impl Checker<'_, '_> {
             )
         };
         self.report_at_node(node, diagnostic);
+    }
+
+    /// `getArgumentArityError`'s too-few-arguments note (`checker.go:9792`):
+    /// the closest signature's declaration parameter at `index` (the `this`
+    /// parameter counted), described as a binding pattern (TS6211), a rest
+    /// parameter (TS6236) or a named parameter (TS6210). `None` past the
+    /// declaration's list or without a declaration.
+    pub(crate) fn missing_argument_related(
+        &mut self,
+        closest: &Signature,
+        index: usize,
+    ) -> Option<Diagnostic> {
+        let parameter = *self.parameters_of(closest.declaration).get(index)?;
+        let Some(tsr_ast::Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter)
+        else {
+            return None;
+        };
+        match declaration.name? {
+            tsr_ast::BindingName::BindingPattern(_) => self.related_diagnostic(
+                parameter,
+                &messages::AN_ARGUMENT_MATCHING_THIS_BINDING_PATTERN_WAS_NOT_PROVIDED,
+                [],
+            ),
+            tsr_ast::BindingName::Identifier(name) => {
+                let message = if declaration.dot_dot_dot_token.is_some() {
+                    &messages::ARGUMENTS_FOR_THE_REST_PARAMETER_0_WERE_NOT_PROVIDED
+                } else {
+                    &messages::AN_ARGUMENT_FOR_0_WAS_NOT_PROVIDED
+                };
+                self.related_diagnostic(parameter, message, [name.text.to_string()])
+            }
+        }
     }
 
     /// `isPromiseResolveArityError` (`checker.go`): the callee is a parameter
@@ -2640,6 +2690,38 @@ impl Checker<'_, '_> {
         if let Some(file) = self.source_file_of_for_diagnostics(node) {
             self.report(file, diagnostic);
         }
+    }
+
+    /// `NewDiagnosticForNode(node, message, args...)` as a related-information
+    /// note (`Diagnostic.AddRelatedInfo`): located at `getErrorSpanForNode`
+    /// in its own file, so it carries that file's source image.
+    ///
+    /// The image is built once per `SourceFile` (`diagnostic_files`, owned by
+    /// this checker; key = the file's node in this node table) from the module
+    /// host's file name and text; a host that cannot name the file publishes
+    /// `None` and the note is dropped, as is every note of a host-less
+    /// checker. Only report paths reach it.
+    pub(crate) fn related_diagnostic(
+        &mut self,
+        node: tsr_ast::NodeId,
+        message: &'static tsr_diagnostics::Message,
+        args: impl IntoIterator<Item = String>,
+    ) -> Option<Diagnostic> {
+        let file = self.source_file_of_for_diagnostics(node)?;
+        let image = if let Some(image) = self.diagnostic_files.get(&file) {
+            image.clone()
+        } else {
+            let image = self.module_host.and_then(|host| {
+                let name = host.file_path(file)?;
+                let text = host.source_text(file, self.nodes)?;
+                Some(std::sync::Arc::new(tsr_diagnostics::DiagnosticFile::new(name, text)))
+            });
+            self.diagnostic_files.insert(file, image.clone());
+            image
+        }?;
+        let mut diagnostic = Diagnostic::with_args(message, self.error_span(node), args);
+        diagnostic.set_file(image);
+        Some(diagnostic)
     }
 
     /// The type of a call expression.
