@@ -84,8 +84,13 @@ impl Checker<'_, '_> {
         };
         self.modifier_chain_reported.insert(node);
         self.decorator_error_reported.insert(node);
-        // `grammarErrorOnFirstToken(node, …)`: the node starts at its first
-        // decorator or modifier.
+        // `grammarErrorOnFirstToken(node, …)`: silent in a file with parse
+        // diagnostics (the parser already reported TS1433 on a `this`
+        // parameter, `parser.go:3334`); the node starts at its first decorator
+        // or modifier.
+        if self.file_has_parse_errors {
+            return true;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
         let start = self.nodes.span(node).start;
         self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, start + 1)));
