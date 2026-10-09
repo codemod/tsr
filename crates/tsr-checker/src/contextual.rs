@@ -2398,7 +2398,9 @@ impl<'a> Checker<'a, '_> {
             && index >= rest
         {
             let rest_type = self.parameter_type(&signature.parameters[rest]);
-            if self.store.get(rest_type).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER) {
+            if self.store.get(rest_type).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER)
+                || self.is_generic_mapped_type(rest_type)
+            {
                 let index_type = self.store.intern(
                     crate::flags::TypeFlags::NUMBER_LITERAL,
                     crate::types::TypeData::NumberLiteral((index - rest).to_string()),

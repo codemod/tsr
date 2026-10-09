@@ -1477,9 +1477,6 @@ impl<'a> Checker<'a, '_> {
 
     /// isGenericMappedType (checker.go:24908) of a type: a mapped type
     /// whose parts are generic ([`Checker::is_generic_mapped_info`]).
-    // Read by `contextual_argument_type` (contextual.rs, main's) in
-    // `r6-mapped-apparent-instance.diff` (r6-mapped.md §1).
-    #[allow(dead_code)]
     pub(crate) fn is_generic_mapped_type(&mut self, id: TypeId) -> bool {
         let Some(info) = self.mapped_types.get(&id).cloned() else { return false };
         self.is_generic_mapped_info(&info)
@@ -1862,7 +1859,10 @@ impl<'a> Checker<'a, '_> {
             if !types.into_iter().all(|ty| self.is_mapped_sequence_input(ty)) {
                 return None;
             }
-            let (symbol, mut arguments) = self.type_reference_targets.get(&id)?.clone();
+            let Some((symbol, mut arguments)) = self.type_reference_targets.get(&id).cloned()
+            else {
+                return self.apparent_mapped_instance(id, &info, base);
+            };
             let declaration = self.type_alias_declaration_of(symbol)?;
             let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
                 return None;
@@ -1885,9 +1885,6 @@ impl<'a> Checker<'a, '_> {
     /// or the type itself. `Promise.allSettled(fn())` under
     /// `T extends readonly unknown[]` reads `map` from
     /// `PromiseSettledResult<unknown>[]`, not from the mapped members.
-    // Read by `apparent_mapped_type` once the contextual rest-argument
-    // hunk of `r6-mapped-apparent-instance.diff` lands (r6-mapped.md §1).
-    #[allow(dead_code)]
     fn apparent_mapped_instance(
         &mut self,
         id: TypeId,
