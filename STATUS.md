@@ -22,6 +22,40 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Round 5 (`tsr-2zk`, cloud boxes), integration branch
+`claude/beautiful-shannon-ar5gh0` at `50cc3a05` (origin/main `2103e539` merged
+in), pinned native `5b1047d`. Coverage bin, full corpus:
+
+| Suite | Round-5 start | Now | Change |
+|---|---|---|---|
+| `checker_types` | 8,176/9,538 | **8,489/9,538 (89.00%)** | +313 |
+| `checker_types_configured` | — | **1,716/1,928 (89.00%)** | — |
+| `diagnostics` | 4,394/5,502 | **4,636/5,502 (84.26%)** | +242 |
+| `diagnostics_configured` | 670/1,089 | **894/1,091 (81.94%)** | +224 (denominator +2: two esnext baselines are no longer empty) |
+
+Every batch passed the zero-loss gate (v4):
+- both dumps unfiltered, with no previously RIGHT key lost or missing;
+- slowcases and divergentcost;
+- perf at 21 samples (threshold 1.05), with a 41-sample rerun at 1.03;
+- workspace tests.
+
+Two diffs were backed out after their gate named the loss. Per-batch records
+are in [docs/parity/round5.md](docs/parity/round5.md).
+
+**Performance target not met.** TSR/tsgo median wall ratio, from r5-checkperf3's
+container with its stack applied (round-5 tip before the main merge):
+
+| Project | Ratio |
+|---|---|
+| domain-model | 0.708 |
+| domain-model (large) | 0.666 |
+| generic-imports | 0.817 |
+| jsTyping | 3.203 |
+
+Target ≤0.50. jsTyping is still 3.2× slower than tsgo. Its remaining causes are
+main's `calls.rs`: resolving_signature_calls is not parked, and the
+`members.rs:3233` composite-name decline answers 137k of 138k asks.
+
 Tuple-label prerequisite (`tsr-1yb.35`), measured on `daee9552` plus the six-file
 overlay recorded in `step284-final-tuple-manifest.json` under
 `target/native-optimization-goal/module-owner-current-189`: native `5b1047d`
@@ -3970,6 +4004,24 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Round 5 handoff (`50cc3a05`). Every claim the round-5 cloud boxes held was
+released at wrap-up. The next owner for each held item, with its measured
+number, is in [docs/parity/round5.md](docs/parity/round5.md), under
+"Round-5 wrap-up". Ranked by measured gain at zero losses:
+- r5-relater8's variance WIP: +6 diagnostics, ungated (`tsr-2zk.1124`);
+- r5-errorsplit6's import-equals-alias diff: +6 types/+1 diagnostic, zero losses,
+  in main's symbols.rs;
+- r5-declared4's print-arity WIP: +37/−3. It waits on signature return reuse of
+  `Iterator<X>` (`tsr-2zk.1115`);
+- r5-nodereuse2's structural pseudo types: +26 types, but they fail
+  `shadowed_names` (`tsr-2zk.1118`);
+- r5-isolated's four isolatedModules items, with native anchors recorded
+  (`tsr-2zk.1125`);
+- TS2589, which waits on lazy anonymous instantiation (`tsr-2zk.1116`).
+
+Perf: jsTyping's call-resolution sentinel and the composite-name decline, both
+in main's files.
+
 `tsr-1yb.35` now retains the keyword-label/named-rest parser and checker
 prerequisite on `daee9552` plus its owned overlay. Continue nearby grammar
 diagnostic fidelity and real API semantic parity before treating that workload
@@ -7833,6 +7885,22 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Round 5 (`tsr-2zk`). Each item was refused by the gate that measured it:
+- r5-nodereuse's property-slot diff: batch AW,
+  circularAccessorAnnotations 0:0/0:3 RIGHT→WRONG (`foo: any`). Backed out in
+  `14080cb2` (`tsr-2zk.1129`).
+- r5-nodereuse2's merge and its predicate-at-site diff: batch AZ,
+  `shadowed_names::constraints_and_defaults_keep_outer_parameter_names`.
+  Backed out in `84ef78b5`.
+- r5-spans' TS2589 report sites: 8 losses, because this port's instantiation
+  depth reaches 100 where native's does not (`tsr-2zk.1116`).
+- r5-relater7's binder declare-module imports: the dumps run out of memory at
+  ramdaToolsNoInfinite2 without bounded alias evaluation (`tsr-2zk.1123`).
+- r5-mapped6's object-literal late-bound keyof: breaks `computed_indexes.rs`.
+- r5-js's `Object.<K,V>` as Record: −1 diagnostic (checkJsdocSatisfiesTag2).
+- r5-smallcodes3's TS2391 parser half: −3 cases and −31 type lines until the
+  NodeIsMissing(body) readers are ported.
 
 The first tuple-label/parser-consumer patch on `daee9552`'s guarded baseline
 passed **3254 workspace tests** but lost **two previously RIGHT types** among
@@ -16295,3 +16363,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `f8f98157` canonical/runtime `2e47ffaa`; source193/201/222/223 and native221 probes | — | — | **Mapped constructor demand is the next repair boundary.** API canonical408068conditional nodes/depth16 versus private>=34685736/depth100 at30scap; generated root/node workers match. PgSelect member reads and actual Drizzle fields over any reproduce; standalone recursive Simplify also times out in main. Native constructor-only controls complete with0template getter calls; private Drizzle>=52439template preparations at3scap. Three exact counter replays, Rust feature builds/ordinary checks and native Go1.26build pass;72complete ordinary/off/on runs preserve outputs/repeated semantic counts. Existing16.3.10.4 owns demand, linked11.7. No runtime fix/native ratio/six-goal completion. [Source, standalone red and limits](docs/architecture/checker-mapped-template-attribution.md). |
 
 | 2026-10-08 | `daee9552` plus six-source tuple-label overlay; native `5b1047d` | +1 legacy type assertion | 0 previously RIGHT losses | **Runtime tuple-label prerequisite retained.** Reserved labels and named-rest AST ownership now follow native; checker normalization, signature rendering and recovered optional/rest semantic dispatch consume that shape. Workspace3255/0/19; complete552533type/12238diagnostic keys retained. Initial two-RIGHT-loss candidate refused and repaired. ScopedClippy passes with five preexisting warnings; strict lint does not pass. Four ioredis parser errors removed; semantic parity, full native corpus qualification and speed target remain unfinished under tsr-1yb.35 and the six original goal tickets. [Reasoning](docs/architecture/parser.md#tuple-labels-and-rest-ownership). |
+| 2026-10-09 | `50cc3a05` (round-5 integration with origin/main `2103e539` merged) / native `5b1047d` | +313 checker_types cases, +242 diagnostics cases since round-5 start | 0 previously RIGHT losses (every batch gated) | **Round 5 closed and merged to main.** checker_types 8,489/9,538 (89.00%), diagnostics 4,636/5,502 (84.26%), configured 1,716/1,928 and 894/1,091. Two diffs backed out by their gates (property-slot, nodereuse2). TSR/tsgo wall dm 0.708, dml 0.666, gi 0.817, jsTyping 3.203; the 0.50 target is not met. |
