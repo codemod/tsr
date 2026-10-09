@@ -1,0 +1,15 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 063d321..e0dc8d9 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1415,7 +1415,9 @@ impl Checker<'_, '_> {
+             // mapped property type resolves its own members when read.
+             let property_type = self.property_type(&property);
+             self.complete_reverse_mapped_type(property_type);
+-            return Some(if property.optional {
++            // addOptionality / getTypeOfMappedSymbol (checker.go:20993): an
++            // optional member reads `| undefined` only under strictNullChecks.
++            return Some(if property.optional && self.strict_null_checks {
+                 self.get_optional_type(property_type, true)
+             } else {
+                 property_type

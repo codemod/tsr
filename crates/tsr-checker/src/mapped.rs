@@ -326,8 +326,12 @@ impl<'a> Checker<'a, '_> {
     /// isExcludedMappedPropertyName (checker.go:30624), for a conditional
     /// that excludes its extends type and otherwise keeps the check variable.
     fn is_excluded_mapped_property_name(&mut self, ty: TypeId, key: TypeId) -> bool {
-        if let Some(info) = self.mapped_conditionals.get(&ty).cloned() {
-            let [check, extends, yes, no] = info.operands;
+        if self.store.get(ty).flags.contains(crate::flags::TypeFlags::CONDITIONAL)
+            || self.type_reference_targets.contains_key(&ty)
+        {
+            let Some([check, extends, yes, no]) = self.conditional_root_operands(ty) else {
+                return false;
+            };
             return yes == self.intrinsics.never
                 && no == check
                 && self.is_type_assignable_to(key, extends);
@@ -1592,11 +1596,31 @@ impl<'a> Checker<'a, '_> {
             // instantiateMappedType (checker.go:22535) distributes over the
             // mapped type variable before it reads the constraint, so a union
             // argument whose `keyof` this port cannot resolve (capture
-            // declined) still maps per constituent (r4-mapped.md §1).
+            // declined) still maps per constituent (r4-mapped.md §1), and a
+            // constituent instantiateConstituent does not map is itself.
             let source = *arguments.get(slot)?;
+            if self.is_unmapped_homomorphic_constituent(source) {
+                return Some(source);
+            }
             return self.distribute_mapped_union(source, Some(id), replace_source);
         };
         self.instantiate_mapped_sequence(&info, Some(id), replace_source)
+    }
+
+    /// instantiateConstituent's first test (checker.go:22551): a constituent
+    /// that is not any/unknown, a non-primitive instantiable, an object or an
+    /// intersection (a primitive, literal, `never`, a template literal or
+    /// string mapping), or that is errorType, is not mapped.
+    fn is_unmapped_homomorphic_constituent(&self, source: TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        !self.store.get(source).flags.intersects(
+            TypeFlags::ANY
+                | TypeFlags::UNKNOWN
+                | TypeFlags::INSTANTIABLE_NON_PRIMITIVE
+                | TypeFlags::OBJECT
+                | TypeFlags::INTERSECTION,
+        ) && !self.store.get(source).flags.contains(TypeFlags::UNION)
+            || self.is_error(source)
     }
 
     /// The union arm of instantiateMappedType: mapTypeWithAlias over the
@@ -1634,9 +1658,7 @@ impl<'a> Checker<'a, '_> {
         use crate::{flags::TypeFlags, tuples::TupleElement, types::TypeData};
         let source = info.modifiers_source?;
         let parameter = info.homomorphic_symbol?;
-        if self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER)
-            || self.is_error(source)
-        {
+        if self.is_unmapped_homomorphic_constituent(source) {
             return Some(source);
         }
         if self.store.get(source).flags.contains(TypeFlags::UNION) {
