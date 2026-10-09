@@ -1,0 +1,137 @@
+--- a/crates/tsr-checker/src/relater.rs	2026-10-09 07:57:42.634353609 +0000
++++ b/crates/tsr-checker/src/relater.rs	2026-10-09 07:57:42.438455182 +0000
+@@ -5608,6 +5608,69 @@
+         Some((id, has_infer, distributive))
+     }
+ 
++    /// isDistributionDependent (relater.go:4993) for the distributive
++    /// conditional type node `root`: is its check type parameter possibly
++    /// referenced in either branch (isTypeParameterPossiblyReferenced,
++    /// checker.go:22403)? `None` when the check parameter does not resolve.
++    fn is_distribution_dependent(&self, root: tsr_ast::NodeId) -> Option<bool> {
++        let Some(tsr_ast::Node::ConditionalTypeNode(node)) = self.checker.node_map.get(root) else {
++            return None;
++        };
++        let parameter = self.checker.distributive_conditional_parameter(node.check_type?)?;
++        // The walk from a branch up to the parameter's container passes the
++        // root itself, whose extends type referencing the parameter makes
++        // every branch a possible reference (checker.go:22449).
++        let extends = node.extends_type.and_then(|t| t.node_id());
++        if extends.is_some_and(|id| self.type_parameter_referenced_in(id, parameter, 0)) {
++            return Some(true);
++        }
++        Some([node.true_type, node.false_type].into_iter().flatten().any(|branch| {
++            branch.node_id()
++                .is_some_and(|id| self.type_parameter_referenced_in(id, parameter, 0))
++        }))
++    }
++
++    /// isTypeParameterPossiblyReferenced's `containsReference`
++    /// (checker.go:22405): an argument-less type reference resolving to
++    /// `parameter`; a type query, which this port does not prove free of the
++    /// parameter, counts as a reference.
++    fn type_parameter_referenced_in(
++        &self,
++        id: tsr_ast::NodeId,
++        parameter: SymbolId,
++        depth: usize,
++    ) -> bool {
++        if depth > 4 * MAX_DEPTH {
++            return true;
++        }
++        let Some(node) = self.checker.node_map.get(id) else {
++            return true;
++        };
++        match node {
++            tsr_ast::Node::TypeQueryNode(_) => return true,
++            tsr_ast::Node::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
++                if let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name
++                    && let Some(name_id) = name.node_id
++                    && self.checker.binder.resolve_name(
++                        self.checker.nodes,
++                        self.checker.node_map,
++                        name_id,
++                        name.text,
++                        SymbolFlags::TYPE_PARAMETER,
++                    ) == Some(parameter)
++                {
++                    return true;
++                }
++            }
++            _ => {}
++        }
++        let mut found = false;
++        tsr_ast::for_each_child_id(node, |child| {
++            found = found || self.type_parameter_referenced_in(child, parameter, depth + 1);
++        });
++        found
++    }
++
+     /// getSimplifiedConditionalType (checker.go:28006) for a deferred
+     /// conditional `id`; any other type is returned unchanged. `None` when the
+     /// restrictive-instantiation test it needs is not decidable here.
+@@ -5651,7 +5714,14 @@
+         }
+         let check_is_parameter =
+             self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER);
+-        if check_is_parameter && !self.checker.mentions_registered_type_parameter(extends) {
++        // getRestrictiveInstantiation maps every type parameter to its
++        // unconstrained twin, so an indexed access built only from type
++        // parameters (`T[K1]`, `T[K1][K2]`) has no constraint either: like a
++        // naked parameter it relates to a parameter-free type only when that
++        // type is a top type.
++        if (check_is_parameter || self.is_type_parameter_access(check, 0))
++            && !self.checker.mentions_registered_type_parameter(extends)
++        {
+             return Some(self.checker.type_of(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN));
+         }
+         // Two distinct restrictive parameters have no constraints to relate.
+@@ -5663,6 +5733,21 @@
+         None
+     }
+ 
++    /// Whether `id` is an indexed access whose object and index are each a
++    /// type parameter or another such access.
++    fn is_type_parameter_access(&self, id: TypeId, depth: usize) -> bool {
++        if depth > MAX_DEPTH {
++            return false;
++        }
++        let Some(&(object, index, _)) = self.checker.deferred_indexed_access_types.get(&id) else {
++            return false;
++        };
++        [object, index].into_iter().all(|part| {
++            self.checker.type_of(part).flags.contains(TypeFlags::TYPE_PARAMETER)
++                || self.is_type_parameter_access(part, depth + 1)
++        })
++    }
++
+     /// isIntersectionEmpty (checker.go:28029).
+     fn intersection_is_empty(&mut self, left: TypeId, right: TypeId) -> bool {
+         let intersection = self.checker.get_intersection_type(&[left, right], None);
+@@ -5704,18 +5789,17 @@
+         else {
+             return RelationResult::Unknown;
+         };
+-        // isDistributionDependent (checker.go): a distributive root whose
+-        // branches reference the check type parameter.
++        // isDistributionDependent (relater.go:4993): a distributive root
++        // whose branches possibly reference the root's check type parameter.
++        // The test reads the root's declaration, so it holds for every
++        // instantiation (`Extract<T[K1], string>` is `Extract`'s root).
+         let check_is_parameter =
+             self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER);
+         if distributive {
+-            if !check_is_parameter {
+-                return RelationResult::Unknown;
+-            }
+-            if self.checker.mentions_type_parameter(yes, &[check], &[])
+-                || self.checker.mentions_type_parameter(no, &[check], &[])
+-            {
+-                return RelationResult::NotRelated;
++            match self.is_distribution_dependent(root) {
++                Some(true) => return RelationResult::NotRelated,
++                Some(false) => {}
++                None => return RelationResult::Unknown,
+             }
+         }
+         if self.is_conditional(source)
