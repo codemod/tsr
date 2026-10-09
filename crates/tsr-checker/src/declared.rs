@@ -320,6 +320,18 @@ impl<'a> Checker<'a, '_> {
                         .is_some_and(|element| checker.may_resolve_type_alias(element))
                 })
             }
+            // getTypeFromArrayOrTupleTypeNode (checker.go:24121) never defers
+            // a tuple with a VARIADIC element: createNormalizedTupleType reads
+            // every element now, so `type R = [string, ...R]` re-enters its own
+            // declared type and reports TS2456 (`namedTupleMembersErrors`).
+            TypeNode::TupleTypeNode(tuple)
+                if tuple
+                    .elements
+                    .iter()
+                    .any(|&element| Self::is_variadic_tuple_element(element)) =>
+            {
+                false
+            }
             TypeNode::TupleTypeNode(tuple) => {
                 self.is_deferred_type_reference_node(tuple.node_id, false, |checker| {
                     tuple.elements.iter().any(|&element| checker.may_resolve_type_alias(element))
