@@ -554,3 +554,21 @@ control: the pattern union narrows to the `_SUCCESS` member in both; a
 `assignreport.rs::is_discriminant_property_of_union` keeps the old literal
 test (relate-report lane). Gate vs §24: +4 type lines (`templateLiteralTypes3`);
 0 losses. CPU (21) 0.983 / 1.003.
+
+## 26. `narrowTypeByInstanceof` ported in native order
+
+Pinned `flow.go:811`: `isTypeDerivedFrom(rightType, globalObjectType)`, the
+`[Symbol.hasInstance]` predicate, `isTypeDerivedFrom(rightType,
+globalFunctionType)`, then `mapType(rightType, getInstanceType)` into
+`getNarrowedType(_, _, _, checkDerived=true)`. TSR's arm only narrowed a
+callee whose type was a class's anonymous constructor type, and gated the
+false branch on "the reference is a top-level `var`" (a test-shaped
+discriminator, removed). Constructor-typed aliases (`type BB = { new(): B }`),
+`prototype`-bearing objects and unions of them now take the native road;
+`isTypeDerivedFrom` gains its `globalFunctionType` arm (`relater.go:4986`,
+`isFunctionObjectType`). The hasInstance predicate still comes from
+`has_instance_predicate_type` (`getEffectsSignature`'s binary arm is not
+ported). No cache: native's `narrowedTypes` memo is not ported here.
+Native control: `x instanceof B` (`B: { new(): B }`) → `B` / else `A | C`;
+`x instanceof AB` (`AA | BB`) → `A | B` / else unchanged. Gained EXACT:
+`narrowByInstanceof`, `controlFlowInstanceof`, `inKeywordAndIntersection`.

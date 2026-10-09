@@ -1449,6 +1449,12 @@ impl Checker<'_, '_> {
                     && !self.is_empty_anonymous_object_type(t),
             );
         }
+        // relater.go:4986: `target == c.globalFunctionType`.
+        if let TypeData::Named { members: Some(owner), .. } = self.store.get(candidate).data
+            && self.global_type_symbol_with_arity("Function", 0) == Some(owner)
+        {
+            return Some(flags.intersects(TypeFlags::OBJECT) && self.is_function_object_type(t));
+        }
         // hasBaseType cannot derive an object from a primitive target, nor
         // can the primitive `object` type have a declared base chain. This
         // also decides the reverse comparison when a predicate removes a
@@ -1567,41 +1573,6 @@ impl Checker<'_, '_> {
             }
         }
         false
-    }
-
-    /// §126's gate: whether an identifier reference resolves to a variable
-    /// declared at a source file's top level. The instanceof FALSE branch
-    /// does not narrow those in the baselines (typeGuardOfFormInstanceOf)
-    /// while parameters and locals narrow
-    /// (instanceofWithStructurallyIdenticalTypes); an unresolvable
-    /// reference answers `true` — the arm then declines, the safe side.
-    fn reference_is_top_level_var(&mut self, reference: NodeId) -> bool {
-        let Some(Node::Identifier(identifier)) = self.node_map.get(reference) else {
-            return true;
-        };
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            reference,
-            identifier.text,
-            SymbolFlags::VALUE,
-        ) else {
-            return true;
-        };
-        let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first() else {
-            return true;
-        };
-        if self.nodes.kind(declaration) != SyntaxKind::VariableDeclaration {
-            return false;
-        }
-        // VariableDeclaration → VariableDeclarationList → VariableStatement
-        // → SourceFile, exactly — anything else (a function body, a block)
-        // is a local.
-        self.nodes
-            .parent(declaration)
-            .and_then(|list| self.nodes.parent(list))
-            .and_then(|statement| self.nodes.parent(statement))
-            .is_some_and(|container| self.nodes.kind(container) == SyntaxKind::SourceFile)
     }
 
     /// `ast.IsThisInTypeQuery`: only the leftmost identifier in the entity
@@ -5706,17 +5677,11 @@ impl Checker<'_, '_> {
                     }
                     return t;
                 }
-                // §83 (`checker-notes-narrow.md`): `x instanceof A` —
-                // `narrowTypeByInstanceof` (`flow.go`), the class-identity
-                // slice: constituents matching by IDENTITY or by the extends
-                // CHAIN keep (true) or drop (false); an undecidable shape
-                // declines whole rather than guessing.
+                // `narrowTypeByInstanceof` (`flow.go:811`).
                 if operator.kind == SyntaxKind::InstanceOfKeyword {
                     let Some(left_id) = left.node_id() else { return t };
                     let left_id = self.get_reference_candidate(left_id);
                     if !self.is_matching_reference(state, left_id) {
-                        // `flow.go:814` (§749): `o?.x instanceof C` proves
-                        // the chain BASE non-null on the true branch.
                         if assume_true
                             && self.strict_null_checks
                             && self.optional_chain_contains_reference(state, left_id)
@@ -5726,245 +5691,8 @@ impl Checker<'_, '_> {
                         }
                         return t;
                     }
-                    let callee_type = self.check_expression(right);
-                    // §111 slice 2: an RHS whose `[Symbol.hasInstance]` method
-                    // carries a PREDICATE narrows by the predicate type —
-                    // BOTH branches, exactly as a user guard would
-                    // (`narrowTypeByInstanceof`'s hasInstance half). A
-                    // boolean-returning hasInstance and every other shape keep
-                    // the §83 structural road below.
-                    if let Some(predicate_type) = self.has_instance_predicate_type(callee_type) {
-                        return self
-                            .narrowed_type_worker(t, predicate_type, assume_true, true)
-                            .unwrap_or(t);
-                    }
-                    // §126 iteration 2: the false arm holds for TOP-LEVEL
-                    // script vars — typeGuardOfFormInstanceOf's baseline
-                    // keeps `C1 | C2` whole in the else on GLOBAL vars while
-                    // instanceofWithStructurallyIdenticalTypes narrows the
-                    // same shape on PARAMETERS; §83's "global var vs
-                    // parameter" observation was the literal discriminator,
-                    // measured again here (14 adverse ungated, all one case).
-                    if !assume_true && self.reference_is_top_level_var(left_id) {
-                        return t;
-                    }
-                    // §126: the FALSE branch narrows too — by DERIVATION.
-                    // `getNarrowedTypeWorker`'s `!assumeTrue` arm
-                    // (flow.go:861) filters constituents derived from the
-                    // candidate (`isTypeDerivedFrom` = declared base chains,
-                    // relater.go:4962). typeGuardOfFormInstanceOf's
-                    // whole-union else stays whole because its constituents
-                    // derive from nothing — the §83-era "21 adverse" used a
-                    // structural test this trace retired.
-                    let TypeData::Anonymous { symbol: class_symbol, .. } =
-                        self.store.get(callee_type).data
-                    else {
-                        // Native 5b1047d narrowTypeByInstanceof admits a
-                        // Function-derived callee, not only a constructor.
-                        // isFunctionObjectType reads completed call OR construct
-                        // signatures, or bind plus a Function subtype proof.
-                        // A plain prototype-bearing object cannot pass this
-                        // gate. Use the existing declaration/receiver-owned
-                        // signature lookup; publish no new member or flow cache.
-                        let has_signature = [
-                            crate::signatures::SignatureKind::Call,
-                            crate::signatures::SignatureKind::Construct,
-                        ]
-                        .into_iter()
-                        .any(|kind| {
-                            self.signature_candidates_of_named_type(callee_type, kind)
-                                .is_some_and(|candidates| !candidates.is_empty())
-                        });
-                        if !has_signature && !self.is_bind_bearing_function_subtype(callee_type) {
-                            return t;
-                        }
-                        let prototype_instance = self
-                            .get_property_of_type(callee_type, "prototype")
-                            .map(|p| self.get_type_of_symbol(p))
-                            .filter(|&i| i != self.intrinsics.error && i != self.intrinsics.any);
-                        let instance = if let Some(instance) = prototype_instance {
-                            instance
-                        } else {
-                            {
-                                // getInstanceType's second leg
-                                // (flow.go:971-975): the UNION over construct
-                                // signatures of the ERASED return (type
-                                // parameters instantiated to any). The
-                                // emptyObject third leg declines.
-                                let Some(candidates) = self.signature_candidates_of_named_type(
-                                    callee_type,
-                                    crate::signatures::SignatureKind::Construct,
-                                ) else {
-                                    return t;
-                                };
-                                let mut returns = Vec::with_capacity(candidates.len());
-                                for candidate in &candidates {
-                                    if candidate.type_parameters.is_empty() {
-                                        returns.push(candidate.r#type);
-                                        continue;
-                                    }
-                                    let Some(parameters) = self.type_parameter_types(candidate)
-                                    else {
-                                        return t;
-                                    };
-                                    let names: Vec<&str> = candidate
-                                        .type_parameters
-                                        .iter()
-                                        .map(|p| p.name.as_str())
-                                        .collect();
-                                    let any = self.intrinsics.any;
-                                    let map: Vec<(TypeId, TypeId)> =
-                                        parameters.iter().map(|&t| (t, any)).collect();
-                                    let erased = self.instantiate_type(
-                                        candidate.r#type,
-                                        &map,
-                                        &parameters,
-                                        &names,
-                                    );
-                                    if erased == self.intrinsics.error {
-                                        return t;
-                                    }
-                                    returns.push(erased);
-                                }
-                                if returns.is_empty() {
-                                    self.intrinsics.empty_object
-                                } else {
-                                    self.get_union_type(&returns)
-                                }
-                            }
-                        };
-                        if instance == self.intrinsics.error || instance == self.intrinsics.any {
-                            return t;
-                        }
-                        let instance_is_global = ["Object", "Function"].iter().any(|name| {
-                            self.global_type_symbol_with_arity(name, 0).is_some_and(|symbol| {
-                                matches!(
-                                    self.store.get(instance).data,
-                                    TypeData::Named { members: Some(owner), .. }
-                                        if owner == symbol
-                                )
-                            })
-                        });
-                        if t == self.intrinsics.any && instance_is_global {
-                            return t;
-                        }
-                        if !assume_true
-                            && (!self.store.get(instance).flags.intersects(TypeFlags::OBJECT)
-                                || self.is_empty_anonymous_object_type(instance))
-                        {
-                            return t;
-                        }
-                        if let Some(narrowed) =
-                            self.narrowed_type_worker(t, instance, assume_true, true)
-                        {
-                            return narrowed;
-                        }
-                        return t;
-                    };
-                    if !self.binder.symbols().get(class_symbol).flags.intersects(SymbolFlags::CLASS)
-                    {
-                        return t;
-                    }
-                    let instance = self.get_declared_type_of_symbol(class_symbol);
-                    if instance == self.intrinsics.error {
-                        return t;
-                    }
-                    // SS149b (the hasInstance arc's last arm): a declared
-                    // any/unknown/object narrows TO the class instance on
-                    // the TRUE branch (upstream's constructor road,
-                    // flow.go:836-843), EXCEPT any against the global
-                    // Object/Function instances, which keeps any. The false
-                    // branch keeps the declared type (an any/unknown/object
-                    // minus one class is not expressible).
-                    if t == self.intrinsics.any
-                        || t == self.intrinsics.unknown
-                        || t == self.intrinsics.non_primitive
-                    {
-                        if !assume_true {
-                            return t;
-                        }
-                        let keeps_any = t == self.intrinsics.any
-                            && ["Function", "Object"].iter().any(|name| {
-                                self.global_type_symbol_with_arity(name, 0).is_some_and(|symbol| {
-                                    matches!(
-                                        self.store.get(instance).data,
-                                        TypeData::Named { members: Some(owner), .. }
-                                            if owner == symbol
-                                    )
-                                })
-                            });
-                        return if keeps_any { t } else { instance };
-                    }
-                    // SS159: the checkDerived worker answers first over its
-                    // decidable domain; any undecidable rung falls through
-                    // to the SS83/SS126 roads unchanged.
-                    if let Some(narrowed) =
-                        self.narrowed_type_worker(t, instance, assume_true, true)
-                    {
-                        return narrowed;
-                    }
-                    let TypeData::Union { types: members, .. } = &self.store.get(t).data else {
-                        {
-                            // Non-union: `x: Base` with `x instanceof Derived`
-                            // narrows TO the derived instance when the chain
-                            // relates them (true); §126: an identity or
-                            // chain-DERIVED t is removed whole in the else —
-                            // upstream's `t == candidate → never` and the
-                            // derivation filter. Anything undecidable declines.
-                            let derived = t == instance
-                                || self.class_instance_symbol(t).is_some_and(|symbol| {
-                                    self.class_extends_chain_contains(symbol, class_symbol)
-                                });
-                            if assume_true {
-                                if t == instance {
-                                    return t;
-                                }
-                                if self
-                                    .class_instance_symbol(instance)
-                                    .zip(self.class_instance_symbol(t))
-                                    .is_some_and(|(derived, base)| {
-                                        self.class_extends_chain_contains(derived, base)
-                                    })
-                                {
-                                    return instance;
-                                }
-                            } else if derived {
-                                return self.intrinsics.never;
-                            }
-                            return t;
-                        }
-                    };
-                    let members = members.clone();
-                    let matches: Vec<bool> = members
-                        .iter()
-                        .map(|&member| {
-                            member == instance
-                                || self.class_instance_symbol(member).is_some_and(|derived| {
-                                    self.class_extends_chain_contains(derived, class_symbol)
-                                })
-                        })
-                        .collect();
-                    let kept: Vec<TypeId> = members
-                        .iter()
-                        .zip(&matches)
-                        .filter_map(|(&member, &is_match)| {
-                            (is_match == assume_true).then_some(member)
-                        })
-                        .collect();
-                    if kept.len() == members.len() {
-                        return t;
-                    }
-                    if kept.is_empty() {
-                        // §126: the FALSE branch's empty remainder IS `never`
-                        // (upstream's filterType); the TRUE branch's empty
-                        // set still declines — its fallback needs
-                        // assignability this port lacks.
-                        if assume_true {
-                            return t;
-                        }
-                        return self.intrinsics.never;
-                    }
-                    return self.rebuild_union_subset(t, &kept);
+                    let right_type = self.check_expression(right);
+                    return self.narrow_type_by_instanceof_operand(t, right_type, assume_true);
                 }
                 // §82.1: `&&`/`||` INSIDE an inlined aliased condition —
                 // there are no flow branch nodes inside a const initializer,
@@ -7301,6 +7029,100 @@ impl Checker<'_, '_> {
     /// (`TypeFactsUnknownFacts` masks the bit out).
     fn is_nullable_type(&self, t: TypeId) -> bool {
         self.store.get(t).flags.intersects(TypeFlags::NULLABLE | TypeFlags::ANY)
+    }
+
+    /// The operand half of `narrowTypeByInstanceof` (`flow.go:820-843`), after
+    /// the left operand matched the reference. The `[Symbol.hasInstance]`
+    /// predicate stands in for `getEffectsSignature(expr)`'s predicate. An
+    /// undecidable derivation keeps `t`. No cache: native's `narrowedTypes`
+    /// memo is not ported and every call recomputes.
+    fn narrow_type_by_instanceof_operand(
+        &mut self,
+        t: TypeId,
+        right_type: TypeId,
+        assume_true: bool,
+    ) -> TypeId {
+        let Some(object) = self.global_interface_type("Object") else { return t };
+        if self.is_derived_from_decidable(right_type, object) != Some(true) {
+            return t;
+        }
+        if let Some(predicate_type) = self.has_instance_predicate_type(right_type) {
+            return self.narrowed_type_worker(t, predicate_type, assume_true, true).unwrap_or(t);
+        }
+        let Some(function) = self.global_interface_type("Function") else { return t };
+        if self.is_derived_from_decidable(right_type, function) != Some(true) {
+            return t;
+        }
+        let Some(instance) = self
+            .map_narrowing_type(right_type, &mut |checker, part| checker.get_instance_type(part))
+        else {
+            return t;
+        };
+        let t_is_any = t == self.intrinsics.any || t == self.intrinsics.error;
+        if t_is_any && (instance == object || instance == function)
+            || !assume_true
+                && (!self.store.get(instance).flags.intersects(TypeFlags::OBJECT)
+                    || self.is_empty_anonymous_object_type(instance))
+        {
+            return t;
+        }
+        self.narrowed_type_worker(t, instance, assume_true, true).unwrap_or(t)
+    }
+
+    /// The declared type of a global non-generic interface (`globalObjectType`,
+    /// `globalFunctionType`).
+    fn global_interface_type(&mut self, name: &str) -> Option<TypeId> {
+        let symbol = self.global_type_symbol_with_arity(name, 0)?;
+        let declared = self.get_declared_type_of_symbol(symbol);
+        (declared != self.intrinsics.error).then_some(declared)
+    }
+
+    /// `getInstanceType` (`flow.go:966`): the `prototype` property's type
+    /// unless it is `any`, else the union of the erased construct-signature
+    /// returns, else the empty object type. `None` when a construct
+    /// signature's erasure cannot be computed.
+    fn get_instance_type(&mut self, constructor: TypeId) -> Option<TypeId> {
+        if let Some(prototype) = self.get_type_of_property_of_type(constructor, "prototype")
+            && prototype != self.intrinsics.any
+            && prototype != self.intrinsics.error
+        {
+            return Some(prototype);
+        }
+        let candidates =
+            self.signatures_of_type_kind(constructor, crate::signatures::SignatureKind::Construct)?;
+        if candidates.is_empty() {
+            return Some(self.intrinsics.empty_object);
+        }
+        let mut returns = Vec::with_capacity(candidates.len());
+        for candidate in &candidates {
+            if candidate.type_parameters.is_empty() {
+                returns.push(candidate.r#type);
+                continue;
+            }
+            let parameters = self.type_parameter_types(candidate)?;
+            let names: Vec<&str> =
+                candidate.type_parameters.iter().map(|p| p.name.as_str()).collect();
+            let any = self.intrinsics.any;
+            let map: Vec<(TypeId, TypeId)> = parameters.iter().map(|&t| (t, any)).collect();
+            let erased = self.instantiate_type(candidate.r#type, &map, &parameters, &names);
+            if erased == self.intrinsics.error {
+                return None;
+            }
+            returns.push(erased);
+        }
+        Some(self.get_union_type(&returns))
+    }
+
+    /// `isFunctionObjectType` (`checker.go:31140`): call or construct
+    /// signatures, or a `bind` member and a subtype of the global `Function`.
+    fn is_function_object_type(&mut self, t: TypeId) -> bool {
+        [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+            .into_iter()
+            .any(|kind| {
+                self.signatures_of_type_kind(t, kind)
+                    .is_some_and(|candidates| !candidates.is_empty())
+            })
+            || self.is_bind_bearing_function_subtype(t)
     }
 
     /// §111: the PREDICATE a callee's `[Symbol.hasInstance]` method
