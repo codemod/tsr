@@ -1820,23 +1820,6 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    /// Re-scan the current token as a JSX attribute value.
-    ///
-    /// The parser holds one token of lookahead, so by the time it has consumed
-    /// `=` the value has already been scanned under expression rules — where
-    /// `"a\b"` reports a bad escape. This rewinds to that token's start and
-    /// rescans it as a raw JSX string.
-    ///
-    /// Ported from typescript-go's `ReScanJsxAttributeValue`.
-    pub fn rescan_jsx_attribute_value(&mut self) -> Token {
-        self.pos = self.full_start;
-        // Diagnostics from the discarded expression-rules scan would be
-        // misattributed; drop anything reported at or after the rewind point.
-        let from = self.full_start;
-        self.diagnostics.retain(|d| d.span.start < from);
-        self.scan_jsx_attribute_value()
-    }
-
     /// Re-scan a compound `<` token as a single `<`.
     ///
     /// `<<T>() => void>x` lexes the opening as a shift operator; JSX and type

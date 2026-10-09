@@ -561,11 +561,9 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::EqualsToken) {
             return None;
         }
-        // `scanJsxAttributeValue`: this parser has already scanned the token
-        // after `=` under expression rules, so step onto it and rescan it as
-        // a raw JSX string (dropping that scan's diagnostics).
-        self.next_token();
-        self.rescan_jsx_attribute_value();
+        // `scanJsxAttributeValue`: the token after `=` is scanned as a raw
+        // JSX string, never under expression rules.
+        self.scan_jsx_attribute_value();
         let pos = self.pos();
         match self.token.kind {
             SyntaxKind::StringLiteral => {

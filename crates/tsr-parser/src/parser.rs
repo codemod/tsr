@@ -518,9 +518,10 @@ impl<'a> Parser<'a> {
         self.token_value = capture_value(&self.scanner);
     }
 
-    /// Re-scan the current token as a JSX attribute value.
-    pub(crate) fn rescan_jsx_attribute_value(&mut self) {
-        self.token = self.scanner.rescan_jsx_attribute_value();
+    /// Scan the token after `=` as a JSX attribute value
+    /// (`Parser.scanJsxAttributeValue`, `parser.go:4908`).
+    pub(crate) fn scan_jsx_attribute_value(&mut self) {
+        self.token = self.scanner.scan_jsx_attribute_value();
         self.drain_scanner_diagnostics();
         self.token_value = capture_value(&self.scanner);
     }
