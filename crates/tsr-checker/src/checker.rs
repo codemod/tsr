@@ -3019,13 +3019,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `A`, `A.B` outside). `resolve_name` is the shadow-exact test: a
         // shadowing `B` at the site resolves to the OTHER symbol and the
         // qualifier proceeds.
-        if let Some(resolved) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            reference,
-            name,
-            SymbolFlags::TYPE | SymbolFlags::VALUE,
-        ) {
+        if let Some(resolved) =
+            self.resolve_name_at_print_site(reference, name, SymbolFlags::TYPE | SymbolFlags::VALUE)
+        {
             let resolved = self.binder.merged_symbol(resolved);
             let own = self.binder.merged_symbol(symbol);
             // Identity, or the same written name in the same CONTAINER - the
@@ -3297,10 +3293,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                     });
                 let unresolved_export = same_file
                     && held_by_exports
-                    && self
-                        .binder
-                        .resolve_name(self.nodes, self.node_map, reference, name, meaning)
-                        .is_none();
+                    && self.resolve_name_at_print_site(reference, name, meaning).is_none();
                 if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
                     // `getSpecifierForModuleSymbol`'s spelling
                     // (`crate::module_specifiers`, r5-modules2 §3): the
@@ -3429,7 +3422,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         reference: NodeId,
         meaning: SymbolFlags,
     ) -> bool {
-        match self.binder.resolve_name(self.nodes, self.node_map, reference, name, meaning) {
+        match self.resolve_name_at_print_site(reference, name, meaning) {
             Some(found) => self.binder.merged_symbol(found) != self.binder.merged_symbol(symbol),
             None => true,
         }
@@ -4528,9 +4521,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// §3.4).
     fn own_name_alias_at(&mut self, symbol: SymbolId, reference: NodeId) -> bool {
         let name = self.binder.symbols().get(symbol).name;
-        let Some(hit) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
+        let Some(hit) = self.resolve_name_at_print_site(
             reference,
             name,
             SymbolFlags::TYPE | SymbolFlags::VALUE,
