@@ -2705,7 +2705,15 @@ impl Checker<'_, '_> {
         // Windows-style relative specifier printed one backslash where the
         // baseline records two
         // (`ambientExternalModuleWithRelativeModuleName`).
-        let text = format!("typeof import({})", crate::printing::quote(literal.text));
+        // The node builder spells the module through
+        // `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`), not the
+        // written text (r5-modules2 §4); the written text is the fallback
+        // where no specifier is computed.
+        let spelled = tsr_ast::Node::from(specifier)
+            .node_id()
+            .and_then(|site| self.module_specifier_for_symbol(module, site))
+            .unwrap_or_else(|| crate::printing::quote(literal.text));
+        let text = format!("typeof import({spelled})");
         let key = (text.clone(), module);
         let namespace = if let Some(&existing) = self.qualified_reference_types.get(&key) {
             existing
