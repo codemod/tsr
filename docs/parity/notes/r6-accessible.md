@@ -295,3 +295,26 @@ r6-printer). It is not taken here.
 
 Steps 3–6 together: types RIGHT 549,881 → 549,911 (**+30 / −0**),
 diagnostics unchanged, slowcases clean, Ir flat.
+
+## 6. Re-gated on the moved base (`23e1689`, batch BG)
+
+The base branch moved from `0180457` to `23e1689` while this box worked.
+- **Diff 1 is superseded.** `bf91854` (r6-printer's held patch, also
+  `tsr-2zk.1136`) made the identical change: `serialize_type_name` asks the
+  full `IsSymbolAccessible` through `DeclarationEmitResolver`. On the new
+  tip it conflicts and is dropped.
+- **Diffs 2–4 apply cleanly** on `23e1689` merged with this branch's two
+  commits.
+
+Re-measured there, base = that merge, run alone:
+
+| | Base | With diffs 2–4 | Δ |
+|---|---:|---:|---:|
+| types | — | +12 / −0 | NoStrictNullChecks1 ×3, NoStrictNullChecks2 ×3 (diff 3), declarationEmitMappedTypeTemplateTypeofSymbol ×6 (diff 4) |
+| diagnostics | — | 0 changed | |
+| slowcases | | clean (both dumps) | |
+| Ir dm | 1,091,324,093 | 1,091,544,191 | +0.02% |
+| Ir gi | 343,029,688 | 343,035,799 | +0.002% |
+
+CLI output is `cmp`-identical on both projects. Landing order on the new
+tip: diffs 2, 3, 4 (§5's steps 4–6).
