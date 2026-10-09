@@ -115,8 +115,9 @@ domain-model 1,155,945,043 and generic-imports 342,949,755.
 | [`r5-js-shorthand-dynamic-import.diff`](r5-js-shorthand-dynamic-import.diff) | +48 (548,799) | 8: `nodeModulesAllowJsDynamicImport` ×4, `nodeModulesDynamicImport` ×4 | unchanged | none | 1,155,878,692 (−0.006%) | 342,913,942 (−0.010%) | clean |
 | [`r5-js-assignment-context.diff`](r5-js-assignment-context.diff) | +9 (548,760) | 1: `jsDeclarationsComputedNames` | unchanged | none; no non-RIGHT line changed text | 1,155,961,326 (+0.001%) | 342,926,441 (−0.007%) | clean |
 | [`r5-js-full-signature-generic.diff`](r5-js-full-signature-generic.diff) | +17 (548,768) | 2: `typeTagWithGenericSignature`, `checkJsdocTypeTag7` | unchanged | none; no non-RIGHT line changed text | 1,155,974,568 (+0.003%) | 342,910,431 (−0.012%) | clean |
+| [`r5-js-jsdoc-cast-context.diff`](r5-js-jsdoc-cast-context.diff) | +28 (548,779) | 1: `jsdocSignatureOnReturnedFunction` | unchanged | none; no non-RIGHT line changed text | 1,155,987,415 (+0.004%) | 342,914,191 (−0.010%) | clean |
 
-The five touch disjoint functions and apply in any order. Stacked (all four applied, unfiltered against `e20cdd4`): types **548,751 → 548,857 RIGHT (+106)**, GAP 900 → 865, WRONG 6,640 → 6,569, **17 cases converted** — exactly the sum of the four rows — diagnostics unchanged (5,431 RIGHT / 5,590 EMPTY_RIGHT), zero losses on both dumps.
+The six touch disjoint functions and apply in any order. Stacked (all four applied, unfiltered against `e20cdd4`): types **548,751 → 548,857 RIGHT (+106)**, GAP 900 → 865, WRONG 6,640 → 6,569, **17 cases converted** — exactly the sum of the four rows — diagnostics unchanged (5,431 RIGHT / 5,590 EMPTY_RIGHT), zero losses on both dumps.
 
 ### 3.1 S5: the JS setter parameter (`symbols.rs`)
 
@@ -251,6 +252,30 @@ generic signature on an arrow, `contextual.rs`).
 whose return type disagrees: native reports against the tag's signature;
 a case printing the body's return type on the function line would mean the
 signature substitution is too early.
+
+### 3.6 S8: JSDoc hosted on a cast or a `return` (`contextual.rs`, `symbols.rs`, `signatures.rs`)
+
+**Native.** `reparseHosted` turns `/** @type {T} */ (e)` and
+`/** @type {T} */ return e` into `AsExpression(e, T)` (`makeNewCast`,
+`reparser.go:378`), and `getContextualType`'s assertion arm answers `T` for
+its operand unless it is `const` (`checker.go:29368`).
+`getFunctionLikeHost` takes a `return`'s expression as the function a
+`@param`/`@returns` comment on the `return` documents (`reparser.go:662`).
+
+**What TSR had.** The cast typed the paren (`expressions.rs`) but gave its
+operand no context, so `/** @type {(a: number) => number} */ ((a) => a)`
+printed the arrow as `(a: any) => any`; a `return`-hosted comment typed
+nothing.
+
+**Port.** Three one-arm changes, all behind `in_js_file`:
+- `contextual.rs` `get_contextual_type`: a JS cast paren, or a `return`
+  carrying a `@type`, answers the tag's type (non-`const`);
+- `signatures.rs` `has_no_contextual_type`: such a paren shows context
+  rather than climbing past it;
+- `symbols.rs` `jsdoc_parameter_annotation`: `ReturnStatement` joins the
+  host walk, as `jsdoc_function_host` already had it for signatures.
+
+**Measured.** +28 lines, +1 case.
 
 ## 4. Needed outside this lane's files
 
