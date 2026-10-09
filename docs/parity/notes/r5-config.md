@@ -332,3 +332,61 @@ What still blocks the rest of the family, not this arm:
   uninstantiated namespace), `isolatedModulesExportDeclarationType` (TS1292),
   `verbatimModuleSyntaxNoElision*` (TS1282–TS1285): `checkExportSpecifier` /
   `checkExportAssignment` arms.
+
+## 7. Summary and routing
+
+**Committed** (branch head `9ca32e6` plus this section): §2 (harness,
+`errors_baseline.rs`) and §5 (loader, `tsr-compiler`). `coverage` at the
+head against the snapshots committed at `fafecee`:
+
+| Row | `fafecee` snapshot | head |
+|---|---:|---:|
+| `checker_types` | 8,376 / 9,538 | 8,376 / 9,538 |
+| `checker_types_configured` | 1,683 / 1,928 | 1,684 / 1,928 |
+| `diagnostics` | 4,594 / 5,502 | 4,595 / 5,502 |
+| `diagnostics_configured` | 846 / 1,089 | 849 / 1,091 |
+
+`diagnostics_configured`'s denominator grows by two because the two
+`(module=esnext)` rows of §2 now have a non-empty baseline.
+
+**Held diffs**, each measured alone on the stated base, zero losses:
+
+| Diff | Base | Gain | Why held |
+|---|---|---|---|
+| `r5-config-module-kind.diff` | `771746f` | none (byte-identical dumps) | `checker.rs` |
+| `r5-config-src-root.diff` (`.1087`) | `771746f` | +8 type lines (`referenceTypesPreferedToPathIfPossible`) | `checker.rs` heuristic must land with the harness half (§4) |
+| `r5-config-isolated-alias.diff` | `6449b75` | +4 diagnostics rows | `symbols.rs`, `checker.rs`, `lib.rs` |
+
+**Routed** (option-gated rules whose arm is missing or wrong; §1 has the
+evidence per case):
+
+- `resolveExternalModule`'s resolution-diagnostic branch
+  (`module.GetResolutionDiagnostic`, `module/util.go:125`) is ported only for
+  its JS/JSX/TSX arms (`check.rs::check_untyped_module_import`, which also
+  returns early for any resolution that produced a module symbol). TS6263
+  (`allowArbitraryExtensions`, 4 configured rows) and TS5097
+  (`AllowImportingTsExtensionsFrom`, `checker.go:15238`) need the branch to
+  run on every resolved file, with the resolved extension. Under the node
+  modes TSR answers TS2306 for the `.d.html.ts` file instead, so the
+  resolution's module-ness differs too. Owner: `check.rs` / `module_*.rs`.
+- `markDecoratorAliasReferenced` → `markEntityNameOrEntityExpressionAsReference`
+  (`checker.go:28686`, `:28857`) is not ported; nothing reads
+  `emitDecoratorMetadata`. TS1272 in `emitDecoratorMetadata_isolatedModules`.
+  A new module plus a `check.rs` hook on decorated declarations.
+- `checkExportAssignment` / `checkExportSpecifier`'s isolatedModules arms
+  (TS1289, TS1292, TS1282–TS1285); `checkIdentifier`'s TS2866; the
+  property-access TS2748 (§6's remainder).
+- exactOptionalPropertyTypes: contextual optional-property type
+  (`contextual.rs`), the mapped optional modifier's `missingType`
+  (`mapped.rs`), `reportRelationError`'s TS2412 head (`assignreport.rs` /
+  `relater.rs`), `checkDeleteExpressionMustBeOptional` (`delete_operand.rs`).
+- `useUnknownInCatchVariables`, `strictNullChecks`, `noImplicitAny` rows:
+  property-access TS18046/TS18048, `flow.rs`'s TS2366 for `{}`, and a
+  `using` initializer's widening report (TS7018).
+- `jsx: react`: TS2879 for a fragment with no `React` in scope.
+- `bundlerSyntaxRestrictions(module=preserve)`: an extra TS2309 for
+  `export = {}; export {};` (`checkExternalModuleExports`'
+  `hasExportedMembers`).
+
+`allow_synthetic_defaults` on `Checker` is computed and read by nothing; the
+pinned checker does not read `allowSyntheticDefaultImports` at all.
