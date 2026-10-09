@@ -52,7 +52,8 @@ impl Checker<'_, '_> {
     }
 
     /// The alias bodies whose marker instantiations this port can measure:
-    /// function, constructor, object-literal, mapped and union bodies, and a
+    /// function, constructor, object-literal, mapped and union bodies, an
+    /// intersection of measurable bodies, and a
     /// body written as a reference to a class, an interface, or another
     /// alias with such a body (`type T<X> = Pick<X, 'x'>`), whose
     /// instantiation getTypeAliasInstantiation builds from the referenced
@@ -67,6 +68,10 @@ impl Checker<'_, '_> {
                 | TypeNode::MappedTypeNode(_)
                 | TypeNode::UnionTypeNode(_),
             ) => true,
+            Some(TypeNode::IntersectionTypeNode(intersection)) => intersection
+                .types
+                .iter()
+                .all(|&part| self.measurable_alias_body(Some(part), depth + 1)),
             Some(TypeNode::TypeReferenceNode(reference)) if depth < crate::relater::MAX_DEPTH => {
                 let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
                     return false;
@@ -261,7 +266,12 @@ impl Checker<'_, '_> {
                 let names: Vec<_> = parameters.iter().map(|(_, name)| name.as_str()).collect();
                 let map: Vec<_> = own.iter().copied().zip(arguments).collect();
                 self.instantiate_type(declared, &map, &own, &names)
-            } else if matches!(body, TypeNode::UnionTypeNode(_) | TypeNode::TypeReferenceNode(_)) {
+            } else if matches!(
+                body,
+                TypeNode::UnionTypeNode(_)
+                    | TypeNode::IntersectionTypeNode(_)
+                    | TypeNode::TypeReferenceNode(_)
+            ) {
                 // createMarkerType's alias arm (`relater.go:1420`) is
                 // getTypeAliasInstantiation: the instantiated union body. The
                 // relater relates two instantiations of a union alias body to

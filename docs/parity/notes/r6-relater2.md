@@ -188,3 +188,43 @@ structurally, differs; or a TS2321 on a recursive tuple alias that tsgo
 does not report.
 
 Test: `tests/r6_relater2.rs` `an_alias_written_as_a_tuple_relates_as_that_tuple`.
+
+## 4. An intersection-bodied alias is measured (§8.1 R-mapped, `unionTypeInference`)
+
+**Forcing constraint.** `unionTypeInference` 62 (`const deepPromisedWithIndexer:
+DeepPromised<{ [name: string]: {} | null | undefined }> = deepPromised`,
+`deepPromised: DeepPromised<T>`) relates natively. `DeepPromised<T> = {
+[containsPromises]?: true } & { [TKey in keyof T]: … }` is measured
+(createMarkerType is getTypeAliasInstantiation for any alias body,
+relater.go:1420); the mapped constituent's comparison reports Unreliable
+(relater.go:3978), so relateVariances' failure on `T -> { [name: string]:
+… }` falls back to the structure, which relates (`T[K]`'s constraint is
+`unknown`, and `{} | null | undefined` is its whole range). The port left an
+intersection body unmeasured: the alias-variance arm guessed covariance,
+the guess failed, and the unmeasured fallback keeps the variance answer for
+a body not written as a type reference (r5-relater8 §2), a wrong TS2322.
+
+**Ported.** `measurable_alias_body` accepts an intersection whose
+constituents are all measurable bodies, and `create_variance_marker_type`
+instantiates it through `evaluate_alias_body`, as it already does for a
+union. The measurement then records the mapped constituent's Unreliable
+report and the existing fallback applies.
+
+**Alternative.** Answering `Unknown` (not the guessed False) for an
+unmeasured non-reference body: silent where native reports, and it would
+leave the measurable case unmeasured.
+
+**Measured** against §3's commit (and §0), both loss checks empty,
+slowcases clean:
+- diagnostics: `unionTypeInference` WRONG → RIGHT (RIGHT 5582, WRONG 1011);
+- types unchanged;
+- `Ir`: generic-imports 343,039,275 → 343,046,858 (+0.002%); domain-model
+  1,090,397,057 → 1,090,397,024 (0%). CLI output identical.
+
+**Falsifier.** An intersection-bodied alias whose constituents the
+evaluator instantiates differently under markers than natively (a `typeof`
+query constituent is excluded by `measurable_alias_body`), giving a variance
+native does not measure.
+
+Test: `tests/r6_relater2.rs`
+`an_intersection_bodied_alias_is_measured_and_falls_back_on_unreliable`.

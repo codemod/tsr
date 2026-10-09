@@ -161,3 +161,20 @@ function qq<U>(x: T1<U>, y: T2<U>) {
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn an_intersection_bodied_alias_is_measured_and_falls_back_on_unreliable() {
+    // `unionTypeInference` 62: `DeepPromised`'s intersection body is
+    // measured; its mapped constituent reports Unreliable, so the failed
+    // covariant `T -> { [name: string]: ... }` falls back to the structure.
+    let source = r#"type DP<T> = { tag?: true } & { [K in keyof T]: T[K] | DP<T[K]> };
+function fun<T>(d: DP<T>) {
+    const w: DP<{ [name: string]: {} | null | undefined }> = d;
+}
+type I<T> = { a: T } & { b: string };
+declare let x: I<number>;
+const y: I<string> = x; // error
+const z: I<number | string> = x;
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
