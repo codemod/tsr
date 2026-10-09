@@ -1,0 +1,17 @@
+diff --git a/crates/tsr-checker/src/name_slots.rs b/crates/tsr-checker/src/name_slots.rs
+index 5e6a06b..153d7a2 100644
+--- a/crates/tsr-checker/src/name_slots.rs
++++ b/crates/tsr-checker/src/name_slots.rs
+@@ -28,6 +28,12 @@ use crate::jsx_intrinsic::is_intrinsic_jsx_name;
+ ///   the opening tag and `checkJsxElementDeferred` (`jsx.go:84`) for the
+ ///   closing one. A property-access tag already reaches the
+ ///   `PropertyAccessExpression` arm through its receiver.
++///
++/// Inlined into `is_value_reference`'s fallback arm: out of line it cost
++/// domain-model 0.255 M Ir (one call per identifier no other arm takes), and
++/// plain `#[inline]` was not taken (`docs/parity/notes/r6-names2.md` §2).
++#[allow(clippy::inline_always, reason = "measured, r6-names2.md §2")]
++#[inline(always)]
+ pub(crate) fn value_reference_slot(node: NodeId, parent: Node<'_>) -> bool {
+     let value_tag = |tag: Option<JsxTagNameExpression<'_>>| {
+         matches!(tag, Some(JsxTagNameExpression::Identifier(name))
