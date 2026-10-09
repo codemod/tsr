@@ -142,6 +142,7 @@ mod identity;
 pub mod implicit_any;
 mod import_attributes;
 mod import_call;
+mod import_call_grammar;
 mod import_meta;
 mod index_access_reports;
 pub mod index_constraint;

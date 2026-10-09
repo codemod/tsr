@@ -25,7 +25,7 @@ index b5ba3ff..fed0f2d 100644
          name: &str,
 diff --git a/crates/tsr-checker/src/import_type_node.rs b/crates/tsr-checker/src/import_type_node.rs
 new file mode 100644
-index 0000000..c3276a3
+index 0000000..3a8651a
 --- /dev/null
 +++ b/crates/tsr-checker/src/import_type_node.rs
 @@ -0,0 +1,87 @@
@@ -117,12 +117,12 @@ index 0000000..c3276a3
 +    }
 +}
 diff --git a/crates/tsr-checker/src/lib.rs b/crates/tsr-checker/src/lib.rs
-index 71cea67..55b6aed 100644
+index d3fbcc2..91bc11a 100644
 --- a/crates/tsr-checker/src/lib.rs
 +++ b/crates/tsr-checker/src/lib.rs
-@@ -143,6 +143,7 @@ pub mod implicit_any;
- mod import_attributes;
+@@ -144,6 +144,7 @@ mod import_attributes;
  mod import_call;
+ mod import_call_grammar;
  mod import_meta;
 +mod import_type_node;
  mod index_access_reports;

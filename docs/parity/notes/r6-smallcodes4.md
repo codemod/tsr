@@ -44,10 +44,11 @@ Apply order and status:
 |---|---|---|---|
 | 1 | `r6-smallcodes4-namespace-not-found.diff` | `namespace_not_found.rs` | lossless, §2.1 |
 | 2 | `r6-smallcodes4-pragma-diagnostics.diff` | `tsr-parser/src/pragma_diagnostics.rs` | lossless, §2.2 |
-| 3 | `r6-smallcodes4-unknown-operand.diff` | `unknown_operand.rs` | **held**: four losses from inference producers, §3.1 |
-| 4 | `r6-smallcodes4-import-type-node.diff` | `import_type_node.rs` (in the diff) | **held**: +38/−10 type lines, all losses printer-side, §3.2 |
+| 3 | `r6-smallcodes4-import-call-trailing-comma.diff` | `import_call_grammar.rs` | lossless, §2.3 |
+| 4 | `r6-smallcodes4-unknown-operand.diff` | `unknown_operand.rs` | **held**: four losses from inference producers, §3.1 |
+| 5 | `r6-smallcodes4-import-type-node.diff` | `import_type_node.rs` (in the diff) | **held**: +38/−8 type lines, all losses printer-side, §3.2 |
 
-Diffs 1 and 3 touch disjoint hunks of `check.rs`. Every diff applies to the
+Diffs 1, 3 and 4 touch disjoint hunks of `check.rs`. Every diff applies to the
 base alone, and each applies on top of the ones before it.
 
 ## 2. Lossless
@@ -205,6 +206,56 @@ give `TS1453` at (1,45) and `TS1084` at (2,1).
   as well as at publication. The read only scans the leading comments.
 
 Unit test: `tsr-parser/tests/pragma_diagnostics.rs`, which ships in the diff.
+
+### 2.3 TS1009 on `import(x,)` — `import_call_grammar.rs`
+
+Cases on the base, each missing one TS1009:
+
+- `dynamicImportTrailingComma` (`import(path,)`, `commonjs`);
+- `importAssertion1(module=commonjs)` and `importAttributes1(module=commonjs)`
+  (`3.ts(10,50)`, the comma after the attributes argument).
+
+Native: `checkGrammarImportCallExpression` (`grammarchecks.go:2162`)
+reports `checkGrammarForDisallowedTrailingComma(arguments)` on the comma
+(`list.End() - 1`, `:671`) when the module kind is none of
+`node16`..`nodenext`, `esnext` and `preserve` (`:2182`). It does not return,
+so TS1324 for a second argument is still reported. The arms before it return
+first: `verbatimModuleSyntax` with `commonjs`, `es2015`, and type arguments.
+`import.defer(…)` cannot reach the arm. Its own test returns for every module
+kind but `esnext` and `preserve`, and those two skip the arm.
+
+TSR: STATUS §999 declined TS1009 because this AST records no
+`NodeList.HasTrailingComma` for call arguments (`parse_arguments`,
+`tsr-parser/src/expression.rs`, drops `parse_delimited_list`'s flag).
+Recording it would change the parser's six `parse_arguments` call sites
+(main's) and still leave no comma position. The comma is instead found where
+the parser found it: the first token after the last argument, past whitespace
+and comments, read from the file's source text (`ModuleHost::source_text`, as
+`export_star_conflicts.rs` reads it). The two answers differ only on an
+argument list the parser did not end at that comma, and such a list is a
+parse error, which the grammar arm never reports into.
+
+- **Rejected: the parser flag.** It is the faithful data model, but it costs
+  six call-site edits in main's parser for one reader. Revisit it if a second
+  argument-list reader (TS1009 on `new`, or the printer) needs the flag.
+
+The diff calls `check_import_call_trailing_comma` from the `CallExpression`
+arm of the check walk (`check.rs`), before `check_import_call_specifier`.
+
+Probe (`import(path,)`, `import(path /* x */ , )`, `import(path)` under
+`commonjs` and `esnext`): native and TSR identical, TS1009 at (2,12) and
+(3,21) under `commonjs` only.
+
+**Measured** unfiltered against the frozen base:
+
+- Diagnostics: +3 cases, zero losses, 3 rows matched.
+- Types dump: verdicts unchanged.
+- slowcases: clean on both dumps.
+- Ir: domain-model 1,091,397,560 → 1,090,978,107 (−0.04%), generic-imports
+  343,083,976 → 343,069,416 (−0.004%). Both are noise. CLI output is
+  byte-identical.
+
+Unit test: `comma_after` in the file itself.
 
 ## 3. Held
 
