@@ -118,10 +118,11 @@ fn a_miss_on_a_function_receiver_stays_the_gap() {
     assert_eq!(last_element_access(source), Identity::Gap);
 }
 
-/// `createUnionOrIntersectionProperty`'s object-literal arm is unported, so
-/// a miss over a union with an object literal stays the gap.
+/// `createUnionOrIntersectionProperty`'s object-literal arm is ported
+/// (`docs/parity/notes/r6-errorsplit.md` §5): the literal constituent
+/// contributes `undefined`, so the access is no miss at all.
 #[test]
-fn a_miss_on_a_union_with_an_object_literal_stays_the_gap() {
+fn a_union_with_an_object_literal_reads_undefined_for_the_literal() {
     let source = "declare let x: { a: string } | undefined;\n(x || {})[\"a\"];\n";
-    assert_eq!(last_element_access(source), Identity::Gap);
+    assert_eq!(last_element_access(source), Identity::Other("string | undefined".to_owned()));
 }

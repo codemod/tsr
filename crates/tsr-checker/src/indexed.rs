@@ -774,9 +774,6 @@ impl Checker<'_, '_> {
     ///   a key it can admit (20 false claims);
     /// - a mapped receiver: the port's member image misses enum-keyed and
     ///   other unresolved mapped members (2);
-    /// - a union with an object-literal constituent:
-    ///   `createUnionOrIntersectionProperty`'s object-literal `undefined` arm
-    ///   is unported in `crate::members` (`(options || {})["a"]`; 4);
     /// - a function's type: its late-bound assignment members
     ///   (`InternalSymbolNameAssignmentDeclaration`, `binder.go:1002`, read by
     ///   `getResolvedMembersOrExportsOfSymbol`) are unbound (24);
@@ -789,6 +786,11 @@ impl Checker<'_, '_> {
     ///   [`Checker::get_index_infos_of_type`], a cycle in the base graph):
     ///   upstream empties the bases and still reads the receiver's own
     ///   signatures (no corpus line; `tests/types.rs` pins it).
+    ///
+    /// A union with an object-literal constituent was excluded until
+    /// `createUnionOrIntersectionProperty`'s object-literal `undefined` arm
+    /// was ported in `crate::members` (`(options || {})["a"]`;
+    /// `docs/parity/notes/r6-errorsplit.md` §5).
     ///
     /// A `unique symbol` index was excluded until its arm of
     /// `getPropertyNameFromType` was ported
@@ -813,9 +815,6 @@ impl Checker<'_, '_> {
             return true;
         }
         match self.store.get(object_type).data.clone() {
-            TypeData::Union { types, .. } => {
-                !types.iter().any(|&member| self.is_object_literal_type(member))
-            }
             TypeData::Anonymous { symbol, .. } => !self
                 .binder
                 .symbols()

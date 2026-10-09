@@ -1532,7 +1532,18 @@ impl Checker<'_, '_> {
                         TypeData::StringLiteral(name.to_string()),
                         false,
                     );
-                    self.get_applicable_index_info(apparent, key)?.value
+                    if let Some(info) = self.get_applicable_index_info(apparent, key) {
+                        info.value
+                    } else if self.object_literal_spread_flags.get(&apparent) == Some(&false) {
+                        // createUnionOrIntersectionProperty's object-literal
+                        // arm (5b1047d checker.go:21545): a spread-free object
+                        // literal constituent without the name contributes
+                        // `undefined` (WritePartial), so `(options || {}).a`
+                        // reads `string | undefined`.
+                        self.intrinsics.undefined
+                    } else {
+                        return None;
+                    }
                 };
                 projected.push(member);
             }
