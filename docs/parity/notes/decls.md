@@ -428,3 +428,16 @@ indexed-access annotation).
 **What would remove the bound.** The gap producers answering upstream's types
 (`Array<errorType>`) instead of `error` (§3a, `tsr-2zk.31`); then the test is
 `is_error(declared)` alone.
+
+## §18 Error span of a `return` statement / `yield` expression is its keyword
+
+`scanner.GetErrorRangeForNode`'s `KindReturnStatement, KindYieldExpression`
+arm (`scanner.go:2622`) reports `GetRangeOfTokenAtPosition` at the node's
+trivia-free start: the `return`/`yield` keyword alone. `checkReturnExpression`
+(`checker.go:4131`) uses the statement as the error node outside a
+conditional, so every TS2322 of a returned value is underlined at `return`.
+`Checker::error_span` kept the whole statement because it held no text; it
+now scans one token through the module host's source text
+(`Checker::first_token_span`, the same scan `grammar_error_on_first_token`
+does), on the diagnostic path only. No cache, no traversal. A host without
+text keeps the statement span.
