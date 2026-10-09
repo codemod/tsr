@@ -213,6 +213,27 @@ to record both. 6 rows (`jsxIntrinsicElementsTypeArgumentErrors` 5:15,
 case, type lines byte-identical, slowcases clean. Oracle-checked fixtures
 in `tests/r6_jsx.rs`.
 
+## 4. TS2608: an `ElementAttributesProperty` with several members
+
+**Forcing constraint.** `getNameFromJsxElementAttributesContainer`
+(`jsx.go:1093`) reports TS2608, `The global type 'JSX.{0}' may not have
+more than one property.`, on the container's first declaration when it has
+more than one member, and answers `InternalSymbolNameMissing` (the props
+are then the first parameter). `getJsxPropsTypeFromClassType` asks it for
+every component reference, so any class-component element in a program
+with such a container reports it; `tsxElementResolution15` missed it.
+
+**What is ported.** `jsx_element_properties_name` reports and answers
+`Missing` instead of declining, and the component check asks it for every
+element whose tag has construct signatures
+(`check_jsx_element_properties_container`). Upstream reports once per
+call and the program's `SortAndDeduplicateDiagnostics` keeps one; the port
+reports once per position (a scan of the checker's diagnostics on this
+path only, which runs only for a malformed container).
+
+**Measured** on top of §1–§3: WRONG → RIGHT `tsxElementResolution15`, no
+new missing or extra row, type lines byte-identical, slowcases clean.
+
 ## 9. Diffs for files this lane does not own
 
 Each diff is against the frozen base plus this lane's commits, measured

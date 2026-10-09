@@ -66,6 +66,7 @@ impl Checker<'_, '_> {
         if !intrinsic {
             self.check_jsx_signatureless_tag(tag, tag_id);
             self.check_jsx_class_attributes_member(node, typed, tag);
+            self.check_jsx_element_properties_container(node, tag);
         }
         if intrinsic {
             self.check_jsx_intrinsic_type_arguments(typed);
@@ -2106,11 +2107,34 @@ impl Checker<'_, '_> {
         Some(intrinsic_attributes(self, props))
     }
 
+    /// `getJsxPropsTypeFromClassType` (`jsx.go:944`) asks
+    /// `getJsxElementPropertiesName` for every component reference
+    /// (`getJsxReferenceKind`: construct signatures on the tag's type), which
+    /// is where a malformed `JSX.ElementAttributesProperty` is reported
+    /// ([`Checker::jsx_element_properties_name`]).
+    fn check_jsx_element_properties_container(
+        &mut self,
+        node: NodeId,
+        tag: JsxTagNameExpression<'_>,
+    ) {
+        let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
+        let tag_type = self.check_expression(expression);
+        if self.is_error(tag_type) || self.store.get(tag_type).flags.intersects(TypeFlags::ANY) {
+            return;
+        }
+        if self.jsx_reference_kind(tag_type) == Some(JsxReferenceKind::Component) {
+            self.jsx_element_properties_name(node);
+        }
+    }
+
     /// `getJsxElementPropertiesName` (`jsx.go:1075`) through
     /// `getNameFromJsxElementAttributesContainer` (`jsx.go:1093`):
     /// [`JsxPropertiesName::Missing`] without an `ElementAttributesProperty`,
-    /// `""` for an empty one, the single member's name otherwise. `None` for an unenumerable container
-    /// or one with several members (TS2608, not ported here).
+    /// `""` for an empty one, the single member's name otherwise. Several
+    /// members report TS2608 on the container's first declaration and answer
+    /// `Missing`; the report is made once per position, as the program's
+    /// `SortAndDeduplicateDiagnostics` keeps one of each. `None` for an
+    /// unenumerable container.
     fn jsx_element_properties_name(&mut self, location: NodeId) -> Option<JsxPropertiesName> {
         let Some(symbol) = self.jsx_type_symbol(location, "ElementAttributesProperty") else {
             return Some(JsxPropertiesName::Missing);
@@ -2122,7 +2146,32 @@ impl Checker<'_, '_> {
         match self.get_property_names_of_type(ty)?.as_slice() {
             [] => Some(JsxPropertiesName::Name(String::new())),
             [name] => Some(JsxPropertiesName::Name(name.clone())),
-            _ => None,
+            _ => {
+                let declaration = self.binder.symbols().get(symbol).declarations.first().copied();
+                if let Some(declaration) = declaration
+                    && let Some(file) = self.source_file_of_for_diagnostics(declaration)
+                {
+                    let span = self.error_span(declaration);
+                    let message =
+                        &messages::THE_GLOBAL_TYPE_JSX_0_MAY_NOT_HAVE_MORE_THAN_ONE_PROPERTY;
+                    let reported = self.diagnostics.iter().any(|(at, diagnostic)| {
+                        *at == file
+                            && diagnostic.span == span
+                            && diagnostic.message.code() == message.code()
+                    });
+                    if !reported {
+                        self.report(
+                            file,
+                            Diagnostic::with_args(
+                                message,
+                                span,
+                                ["ElementAttributesProperty".to_string()],
+                            ),
+                        );
+                    }
+                }
+                Some(JsxPropertiesName::Missing)
+            }
         }
     }
 
