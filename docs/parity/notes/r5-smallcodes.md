@@ -137,7 +137,8 @@ already failed correctly: `exports: "some-other-thing.js"` hides `types`
 under both bundler and node16+. Measured against commit 5 (the reporter
 diff not applied): +5 cases (`tripleSlashTypesReferenceWithMissingExports`
 ×5), zero losses on both dumps, types identical, slowcases clean, Ir
-+0.002% domain-model / +0.008% generic-imports. Loader unit test
++0.001% domain-model / +0.005% generic-imports (the commit message of
+`b688a04` rounds these to +0.002% / +0.008%). Loader unit test
 `an_unresolved_type_reference_directive_is_ts2688`.
 
 Not ported: the automatic-type-directive form (`fileloader.go:277`,
@@ -293,3 +294,34 @@ exercise heavily. domain-model moves by about ±0.07% between binaries that
 differ only in cold code, which is code-layout noise; generic-imports stays
 within ±0.01%. The commit messages of `b06602c` and `4e639ba` carry the stale
 numbers. This table supersedes them.
+
+## 5. Summary
+
+| Commit | What | Cases |
+|---|---|---|
+| `066297b` | TS2652 default-merge arm; TS2306 side-effect gate | +8 |
+| `b06602c` | TS2686 declines a UMD alias whose target has no value | +4 |
+| `4e639ba` | TS18060 on `import.defer(…)` calls | +4 |
+| `5557e9d` | measured parser diff, TS2880 (`r5-smallcodes-import-assertions.diff`) | +4 when landed |
+| `202b6e0` | implied binding-pattern type skips non-literal computed names | +2 type lines |
+| `ef05bc2` | measured diff for `index_access_reports.rs`, TS2538 (`r5-smallcodes-binding-pattern-index-image.diff`) | +6 when landed |
+| `b688a04` | TS2688 for an unresolved type reference directive | +5 |
+
+Coverage at `b688a04`, against the batch-AD snapshots: `checker_types`
+8,293 → 8,294 (assertion lines 471,735 → 471,737), `diagnostics_configured`
+838 → 851. Plain `diagnostics` stays at 4,564, because every converted row is
+a configured variant or an empty-baseline case, which that suite does not
+judge.
+
+Remaining in the lane, all outside owned files:
+
+| Cluster | Cases | Owner | Needed change |
+|---|---|---|---|
+| TS2686, `declare global { const X }` against `export as namespace X` | 2 | binder (main) | `merge_symbol`'s alias-conflict arm: upstream's `mergeSymbol` returns `source` and `mergeSymbolTable` stores it, so `globals[X]` becomes the augmentation's variable (§3.1) |
+| TS2686, JSDoc reference (`jsdocReferenceGlobalTypeInCommonJs`, missing) | 1 | r5-jsdoc4 | not probed |
+| TS2883 | 4 | r5-modules2 (`.999`) | module specifiers into nested `node_modules` |
+| TS1238 | 4 | main, `calls.rs` | `resolveDecorator` + `getEffectiveDecoratorArguments` + `getDecoratorCallSignature` (§3.4) |
+| TS2307, `import x = require` in a namespace | 2 | main, `symbols.rs` | TS2307 reported by alias-target resolution (`getTargetOfImportEqualsDeclaration`) at the use, not by the check walk (§3.7) |
+| TS2307, JS `require` | 4 | binder/reparser (main), r5-modules2 | the reparser's syntactic `require` import (§3.7) |
+| TS2538, `3in[null]` | 1 | r5-relater6 | unprobed (§3.6) |
+| TS2652, `jsFileCompilationBindMultipleDefaultExports` | 1 | parser (main) | TS2528 column on `export default var` recovery (3,15 vs 3,16) |
