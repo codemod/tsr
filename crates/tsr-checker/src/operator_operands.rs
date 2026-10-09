@@ -756,7 +756,7 @@ impl Checker<'_, '_> {
     }
 
     /// `maybeTypeOfKindConsideringBaseConstraint` (`checker.go:27620`).
-    fn maybe_type_of_kind_considering_base_constraint(
+    pub(crate) fn maybe_type_of_kind_considering_base_constraint(
         &mut self,
         id: TypeId,
         kind: TypeFlags,
