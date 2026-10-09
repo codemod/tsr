@@ -972,3 +972,25 @@ Measured unfiltered on the current integration head:
 
 Filed: `.1102`, the instantiation-expression cache ignoring alias frames, and
 `.1103`, the per-statement instantiation_count reset and TS2589's currentNode.
+
+### r5-smallcodes finished; r5-spans dispatched (`tsr-2zk.1104`)
+
+r5-smallcodes converted 21 diagnostics rows, none lost:
+- TS2652;
+- the TS2306 side-effect-import gate;
+- the TS2686 alias value-meaning test;
+- TS18060 on `import.defer`;
+- TS2688 through the loader's existing diagnostic channel;
+- non-literal computed names in implied binding patterns.
+
+Its TS2880 parser diff and TS2538 index-image diff land later, for +10. It
+also found that two of its commit messages quoted Ir from a stale tsr binary:
+`cargo build -p tsr-conformance --examples -p tsr` does not rebuild the bin. The
+numbers are corrected in its notes §4.
+
+The freed slot went to r5-spans: 20 cases that are wrong only on position, and
+TS2589's currentNode reporting (`.1103`).
+
+Most of the unowned pool is now spent. The largest remaining clusters (TS2345,
+TS2769, TS2339, TS7006, TS2304, flow and contextual typing) sit in main's
+active lanes (`.4`, `.6`, `.9`, `.11`) or in main's files.
