@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 927/1091 (84.97%)
-Failed         : 164
+Passed         : 937/1091 (85.88%)
+Failed         : 154
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 164 failures:
+First 100 of 154 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -38,10 +38,6 @@ compiler/bigintAmbientMinimal(target=es2015)
   1 missing (first TS2737 at /main.ts(5,17))
 compiler/bigintWithoutLib(target=es2015)
   18 missing (first TS2737 at bigintWithoutLib.ts(7,30))
-compiler/blockScopedEnumVariablesUseBeforeDef_isolatedModules(target=es2015)
-  2 missing (first TS2450 at blockScopedEnumVariablesUseBeforeDef_isolatedModules.ts(7,12))
-compiler/blockScopedEnumVariablesUseBeforeDef_verbatimModuleSyntax(target=es2015)
-  2 missing (first TS2450 at blockScopedEnumVariablesUseBeforeDef_verbatimModuleSyntax.ts(7,12))
 compiler/blockScopedVariablesUseBeforeDef(target=es2015)
   3 unexpected (first TS2448 at blockScopedVariablesUseBeforeDef.ts(127,9)), 0 missing
 compiler/classStaticPropertyAccess(target=es2015)
@@ -100,10 +96,6 @@ compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties2.ts(21,1)), 2 missing
 compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties3.ts(19,1)), 2 missing
-compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=false,verbatimmodulesyntax=true)
-  1 missing (first TS1295 at good.ts(2,10))
-compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=true,verbatimmodulesyntax=true)
-  1 missing (first TS1295 at good.ts(2,10))
 compiler/jsFileCompilationBindReachabilityErrors(alwaysstrict=true)
   1 missing (first TS7028 at a.js(19,1))
 compiler/jsxChildrenArrayWrongType(target=es2015)
@@ -160,12 +152,6 @@ conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=false)
   6 missing (first TS2554 at jsfile.js(6,1))
 conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=true)
   6 missing (first TS2554 at jsfile.js(6,1))
-conformance/cjsErrors(module=node18)
-  1 missing (first TS2876 at index.ts(1,22))
-conformance/cjsErrors(module=node20)
-  1 missing (first TS2876 at index.ts(1,22))
-conformance/cjsErrors(module=nodenext)
-  1 missing (first TS2876 at index.ts(1,22))
 conformance/classStaticBlock22(target=es2022)
   1 unexpected (first TS1109 at classStaticBlock22.ts(25,16)), 7 missing
 conformance/classStaticBlock22(target=esnext)
@@ -226,3 +212,17 @@ conformance/esDecorators-decoratorExpression.3(experimentaldecorators=false)
   1 unexpected (first TS2635 at esDecorators-decoratorExpression.3.ts(7,8)), 4 missing
 conformance/esDecorators-decoratorExpression.3(experimentaldecorators=true)
   1 unexpected (first TS2635 at esDecorators-decoratorExpression.3.ts(7,8)), 4 missing
+conformance/importAttributes6(module=node18)
+  10 missing (first TS2322 at mod.mts(1,37))
+conformance/importAttributes6(module=node20)
+  10 missing (first TS2322 at mod.mts(1,37))
+conformance/importAttributes6(module=nodenext)
+  10 missing (first TS2322 at mod.mts(1,37))
+conformance/importTag15(module=es2015)
+  2 missing (first TS2823 at 1.js(1,30))
+conformance/importTag15(module=esnext)
+  2 missing (first TS2857 at 1.js(1,30))
+conformance/jsDeclarationsClassesErr(target=es2015)
+  16 unexpected (first TS8010 at index.js(13,11)), 0 missing
+conformance/jsDeclarationsDefaultsErr(target=es2015)
+  2 missing (first TS2300 at index2.js(2,22))
