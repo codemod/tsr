@@ -921,3 +921,18 @@ Its four diffs land in batch AJ for +78 type lines and +1 case:
 The remainder is blocked on main's symbol-chain qualification (`.39`), a
 symlink cache, and ModuleHost exposure (`.1098`). The freed slot went to
 r5-smallcodes2, the second set of small diagnostic clusters.
+
+### r5-jsdoc4 finished; r5-js dispatched (`tsr-2zk.1099`)
+
+r5-jsdoc4 extended the JSDoc walk to casts, @satisfies, @this, @callback,
+@overload and export @type, added heritage TS2344 including @augments, and
+ported TS2492. That is +9 cases with no losses. The heritage arm overlapped
+r5-missingprop's landed diff; the integrator merged the two in batch AF.
+
+Its three diffs land in batch AK: @augments binding, typedef block scope, and
+the CommonJS require ambient arm. Together +1 case and +10 type lines.
+
+It refused narrowing the JS decline in check_type_reference_name on its
+number: +1 / −6. That waits on JS value-reference arms in declared.rs. The
+freed slot went to r5-js: the 113 cases blocked only by JS-file causes, with a
+rule not to duplicate main's `.5` epic.
