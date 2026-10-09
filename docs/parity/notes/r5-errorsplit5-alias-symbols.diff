@@ -1,0 +1,207 @@
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 89141cf..b9f4ed2 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -105,10 +105,16 @@ impl<'a> Checker<'a, '_> {
+         if flags.contains(SymbolFlags::EXPORT_VALUE) {
+             return self.get_type_of_export_value(symbol);
+         }
+-        // Every `SymbolFlags` shape upstream dispatches on is now answered. What
+-        // remains unported is the four `CheckFlags` shapes upstream tests
+-        // *before* any of them — deferred, instantiated, mapped, reverse-mapped.
+-        self.intrinsics.error
++        // Every `SymbolFlags` shape upstream dispatches on is now answered, and
++        // what falls through is upstream's own final `errorType`
++        // (`checker.go:16521`): a symbol that is no value at all, such as
++        // `declare global`'s namespace. ADR-0048: verified line by line
++        // against the native identity probe, 159 of 161 moved lines
++        // (`docs/parity/notes/r5-errorsplit5.md` §6). The four `CheckFlags`
++        // shapes upstream tests *before* the flags (deferred, instantiated,
++        // mapped, reverse-mapped) stay unported; none of the moved lines is
++        // one of them.
++        self.intrinsics.native_error
+     }
+ 
+     /// The type of an **export marker** — the local left behind by
+@@ -238,14 +244,18 @@ impl<'a> Checker<'a, '_> {
+             return self.intrinsics.error;
+         }
+         let computed = self.get_type_of_accessors_worker(symbol);
+-        // Native answers `anyType` here; this port keeps `errorType` because
+-        // its eager object-literal members close cycles native never forms
+-        // (`noCircularitySelfReferentialGetter3/4`), where `any` prints wrong.
++        // `checker.go:18557`: a circular accessor is upstream's `anyType`.
++        // This kept the gap because the port's eager object-literal members
++        // close cycles native never forms
++        // (`noCircularitySelfReferentialGetter3/4`). Measured with ADR-0048's
++        // identity probe, every moved line is `anyType` natively or was
++        // already WRONG, with zero losses (`docs/parity/notes/r5-errorsplit5.md`
++        // §6).
+         let computed = if self.resolutions.pop() {
+             computed
+         } else {
+             self.report_accessor_circularity(symbol);
+-            self.intrinsics.error
++            self.intrinsics.any
+         };
+         self.symbol_types.insert(symbol, computed);
+         computed
+@@ -652,6 +662,25 @@ impl<'a> Checker<'a, '_> {
+                 let value = self.get_type_of_symbol(target);
+                 self.module_clone_type(symbol, target, value).unwrap_or(value)
+             }
++            // `checker.go:18614`: a target that is not a value has no type,
++            // and upstream answers `errorType`. Only a chain that resolves to
++            // its end is that: upstream's chain through `unknownSymbol` is
++            // all-flags (`checker.go:16379`), so a chain this port breaks is
++            // the `None` population below, not this one. ADR-0048: verified
++            // line by line against the native identity probe
++            // (`docs/parity/notes/r5-errorsplit5.md` §6).
++            Some(target)
++                if {
++                    let terminal = self.resolve_alias_fully(target);
++                    !self.binder.symbols().get(terminal).flags.intersects(SymbolFlags::ALIAS)
++                } =>
++            {
++                self.intrinsics.native_error
++            }
++            // The port resolved nothing, or a link of the chain. Natively that
++            // is `unknownSymbol` on some lines (`errorType`) and a value this
++            // port cannot resolve on others, in every declaration form, so it
++            // stays the gap (§6).
+             _ => self.intrinsics.error,
+         };
+         let computed = if self.resolutions.pop() { computed } else { self.intrinsics.error };
+diff --git a/crates/tsr-checker/tests/errortype_producers.rs b/crates/tsr-checker/tests/errortype_producers.rs
+index 5d8f684..0ce8679 100644
+--- a/crates/tsr-checker/tests/errortype_producers.rs
++++ b/crates/tsr-checker/tests/errortype_producers.rs
+@@ -172,3 +172,39 @@ fn an_element_access_through_an_unresolved_reference_is_the_reference() {
+     let source = "declare var x: Missing;\nvar y = x[0];";
+     assert_eq!(initializer_identity("t.ts", source), Identity::Other("Missing".to_owned()));
+ }
++
++/// The type of the binding `name` declared at the file's top level.
++fn symbol_identity(source: &str, name: &str) -> Identity {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.ts", text: source },
++    );
++    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
++    let symbol = bound.lookup_local(root, name).expect("declared");
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    let id = checker.get_type_of_symbol(symbol);
++    identity_of(&mut checker, id)
++}
++
++/// An alias whose target is not a value has no type: `errorType`
++/// (`checker.go:18614`). `compiler/ramdaToolsNoInfinite2`.
++#[test]
++fn an_alias_to_a_type_is_native_error() {
++    let source = "namespace N { export interface I {} }\nimport x = N.I;";
++    assert_eq!(symbol_identity(source, "x"), Identity::NativeError);
++}
++
++/// A symbol that is no value at all reaches `getTypeOfSymbol`'s final
++/// `errorType` (`checker.go:16521`): a non-instantiated namespace.
++#[test]
++fn a_type_only_namespace_is_native_error() {
++    assert_eq!(
++        symbol_identity("namespace N { export interface I {} }", "N"),
++        Identity::NativeError
++    );
++}
+diff --git a/crates/tsr-checker/tests/export_specifiers.rs b/crates/tsr-checker/tests/export_specifiers.rs
+index 717ff3a..12f0b61 100644
+--- a/crates/tsr-checker/tests/export_specifiers.rs
++++ b/crates/tsr-checker/tests/export_specifiers.rs
+@@ -179,11 +179,17 @@ fn export_q_as_r_looks_up_the_property_name() {
+ /// It becomes observable the moment `get_type_of_symbol` grows an arm for a
+ /// type-only symbol shape. **That is the falsifier**: whoever adds one must
+ /// re-run this test with the guard removed and expect red.
++///
++/// r5-errorsplit5 gave both routes upstream's identity. The guard's arm
++/// answers `errorType` (`checker.go:18614`), and so does `getTypeOfSymbol`'s
++/// final fallthrough (`:16521`), which a type-only symbol reaches. So the
++/// spelling is `any` (the checker's print of `errorType`), and the routes
++/// still cannot be told apart (`docs/parity/notes/r5-errorsplit5.md` §6).
+ #[test]
+-fn a_type_only_export_specifier_stays_a_gap() {
++fn a_type_only_export_specifier_is_error_type() {
+     let source = "interface I { }\ntype T = number;\nexport { I, T };";
+-    assert_eq!(type_of_export(source, "I"), "error");
+-    assert_eq!(type_of_export(source, "T"), "error");
++    assert_eq!(type_of_export(source, "I"), "any");
++    assert_eq!(type_of_export(source, "T"), "any");
+ }
+ 
+ /// `export { a }` where `a` is itself an alias.
+diff --git a/crates/tsr-checker/tests/symbol_chain.rs b/crates/tsr-checker/tests/symbol_chain.rs
+index b6b0bc6..197f009 100644
+--- a/crates/tsr-checker/tests/symbol_chain.rs
++++ b/crates/tsr-checker/tests/symbol_chain.rs
+@@ -523,7 +523,12 @@ fn a_qualified_type_only_alias_does_not_acquire_a_value_meaning() {
+         if let Some(expected) = expected {
+             assert_eq!(checker.type_to_string_at(ty, site).unwrap(), expected);
+         } else {
+-            assert_eq!(ty, checker.intrinsics().error, "a type-only alias has no value type");
++            // Upstream's `errorType` (`checker.go:18614`), r5-errorsplit5 §6.
++            assert_eq!(
++                ty,
++                checker.intrinsics().native_error,
++                "a type-only alias has no value type"
++            );
+             let Some(Node::NewExpression(expression)) =
+                 parsed.node_map.get(parsed.nodes.parent(site).unwrap())
+             else {
+@@ -533,7 +538,7 @@ fn a_qualified_type_only_alias_does_not_acquire_a_value_meaning() {
+                 checker.check_expression(tsr_ast::Expression::NewExpression(expression));
+             assert_eq!(
+                 constructed,
+-                checker.intrinsics().error,
++                checker.intrinsics().native_error,
+                 "a type-only alias cannot be constructed"
+             );
+         }
+@@ -826,8 +831,14 @@ fn module_class_clone_boundary_does_not_admit_other_export_meanings() {
+         let head = checker.get_type_of_symbol(locals["Head"]);
+         let raw = checker.get_type_of_symbol(locals["Raw"]);
+         assert_eq!(head, raw, "outside declaration-symbol module copies: {library}");
+-        if library.starts_with("interface") || library.starts_with("import") {
+-            assert_eq!(head, checker.intrinsics().error, "unsupported meaning/cycle keeps a gap");
++        // A type-only `export =` target is upstream's `errorType`
++        // (`checker.go:18614`, r5-errorsplit5 §6); the self-import cycle
++        // breaks the chain, which keeps the gap.
++        if library.starts_with("interface") {
++            assert_eq!(head, checker.intrinsics().native_error, "type-only meaning is errorType");
++        }
++        if library.starts_with("import") {
++            assert_eq!(head, checker.intrinsics().error, "a broken chain keeps a gap");
+         }
+     }
+ }
+diff --git a/crates/tsr-conformance/src/types_producer.rs b/crates/tsr-conformance/src/types_producer.rs
+index 165fc9c..0446c83 100644
+--- a/crates/tsr-conformance/src/types_producer.rs
++++ b/crates/tsr-conformance/src/types_producer.rs
+@@ -1724,7 +1724,15 @@ fn render_file_with_kinds<'a>(
+                 // an arm can be correct and unmeasurable until an unrelated
+                 // fix creates the nodes it acts on. Neither zero was wrong;
+                 // both were about a different tree.
++                //
++                // ADR-0048, narrowed (r5-errorsplit5 notes §6): the guard is
++                // upstream's condition on upstream's `errorType`, so it applies
++                // to `native_error` only, and the port's gap keeps printing
++                // `error`. Measured at zero RIGHT cost once
++                // `get_type_of_symbol`'s fallthrough answers `native_error`
++                // for `declare global`'s namespace.
+                 if answer == "error"
++                    && !gap
+                     && let Some(parent) = nodes.parent(id)
+                     && matches!(
+                         node_map.get(parent),
