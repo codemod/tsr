@@ -256,6 +256,68 @@ Tests: `tests/errortype_producers.rs` covers four cases:
 - a class without a base is `native_error`;
 - a static block's `super` is `typeof B`.
 
+## §7 Item 3: §32's twins, an unresolved type-reference receiver
+
+Upstream's unresolved type reference (`getTypeFromTypeAliasReference` for an
+unresolved symbol) is any-flagged *with an alias*. So `isErrorType` holds for
+it (`checker.go:26641`), and the two accesses through it answer:
+
+- **property access**: `errorType` (`checker.go:11314-11320`: `isAnyLike`,
+  then `isErrorType(apparentType)`);
+- **element access**: the receiver itself (`checker.go:8153`:
+  `if c.isErrorType(objectType) { return objectType }`), printed by its alias
+  name.
+
+The port's twins (`members.rs` `check_property_access_expression`,
+`indexed.rs` `element_access_lookup`) both answered `anyType`, behind the §31
+gate (`!file_has_import_machinery`). In an import-machinery file they fell
+through to the gap.
+
+**The gate stays.** With the property twin switched to `native_error`
+everywhere (gate removed), the probe join is:
+
+| population | lines moved | native `errorType` | other |
+|---|---:|---:|---:|
+| files without import machinery (the twin's `any`) | 3,205 | 3,196 | 9 |
+| import-machinery files (the gap fall-through) | 43 | 3 | **40** |
+
+In import-machinery files the unresolved mint is mostly the port's own
+resolution miss: `moduleAugmentation*`, `jsDeclarationEmitDoesNotRenameImport`.
+That is the §31 gate's reason, so the gate stays and only the non-import arm
+switches. The 9 "other" lines are JS `require` receivers
+(`varRequireFromJavascript`, `varRequireFromTypescript`,
+`commonJSImportExportedClassExpression`) that the port mints as unresolved
+references. They were WRONG before and stay WRONG; they are listed here, not
+counted.
+
+The OBJECT-flagged deferred mints in `unresolved_types` are the port's gap
+(`Checker::is_gap`), not upstream's type, and keep the twins' `any` stand-in.
+
+### §7.1 Commit 4: `indexed.rs`
+
+`element_access_lookup` answers the receiver for an any-flagged unresolved
+reference. Exactly one printed line in the corpus changes:
+`recursiveTypeRelations:0:47`, `obj[exportedClassName] : ClassNameObject`,
+WRONG→RIGHT. Native prints the alias name there, which is the identity
+`checker.go:8153` returns.
+
+**Measured** cumulatively with commits 1–3 (unfiltered, both dumps, against
+`22a5e1a`): zero losses; types **544,752 / 936 / 6,845** (+1 WRONG→RIGHT);
+diagnostics unchanged. Credited gap and narrowing are unchanged (3,058 and
+3,606), because the old `any` was not the gap.
+
+Tests:
+
+- `an_element_access_through_an_unresolved_reference_is_the_reference`
+  (`x[0]` with `x: Missing` is `Missing`);
+- `element_access_any.rs`'s `a_receiver_this_port_could_not_type_is_still_a_gap`
+  pinned the old `any`, and now pins `Unresolved`.
+
+Perf, median child CPU against the base binary: 21 samples read
+generic-imports 1.099 and domain-model 0.952. Re-run at 41 samples per the
+protocol, they read domain-model 1.025 and generic-imports 1.005. The change
+is one arm behind a set lookup that the old code already made.
+
 ## §9 Narrowing, re-measured after each switch
 
 ADR-0048's decision log narrows a rewrite only at zero RIGHT cost. The cost

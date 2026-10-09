@@ -162,3 +162,13 @@ fn super_in_a_static_block_is_the_base_constructor() {
     let source = "class B { static n = 1; }\nclass C extends B { static { super.n; } }";
     assert_eq!(super_identity(source), Identity::Other("typeof B".to_owned()));
 }
+
+/// An element access through an unresolved type reference answers the
+/// receiver itself: upstream's unresolved reference is any-flagged with an
+/// alias, so `isErrorType` holds and `checkElementAccessExpression` returns
+/// `objectType` (`checker.go:8153`). `compiler/recursiveTypeRelations`.
+#[test]
+fn an_element_access_through_an_unresolved_reference_is_the_reference() {
+    let source = "declare var x: Missing;\nvar y = x[0];";
+    assert_eq!(initializer_identity("t.ts", source), Identity::Other("Missing".to_owned()));
+}

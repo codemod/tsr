@@ -300,3 +300,17 @@ static-block and decorator arms. Both are ported, and they give +63 type lines
 **Narrowing**, per rewrite: `HadErrorBaseline` 2,513, `AtLocation` 696,
 `StatementName` 312, `AccessOrQualifiedParent` 62, `GlobalAugmentation` 23.
 None costs zero, so none is narrowed. The residual fell 3,768 → 3,606.
+
+### 2026-10-08 — step 5, commit 4: §32's element-access twin answers the unresolved receiver
+
+An any-flagged unresolved reference is `isErrorType`, so upstream's element
+access answers the receiver itself (`checker.go:8153`). `indexed.rs`'s §32
+twin answered `anyType`, and now answers the receiver outside import-machinery
+files. Exactly one printed line changes, WRONG→RIGHT. The §31 gate stays: in
+import-machinery files, 40 of the property twin's 43 probed lines are the
+port's resolution misses (notes §7). The property twin (`members.rs`, main's)
+ships as a measured diff.
+
+**Measured** cumulatively (unfiltered, both dumps, against `22a5e1a`): zero
+losses; types 544,752 / 936 / 6,845. Credited gap (3,058) and narrowing
+(3,606) are unchanged, so no rewrite is narrowed.

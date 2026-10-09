@@ -362,12 +362,22 @@ impl Checker<'_, '_> {
         if object_type == self.intrinsics.any {
             return self.intrinsics.any;
         }
-        // §32: an element access through a minted unresolved receiver —
-        // upstream's `errorType` — answers `any`, the same one hop as the
-        // property twin, behind the same §31 structural gate.
+        // §32: an element access through a minted unresolved receiver, behind
+        // the §31 structural gate (in an import-machinery file the mint may be
+        // the port's resolution miss: r5-errorsplit5 notes §7). Upstream's
+        // unresolved reference is any-flagged with an alias, so `isErrorType`
+        // holds and `checkElementAccessExpression` answers the receiver
+        // itself (`checker.go:8153`), printed by its alias name
+        // (`recursiveTypeRelations`: `obj[exportedClassName] :
+        // ClassNameObject`). It answered `any`. The OBJECT-flagged deferred
+        // mints are the port's gap, not upstream's type, and keep the `any`
+        // stand-in.
         if self.unresolved_types.contains(&object_type)
             && node.node_id.is_some_and(|id| !self.file_has_import_machinery(id))
         {
+            if !self.is_gap(object_type) {
+                return object_type;
+            }
             return self.intrinsics.any;
         }
         // §263+§264, landed together (the halves are not independently
