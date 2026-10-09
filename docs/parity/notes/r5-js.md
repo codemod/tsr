@@ -84,6 +84,15 @@ So S4 holds no case at `e20cdd4`, and the files this lane claimed for it
 
 ### 2.2 Why S1 and S3 are not ported here
 
+r5-errorsplit6's native identity probe confirms S3's root from the other
+side: `commonJSImportExportedClassExpression` (`@param {K}` with
+`const { K } = require(…)`) and `varRequireFromTypescript` (`@param
+{ex.Greatest}` with `var ex = require(…)`) mint an unresolved type
+reference where native resolves through the require binding. Those lines
+sit on its false-claim list until the binding-element alias (main) and the
+qualified-through-require reference (`declared.rs`) land.
+
+
 - **S1, late-bound expandos.** `foo[k] = v` with a non-literal `k` binds
   through `bindDeferredExpandoAssignment`'s `HasDynamicName` arm
   (`binder.go:1057`): an anonymous `__computed` property plus the target's
@@ -115,10 +124,10 @@ domain-model 1,155,945,043 and generic-imports 342,949,755.
 | [`r5-js-shorthand-dynamic-import.diff`](r5-js-shorthand-dynamic-import.diff) | +48 (548,799) | 8: `nodeModulesAllowJsDynamicImport` ×4, `nodeModulesDynamicImport` ×4 | unchanged | none | 1,155,878,692 (−0.006%) | 342,913,942 (−0.010%) | clean |
 | [`r5-js-assignment-context.diff`](r5-js-assignment-context.diff) | +9 (548,760) | 1: `jsDeclarationsComputedNames` | unchanged | none; no non-RIGHT line changed text | 1,155,961,326 (+0.001%) | 342,926,441 (−0.007%) | clean |
 | [`r5-js-full-signature-generic.diff`](r5-js-full-signature-generic.diff) | +17 (548,768) | 2: `typeTagWithGenericSignature`, `checkJsdocTypeTag7` | unchanged | none; no non-RIGHT line changed text | 1,155,974,568 (+0.003%) | 342,910,431 (−0.012%) | clean |
-| [`r5-js-jsdoc-cast-context.diff`](r5-js-jsdoc-cast-context.diff) | +28 (548,779) | 1: `jsdocSignatureOnReturnedFunction` | unchanged | none; no non-RIGHT line changed text | 1,155,987,415 (+0.004%) | 342,914,191 (−0.010%) | clean |
+| [`r5-js-return-param-host.diff`](r5-js-return-param-host.diff) — **on top of r5-jsdoc5's `00527fff`** | +14 vs `e20cdd4`+`00527fff` | 1: `jsdocSignatureOnReturnedFunction` | unchanged | none; no non-RIGHT line changed text | 1,156,028,418 vs 1,155,413,044 (+0.05%, build-layout noise: nothing new runs on the TS path) | 342,923,262 vs 342,942,071 (−0.005%) | clean |
 | [`r5-js-jsdoc-cast-overlap.diff`](r5-js-jsdoc-cast-overlap.diff) | unchanged | diagnostics 2: `checkJsTypeDefNoUnusedLocalMarked`, `jsDeclarationsDefault(target=es2015)` | 5,431 → 5,433 RIGHT | none | 1,155,974,041 (+0.003%) | 342,918,828 (−0.009%) | clean |
 
-The seven touch disjoint functions and apply in any order. Stacked (all four applied, unfiltered against `e20cdd4`): types **548,751 → 548,857 RIGHT (+106)**, GAP 900 → 865, WRONG 6,640 → 6,569, **17 cases converted** — exactly the sum of the four rows — diagnostics unchanged (5,431 RIGHT / 5,590 EMPTY_RIGHT), zero losses on both dumps.
+The seven apply cleanly in table order (three touch `signatures.rs`, two `symbols.rs`, in different functions). Stacked, unfiltered against `e20cdd4`: types **548,751 → 548,902 RIGHT (+151)**, GAP 900 → 865, WRONG 6,640 → 6,524, **20 type cases** — exactly the sum of the rows. Diagnostics **5,431 → 5,433 RIGHT** (EMPTY_RIGHT 5,590 unchanged). Zero losses on both dumps. That stacked run used the superseded `r5-js-jsdoc-cast-context.diff` (§3.6). With `00527fff` + `r5-js-return-param-host.diff` in its place, the same 28 lines move: measured pairwise (14 + 14), not re-measured as a full stack.
 
 ### 3.1 S5: the JS setter parameter (`symbols.rs`)
 
@@ -254,29 +263,32 @@ whose return type disagrees: native reports against the tag's signature;
 a case printing the body's return type on the function line would mean the
 signature substitution is too early.
 
-### 3.6 S8: JSDoc hosted on a cast or a `return` (`contextual.rs`, `symbols.rs`, `signatures.rs`)
+### 3.6 S8: `@param` hosted on a `return` (`symbols.rs`)
 
-**Native.** `reparseHosted` turns `/** @type {T} */ (e)` and
-`/** @type {T} */ return e` into `AsExpression(e, T)` (`makeNewCast`,
-`reparser.go:378`), and `getContextualType`'s assertion arm answers `T` for
-its operand unless it is `const` (`checker.go:29368`).
-`getFunctionLikeHost` takes a `return`'s expression as the function a
-`@param`/`@returns` comment on the `return` documents (`reparser.go:662`).
+**Native.** `getFunctionLikeHost` takes a `return`'s expression as the
+function a `@param` comment on the `return` documents (`reparser.go:662`).
+The `@type` half of the same shape is a reparsed `AsExpression` whose type
+is its operand's contextual type (`checker.go:29368`).
 
-**What TSR had.** The cast typed the paren (`expressions.rs`) but gave its
-operand no context, so `/** @type {(a: number) => number} */ ((a) => a)`
-printed the arrow as `(a: any) => any`; a `return`-hosted comment typed
-nothing.
+**Superseded first version.** `756fbd2` shipped
+`r5-js-jsdoc-cast-context.diff`, which ported both halves: a cast arm in
+`contextual.rs`, a cast arm in `signatures.rs` `has_no_contextual_type`,
+and the `ReturnStatement` host in `symbols.rs`. It measured +28 lines and
++1 case on its own. r5-jsdoc5's `00527fff` ports the cast half in
+`jsdoc_annotations.rs`, the file that lane owns. At the integrator's request
+the diff was re-measured on `e20cdd4` + `00527fff`:
+- `00527fff` alone: +14 lines, the `@type` rows (`f3`/`f4`);
+- the old diff on top of it: +14 more, the `@param` rows (`f1`/`f2`), which
+  flip the case.
 
-**Port.** Three one-arm changes, all behind `in_js_file`:
-- `contextual.rs` `get_contextual_type`: a JS cast paren, or a `return`
-  carrying a `@type`, answers the tag's type (non-`const`);
-- `signatures.rs` `has_no_contextual_type`: such a paren shows context
-  rather than climbing past it;
-- `symbols.rs` `jsdoc_parameter_annotation`: `ReturnStatement` joins the
-  host walk, as `jsdoc_function_host` already had it for signatures.
+So the cast half was a duplicate. It is dropped, and the diff file is
+replaced.
 
-**Measured.** +28 lines, +1 case.
+**Port.** `r5-js-return-param-host.diff`: `ReturnStatement` joins
+`jsdoc_parameter_annotation`'s host walk (`jsdoc_function_host` already had
+it on the signature side), plus its test. **Applies after `00527fff`.**
+Measured against `e20cdd4` + `00527fff`: +14 lines, +1 case, zero losses,
+no non-RIGHT line changed text.
 
 ### 3.7 Refused: `Object.<K, V>` as `Record<K, V>` (`declared.rs`)
 
