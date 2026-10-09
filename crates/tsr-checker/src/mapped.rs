@@ -3,6 +3,19 @@ use crate::{Checker, types::TypeId};
 use tsr_ast::{Node, SyntaxKind, TypeNode};
 use tsr_binder::{SymbolFlags, SymbolId};
 
+/// One evaluation of a mapped type node
+/// ([`Checker::evaluate_mapped_type_node`]).
+pub(crate) enum MappedNodeType {
+    /// The node's type, published for its context.
+    Built(TypeId),
+    /// No type was built; the evaluated parts, when there are any, are for
+    /// the caller's own image of the node.
+    // Read by r5-mapped6-declared-route.diff's mapped arm, which removes
+    // this allowance.
+    #[allow(dead_code)]
+    Declined(Option<MappedTypeInfo>),
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct MappedTypeInfo {
     pub(crate) declaration: tsr_ast::NodeId,
@@ -91,25 +104,52 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) -> Option<TypeId> {
+        match self.evaluate_mapped_type_node(node) {
+            MappedNodeType::Built(ty) => Some(ty),
+            MappedNodeType::Declined(_) => None,
+        }
+    }
+
+    /// [`Checker::create_semantic_mapped_type`] for a caller that has a
+    /// fallback for a declined build: the node's parts are evaluated once,
+    /// and a declined build hands them back, so the caller publishes them
+    /// on its own image ([`Checker::publish_mapped_type_info`]) instead of
+    /// evaluating the node a second time through
+    /// [`Checker::capture_mapped_type`]. Native evaluates a mapped node
+    /// once per context (getTypeFromMappedTypeNode's
+    /// `typeNodeLinks.resolvedType`, checker.go:24170); the second
+    /// evaluation was a port artifact that cost domain-model 6.7 M Ir on
+    /// 80 `DeepReadonly<T[K]>` templates (r5-mapped6.md §1).
+    pub(crate) fn evaluate_mapped_type_node(
+        &mut self,
+        node: &'a tsr_ast::MappedTypeNode<'a>,
+    ) -> MappedNodeType {
         let key = node.node_id.map(|id| self.type_literal_key(id));
         if let Some(key) = &key
             && let Some(&ty) = self.type_literal_types.get(key)
         {
-            return Some(ty);
+            return MappedNodeType::Built(ty);
         }
-        let info = self.mapped_type_info(node)?;
+        let Some(info) = self.mapped_type_info(node) else {
+            return MappedNodeType::Declined(None);
+        };
         let ty = if self.is_generic_mapped_info(&info) {
-            let text = self.mapped_type_text(&info)?;
+            let Some(text) = self.mapped_type_text(&info) else {
+                return MappedNodeType::Declined(Some(info));
+            };
             let ty = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, None);
             self.mapped_types.insert(ty, info);
             ty
         } else {
-            self.resolved_mapped_object(info)?
+            match self.resolved_mapped_object(info) {
+                Ok(ty) => ty,
+                Err(info) => return MappedNodeType::Declined(Some(info)),
+            }
         };
         if let Some(key) = key {
             self.type_literal_types.insert(key, ty);
         }
-        Some(ty)
+        MappedNodeType::Built(ty)
     }
 
     fn mapped_type_text(&mut self, info: &MappedTypeInfo) -> Option<String> {
@@ -333,15 +373,21 @@ impl<'a> Checker<'a, '_> {
         node: &'a tsr_ast::MappedTypeNode<'a>,
     ) {
         if let Some(info) = self.mapped_type_info(node) {
-            // getTypeFromMappedTypeNode's `typeNodeLinks.resolvedType`: the
-            // first type captured for this node and context is the node's
-            // type, so a later evaluation of the node answers it instead of
-            // a second image of one mapped type (ADR-0050).
-            if let Some(key) = info.node_key.as_deref() {
-                self.type_literal_types.entry(key.clone()).or_insert(id);
-            }
-            self.mapped_types.insert(id, info);
+            self.publish_mapped_type_info(id, info);
         }
+    }
+
+    /// Record `info` as the mapped parts of `id`, a written-text image of
+    /// the node `info` was evaluated from.
+    pub(crate) fn publish_mapped_type_info(&mut self, id: TypeId, info: MappedTypeInfo) {
+        // getTypeFromMappedTypeNode's `typeNodeLinks.resolvedType`: the
+        // first type captured for this node and context is the node's type,
+        // so a later evaluation of the node answers it instead of a second
+        // image of one mapped type (ADR-0050).
+        if let Some(key) = info.node_key.as_deref() {
+            self.type_literal_types.entry(key.clone()).or_insert(id);
+        }
+        self.mapped_types.insert(id, info);
     }
 
     fn mapped_type_info(
@@ -1249,27 +1295,25 @@ impl<'a> Checker<'a, '_> {
     /// createTypeNodeFromObjectType (nodebuilderimpl.go:2690) for a mapped
     /// type: resolveMappedTypeMembers' table printed as a type literal. When
     /// member resolution declines, the mapped form stands in, as
-    /// createMappedTypeNodeFromType would print it.
-    fn resolved_mapped_object(&mut self, info: MappedTypeInfo) -> Option<TypeId> {
+    /// createMappedTypeNodeFromType would print it. When the mapped form
+    /// cannot be printed either, the parts are handed back.
+    fn resolved_mapped_object(&mut self, info: MappedTypeInfo) -> Result<TypeId, MappedTypeInfo> {
         use crate::flags::TypeFlags;
-        let text = self.mapped_type_text(&info)?;
+        let Some(text) = self.mapped_type_text(&info) else { return Err(info) };
         let mapped = self.store.new_named(TypeFlags::OBJECT, text, None);
         self.mapped_types.insert(mapped, info.clone());
         self.resolve_mapped_type_members(mapped);
         let Some((properties, _)) = self.anonymous_properties.get(&mapped).cloned() else {
-            return Some(mapped);
+            return Ok(mapped);
         };
         let indexes = self.object_literal_index_infos.get(&mapped).cloned().unwrap_or_default();
         let mut budget = TruncationBudget { visiting: vec![mapped], ..TruncationBudget::default() };
         let text = self.mapped_object_text(mapped, &mut budget);
-        if std::env::var_os("TSR_DBG").is_some() {
-            eprintln!("MAPPED {} => {}", self.type_to_string(mapped), &text[..text.len().min(150)]);
-        }
         let result = self.store.new_named(TypeFlags::OBJECT, text, None);
         self.mapped_types.insert(result, info);
         self.anonymous_properties.insert(result, (properties, true));
         self.object_literal_index_infos.insert(result, indexes);
-        Some(result)
+        Ok(result)
     }
 
     /// createTypeNodeFromObjectType's member print of a resolved mapped type

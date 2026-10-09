@@ -1,0 +1,77 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index c4d4976..7337871 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -606,8 +606,15 @@ impl<'a> Checker<'a, '_> {
+             {
+                 let Some(inner) = node.r#type else { return self.intrinsics.error };
+                 let target = self.get_type_from_type_node(inner);
++                // getIndexTypeEx (checker.go:26701): any, never and unknown
++                // answer stringNumberSymbolType/never directly.
+                 if self.mapped_types.contains_key(&target)
+-                    || self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER)
++                    || self.store.get(target).flags.intersects(
++                        TypeFlags::TYPE_PARAMETER
++                            | TypeFlags::ANY
++                            | TypeFlags::NEVER
++                            | TypeFlags::UNKNOWN,
++                    )
+                 {
+                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
+                 }
+@@ -740,6 +747,23 @@ impl<'a> Checker<'a, '_> {
+                     // MUTUAL recursion (`Recurse1` through `Recurse2`), which no
+                     // same-name test can see. Taking the three is the better
+                     // trade at 208:1, and the guard is recorded rather than kept.
++                    // createMappedTypeNodeFromType (nodebuilderimpl.go:1458)
++                    // prints a mapped type from its typed parts. The node is
++                    // evaluated once: a declined build's parts go on the
++                    // written-text image, as `capture_mapped_type` would
++                    // have evaluated them again (r5-mapped6.md §1).
++                    Some(text) if let TypeNode::MappedTypeNode(mapped) = node => {
++                        match self.evaluate_mapped_type_node(mapped) {
++                            crate::mapped::MappedNodeType::Built(id) => id,
++                            crate::mapped::MappedNodeType::Declined(info) => {
++                                let id = self.store.new_named(TypeFlags::OBJECT, text, None);
++                                if let Some(info) = info {
++                                    self.publish_mapped_type_info(id, info);
++                                }
++                                id
++                            }
++                        }
++                    }
+                     Some(text) => {
+                         // getConditionalType's deferred result carries
+                         // TypeFlagsConditional inside a mapped template or
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index e900f67..98f7d3d 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -10,9 +10,6 @@ pub(crate) enum MappedNodeType {
+     Built(TypeId),
+     /// No type was built; the evaluated parts, when there are any, are for
+     /// the caller's own image of the node.
+-    // Read by r5-mapped6-declared-route.diff's mapped arm, which removes
+-    // this allowance.
+-    #[allow(dead_code)]
+     Declined(Option<MappedTypeInfo>),
+ }
+ 
+diff --git a/crates/tsr-checker/tests/index_signature_members.rs b/crates/tsr-checker/tests/index_signature_members.rs
+index 84ecb64..48840ce 100644
+--- a/crates/tsr-checker/tests/index_signature_members.rs
++++ b/crates/tsr-checker/tests/index_signature_members.rs
+@@ -136,5 +136,12 @@ fn an_unrenderable_index_signature_gaps_the_whole_literal() {
+     // A value type that is itself a gap KEEPS ITS WRITTEN SPELLING since §949
+     // (+1 `WRONG->RIGHT` on `returnTypeTypeArguments`, zero adverse). The
+     // distinction from the union key above is spellability, not resolvability.
+-    assert_eq!(type_of_annotation("var x: { [k: string]: keyof T };"), "{ [k: string]: keyof T; }");
++    // `keyof T` over an unresolved `T` is not a gap: getIndexTypeEx
++    // (checker.go:26701) answers stringNumberSymbolType for `keyof errorType`,
++    // and native's TS2322 prints `{ [k: string]: string | number | symbol; }`
++    // (r5-mapped6.md §1).
++    assert_eq!(
++        type_of_annotation("var x: { [k: string]: keyof T };"),
++        "{ [k: string]: string | number | symbol; }"
++    );
+ }
