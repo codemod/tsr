@@ -257,6 +257,91 @@ combined parameters would be the attributes' contextual type).
 **Measured** on top of §1–§4: WRONG → RIGHT `tsxElementResolution9`, no new
 missing or extra row, type lines byte-identical, slowcases clean.
 
+## 6. Results
+
+Frozen base `c7736c8`; every number below is the lane's commits alone,
+both dumps unfiltered against the base (row-level diff of every case).
+
+| | diagnostics (plain) | diagnostics (configured) | type lines RIGHT |
+|---|---|---|---|
+| base `c7736c8` | 4658/5502 | 915/1091 | 549,947 |
+| §1–§5 | **4663** | **916** | 549,947 (byte-identical) |
+
+WRONG → RIGHT: `spellingSuggestionJSXAttribute`,
+`tsxStatelessFunctionComponentOverload4`,
+`jsxFragmentFactoryReference(jsx=react)`,
+`inlineJsxFactoryWithFragmentIsError`, `tsxElementResolution15`,
+`tsxElementResolution9`. Rows fixed in still-WRONG cases: 59 (§1: 16, §3:
+29, plus the §1 rows in the cases above). No case lost a row; no new extra
+row anywhere; slowcases clean on both dumps at every commit. Median child
+CPU against the frozen binary: domain-model 0.976–1.002, generic-imports
+0.964–0.997 (21 samples; neither project has JSX).
+
+With the diffs (§9): D1 +17 rows / 4 more cases RIGHT
+(`jsxAttributeWithoutExpressionReact`, `jsxSpreadTag` ×2,
+`parseJsxExtends2`); D2 +5 type lines.
+
+## 7. Remaining, with the blocker each was traced to
+
+- **Context-sensitive attributes over an overload set** (§1's decline;
+  `reactDefaultPropsInferenceSuccess` ×3, `tsxStatelessFunctionComponentOverload5`
+  50:24, `contextuallyTypedStringLiteralsInJsxAttributes02` 32:24). Needs
+  `argCheckMode` `SkipContextSensitive`: the attributes built with
+  context-sensitive functions as `anyFunctionType` and the regular (not
+  fresh) attributes type, which is `jsx_attributes_inference_type(_, true)`
+  in `jsx_intrinsic.rs` (private; r6-errorsplit2), then a `Normal` re-check
+  of the first candidate that passes.
+- **Weak-type check over a generic spread**
+  (`tsxStatelessFunctionComponentsWithTypeArguments4` 12:15): `T &
+  { "ignore-prop": true }` relates to `IntrinsicAttributes` under
+  `assignableRelation` in the port (`Subtype` says no); native fails the
+  common-property check. `fails_common_property_check` over an
+  intersection with a type parameter (relater.rs, r6-relater2).
+- **Children relations** (`jsxChildrenWrongType`,
+  `jsxChildrenArrayWrongType`, `checkJsxChildrenCanBeTupleType`): the
+  attributes relation against `[string, number?] | Iterable<boolean>` is
+  `Unknown` in the relater, and the children elaboration over several
+  array-like targets needs `getBestMatchingType` (`r4-jsx2.md` §5);
+  `ReactNode & [ReactNode, ReactNode]` is not distributed into a union as
+  `getIntersectionType` does natively (intersections.rs).
+- **TS6229** (`jsxIssuesErrorWhenTagExpectsTooManyArguments`): a port of
+  `checkTagNameDoesNotExpectTooManyArguments` was written and measured; it
+  must read the factory's first-parameter signatures, and `React.SFC<P>`
+  (an alias reference) answers no signature list (`r5-jsx3.md` §6, the
+  alias producer in `declared.rs`). Declining there lost 30 cases' rows
+  against the existing decline (any tag signature requiring more than one
+  argument), so it was not committed. It also needs the full factory
+  entity text, which the checker does not keep (`checker.rs`, main).
+- **TS2607 on a class extending `any`** (`tsxSpreadAttributesResolution17`):
+  `signatures_of_type_kind(typeof Empty, Construct)` answers `None` for a
+  class whose base constructor is `any` (native: one default signature
+  returning the instance). Signature producer.
+- **TS7006 in JSX callbacks** (8 cases: `tsxAttributeResolution2`,
+  `tsxInArrowFunction`, `tsxReactEmitNesting`,
+  `jsxFragmentFactoryNoUnusedLocals`, `jsxChildrenIndividualErrorElaborations`
+  38:4, `tsxStatelessFunctionComponents1` 40:29, `tsxEmit1`,
+  `tsxReactEmit1`): `contextual_parameter_type_is_absent` (implicit_any.rs)
+  proves absence only syntactically (`has_no_contextual_type`,
+  signatures.rs), which has no JSX arm, and does not trust
+  `ContextualSignature::Absent`; the JSX contextual answers
+  (`jsx_attribute_context`, `jsx_child_context`, `jsx_intrinsic.rs`) do not
+  separate "absent" from "undecided".
+- **TS2786 with `JSX.ElementType` defaults** (`jsxElementTypeLiteralWithGeneric`,
+  `jsxElementType` 91:2): `jsx_element_type_type_at` declines the mapped
+  default (`instantiated_heritage_base`).
+- **TS1099/TS1009 on a JSX type-argument list** (§3; parser).
+- **TS2609 on an `errorType` spread child**
+  (`inlineJsxFactoryDeclarationsLocalTypes`): `check_jsx_expression`
+  (`jsx_intrinsic.rs`) declines a gap, and the spread's `errorType` is
+  upstream's own here (`this` at module level).
+- **TS2304 on value tag names**: D1.
+- **Hyphenated attributes against an index signature** (`ignoredJsxAttributes`
+  20:11): `r5-jsx3.md` §2's decline; removing it was measured at +1 row and
+  −5 cases, so the relater needs `ObjectFlagsJsxAttributes` first.
+- Alias targets (`tsxLibraryManagedAttributes` ×11 and others), parser
+  recovery, the JSX namespace through a global re-export: unchanged from
+  `r5-jsx3.md` §6 and `r5-errorsplit6.md` §4.
+
 ## 9. Diffs for files this lane does not own
 
 Each diff is against the frozen base plus this lane's commits, measured
