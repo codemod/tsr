@@ -33,7 +33,6 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
 impl Checker<'_, '_> {
     /// `checkAliasSymbol`'s JS arm. `true` when it applied, so the caller
     /// returns before its conflict test. `type_only` is

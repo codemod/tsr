@@ -2555,8 +2555,8 @@ impl<'a> Checker<'a, '_> {
     /// the union of every meaning that name already carries; the rule asks
     /// whether the imported target claims one of them.
     ///
-    /// Upstream's `IsInJSFile` arm above this is unreachable rather than
-    /// declined — §197 excludes `allowJs` cases from the diagnostics suite.
+    /// Upstream's `IsInJSFile` arm (TS18042/TS18043) is
+    /// [`Checker::report_js_type_alias`].
     pub(crate) fn check_alias_symbol(&mut self, node: NodeId) -> Option<()> {
         let declared = self.binder.symbol_of(node)?;
         let target = match self.resolve_alias(declared) {
@@ -2576,6 +2576,12 @@ impl<'a> Checker<'a, '_> {
         let local = self.binder.merged_symbol(local);
         let flags = self.binder.symbols().get(local).flags;
         let target_flags = self.get_symbol_flags(target);
+        // The JS arm (`checker.go:6751`) returns before the conflict test
+        // (`js_alias_types.rs`).
+        let type_only = self.is_type_only_import_or_export_declaration(node);
+        if self.report_js_type_alias(node, local, target, target_flags, type_only) {
+            return None;
+        }
         let mut excluded = SymbolFlags::empty();
         if flags.intersects(SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE) {
             excluded |= SymbolFlags::VALUE;
