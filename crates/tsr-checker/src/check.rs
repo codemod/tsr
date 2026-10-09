@@ -4656,6 +4656,9 @@ impl Checker<'_, '_> {
                 // `VALUE` where upstream's do not (§119), so the test belongs
                 // here rather than on the meaning ladder below. §121.
                 self.report_type_only_alias_used_as_value(node, value, text);
+                // TS2866, `resolveNameHelper`'s next success arm
+                // (`checker.go:1872`), `isolated_alias.rs`.
+                self.check_import_conflicts_with_global_value(node, value, text);
                 // `getSymbol` again, on the **value** lookup: `import a = A`
                 // where `A` is an uninstantiated namespace carries `ALIAS` here
                 // and satisfies nothing upstream, so the cascade's value branch
