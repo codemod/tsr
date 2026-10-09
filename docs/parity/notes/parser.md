@@ -591,3 +591,8 @@ per-file flag must become per-node.
 - `import d, from "m"` (`parseImportClause`): after `default,` the bindings
   are a namespace import or `parseNamedImports`, which reports a missing `{`
   and keeps an empty list; the JSDoc `@import` clause shares it.
+- Ambiguous parenthesized arrows (`typeHasArrowFunctionBlockingParseError`):
+  a return type whose reference name is missing (an empty range, which
+  `missing_type` also has) refuses the arrow, through function/constructor
+  return types and parentheses; `(a): => {}` is a parenthesized expression.
+  `isMissingNodeList(parameters)` has no counterpart (lists keep no range).

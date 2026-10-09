@@ -1764,6 +1764,39 @@ impl<'a> Parser<'a> {
         arrow
     }
 
+    /// `typeHasArrowFunctionBlockingParseError` (`parser.go:4450`): a type
+    /// reference whose name is missing (`ast.NodeIsMissing`, an empty range),
+    /// through function/constructor return types and parentheses. This
+    /// parser's stand-in for a missing type reference is
+    /// [`Parser::missing_type`], which consumed no token, so its range is
+    /// empty too. `isMissingNodeList(parameters)` has no counterpart: a
+    /// parameter list keeps no range here.
+    fn type_has_arrow_function_blocking_parse_error(&self, ty: TypeNode<'a>) -> bool {
+        let is_missing = |id: Option<tsr_ast::NodeId>| {
+            id.is_some_and(|id| {
+                let span = self.nodes.span(id);
+                span.start >= span.end
+            })
+        };
+        match ty {
+            TypeNode::KeywordTypeNode(keyword) => is_missing(keyword.node_id),
+            TypeNode::TypeReferenceNode(reference) => match reference.type_name {
+                Some(tsr_ast::EntityName::Identifier(name)) => is_missing(name.node_id),
+                _ => false,
+            },
+            TypeNode::FunctionTypeNode(function) => function
+                .r#type
+                .is_some_and(|ty| self.type_has_arrow_function_blocking_parse_error(ty)),
+            TypeNode::ConstructorTypeNode(constructor) => constructor
+                .r#type
+                .is_some_and(|ty| self.type_has_arrow_function_blocking_parse_error(ty)),
+            TypeNode::ParenthesizedTypeNode(parenthesized) => parenthesized
+                .r#type
+                .is_some_and(|ty| self.type_has_arrow_function_blocking_parse_error(ty)),
+            _ => false,
+        }
+    }
+
     /// typescript-go's `Parser.parseParenthesizedArrowFunctionExpression`
     /// (`parser.go:4341`) from its type parameters on; `None` is upstream's
     /// `nil` (rewind).
@@ -1788,7 +1821,16 @@ impl<'a> Parser<'a> {
                     parser.parse_unambiguous_parameter_list()?
                 };
                 // A return type may intervene: `(a): number => a`.
-                Some((type_parameters, parameters, parser.parse_return_type_annotation()))
+                let return_type = parser.parse_return_type_annotation();
+                // `parser.go:4377`: an ambiguous parse whose return type has a
+                // blocking parse error is not an arrow function.
+                if !allow_ambiguity
+                    && return_type
+                        .is_some_and(|ty| parser.type_has_arrow_function_blocking_parse_error(ty))
+                {
+                    return None;
+                }
+                Some((type_parameters, parameters, return_type))
             })
         });
         let (type_parameters, parameters, return_type) = signature?;
