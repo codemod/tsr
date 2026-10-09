@@ -1,0 +1,445 @@
+diff --git a/crates/tsr-checker/src/module_specifiers.rs b/crates/tsr-checker/src/module_specifiers.rs
+index a685b28..6232e5b 100644
+--- a/crates/tsr-checker/src/module_specifiers.rs
++++ b/crates/tsr-checker/src/module_specifiers.rs
+@@ -392,13 +392,9 @@ impl Checker<'_, '_> {
+     }
+ 
+     /// The program's symlink cache (`host.GetSymlinkCache()`), which
+-    /// `GetEachFileNameOfModule` reads. The checker's `ModuleHost` does not
+-    /// expose one yet, so every module has its own path only; the host half
+-    /// is `docs/parity/notes/r6-specifiers-symlink-cache.diff`
+-    /// (r6-specifiers §2).
+-    #[allow(clippy::unused_self)]
++    /// `GetEachFileNameOfModule` reads (r6-specifiers §2).
+     fn known_symlinks(&self) -> Option<&KnownSymlinks> {
+-        None
++        self.module_host?.known_symlinks()
+     }
+ 
+     /// `getLocalModuleSpecifier` (`modulespecifiers/specifiers.go:481`) with
+diff --git a/crates/tsr-checker/src/resolution.rs b/crates/tsr-checker/src/resolution.rs
+index 01b3a55..e77640d 100644
+--- a/crates/tsr-checker/src/resolution.rs
++++ b/crates/tsr-checker/src/resolution.rs
+@@ -386,6 +386,14 @@ pub trait ModuleHost {
+     fn is_applicable_versioned_types_key(&self, _key: &str) -> bool {
+         false
+     }
++
++    /// `Program.GetSymlinkCache` (`compiler/program.go:2059`), which
++    /// `GetEachFileNameOfModule` reads to name a realpath'd module by the
++    /// symlinked paths that reach it. Defaulted to `None`: every module has
++    /// its own path only. r6-specifiers §2.
++    fn known_symlinks(&self) -> Option<&crate::module_specifiers::KnownSymlinks> {
++        None
++    }
+ }
+ 
+ /// A `package.json` as module-specifier generation reads it
+diff --git a/crates/tsr-compiler/src/lib.rs b/crates/tsr-compiler/src/lib.rs
+index 223a5f9..47e814c 100644
+--- a/crates/tsr-compiler/src/lib.rs
++++ b/crates/tsr-compiler/src/lib.rs
+@@ -253,6 +253,10 @@ pub struct Program<'a> {
+     /// program built from a file list. Immutable after construction.
+     package_jsons_for_specifiers:
+         FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>>,
++    /// `Program.GetSymlinkCache` (`compiler/program.go:2059`), built once
++    /// after loading ([`Program::build_known_symlinks`]). Empty for a
++    /// program built from a file list. Immutable after construction.
++    known_symlinks: tsr_checker::module_specifiers::KnownSymlinks,
+     /// One rather than one per file, which is the whole of the widening: a
+     /// `SymbolId` names one symbol across the program, and its declarations
+     /// index `nodes`, so a symbol from another file can be handed to the checker
+@@ -395,6 +399,7 @@ impl<'a> Program<'a> {
+             resolved_modules: Vec::new(),
+             meta_datas: Vec::new(),
+             package_jsons_for_specifiers: FxHashMap::default(),
++            known_symlinks: tsr_checker::module_specifiers::KnownSymlinks::default(),
+             current_directory,
+             use_case_sensitive_file_names,
+             lib_file_count: 0,
+@@ -457,8 +462,19 @@ impl<'a> Program<'a> {
+             use_case_sensitive_file_names,
+         );
+ 
+-        let package_jsons_for_specifiers =
++        let mut package_jsons_for_specifiers =
+             package_jsons_for_specifiers(&loaded.files, host, &current_directory);
++        // `SetSymlinksFromResolutions`: every resolution that went through a
++        // symlink.
++        let mut known_symlinks = tsr_checker::module_specifiers::KnownSymlinks::new(
++            &current_directory,
++            use_case_sensitive_file_names,
++        );
++        for request in &loaded.requests {
++            if let Some(resolved) = &request.resolved {
++                known_symlinks.process_resolution(&request.original_path, resolved);
++            }
++        }
+ 
+         let mut program = Self {
+             options: compiler_options,
+@@ -467,7 +483,8 @@ impl<'a> Program<'a> {
+             files_by_source_file,
+             resolved_modules,
+             meta_datas: loaded.meta_datas,
+-            package_jsons_for_specifiers,
++            package_jsons_for_specifiers: FxHashMap::default(),
++            known_symlinks,
+             // From the host, which is where the loader took them from too — so
+             // a name looked up afterwards canonicalises exactly as the path it
+             // is being compared against did.
+@@ -485,6 +502,12 @@ impl<'a> Program<'a> {
+             bind_diagnostic_ends: Vec::new(),
+             statistics: ProgramStatistics { load: loaded.statistics, ..Default::default() },
+         };
++        program.add_dependency_symlinks(host);
++        // `tryDirectoryWithPackageJson` reads the package root of every
++        // symlinked path too: a package reached only through a link is read
++        // where the link puts it.
++        program.add_symlinked_package_jsons(host, &mut package_jsons_for_specifiers);
++        program.package_jsons_for_specifiers = package_jsons_for_specifiers;
+         if let Some(started) = indexing_started {
+             program.statistics.indexing_time = started.elapsed();
+         }
+@@ -749,6 +772,110 @@ impl<'a> Program<'a> {
+             .is_some_and(|metadata| metadata.found_searching_node_modules)
+     }
+ 
++    /// `GetSymlinkCache`'s second half (`compiler/program.go:2068`): for the
++    /// `package.json` directory of each file that may be emitted, once per
++    /// directory, every runtime dependency not already known as a symlink in
++    /// the adjacent `node_modules` is resolved as a package directory
++    /// (`ResolvePackageDirectory`, `CommonJS` mode) and its realpath recorded.
++    /// This is what names a package a file never imports directly through
++    /// its own `node_modules` link (`symlinkedWorkspaceDependenciesNoDirectLink*`).
++    fn add_dependency_symlinks(&mut self, host: &dyn tsr_module::types::ResolutionHost) {
++        let mut seen = rustc_hash::FxHashSet::default();
++        let mut resolver = None;
++        for index in 0..self.files.len() {
++            let Some(directory) = self
++                .meta_datas
++                .get(index)
++                .map(|meta| meta.package_json_directory.clone())
++                .filter(|directory| !directory.is_empty())
++            else {
++                continue;
++            };
++            if !self.source_file_may_be_emitted(index)
++                || !seen.insert(tsr_path::to_path(
++                    &directory,
++                    &self.current_directory,
++                    self.use_case_sensitive_file_names,
++                ))
++            {
++                continue;
++            }
++            let package_json_name = tsr_path::combine_paths(&directory, &["package.json"]);
++            let Some(text) = host
++                .fs()
++                .file_exists(&package_json_name)
++                .then(|| host.fs().read_file(&package_json_name))
++                .flatten()
++            else {
++                continue;
++            };
++            let contents = tsr_module::package_json::PackageJson::parse(&text);
++            for dependency in contents.runtime_dependency_names() {
++                let possible = tsr_path::combine_paths(&directory, &["node_modules", dependency]);
++                if self.known_symlinks.has_directory(self.path_of(&possible).as_str()) {
++                    continue;
++                }
++                if !dependency.starts_with("@types") {
++                    let types = tsr_path::combine_paths(
++                        &directory,
++                        &["node_modules", &tsr_module::util::get_types_package_name(dependency)],
++                    );
++                    if self.known_symlinks.has_directory(self.path_of(&types).as_str()) {
++                        continue;
++                    }
++                }
++                let resolver = resolver.get_or_insert_with(|| {
++                    tsr_module::resolver::Resolver::new(host, self.options.clone())
++                });
++                if let Some(resolution) = resolver.resolve_package_directory(
++                    dependency,
++                    &package_json_name,
++                    ResolutionMode::CommonJS,
++                ) && resolution.is_resolved()
++                {
++                    self.known_symlinks.process_resolution(
++                        &tsr_path::combine_paths(&resolution.original_path, &["package.json"]),
++                        &tsr_path::combine_paths(&resolution.resolved_file_name, &["package.json"]),
++                    );
++                }
++            }
++        }
++    }
++
++    /// `toPath` under the program's directory and case sensitivity.
++    fn path_of(&self, file_name: &str) -> tsr_path::Path {
++        tsr_path::to_path(file_name, &self.current_directory, self.use_case_sensitive_file_names)
++    }
++
++    /// The package-root `package.json` reads of
++    /// [`package_jsons_for_specifiers`] for the symlinked paths
++    /// `GetEachFileNameOfModule` will produce: each program file under a
++    /// real directory a known symlink points at, spelled through the link.
++    fn add_symlinked_package_jsons(
++        &self,
++        host: &dyn tsr_module::types::ResolutionHost,
++        found: &mut FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>>,
++    ) {
++        if self.known_symlinks.is_empty() {
++            return;
++        }
++        for file in &self.files {
++            let path =
++                tsr_path::get_normalized_absolute_path(file.file_name(), &self.current_directory);
++            for module_path in tsr_checker::module_specifiers::each_file_name_of_module(
++                "",
++                &path,
++                Some(&self.known_symlinks),
++                &self.current_directory,
++                self.use_case_sensitive_file_names,
++            ) {
++                if module_path.is_in_node_modules {
++                    read_package_root_json(&module_path.file_name, host, found);
++                }
++            }
++        }
++    }
++
+     /// sourceFileMayBeEmitted (5b1047d compiler/emitter.go:452-504), without
+     /// forced emit. `NoEmit` is a later emitter decision, not source eligibility.
+     /// Project-reference redirects and internal `NoEmitForJsFiles` have no
+@@ -1266,6 +1393,10 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
+         !self.package_jsons_for_specifiers.is_empty()
+     }
+ 
++    fn known_symlinks(&self) -> Option<&tsr_checker::module_specifiers::KnownSymlinks> {
++        (!self.known_symlinks.is_empty()).then_some(&self.known_symlinks)
++    }
++
+     fn is_applicable_versioned_types_key(&self, key: &str) -> bool {
+         tsr_module::util::is_applicable_versioned_types_key(key)
+     }
+@@ -1526,28 +1657,36 @@ fn package_jsons_for_specifiers(
+             continue;
+         }
+         let path = tsr_path::get_normalized_absolute_path(file.file_name(), current_directory);
+-        let Some(parts) = tsr_checker::module_specifiers::node_module_path_parts(&path) else {
+-            continue;
+-        };
+-        // `tryDirectoryWithPackageJson` reads the package root's
+-        // `package.json` only (r5-modules §5.2).
+-        let directory = &path[..tsr_checker::module_specifiers::package_root_end(parts, &path)];
+-        if !found.contains_key(directory) {
+-            let package_json = format!("{directory}/package.json");
+-            let view = host
+-                .fs()
+-                .file_exists(&package_json)
+-                .then(|| host.fs().read_file(&package_json))
+-                .flatten()
+-                .map(|text| {
+-                    package_json_view(&tsr_module::package_json::PackageJson::parse(&text))
+-                });
+-            found.insert(directory.to_string(), view);
+-        }
++        read_package_root_json(&path, host, &mut found);
+     }
+     found
+ }
+ 
++/// Read the `package.json` at the `node_modules` package root of `path`
++/// into `found`, once per directory.
++fn read_package_root_json(
++    path: &str,
++    host: &dyn tsr_module::types::ResolutionHost,
++    found: &mut FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>>,
++) {
++    let Some(parts) = tsr_checker::module_specifiers::node_module_path_parts(path) else {
++        return;
++    };
++    // `tryDirectoryWithPackageJson` reads the package root's
++    // `package.json` only (r5-modules §5.2).
++    let directory = &path[..tsr_checker::module_specifiers::package_root_end(parts, path)];
++    if !found.contains_key(directory) {
++        let package_json = format!("{directory}/package.json");
++        let view = host
++            .fs()
++            .file_exists(&package_json)
++            .then(|| host.fs().read_file(&package_json))
++            .flatten()
++            .map(|text| package_json_view(&tsr_module::package_json::PackageJson::parse(&text)));
++        found.insert(directory.to_string(), view);
++    }
++}
++
+ /// [`tsr_checker::resolution::PackageJsonView`] of a parsed `package.json`.
+ fn package_json_view(
+     package_json: &tsr_module::package_json::PackageJson,
+diff --git a/crates/tsr-compiler/src/loader.rs b/crates/tsr-compiler/src/loader.rs
+index 546796a..fcb8eb2 100644
+--- a/crates/tsr-compiler/src/loader.rs
++++ b/crates/tsr-compiler/src/loader.rs
+@@ -166,6 +166,11 @@ pub struct ResolutionRequest {
+     pub extension: std::borrow::Cow<'static, str>,
+     /// See [`ResolutionRequest::extension`].
+     pub resolved_using_ts_extension: bool,
++    /// The resolver's `OriginalPath`: the symlinked path a resolution went
++    /// through before its realpath, empty when none. The program's symlink
++    /// cache is built from these (`SetSymlinksFromResolutions`,
++    /// `symlinks/knownsymlinks.go:81`).
++    pub original_path: String,
+ }
+ 
+ /// What a load is asked for.
+@@ -1280,6 +1285,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+                 extensionless_relative_import: None,
+                 extension: std::borrow::Cow::Borrowed(""),
+                 resolved_using_ts_extension: false,
++                original_path: resolved.original_path.clone(),
+             });
+             self.tasks[index].type_resolutions_trace.extend(traces);
+             if resolved.is_resolved() {
+@@ -1340,6 +1346,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+                 extensionless_relative_import: None,
+                 extension: std::borrow::Cow::Borrowed(""),
+                 resolved_using_ts_extension: false,
++                original_path: resolved.original_path.clone(),
+             });
+             self.tasks[index].type_resolutions_trace.extend(traces);
+             if resolved.is_resolved() {
+@@ -1443,6 +1450,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+                 extensionless_relative_import,
+                 extension: static_extension(&resolved.extension),
+                 resolved_using_ts_extension: resolved.resolved_using_ts_extension,
++                original_path: resolved.original_path.clone(),
+             });
+             self.tasks[index].resolutions_trace.extend(traces);
+ 
+diff --git a/crates/tsr-module/src/package_json.rs b/crates/tsr-module/src/package_json.rs
+index 9480d75..744c0a2 100644
+--- a/crates/tsr-module/src/package_json.rs
++++ b/crates/tsr-module/src/package_json.rs
+@@ -263,6 +263,10 @@ pub struct PackageJson {
+     pub exports: ExportsOrImports,
+     /// `peerDependencies`.
+     pub peer_dependencies: Expected<DependencyMap>,
++    /// `dependencies`.
++    pub dependencies: Expected<DependencyMap>,
++    /// `optionalDependencies`.
++    pub optional_dependencies: Expected<DependencyMap>,
+     /// Whether the file parsed as JSON at all.
+     pub parseable: bool,
+     /// Memoised `typesVersions` resolution and the traces it produced.
+@@ -270,6 +274,23 @@ pub struct PackageJson {
+ }
+ 
+ impl PackageJson {
++    /// `DependencyFields.GetRuntimeDependencyNames`
++    /// (`packagejson/packagejson.go:89`): the names in `dependencies`,
++    /// `peerDependencies` and `optionalDependencies`, each once, in that
++    /// order (upstream's is a set; its one consumer is order-insensitive).
++    #[must_use]
++    pub fn runtime_dependency_names(&self) -> Vec<&str> {
++        let mut names: Vec<&str> = Vec::new();
++        for field in [&self.dependencies, &self.peer_dependencies, &self.optional_dependencies] {
++            for (name, _) in field.value.iter().flatten() {
++                if !names.contains(&name.as_str()) {
++                    names.push(name);
++                }
++            }
++        }
++        names
++    }
++
+     /// Parse a `package.json`'s text (`packagejson.Parse`).
+     ///
+     /// Unparseable input yields an all-absent record with `parseable` false,
+@@ -291,6 +312,10 @@ impl PackageJson {
+             imports: ExportsOrImports::from_json(get("imports")),
+             exports: ExportsOrImports::from_json(get("exports")),
+             peer_dependencies: Expected::<DependencyMap>::from_json(get("peerDependencies")),
++            dependencies: Expected::<DependencyMap>::from_json(get("dependencies")),
++            optional_dependencies: Expected::<DependencyMap>::from_json(get(
++                "optionalDependencies",
++            )),
+             parseable: root.is_some(),
+             version_paths: OnceCell::new(),
+         }
+diff --git a/crates/tsr-module/src/resolver.rs b/crates/tsr-module/src/resolver.rs
+index 07fd5b1..8e59163 100644
+--- a/crates/tsr-module/src/resolver.rs
++++ b/crates/tsr-module/src/resolver.rs
+@@ -316,6 +316,36 @@ impl<'host> Resolver<'host> {
+         (result, state.traces)
+     }
+ 
++    /// `Resolver.ResolvePackageDirectory` (`module/resolver.go:331`): the
++    /// directory of package `module_name` in the nearest `node_modules`
++    /// above `containing_file`, with its realpath. `None` when no
++    /// `node_modules` holds it. The program's symlink cache asks it for each
++    /// runtime dependency of an emitted file's package
++    /// (`Program.GetSymlinkCache`, `compiler/program.go:2095`). Untraced and
++    /// uncached, as upstream's.
++    #[must_use]
++    pub fn resolve_package_directory(
++        &self,
++        module_name: &str,
++        containing_file: &str,
++        resolution_mode: ResolutionMode,
++    ) -> Option<ResolvedModule> {
++        let containing_directory = get_directory_path(containing_file).to_string();
++        let mut state = ResolutionState::new(
++            self,
++            module_name.to_string(),
++            containing_directory,
++            /* is_type_reference_directive */ false,
++            resolution_mode,
++            /* tracing */ false,
++        );
++        state.resolve_package_directory_only = true;
++        let result = state
++            .load_module_from_nearest_node_modules_directory(/* types_scope_only */ false)
++            .filter(|result| !result.path.is_empty())?;
++        Some(state.create_resolved_module_handling_symlink(Some(result)))
++    }
++
+     /// Resolve a `tsconfig.json`'s `extends` target (`module.ResolveConfig`).
+     ///
+     /// `resolver.go:2077` plus `resolveConfig` (`:371`). Three things make it
+@@ -448,6 +478,8 @@ struct ResolutionState<'a, 'host> {
+     // Mutable search state.
+     candidate_ending_is_from_config: bool,
+     resolved_package_directory: bool,
++    /// `resolvePackageDirectoryOnly`: [`Resolver::resolve_package_directory`].
++    resolve_package_directory_only: bool,
+     diagnostics: Vec<Trace>,
+ }
+ 
+@@ -506,6 +538,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+             extensions,
+             candidate_ending_is_from_config: false,
+             resolved_package_directory: false,
++            resolve_package_directory_only: false,
+             diagnostics: Vec::new(),
+         }
+     }
+@@ -1453,6 +1486,13 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
+             combine_paths(node_modules_directory, &[&package_name])
+         };
+ 
++        if self.resolve_package_directory_only {
++            if self.fs().directory_exists(&package_directory) {
++                return Some(Resolved { path: package_directory, ..Resolved::default() });
++            }
++            return continue_searching();
++        }
++
+         let mut root_package_info = None;
+         // A nested `package.json` — `node_modules/foo/bar/package.json` — is
+         // consulted first, but only when export maps are not in play, since an

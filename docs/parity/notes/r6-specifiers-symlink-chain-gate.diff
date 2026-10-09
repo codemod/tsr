@@ -1,0 +1,51 @@
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -3277,7 +3277,8 @@
+                 if !unresolved_export
+                     && !same_file
+                     && !imported_here
+-                    && stem.contains("node_modules/")
++                    && (stem.contains("node_modules/")
++                        || self.module_has_symlinked_node_modules_path(parent, reference))
+                     && let Some(specifier) = self.module_specifier_for_symbol(parent, reference)
+                 {
+                     self.track_unsafe_import(&specifier, symbol, parent);
+--- a/crates/tsr-checker/src/module_specifiers.rs
++++ b/crates/tsr-checker/src/module_specifiers.rs
+@@ -391,6 +391,36 @@
+         node_modules_specifier.or(relative_specifier)
+     }
+ 
++    /// `computeModuleSpecifiers`' `importedFileIsInNodeModules` (`:400`) for
++    /// `module`'s source file seen from `reference`'s: whether a symlinked
++    /// path reaching it runs through `node_modules`. `symbol_chain`'s
++    /// `node_modules` arm reads it for a module whose own (real) path is
++    /// outside any `node_modules` (a workspace package linked into one).
++    pub(crate) fn module_has_symlinked_node_modules_path(
++        &self,
++        module: tsr_binder::SymbolId,
++        reference: NodeId,
++    ) -> bool {
++        let Some(symlinks) = self.known_symlinks() else { return false };
++        let Some(host) = self.module_host else { return false };
++        let Some(module_file) =
++            self.binder.symbols().get(module).declarations.iter().copied().find(|&declaration| {
++                self.nodes.kind(declaration) == tsr_ast::SyntaxKind::SourceFile
++            })
++        else {
++            return false;
++        };
++        let (Some(from), Some(to)) = (
++            self.source_file_of(reference).and_then(|file| host.file_path(file)),
++            host.file_path(module_file),
++        ) else {
++            return false;
++        };
++        each_file_name_of_module(&from, &to, Some(symlinks), "", true)
++            .iter()
++            .any(|path| path.is_in_node_modules)
++    }
++
+     /// The program's symlink cache (`host.GetSymlinkCache()`), which
+     /// `GetEachFileNameOfModule` reads (r6-specifiers §2).
+     fn known_symlinks(&self) -> Option<&KnownSymlinks> {

@@ -117,3 +117,116 @@ byte-identical on both dumps (cut to the first four columns),
 ### 2.3 The host half — `r6-specifiers-symlink-cache.diff`
 
 Not built in this lane's files; see §3 for the diff and its numbers.
+
+## 3. The diffs, in apply order
+
+All three apply cleanly, in this order, on commit 1. Measured unfiltered
+against the frozen base, each on top of the ones before it.
+
+### 3.1 `r6-specifiers-symlink-cache.diff` — the program's symlink cache
+
+Files: `tsr-module` (`resolver.rs`, `package_json.rs`), `tsr-compiler`
+(`loader.rs`, `lib.rs`; r6-modules2's), `tsr-checker/src/resolution.rs`
+(no owner) and the one-line hookup in `module_specifiers.rs`.
+
+- `ResolutionRequest.original_path`: the resolver's `OriginalPath`, kept
+  for every module and type-reference request.
+- `Program` builds `KnownSymlinks` after loading:
+  `SetSymlinksFromResolutions` over those requests, then
+  `add_dependency_symlinks` (`GetSymlinkCache`'s dependency half,
+  `compiler/program.go:2068`) over `sourceFileMetaDatas.PackageJsonDirectory`
+  of every file `source_file_may_be_emitted`, once per directory.
+- `Resolver::resolve_package_directory` (`ResolvePackageDirectory`,
+  `module/resolver.go:331`): `resolvePackageDirectoryOnly` stops
+  `loadModuleFromSpecificNodeModulesDirectory` at the package directory;
+  `createResolvedModuleHandlingSymlink` realpaths it. A resolver is built
+  only when some dependency needs it.
+- `PackageJson.dependencies` / `optionalDependencies` and
+  `runtime_dependency_names` (`GetRuntimeDependencyNames`).
+- `package_jsons_for_specifiers` also reads the package root of every
+  symlinked path a program file has (`tryDirectoryWithPackageJson` reads the
+  directory the path names, which for a linked package is the link); so
+  `has_node_modules_files` turns on for a program whose `node_modules` holds
+  only links.
+- `ModuleHost::known_symlinks`, defaulted to `None`; `Program` answers its
+  cache when non-empty.
+
+Rejected: retaining the loader's resolver for `ResolvePackageDirectory`.
+The loader drops it when loading ends (r5-modules §5.1), and its cache keys
+are the resolver's; a fresh, untraced resolver asks only
+`directory_exists` and `realpath`, as native's package-directory-only state
+does. Rejected: building the cache lazily on the first specifier question,
+as native's `getValue` does: the checker holds the program by shared
+reference across threads (r5-modules §5.1), and the build is empty work for
+a program without symlinked resolutions or dependency-bearing
+`package.json` files, which is both benches.
+
+**Measured alone** (commit 1 + this diff): both dumps byte-identical to the
+base. Nothing prints differently until `symbol_chain` reaches the
+specifier for a symlinked module (§3.3). Ir: dm within the run-to-run
+spread (±0.07% on identical binaries), gi −0.008%.
+
+### 3.2 `r6-specifiers-pure-alias-scope.diff` — `resolveAlias` in `alias_in_scope_for` (+38)
+
+File: `checker.rs` (main's). Independent of §3.1.
+
+Found while measuring §3.3: with the gate open,
+`declarationEmitReexportedSymlinkReference2` lost
+`MetadataAccessor.create` → `typeof MetadataAccessor` (native keeps the
+bare name; TSR spelled the specifier). `trySymbolTable`'s alias arm
+(`symbolaccessibility.go:562`) compares `c.resolveAlias(alias)` with the
+symbol, and `resolveAlias` (`checker.go:16266`) follows the target through
+every **pure** alias (`resolveIndirectionAlias` when
+`IsNonLocalAlias(target, Value|Type|Namespace)`). `alias_in_scope_for`
+compared one step (`resolve_alias`), so an import of a re-export
+(`import {X} from "pkg2"` where `pkg2` writes `export {X} from "pkg1"`)
+never made `X` accessible.
+
+The first version followed every alias (`resolve_alias_fully`) and lost
+`importElisionConstEnumMerge1` (4 lines): there `import { Enum }` merges
+with `namespace Enum`, so the target carries `Namespace` and native stops
+there. The diff stops exactly where `IsNonLocalAlias` does.
+
+**Measured** (commit 1 + §3.1 + this): **types +38 lines, 0 lost**
+(`constEnumNoEmitReexport` 8, `exportNamespace1` 3, `exportNamespace5` 3,
+`exportDeclaration_moduleSpecifier` 3, and 21 lines across 17 JSX/React
+cases whose `React` import is a re-export); diagnostics unchanged;
+`slowcases` clean. Ir: dm **+0.087%** (1,091.5 M → 1,092.49 M, four runs
+each; the spread on identical binaries is ±0.07%), gi −0.003%. The cost is
+the deeper resolution itself (first-time `resolve_alias` of each re-export
+chain's next link, mostly allocation): native's `trySymbolTable` resolves
+every alias in every table it visits fully. CPU (median user+sys, base
+binary in the tsgo slot): dm 1.014 at 41 samples, gi 0.994 at 21.
+
+### 3.3 `r6-specifiers-symlink-chain-gate.diff` — HELD on `tsr-2zk.39`
+
+Files: `checker.rs` (`symbol_chain`'s `node_modules` arm, main's) and
+`module_specifiers.rs` (`module_has_symlinked_node_modules_path`).
+
+`symbol_chain` hands a file module to `getSpecifierForModuleSymbol` only
+when its stored path contains `node_modules/` (r5-modules §5.2); a
+realpath'd workspace package never does. The diff adds
+`computeModuleSpecifiers`' `importedFileIsInNodeModules` over the symlinked
+paths.
+
+**Measured** on §3.1 + §3.2: types **+16, 0 lost** (the four
+`symlinkedWorkspaceDependenciesNoDirectLink*` cases: 2:1–2:5 and the deep
+one's 2:0–3:2); diagnostics **+1, −2**:
+`declarationEmitReexportedSymlinkReference3` converts (TS2883), and
+`declarationEmitReexportedSymlinkReference` / `…2` go EMPTY_RIGHT →
+EMPTY_WRONG with a TS2883 native does not report.
+
+The losses are the container, not the specifier. Native's
+`getContainersOfSymbol` puts the **re-exporting** modules the enclosing file
+can reach (`getWithAlternativeContainers`, `getAlternativeContainingModules`)
+before the declaring file: it prints `import("@raymondfeng/pkg2").IdType`,
+which has no `/node_modules/`, so no TS2883. TSR has only the declaring
+file, reachable only through `pkg2/node_modules/@raymondfeng/pkg1`, and
+reports. Reference3's conversion is the same mismatch landing on the right
+code and position (its type lines stay WRONG: native's container is
+`pkg1/dist/index`, TSR's `pkg1/dist/types`). That container walk is the
+symbol-chain printer (`tsr-2zk.39`, main's), which this lane does not port.
+
+Falsifier: with `getWithAlternativeContainers` in `symbol_chain`, this diff
+measures ≥ +16 types and the two EMPTY_RIGHT cases stay right. If they
+still report TS2883 then, the gate is wrong.
