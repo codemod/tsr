@@ -1,0 +1,44 @@
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+index 75247f4..2a2dce3 100644
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -2505,14 +2505,22 @@ impl<'a> Checker<'a, '_> {
+         let contextual = self.apparent_contextual_type(contextual);
+         // `c.hasBindableName(element)` (`checker.go:29927`) reduced to the names
+         // `get_property_of_type` can be keyed by. See "Not ported" above.
++        // `symbolLinks.nameType` (checker.go:29928): a late-bound computed
++        // name carries its expression's type; other names have none.
++        let mut name_type = None;
+         let name = match property_name {
+             PropertyName::Identifier(name) => name.text.to_string(),
+             PropertyName::StringLiteral(name) => name.text.to_string(),
+             PropertyName::NumericLiteral(name) => name.text.to_string(),
+-            PropertyName::ComputedPropertyName(name) => {
+-                if let Some((name, _)) = self.late_bound_symbol_member_name(name) {
++            PropertyName::ComputedPropertyName(computed) => {
++                if let Some((name, _)) = self.late_bound_symbol_member_name(computed) {
++                    name_type = computed.expression.map(|expression| {
++                        let ty = self.check_expression(expression);
++                        self.get_regular_type_of_literal_type(ty)
++                    });
+                     name
+                 } else {
++                    let name = computed;
+                     // A dynamic name has no property to look up; upstream goes
+                     // straight to the index fallback (`checker.go:29946-29955`)
+                     // with `getLiteralTypeFromPropertyName(name)`, which for a
+@@ -2538,9 +2546,11 @@ impl<'a> Checker<'a, '_> {
+         //
+         // Generic mapped targets substitute the property key before concrete
+         // lookup; other contexts retain the concrete/union lookup order.
+-        let property_type = if let Some(mapped) =
+-            self.generic_mapped_contextual_property_type(contextual, &name)
+-        {
++        let mapped = match name_type {
++            Some(key) => self.generic_mapped_contextual_property_type_of_key(contextual, key),
++            None => self.generic_mapped_contextual_property_type(contextual, &name),
++        };
++        let property_type = if let Some(mapped) = mapped {
+             mapped
+         } else if matches!(self.store.get(contextual).data, TypeData::Intersection { .. }) {
+             self.contextual_property_type(contextual, &name)?

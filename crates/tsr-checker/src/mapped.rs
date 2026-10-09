@@ -165,14 +165,33 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// getIndexedMappedTypeSubstitutedTypeOfContextualType
-    /// (checker.go:30607). Generic key domains use their base constraints,
-    /// while substitution retains the mapped template's indexed identities.
+    /// (checker.go:30607) for a property with no name type: its key is
+    /// `getStringLiteralType(name)`.
     pub(crate) fn generic_mapped_contextual_property_type(
         &mut self,
         id: TypeId,
         name: &str,
     ) -> Option<TypeId> {
-        use crate::{flags::TypeFlags, types::TypeData};
+        let key = self.store.intern_literal(
+            crate::flags::TypeFlags::STRING_LITERAL,
+            crate::types::TypeData::StringLiteral(name.to_owned()),
+            false,
+        );
+        self.generic_mapped_contextual_property_type_of_key(id, key)
+    }
+
+    /// getIndexedMappedTypeSubstitutedTypeOfContextualType
+    /// (checker.go:30607) for the property name type `key`: a late-bound
+    /// computed name passes its own type (`typeof A` for `[A]`), not a string
+    /// spelling of its display name. Generic key domains use their base
+    /// constraints, while substitution retains the mapped template's indexed
+    /// identities.
+    pub(crate) fn generic_mapped_contextual_property_type_of_key(
+        &mut self,
+        id: TypeId,
+        key: TypeId,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
         let info = self.mapped_types.get(&id)?.clone();
         if let Some(name_type) = info.name_type {
             // getMappedTypeNameTypeKind relates a conditional through its
@@ -208,11 +227,6 @@ impl<'a> Checker<'a, '_> {
             })
             .collect();
         let constraint = self.get_intersection_type(&bases, None);
-        let key = self.store.intern_literal(
-            TypeFlags::STRING_LITERAL,
-            TypeData::StringLiteral(name.to_owned()),
-            false,
-        );
         if self.is_excluded_mapped_property_name(info.constraint, key)
             || info.name_type.is_some_and(|ty| self.is_excluded_mapped_property_name(ty, key))
         {

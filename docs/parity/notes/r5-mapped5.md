@@ -192,3 +192,27 @@ The unit test reads a conditional key by its operands. The key's print for
 `Mapped5<K>` is `P extends …` where native prints `K extends …`: the
 conditional's written-text mint under bindings is `declared.rs`' (`.16.71`).
 The operands are right (`K`), and they are what relating reads.
+
+## 4. `tsr-2zk.1089`: a computed symbol property is keyed by its name type (committed + diff)
+
+**Forcing constraint.** r5-relater6 §4's held decline:
+`contextuallyTypedSymbolNamedProperties` types `ap` as `"[A]"` once
+`typeof A → T['type']` relates. `getContextualTypeForObjectLiteralElement`
+passes the property symbol's `nameType` (`symbolLinks.nameType`,
+`checker.go:29928`) to `getIndexedMappedTypeSubstitutedTypeOfContextualType`
+(`:30607`). That is `typeof A` for `[A]`, and native falls back to
+`getStringLiteralType(name)` only when there is none. The port passed the
+display name and always minted a string literal.
+
+**Ported.** `generic_mapped_contextual_property_type_of_key(id, key)` takes
+the property name type. `generic_mapped_contextual_property_type(id, name)`
+is the no-name-type caller, and the two existing callers in `symbols.rs`
+keep it. The object-literal caller in `contextual.rs` (main's) passes the
+regular type of a late-bound computed name's expression:
+[`r5-mapped5-contextual-name-type.diff`](r5-mapped5-contextual-name-type.diff).
+
+**Measured** with the diff applied, on top of §3, both dumps unfiltered:
+byte-identical to §1. Zero losses; slowcases clean. Ir domain-model
+1,154,370,415 → 1,154,429,396 (+0.005%), generic-imports 342,937,447 →
+342,974,956 (+0.011%). Nothing converts until r5-relater7 lifts the
+write-constraint decline that §4 of r5-relater6 held for this case.
