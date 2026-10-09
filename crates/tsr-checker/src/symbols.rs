@@ -1390,16 +1390,14 @@ impl<'a> Checker<'a, '_> {
                     // import of a type-only namespace has no value to clone,
                     // so the arm above never saw it: `import { JSXInternal }
                     // from '..'` then `export import JSX = JSXInternal`
-                    // (`docs/parity/notes/r5-errorsplit6.md` §4). Only for a
-                    // target with no value meaning: a value namespace resolved
-                    // here would print under the importing alias's name
-                    // (`typeof x` where upstream records `typeof a`,
-                    // `es6ImportNamedImportInIndirectExportAssignment`), the
-                    // naming hazard this function's other declines record.
-                    let target_flags = self.get_symbol_flags(found);
-                    if target_flags.intersects(SymbolFlags::NAMESPACE)
-                        && !target_flags.intersects(SymbolFlags::VALUE)
-                    {
+                    // (`docs/parity/notes/r5-errorsplit6.md` §4). A value
+                    // namespace target too: r6-errorsplit §8 refused that half
+                    // for printing `typeof x` where upstream records `typeof a`
+                    // (`es6ImportNamedImportInIndirectExportAssignment`). The
+                    // cause was `export_equals_alias_name_at`'s two-hop rename
+                    // matching an `import x = a` chain, and that walk is now
+                    // limited to the `export=` link it names (r6-modules2 §1).
+                    if self.get_symbol_flags(found).intersects(SymbolFlags::NAMESPACE) {
                         return Some(found);
                     }
                 }

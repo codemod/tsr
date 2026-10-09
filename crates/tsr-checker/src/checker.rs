@@ -3752,8 +3752,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 }
                 let Some(link) = self.resolve_alias(candidate) else { continue };
                 // The two-hop signature: the immediate target is the
-                // `export=` alias, and ITS target is the namespace.
-                if !self.binder.symbols().get(link).flags.intersects(SymbolFlags::ALIAS) {
+                // `export=` alias, and ITS target is the namespace. An
+                // `import x = a` whose `a` is an import alias is two alias
+                // hops too, but not this signature: native names its
+                // namespace through the accessibility walk, which prefers the
+                // earlier-declared `a` (r6-modules2 §1).
+                let link_entry = self.binder.symbols().get(link);
+                if !link_entry.flags.intersects(SymbolFlags::ALIAS) || link_entry.name != "export="
+                {
                     continue;
                 }
                 if self.binder.merged_symbol(self.resolve_alias_fully(link)) != target {
