@@ -1038,6 +1038,19 @@ impl<'a> Checker<'a, '_> {
                 match deferred {
                     Some(operand) => {
                         let printed = format!("keyof {operand}");
+                        // getIndexType's `resolvedIndexType` (checker.go):
+                        // one index type per generic operand, so two reads
+                        // of `keyof T` are one identity (`r6-declared.md` §2).
+                        let operand_type = direct_operand
+                            .map(|operand| self.get_type_from_type_node(operand))
+                            .filter(|&operand| operand != self.intrinsics.error);
+                        let memo_key = operand_type.map(|operand| (operand, printed.clone()));
+                        if let Some(key) = &memo_key
+                            && let Some(&existing) =
+                                self.instantiation_expressions.deferred_keyof_mints.get(key)
+                        {
+                            return existing;
+                        }
                         // §812: OBJECT rather than ANY, for §36's recorded
                         // reason one construct over — an ANY constituent
                         // absorbs its whole union, so `keyof T | keyof U`
@@ -1048,14 +1061,14 @@ impl<'a> Checker<'a, '_> {
                         // `x[k]` where `k: keyof T` can defer rather than
                         // answer `any`.
                         self.deferred_keyof_types.insert(id);
-                        if let Some(operand) = direct_operand {
-                            let operand = self.get_type_from_type_node(operand);
-                            if operand != self.intrinsics.error {
-                                self.deferred_keyof_operands.insert(id, operand);
-                            }
+                        if let Some(operand) = operand_type {
+                            self.deferred_keyof_operands.insert(id, operand);
                         }
                         // §813: also a DEFERRED mint, for getAdjustedTypeWithFacts.
                         self.deferred_index_mints.insert(id);
+                        if let Some(key) = memo_key {
+                            self.instantiation_expressions.deferred_keyof_mints.insert(key, id);
+                        }
                         id
                     }
                     None => self.intrinsics.error,
@@ -1091,6 +1104,9 @@ impl<'a> Checker<'a, '_> {
             // line changes. Literal indexes resolve concretely upstream and
             // stay declined here.
             TypeNode::IndexedAccessTypeNode(node) => {
+                if let Some(selected) = self.indexed_type_literal_member(node) {
+                    return selected;
+                }
                 if let (Some(object), Some(index)) = (node.object_type, node.index_type) {
                     let object = self.get_type_from_type_node(object);
                     let index = self.get_type_from_type_node(index);
@@ -2346,6 +2362,85 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::for_each_child_id(typed, |child| stack.push(child));
         }
         false
+    }
+
+    /// getIndexedAccessType (checker.go) over a written type literal with a
+    /// literal index: getPropertyTypeForIndexType reads the one property the
+    /// index names through getTypeOfSymbol, which resolves that member's
+    /// annotation alone. The literal's other members are never resolved,
+    /// because an anonymous type's members are lazy. `{ 0: Rec<…>; 1: LO }[K]`
+    /// therefore recurses only through the arm `K` selects. This port's
+    /// literal build is eager, so the arm reads the selected member's
+    /// annotation directly (`r6-declared.md` §2).
+    ///
+    /// Declines (`None`, the eager road) unless every member is a plain
+    /// property signature with a written annotation, no `?`, and a static
+    /// name, and the index evaluates to a string or number literal naming
+    /// exactly one of them. That is the shape where the property's type is
+    /// the annotation's type and no index signature, method, accessor or
+    /// optionality enters getPropertyTypeForIndexType.
+    fn indexed_type_literal_member(
+        &mut self,
+        node: &'a tsr_ast::IndexedAccessTypeNode<'a>,
+    ) -> Option<TypeId> {
+        let TypeNode::TypeLiteralNode(literal) = Self::skip_type_parentheses(node.object_type?)?
+        else {
+            return None;
+        };
+        let literal_node = literal.node_id?;
+        if self.instantiation_expressions.eager_indexed_literals.contains(&literal_node) {
+            return None;
+        }
+        let mut members = Vec::with_capacity(literal.members.len());
+        for member in literal.members {
+            let tsr_ast::TypeElement::PropertySignatureDeclaration(property) = member else {
+                return None;
+            };
+            if property.postfix_token.is_some() {
+                return None;
+            }
+            let name = match &property.name {
+                tsr_ast::PropertyName::Identifier(identifier) if !identifier.text.is_empty() => {
+                    identifier.text.to_string()
+                }
+                tsr_ast::PropertyName::StringLiteral(literal) => literal.text.to_string(),
+                tsr_ast::PropertyName::NumericLiteral(literal) => {
+                    crate::printing::normalise_number(literal.text)
+                }
+                _ => return None,
+            };
+            members.push((name, property.r#type?));
+        }
+        let index = self.get_type_from_type_node(node.index_type?);
+        let key = match &self.store.get(index).data {
+            crate::types::TypeData::StringLiteral(text) => text.clone(),
+            crate::types::TypeData::NumberLiteral(text) => crate::printing::normalise_number(text),
+            _ => return None,
+        };
+        let mut matching = members.iter().filter(|(name, _)| *name == key);
+        let (_, annotation) = matching.next()?;
+        if matching.next().is_some() {
+            return None;
+        }
+        // The literal's publication state. A read re-entered under the same
+        // instantiation key while that key's member resolves (`Foo<T, Foo<T,
+        // B>>` inside `Foo`) is a cycle, which native closes by recursing to
+        // instantiateTypeWithAlias' depth guard and caching errorType. This
+        // port's alias road declines at that guard rather than answering
+        // errorType (`r5-spans.md` §2.3), so the cycle is handed back to the
+        // eager road, whose reserved literal identity closed it before this
+        // arm existed. The node stays on the eager road from then on: a
+        // self-re-entrant literal is a static property of its alias, and
+        // reading it lazily at the outer levels would add one eager chain per
+        // level (`r6-declared.md` §2).
+        let literal_key = self.type_literal_key(literal_node);
+        if !self.instantiation_expressions.lazy_member_reads.insert(literal_key.clone()) {
+            self.instantiation_expressions.eager_indexed_literals.insert(literal_node);
+            return None;
+        }
+        let selected = self.get_type_from_type_node(*annotation);
+        self.instantiation_expressions.lazy_member_reads.remove(&literal_key);
+        (selected != self.intrinsics.error).then_some(selected)
     }
 
     /// `isNodeDescendantOf` (utilities.go): `node` is `ancestor` or lies below it.

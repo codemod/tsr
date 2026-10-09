@@ -80,3 +80,29 @@ fn a_resolved_branch_naming_no_parameter_is_the_written_literal() {
         "{ id?: number | string; }"
     );
 }
+
+/// getIndexedAccessType reads only the property the literal index names
+/// (getPropertyTypeForIndexType -> getTypeOfSymbol), so a recursive arm the
+/// index does not select is never resolved: `Count<3>` is `3` (native tsgo
+/// probe), and an unresolvable sibling does not poison `["a"]`.
+#[test]
+fn an_indexed_type_literal_resolves_only_the_selected_member() {
+    assert_eq!(
+        type_of_last(
+            "interface Array<T> { length: number; [n: number]: T }\n\
+             type Count<N extends number, Acc extends unknown[] = []> =\n\
+             { 0: Count<N, [...Acc, 0]>; 1: Acc[\"length\"] }[Acc[\"length\"] extends N ? 1 : 0];\n\
+             declare let three: Count<3>;\n\
+             let x = three;"
+        ),
+        "3"
+    );
+    assert_eq!(
+        type_of_last(
+            "type Pick1 = { a: string; b: Missing }[\"a\"];\n\
+             declare let a: Pick1;\n\
+             let x = a;"
+        ),
+        "string"
+    );
+}

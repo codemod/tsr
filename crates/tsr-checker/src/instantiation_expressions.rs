@@ -68,6 +68,18 @@ pub(crate) struct InstantiationExpressionLinks {
     types: rustc_hash::FxHashMap<InstantiationExpressionKey, Option<TypeId>>,
     /// Reports parked by a computation, drained once by the walk's visit.
     reports: rustc_hash::FxHashMap<NodeId, Vec<(NodeId, Diagnostic)>>,
+    /// `Checker::indexed_type_literal_member`'s publication state
+    /// (declared.rs, `r6-declared.md` §2): the type-literal instantiation
+    /// keys whose selected member is resolving (inserted before, removed
+    /// after), and the literal nodes a re-entrant read sent back to the eager
+    /// road (inserted once, never removed).
+    pub(crate) lazy_member_reads: rustc_hash::FxHashSet<crate::declared::TypeLiteralKey>,
+    pub(crate) eager_indexed_literals: rustc_hash::FxHashSet<NodeId>,
+    /// getIndexType's `resolvedIndexType` for the deferred `keyof T` mint of
+    /// `get_type_from_type_node_worker` (declared.rs): `(operand type,
+    /// printed text) -> mint`, written once when the mint is made, never
+    /// invalidated (`r6-declared.md` §2).
+    pub(crate) deferred_keyof_mints: rustc_hash::FxHashMap<(TypeId, String), TypeId>,
     /// `isTypeParameterPossiblyReferenced(tp, node)` (checker.go:22403),
     /// keyed `(declaration node, type-parameter symbol)`: the filter
     /// getObjectTypeInstantiation applies once per declaration and stores in

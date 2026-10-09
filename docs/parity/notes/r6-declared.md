@@ -124,3 +124,108 @@ move). Unfiltered against `f9339d0`:
 It touches `declared.rs` and `node_reuse.rs`, so it stays a diff. It was sent
 to r6-mapped as the round-6 brief asks; the integrator orders it after
 `f9339d0`.
+
+## 2. `tsr-2zk.1123`: ramdaToolsNoInfinite2's 54 MB type text
+
+**Forcing constraint.** With r5-relater7's binder diff
+([`r5-relater7-binder-declare-module-imports.diff`](r5-relater7-binder-declare-module-imports.diff),
+main's `binder.rs`, so it stays a diff), ramdaToolsNoInfinite2's imports
+resolve. The dump then aborted: `type_reference_text` formatted a 54,525,882-byte
+argument list (2.5 GiB peak, `memory allocation … failed`). Instrumented, the
+port was at instantiation **depth ~90 with a count of ~4,600**; the texts
+doubled at every level (`Overwrite`, `Required`, `Naked`, `Length`,
+`__Reverse`). The native tsgo probe checks the same file in 0.4 s with
+**48,750 instantiations, no TS2589**. Native's two bounds (depth 100, count
+5,000,000, checker.go:22111) are never reached, so bounding the port's count
+would not be faithful. The port recursed where native does not.
+
+The cause is `__Reverse`:
+
+```ts
+type __Reverse<L, LO, I = IterationOf<'0'>> = {
+    0: __Reverse<L, Prepend<LO, L[Pos<I>]>, Next<I>>;
+    1: LO;
+}[Extends<Pos<I>, Length<L>>];
+```
+
+Native's getIndexedAccessType reads the one property the index names
+(getPropertyTypeForIndexType -> getTypeOfSymbol). An anonymous type's members
+are resolved on demand, so arm 0 is instantiated only while the index selects
+it, and the recursion ends when `Extends<…>` turns to 1. The port's
+indexed-access road built the object literal first, both arms included, so
+arm 0 recursed at every level until the depth guard. Each level's arguments
+contain the previous level's, so the texts doubled.
+
+**Port.** `indexed_type_literal_member` (declared.rs), first in the
+`IndexedAccessTypeNode` arm: for a written type literal whose members are all
+plain property signatures (written annotation, no `?`, static name) and an
+index that evaluates to a string or number literal naming exactly one of
+them, it answers that member's annotation type and builds nothing else. Every
+other shape declines to the eager road unchanged: index signatures, methods,
+accessors, optional members, and generic or union indexes.
+
+**A cycle keeps the eager road.** `limitDeepInstantiations`' `type Foo<T, B> =
+{ "true": Foo<T, Foo<T, B>> }[T]` re-enters its own instantiation key: the
+selected member's first argument is the instance being computed. Native
+recurses to the depth guard and caches errorType for that key, which
+collapses the recursion (27,369 instantiations, TS2589). This port's alias
+road declines at the guard, answering the named reference rather than
+errorType (`r5-spans.md` §2.3). So a lazily read member that re-enters never
+collapses. The first draft OOMed at 6 GiB, and a draft that handed only the
+re-entrant read back went from 30 MiB to 975 MiB (slowcases `SLOWER`). The
+arm now records the literal's publication state:
+- `lazy_member_reads`: keys whose selected member is resolving;
+- `eager_indexed_literals`: literal nodes that re-entered. Such a node takes
+  the eager road from then on, whose reserved literal identity closed the
+  cycle before this arm existed.
+
+A self-re-entrant literal is a static property of its alias. Reading its outer
+levels lazily would add one eager chain per level.
+
+**`keyof T` is one identity.** The deferred `keyof T` mint
+(`get_type_from_type_node_worker`'s keyof arm) made a new named type per
+evaluation. Native's getIndexType caches one index type per generic type
+(`resolvedIndexType`). The eager literal had hidden this: its member was
+cached inside the cached literal. Read lazily, `x is { a: keyof T }["a"]`
+evaluated `keyof T` twice, and pseudoReturnTypeMatchesPredicate's identity
+test failed (`type_predicates::predicates_retain_resolved_mapped_and_indexed_types`).
+The mint is now memoized per `(operand type, printed text)`.
+
+**Checker port convention.**
+- Native operations: getPropertyTypeForIndexType -> getTypeOfSymbol, with an
+  anonymous type's lazy members; getIndexType's `resolvedIndexType`.
+- Keys, owner and publication, all in `InstantiationExpressionLinks` (this
+  lane's links struct; `Checker`'s fields are main's):
+  - `lazy_member_reads`: `TypeLiteralKey`, inserted before and removed after
+    the member read;
+  - `eager_indexed_literals`: the literal `NodeId`, inserted once and never
+    removed;
+  - `deferred_keyof_mints`: `(operand TypeId, text) -> TypeId`, written once
+    when minted.
+- Receiver/alias context: the open alias frames, through `type_literal_key`
+  (§1).
+- Work boundary: one annotation evaluation per selected read, instead of the
+  whole literal.
+
+**Divergence kept.** At the guard, native answers errorType and reports
+TS2589. Here a re-entrant cycle takes the eager road, as on the base. That
+waits on the alias road answering errorType at the guard, which r5-spans §2.3
+showed is not safe until this port stops reaching depth 100 where native does
+not.
+
+Tests: `tests/r6_declared.rs`
+`an_indexed_type_literal_resolves_only_the_selected_member` (`Count<3>` is
+`3`; an unresolvable sibling does not poison `["a"]`). It passes on the base
+too. A doubling fixture that OOMs the base does not exercise the arm in a
+lib-less unit test: its index evaluates to `error` there. The falsifier is
+the conformance case itself: ramdaToolsNoInfinite2 with the binder diff
+OOMs without this arm.
+
+**Measured** (unfiltered, both dumps, against §0): diagnostics and types
+unchanged, zero losses, slowcases clean on both dumps
+(`limitDeepInstantiations` 45 ms / 30 MiB at the base; the rejected
+hand-back draft took it to 863 ms / 973 MiB). Ir against §1's `f9339d0`:
+domain-model 1,090,253,218 -> 1,089,528,215 (-0.07%), generic-imports
+343,055,471 -> 343,061,332 (+0.002%). With the binder diff on top,
+ramdaToolsNoInfinite2 completes (5.8 s, 249 MiB) instead of aborting; §2.1
+has that diff's unfiltered numbers.
