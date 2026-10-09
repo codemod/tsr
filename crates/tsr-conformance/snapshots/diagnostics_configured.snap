@@ -2,11 +2,11 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 875/1089 (80.35%)
-Failed         : 214
-Skipped        : 3079 (excluded from the denominator)
+Passed         : 882/1091 (80.84%)
+Failed         : 209
+Skipped        : 3077 (excluded from the denominator)
 
-  1333  skipped: the case expects no diagnostics (see parser_typescript)
+  1331  skipped: the case expects no diagnostics (see parser_typescript)
   36  skipped: upstream recorded no output for this case
   68  skipped: upstream records a known divergence from TypeScript
   52  skipped: upstream skips this case: alwaysStrict=false is unsupported
@@ -25,7 +25,7 @@ Skipped        : 3079 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 214 failures:
+First 100 of 209 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -105,17 +105,11 @@ compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
 compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties3.ts(19,1)), 2 missing
 compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=false,verbatimmodulesyntax=true)
-  5 missing (first TS1295 at bad.ts(1,10))
+  1 missing (first TS1295 at good.ts(2,10))
 compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=true,verbatimmodulesyntax=false)
   2 missing (first TS2866 at bad.ts(1,10))
 compiler/isolatedModulesShadowGlobalTypeNotValue(isolatedmodules=true,verbatimmodulesyntax=true)
-  7 missing (first TS1295 at bad.ts(1,10))
-compiler/isolatedModulesSketchyAliasLocalMerge(isolatedmodules=false,verbatimmodulesyntax=true)
-  2 missing (first TS1295 at bad.ts(1,10))
-compiler/isolatedModulesSketchyAliasLocalMerge(isolatedmodules=true,verbatimmodulesyntax=false)
-  1 missing (first TS2865 at bad.ts(1,10))
-compiler/isolatedModulesSketchyAliasLocalMerge(isolatedmodules=true,verbatimmodulesyntax=true)
-  3 missing (first TS1295 at bad.ts(1,10))
+  3 missing (first TS2866 at bad.ts(1,10))
 compiler/jsFileCompilationBindReachabilityErrors(alwaysstrict=true)
   1 missing (first TS7028 at a.js(19,1))
 compiler/jsxChildrenArrayWrongType(target=es2015)
@@ -226,3 +220,9 @@ conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,
   1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
 conformance/decoratorMetadata-jsdoc(target=es2015)
   1 missing (first TS8020 at decoratorMetadata-jsdoc.ts(9,9))
+conformance/decoratorOnClass8(target=es2015)
+  1 missing (first TS1238 at decoratorOnClass8.ts(3,1))
+conformance/decoratorOnClassAccessor7(target=es2015)
+  2 missing (first TS1207 at decoratorOnClassAccessor7.ts(26,5))
+conformance/decoratorOnClassConstructor2(target=es2015)
+  3 missing (first TS5097 at 2.ts(1,20))

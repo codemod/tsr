@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4623/5502 (84.02%)
-Failed         : 879
+Passed         : 4626/5502 (84.08%)
+Failed         : 876
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 879 failures:
+First 100 of 876 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -102,8 +102,6 @@ compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter
   2 missing (first TS2741 at chainedCallsWithTypeParameterConstrainedToOtherTypeParameter.ts(19,64))
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
   2 missing (first TS2322 at chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2.ts(7,49))
-compiler/checkJsTypeDefNoUnusedLocalMarked
-  1 missing (first TS2352 at something.js(5,29))
 compiler/checkJsxNotSetError
   3 missing (first TS6142 at /bar.jsx(1,17))
 compiler/checkerInitializationCrash
@@ -212,3 +210,5 @@ compiler/declarationEmitCommonJsModuleReferencedType
   1 missing (first TS2883 at r/entry.ts(3,14))
 compiler/declarationEmitExpandoPropertyPrivateName
   1 missing (first TS4032 at b.ts(4,1))
+compiler/declarationEmitExpressionInExtends4
+  1 missing (first TS2315 at declarationEmitExpressionInExtends4.ts(5,17))
