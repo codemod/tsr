@@ -166,6 +166,11 @@ pub struct ResolutionRequest {
     pub extension: std::borrow::Cow<'static, str>,
     /// See [`ResolutionRequest::extension`].
     pub resolved_using_ts_extension: bool,
+    /// The resolver's `OriginalPath`: the symlinked path a resolution went
+    /// through before its realpath, empty when none. The program's symlink
+    /// cache is built from these (`SetSymlinksFromResolutions`,
+    /// `symlinks/knownsymlinks.go:81`).
+    pub original_path: String,
 }
 
 /// What a load is asked for.
@@ -1280,6 +1285,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 extensionless_relative_import: None,
                 extension: std::borrow::Cow::Borrowed(""),
                 resolved_using_ts_extension: false,
+                original_path: resolved.original_path.clone(),
             });
             self.tasks[index].type_resolutions_trace.extend(traces);
             if resolved.is_resolved() {
@@ -1340,6 +1346,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 extensionless_relative_import: None,
                 extension: std::borrow::Cow::Borrowed(""),
                 resolved_using_ts_extension: false,
+                original_path: resolved.original_path.clone(),
             });
             self.tasks[index].type_resolutions_trace.extend(traces);
             if resolved.is_resolved() {
@@ -1443,6 +1450,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 extensionless_relative_import,
                 extension: static_extension(&resolved.extension),
                 resolved_using_ts_extension: resolved.resolved_using_ts_extension,
+                original_path: resolved.original_path.clone(),
             });
             self.tasks[index].resolutions_trace.extend(traces);
 

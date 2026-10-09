@@ -253,6 +253,10 @@ pub struct Program<'a> {
     /// program built from a file list. Immutable after construction.
     package_jsons_for_specifiers:
         FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>>,
+    /// `Program.GetSymlinkCache` (`compiler/program.go:2059`), built once
+    /// after loading ([`Program::build_known_symlinks`]). Empty for a
+    /// program built from a file list. Immutable after construction.
+    known_symlinks: tsr_checker::module_specifiers::KnownSymlinks,
     /// One rather than one per file, which is the whole of the widening: a
     /// `SymbolId` names one symbol across the program, and its declarations
     /// index `nodes`, so a symbol from another file can be handed to the checker
@@ -395,6 +399,7 @@ impl<'a> Program<'a> {
             resolved_modules: Vec::new(),
             meta_datas: Vec::new(),
             package_jsons_for_specifiers: FxHashMap::default(),
+            known_symlinks: tsr_checker::module_specifiers::KnownSymlinks::default(),
             current_directory,
             use_case_sensitive_file_names,
             lib_file_count: 0,
@@ -457,8 +462,19 @@ impl<'a> Program<'a> {
             use_case_sensitive_file_names,
         );
 
-        let package_jsons_for_specifiers =
+        let mut package_jsons_for_specifiers =
             package_jsons_for_specifiers(&loaded.files, host, &current_directory);
+        // `SetSymlinksFromResolutions`: every resolution that went through a
+        // symlink.
+        let mut known_symlinks = tsr_checker::module_specifiers::KnownSymlinks::new(
+            &current_directory,
+            use_case_sensitive_file_names,
+        );
+        for request in &loaded.requests {
+            if let Some(resolved) = &request.resolved {
+                known_symlinks.process_resolution(&request.original_path, resolved);
+            }
+        }
 
         let mut program = Self {
             options: compiler_options,
@@ -467,7 +483,8 @@ impl<'a> Program<'a> {
             files_by_source_file,
             resolved_modules,
             meta_datas: loaded.meta_datas,
-            package_jsons_for_specifiers,
+            package_jsons_for_specifiers: FxHashMap::default(),
+            known_symlinks,
             // From the host, which is where the loader took them from too — so
             // a name looked up afterwards canonicalises exactly as the path it
             // is being compared against did.
@@ -485,6 +502,12 @@ impl<'a> Program<'a> {
             bind_diagnostic_ends: Vec::new(),
             statistics: ProgramStatistics { load: loaded.statistics, ..Default::default() },
         };
+        program.add_dependency_symlinks(host);
+        // `tryDirectoryWithPackageJson` reads the package root of every
+        // symlinked path too: a package reached only through a link is read
+        // where the link puts it.
+        program.add_symlinked_package_jsons(host, &mut package_jsons_for_specifiers);
+        program.package_jsons_for_specifiers = package_jsons_for_specifiers;
         if let Some(started) = indexing_started {
             program.statistics.indexing_time = started.elapsed();
         }
@@ -747,6 +770,110 @@ impl<'a> Program<'a> {
         self.meta_datas
             .get(file_index)
             .is_some_and(|metadata| metadata.found_searching_node_modules)
+    }
+
+    /// `GetSymlinkCache`'s second half (`compiler/program.go:2068`): for the
+    /// `package.json` directory of each file that may be emitted, once per
+    /// directory, every runtime dependency not already known as a symlink in
+    /// the adjacent `node_modules` is resolved as a package directory
+    /// (`ResolvePackageDirectory`, `CommonJS` mode) and its realpath recorded.
+    /// This is what names a package a file never imports directly through
+    /// its own `node_modules` link (`symlinkedWorkspaceDependenciesNoDirectLink*`).
+    fn add_dependency_symlinks(&mut self, host: &dyn tsr_module::types::ResolutionHost) {
+        let mut seen = rustc_hash::FxHashSet::default();
+        let mut resolver = None;
+        for index in 0..self.files.len() {
+            let Some(directory) = self
+                .meta_datas
+                .get(index)
+                .map(|meta| meta.package_json_directory.clone())
+                .filter(|directory| !directory.is_empty())
+            else {
+                continue;
+            };
+            if !self.source_file_may_be_emitted(index)
+                || !seen.insert(tsr_path::to_path(
+                    &directory,
+                    &self.current_directory,
+                    self.use_case_sensitive_file_names,
+                ))
+            {
+                continue;
+            }
+            let package_json_name = tsr_path::combine_paths(&directory, &["package.json"]);
+            let Some(text) = host
+                .fs()
+                .file_exists(&package_json_name)
+                .then(|| host.fs().read_file(&package_json_name))
+                .flatten()
+            else {
+                continue;
+            };
+            let contents = tsr_module::package_json::PackageJson::parse(&text);
+            for dependency in contents.runtime_dependency_names() {
+                let possible = tsr_path::combine_paths(&directory, &["node_modules", dependency]);
+                if self.known_symlinks.has_directory(self.path_of(&possible).as_str()) {
+                    continue;
+                }
+                if !dependency.starts_with("@types") {
+                    let types = tsr_path::combine_paths(
+                        &directory,
+                        &["node_modules", &tsr_module::util::get_types_package_name(dependency)],
+                    );
+                    if self.known_symlinks.has_directory(self.path_of(&types).as_str()) {
+                        continue;
+                    }
+                }
+                let resolver = resolver.get_or_insert_with(|| {
+                    tsr_module::resolver::Resolver::new(host, self.options.clone())
+                });
+                if let Some(resolution) = resolver.resolve_package_directory(
+                    dependency,
+                    &package_json_name,
+                    ResolutionMode::CommonJS,
+                ) && resolution.is_resolved()
+                {
+                    self.known_symlinks.process_resolution(
+                        &tsr_path::combine_paths(&resolution.original_path, &["package.json"]),
+                        &tsr_path::combine_paths(&resolution.resolved_file_name, &["package.json"]),
+                    );
+                }
+            }
+        }
+    }
+
+    /// `toPath` under the program's directory and case sensitivity.
+    fn path_of(&self, file_name: &str) -> tsr_path::Path {
+        tsr_path::to_path(file_name, &self.current_directory, self.use_case_sensitive_file_names)
+    }
+
+    /// The package-root `package.json` reads of
+    /// [`package_jsons_for_specifiers`] for the symlinked paths
+    /// `GetEachFileNameOfModule` will produce: each program file under a
+    /// real directory a known symlink points at, spelled through the link.
+    fn add_symlinked_package_jsons(
+        &self,
+        host: &dyn tsr_module::types::ResolutionHost,
+        found: &mut FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>>,
+    ) {
+        if self.known_symlinks.is_empty() {
+            return;
+        }
+        for file in &self.files {
+            let path =
+                tsr_path::get_normalized_absolute_path(file.file_name(), &self.current_directory);
+            for module_path in tsr_checker::module_specifiers::each_file_name_of_module(
+                "",
+                &path,
+                Some(&self.known_symlinks),
+                &self.current_directory,
+                self.use_case_sensitive_file_names,
+            ) {
+                if module_path.is_in_node_modules {
+                    read_package_root_json(&module_path.file_name, host, found);
+                }
+            }
+        }
     }
 
     /// sourceFileMayBeEmitted (5b1047d compiler/emitter.go:452-504), without
@@ -1266,6 +1393,10 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         !self.package_jsons_for_specifiers.is_empty()
     }
 
+    fn known_symlinks(&self) -> Option<&tsr_checker::module_specifiers::KnownSymlinks> {
+        (!self.known_symlinks.is_empty()).then_some(&self.known_symlinks)
+    }
+
     fn is_applicable_versioned_types_key(&self, key: &str) -> bool {
         tsr_module::util::is_applicable_versioned_types_key(key)
     }
@@ -1539,26 +1670,34 @@ fn package_jsons_for_specifiers(
             continue;
         }
         let path = tsr_path::get_normalized_absolute_path(file.file_name(), current_directory);
-        let Some(parts) = tsr_checker::module_specifiers::node_module_path_parts(&path) else {
-            continue;
-        };
-        // `tryDirectoryWithPackageJson` reads the package root's
-        // `package.json` only (r5-modules §5.2).
-        let directory = &path[..tsr_checker::module_specifiers::package_root_end(parts, &path)];
-        if !found.contains_key(directory) {
-            let package_json = format!("{directory}/package.json");
-            let view = host
-                .fs()
-                .file_exists(&package_json)
-                .then(|| host.fs().read_file(&package_json))
-                .flatten()
-                .map(|text| {
-                    package_json_view(&tsr_module::package_json::PackageJson::parse(&text))
-                });
-            found.insert(directory.to_string(), view);
-        }
+        read_package_root_json(&path, host, &mut found);
     }
     found
+}
+
+/// Read the `package.json` at the `node_modules` package root of `path`
+/// into `found`, once per directory.
+fn read_package_root_json(
+    path: &str,
+    host: &dyn tsr_module::types::ResolutionHost,
+    found: &mut FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>>,
+) {
+    let Some(parts) = tsr_checker::module_specifiers::node_module_path_parts(path) else {
+        return;
+    };
+    // `tryDirectoryWithPackageJson` reads the package root's
+    // `package.json` only (r5-modules §5.2).
+    let directory = &path[..tsr_checker::module_specifiers::package_root_end(parts, path)];
+    if !found.contains_key(directory) {
+        let package_json = format!("{directory}/package.json");
+        let view = host
+            .fs()
+            .file_exists(&package_json)
+            .then(|| host.fs().read_file(&package_json))
+            .flatten()
+            .map(|text| package_json_view(&tsr_module::package_json::PackageJson::parse(&text)));
+        found.insert(directory.to_string(), view);
+    }
 }
 
 /// [`tsr_checker::resolution::PackageJsonView`] of a parsed `package.json`.

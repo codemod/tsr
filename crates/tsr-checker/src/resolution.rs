@@ -403,6 +403,14 @@ pub trait ModuleHost {
     fn is_applicable_versioned_types_key(&self, _key: &str) -> bool {
         false
     }
+
+    /// `Program.GetSymlinkCache` (`compiler/program.go:2059`), which
+    /// `GetEachFileNameOfModule` reads to name a realpath'd module by the
+    /// symlinked paths that reach it. Defaulted to `None`: every module has
+    /// its own path only. r6-specifiers §2.
+    fn known_symlinks(&self) -> Option<&crate::module_specifiers::KnownSymlinks> {
+        None
+    }
 }
 
 /// A `package.json` as module-specifier generation reads it

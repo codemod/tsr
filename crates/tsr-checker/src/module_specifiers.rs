@@ -392,13 +392,9 @@ impl Checker<'_, '_> {
     }
 
     /// The program's symlink cache (`host.GetSymlinkCache()`), which
-    /// `GetEachFileNameOfModule` reads. The checker's `ModuleHost` does not
-    /// expose one yet, so every module has its own path only; the host half
-    /// is `docs/parity/notes/r6-specifiers-symlink-cache.diff`
-    /// (r6-specifiers §2).
-    #[allow(clippy::unused_self)]
+    /// `GetEachFileNameOfModule` reads (r6-specifiers §2).
     fn known_symlinks(&self) -> Option<&KnownSymlinks> {
-        None
+        self.module_host?.known_symlinks()
     }
 
     /// `getLocalModuleSpecifier` (`modulespecifiers/specifiers.go:481`) with
