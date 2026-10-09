@@ -178,3 +178,21 @@ const z: I<number | string> = x;
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn an_intersection_object_distributes_a_concrete_write_index() {
+    // distributeIndexOverObjectType: `(S & State<T>)["a"]` simplifies to
+    // `S["a"] & (T | undefined)` for writing, and `Foo -> S["a"]` fails
+    // (`indexedAccessRelation`'s relation; its report waits on `calls.rs`).
+    let source = r#"interface State<T> { a?: T }
+class Foo { f = 1 }
+function f<T extends Foo, S>(a: T) {
+    const y: (S & State<T>)["a"] = a; // error
+}
+function g<T extends Foo>(a: T) {
+    const y: ({ a: T } & State<T>)["a"] = a;
+    const z: ({ a: T } | { a: number })["a"] = a;
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}

@@ -2505,9 +2505,10 @@ impl Relater<'_, '_, '_> {
     ///
     /// Stated divergences, each leaving the indexed access as written:
     /// - the other arms are not ported: a union index over a non-mapped
-    ///   object, `(T | U)[K]`/`(T & U)[K]`, and a generic tuple read by a
-    ///   number. Native's simplification there changes what the pair relates
-    ///   through, not whether this arm applies.
+    ///   object and a generic tuple read by a number. Native's
+    ///   simplification there changes what the pair relates through, not
+    ///   whether this arm applies. `(T | U)[K]`/`(T & U)[K]` is
+    ///   ([`Self::distributed_index_over_object`]).
     /// - a substituted conditional constituent is not simplified here; the
     ///   gate's `simplified_conditional` meets it when that constituent is
     ///   related.
@@ -2544,6 +2545,20 @@ impl Relater<'_, '_, '_> {
             return None;
         }
         let object = self.simplified_indexed_access_worker(object, writing, depth + 1)?;
+        // distributeIndexOverObjectType (checker.go:27990), taken only when
+        // the index can no longer be instantiated to distribute again
+        // (checker.go:27942): `(T | U)[K]` is `T[K] | U[K]` (reading) or
+        // `T[K] & U[K]` (writing), and `(T & U)[K]` is `T[K] & U[K]` unless
+        // shouldDeferIndexType keeps the intersection.
+        // The port's `keyof T` is not flagged INSTANTIABLE (it is a deferred
+        // keyof operand), so a generic index is asked for as well.
+        if !self.checker.type_of(index).flags.intersects(TypeFlags::INSTANTIABLE)
+            && !self.checker.indexed_access_index_is_generic(index)
+            && let Some(distributed) =
+                self.distributed_index_over_object(object, index, writing, depth)
+        {
+            return distributed;
+        }
         self.checker.ensure_mapped_type_info(object);
         let Some(info) = self.checker.mapped_types.get(&object).cloned() else {
             return Some(id);
@@ -2587,6 +2602,47 @@ impl Relater<'_, '_, '_> {
             }
             _ => result,
         })
+    }
+
+    /// distributeIndexOverObjectType (checker.go:27990) for a union or
+    /// intersection object: `None` when it does not apply, `Some(None)` when
+    /// a constituent's access or simplification cannot be computed.
+    /// shouldDeferIndexType (checker.go) keeps an intersection that mentions
+    /// an instantiable type and has an empty anonymous object constituent.
+    fn distributed_index_over_object(
+        &mut self,
+        object: TypeId,
+        index: TypeId,
+        writing: bool,
+        depth: u32,
+    ) -> Option<Option<TypeId>> {
+        let (parts, intersection) = match self.union_constituents(object) {
+            Some(parts) => (parts, false),
+            None => (self.intersection_constituents(object)?, true),
+        };
+        if intersection
+            && self.checker.maybe_type_of_kind(object, TypeFlags::INSTANTIABLE)
+            && parts.iter().any(|&part| self.checker.is_empty_anonymous_object_type(part))
+        {
+            return None;
+        }
+        let mut types = Vec::with_capacity(parts.len());
+        for part in parts {
+            let Some(access) = self.checker.resolved_indexed_access_type(part, index, false) else {
+                return Some(None);
+            };
+            let Some(simplified) =
+                self.simplified_indexed_access_worker(access, writing, depth + 1)
+            else {
+                return Some(None);
+            };
+            types.push(simplified);
+        }
+        Some(Some(if intersection || writing {
+            self.checker.get_intersection_type(&types, None)
+        } else {
+            self.checker.get_union_type(&types)
+        }))
     }
 
     /// `substituteIndexedMappedType` (`checker.go:29291`) for a generic mapped

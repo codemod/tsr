@@ -228,3 +228,48 @@ native does not measure.
 
 Test: `tests/r6_relater2.rs`
 `an_intersection_bodied_alias_is_measured_and_falls_back_on_unreliable`.
+
+## 5. distributeIndexOverObjectType in the indexed-access simplifier (`indexedAccessRelation`'s relation)
+
+**Forcing constraint.** `indexedAccessRelation` 16 (`this.setState({ a: a
+})`, the parameter `Pick<S & State<T>, K>` with `K = "a"`, `a: T extends
+Foo`) is TS2322 natively at the property: `T -> (S & State<T>)["a"] |
+undefined` fails because getNormalizedType simplifies the write target
+`(S & State<T>)["a"]` (getSimplifiedIndexedAccessType, checker.go:27930)
+through distributeIndexOverObjectType (:27990) to `S["a"] & (T |
+undefined)`, and `Foo -> S["a"]` has no write constraint (generic `S`). The
+port's simplifier had only the mapped-object arms, so the target stayed as
+written and the write-constraint step declined on the intersection
+(`Unknown`).
+
+**Ported.** `distributed_index_over_object`: for a union or intersection
+object and an index that can no longer be instantiated (native's
+`indexType.flags&TypeFlagsInstantiable == 0`; the port also asks
+`indexed_access_index_is_generic`, because its `keyof T` is a deferred
+keyof operand without INSTANTIABLE flags — without that,
+`undefinedAssignableToGenericMappedIntersection`'s `Errors<T>[keyof T]`
+distributed and §2's conversion was lost), each constituent's indexed access
+(`resolved_indexed_access_type`) simplified in turn, combined as an
+intersection for an intersection object or a write, else a union.
+shouldDeferIndexType's intersection arm (instantiable and an empty
+anonymous object constituent) keeps the access.
+
+**Not converted.** The relation is now native's (False), but the call
+site does not report: `calls.rs` (MAIN) returns before reporting an
+object-literal argument whose source or target could contain type
+variables (`head_could_contain_type_variables`). That is the remaining
+cause of `indexedAccessRelation`.
+
+**Measured** against §4's commit (and §0), both loss checks empty,
+slowcases clean:
+- no verdict or type line moves in either dump;
+- `Ir`: generic-imports 343,046,858 → 343,041,954 (−0.001%); domain-model
+  1,090,397,024 → 1,090,403,486 (+0.0006%). CLI output identical.
+
+**Falsifier.** A union or intersection object whose constituent accesses
+the port resolves differently from getIndexedAccessType (an optional
+property's `undefined` under the port's `resolved_indexed_access_type`),
+now relating through the distributed type where the written one declined.
+
+Test: `tests/r6_relater2.rs`
+`an_intersection_object_distributes_a_concrete_write_index`.
