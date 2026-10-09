@@ -1644,6 +1644,8 @@ impl Checker<'_, '_> {
                 Diagnostic::new(&messages::AN_EXPORT_ASSIGNMENT_CANNOT_HAVE_MODIFIERS, span),
             );
         }
+        // `checker.go:5609`–`5650`, `isolated_alias.rs`.
+        self.check_export_assignment_isolated(node, ambient);
         // Ported from typescript-go's `checkExportAssignment`
         // (`internal/checker/checker.go:5666`, pinned `5b1047d`): ambient
         // assignment expressions must be entity-name expressions. The caller
