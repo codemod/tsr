@@ -2986,22 +2986,6 @@ impl Relater<'_, '_, '_> {
             .then_some(body)
     }
 
-    /// Whether `id` is an indexed access `{ [P in K]: E }[X]` with a generic
-    /// `X` whose object is a resolved instance of a mapped alias: native's
-    /// `isMappedTypeGenericIndexedAccess` holds and its constraint is the
-    /// substitution `E[P := X]` (getConstraintFromIndexedAccess,
-    /// checker.go:17227), which this port cannot build because the instance
-    /// lost its mapped identity. Its object is captured first if lazy.
-    fn mapped_substitution_out_of_reach(&mut self, id: TypeId) -> bool {
-        let Some(&(object, index, _)) = self.checker.deferred_indexed_access_types.get(&id) else {
-            return false;
-        };
-        self.checker.ensure_mapped_type_info(object);
-        !self.checker.mapped_types.contains_key(&object)
-            && self.checker.indexed_access_index_is_generic(index)
-            && self.is_resolved_mapped_alias_instance(object)
-    }
-
     /// `isMappedTypeGenericIndexedAccess` (checker.go): an indexed access
     /// with a generic index whose object is a mapped type that is not
     /// generic, either captured as one or resolved from a mapped alias.
@@ -3022,16 +3006,11 @@ impl Relater<'_, '_, '_> {
             .is_some_and(|(remapped, excludes_optional)| !remapped && !excludes_optional)
     }
 
-    /// Whether `id` is an instantiation of a type alias whose declared body
-    /// is a mapped type node (`Partial<Foo1>`), read from its reference
-    /// target, or the image of an argument-less such alias (`Funcs`).
-    fn is_resolved_mapped_alias_instance(&self, id: TypeId) -> bool {
-        self.resolved_mapped_alias_declaration(id).is_some()
-    }
-
     /// For the mapped type node declared as the body of the alias `id`
-    /// instantiates (see [`Self::is_resolved_mapped_alias_instance`]):
-    /// whether it has an `as` clause and whether it has a `-?` modifier.
+    /// instantiates (an instantiation such as `Partial<Foo1>`, read from its
+    /// reference target, or the image of an argument-less such alias,
+    /// `Funcs`): whether it has an `as` clause and whether it has a `-?`
+    /// modifier.
     fn resolved_mapped_alias_declaration(&self, id: TypeId) -> Option<(bool, bool)> {
         let symbol = match self.checker.type_reference_targets.get(&id) {
             Some(&(symbol, _)) => symbol,
@@ -4439,15 +4418,6 @@ impl Relater<'_, '_, '_> {
                     && target_is_union))
         {
             let types = self.intersection_constituents(source).unwrap_or_else(|| vec![source]);
-            // getConstraintOfType of such a constituent is the mapped
-            // substitution this port cannot reach; the combined constraint
-            // would be built from a weaker one (`NonNullable<Partial<Config>[T]>`
-            // against `Config[T]`, `correlatedUnions`).
-            if result == RelationResult::NotRelated
-                && types.iter().any(|&part| self.mapped_substitution_out_of_reach(part))
-            {
-                return RelationResult::Unknown;
-            }
             if let Some(constraint) =
                 self.checker.effective_constraint_of_intersection(&types, target_is_union)
                 && constraint != source
@@ -5491,19 +5461,8 @@ impl Relater<'_, '_, '_> {
             // port's constraint is undecided. A lazily captured mapped
             // object is captured first, as getConstraintTypeFromMappedType
             // resolves on first use.
-            if let Some(&(object, index, _)) =
-                self.checker.deferred_indexed_access_types.get(&source)
-            {
+            if let Some(&(object, _, _)) = self.checker.deferred_indexed_access_types.get(&source) {
                 self.checker.ensure_mapped_type_info(object);
-                // isMappedTypeGenericIndexedAccess needs the object's mapped
-                // identity. A concrete instance of a mapped alias
-                // (`Partial<Foo1>`) is resolved to its members here, so the
-                // substitution is out of reach and no constraint this port
-                // computes is native's.
-                let _ = (object, index);
-                if self.mapped_substitution_out_of_reach(source) {
-                    return Some(RelationResult::Unknown);
-                }
             }
             match self.checker.constraint_of_type(source) {
                 crate::constraints::ConstraintOfType::Constraint(constraint)

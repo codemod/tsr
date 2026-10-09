@@ -228,3 +228,80 @@ is `mapped.rs`'s.
 **Falsifier.** An `as`-clause mapped pair whose decided answer feeds a
 consumer that reads it as concrete where native defers (the reason the
 object-flagged decline stays).
+
+## 4. Lift: the constrained-object write constraint (r5-relater6 §4) — held
+
+**What it is.** `indexed_access_write_constraint` answers `Undecided` for a
+property key when index signatures are excluded (the object had a
+constraint), where native's getIndexedAccessTypeOrUndefined(…, Writing |
+NoIndexSignatures) returns the property's type.
+
+**Measured** (the decline removed, on §3's commit):
+- diagnostics: no verdict moves;
+- types: **+23** (`contextuallyTypedSymbolNamedProperties` 13 lines, the
+  case that refused the lift in round 5 and no longer regresses;
+  `contextualTypeFunctionObjectPropertyIntersection` 10 lines);
+- **2 lost**: `contextualTypeFunctionObjectPropertyIntersection:0:107`,
+  `:108` (RIGHT → WRONG): `bar: (ev) => {}` against `MachineConfig2`'s
+  `{ [K in TEvent["type"] as K extends Uppercase<string> ? K : never]?:
+  Action<…> }`. Native types `ev` as `any` (TS7006; TS2353 on `bar`), the
+  port now as `{ type: "bar" }`.
+
+**Cause (outside the lane).** The relation the lift decides is native's:
+`"bar" -> TEvent["type"]` relates through the write constraint `string`
+(relater.go:3443-3488), and tsgo agrees. Before the lift it was `Unknown`,
+which made `mapped.rs`'s `generic_mapped_contextual_property_type_of_key`
+decline, and `any` came out by accident. Now the port substitutes the
+template for `bar`. Natively, getTypeOfPropertyOfContextualTypeEx
+(checker.go:30565) takes the substitution only for a mapped type whose
+getMappedTypeNameTypeKind (:26842) is not Remapping. The port decides that
+kind from the conditional's branches (`K | never`, so Filtering). Native
+decides it with `isTypeAssignableTo(nameType, K)` on the whole conditional,
+and the resulting `any` shows native answers Remapping here. The owner is
+`mapped.rs` (r6-mapped): its name-type kind should relate the conditional
+itself, not its branch union.
+
+Held as [`r6-relater-write-constraint.diff`](r6-relater-write-constraint.diff).
+Re-measure once the kind is native's.
+
+## 5. Lift: the mapped substitution an indexed-access source cannot reach (r5-relater6 §4)
+
+Three declines answered `Unknown` where native reaches
+isMappedTypeGenericIndexedAccess's substitution `E[P := X]`
+(getConstraintFromIndexedAccess, checker.go:17227) on a resolved mapped
+alias instance (`Partial<Foo1>`, `Funcs`), which this port cannot build
+because the instance has no mapped identity:
+1. the type-variable arm, for a source whose object is such an instance
+   (`mapped_substitution_out_of_reach`);
+2. the intersection-source effective constraint, when a constituent is one;
+3. a failed union/intersection-target walk for an
+   `is_mapped_type_generic_indexed_access` source.
+
+**Measured** on §3's commit:
+- all three lifted: `correlatedUnions` EMPTY_RIGHT → EMPTY_WRONG (TS2322 at
+  181:5, `const func: Func<K> = funcs[key]`, and 299:3, `return o[k]` with
+  `o: Partial<Foo1>`), no gains;
+- (3) alone: the same loss;
+- (1) and (2) together: **no verdict or line moves** in either dump.
+
+**Landed: (1) and (2)**, which narrows two declines to native's road (the
+type-variable arm asks `constraint_of_type`, and the intersection takes its
+effective constraint). `mapped_substitution_out_of_reach` and
+`is_resolved_mapped_alias_instance` are gone.
+
+**Held: (3)**, the union-walk decline. Lifting it needs the substitution for
+a resolved instance: either `mapped.rs` keeps the mapped identity of a
+concrete instance (`ensure_mapped_type_info` captures `Funcs`, an
+argument-less alias image, and `Partial<Foo1>`, a reference, today; what is
+missing is the union-walk fallthrough's `{ [P in K]: E }[constraint of X]`
+step, relater.go:3681, for which the port has no constraint road), or the
+port carries the fallthrough for an indexed-access source
+(r5-relater5 §3's stated divergence, which waits on `flow.rs`).
+
+**Measured, (1)+(2)**, both loss checks (against §0) empty, slowcases clean:
+`Ir` generic-imports 343,085,849 → 343,086,425 (+0.0002%); domain-model
+1,091,396,745 → 1,092,030,115 (+0.06%). CLI output identical.
+
+**Falsifier.** A pair whose type-variable or intersection constraint the
+port builds weaker than native's substitution, now decided False where the
+decline kept `Unknown`.
