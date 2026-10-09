@@ -112,3 +112,45 @@ cast, paren cast, `const`, untyped comment).
 
 **Falsifier.** A case with `/** @type {A} */` and `/** @type {B} */` as
 two comments on one `return`, whose function wants `A`'s context.
+
+### 4.2 T1, half two: the `@param` read goes through the replay (diff)
+
+**Forcing fact.** With §4.1, `/** @param {number} a */ return (a) => …`
+still typed `a` as `any`. `symbols.rs`' `jsdoc_parameter_annotation` — the
+road `get_type_for_variable_like_declaration` and `contextual.rs` take for
+an unannotated JS parameter — keeps its own host walk from before ADR-0046:
+it climbs variable, property, expression-statement and paren hosts but not
+`return` (`getFunctionLikeHost`'s `KindReturnStatement` arm), matches a
+`@param` by name text in *any* comment rather than by
+`findMatchingParameter` over the last one, and skips binding-pattern
+parameters. ADR-0046 says a consumer of a reparsed fact calls the query.
+
+**Diff** [`r5-jsdoc5-param-replay.diff`](r5-jsdoc5-param-replay.diff):
+
+- `symbols.rs` `jsdoc_parameter_annotation`: after the parameter's own
+  `@type` and the existing `@overload` decline, the slot
+  `jsdoc_reparsed_function` gives the parameter's position — its reparsed
+  `param.Type` and the matched tag's brackets.
+- `destructure.rs` `get_type_for_binding_element_parent`: the effective
+  type node of a `Parameter` holder is its written annotation, else
+  `jsdoc_reparsed_parameter_type` (`tryGetTypeFromEffectiveTypeNode`,
+  `checker.go:16694`). Without this hunk the first hunk lost
+  `optionalBindingParameters3`'s `a : string`: the positional replay now
+  types `@param {Foo} [options]` onto `function f({ a = "a" })`, and the
+  parent road, which reads written annotations only, met the bracket's
+  `Foo | undefined` through the symbol road instead of native's
+  `includeOptionality: false` parent `Foo`.
+
+**Measured** (on §4.1's `00527ff`, unfiltered): types **548,928 →
+548,945 RIGHT (+17 lines)**, cases **+2**
+(`jsdocSignatureOnReturnedFunction`,
+`declarationEmitClassSetAccessorParamNameInJs3`); diagnostics unchanged;
+zero losses on both dumps; `slowcases` clean. Two non-RIGHT lines change
+text, both toward native (`optionalBindingParameters3`/`4`'s signatures now
+read `Foo`/`{ cause?: string; }` and only lack the printer's dropped
+`| undefined`). Ir domain-model 1,156,346,178 (−0.06%), generic-imports
+342,958,210 (+0.001%).
+
+**Falsifier.** A JS case where a `@param` in a *non-last* comment of the
+host types a parameter in native: the replay reads the last comment only,
+as `reparseTags`' `isLast` does.
