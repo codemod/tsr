@@ -2107,17 +2107,11 @@ impl<'a> Checker<'a, '_> {
                 }
                 return error;
             }
-            return if self
-                .declaration_of_alias_symbol(symbol)
-                .and_then(|declaration| {
-                    self.external_module_name(self.import_or_export_declaration_of(declaration)?)
-                })
-                .is_some_and(|specifier| self.module_specifier_unfindable(specifier))
-            {
-                error
-            } else {
-                self.unresolved_type_reference(node)
-            };
+            // An unresolved target, an unfindable module's included, is the
+            // unknown symbol, which has no type meaning: resolveName rejects the
+            // alias and getUnresolvedSymbolForEntityName prints the written name
+            // (`r6-declared.md` §2.1).
+            return self.unresolved_type_reference(node);
         }
         self.get_type_reference_type(node, symbol)
     }

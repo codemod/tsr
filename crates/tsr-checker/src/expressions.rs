@@ -3115,7 +3115,8 @@ impl Checker<'_, '_> {
         let Some(annotation) = annotation else { return };
         let Some(annotation_node) = annotation.node_id() else { return };
         let return_type = self.get_type_from_type_node(annotation);
-        if return_type == self.intrinsics.error {
+        // `isErrorType(returnType)`: an unresolved reference is errorType.
+        if self.is_error(return_type) {
             return;
         }
         // `getGlobalPromiseTypeChecked() != emptyGenericType`.
