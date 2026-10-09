@@ -1,0 +1,84 @@
+diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
+index 88554d6..a9a870a 100644
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -1844,6 +1844,28 @@ impl<'a> Checker<'a, '_> {
+         None
+     }
+ 
++    /// An owner-less object image with a complete captured member list
++    /// (`anonymous_properties` complete, index infos recorded): the object
++    /// `binding_pattern_object` mints for getTypeFromObjectBindingPattern
++    /// (checker.go), natively an ordinary anonymous object whose members
++    /// structuredTypeRelatedTo and reportUnmatchedProperty read.
++    pub(crate) fn is_complete_captured_object_image(&self, id: TypeId) -> bool {
++        matches!(self.store.get(id).data, TypeData::Named { members: None, .. })
++            && self.store.get(id).flags == TypeFlags::OBJECT
++            && self.anonymous_properties.get(&id).is_some_and(|(_, complete)| *complete)
++            && self.object_literal_index_infos.contains_key(&id)
++    }
++
++    /// [`Checker::is_complete_captured_object_image`]'s member names with
++    /// their optionality, in captured order.
++    fn captured_object_image_property_table(&self, id: TypeId) -> Option<Vec<(String, bool)>> {
++        if !self.is_complete_captured_object_image(id) {
++            return None;
++        }
++        let (properties, _) = self.anonymous_properties.get(&id)?;
++        Some(properties.iter().map(|property| (property.name.clone(), property.optional)).collect())
++    }
++
+     /// `reportUnmatchedProperty` (`relater.go:4345`): the required own keys
+     /// absent from a source whose property table is complete.
+     ///
+@@ -1863,7 +1885,9 @@ impl<'a> Checker<'a, '_> {
+     /// `tryElaborateArrayLikeErrors` permits the multi-property head here. No
+     /// array/tuple elaboration is inferred from incomplete tables.
+     fn missing_required_property(&mut self, source: TypeId, target: TypeId) -> Option<Vec<String>> {
+-        let target_properties = self.relation_property_table(target)?;
++        let target_properties = self
++            .relation_property_table(target)
++            .or_else(|| self.captured_object_image_property_table(target))?;
+         let source_properties = self.relation_property_table(source)?;
+         if self.fresh_object_literal_types.contains(&source) {
+             // hasExcessProperties precedes reportUnmatchedProperty. Captured
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 8d433f4..7ff3516 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -3341,6 +3341,13 @@ impl Relater<'_, '_, '_> {
+             || match &self.checker.type_of(id).data {
+                 TypeData::Named { members: Some(_), .. }
+                 | TypeData::Anonymous { signature: true, .. } => true,
++                // An owner-less object image with a complete captured member
++                // list (getTypeFromObjectBindingPattern's anonymous object,
++                // `binding_pattern_object`): natively an ordinary anonymous
++                // object that structuredTypeRelatedTo compares.
++                TypeData::Named { members: None, .. } => {
++                    self.checker.is_complete_captured_object_image(id)
++                }
+                 TypeData::Anonymous { symbol, .. }
+                     if self.is_namespace_object_symbol(*symbol)
+                         || self.is_function_namespace_object(*symbol) =>
+diff --git a/crates/tsr-checker/tests/r6_relater3.rs b/crates/tsr-checker/tests/r6_relater3.rs
+index baa027e..e061866 100644
+--- a/crates/tsr-checker/tests/r6_relater3.rs
++++ b/crates/tsr-checker/tests/r6_relater3.rs
+@@ -178,3 +178,17 @@ ba = fa; // error
+ "#;
+     assert_eq!(lines_of(source, &[2322]), marked(source));
+ }
++
++#[test]
++fn an_object_binding_pattern_type_relates_structurally() {
++    // `declarationsAndAssignments` 106: getTypeFromObjectBindingPattern's
++    // anonymous object is compared member by member, and a missing required
++    // member is TS2741; a primitive argument against it is TS2345.
++    let source = r#"function g({ x, y = false }) { }
++g({ y: false }); // error
++g({ x: 0 });
++function g0({ x }) { }
++g0("s"); // error
++"#;
++    assert_eq!(lines_of(source, &[2741, 2345]), marked(source));
++}
