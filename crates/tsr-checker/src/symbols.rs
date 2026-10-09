@@ -5521,7 +5521,11 @@ impl<'a> Checker<'a, '_> {
                 if let Some(Node::ParameterDeclaration(parameter)) =
                     self.node_map.get(declaration)
                     && parameter.r#type.is_none()
-                    && parameter.dot_dot_dot_token.is_none()
+                    // A REST pattern too: the binding-pattern arm of
+                    // `getTypeForVariableLikeDeclaration` (checker.go:16790)
+                    // answers before `getWidenedTypeForVariableLikeDeclaration`'s
+                    // rest `anyArrayType` fallback, so `function a(...{a, b})`
+                    // is `{ a: any; b: any; }` (r6-typesroots §6).
                     // A FUNCTION DECLARATION's parameter is provably
                     // uncontextual; expression/arrow parameters may be
                     // contextually typed upstream and the implied `any`
