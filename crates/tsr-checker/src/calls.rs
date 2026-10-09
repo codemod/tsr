@@ -2370,10 +2370,18 @@ impl Checker<'_, '_> {
         if !self.strict_null_checks && !remainder_nullable {
             return NonNullCallee::Unknown;
         }
-        // `reportCannotInvokePossiblyNullOrUndefinedError` (TS2721-TS2723) is
-        // not emitted yet: it trusts the callee's narrowed type, and this
-        // port's narrowing of `super.m && super.m()` and of a discriminated
-        // `opts.a || opts.f()` still answers the declared nullable type.
+        // `reportCannotInvokePossiblyNullOrUndefinedError` (`checker.go:9894`).
+        let message = if facts.contains(crate::flow::TypeFacts::IS_UNDEFINED) {
+            if facts.contains(crate::flow::TypeFacts::IS_NULL) {
+                &messages::CANNOT_INVOKE_AN_OBJECT_WHICH_IS_POSSIBLY_NULL_OR_UNDEFINED
+            } else {
+                &messages::CANNOT_INVOKE_AN_OBJECT_WHICH_IS_POSSIBLY_UNDEFINED
+            }
+        } else {
+            &messages::CANNOT_INVOKE_AN_OBJECT_WHICH_IS_POSSIBLY_NULL
+        };
+        let span = self.error_span(callee);
+        self.report_at_node(callee, Diagnostic::new(message, span));
         if remainder_nullable { NonNullCallee::Error } else { NonNullCallee::Type(non_nullable) }
     }
 
