@@ -5798,6 +5798,13 @@ impl Relater<'_, '_, '_> {
                 Some(tsr_ast::Node::ConditionalTypeNode(node)) => node,
                 _ => return None,
             }
+        } else if let Some(info) = self.checker.conditional_inference_nodes.get(&id) {
+            // An inline conditional's root: the written node `declared.rs`
+            // retained for its deferred instantiation.
+            match self.checker.node_map.get(info.declaration) {
+                Some(tsr_ast::Node::ConditionalTypeNode(node)) => node,
+                _ => return None,
+            }
         } else {
             let (symbol, _) = self.checker.type_reference_targets.get(&id)?;
             let declaration = self.checker.type_alias_declaration_of(*symbol)?;
