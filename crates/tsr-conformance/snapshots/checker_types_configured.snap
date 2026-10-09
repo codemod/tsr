@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1721/1928 (89.26%)
-Assertion lines: 76923/78552 (97.93%)  — a gradient, not a pass rate
-Failed         : 207
+Passed         : 1722/1928 (89.32%)
+Assertion lines: 76924/78552 (97.93%)  — a gradient, not a pass rate
+Failed         : 206
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 207 failures:
+First 100 of 206 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -206,8 +206,6 @@ conformance/classStaticBlock26(target=esnext)
   classStaticBlock26.ts: 32 assertion(s), expected 35
 conformance/computedPropertyNames33_ES5(target=es2015)
   computedPropertyNames33_ES5.ts: >foo : <T>() => string — expected >foo : <T_1>() => string
-conformance/computedPropertyNamesDeclarationEmit4_ES5(target=es2015)
-  computedPropertyNamesDeclarationEmit4_ES5.ts: >v : any — expected >v : {}
 conformance/declarationFileForHtmlImport(allowarbitraryextensions=false)
   file.ts: >mod : typeof mod — expected >mod : any
 conformance/decoratorOnClassMethod11(target=es2015)
@@ -227,4 +225,6 @@ conformance/dynamicImportDefer(module=es2015)
 conformance/dynamicImportDefer(module=es2020)
   b.ts: 13 assertion(s), expected 12
 conformance/dynamicImportDefer(module=esnext)
+  b.ts: 13 assertion(s), expected 12
+conformance/dynamicImportDefer(module=nodenext)
   b.ts: 13 assertion(s), expected 12
