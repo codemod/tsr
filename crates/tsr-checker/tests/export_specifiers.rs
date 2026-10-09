@@ -179,11 +179,17 @@ fn export_q_as_r_looks_up_the_property_name() {
 /// It becomes observable the moment `get_type_of_symbol` grows an arm for a
 /// type-only symbol shape. **That is the falsifier**: whoever adds one must
 /// re-run this test with the guard removed and expect red.
+///
+/// r5-errorsplit5 gave both routes upstream's identity. The guard's arm
+/// answers `errorType` (`checker.go:18614`), and so does `getTypeOfSymbol`'s
+/// final fallthrough (`:16521`), which a type-only symbol reaches. So the
+/// spelling is `any` (the checker's print of `errorType`), and the routes
+/// still cannot be told apart (`docs/parity/notes/r5-errorsplit5.md` §6).
 #[test]
-fn a_type_only_export_specifier_stays_a_gap() {
+fn a_type_only_export_specifier_is_error_type() {
     let source = "interface I { }\ntype T = number;\nexport { I, T };";
-    assert_eq!(type_of_export(source, "I"), "error");
-    assert_eq!(type_of_export(source, "T"), "error");
+    assert_eq!(type_of_export(source, "I"), "any");
+    assert_eq!(type_of_export(source, "T"), "any");
 }
 
 /// `export { a }` where `a` is itself an alias.
