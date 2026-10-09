@@ -576,3 +576,13 @@ declared here.` (TS2728) at the block-scoped/class/enum declaration to every
 `check_used_before_its_declaration` now go through
 `report_used_before_its_declaration`, which attaches it via
 `diagnostic_for_node` (the declaration's name span).
+
+## §31 Enum member names: TS1164, computed literal names, and no check of the name
+
+`computeEnumMemberValue` (`checker.go:23958`) reports `Computed property names
+are not allowed in enums.` (TS1164) at a computed name whose expression is not
+a string or numeric literal; a computed literal name goes on to the
+numeric-name test (TS2452) with its text. `checkEnumMember` checks only the
+initializer, so the computed name's expression is never resolved (no
+TS2304/TS2552 for `[e]`). `check_enum_member_name` gains both arms; the check
+walker skips an enum member's computed name.

@@ -1148,10 +1148,23 @@ impl Checker<'_, '_> {
                 self.check_node(reparsed, ambient, depth + 1);
             }
         }
+        // `checkEnumMember` (`checker.go`) checks the initializer and never
+        // the name: a computed member name is TS1164 and its expression is
+        // not resolved (`docs/parity/notes/decls.md` §31).
+        let enum_member_name = match typed {
+            Node::EnumMember(tsr_ast::EnumMember {
+                name: tsr_ast::PropertyName::ComputedPropertyName(name),
+                ..
+            }) => name.node_id,
+            _ => None,
+        };
         let mut children = [const { None }; INLINE_CHILDREN];
         let mut count = 0usize;
         let mut overflow: Vec<NodeId> = Vec::new();
         tsr_ast::for_each_child_id(typed, |child| {
+            if Some(child) == enum_member_name {
+                return;
+            }
             if count < INLINE_CHILDREN {
                 children[count] = Some(child);
             } else {

@@ -121,6 +121,33 @@ impl Checker<'_, '_> {
             tsr_ast::PropertyName::Identifier(name) => {
                 (name.node_id, is_numeric_literal_name(name.text))
             }
+            // `IsComputedNonLiteralName` is TS1164; a computed string or
+            // numeric literal goes on to the numeric-name test with its text
+            // (`GetTextOfPropertyName`). `docs/parity/notes/decls.md` §31.
+            tsr_ast::PropertyName::ComputedPropertyName(computed) => {
+                match computed.expression.map(Node::from) {
+                    Some(Node::StringLiteral(literal)) => {
+                        (computed.node_id, is_numeric_literal_name(literal.text))
+                    }
+                    Some(Node::NoSubstitutionTemplateLiteral(literal)) => {
+                        (computed.node_id, is_numeric_literal_name(literal.text))
+                    }
+                    Some(Node::NumericLiteral(_)) => (computed.node_id, true),
+                    _ => {
+                        let Some(at) = computed.node_id else { return };
+                        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+                        let span = self.error_span(at);
+                        self.report(
+                            file,
+                            Diagnostic::new(
+                                &messages::COMPUTED_PROPERTY_NAMES_ARE_NOT_ALLOWED_IN_ENUMS,
+                                span,
+                            ),
+                        );
+                        return;
+                    }
+                }
+            }
             _ => return,
         };
         if !numeric {
