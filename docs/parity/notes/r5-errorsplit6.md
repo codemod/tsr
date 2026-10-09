@@ -370,3 +370,45 @@ one line moves, `duplicateVarsAcrossFileBoundaries:5:0` (`q`), from
 narrowing are unchanged, because the line was a matched `native_error`, not
 the gap. The diff carries a test,
 `tsr-conformance/tests/script_alias_merge.rs`, which fails without it.
+
+## §6 Item 3: object spreads (`spreads.rs`)
+
+`checkObjectLiteral` (`checker.go:13283-13336`) has three identity arms:
+
+- a spread source that is not a valid spread type: TS2698 and `spread =
+  errorType` (`:13304`). Later spreads `continue` while the spread is
+  `isErrorType` (`:13299`), and the literal answers `errorType` (`:13336`);
+- `getSpreadType`'s cross-product refusal, `checkCrossProductUnion`:
+  TS2590 and `errorType` (`:13407`);
+- an any-flagged source, including upstream's `errorType`: `getSpreadType`
+  answers `anyType` (`:13388`). The port already did this, since
+  `native_error` carries `ANY`.
+
+The port answered the gap for the first two. Commit 3 answers `native_error`
+for both. A failed spread stops the fold, so it is not turned into `any` by
+the next `getSpreadType`. A gap source (`intrinsics.error`) still answers the
+gap.
+
+**Measured** on commit 2 (unfiltered, both dumps): zero transitions. **46
+lines** move from the gap to `native_error`, and all 46 are `errorType`
+natively (no false claims). Credited gap 2,210 → **2,164**.
+`HadErrorBaseline` 2,053 → **2,013**.
+
+Tests: `tests/errortype_spreads.rs` pins `{ ...1 }`, and `{ ...1, ...a, y: 2 }`
+as `native_error`, a valid spread as its type, and `{ ...missing }` as `any`.
+
+## §7 Narrowing, re-measured after each switch
+
+| rewrite | base | commit 1 | commit 2 | + diff S | commit 3 |
+|---|---:|---:|---:|---:|---:|
+| `HadErrorBaseline` | 2,355 | 2,053 | 2,053 | 2,053 | 2,013 |
+| `AtLocation` | 586 | 576 | 576 | 576 | 576 |
+| `AccessOrQualifiedParent` | 62 | 62 | 62 | 62 | 62 |
+| `StatementName` | 29 | 29 | 29 | 27 | 29 |
+| **total** | 3,032 | 2,720 | 2,720 | 2,718 | 2,680 |
+| credited gap | 2,577 | 2,210 | 2,210 | 2,208 | 2,164 |
+
+Commit 3 and diff S were each measured on commit 2; together they read
+2,678 / 2,162. Diff M changes no row. No rewrite reaches zero, so none is
+narrowed. The falsifier ("the residual stops falling") has not fired: the
+residual fell 3,032 → 2,680 in this step (2,678 with diff S).

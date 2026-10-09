@@ -374,3 +374,35 @@ Credited gap 2,577 → **2,210**.
 **Narrowing**, per rewrite: `HadErrorBaseline` 2,053, `AtLocation` 576,
 `AccessOrQualifiedParent` 62, `StatementName` 29. None costs zero, so none is
 narrowed. The residual fell 3,032 → 2,720.
+
+### 2026-10-09 — step 6, commits 2–3 and held diffs: JSX roots, script merge, spreads; no rewrite narrowed
+
+r5-errorsplit6 (notes [r5-errorsplit6](../parity/notes/r5-errorsplit6.md)
+§4–§7) followed three false-claim roots and one producer:
+
+- **The JSX namespace through an imported type-only namespace** (§4). The root
+  is `resolve_alias`'s import-equals identifier arm (`checker.go:14486`).
+  `getSymbol` accepts an alias whose target carries `Namespace` meaning; the
+  port did not. That ships as **diff S** (`symbols.rs`, main's), restricted
+  to targets with no value meaning, because the value half lost 2 RIGHT lines
+  to alias naming. Commit 2 adds `resolveSymbol` to `jsx_type_symbol`'s
+  global fallback (`jsx.go:1334`). Diff S: zero losses; types +6;
+  diagnostics +1; both false claims gone; credited gap 2,210 → 2,208.
+- **The script alias merge** (§5.2). `mergeSymbol` merges an alias source
+  into a non-alias target, which is its own resolution
+  (`checker.go:14153-14159`). The port's binder declined it. **Diff M**
+  (`binder.rs`, main's): zero transitions, and one false claim removed. The
+  alias-*target* half needs checker-side resolve-and-clone and is not built.
+- **JS `require` receivers** (§5.1) are JSDoc/CommonJS resolution, routed to
+  r5-js.
+- **Object spreads** (§6, commit 3). An invalid spread source (TS2698,
+  `checker.go:13304`) and the cross-product refusal (`:13407`) are
+  `errorType`, and a failed spread stays `errorType` (`:13299`, `:13336`). 46
+  lines move, all `errorType` natively. Zero transitions; credited gap
+  2,210 → **2,164**.
+
+**Narrowing** after commit 3: `HadErrorBaseline` 2,013, `AtLocation` 576,
+`AccessOrQualifiedParent` 62, `StatementName` 29 (27 with diff S). None
+costs zero, so none is narrowed. The residual fell 3,032 → 2,680 in this
+step (2,678 with diff S).
+

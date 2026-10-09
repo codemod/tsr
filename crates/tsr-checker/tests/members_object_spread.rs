@@ -148,17 +148,20 @@ fn spread_member_order_is_the_declaration_order() {
 /// a confident wrong type where the honest answer is that the spread was not
 /// computed.
 ///
-/// `error` is `errorType`'s printed form here and is the marker the corpus
-/// reads as a gap.
+/// Upstream's `errorType` for an invalid source prints `any` from the checker
+/// (ADR-0048); the port's own gap still prints `error`.
 ///
 /// Red under **mutation 3**.
 #[test]
 fn a_spread_of_something_this_port_cannot_compute_gaps() {
-    // A primitive source: upstream drops it, this port declines to guess.
+    // A primitive source is not a valid spread type: upstream reports TS2698
+    // and the whole literal is `errorType` (`checker.go:13304`, `:13336`),
+    // which the checker prints `any`. ADR-0048: this pinned the gap until
+    // r5-errorsplit6 §6 switched the arm by identity.
     assert_eq!(
         type_of("const n = 1;\nconst s = { ...n, x: 1 };", "s"),
-        "error",
-        "a non-object spread source gaps the whole literal"
+        "any",
+        "a non-object spread source is upstream's errorType for the whole literal"
     );
     // The mirror: the identical literal with an object source computes. Without
     // it, the assertion above is consistent with object spread never working.

@@ -36,11 +36,24 @@ impl Checker<'_, '_> {
             start = index + 1;
             let Some(expression) = spread.expression else { return self.intrinsics.error };
             let source = self.check_expression(expression);
-            if source == self.intrinsics.error || !self.is_valid_spread_type(source) {
+            if source == self.intrinsics.error {
                 return self.intrinsics.error;
+            }
+            // ADR-0048: TS2698 sets the spread to `errorType`, which later
+            // spreads skip and the literal answers (`checker.go:13304`,
+            // `:13336`). This answered the gap
+            // (`docs/parity/notes/r5-errorsplit6.md` §6).
+            if !self.is_valid_spread_type(source) {
+                return self.intrinsics.native_error;
             }
             let source = self.try_merge_union_of_object_type_and_empty_object(source);
             result = self.get_spread_type(result, source, owner, readonly);
+            // `if c.isErrorType(spread) { continue }`, then `return
+            // c.errorType` (`checker.go:13299`, `:13336`): a spread that
+            // failed stays `errorType`. Folding on would answer `any`.
+            if result == self.intrinsics.native_error {
+                return result;
+            }
         }
         if start < node.properties.len() {
             let batch = ObjectLiteralExpression {
@@ -103,25 +116,39 @@ impl Checker<'_, '_> {
             _ => 1,
         };
         if let TypeData::Union { types, .. } = self.store.get(left).data.clone() {
+            // `checkCrossProductUnion` reports TS2590 and the spread is
+            // `errorType` (`checker.go:13407`; ADR-0048).
             if types.len().saturating_mul(union_size(right)) >= 100_000 {
-                return error;
+                return self.intrinsics.native_error;
             }
             let parts: Vec<_> = types
                 .into_iter()
                 .map(|part| self.get_spread_type(part, right, owner, readonly))
                 .collect();
-            return if parts.contains(&error) { error } else { self.get_union_type(&parts) };
+            return if parts.contains(&error) {
+                error
+            } else if parts.contains(&self.intrinsics.native_error) {
+                self.intrinsics.native_error
+            } else {
+                self.get_union_type(&parts)
+            };
         }
         right = self.try_merge_union_of_object_type_and_empty_object(right);
         if let TypeData::Union { types, .. } = self.store.get(right).data.clone() {
             if types.len() >= 100_000 {
-                return error;
+                return self.intrinsics.native_error;
             }
             let parts: Vec<_> = types
                 .into_iter()
                 .map(|part| self.get_spread_type(left, part, owner, readonly))
                 .collect();
-            return if parts.contains(&error) { error } else { self.get_union_type(&parts) };
+            return if parts.contains(&error) {
+                error
+            } else if parts.contains(&self.intrinsics.native_error) {
+                self.intrinsics.native_error
+            } else {
+                self.get_union_type(&parts)
+            };
         }
         if self.store.get(right).flags.intersects(
             TypeFlags::BOOLEAN_LIKE
