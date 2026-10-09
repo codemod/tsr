@@ -3,7 +3,7 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
 Passed         : 1704/1928 (88.38%)
-Assertion lines: 76849/78552 (97.83%)  — a gradient, not a pass rate
+Assertion lines: 76853/78552 (97.84%)  — a gradient, not a pass rate
 Failed         : 224
 Skipped        : 2240 (excluded from the denominator)
 
@@ -123,7 +123,7 @@ compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
 compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
   intersectionsAndOptionalProperties3.ts: >ab_disabled_read : boolean — expected >ab_disabled_read : boolean | undefined
 compiler/iterableWithNeverAsUnionMember(target=esnext)
-  iterableWithNeverAsUnionMember.ts: >el1 : any — expected >el1 : never
+  iterableWithNeverAsUnionMember.ts: >elem : any — expected >elem : number
 compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=preserve)
   /index.tsx: >Comp : () => import("@emotion/react/jsx-runtime/jsx-namespace").EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
 compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=react-jsx)
