@@ -12,7 +12,7 @@
 //! here") is not attached: the diagnostics oracle compares position and code,
 //! and this port's `Diagnostic` has no related list at these sites.
 
-use tsr_ast::{ModuleExportName, ModuleReference, Node, NodeId, SyntaxKind};
+use tsr_ast::{ModuleExportName, ModuleReference, Node, NodeId, SyntaxKind, TypeNode};
 use tsr_binder::{SymbolFlags, SymbolId};
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -233,7 +233,7 @@ impl Checker<'_, '_> {
                     self.report(file, Diagnostic::with_args(message, span, [text.clone()]));
                 }
                 if checks && self.isolated_modules && !symbol_flags.intersects(SymbolFlags::VALUE) {
-                    let non_local_meanings = self.non_local_symbol_flags(symbol);
+                    let non_local_meanings = self.symbol_flags_ex(symbol, false, true);
                     let flag = self.isolated_modules_like_flag_name().to_string();
                     if symbol_flags.intersects(SymbolFlags::ALIAS)
                         && non_local_meanings.intersects(SymbolFlags::TYPE)
@@ -518,6 +518,340 @@ impl Checker<'_, '_> {
         !(tsr_ast::predicates::is_expression_node(node, tree) || shorthand_name)
     }
 
+    /// `checkDecorators`' `markLinkedReferences(node, ReferenceHintDecorator)`
+    /// (pinned `checker.go:6053`, `:28186`, `:28211`) and the function it
+    /// dispatches to, `markDecoratorAliasReferenced` (`:28686`): for a
+    /// decorated declaration under `emitDecoratorMetadata`, the type names
+    /// whose runtime value the metadata will serialize. TS1272 is what this
+    /// reports; everything else upstream does here only marks aliases
+    /// referenced (`docs/parity/notes/r6-isolated.md` §3 on why that side
+    /// table is not built).
+    ///
+    /// `emit_decorator_metadata` is `compilerOptions.EmitDecoratorMetadata`;
+    /// the caller passes it because `Checker` keeps no copy of the option
+    /// until the held hook adds one.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-isolated-decorator-metadata.diff"
+    )]
+    pub(crate) fn check_decorator_linked_references(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+        emit_decorator_metadata: bool,
+    ) {
+        // Everything upstream evaluates before `markDecoratorAliasReferenced`'s
+        // `EmitDecoratorMetadata` test is a pure guard, so the two option
+        // reads go first: this runs on every node the walk visits.
+        if !emit_decorator_metadata || self.verbatim_module_syntax {
+            return;
+        }
+        // `checkDecorators`' entry guard (`checker.go:6024`).
+        let Some(modifiers) = crate::check::modifiers_of(typed) else { return };
+        let Some(first_decorator) = modifiers.iter().find_map(|modifier| match modifier {
+            tsr_ast::ModifierLike::Decorator(decorator) => decorator.node_id,
+            tsr_ast::ModifierLike::Token(_) => None,
+        }) else {
+            return;
+        };
+        if !self.decorated_node_can_be_decorated(node, typed) {
+            return;
+        }
+        // `markLinkedReferences`' own guards: `canCollectSymbolAliasAccessibilityData`
+        // (`!VerbatimModuleSyntax`, `checker.go:928`, tested above) and the
+        // ambient return, which spares a property (decorated or not).
+        if !matches!(typed, Node::PropertyDeclaration(_))
+            && self.declaration_is_in_an_ambient_context(node)
+        {
+            return;
+        }
+        // `markDecoratorAliasReferenced` (its option test is above).
+        self.check_external_emit_helpers(first_decorator, crate::emit_helpers::helpers::METADATA);
+        match typed {
+            Node::ClassDeclaration(class) => {
+                // `ast.GetFirstConstructorWithBody`.
+                let constructor = class.members.iter().find_map(|member| match member {
+                    tsr_ast::ClassElement::ConstructorDeclaration(constructor)
+                        if constructor.body.is_some() =>
+                    {
+                        Some(*constructor)
+                    }
+                    _ => None,
+                });
+                if let Some(constructor) = constructor {
+                    for parameter in constructor.parameters {
+                        self.mark_decorator_metadata_type_node_as_referenced(
+                            parameter_type_node_for_decorator_check(parameter),
+                        );
+                    }
+                }
+            }
+            Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_) => {
+                let other_kind = if matches!(typed, Node::SetAccessorDeclaration(_)) {
+                    SyntaxKind::GetAccessor
+                } else {
+                    SyntaxKind::SetAccessor
+                };
+                // `ast.GetDeclarationOfKind(c.getSymbolOfDeclaration(node), otherKind)`.
+                let other = self.binder.symbol_of(node).and_then(|symbol| {
+                    let symbol = self.binder.merged_symbol(symbol);
+                    self.binder
+                        .symbols()
+                        .get(symbol)
+                        .declarations
+                        .iter()
+                        .copied()
+                        .find(|&declaration| self.nodes.kind(declaration) == other_kind)
+                });
+                let annotation = annotated_accessor_type_node(typed).or_else(|| {
+                    other
+                        .and_then(|other| self.node_map.get(other))
+                        .and_then(annotated_accessor_type_node)
+                });
+                self.mark_decorator_metadata_type_node_as_referenced(annotation);
+            }
+            Node::MethodDeclaration(method) => {
+                for parameter in method.parameters {
+                    self.mark_decorator_metadata_type_node_as_referenced(
+                        parameter_type_node_for_decorator_check(parameter),
+                    );
+                }
+                self.mark_decorator_metadata_type_node_as_referenced(method.r#type);
+            }
+            Node::PropertyDeclaration(property) => {
+                self.mark_decorator_metadata_type_node_as_referenced(property.r#type);
+            }
+            Node::ParameterDeclaration(parameter) => {
+                self.mark_decorator_metadata_type_node_as_referenced(
+                    parameter_type_node_for_decorator_check(parameter),
+                );
+                let signature =
+                    self.nodes.parent(node).and_then(|parent| self.node_map.get(parent));
+                let (parameters, return_type) = match signature {
+                    Some(Node::MethodDeclaration(n)) => (n.parameters, n.r#type),
+                    Some(Node::ConstructorDeclaration(n)) => (n.parameters, n.r#type),
+                    Some(Node::SetAccessorDeclaration(n)) => (n.parameters, n.r#type),
+                    Some(Node::GetAccessorDeclaration(n)) => (n.parameters, n.r#type),
+                    Some(Node::FunctionDeclaration(n)) => (n.parameters, n.r#type),
+                    _ => return,
+                };
+                for parameter in parameters {
+                    self.mark_decorator_metadata_type_node_as_referenced(
+                        parameter_type_node_for_decorator_check(parameter),
+                    );
+                }
+                self.mark_decorator_metadata_type_node_as_referenced(return_type);
+            }
+            _ => {}
+        }
+    }
+
+    /// `markDecoratorMedataDataTypeNodeAsReferenced` (`checker.go:28742`).
+    fn mark_decorator_metadata_type_node_as_referenced(&mut self, node: Option<TypeNode<'_>>) {
+        if let Some(entity_name) = self.entity_name_for_decorator_metadata(node) {
+            self.mark_entity_name_or_entity_expression_as_reference(entity_name, true);
+        }
+    }
+
+    /// `getEntityNameForDecoratorMetadata` (`checker.go:28749`). Its only
+    /// non-nil answer is a type reference's `TypeName`, which is always an
+    /// entity name, so the caller's `ast.IsEntityName` test is the type.
+    fn entity_name_for_decorator_metadata<'n>(
+        &self,
+        node: Option<TypeNode<'n>>,
+    ) -> Option<tsr_ast::EntityName<'n>> {
+        match node? {
+            TypeNode::IntersectionTypeNode(n) => self
+                .entity_name_for_decorator_metadata_from_type_list(
+                    n.types.iter().copied().map(Some),
+                ),
+            TypeNode::UnionTypeNode(n) => self.entity_name_for_decorator_metadata_from_type_list(
+                n.types.iter().copied().map(Some),
+            ),
+            TypeNode::ConditionalTypeNode(n) => self
+                .entity_name_for_decorator_metadata_from_type_list(
+                    [n.true_type, n.false_type].into_iter(),
+                ),
+            TypeNode::ParenthesizedTypeNode(n) => self.entity_name_for_decorator_metadata(n.r#type),
+            TypeNode::NamedTupleMember(n) => self.entity_name_for_decorator_metadata(n.r#type),
+            TypeNode::TypeReferenceNode(n) => n.type_name,
+            _ => None,
+        }
+    }
+
+    /// `getEntityNameForDecoratorMetadataFromTypeList` (`checker.go:28770`).
+    /// A missing list element (a parse hole) is upstream's nil node, which
+    /// its `Kind` reads would not survive; it answers "serialized as
+    /// `Object`", the nil result.
+    fn entity_name_for_decorator_metadata_from_type_list<'n>(
+        &self,
+        type_nodes: impl Iterator<Item = Option<TypeNode<'n>>>,
+    ) -> Option<tsr_ast::EntityName<'n>> {
+        let mut common: Option<tsr_ast::EntityName<'n>> = None;
+        for type_node in type_nodes {
+            let type_node = type_node?;
+            if let TypeNode::KeywordTypeNode(keyword) = type_node {
+                if keyword.kind == SyntaxKind::NeverKeyword {
+                    continue;
+                }
+                if !self.strict_null_checks && keyword.kind == SyntaxKind::UndefinedKeyword {
+                    continue;
+                }
+            }
+            if !self.strict_null_checks
+                && let TypeNode::LiteralTypeNode(literal) = type_node
+                && literal
+                    .literal
+                    .and_then(|literal| literal.node_id())
+                    .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::NullKeyword)
+            {
+                continue;
+            }
+            let individual = self.entity_name_for_decorator_metadata(Some(type_node))?;
+            match common {
+                None => common = Some(individual),
+                Some(tsr_ast::EntityName::Identifier(left)) => match individual {
+                    tsr_ast::EntityName::Identifier(right) if left.text == right.text => {}
+                    _ => return None,
+                },
+                Some(tsr_ast::EntityName::QualifiedName(_)) => return None,
+            }
+        }
+        common
+    }
+
+    /// `markEntityNameOrEntityExpressionAsReference` (`checker.go:28857`).
+    ///
+    /// The first arm is `markAliasSymbolAsReferenced`, whose only effect is
+    /// `aliasSymbolLinks.referenced` (§3): it is evaluated for its control
+    /// flow (TS1272 is its `else`) and publishes nothing.
+    fn mark_entity_name_or_entity_expression_as_reference(
+        &mut self,
+        type_name: tsr_ast::EntityName<'_>,
+        for_decorator_metadata: bool,
+    ) {
+        let Some(type_name_id) = type_name.node_id() else { return };
+        let Some((root_name, text)) = self.first_identifier_of(type_name_id) else { return };
+        let meaning = if matches!(type_name, tsr_ast::EntityName::Identifier(_)) {
+            SymbolFlags::TYPE
+        } else {
+            SymbolFlags::NAMESPACE
+        } | SymbolFlags::ALIAS;
+        let text = text.to_string();
+        let Some(root_symbol) =
+            self.binder.resolve_name(self.nodes, self.node_map, root_name, &text, meaning)
+        else {
+            return;
+        };
+        let root_symbol = self.binder.merged_symbol(root_symbol);
+        if !self.binder.symbols().get(root_symbol).flags.intersects(SymbolFlags::ALIAS) {
+            return;
+        }
+        let is_value = self.symbol_is_value(root_symbol);
+        let can_collect = !self.verbatim_module_syntax;
+        let marks = can_collect
+            && is_value
+            && !self
+                .resolve_alias(root_symbol)
+                .is_some_and(|target| self.is_const_enum_or_const_enum_only_module(target))
+            && self.type_only_alias_declaration_node(root_symbol).is_none();
+        if marks {
+            // `markAliasSymbolAsReferenced(rootSymbol)`: no side table (§3).
+            return;
+        }
+        let declarations_type_only = self.binder.symbols().get(root_symbol).declarations.clone();
+        if for_decorator_metadata
+            && self.isolated_modules
+            && self.module_kind >= tsr_core::ModuleKind::ES2015
+            && !is_value
+            && !declarations_type_only
+                .iter()
+                .any(|&declaration| self.is_type_only_import_or_export_declaration(declaration))
+        {
+            let Some(file) = self.source_file_of_for_diagnostics(type_name_id) else { return };
+            let span = self.error_span(type_name_id);
+            self.report(file, Diagnostic::new(
+                &messages::A_TYPE_REFERENCED_IN_A_DECORATED_SIGNATURE_MUST_BE_IMPORTED_WITH_IMPORT_TYPE_OR_A_NAMESPACE_IMPORT_WHEN_ISOLATEDMODULES_AND_EMITDECORATORMETADATA_ARE_ENABLED,
+                span,
+            ));
+        }
+    }
+
+    /// `isConstEnumOrConstEnumOnlyModule` (`emitresolver.go:689`). This
+    /// binder has no `SymbolFlagsConstEnumOnlyModule`, so a namespace holding
+    /// only const enums answers `false`; the answer only gates the mark (§3).
+    fn is_const_enum_or_const_enum_only_module(&self, symbol: SymbolId) -> bool {
+        let flags = self.binder.symbols().get(self.binder.merged_symbol(symbol)).flags;
+        flags.intersects(SymbolFlags::CONST_ENUM)
+    }
+
+    /// `ast.NodeCanBeDecorated(c.legacyDecorators, node, node.Parent,
+    /// node.Parent.Parent)` (`ast/utilities.go:4254`), with `CanHaveDecorators`
+    /// folded in as the kinds it lists. `grammar.rs` has a port of the same
+    /// predicate, private to that file.
+    fn decorated_node_can_be_decorated(&self, node: NodeId, typed: Node<'_>) -> bool {
+        let legacy = self.legacy_decorators;
+        let parent = self.nodes.parent(node);
+        let parent_kind = parent.map(|parent| self.nodes.kind(parent));
+        let parent_is_class_declaration = parent_kind == Some(SyntaxKind::ClassDeclaration);
+        let parent_is_class_like =
+            matches!(parent_kind, Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression));
+        let private_name = |name: tsr_ast::PropertyName<'_>| {
+            matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
+        };
+        let class_member = |body: bool| {
+            body && (if legacy { parent_is_class_declaration } else { parent_is_class_like })
+        };
+        match typed {
+            Node::ClassDeclaration(_) => true,
+            Node::ClassExpression(_) => !legacy,
+            Node::PropertyDeclaration(property) => {
+                !(legacy && private_name(property.name))
+                    && ((legacy && parent_is_class_declaration)
+                        || (!legacy
+                            && parent_is_class_like
+                            && !tsr_ast::has_syntactic_modifier(
+                                property.modifiers,
+                                SyntaxKind::AbstractKeyword,
+                            )
+                            && !tsr_ast::has_syntactic_modifier(
+                                property.modifiers,
+                                SyntaxKind::DeclareKeyword,
+                            )))
+            }
+            Node::MethodDeclaration(method) => {
+                !(legacy && private_name(method.name)) && class_member(method.body.is_some())
+            }
+            Node::GetAccessorDeclaration(accessor) => {
+                !(legacy && private_name(accessor.name)) && class_member(accessor.body.is_some())
+            }
+            Node::SetAccessorDeclaration(accessor) => {
+                !(legacy && private_name(accessor.name)) && class_member(accessor.body.is_some())
+            }
+            Node::ParameterDeclaration(_) => {
+                if !legacy {
+                    return false;
+                }
+                let Some(parent) = parent else { return false };
+                let (body, parameters) = match self.node_map.get(parent) {
+                    Some(Node::ConstructorDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    Some(Node::MethodDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    Some(Node::SetAccessorDeclaration(n)) => (n.body.is_some(), n.parameters),
+                    _ => return false,
+                };
+                // `GetThisParameter(parent) != node`.
+                let this_parameter = parameters.first().filter(|first| {
+                    matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+                });
+                body && this_parameter.and_then(|first| first.node_id) != Some(node)
+                    && self.nodes.parent(parent).is_some_and(|grandparent| {
+                        self.nodes.kind(grandparent) == SyntaxKind::ClassDeclaration
+                    })
+            }
+            _ => false,
+        }
+    }
+
     /// `getVerbatimModuleSyntaxErrorMessage` (`checker.go:5681`).
     fn verbatim_module_syntax_error_message(
         &self,
@@ -544,16 +878,31 @@ impl Checker<'_, '_> {
         self.binder.merged_symbol(symbol)
     }
 
-    /// `getSymbolFlagsEx(symbol, excludeTypeOnlyMeanings: false,
-    /// excludeLocalMeanings: true)` (`checker.go:16367`): the meanings the
-    /// alias chain contributes, without the symbol's own. The walk is
-    /// [`Checker::get_symbol_flags`]'s; an unresolvable hop ends it there as
-    /// it does in that port (upstream's `unknownSymbol` answers `All`).
-    fn non_local_symbol_flags(&mut self, symbol: SymbolId) -> SymbolFlags {
+    /// `getSymbolFlagsEx(symbol, excludeTypeOnlyMeanings,
+    /// excludeLocalMeanings)` (`checker.go:16367`). The walk is
+    /// [`Checker::get_symbol_flags`]'s (which is this with both `false`) plus
+    /// upstream's two exclusions and its `getExportSymbolOfValueSymbolIfExported`
+    /// of each target. An unresolvable hop ends the walk there, as in that
+    /// port; upstream's `unknownSymbol` answers `All`.
+    fn symbol_flags_ex(
+        &mut self,
+        symbol: SymbolId,
+        exclude_type_only_meanings: bool,
+        exclude_local_meanings: bool,
+    ) -> SymbolFlags {
         let mut seen: Vec<SymbolId> = Vec::new();
         let mut current = symbol;
-        let mut flags = SymbolFlags::empty();
+        let mut flags = if exclude_local_meanings {
+            SymbolFlags::empty()
+        } else {
+            self.binder.symbols().get(symbol).flags
+        };
         while self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
+            if exclude_type_only_meanings
+                && self.type_only_alias_declaration_node(current).is_some()
+            {
+                break;
+            }
             let Some(target) = self.resolve_alias(current) else { break };
             let target = self.export_symbol_of_value_symbol_if_exported(target);
             let target_flags = self.binder.symbols().get(target).flags;
@@ -687,5 +1036,38 @@ impl Checker<'_, '_> {
             Some(format) if format != tsr_core::ModuleKind::None => format,
             _ => self.module_kind,
         }
+    }
+}
+
+/// `getParameterTypeNodeForDecoratorCheck` (`checker.go:28734`): a rest
+/// parameter's element type (`ast.GetRestParameterElementType`).
+fn parameter_type_node_for_decorator_check<'n>(
+    parameter: &tsr_ast::ParameterDeclaration<'n>,
+) -> Option<TypeNode<'n>> {
+    let type_node = parameter.r#type;
+    if parameter.dot_dot_dot_token.is_none() {
+        return type_node;
+    }
+    match type_node? {
+        TypeNode::ArrayTypeNode(array) => array.element_type,
+        TypeNode::TypeReferenceNode(reference) => reference.type_arguments.first().copied(),
+        _ => None,
+    }
+}
+
+/// `getAnnotatedAccessorTypeNode` (`checker.go:20106`) for an accessor: a
+/// getter's return annotation, a setter's value parameter's
+/// (`getEffectiveSetAccessorTypeAnnotationNode`, skipping a `this`
+/// parameter as `GetSetAccessorValueParameter` does).
+fn annotated_accessor_type_node(accessor: Node<'_>) -> Option<TypeNode<'_>> {
+    match accessor {
+        Node::GetAccessorDeclaration(getter) => getter.r#type,
+        Node::SetAccessorDeclaration(setter) => {
+            let parameters = setter.parameters;
+            let has_this = parameters.len() == 2
+                && matches!(parameters[0].name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this");
+            parameters.get(usize::from(has_this)).and_then(|parameter| parameter.r#type)
+        }
+        _ => None,
     }
 }

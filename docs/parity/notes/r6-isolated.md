@@ -47,9 +47,10 @@ The helpers it uses mirror upstream one for one:
   the walk at the identifier is the same walk.
 - `getExportSymbolOfValueSymbolIfExported` is new and has the same body.
 - `getSymbolFlagsEx(sym, false, true)` (`excludeLocalMeanings`) is
-  `non_local_symbol_flags`. It is `get_symbol_flags`'s walk, starting from
-  empty flags and taking `getExportSymbolOfValueSymbolIfExported` of each
-  target. Like that port, an unresolvable hop ends the walk. Upstream's
+  `symbol_flags_ex(sym, false, true)`. It is `get_symbol_flags`'s walk,
+  starting from empty flags and taking `getExportSymbolOfValueSymbolIfExported`
+  of each target. (The first version of this section called it
+  `non_local_symbol_flags`; §3 generalised it to both exclusions.) Like that port, an unresolvable hop ends the walk. Upstream's
   `unknownSymbol` answers `All` instead, which can only report *less*
   here: an `All` answer carries `Value`, which turns TS1292 off.
 - `getTypeOnlyAliasDeclarationEx(sym, Value)` is
@@ -102,7 +103,7 @@ Base `b18aec06`, unfiltered dumps, with the hook applied:
 
 A TS1289/TS1292 report on an `export =` whose name upstream resolves to a
 value through a hop this port's `resolve_alias` cannot follow. In that case
-`non_local_symbol_flags` stops early, misses `Value`, and reports TS1292
+`symbol_flags_ex` stops early, misses `Value`, and reports TS1292
 where upstream is silent. No such row appears in the dumps.
 
 ## 2. TS2866 and `checkConstEnumAccess` (TS2475, TS2748)
@@ -217,3 +218,127 @@ path adds one `store.get` per computed expression. Native `tsgo` agrees on
 `isolatedModulesAmbientConstEnum` (`file1.ts(2,16)` TS2748).
 
 No cache, side table or traversal is added by either port.
+
+## 3. `markDecoratorAliasReferenced` (TS1272)
+
+### Upstream
+
+`checkDecorators` (pinned `checker.go:6021`) calls
+`markLinkedReferences(node, ReferenceHintDecorator)` (`:6053`) between its
+helper requests and the per-decorator checks. Behind the
+`canCollectSymbolAliasAccessibilityData` guard (`!VerbatimModuleSyntax`,
+`:928`) and the ambient guard (which spares property declarations), that
+call reaches `markDecoratorAliasReferenced` (`:28686`). Under
+`EmitDecoratorMetadata` it requests the `__metadata` helper and walks the type
+annotations that decorator metadata serializes:
+
+- a class's first constructor-with-body parameters;
+- an accessor's annotation, or its pair's;
+- a method's parameters and return type;
+- a property's type;
+- a decorated parameter, plus its signature's parameters and return type.
+
+Each annotation goes through `getEntityNameForDecoratorMetadata` and its
+type-list rule (`never` always elided; `null`/`undefined` elided without
+`strictNullChecks`; a union or intersection survives only if every member
+names the same identifier). The resulting entity name goes to
+`markEntityNameOrEntityExpressionAsReference(…, forDecoratorMetadata: true)`
+(`:28857`). That function resolves the root identifier at
+`Type|Alias` (`Namespace|Alias` for a qualified name). For an alias it
+either marks it referenced, or, under `GetIsolatedModules()` with an ES
+emit module kind, reports TS1272 at the type name when the alias is not a
+value and none of its declarations is type-only.
+
+### The port
+
+`Checker::check_decorator_linked_references(node, typed, emit_decorator_metadata)`
+and its helpers in `isolated_alias.rs`. The hook
+(`r6-isolated-decorator-metadata.diff`) does two things:
+
+- adds `Checker::emit_decorator_metadata` (`checker.rs`, set in
+  `apply_compiler_options`; nothing in the checker read the option before);
+- calls the function from `check.rs::check_node_worker` right after
+  `check_construct_emit_helpers`, the walk's per-node helper-request site,
+  which is where `checkDecorators` makes its own requests.
+
+Until the hook lands, the option arrives as a parameter, so the committed code
+needs no field.
+
+- **Guard order.** Upstream tests decoratability, then `canCollect…`, then
+  ambient, then the option. Only the option and `verbatimModuleSyntax`
+  reads come first here: every guard before
+  `checkExternalEmitHelpers(…, Metadata)` is free of side effects, and the
+  function runs on every node the walk visits. With the reads in upstream's
+  order, the first measurement cost domain-model **+0.16% Ir**
+  (1,090,821,038 → 1,092,559,075) for the modifier scan on every node.
+  Reordered, it is within noise (1,091,508,180 → 1,091,819,762).
+- **`ast.NodeCanBeDecorated`** is ported again as
+  `decorated_node_can_be_decorated`, because `grammar.rs::node_can_be_decorated`
+  is private to that file. The integrator can fold the two together when the
+  hook lands.
+- `symbolIsValue` reuses `members.rs::symbol_is_value`. The new
+  `symbol_flags_ex` generalises §1's walk to both of upstream's exclusions.
+  `isConstEnumOrConstEnumOnlyModule` reads `CONST_ENUM` only: this binder has
+  no `SymbolFlagsConstEnumOnlyModule`, and the answer gates only the mark.
+- The related-information span ("'T1' was imported here") is not attached,
+  as in §1.
+
+### The `aliasSymbolLinks.referenced` side table: recorded, not built
+
+Per the checker port convention:
+
+- **Native operation.** `markAliasSymbolAsReferenced` (`checker.go:28822`)
+  writes `aliasSymbolLinks.referenced`. For a non-external `import =`, it
+  recurses into the reference's first identifier
+  (`markIdentifierAliasReferenced`).
+- **Identity and owner.** Key: the alias `*ast.Symbol`. Value: one `bool`.
+  Owner: the Checker (`aliasSymbolLinks`, a per-Checker link store), for the
+  Checker's lifetime. Writes are gated off by `verbatimModuleSyntax`
+  (`canCollectSymbolAliasAccessibilityData`).
+- **Publication.** Monotone `false → true`, set before the recursion, so a
+  cycle of `import =` aliases terminates. There is no provisional state.
+- **Consumer.** Only `EmitResolver.IsReferencedAliasDeclaration`
+  (`emitresolver.go:693`/`:705`), which drives import elision in the
+  JavaScript emitter. No diagnostic reads it: TS1272 sits in the mark's
+  `else` and reads `symbolIsValue` and the declarations, not the mark.
+- **Work boundary.** One `resolveName` and one alias-chain walk per
+  serialized annotation of a decorated declaration under
+  `emitDecoratorMetadata`. Cheap, and bounded by decorated declarations.
+
+TSR has no JavaScript emitter that elides imports, and
+`tsr-declarations`' import elision answers reachability syntactically
+(`transform.rs`). A table nothing reads would be a write-only cache, so the
+mark arm is kept for its control flow and publishes nothing (and §1's
+`markLinkedReferences(…, ReferenceHintExportAssignment)` is likewise not
+ported). The table becomes worth building when an emitter asks
+`IsReferencedAliasDeclaration`. Its key would be the merged alias
+`SymbolId`, owned by the `Checker`, beside the other alias links.
+
+### Measured
+
+Against `b18aec06`, unfiltered, with the hook and the reordered guard:
+`emitDecoratorMetadata_isolatedModules(module=esnext)` goes WRONG → RIGHT
+(+1: TS1272 at `index.ts` (9,23), (15,8), (24,28)). The `module=commonjs`
+row stays RIGHT. Zero losses, types identical, slowcases clean. CPU
+new/base: domain-model 1.004 (21 samples), generic-imports 1.017 (41
+samples; 1.032 at 21), `diagnostics_match: true`. Native `tsgo` on the
+fixture prints the same three lines. The diff adds
+`crates/tsr-compiler/tests/r6_isolated_decorator_metadata.rs`: TS1272 with
+the options, silence without `emitDecoratorMetadata`, and silence under
+`module: commonjs`.
+
+## 4. The four diffs together
+
+Apply order: `r6-isolated-export-assignment.diff`,
+`r6-isolated-global-value.diff`, `r6-isolated-const-enum-access.diff`,
+`r6-isolated-decorator-metadata.diff`. They touch disjoint hunks and
+apply cleanly in any order on top of this branch's `isolated_alias.rs`.
+Measured together against `b18aec06`:
+
+- diagnostics **+8 rows**, the sum of §1–§3 (4 + 1 + 2 + 1);
+- zero losses, every added diagnostic in its baseline, types identical,
+  slowcases clean;
+- `cargo test --workspace --release`: 3,494 passed, 0 failed.
+
+When the integrator applies a diff, the `#[allow(dead_code, reason = …)]`
+on its function should be dropped in the same commit.
