@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 856/1089 (78.60%)
-Failed         : 233
+Passed         : 866/1089 (79.52%)
+Failed         : 223
 Skipped        : 3079 (excluded from the denominator)
 
   1333  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3079 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 233 failures:
+First 100 of 223 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -168,16 +168,6 @@ compiler/templateStringsArrayTypeDefinedInES5Mode(target=es2015)
   1 unexpected (first TS2345 at templateStringsArrayTypeDefinedInES5Mode.ts(7,3)), 1 missing
 compiler/templateStringsArrayTypeNotDefinedES5Mode(target=es2015)
   1 unexpected (first TS2345 at templateStringsArrayTypeNotDefinedES5Mode.ts(4,3)), 1 missing
-compiler/tripleSlashTypesReferenceWithMissingExports(module=commonjs)
-  1 missing (first TS2688 at usage.ts(1,23))
-compiler/tripleSlashTypesReferenceWithMissingExports(module=node16)
-  1 missing (first TS2688 at usage.ts(1,23))
-compiler/tripleSlashTypesReferenceWithMissingExports(module=node18)
-  1 missing (first TS2688 at usage.ts(1,23))
-compiler/tripleSlashTypesReferenceWithMissingExports(module=node20)
-  1 missing (first TS2688 at usage.ts(1,23))
-compiler/tripleSlashTypesReferenceWithMissingExports(module=nodenext)
-  1 missing (first TS2688 at usage.ts(1,23))
 compiler/trivialSubtypeReductionNoStructuralCheck(target=es2015)
   1 missing (first TS7023 at trivialSubtypeReductionNoStructuralCheck.ts(3,7))
 compiler/unusedSetterInClass(target=es2015)
@@ -190,16 +180,6 @@ conformance/arrowFunctionContexts(alwaysstrict=true)
   1 unexpected (first TS2331 at arrowFunctionContexts.ts(44,23)), 0 missing
 conformance/asyncFunctionDeclaration15_es5(target=es2015)
   1 missing (first TS1058 at asyncFunctionDeclaration15_es5.ts(17,16))
-conformance/asyncFunctionDeclarationParameterEvaluation(target=es2015)
-  2 missing (first TS2538 at asyncFunctionDeclarationParameterEvaluation.ts(3,21))
-conformance/asyncFunctionDeclarationParameterEvaluation(target=es2017)
-  2 missing (first TS2538 at asyncFunctionDeclarationParameterEvaluation.ts(3,21))
-conformance/asyncGeneratorParameterEvaluation(target=es2015)
-  1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
-conformance/asyncGeneratorParameterEvaluation(target=es2017)
-  1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
-conformance/asyncGeneratorParameterEvaluation(target=es2018)
-  1 missing (first TS2538 at asyncGeneratorParameterEvaluation.ts(3,22))
 conformance/autoAccessorDisallowedModifiers(target=es2017)
   3 unexpected (first TS1191 at autoAccessorDisallowedModifiers.ts(34,1)), 20 missing
 conformance/autoAccessorDisallowedModifiers(target=esnext)
@@ -226,3 +206,23 @@ conformance/cjsErrors(module=node20)
   1 missing (first TS2876 at index.ts(1,22))
 conformance/cjsErrors(module=nodenext)
   1 missing (first TS2876 at index.ts(1,22))
+conformance/classStaticBlock22(target=es2022)
+  1 unexpected (first TS1109 at classStaticBlock22.ts(25,16)), 7 missing
+conformance/classStaticBlock22(target=esnext)
+  1 unexpected (first TS1109 at classStaticBlock22.ts(25,16)), 7 missing
+conformance/classStaticBlock23(target=es2022)
+  2 missing (first TS18038 at classStaticBlock23.ts(5,9))
+conformance/classStaticBlock23(target=esnext)
+  2 missing (first TS18038 at classStaticBlock23.ts(5,9))
+conformance/classStaticBlock26(target=es2022)
+  1 unexpected (first TS18004 at classStaticBlock26.ts(17,12)), 11 missing
+conformance/classStaticBlock26(target=esnext)
+  1 unexpected (first TS18004 at classStaticBlock26.ts(17,12)), 11 missing
+conformance/classStaticBlock6(target=es2015)
+  8 missing (first TS18037 at classStaticBlock6.ts(13,9))
+conformance/controlFlowAliasingCatchVariables(useunknownincatchvariables=true)
+  1 missing (first TS18046 at controlFlowAliasingCatchVariables.ts(20,9))
+conformance/declarationFileForHtmlImport(allowarbitraryextensions=false)
+  1 missing (first TS6263 at file.ts(1,22))
+conformance/declarationFilesForNodeNativeModules(allowarbitraryextensions=false,module=node18)
+  1 unexpected (first TS2306 at main.ts(1,22)), 1 missing
