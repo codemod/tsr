@@ -200,3 +200,22 @@ function f3<T, K extends Extract<keyof T, string>, U extends T, J extends K>(tk:
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+/// The lines of every TS2321 in `source`.
+fn ts2321_lines(source: &str) -> Vec<usize> {
+    lines_of(source, &[2321])
+}
+
+#[test]
+fn a_literal_alias_expanding_through_its_arguments_is_cut_not_overflowed() {
+    // tsgo reports nothing here: every `Bar<…>` instantiation shares the
+    // literal's symbol, so isDeeplyNestedType cuts the walk as expanding.
+    let source = r#"type Foo<T> = { x: Foo<T> };
+type Bar<T> = { x: Bar<T[]> };
+function f2<U>() {
+    let x: Foo<U> = 0 as any as Bar<U>;
+}
+"#;
+    assert_eq!(ts2321_lines(source), Vec::<usize>::new());
+    assert_eq!(ts2322_lines(source), Vec::<usize>::new());
+}

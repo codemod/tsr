@@ -390,3 +390,57 @@ Test: `tests/relater8_arms.rs` `an_extract_source_relates_through_its_inferred_t
 - **`conditionalTypeAssignabilityWhenDeferred` 41, 65**: `conditional_root`
   cannot read an inline conditional's node; `ConditionalInferenceNode::declaration`
   is private in `declared.rs` (r6-declared) and needs to be `pub(crate)`.
+
+## 7. TS2321: the stack-depth overflow (`tsr-2zk.1065`)
+
+**Forcing constraint.** recursiveTypeRelatedTo (relater.go:3103) overflows
+the check when `len(sourceStack) == 100 || len(targetStack) == 100`, after
+the cache, the budget and the maybe-key tests. checkTypeRelatedToEx (:371)
+then records the top pair as `Failed | StackDepthOverflow` (`relationCount
+> 0` tells it from the complexity overflow) and reports TS2321 "Excessive
+stack depth comparing types '{0}' and '{1}'." in place of the relation's
+error. The port kept per-side stacks but refused on its raw `MAX_DEPTH`
+(every recursion), an unpublished `Unknown`, so TS2321 was never reported.
+r5-relater7 §9 declined to turn that cap into TS2321, because it counts
+recursions native's stacks never see.
+
+**Ported.**
+- `recursive_type_related_to`: the per-side test, in native's place,
+  before the raw cap (which stays as the port's guard for recursion that
+  pushes neither stack);
+- `CachedRelation::StackDepthOverflow`, published for the top pair when
+  the overflow was not the budget's; a nested read is False, a top-level
+  read `Unknown` (as for the complexity overflow);
+- `assignability_overflow` (was `assignability_overflowed`) answers which
+  overflow; `assignreport.rs`'s reporting site issues TS2321 or TS2859
+  from it.
+
+**The identity gap this exposed.** With the per-side test,
+`deepComparisons`' `f2` and `f3` (`Foo<U> <- Bar<U>` with `type Bar<T> = {
+x: Bar<T[]> }`) reported TS2321; tsgo reports nothing. Native's
+instantiations of an alias written as a type literal are anonymous types
+whose symbol is the literal's, shared by every instantiation, so
+getRecursionIdentity tracks them as one and isDeeplyNestedType cuts the
+walk as expanding (Maybe) at the third level. The port's
+`relation_recursion_identity` gave each alias image its own TypeId. It now
+tracks such an image by the literal's node (`type_alias_literal_node`), as it
+already did for mapped types.
+
+**Measured** against §6's commit, both loss checks (against §0) empty,
+slowcases clean:
+- no verdict or type line moves. No corpus case expects or emits TS2321
+  (`diagverdictdump` has no 2321 on either side), so this lands as a
+  faithful no-op for the corpus;
+- `Ir`: generic-imports 343,073,010 → 343,075,857 (+0.0008%); domain-model
+  1,092,026,042 → 1,091,570,495 (−0.04%). CLI output identical.
+
+**Falsifier.** A check whose port stacks reach 100 where native's do not:
+the port runs `recursive_type_related_to` for pairs native answers without
+it (identity and literal pairs it caches), and pushes per-side entries under
+the same flags, so its stacks can only be as deep or deeper. A TS2321
+report anywhere in a future dump that tsgo does not make is that case.
+
+Test: `tests/relater8_arms.rs`
+`a_literal_alias_expanding_through_its_arguments_is_cut_not_overflowed`
+(no positive TS2321 test: no small program found that tsgo reports TS2321
+for).

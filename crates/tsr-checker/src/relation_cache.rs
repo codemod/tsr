@@ -29,8 +29,7 @@ use crate::types::TypeId;
 pub(crate) type RelationKey = (TypeId, TypeId, bool);
 
 /// The completed states of native `RelationComparisonResult` this port
-/// publishes. `Reported` and `StackDepthOverflow` are not represented: the
-/// port's depth refusal is an unpublished `Unknown`. The
+/// publishes. `Reported` is not represented. The
 /// `ReportsUnmeasurable`/`ReportsUnreliable` bits travel beside the state as
 /// a [`Reliability`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +43,11 @@ pub(crate) enum CachedRelation {
     /// (`checkTypeRelatedToEx`, relater.go:373), so the overflowing walk is
     /// not attempted again.
     ComplexityOverflow,
+    /// `RelationComparisonResultFailed | RelationComparisonResultStackDepthOverflow`:
+    /// the top-level pair of a check whose source or target stack reached
+    /// 100 entries (`recursiveTypeRelatedTo`, relater.go:3103; recorded by
+    /// `checkTypeRelatedToEx`, :375). Its report is TS2321.
+    StackDepthOverflow,
 }
 
 bitflags::bitflags! {

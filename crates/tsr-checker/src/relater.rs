@@ -670,6 +670,16 @@ impl Checker<'_, '_> {
         {
             return RecursionIdentity::Symbol(*symbol);
         }
+        // An instantiation of an alias written as a type literal is an
+        // anonymous type whose symbol is the literal's (`__type`), shared by
+        // every instantiation, so getRecursionIdentity tracks them as one:
+        // `type Bar<T> = { x: Bar<T[]> }` is cut as expanding, not walked
+        // to the stack limit.
+        if let Some((symbol, _)) = self.type_reference_targets.get(&ty)
+            && let Some(literal) = self.type_alias_literal_node(*symbol)
+        {
+            return RecursionIdentity::Node(literal);
+        }
         if let Some(info) = self.mapped_conditionals.get(&ty) {
             return RecursionIdentity::Node(info.declaration);
         }
@@ -690,6 +700,19 @@ impl Checker<'_, '_> {
             return RecursionIdentity::Type(object);
         }
         RecursionIdentity::Type(ty)
+    }
+
+    /// The type literal node an alias `symbol` is declared as, if any.
+    fn type_alias_literal_node(&self, symbol: SymbolId) -> Option<tsr_ast::NodeId> {
+        let declaration = self.type_alias_declaration_of(symbol)?;
+        let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+        else {
+            return None;
+        };
+        match alias.r#type? {
+            tsr_ast::TypeNode::TypeLiteralNode(literal) => literal.node_id,
+            _ => None,
+        }
     }
 
     /// getMappedTargetWithSymbol (relater.go:804): an instantiated
@@ -889,7 +912,14 @@ impl Checker<'_, '_> {
                 relater.checker.get_regular_type_of_literal_type(target),
                 false,
             );
-            relater.publish_result(key, CachedRelation::ComplexityOverflow, Reliability::empty());
+            // `relationCount <= 0` tells the two overflows apart
+            // (relater.go:375).
+            let overflow = if relater.relation_count <= 0 {
+                CachedRelation::ComplexityOverflow
+            } else {
+                CachedRelation::StackDepthOverflow
+            };
+            relater.publish_result(key, overflow, Reliability::empty());
             answer = Ternary::Unknown;
         }
         reasons::finish(outer, answer == Ternary::Unknown);
@@ -940,18 +970,30 @@ impl Checker<'_, '_> {
         Some(match self.relation_results.get(relation, (source, target, false))? {
             CachedRelation::Succeeded => Ternary::Related,
             CachedRelation::Failed => Ternary::NotRelated,
-            CachedRelation::ComplexityOverflow => Ternary::Unknown,
+            CachedRelation::ComplexityOverflow | CachedRelation::StackDepthOverflow => {
+                Ternary::Unknown
+            }
         })
     }
 
-    /// Whether the assignable check of `source -> target` overflowed its
-    /// relation-count budget (`CachedRelation::ComplexityOverflow`, native's
-    /// `RelationComparisonResultComplexityOverflow`): its report is TS2859.
-    pub(crate) fn assignability_overflowed(&mut self, source: TypeId, target: TypeId) -> bool {
+    /// How the assignable check of `source -> target` overflowed, if it did:
+    /// its relation-count budget (`CachedRelation::ComplexityOverflow`,
+    /// reported as TS2859) or a 100-entry source or target stack
+    /// (`CachedRelation::StackDepthOverflow`, TS2321); `checkTypeRelatedToEx`,
+    /// relater.go:375-380.
+    pub(crate) fn assignability_overflow(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<CachedRelation> {
         let source = self.get_regular_type_of_literal_type(source);
         let target = self.get_regular_type_of_literal_type(target);
-        self.relation_results.get(Relation::Assignable, (source, target, false))
-            == Some(CachedRelation::ComplexityOverflow)
+        self.relation_results.get(Relation::Assignable, (source, target, false)).filter(|result| {
+            matches!(
+                result,
+                CachedRelation::ComplexityOverflow | CachedRelation::StackDepthOverflow
+            )
+        })
     }
 
     /// The options [`crate::relation_cache::RelationOptions`] names.
@@ -4207,9 +4249,9 @@ impl Relater<'_, '_, '_> {
                     CachedRelation::Succeeded => RelationResult::Related,
                     // A pair that overflowed before is not attempted again
                     // (relater.go:3068-3082).
-                    CachedRelation::ComplexityOverflow | CachedRelation::Failed => {
-                        RelationResult::NotRelated
-                    }
+                    CachedRelation::ComplexityOverflow
+                    | CachedRelation::StackDepthOverflow
+                    | CachedRelation::Failed => RelationResult::NotRelated,
                 };
             }
         }
@@ -4220,6 +4262,12 @@ impl Relater<'_, '_, '_> {
         }
         if self.maybe_keys_set.contains(&key) {
             return RelationResult::Maybe;
+        }
+        // relater.go:3103: runaway recursion on either side overflows the
+        // check (TS2321), before the port's raw depth cap below.
+        if self.source_stack.len() == 100 || self.target_stack.len() == 100 {
+            self.overflow = true;
+            return RelationResult::NotRelated;
         }
         if self.depth >= MAX_DEPTH {
             // Depth refusal is uncomputed in the port, not reusable success.

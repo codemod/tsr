@@ -2468,23 +2468,26 @@ impl<'a> Checker<'a, '_> {
                 true,
             )
         };
-        // checkTypeRelatedToEx (relater.go:371): an overflowing check reports
-        // TS2859 instead of its relation error. Native's preceding silent
-        // isTypeRelatedTo overflows too and reports at `c.currentNode`
-        // (the second TS2859 of `relationComplexityError`); the port has no
-        // currentNode, so that report needs the check site's node.
+        // checkTypeRelatedToEx (relater.go:371-382): an overflowing check
+        // reports TS2859 (relation-count budget) or TS2321 (a 100-entry
+        // source or target stack) instead of its relation error. Native's
+        // preceding silent isTypeRelatedTo overflows too and reports at
+        // `c.currentNode` (the second TS2859 of `relationComplexityError`);
+        // the port has no currentNode, so that report needs the check
+        // site's node.
         if relation == crate::relater::Ternary::Unknown
-            && self.assignability_overflowed(source, target)
+            && let Some(overflow) = self.assignability_overflow(source, target)
         {
+            let message = if overflow == crate::relation_cache::CachedRelation::ComplexityOverflow {
+                &tsr_diagnostics::messages::EXCESSIVE_COMPLEXITY_COMPARING_TYPES_0_AND_1
+            } else {
+                &tsr_diagnostics::messages::EXCESSIVE_STACK_DEPTH_COMPARING_TYPES_0_AND_1
+            };
             let source_text = self.type_to_string(source);
             let target_text = self.type_to_string(target);
             self.report(
                 file,
-                tsr_diagnostics::Diagnostic::with_args(
-                    &tsr_diagnostics::messages::EXCESSIVE_COMPLEXITY_COMPARING_TYPES_0_AND_1,
-                    span,
-                    [source_text, target_text],
-                ),
+                tsr_diagnostics::Diagnostic::with_args(message, span, [source_text, target_text]),
             );
             return true;
         }
