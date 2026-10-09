@@ -17,10 +17,6 @@ use tsr_ast::{Node, NodeId, SyntaxKind};
 
 use crate::checker::Checker;
 
-#[expect(
-    dead_code,
-    reason = "hooked by docs/parity/notes/r6-smallcodes4-top-level-context.diff, which removes this"
-)]
 impl Checker<'_, '_> {
     /// `ast.IsInTopLevelContext(node)` (`ast/utilities.go:1778`).
     pub(crate) fn is_identifier_in_top_level_context(&self, node: NodeId) -> bool {

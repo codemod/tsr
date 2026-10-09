@@ -302,9 +302,7 @@ impl Checker<'_, '_> {
             // here"*, for which an arrow is transparent — and reusing it put a
             // TS1262 on the `await` inside `async(() => await(…))`. Same
             // question shape, different container rule; §1030's lesson. §1044.
-            if !external
-                || self.nodes.ancestors(node).any(|a| self.is_function_like_or_static_block(a))
-            {
+            if !external || !self.is_identifier_in_top_level_context(node) {
                 return;
             }
             let span = self.nodes.span(node);
