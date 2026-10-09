@@ -2148,6 +2148,7 @@ impl Checker<'_, '_> {
         let Some(symbol) = self.reference_target_symbol(receiver) else {
             return declared;
         };
+        self.ensure_generic_reference_this_type(symbol, receiver);
         let binder = self.binder;
         let Some(frames) = self.memo_frames(&binder.symbols().get(symbol).declarations, None)
         else {
@@ -2225,6 +2226,61 @@ impl Checker<'_, '_> {
             return Some(symbol);
         }
         None
+    }
+
+    /// `getDeclaredTypeOfClassOrInterface` (pinned 5b1047d, `checker.go`)
+    /// gives a class or interface with local type parameters its `thisType`
+    /// when the declared type is created, and `resolveTypeReferenceMembers`
+    /// pads every reference's arguments with the reference itself, so a
+    /// member read through `getTypeWithThisArgument` is instantiated per
+    /// this argument whether or not any `this` node was resolved before
+    /// (`sliceResultCast`: `x.slice` on `[number, string] | [number, string,
+    /// string]` is two signature instantiations, one per tuple receiver).
+    /// This port mints `this` lazily on the first `this` node, so the read
+    /// depended on check order. Mint it here for a generic reference target
+    /// that has none: a class into `this_types` (`class_instance_this_type`),
+    /// an interface into `this_type_nodes` for each of its interface
+    /// declarations not yet minted, so a later `this` node of any of them
+    /// resolves to the one per-symbol identity native has. A declaration
+    /// minted earlier keeps its own (`members.rs` §166, the split mint).
+    /// Owner: those existing tables; no new cache. Work: one lookup per
+    /// generic reference read, one store push per symbol. The non-generic
+    /// arms (`kind == Class`, `!isThislessInterface`) are not minted here.
+    fn ensure_generic_reference_this_type(&mut self, symbol: SymbolId, receiver: TypeId) {
+        if self.polymorphic_this_of(symbol).is_some()
+            || self
+                .type_reference_targets
+                .get(&receiver)
+                .is_none_or(|(_, arguments)| arguments.is_empty())
+        {
+            return;
+        }
+        let symbols = self.binder.symbols();
+        let entry = symbols.get(symbol);
+        if entry.flags.contains(SymbolFlags::CLASS) {
+            self.class_instance_this_type(symbol);
+            return;
+        }
+        if !entry.flags.contains(SymbolFlags::INTERFACE) {
+            return;
+        }
+        let declarations: Vec<tsr_ast::NodeId> = entry
+            .declarations
+            .iter()
+            .copied()
+            .filter(|&declaration| {
+                self.nodes.kind(declaration) == tsr_ast::SyntaxKind::InterfaceDeclaration
+            })
+            .collect();
+        let Some(&first) = declarations.first() else { return };
+        let minted = self.store.new_named(
+            TypeFlags::TYPE_PARAMETER,
+            "this".to_string(),
+            self.binder.symbol_of(first),
+        );
+        for declaration in declarations {
+            self.this_type_nodes.entry(declaration).or_insert(minted);
+        }
     }
 
     /// The target's polymorphic `this` type if one has been minted yet; it is

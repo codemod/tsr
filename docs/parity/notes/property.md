@@ -587,3 +587,25 @@ An unwidened object literal answers the union of its members instead.
 The literal-key TS7053 now carries its chain (`Property '{0}' does not exist
 on type '{1}'.`), as `NewDiagnosticChainForNode` builds it. No cache.
 Converts `noImplicitAnyForIn`, `for-inStatementsArrayErrors`.
+
+## 24. A generic reference target's `this` exists before its members are read (tsr-2zk.4)
+
+`getDeclaredTypeOfClassOrInterface` gives a class or interface with local type
+parameters its `thisType` when the declared type is created, and
+`resolveTypeReferenceMembers` pads every reference's arguments with the
+reference itself (`getTypeWithThisArgument`). This port mints `this` lazily on
+the first `this` node (`this_types` per class, `this_type_nodes` per interface
+declaration), so `instantiate_for_reference_with_this` substituted `this` only
+once some check had resolved one: `x.slice` on `[number, string] | [number,
+string, string]` was one signature, or natively two (one instantiation per
+tuple receiver) only when `lib.es5.d.ts` had been checked first.
+`ensure_generic_reference_this_type` (`members.rs`) now mints it before the
+substitution: a class through `class_instance_this_type`, an interface into
+`this_type_nodes` for every interface declaration not yet minted, so a later
+`this` node of any of them resolves to the same identity. A declaration minted
+earlier keeps its own (§166 split mint, `declared.rs`). No new cache; one
+lookup per generic reference read. Not ported here: the non-generic arms
+(`kind == Class`, `!isThislessInterface`), whose eager mint would instantiate
+every non-generic class member read; `typeParameterExtendingUnion1/2`
+(`T extends Cat | Dog`, `a.run`) wait on them.
+Converts `sliceResultCast`.
