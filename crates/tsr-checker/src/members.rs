@@ -240,17 +240,29 @@ impl Checker<'_, '_> {
         // `Base` and `any` (its errorType) inside `Derived`
         // (`privateNameFieldDerivedClasses`).
         let mut lexical_private_class = None;
+        let mut private_without_lexical_symbol = None;
         if let tsr_ast::MemberName::PrivateIdentifier(_) = member
             && let Some(access_id) = node.node_id
         {
             lexical_private_class = self.lexical_private_declaring_class(access_id, name);
             if lexical_private_class.is_none() {
-                return error;
+                private_without_lexical_symbol = Some(access_id);
             }
         }
         let receiver_type = self.check_expression(receiver);
         if receiver_type == error {
             return error;
+        }
+        // `checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
+        // with no lexically scoped symbol (`checker.go:11284-11310`): an
+        // any-like receiver outside every class body answers `anyType`;
+        // anything else finds no property and answers `errorType`, the
+        // shadowing report and the JS-literal and `globalThis` exits aside
+        // (`docs/parity/notes/r6-errorsplit2.md` §4).
+        if let Some(access) = private_without_lexical_symbol
+            && receiver_type == self.intrinsics.native_error
+        {
+            return self.private_name_without_lexical_symbol(access, receiver_type, name);
         }
         // ADR-0048: an any-like receiver that is upstream's `errorType`
         // answers `errorType` (`checker.go:11314-11320`, `isAnyLike` then
@@ -316,6 +328,9 @@ impl Checker<'_, '_> {
         });
         if widen_receiver {
             stripped = self.widen_object_literal_freshness(stripped);
+        }
+        if let Some(access) = private_without_lexical_symbol {
+            return self.private_name_without_lexical_symbol(access, stripped, name);
         }
         // §471 the shadow half of upstream's mangled-name lookup: the
         // property the receiver's type serves under this spelling must be
@@ -723,6 +738,49 @@ impl Checker<'_, '_> {
             return error;
         }
         self.access_member_lookup(stripped, right.text, node.node_id)
+    }
+
+    /// The private-name arm of `checkPropertyAccessExpressionOrQualifiedName`
+    /// when `lookupSymbolForPrivateIdentifierDeclaration` finds nothing
+    /// (`checker.go:11284-11310`, then the `prop == nil` exits at
+    /// `:11327-11353`). `stripped` is the receiver's non-null, widened type.
+    fn private_name_without_lexical_symbol(
+        &mut self,
+        access: tsr_ast::NodeId,
+        stripped: TypeId,
+        name: &str,
+    ) -> TypeId {
+        let apparent = self.apparent_type(stripped);
+        if self.is_type_any(apparent)
+            && self.containing_class_excluding_class_decorators(access).is_none()
+        {
+            // Reported as TS18016, `Private identifiers are not allowed
+            // outside class bodies`.
+            return self.intrinsics.any;
+        }
+        // `checkPrivateIdentifierPropertyAccess` (`:11494`): a property with
+        // the same private spelling on the type is reported (not accessible,
+        // or shadowed) and answers `errorType`.
+        if let Some(property) = self.get_property_of_type(stripped, name)
+            && self
+                .binder
+                .symbols()
+                .get(property)
+                .value_declaration
+                .is_some_and(|declaration| self.declaration_names_a_private(declaration))
+        {
+            return self.intrinsics.native_error;
+        }
+        // `leftType.symbol == globalThisSymbol` answers `anyType` (`:11336`).
+        if Some(apparent) == self.global_this_type {
+            return self.intrinsics.any;
+        }
+        // A JS file keeps the gap: its `isUncheckedJSSuggestion` and
+        // `isJSLiteralType` exits are not consulted on this road.
+        if self.in_js_file(access) {
+            return self.intrinsics.error;
+        }
+        self.intrinsics.native_error
     }
 
     /// The shared tail of `checkPropertyAccessExpressionOrQualifiedName`

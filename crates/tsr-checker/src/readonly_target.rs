@@ -1025,7 +1025,10 @@ impl Checker<'_, '_> {
     /// `getContainingClassExcludingClassDecorators` (`utilities.go:994`): a
     /// name written in a class's own decorator starts the search above that
     /// class.
-    fn containing_class_excluding_class_decorators(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn containing_class_excluding_class_decorators(
+        &self,
+        node: NodeId,
+    ) -> Option<NodeId> {
         let decorator = self.nodes.ancestors(node).find(|&ancestor| {
             self.nodes.kind(ancestor) == SyntaxKind::Decorator
                 && self.nodes.parent(ancestor).is_some_and(|parent| {
