@@ -529,3 +529,10 @@ per-file flag must become per-node.
 - `'{0}' expected` arguments use `scanner.TokenToString`: the full inverted
   `textToToken` table for punctuation (`...`, `</`, …) and keyword text,
   never a `SyntaxKind` name.
+- The other `grammarErrorOnFirstToken` / `GetRangeOfTokenAtPosition(node.Pos())`
+  callers now use the same helper: TS1046 (`checkGrammarTopLevelElementForRequiredDeclareModifier`),
+  TS1108/TS1104 (`checkReturnStatement`), TS1174 (`typeNodes[1]`), TS1163
+  (`checkGrammarYieldExpression`), TS1308 (`checkGrammarAwaitOrAwaitUsing`'s
+  non-async arm), TS1206 (`findFirstIllegalDecorator`, the legacy private-name
+  arm) and the `checkGrammarModifiers` decorator/`this`-parameter arm. Each
+  spans the scanned first token, not the whole node or one character.

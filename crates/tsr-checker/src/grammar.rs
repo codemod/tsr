@@ -88,12 +88,7 @@ impl Checker<'_, '_> {
         // diagnostics (the parser already reported TS1433 on a `this`
         // parameter, `parser.go:3334`); the node starts at its first decorator
         // or modifier.
-        if self.file_has_parse_errors {
-            return true;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
-        let start = self.nodes.span(node).start;
-        self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, start + 1)));
+        self.grammar_error_on_first_token(node, message);
         true
     }
 
