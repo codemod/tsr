@@ -596,3 +596,5 @@ per-file flag must become per-node.
   `missing_type` also has) refuses the arrow, through function/constructor
   return types and parentheses; `(a): => {}` is a parenthesized expression.
   `isMissingNodeList(parameters)` has no counterpart (lists keep no range).
+- `T[` (`parsePostfixTypeOrHigher`): an indexed access only when a type
+  starts after the `[`; otherwise an array type whose `]` is expected.

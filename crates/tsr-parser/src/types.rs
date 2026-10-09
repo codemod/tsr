@@ -307,7 +307,11 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.next_token();
-            if self.eat(SyntaxKind::CloseBracketToken) {
+            // `parsePostfixTypeOrHigher` (`parser.go:2729`): an index type only
+            // when a type starts here; otherwise an array type whose `]` is
+            // expected (`C[#bar]` is `']' expected`, not `Type expected`).
+            if !self.is_start_of_type(false) {
+                self.expect(SyntaxKind::CloseBracketToken);
                 let node = self.finish_node(
                     ArrayTypeNode::new(Some(type_node)),
                     SyntaxKind::ArrayType,
