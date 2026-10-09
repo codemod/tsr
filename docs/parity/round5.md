@@ -1367,3 +1367,28 @@ noise after each straight port's extra cost was removed.
 aliasSymbolLinks.referenced is recorded in the notes but not built: its only
 consumer is the JS emitter. The remaining module diagnostics go to r6-modules2
 (`tsr-2zk.1137`).
+
+### r6-printer finished (batch BF); r6-lazytext dispatched
+
+Batch BF lands r6-printer's commits:
+- the erased-alias road asks IsSymbolAccessible;
+- instantiateContextualType's return mapper for mutable locations
+  (arrayLiteralInference);
+- Scanner::rescan_template's stale value;
+- ADR-0051, lone surrogates as a two-character sentinel. The one-character
+  sentinel was refused at −2, because the corpus writes "\u{10FFFF}".
+
+It also lands three diffs:
+- serialize_type_name asks the full IsSymbolAccessible (+21);
+- Parser::rescan_template refreshes token_value (+14, `.1127`);
+- entity-name discriminants (+0, faithful).
+
+Measured by the box: +81 types stacked, 0 lost.
+
+**ADR number collision:** r6-checkperf's held JSDoc-deferral diff also
+numbers its ADR 0051. It must be renumbered when it lands.
+
+r5-declared4's print-arity WIP is unblocked, but its +0.22% dm Ir is with
+r6-declared to remove. r6-lazytext takes the printer lane for print-time text
+(`tsr-2zk.1138`, covering `.1120` and `.1135`), which gates two held diffs
+(+24 lines).
