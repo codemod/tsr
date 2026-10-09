@@ -365,8 +365,9 @@ spelling (r6-accessible §3(a), `tsr-2zk.39`, printer lane). Nothing in
   a defaulted argument printed where native elides it). r6-declared §5
   expected its print-arity port to cover 485/490–492; measured, it does not:
   those are `Key`/`List` aliases, not the four global iterables
-  typeReferenceToTypeNode elides, so the elision is elsewhere in native's
-  printer (alias argument reuse from the written node). Printer lane.
+  typeReferenceToTypeNode elides. Where native elides them was not
+  established here (reuse of the written argument list is a candidate, not
+  checked); printer lane.
 - slowcases **SLOWER** on the case: 7.7 s diagnostics / 6.3 s types (base
   `f334de9` with the same diff: 2.4 s / 1.5 s; native 0.4 s).
 
@@ -415,7 +416,9 @@ Landed (on `claude/beautiful-shannon-ar5gh0-r6-declared2`):
 - `190753b`: merge of `f334de9` (batch BM landed), base re-frozen.
 
 Against `f334de9`, unfiltered: types +70, diagnostics +1, zero losses on both,
-slowcases clean, Ir domain-model +0.07%, generic-imports +0.05%.
+slowcases clean, Ir domain-model +0.07%, generic-imports +0.05%. `coverage`
+on `f8cf317`: checker_types 8565/9538 (89.80%), diagnostics 4692/5502
+(85.28%).
 
 Held diffs, in apply order on this branch:
 1. [`r6-declared2-nonstrict-optional-read.diff`](r6-declared2-nonstrict-optional-read.diff)
