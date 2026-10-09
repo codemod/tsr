@@ -10417,7 +10417,9 @@ impl Checker<'_, '_> {
         // this one difference, all in the `deleteOperatorWith*Type` family.
         let at = if skip_assertions { target } else { spine };
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
+        // `c.error(expr, …)` → `GetErrorRangeForNode`: a missing operand
+        // (`delete ;`) reports zero-width at its full start.
+        let span = self.error_span(at);
         self.report(file, Diagnostic::new(message, span));
     }
 
