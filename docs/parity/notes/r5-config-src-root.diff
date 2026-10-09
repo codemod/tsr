@@ -1,0 +1,106 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 647fa83..d480c0c 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -3140,11 +3140,24 @@ impl<'a, 'n> Checker<'a, 'n> {
+             // (a wrong specifier is worse than the bare name).
+             if self.is_module_symbol(parent) {
+                 let module_name = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
+-                // The port's module names are ROOT-relative virtual paths
+-                // (`/file`); the same-directory slice is a single leading
+-                // slash. Deeper structure keeps the decline — a wrong
+-                // specifier is worse than the bare name.
+-                let stem = module_name.strip_prefix('/').unwrap_or(module_name);
++                // The port's module names are absolute virtual paths
++                // (`/file`, `/.src/file`); the same-directory slice is the
++                // name relative to the reference file's directory when the
++                // module sits under it, else relative to `/` as before. The
++                // harness compiles in the runner's `/.src` (r5-config §4),
++                // where "root-relative" would make every unit look nested.
++                // Deeper structure keeps the decline — a wrong specifier is
++                // worse than the bare name.
++                let reference_directory = self
++                    .source_file_of(reference)
++                    .and_then(|file| self.module_host.and_then(|host| host.file_path(file)))
++                    .map(|path| tsr_path::get_directory_path(&path).to_string());
++                let stem = reference_directory
++                    .as_deref()
++                    .filter(|directory| *directory != "/")
++                    .and_then(|directory| module_name.strip_prefix(directory))
++                    .and_then(|rest| rest.strip_prefix('/'))
++                    .unwrap_or_else(|| module_name.strip_prefix('/').unwrap_or(module_name));
+                 // NEVER for the reference's own file: a same-file name that
+                 // failed to resolve is a synthetic/evaluated position, and
+                 // the bare name is upstream's print there (chain1's 217 R→W
+diff --git a/crates/tsr-conformance/src/diagnostics_suite.rs b/crates/tsr-conformance/src/diagnostics_suite.rs
+index 0e77e92..7051090 100644
+--- a/crates/tsr-conformance/src/diagnostics_suite.rs
++++ b/crates/tsr-conformance/src/diagnostics_suite.rs
+@@ -260,8 +260,8 @@ struct Unit<'p, 'a> {
+ /// contain it.
+ fn program_units<'p, 'a>(test: &crate::TestCase, program: &'p Program<'a>) -> Vec<Unit<'p, 'a>> {
+     let current_directory = tsr_path::get_normalized_absolute_path(
+-        test.current_directory.as_deref().unwrap_or("/"),
+-        "/",
++        test.current_directory.as_deref().unwrap_or(""),
++        crate::types_producer::CURRENT_DIRECTORY,
+     );
+     let case_sensitive = test
+         .options
+@@ -599,8 +599,8 @@ fn config_file_parsing_diagnostics(
+ ) -> Vec<(BaselineDiagnostic, Diagnostic)> {
+     // The directory `program_and_config_for_case` named the config against.
+     let current_directory = tsr_path::get_normalized_absolute_path(
+-        test.current_directory.as_deref().unwrap_or("/"),
+-        "/",
++        test.current_directory.as_deref().unwrap_or(""),
++        crate::types_producer::CURRENT_DIRECTORY,
+     );
+     let mut seen: HashSet<(&str, u32, u32, u32, &[String])> = HashSet::new();
+     let mut out = Vec::new();
+diff --git a/crates/tsr-conformance/src/types_producer.rs b/crates/tsr-conformance/src/types_producer.rs
+index 92e4c1b..f87feb0 100644
+--- a/crates/tsr-conformance/src/types_producer.rs
++++ b/crates/tsr-conformance/src/types_producer.rs
+@@ -23,11 +23,18 @@ use tsr_binder::SymbolFlags;
+ 
+ use crate::types_baseline::{FileTypes, TypeAssertion};
+ 
+-/// The current directory every case is compiled in.
++/// The current directory every case is compiled in: the runner's `srcFolder`
++/// (`harnessutil.go`, `compiler_runner.go:521`'s `createHarnessTestFile`
++/// default), `/.src`.
+ ///
+-/// The same one [`crate::binder_suite`] uses, so a unit named `a.ts` and a unit
+-/// named `/a.ts` land on the same path in both suites.
+-const CURRENT_DIRECTORY: &str = "/";
++/// It was `/` until `tsr-2zk.1087`. The difference is observable wherever a
++/// path is derived from the current directory rather than written by the
++/// case: the automatic type roots (`GetEffectiveTypeRoots` walks up from it, so
++/// `/.src/node_modules/@types` is a root only from `/.src`), and a relative
++/// `@currentDirectory`. Unit names the case writes as absolute (`/a.ts`) are
++/// unaffected, and the printed names every baseline carries strip `/.src/`
++/// (`removeTestPathPrefixes`). `docs/parity/notes/r5-config.md` §4.
++pub(crate) const CURRENT_DIRECTORY: &str = "/.src";
+ 
+ /// Where the bundled `lib.*.d.ts` are mounted on the case's file system.
+ ///
+@@ -1960,12 +1967,12 @@ pub fn program_and_config_for_case<'a>(
+     case: &crate::TestCase,
+ ) -> (tsr_compiler::Program<'a>, Option<tsr_tsoptions::ParsedCommandLine>) {
+     // **`@currentDirectory` is a directive, not decoration** (50 corpus cases).
+-    // The *default* stays `/` — `trace_case` defaults to `/.src` because the
+-    // resolution traces are baselined against those paths and the diagnostics
+-    // baselines against bare names, so the two suites' conventions genuinely
+-    // differ and aligning them would break the one that is right. Only the
+-    // directive is honoured, over this producer's own default, which is what
+-    // upstream's harness does. §539.
++    // The default is the runner's `/.src`, as `trace_case`'s (§539 kept `/`
++    // here, on the reading that bare names in the diagnostics baselines meant
++    // a bare root; they are bare because `removeTestPathPrefixes` strips
++    // `/.src/`, and `r5-config.md` §4 measured the move). The directive is
++    // honoured over the default, resolved against it, which is what upstream's
++    // harness does.
+     let current_directory = case.current_directory.as_deref().map_or_else(
+         || CURRENT_DIRECTORY.to_string(),
+         |dir| tsr_path::get_normalized_absolute_path(dir, CURRENT_DIRECTORY),

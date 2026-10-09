@@ -2013,8 +2013,8 @@ pub(crate) fn implied_node_format_for_emit(
 
 /// `ast.GetExternalModuleIndicatorOptions(...).Force` (`ast/parseoptions.go:19`):
 /// under `moduleDetection: force` every non-declaration file is a module; under
-/// `auto`, one `isFileForcedToBeModuleByFormat` (`:46`). The `JSX` option arm
-/// is not ported: it asks the parser whether the file contains a JSX tag.
+/// `auto`, one `isFileForcedToBeModuleByFormat` (`:46`). The `JSX` arm is
+/// [`jsx_tags_force_module`], because it needs the parsed file.
 pub(crate) fn force_module_indicator(
     options: &CompilerOptions,
     file_name: &str,
@@ -2034,6 +2034,19 @@ pub(crate) fn force_module_indicator(
         }
         _ => false,
     }
+}
+
+/// `ast.GetExternalModuleIndicatorOptions(...).JSX` (`ast/parseoptions.go:36`):
+/// under `moduleDetection: auto` and `jsx: react-jsx`/`react-jsxdev`, a JSX tag
+/// makes a non-declaration file a module (`getExternalModuleIndicator`'s
+/// `isFileModuleFromUsingJSXTag` arm, `:85`). The automatic runtime imports
+/// its factory, so a file that uses it is a module like one with an `import`.
+/// Whether the file holds a tag is the caller's question
+/// (`Program::force_module_indicator`).
+pub(crate) fn jsx_tags_force_module(options: &CompilerOptions, file_name: &str) -> bool {
+    !tsr_path::is_declaration_file_name(file_name)
+        && options.emit_module_detection_kind() == tsr_core::ModuleDetectionKind::Auto
+        && matches!(options.jsx, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev)
 }
 
 /// `ast.GetEmitModuleFormatOfFileWorker`.
