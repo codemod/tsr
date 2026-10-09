@@ -588,3 +588,34 @@ mechanism this port lacks:
   `hasContextualTypeWithNoGenericTypes`, so only the other elements see the
   constraint-substituted reference; this port checks the initializer once
   (`genericObjectSpreadResultInSwitch`, `narrowingDestructuring`).
+
+## 29. discriminateContextualTypeByObjectMembers (tsr-2zk.16.95)
+
+`getApparentTypeOfContextualType` narrows a union contextual type of an
+object literal with `discriminateContextualTypeByObjectMembers`
+(`checker.go:30755`). `discriminate_contextual_type_by_object_members` ports
+it: discriminators are the `PropertyAssignment`s with an
+`isPossiblyDiscriminantValue` initializer and the shorthand members, each only
+when `isDiscriminantProperty(contextual, name)`, then the union's optional
+discriminant members the literal does not write (matched as `undefined`);
+`ObjectLiteralDiscriminator.matches` relates each constituent of the
+context-free source type to `getTypeOfPropertyOrIndexSignatureOfType`; the
+elimination is `discriminateTypeByDiscriminableItems` (`relater.go:1212`).
+Its answer feeds the property-of-contextual-type union map
+(`mapTypeEx(…, noReductions)`) and the object-literal `this` type, so the
+undiscriminated walk's unit/base declines (§927's guard, symbols.rs'
+`mixed_unit_and_base`) no longer stand in for it: `foo2({ type2: 'y', value:
+'done', … })` against `X2 | Y2` keeps `value: "done"` (neither `type2` nor
+`value` narrows; the member is `string | "none" | "done"`), and
+`invoke({ kind: "a", method(a) {…} })` types `a: string` (tsgo control,
+`contextualTypeShouldBeLiteral`, `contextuallyTypedByDiscriminableUnion`).
+
+Declines (the previous `discriminate_union_root` slice answers): ten or more
+object constituents (`getMatchingUnionConstituentForObjectLiteral`'s
+key-property map is unported), an unfolded template-expression discriminant
+in a syntactic const context (its context-free type is otherwise the constant
+fold's fresh literal or `string`, `getContextFreeTypeOfExpression` pushing
+`any`), and any undecidable
+discriminant test, member read or relation. No state: native memoizes per
+`(node, type)` in `discriminatedContextualTypes`; this recomputes per member
+read, members × constituents relation checks.

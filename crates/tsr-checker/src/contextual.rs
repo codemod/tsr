@@ -783,7 +783,9 @@ impl<'a> Checker<'a, '_> {
             current_literal = outer;
             current_context = self.apparent_contextual_type(outer_context);
         }
-        let contextual = self.discriminate_union_root(contextual, literal);
+        let contextual = self
+            .discriminate_contextual_type_by_object_members(literal, contextual)
+            .unwrap_or_else(|| self.discriminate_union_root(contextual, literal));
         let contextual = self.get_non_nullable_type(contextual);
         Some(self.widen_object_literal_freshness(contextual))
     }
@@ -2719,7 +2721,13 @@ impl<'a> Checker<'a, '_> {
         // `{ kind: "b" }` constituent, which has no `subkind` at all — so there
         // is no contextual type and the literal widens to `number`. Returning
         // `None` here is that answer, not a decline.
-        let discriminated = self.discriminate_union_root(contextual, literal);
+        // `discriminateContextualTypeByObjectMembers` is ported; with its
+        // answer, `getTypeOfPropertyOfContextualType` maps over what remains
+        // and no undiscriminated-walk guard applies. A decline keeps the
+        // previous slice and its guard below.
+        let ported = self.discriminate_contextual_type_by_object_members(literal, contextual);
+        let discriminated =
+            ported.unwrap_or_else(|| self.discriminate_union_root(contextual, literal));
         if discriminated != contextual
             && !matches!(self.store.get(discriminated).data, TypeData::Union { .. })
         {
@@ -2743,6 +2751,28 @@ impl<'a> Checker<'a, '_> {
         // answering the union unchanged, and the undiscriminated walk below is
         // still guessing there. Measured, not assumed — and the measurement is
         // what separates the two guards, which §927 had no way to tell apart.
+        if ported.is_some() {
+            // getTypeOfPropertyOfContextualTypeEx's union arm: `mapTypeEx(t,
+            // …, noReductions=true)` over the discriminated constituents,
+            // dropping those without an answer. The per-constituent lookup
+            // is the existing one; the mixed unit/base decline of the
+            // undiscriminated walk does not apply once discrimination ran.
+            let TypeData::Union { types, .. } = &self.store.get(discriminated).data else {
+                return self.contextual_property_type(discriminated, name);
+            };
+            let constituents = types.clone();
+            let mut hits = Vec::with_capacity(constituents.len());
+            for constituent in constituents {
+                if let Some(member) = self.contextual_property_type(constituent, name) {
+                    hits.push(member);
+                }
+            }
+            return match hits.as_slice() {
+                [] => None,
+                [single] => Some(*single),
+                _ => Some(self.get_union_type_without_reduction(&hits)),
+            };
+        }
         let member = self.contextual_property_type(contextual, name)?;
         // The unit may be a CONSTITUENT of the answer rather than the answer:
         // `subkind: 0` and `subkind: 1` union to `0 | 1`, which is not itself a
@@ -2852,6 +2882,303 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::push_children(node, &mut expressions);
         }
         false
+    }
+
+    /// `discriminateContextualTypeByObjectMembers` (`checker.go:30755`), the
+    /// object-literal arm of `getApparentTypeOfContextualType`: narrow a union
+    /// contextual type by the literal's discriminant members. The
+    /// discriminators are, in order, each `PropertyAssignment` whose
+    /// initializer `isPossiblyDiscriminantValue` and each shorthand member,
+    /// when `isDiscriminantProperty(contextual, name)`; then each optional
+    /// property of the union the literal does not write that is a discriminant
+    /// (matched as `undefined`). `ObjectLiteralDiscriminator.matches` asks
+    /// whether some constituent of the member's context-free type
+    /// (`getContextFreeTypeOfExpression`) is assignable to the constituent's
+    /// `getTypeOfPropertyOrIndexSignatureOfType`; the elimination is
+    /// `discriminateTypeByDiscriminableItems` (`relater.go:1212`).
+    ///
+    /// `None` is a port decline, never native's answer: a union with ten or
+    /// more object constituents takes `getMatchingUnionConstituentForObjectLiteral`'s
+    /// key-property map first (unported); an unfolded template-expression
+    /// discriminant in a syntactic const context (see
+    /// [`Checker::context_free_discriminant_type`]); and a discriminant test,
+    /// member read or relation this port cannot decide.
+    /// No state: native memoizes per `(node, type)` in
+    /// `discriminatedContextualTypes`; this recomputes per member read (the
+    /// cost is the literal's members times the union's constituents).
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one native function: discriminator collection, then the \
+                  discriminateTypeByDiscriminableItems elimination"
+    )]
+    pub(crate) fn discriminate_contextual_type_by_object_members(
+        &mut self,
+        literal: NodeId,
+        contextual: TypeId,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        let TypeData::Union { types, .. } = &self.store.get(contextual).data else {
+            return Some(contextual);
+        };
+        let types = types.clone();
+        let Some(Node::ObjectLiteralExpression(object)) = self.node_map.get(literal) else {
+            return None;
+        };
+        if types
+            .iter()
+            .filter(|&&t| {
+                self.store
+                    .get(t)
+                    .flags
+                    .intersects(TypeFlags::OBJECT | TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+            })
+            .count()
+            >= 10
+        {
+            return None;
+        }
+        // (name, context-free source type) per discriminator, in native order.
+        let mut discriminators: Vec<(String, TypeId)> = Vec::new();
+        let mut written: Vec<String> = Vec::with_capacity(object.properties.len());
+        for property in object.properties {
+            let (name, value) = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) => {
+                    (assignment.name, assignment.initializer)
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    (shorthand.name, None)
+                }
+                tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => (method.name, None),
+                tsr_ast::ObjectLiteralElementLike::GetAccessorDeclaration(accessor) => {
+                    (accessor.name, None)
+                }
+                tsr_ast::ObjectLiteralElementLike::SetAccessorDeclaration(accessor) => {
+                    (accessor.name, None)
+                }
+                tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => continue,
+            };
+            let name = match name {
+                PropertyName::Identifier(name) => name.text.to_string(),
+                PropertyName::StringLiteral(name) => name.text.to_string(),
+                PropertyName::NumericLiteral(name) => crate::printing::normalise_number(name.text),
+                // A computed member's symbol name is its late-bound literal
+                // name; any other computed name (`__computed`) is never a
+                // union member, hence never a discriminant.
+                PropertyName::ComputedPropertyName(computed) => {
+                    let key = self.check_expression(computed.expression?);
+                    match self.property_name_from_index(key) {
+                        Some(name) => name,
+                        None => continue,
+                    }
+                }
+                _ => continue,
+            };
+            written.push(name.clone());
+            let source = match property {
+                tsr_ast::ObjectLiteralElementLike::PropertyAssignment(_) => {
+                    let Some(initializer) = value else { continue };
+                    if !is_possibly_discriminant_value(initializer) {
+                        continue;
+                    }
+                    initializer
+                }
+                tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) => {
+                    let PropertyName::Identifier(name) = shorthand.name else { continue };
+                    Expression::Identifier(name)
+                }
+                _ => continue,
+            };
+            if !self.is_discriminant_property(contextual, &name)? {
+                continue;
+            }
+            let source_type = self.context_free_discriminant_type(source)?;
+            if source_type == self.intrinsics.error {
+                return None;
+            }
+            discriminators.push((name, source_type));
+        }
+        // `getPropertiesOfType(contextual)` of a union
+        // (`getPropertiesOfUnionOrIntersectionType`): each apparent
+        // constituent's member that every constituent has as a property or
+        // through an applicable index signature (a read-partial member is
+        // left out); optional when any constituent's member is.
+        let mut tables = Vec::with_capacity(types.len());
+        for &t in &types {
+            let apparent = self.apparent_type(t);
+            tables.push((apparent, self.get_property_names_of_type(apparent)?));
+        }
+        let candidates = tables.first().map(|(_, names)| names.clone()).unwrap_or_default();
+        for name in candidates {
+            if written.contains(&name) || discriminators.iter().any(|(seen, _)| *seen == name) {
+                continue;
+            }
+            let mut common = true;
+            for (apparent, names) in &tables {
+                if names.contains(&name) {
+                    continue;
+                }
+                let key = self.store.intern_literal(
+                    TypeFlags::STRING_LITERAL,
+                    TypeData::StringLiteral(name.clone()),
+                    false,
+                );
+                if self.get_applicable_index_info(*apparent, key).is_none() {
+                    common = false;
+                    break;
+                }
+            }
+            if !common {
+                continue;
+            }
+            let optional = types.iter().any(|&t| self.union_member_is_optional(t, &name));
+            if optional && self.is_discriminant_property(contextual, &name)? {
+                discriminators.push((name, self.intrinsics.undefined));
+            }
+        }
+        let mut include: Vec<Include> = types
+            .iter()
+            .map(|&t| {
+                let flags = self.store.get(t).flags;
+                if flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER) {
+                    Include::False
+                } else {
+                    Include::True
+                }
+            })
+            .collect();
+        for (name, source) in &discriminators {
+            let sources = match &self.store.get(*source).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![*source],
+            };
+            let mut matched = false;
+            for (index, &t) in types.iter().enumerate() {
+                if include[index] == Include::False {
+                    continue;
+                }
+                let Some(target) = self.contextual_discriminant_member_type(t, name).ok()? else {
+                    continue;
+                };
+                let mut related = false;
+                for &s in &sources {
+                    match self.relate_ternary(s, target, crate::relater::Relation::Assignable) {
+                        crate::relater::Ternary::Related => {
+                            related = true;
+                            break;
+                        }
+                        crate::relater::Ternary::NotRelated => {}
+                        crate::relater::Ternary::Unknown => return None,
+                    }
+                }
+                if related {
+                    matched = true;
+                } else {
+                    include[index] = Include::Maybe;
+                }
+            }
+            for state in &mut include {
+                if *state == Include::Maybe {
+                    *state = if matched { Include::False } else { Include::True };
+                }
+            }
+        }
+        if include.contains(&Include::False) {
+            let filtered: Vec<TypeId> = types
+                .iter()
+                .zip(&include)
+                .filter(|(_, state)| **state == Include::True)
+                .map(|(&t, _)| t)
+                .collect();
+            if !filtered.is_empty() {
+                return Some(match filtered.as_slice() {
+                    [single] => *single,
+                    _ => self.get_union_type_unprinted(&filtered),
+                });
+            }
+        }
+        Some(contextual)
+    }
+
+    /// `getContextFreeTypeOfExpression` (`checker.go:7542`) for an
+    /// `isPossiblyDiscriminantValue` expression: the expression checked with
+    /// `any` pushed as its contextual type. Only a template expression reads
+    /// its context (`checkTemplateExpression`, `checker.go:7976`): a constant
+    /// evaluation gives the fresh string literal, otherwise `any` is no
+    /// template-literal context and the answer is `string`, unless the
+    /// template sits in a syntactic const context (`None`, a decline). Every
+    /// other form is the ordinary expression type.
+    fn context_free_discriminant_type(&mut self, expression: Expression<'_>) -> Option<TypeId> {
+        let mut inner = expression;
+        while let Expression::ParenthesizedExpression(parenthesized) = inner {
+            inner = parenthesized.expression?;
+        }
+        let Expression::TemplateExpression(template) = inner else {
+            return Some(self.check_expression(expression));
+        };
+        let id = template.node_id?;
+        if let Some(crate::enum_initializer::EnumConstant::String(value)) =
+            self.evaluate_constant(id, id)
+        {
+            return Some(self.store.intern_literal(
+                crate::flags::TypeFlags::STRING_LITERAL,
+                TypeData::StringLiteral(value),
+                true,
+            ));
+        }
+        if self.is_const_context(id) {
+            return None;
+        }
+        Some(self.intrinsics.string)
+    }
+
+    /// Whether the member `name` of union constituent `t` is optional
+    /// (`SymbolFlagsOptional` on the property `getPropertiesOfType` yields).
+    fn union_member_is_optional(&mut self, t: TypeId, name: &str) -> bool {
+        if let Some((properties, _)) = self.anonymous_properties.get(&t)
+            && let Some(property) = properties.iter().find(|property| property.name == name)
+        {
+            return property.optional;
+        }
+        self.get_property_of_type(t, name).is_some_and(|symbol| self.property_is_optional(symbol))
+    }
+
+    /// `getTypeOfPropertyOrIndexSignatureOfType` (`checker.go`): the member's
+    /// type, else the applicable index signature's value (with optionality,
+    /// `addOptionality(valueType, true, true)`), else nil (`Ok(None)`). `Err`
+    /// is an undecidable read.
+    fn contextual_discriminant_member_type(
+        &mut self,
+        t: TypeId,
+        name: &str,
+    ) -> Result<Option<TypeId>, ()> {
+        if let Some(member) = self.get_type_of_property_of_type(t, name) {
+            if member == self.intrinsics.error {
+                return Err(());
+            }
+            return Ok(Some(member));
+        }
+        let apparent = self.apparent_type(t);
+        if self
+            .store
+            .get(apparent)
+            .flags
+            .intersects(crate::flags::TypeFlags::NULLABLE | crate::flags::TypeFlags::VOID)
+        {
+            return Ok(None);
+        }
+        // getApplicableIndexInfoForName's key: the name's string-literal type.
+        let key = self.store.intern_literal(
+            crate::flags::TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral(name.to_owned()),
+            false,
+        );
+        Ok(self.get_applicable_index_info(apparent, key).map(|info| {
+            if self.strict_null_checks {
+                self.get_optional_type(info.value, true)
+            } else {
+                info.value
+            }
+        }))
     }
 
     /// `getAnnotatedAccessorType(getDeclarationOfKind(symbol, SetAccessor))`
@@ -3333,6 +3660,15 @@ impl<'a> Checker<'a, '_> {
 /// a binding pattern.
 fn is_this_parameter(parameter: &ParameterDeclaration<'_>) -> bool {
     matches!(parameter.name, Some(BindingName::Identifier(name)) if name.text == "this")
+}
+
+/// `discriminateTypeByDiscriminableItems`' per-constituent state
+/// (`Ternary` False/True/Maybe in `relater.go:1212`).
+#[derive(Clone, Copy, PartialEq)]
+enum Include {
+    False,
+    True,
+    Maybe,
 }
 
 /// `isPossiblyDiscriminantValue` (`checker.go`): the initializer forms
