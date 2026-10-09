@@ -881,6 +881,16 @@ impl Checker<'_, '_> {
                 // JS positions excluded — unchecked-JS misses answer
                 // differently upstream (spellingUncheckedJS's 7 R→W).
                 self.intrinsics.any
+            } else if let Some(access) = node_id
+                && !self.in_js_file(access)
+                && self.property_access_receiver_is_complete(access, receiver_type, key)
+            {
+                // `checkPropertyAccessExpressionOrQualifiedName`'s `prop ==
+                // nil` exit (`checker.go:11353-11369`): the miss is reported
+                // and answers `errorType`. ADR-0048: only where the receiver
+                // is complete, which the native identity probe confirmed on
+                // every moved line (`docs/parity/notes/r6-errorsplit2.md` §3).
+                self.intrinsics.native_error
             } else {
                 error
             }
