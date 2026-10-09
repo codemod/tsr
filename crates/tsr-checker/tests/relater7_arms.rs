@@ -121,3 +121,27 @@ const c: C = new F(); // error
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn variadic_tuple_elements_relate_by_their_flags() {
+    let source = r#"function f<T extends unknown[], U extends unknown[]>(a: [...T, ...U], b: [string, ...T], c: [...T, number], d: [...T, ...string[]], e: string[], g: [...T]) {
+  const x1: [...T, ...U] = a;
+  const x2: [string, ...T] = b;
+  const x3: [...T, number] = c;
+  const x4: [...T, ...string[]] = d;
+  const x5: [...T, ...string[]] = e; // error
+  const x6: [...T, ...unknown[]] = g;
+  const x7: [string, ...T] = c; // error
+  const x8: [...T, number] = b; // error
+  const x9: unknown[] = a;
+  const x10: [...T, ...unknown[]] = c;
+  const x11: [...T, ...U] = [] as any[]; // error
+}
+class I<SS extends string> {
+  f() {
+    let w: [...args: { [S in SS]: [a: number] }[SS]] = [1];
+  }
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}

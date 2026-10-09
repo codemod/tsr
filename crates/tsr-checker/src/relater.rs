@@ -1282,6 +1282,16 @@ impl Relater<'_, '_, '_> {
         if simplified_source != source || simplified_target != target {
             return self.is_related_to_with_flags(simplified_source, simplified_target, flags);
         }
+        // getNormalizedType's getNormalizedTupleType (checker.go:28073): a
+        // generic tuple's simplifiable elements are simplified (reading on
+        // the source side, writing on the target side) and the tuple is
+        // normalized again, so `[...{ [S in K]: [a: number] }[K]]` relates
+        // as `[a: number]` (`genericTupleWithSimplifiableElements`).
+        let normalized_source = self.normalized_tuple(source, false);
+        let normalized_target = self.normalized_tuple(target, true);
+        if normalized_source != source || normalized_target != target {
+            return self.is_related_to_with_flags(normalized_source, normalized_target, flags);
+        }
         // getNormalizedType reduces source intersections before the simple
         // relation (relater.go:2625, checker.go:28041). Apparent constituents
         // expose generic constraints to the existing whole-never certification;
@@ -5532,13 +5542,26 @@ impl Relater<'_, '_, '_> {
         if source_readonly && !target_readonly {
             return Some(RelationResult::NotRelated);
         }
-        if source_elements.iter().chain(&target_elements).any(|element| {
-            element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
-        }) {
-            return Some(RelationResult::Unknown);
-        }
-        let source_rest = source_elements.iter().any(|element| element.spread);
-        let target_rest = target_elements.iter().any(|element| element.spread);
+        // propertiesRelatedTo's tuple arm (relater.go:4105-4227) reads each
+        // element's flags: a spread of an array is `Rest`, a spread of a
+        // generic type is `Variadic`, and both are `Variable`. A source
+        // array is one `Rest` element. `minLength` counts the required
+        // elements; `sourceRest` is `combinedFlags & Rest`, so a variadic
+        // source element alone does not make the source open-ended.
+        let is_rest = |checker: &mut Checker<'_, '_>, element: &crate::tuples::TupleElement| {
+            element.spread && checker.tuple_spread_array_element(element.r#type).is_some()
+        };
+        let source_flags: Vec<(bool, bool)> = source_elements
+            .iter()
+            .map(|element| (element.spread, is_rest(self.checker, element)))
+            .collect();
+        let target_flags: Vec<(bool, bool)> = target_elements
+            .iter()
+            .map(|element| (element.spread, is_rest(self.checker, element)))
+            .collect();
+        let source_rest = source_flags.iter().any(|&(_, rest)| rest);
+        let target_rest = target_flags.iter().any(|&(_, rest)| rest);
+        let target_variable = target_flags.iter().any(|&(spread, _)| spread);
         let source_min =
             source_elements.iter().filter(|element| !element.optional && !element.spread).count();
         let target_min =
@@ -5546,13 +5569,15 @@ impl Relater<'_, '_, '_> {
         let source_arity = source_elements.len();
         let target_arity = target_elements.len();
         if (!source_rest && source_arity < target_min)
-            || (!target_rest && target_arity < source_min)
-            || (!target_rest && (source_rest || target_arity < source_arity))
+            || (!target_variable && target_arity < source_min)
+            || (!target_variable && (source_rest || target_arity < source_arity))
         {
             return Some(RelationResult::NotRelated);
         }
-        let target_start = target_elements.iter().take_while(|element| !element.spread).count();
-        let target_end = target_elements.iter().rev().take_while(|element| !element.spread).count();
+        // getStartElementCount / getEndElementCount with `NonRest`: a
+        // variadic element counts toward the fixed ends.
+        let target_start = target_flags.iter().take_while(|&&(_, rest)| !rest).count();
+        let target_end = target_flags.iter().rev().take_while(|&&(_, rest)| !rest).count();
         let mut parts = Vec::with_capacity(source_arity);
         for (position, element) in source_elements.iter().enumerate() {
             let from_end = source_arity - 1 - position;
@@ -5564,13 +5589,22 @@ impl Relater<'_, '_, '_> {
             let Some(target_element) = target_elements.get(target_position) else {
                 return Some(RelationResult::NotRelated);
             };
-            if !target_element.optional
-                && !target_element.spread
-                && (element.optional || element.spread)
+            let (source_spread, source_is_rest) = source_flags[position];
+            let (target_spread, target_is_rest) = target_flags[target_position];
+            let source_variadic = source_spread && !source_is_rest;
+            let target_variadic = target_spread && !target_is_rest;
+            // A variadic target element accepts only a variadic source
+            // element; a variadic source element needs a variable target
+            // element; a required target element needs a required source.
+            if (target_variadic && !source_variadic)
+                || (source_variadic && !target_spread)
+                || (!target_element.optional
+                    && !target_element.spread
+                    && (element.optional || element.spread))
             {
                 return Some(RelationResult::NotRelated);
             }
-            let mut source_type = if element.spread {
+            let mut source_type = if source_is_rest {
                 self.checker.tuple_spread_array_element(element.r#type)?
             } else {
                 element.r#type
@@ -5586,8 +5620,17 @@ impl Relater<'_, '_, '_> {
                 };
                 source_type = self.checker.get_union_type_unprinted(&[source_type, marker]);
             }
-            let mut target_type = if target_element.spread {
-                self.checker.tuple_spread_array_element(target_element.r#type)?
+            let mut target_type = if target_is_rest {
+                let element_type =
+                    self.checker.tuple_spread_array_element(target_element.r#type)?;
+                if source_variadic {
+                    // `createArrayType(targetType)` for a variadic source
+                    // against a rest target (relater.go:4199).
+                    let array = self.checker.global_type_symbol("Array")?;
+                    self.checker.create_type_reference(array, vec![element_type])
+                } else {
+                    element_type
+                }
             } else if target_element.optional
                 && self.checker.strict_null_checks
                 && !self.checker.exact_optional_property_types
@@ -5766,6 +5809,41 @@ impl Relater<'_, '_, '_> {
         self.checker
             .tuple_target_properties(source)
             .is_some_and(|properties| !properties.iter().any(|(property, _)| property == name))
+    }
+
+    /// getNormalizedTupleType (checker.go:28073) for a generic tuple: each
+    /// element whose type is an indexed access is simplified, and a changed
+    /// element list is renormalized (`createNormalizedTupleType`, which
+    /// flattens a spread that became a tuple or array). Any other type is
+    /// returned unchanged.
+    fn normalized_tuple(&mut self, id: TypeId, writing: bool) -> TypeId {
+        let Some((elements, _)) = self.checker.variadic_tuple_elements.get(&id) else {
+            return id;
+        };
+        // Only an indexed-access element can simplify; test that on the
+        // borrowed list before cloning anything.
+        if !elements.iter().any(|element| {
+            self.checker.type_of(element.r#type).flags.contains(TypeFlags::INDEXED_ACCESS)
+        }) || !self.checker.is_generic_tuple_type(id)
+        {
+            return id;
+        }
+        let (mut elements, readonly) = self.checker.variadic_tuple_elements[&id].clone();
+        let mut changed = false;
+        for element in &mut elements {
+            if self.checker.type_of(element.r#type).flags.contains(TypeFlags::INDEXED_ACCESS) {
+                let simplified = self.simplified_indexed_access(element.r#type, writing);
+                if simplified != element.r#type {
+                    element.r#type = simplified;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return id;
+        }
+        let normalized = self.checker.normalize_variadic_tuple(elements, readonly);
+        if self.checker.is_error(normalized) { id } else { normalized }
     }
 
     fn tuple_relation_elements(

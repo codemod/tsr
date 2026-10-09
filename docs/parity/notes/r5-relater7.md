@@ -155,3 +155,51 @@ NotRelated there.
 declares a required private, protected or `#` property.
 
 Test: `tests/relater7_arms.rs` `only_the_target_class_privacy_is_nominal`.
+
+## 5. Variadic tuple elements, and `getNormalizedTupleType`
+
+**Forcing constraint.** `propertiesRelatedTo`'s tuple arm (relater.go:4105-4227)
+reads each element's flags. A spread of an array is `Rest`, a spread of a
+generic type is `Variadic`, and both are `Variable`. Per source position: a
+variadic target element accepts only a variadic source element, a variadic
+source element needs a variable target element, and a required target element
+needs a required source element. `sourceRest` is `combinedFlags & Rest` (a
+variadic element alone does not open the source), and the fixed ends count
+`NonRest` elements, variadic ones included. The port declined (`Unknown`) any
+tuple pair with a generic spread on either side, so `any[] -> [...T, ...P]`
+and `[any, any] -> [...T, ...P]` were silent (`variadicTuples3` 5, 10, 15).
+
+**Ported** (`tuples_related_to`): the element flags and the three position
+rules above. A variadic source against a rest target relates to
+`createArrayType` of the rest's element type (relater.go:4199).
+
+**The loss this exposed, and its fix.** Deciding those pairs first lost
+`genericTupleWithSimplifiableElements` (EMPTY_RIGHT → EMPTY_WRONG, 11:13 and
+13:13): `[1] -> [...args: { [S in SS]: [a: number] }[SS]]` became NotRelated,
+the required source element meeting a variadic target. Native never sees that
+target: `getNormalizedType` applies `getNormalizedTupleType` (checker.go:28073)
+to a generic tuple, simplifying each simplifiable element (writing on the
+target side) and renormalizing with `createNormalizedTupleType`, so the target
+relates as `[a: number]`. Ported as `Relater::normalized_tuple`, in the gate
+right after the indexed-access simplification: an indexed-access element is
+simplified with `simplified_indexed_access`, and a changed list goes through
+the port's `normalize_variadic_tuple` (TupleNormalizer). A conditional element
+is not simplified (the port's `simplified_conditional` is reached only from
+the conditional arms); stated divergence, no case asks for it.
+
+**Measured** against §4's commit, both loss checks (vs §0) empty:
+- diagnostics: `variadicTuples3` WRONG → RIGHT; nothing else moves;
+- types unchanged;
+- `Ir`: generic-imports 342,991,541 → 342,969,719 (−0.006%); domain-model
+  1,200,094,867 → 1,200,168,204 (+0.006%). CLI output identical. The first
+  version tested `is_generic_tuple_type` (which clones the element list) for
+  every tuple pair: domain-model +0.063%. The borrowed indexed-access test
+  runs first now.
+
+Cross-checked against a native tsgo built from the pinned submodule on twelve
+variadic shapes (`tests/relater7_arms.rs`
+`variadic_tuple_elements_relate_by_their_flags`): identical reports.
+
+**Falsifier.** A generic tuple pair where native's normalized element list
+differs from `normalize_variadic_tuple`'s (a union spread distributing into a
+union of tuples is the likeliest).
