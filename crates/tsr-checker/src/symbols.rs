@@ -6318,11 +6318,15 @@ impl<'a> Checker<'a, '_> {
         // compute keeps the gap.
         if self.nodes.kind(declaration) == SyntaxKind::Parameter
             && self.type_annotation_of(declaration).is_none()
-            // NOT in JS: a JS setter's parameter reads JSDoc/contextual
-            // machinery this arm does not model, and the ungated draft broke
-            // a PASSING case (`declarationEmitClassAccessorsJs1`, 4 R->W all
-            // in .js files) — the revert rule, honoured by the gate.
-            && !self.in_js_file(declaration)
+            // In JS the reparsed `@param` (or a parameter `@type`) IS the
+            // annotation: native's arm sits after
+            // `tryGetTypeFromEffectiveTypeNode` (`checker.go:16719`), so a
+            // documented setter parameter keeps its tag
+            // (`declarationEmitClassAccessorsJs1`) and an undocumented one
+            // reads the getter (`accessorDeclarationEmitJs`). r5-js §3.1.
+            && (!self.in_js_file(declaration)
+                || (self.jsdoc_parameter_annotation(declaration).is_none()
+                    && self.jsdoc_type_annotation(declaration).is_none()))
             && let Some(setter) = self.nodes.parent(declaration)
             && self.nodes.kind(setter) == SyntaxKind::SetAccessor
             && let Some(symbol) = self.binder.symbol_of(setter)
