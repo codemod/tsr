@@ -598,3 +598,19 @@ value `export { x }` pins `x`'s last assignment at `MaxInt32`, so a module
 (`narrowingPastLastAssignmentInModule`): `x4` (exported by `export default`)
 and `x5` narrow to `string` inside the arrow, `x1`–`x3` stay
 `string | number` in both.
+
+## 29. `getAssignedType`'s destructuring arms
+
+Pinned `flow.go:2288-2395`: an assignment flow node whose target sits in an
+array literal, spread, property assignment or shorthand property assignment
+projects the assigned type of the enclosing pattern
+(`getTypeOfDestructuredArrayElement`, `…SpreadExpression`, `…Property`), and
+`getAssignedTypeOfBinaryExpression` applies `getTypeWithDefault` when the
+`=` is a default inside a destructuring target (`[x = ""] = [1]`). TSR
+answered the declared type for every pattern target and the default alone for
+`[x = d]`. The binding-element initial-type arm (§19) now shares the same
+projection helpers. No cache; recursion follows the pattern's parent chain.
+Native control: `[x] = [true]` → `true`, `[x = ""] = [1]` → `string | number`,
+`({y: x = /a/} = {y: 1})` → `number | RegExp` in both. Gained EXACT:
+`controlFlowAssignmentPatternOrder`; `assignmentTypeNarrowing` and `for-of45`
+lines converge.

@@ -2532,8 +2532,8 @@ impl Checker<'_, '_> {
                 }
                 let right = binary.right?;
                 let holder = self.nodes.parent(parent);
-                let is_destructuring_default = holder.is_some_and(|holder| {
-                    match self.nodes.kind(holder) {
+                let is_destructuring_default =
+                    holder.is_some_and(|holder| match self.nodes.kind(holder) {
                         SyntaxKind::ArrayLiteralExpression => {
                             self.is_destructuring_assignment_target(holder)
                         }
@@ -2542,8 +2542,7 @@ impl Checker<'_, '_> {
                             .parent(holder)
                             .is_some_and(|object| self.is_destructuring_assignment_target(object)),
                         _ => false,
-                    }
-                });
+                    });
                 if is_destructuring_default {
                     let assigned = self.get_assigned_type(parent)?;
                     return Some(self.get_type_with_default(assigned, Some(right)));
@@ -2592,10 +2591,11 @@ impl Checker<'_, '_> {
                 binary.left.and_then(|left| Node::from(left).node_id()) == Some(node)
             }
             Some(Node::ForInOrOfStatement(statement)) => {
-                self.nodes.parent(node).is_some_and(|parent| {
-                    self.nodes.kind(parent) == SyntaxKind::ForOfStatement
-                }) && statement.initializer.and_then(|init| Node::from(init).node_id())
-                    == Some(node)
+                self.nodes
+                    .parent(node)
+                    .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ForOfStatement)
+                    && statement.initializer.and_then(|init| Node::from(init).node_id())
+                        == Some(node)
             }
             _ => false,
         }
@@ -2618,8 +2618,11 @@ impl Checker<'_, '_> {
         if let Some(property) = self.get_type_of_property_of_type(t, &key) {
             return Some(property);
         }
-        let key_type =
-            self.store.intern_literal(TypeFlags::STRING_LITERAL, TypeData::StringLiteral(key), false);
+        let key_type = self.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            TypeData::StringLiteral(key),
+            false,
+        );
         let info = self.get_applicable_index_info(t, key_type)?;
         Some(self.include_undefined_in_index_signature(info.value))
     }
