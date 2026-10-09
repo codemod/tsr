@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8293/9538 (86.95%)
-Assertion lines: 471735/478855 (98.51%)  — a gradient, not a pass rate
-Failed         : 1245
+Passed         : 8312/9538 (87.15%)
+Assertion lines: 471794/478855 (98.53%)  — a gradient, not a pass rate
+Failed         : 1226
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1245 failures:
+First 100 of 1226 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -45,8 +45,6 @@ compiler/amdLikeInputDeclarationEmit
   ExtendedClass.js: >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: any) => any — expected >(BaseClass) => {            const ExtendedClass = BaseClass.extends({        f: function() {            return "something";        }    });    // Exports the module in a way tsc recognize class export     const module = {};    module.exports = ExtendedClass    return module.exports;} : (BaseClass: typeof import("deps/BaseClass")) => any
 compiler/anonClassDeclarationEmitIsAnon
   wrapClass.ts: >Timestamped : <TBase extends Constructor>(Base: TBase) => any — expected >Timestamped : <TBase extends Constructor>(Base: TBase) => { new (...args: any[]): (Anonymous class); prototype: Timestamped.(Anonymous class); } & TBase
-compiler/arrayDestructuringInSwitch2
-  arrayDestructuringInSwitch2.ts: >n : any — expected >n : never
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   arrayFakeFlatNoCrashInferenceDeclarations.ts: >BadFlatArray : BadFlatArray<Arr, Depth> — expected >BadFlatArray : { done: Arr; recur: Arr extends ReadonlyArray<infer InnerArr> ? BadFlatArray<InnerArr, [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20][Depth]> : Arr; }[Depth extends -1 ? "done" : "recur"]
 compiler/arrayFlatMap
@@ -213,3 +211,5 @@ compiler/constEnums
   constEnums.ts: >e : I — expected >e : I.V2 | I.V3 | I.V4
 compiler/constraintWithIndexedAccess
   constraintWithIndexedAccess.ts: >allAreFunctionsAsExpected : TypeHardcodedAsParameterWithoutReturnType<"Boat", "description" | "displacement" | "maxGroundSpeed" | "name" | "requiresLicense"> — expected >allAreFunctionsAsExpected : allAreFunctionsAsExpected
+compiler/contextualOuterTypeParameters
+  contextualOuterTypeParameters.ts: >t => {    type isArray = (typeof t)[] extends string[] ? true : false;    type IsObject = { x: typeof t } extends { x: string } ? true : false;} : error — expected >t => {    type isArray = (typeof t)[] extends string[] ? true : false;    type IsObject = { x: typeof t } extends { x: string } ? true : false;} : <T>(t: T) => void

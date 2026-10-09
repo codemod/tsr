@@ -95,7 +95,7 @@ compiler/es6ImportNamedImportNoNamedExports(target=es2015)
 compiler/functionLikeInParameterInitializer(target=es2015)
   4 missing (first TS2304 at functionLikeInParameterInitializer.ts(2,34))
 compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)
-  4 unexpected (first TS2322 at functionsMissingReturnStatementsAndExpressions.ts(111,7)), 5 missing
+  5 missing (first TS2355 at functionsMissingReturnStatementsAndExpressions.ts(1,16))
 compiler/functionsWithImplicitReturnTypeAssignableToUndefined(strictnullchecks=true)
   1 missing (first TS2366 at functionsWithImplicitReturnTypeAssignableToUndefined.ts(28,16))
 compiler/implicitAnyFromCircularInference(target=es2015)
