@@ -2160,11 +2160,204 @@ impl<'a> Checker<'a, '_> {
     /// signatures. That is why the grouping happens here, where the member kind
     /// is known, and not in the shared renderer.
     pub(crate) fn type_literal_key(&self, node: tsr_ast::NodeId) -> TypeLiteralKey {
-        TypeLiteralKey {
-            node,
-            bindings: self.flattened_alias_bindings(),
-            mapped_template: self.mapped_template_depth > 0,
+        let mut bindings = self.flattened_alias_bindings();
+        // getObjectTypeInstantiation (checker.go:22304-22349): an anonymous
+        // type's instance is keyed on the outer type parameters the
+        // declaration possibly references, so a literal that names none of
+        // the open bindings is the uninstantiated literal itself
+        // (`r6-declared.md` §1).
+        if !bindings.is_empty() && self.instantiation_keys_on_referenced_parameters(node) {
+            bindings
+                .retain(|&(symbol, _)| self.is_type_parameter_possibly_referenced(symbol, node));
         }
+        TypeLiteralKey { node, bindings, mapped_template: self.mapped_template_depth > 0 }
+    }
+
+    /// Whether getObjectTypeInstantiation (checker.go:22332-22343) narrows
+    /// `node`'s instantiation key to the possibly referenced type parameters:
+    /// its symbol is a `Method` or `TypeLiteral` (a type literal, a mapped
+    /// type, a function or constructor type node, a method) and the type
+    /// carries no alias type arguments, i.e. it is not the right-hand side of
+    /// a generic type alias (getAliasSymbolForTypeNode's host walk).
+    fn instantiation_keys_on_referenced_parameters(&self, node: NodeId) -> bool {
+        let filtered = matches!(
+            self.nodes.kind(node),
+            SyntaxKind::TypeLiteral
+                | SyntaxKind::JSDocTypeLiteral
+                | SyntaxKind::MappedType
+                | SyntaxKind::FunctionType
+                | SyntaxKind::ConstructorType
+                | SyntaxKind::MethodSignature
+                | SyntaxKind::MethodDeclaration
+        );
+        if !filtered {
+            return false;
+        }
+        match self.type_alias_host_for_type_node(node).and_then(|host| self.binder.symbol_of(host))
+        {
+            Some(alias) => self.local_type_parameters_of(alias).is_empty(),
+            None => true,
+        }
+    }
+
+    /// Ported from `Checker.isTypeParameterPossiblyReferenced`
+    /// (checker.go:22403), for the type-parameter symbol an alias-evaluation
+    /// frame binds. Memoized per `(node, symbol)` in
+    /// `InstantiationExpressionLinks::possibly_referenced`, as native stores
+    /// the filtered list once in `typeNodeLinks.outerTypeParameters`.
+    ///
+    /// A bound symbol that is not a type parameter (no frame binds one today)
+    /// answers `true`, the unfiltered key: native's `this`-type arm has no
+    /// counterpart in the frames.
+    pub(crate) fn is_type_parameter_possibly_referenced(
+        &self,
+        symbol: SymbolId,
+        node: NodeId,
+    ) -> bool {
+        let key = (node, symbol);
+        if let Some(&answer) = self.instantiation_expressions.possibly_referenced.borrow().get(&key)
+        {
+            return answer;
+        }
+        let answer = self.compute_type_parameter_possibly_referenced(symbol, node);
+        self.instantiation_expressions.possibly_referenced.borrow_mut().insert(key, answer);
+        answer
+    }
+
+    fn compute_type_parameter_possibly_referenced(&self, symbol: SymbolId, node: NodeId) -> bool {
+        let entry = self.binder.symbols().get(symbol);
+        if !entry.flags.contains(SymbolFlags::TYPE_PARAMETER) || entry.declarations.len() != 1 {
+            return true;
+        }
+        let declaration = entry.declarations[0];
+        let Some(container) = self.nodes.parent(declaration) else { return true };
+        // An intervening block, or a conditional whose `extends` clause names
+        // the parameter, makes it possibly referenced; so does a node outside
+        // the parameter's scope (`n == nil`).
+        let mut current = Some(node);
+        while current != Some(container) {
+            let Some(n) = current else { return true };
+            match self.node_map.get(n) {
+                Some(Node::Block(_)) => return true,
+                Some(Node::ConditionalTypeNode(conditional)) => {
+                    if let Some(extends) = conditional.extends_type.and_then(|t| t.node_id())
+                        && self.contains_type_parameter_reference(symbol, declaration, extends)
+                    {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+            current = self.nodes.parent(n);
+        }
+        self.contains_type_parameter_reference(symbol, declaration, node)
+    }
+
+    /// `containsReference`, the closure inside isTypeParameterPossiblyReferenced
+    /// (checker.go:22405-22441), for a non-`this` type parameter.
+    fn contains_type_parameter_reference(
+        &self,
+        symbol: SymbolId,
+        declaration: NodeId,
+        node: NodeId,
+    ) -> bool {
+        let name = self.binder.symbols().get(symbol).name;
+        let mut stack = vec![node];
+        while let Some(current) = stack.pop() {
+            let Some(typed) = self.node_map.get(current) else { continue };
+            match typed {
+                // `tp.isThisType`, false for every parameter reaching here.
+                Node::ThisTypeNode(_) => continue,
+                // getSymbolFromTypeReference: only a bare identifier can name a
+                // type parameter, so its text gates the resolution.
+                Node::TypeReferenceNode(reference) => {
+                    if reference.type_arguments.is_empty()
+                        && let Some(tsr_ast::EntityName::Identifier(identifier)) =
+                            reference.type_name
+                        && identifier.text == name
+                        && let Some(id) = identifier.node_id
+                        && self.binder.resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            id,
+                            name,
+                            SymbolFlags::TYPE,
+                        ) == Some(symbol)
+                    {
+                        return true;
+                    }
+                }
+                Node::TypeQueryNode(query) => {
+                    let mut first = query.expr_name;
+                    while let Some(tsr_ast::EntityName::QualifiedName(qualified)) = first {
+                        first = qualified.left;
+                    }
+                    let Some(tsr_ast::EntityName::Identifier(identifier)) = first else {
+                        return true;
+                    };
+                    if identifier.text == "this" {
+                        return true;
+                    }
+                    let Some(id) = identifier.node_id else { return true };
+                    // getResolvedSymbol: the unknown symbol has no declarations.
+                    let resolved = self.binder.resolve_name(
+                        self.nodes,
+                        self.node_map,
+                        id,
+                        identifier.text,
+                        SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+                    );
+                    if self.nodes.kind(declaration) == SyntaxKind::TypeParameter {
+                        let scope = self.nodes.parent(declaration);
+                        if let Some(resolved) = resolved
+                            && scope.is_some_and(|scope| {
+                                self.binder
+                                    .symbols()
+                                    .get(resolved)
+                                    .declarations
+                                    .iter()
+                                    .any(|&d| self.is_node_descendant_of_declared(d, scope))
+                            })
+                        {
+                            return true;
+                        }
+                        stack.extend(query.type_arguments.iter().filter_map(TypeNode::node_id));
+                        continue;
+                    }
+                    return true;
+                }
+                Node::MethodDeclaration(method) => {
+                    if method.r#type.is_none() && method.body.is_some() {
+                        return true;
+                    }
+                    stack.extend(method.type_parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.r#type.and_then(|t| t.node_id()));
+                    continue;
+                }
+                Node::MethodSignatureDeclaration(method) => {
+                    stack.extend(method.type_parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.parameters.iter().filter_map(|p| p.node_id));
+                    stack.extend(method.r#type.and_then(|t| t.node_id()));
+                    continue;
+                }
+                _ => {}
+            }
+            tsr_ast::for_each_child_id(typed, |child| stack.push(child));
+        }
+        false
+    }
+
+    /// `isNodeDescendantOf` (utilities.go): `node` is `ancestor` or lies below it.
+    fn is_node_descendant_of_declared(&self, node: NodeId, ancestor: NodeId) -> bool {
+        let mut current = Some(node);
+        while let Some(n) = current {
+            if n == ancestor {
+                return true;
+            }
+            current = self.nodes.parent(n);
+        }
+        false
     }
 
     /// The open alias-evaluation frames as one environment, sorted by symbol:
@@ -2227,7 +2420,21 @@ impl<'a> Checker<'a, '_> {
         let reserved =
             self.store.new_named(TypeFlags::OBJECT, text, self.binder.symbol_of(node_id));
         self.type_literal_types.insert(key.clone(), reserved);
+        // getObjectTypeInstantiation's instance resolves its members under
+        // the mapper of the parameters it keys on; with none it is the
+        // declared literal, resolved with no mapper. Build under exactly the
+        // key's bindings, so an unreferenced open frame cannot reach the
+        // members (`r6-declared.md` §1).
+        let narrowed = key.bindings.len() != self.flattened_alias_bindings().len();
+        let saved = narrowed.then(|| {
+            let frame: rustc_hash::FxHashMap<_, _> = key.bindings.iter().copied().collect();
+            let frames = if frame.is_empty() { Vec::new() } else { vec![frame] };
+            std::mem::replace(&mut self.alias_evaluation_bindings, frames)
+        });
         let resolved = self.build_type_literal(node);
+        if let Some(saved) = saved {
+            self.alias_evaluation_bindings = saved;
+        }
         if resolved == self.intrinsics.error {
             self.type_literal_types.insert(key, resolved);
             return resolved;

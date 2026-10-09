@@ -68,6 +68,16 @@ pub(crate) struct InstantiationExpressionLinks {
     types: rustc_hash::FxHashMap<InstantiationExpressionKey, Option<TypeId>>,
     /// Reports parked by a computation, drained once by the walk's visit.
     reports: rustc_hash::FxHashMap<NodeId, Vec<(NodeId, Diagnostic)>>,
+    /// `isTypeParameterPossiblyReferenced(tp, node)` (checker.go:22403),
+    /// keyed `(declaration node, type-parameter symbol)`: the filter
+    /// getObjectTypeInstantiation applies once per declaration and stores in
+    /// `typeNodeLinks.outerTypeParameters`. Held here, in a links struct the
+    /// declared lane owns, because `Checker`'s field list is main's; read by
+    /// `Checker::type_literal_key` (declared.rs), which takes `&self`, hence
+    /// the cell. Pure syntax plus name resolution: written once per key,
+    /// never invalidated (`r6-declared.md` §1).
+    pub(crate) possibly_referenced:
+        std::cell::RefCell<rustc_hash::FxHashMap<(NodeId, tsr_binder::SymbolId), bool>>,
 }
 
 /// `InstantiationExpressionKey{nodeId, typeId}` plus the open alias frames
