@@ -214,3 +214,50 @@ for `symbol_chain`'s file-module arm to cover nested directories (main,
 `tsr-2zk.39`); with that, the same one-line change should convert the
 written-text rows of `nodeModules{,ImportAttributes}TypeModeDeclarationEmit*`
 (3 lines × 4 configurations each) and `declarationEmitUsingTypeAlias1`.
+
+## 5. `tsr-2zk.1060`: JSON files and `import()` of an `export =` module
+
+### 5.1 JSON files are JavaScript files (committed)
+
+tsgo's parser gives a `ScriptKindJSON` file `NodeFlagsJavaScriptFile |
+NodeFlagsJsonFile` (`internal/parser/parser.go:306`), so `ast.IsInJSFile` is
+true inside a JSON file. This port's two parse sites (`loader.rs`'s
+`load_task` and `Program::in_arena` in `lib.rs`) stamped
+`JAVASCRIPT_FILE` from the `.js`-family extensions only; the JSON parser
+(`tsr-parser/src/json.rs`) stamps `JSON_FILE` itself. Both sites now add
+`JAVASCRIPT_FILE` to a root the JSON parser stamped, which is the
+`ScriptKindJSON` test rather than a second reading of the extension.
+`tests/module_host.rs` pins both sites.
+
+Measured: **inert** on both dumps (unfiltered, against commit 3), as
+r5-modexports §5 predicted: a JSON module binds `export =`, so
+`canHaveSyntheticDefault`'s TypeScript and JavaScript arms agree, and no
+corpus JSON file has an `"__esModule"` key. Landed anyway: it is the
+upstream flag, and the falsifier is a JSON file with `"__esModule"`.
+Perf: median child CPU (21 samples) domain-model 1.027, generic-imports
+1.005; Ir 342,875,228 / 1,195,112,994 (−0.006% / −0.085% against the
+baseline). One flag read per parsed file.
+
+### 5.2 `import()` of an `export =` module (diff)
+
+`checkImportCallExpression` (`checker.go:8305`-`:8310`) types the call as
+`Promise<getTypeWithSyntheticDefaultImportType(getTypeOfSymbol(esModuleSymbol), …)>`
+with `esModuleSymbol = resolveExternalModuleSymbol(moduleSymbol)`. For an
+`export =` module that is the *target's* type. The port's `import()` mint
+(`calls.rs`) stands for the module symbol's own type, so r5-modexports §3
+skipped `getTypeWithSyntheticDefaultImportType` for such modules.
+
+`r5-modules2-import-call-export-equals.diff` adds
+`Checker::import_call_module_type` (`module_exports.rs`): the mint for a
+module without `export =`, else `get_type_of_symbol(es_module)`, then the
+synthetic-default import type. The `calls.rs` call site replaces the
+decline with it. Both halves ship as one diff because the function's only
+caller is in `calls.rs` (main's); committed alone it would be dead code.
+
+Measured on commit 4 (unfiltered): **types +19 lines** (18 WRONG → RIGHT,
+1 GAP → RIGHT), **diagnostics +1 case** (`esModuleInteropImportCall`
+EMPTY_WRONG → EMPTY_RIGHT), zero losses. Converted:
+`esModuleInteropImportCall` 8, `modulePreserve4` 7,
+`importCallExpressionInExportEqualsCJS` 3, `errorForConflictingExportEqualsValue` 1.
+It applies independently of `r5-modules2-import-call-specifier.diff`
+(different hunks of the same function).

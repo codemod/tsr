@@ -266,3 +266,34 @@ fn absent_and_legacy_hosts_do_not_supply_source_text() {
         None
     );
 }
+
+/// `ScriptKindJSON` parses with `NodeFlagsJavaScriptFile | NodeFlagsJsonFile`
+/// (`parser.go:306`): a JSON file is `IsInJSFile` upstream. Both parse sites
+/// stamp the root (r5-modules2 §5, bd tsr-2zk.1060).
+#[test]
+fn a_json_file_is_stamped_as_a_javascript_and_json_file() {
+    let arena = tsr_core::Arena::new();
+    let program = Program::in_arena(
+        &arena,
+        ProgramOptions {
+            files: vec![
+                ("/data.json".to_string(), "{ \"a\": 1 }".to_string()),
+                ("/a.ts".to_string(), "export const a = 1;\n".to_string()),
+            ],
+            ..Default::default()
+        },
+    );
+    let flags = |name: &str| program.nodes().flags(file_id(&program, name));
+    let json = tsr_ast::NodeFlags::JSON_FILE | tsr_ast::NodeFlags::JAVASCRIPT_FILE;
+    assert!(flags("/data.json").contains(json));
+    assert!(!flags("/a.ts").intersects(json));
+
+    let arena = tsr_core::Arena::new();
+    let program = Program::from_root_files(
+        &arena,
+        &host(&[("/data.json", "{ \"a\": 1 }")]),
+        LoadOptions { root_file_names: vec!["/data.json".to_string()], ..Default::default() },
+    );
+    let root = file_id(&program, "/data.json");
+    assert!(program.nodes().flags(root).contains(json));
+}
