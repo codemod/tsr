@@ -7622,6 +7622,10 @@ impl<'a> Checker<'a, '_> {
                     out.push_str(" extends ");
                     if let Some(written) = &parameter.written_constraint {
                         out.push_str(written);
+                    } else if let Some(text) = parameter.resolved_type.and_then(|parameter| {
+                        self.reused_constraint_text(parameter, constraint, Some(reference))
+                    }) {
+                        out.push_str(&text);
                     } else {
                         let text = render(self, constraint);
                         out.push_str(&text);
@@ -7845,9 +7849,14 @@ impl<'a> Checker<'a, '_> {
                 out.push_str(&parameter.name);
                 if let Some(constraint) = parameter.constraint {
                     out.push_str(" extends ");
-                    match &parameter.written_constraint {
-                        Some(written) => out.push_str(written),
-                        None => out.push_str(&self.type_to_string(constraint)),
+                    if let Some(written) = &parameter.written_constraint {
+                        out.push_str(written);
+                    } else if let Some(text) = parameter.resolved_type.and_then(|parameter| {
+                        self.reused_constraint_text(parameter, constraint, None)
+                    }) {
+                        out.push_str(&text);
+                    } else {
+                        out.push_str(&self.type_to_string(constraint));
                     }
                 }
                 if let Some(default) = parameter.default {

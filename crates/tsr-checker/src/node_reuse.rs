@@ -246,6 +246,18 @@ fn text_precedence(text: &str) -> Precedence {
     }
 }
 
+/// `emitTypeNode(node, TypePrecedenceIntersection)` (`printer.go:2274`)
+/// parenthesises a constituent whose node binds below `Intersection`. A
+/// constituent's node kind is only available here as its printed text, so it
+/// is read by [`text_precedence`], the same reader the fallback print uses.
+/// A union's text is its ORIGIN's print when it has one: `keyof NameMap` is a
+/// `TypeOperator` node (getIndexType's `newIndexType` origin), an alias
+/// spelling a `TypeReference`, and an intersection origin an
+/// `IntersectionType`; none of those is parenthesised.
+pub(crate) fn binds_below_intersection(text: &str) -> bool {
+    text_precedence(text) < Precedence::Intersection
+}
+
 /// A string literal printed with its WRITTEN quote character — the clone keeps
 /// `TokenFlagsSingleQuote` (`nodecopy.go:811`), and the emitter's
 /// `getLiteralText` escapes for that quote.
@@ -495,6 +507,44 @@ impl<'a> Checker<'a, '_> {
         }
         let written = self.reuse_annotation(node, equivalent)?;
         Some(self.emit_from_annotation_scope(written, equivalent)?.0)
+    }
+
+    /// `typeToTypeNodeHelperWithPossibleReusableTypeNode(constraint,
+    /// getConstraintDeclaration(parameter))` (`nodebuilderimpl.go:1597`,
+    /// called by `typeParameterToDeclaration`, `:1615`): a type parameter's
+    /// constraint reuses the first written `extends` node of the parameter's
+    /// declarations (`getConstraintDeclaration`, `checker.go:29132`) when
+    /// `getTypeFromTypeNode` of that node is the constraint being printed.
+    /// An instantiated parameter's constraint is a different type, so it is
+    /// serialized fresh. Printed at `reference` when the printer has a site,
+    /// else from the annotation's own scope. `None` when the node is not the
+    /// constraint's or the visitor refuses it.
+    pub(crate) fn reused_constraint_text(
+        &mut self,
+        parameter: TypeId,
+        constraint: TypeId,
+        reference: Option<NodeId>,
+    ) -> Option<String> {
+        let symbol = *self.type_parameter_symbols.get(&parameter)?;
+        let node =
+            self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
+                match self.node_map.get(id)? {
+                    Node::TypeParameterDeclaration(declaration) => declaration.constraint,
+                    _ => None,
+                }
+            })?;
+        if self.get_type_from_type_node(node) != constraint {
+            return None;
+        }
+        let written = WrittenAnnotation {
+            node: Node::from(node).node_id()?,
+            r#type: constraint,
+            renamed: false,
+        };
+        match reference {
+            Some(reference) => self.written_annotation_text_at(written, constraint, reference),
+            None => self.site_free_annotation_text(written, constraint),
+        }
     }
 
     /// The reused annotation as printed at `reference`
