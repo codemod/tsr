@@ -8,19 +8,18 @@ measured diff (§9 lists them in apply order).
 
 ## 0. The frozen base
 
-Batch BQ (r6-jsx) had not landed on `claude/beautiful-shannon-ar5gh0` when
-this lane started, and every item here builds on r6-jsx's chooser. The base
-is therefore what BQ will land: main `5e4d21b` merged with r6-jsx's lane tip
-`8d5fa73` (the branch's first commit; the snapshot, `round5.md` and Beads
-conflicts were resolved to main's side, since the integrator regenerates
-them), with r6-jsx's two held diffs applied on top:
-`r6-jsx-tag-name-value-reference.diff` (D1, `check.rs`) and
-`r6-jsx-resolver-chooses-overloads.diff` (D2, `jsx_intrinsic.rs`). Every
-diff in §9 is against that tree.
+Batch BQ (r6-jsx) had not landed when this lane started, so §1 and §2 were
+first measured on what BQ would land: main `5e4d21b` merged with r6-jsx's
+lane tip `8d5fa73` plus its two held diffs (D1 `check.rs`, D2
+`jsx_intrinsic.rs`). BQ then landed (`2e26f22`, D1 and D2 included); the
+lane merged it and **re-froze there**, and §1–§2 were re-measured against
+`2e26f22` with the same transitions. Every number from here on, and every
+diff in §9, is against `2e26f22`.
 
 | | diagnostics RIGHT | EMPTY_RIGHT | type lines RIGHT |
 |---|---|---|---|
-| frozen base | 5621 | 5606 | 550,285 |
+| frozen base `2e26f22` | 5637 | 5606 | 550,360 |
+| §1–§2 | 5639 | 5606 | 550,368 |
 
 ## 1. Context-sensitive attributes over an overload set
 
