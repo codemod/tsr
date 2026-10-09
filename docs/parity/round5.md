@@ -1327,3 +1327,26 @@ Held:
 
 Dispatched: r6-typesroots took r6-nodereuse's slot (fourteen stale `.16.x`
 clusters, re-measured), and r6-smallcodes5 takes this one (`tsr-2zk.1134`).
+
+### r6-mapped finished (batch BD); r6-accessible dispatched
+
+Batch BD lands r6-mapped's two commits:
+- a generic mapped instance prints its mapped form (`.16.91`);
+- a mapped node under alias frames goes through instantiateMappedType's
+  sequence arms (`.16.100`).
+
+It also lands two diffs:
+- getResolvedApparentTypeOfMappedType for a non-alias instance, plus the
+  contextual rest arm;
+- the readonly member image.
+
+Measured by the box: +22 types and +1 diagnostics case, 0 lost; dm Ir +0.032%.
+
+Refused for cost: the conditional-typed print (+5 types) costs dm Ir +0.153%,
+because both branches print at mint. It waits on lazy branch text
+(`tsr-2zk.1135`).
+
+Routed: the unevaluable conditional alias reference's `return error` arm
+goes to r6-declared; its +78/−21 fallthrough was measured. Cross-file alias
+accessibility at print (35 lines) and unique-symbol mapped keys (6) go to
+r6-accessible (`tsr-2zk.1136`).
