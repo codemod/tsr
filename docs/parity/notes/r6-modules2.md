@@ -15,7 +15,13 @@ main `0180457` plus that merge, plus BE's five hook diffs
 `r6-smallcodes4-type-only-alias-value.diff`, applied in the working tree and
 never committed. Those are the states BE and BC land. Dumps were frozen at that
 state: 12,238 diagnostics rows (5,553 RIGHT, 5,599 EMPTY_RIGHT) and 556,303
-type rows.
+type rows. §0–§8's per-item numbers are against that base.
+
+**Re-frozen.** BE, BC and later batches (through BJ) landed on main while the
+items were in progress. The branch merged main at `b9ede2e`, and the base was
+frozen again at that tip: 5,612 RIGHT, 5,606 EMPTY_RIGHT. §10 measures the
+whole stack against it, and §1's diff is rebased onto r5-errorsplit6's diff
+S, which landed meanwhile.
 
 ## 0. `getTypeOnlyAliasDeclarationEx`'s loop condition (item 0)
 
@@ -171,6 +177,22 @@ Applied on the base:
   generic-imports 343,063,691 → 343,058,495.
 - `cargo test --workspace --release` with the diff applied: 3,509 passed, 0
   failed.
+
+**Rebased onto main `b9ede2e`.** r5-errorsplit6's diff S landed in the
+meantime (r6-errorsplit §8). It accepts an import-alias target whose chain is
+a namespace **without** `Value`, which converts this section's two
+diagnostics rows and the `jsxNamespace*` type lines on its own. r6-errorsplit
+§8 measured the value half (any namespace target) at +8/−2 and refused it, the
+−2 being exactly the `es6ImportNamedImportInIndirectExportAssignment` naming
+loss that half 2 above fixes. The rebased diff therefore:
+
+- drops S's `!Value` condition (`getSymbol`'s plain rule) instead of adding a
+  second block;
+- keeps the `export_equals_alias_name_at` narrowing.
+
+On the new base it measures +10 type lines (`chainedImportAlias` 7,
+`es6ImportNamedImportInIndirectExportAssignment` 2, `aliasInaccessibleModule2`
+1), no diagnostics rows, and zero losses (§10).
 
 **Native probe, not in the baselines.** `export import J2 =
 JSXInternal.HTMLAttributes;` (qualified through the import alias) gets TS1269
@@ -598,3 +620,90 @@ in the diff.
   those runs (0.06%). generic-imports 343,057,430 → 343,063,554.
 - `cargo test --workspace --release` with the diff applied: 3,508 passed, 0
   failed.
+
+## 9. What remains, with causes
+
+- **TS2476 is not ported**: `checkElementAccessExpression`'s const-enum arm
+  (`checker.go:8157`). `constEnumErrors` (3 lines) and
+  `constEnumPropertyAccess2` (1) need it besides TS2475. Owner: `indexed.rs`
+  (r6-errorsplit).
+- **TS2475 on unannotated initializers** (§6, refused +1/−3). It waits on
+  function-like expressions resolving their signatures lazily (main's
+  `expressions.rs`/`signatures.rs`, `r5-vardecl.md` §1).
+- **`export default a.b` as an alias** (§5's decline). Admitted, it loses
+  `exportDefaultProperty2` 1:1. The blocker is the default import's type
+  reference to a merged `Property|Interface` target, which needs the declared
+  type read by the symbol's flags (main, or r6-declared). The integrator
+  should file it; `bd` cannot run in this container.
+- **`import x = N.M` through an import alias at the root** (§1's probe:
+  `export import J2 = JSXInternal.HTMLAttributes` gets TS1269 from native and
+  nothing from TSR). `resolve_qualified_entity` (`symbols.rs`, main) does not
+  cross an import alias at the left. No baseline row needs it.
+- **Module-object naming through a namespace's exports table** (§1:
+  `importAliasAnExternalModuleInsideAnInternalModule` 0:2 prints `typeof r`
+  where native prints `typeof C`). TSR's module-object printer does not
+  consult the innermost namespace's exports, as `getAccessibleSymbolChain`
+  does (main's `checker.rs`). Already WRONG before; it only changed text.
+- **`resolve_external_module_name` answers a symbol for a TS6263 file**
+  (r6-isolated §5's accepted difference, still open). Owner: main
+  (`symbols.rs`).
+- **The redirect arm of `rewriteRelativeImportExtensions`** (§7) reports
+  only with project references, which this program does not load.
+- **Item 3** (TS2503 on `import f1 = NonExistent`) needed nothing here:
+  r6-smallcodes4's namespace-not-found diff (batch BC) converted it, and the
+  case is RIGHT on main `b9ede2e`.
+
+## 10. The diffs together, on main `b9ede2e`
+
+Apply order, each checked to apply on the previous with `git apply` from a
+clean worktree at this branch's merge of `b9ede2e`:
+
+1. `r6-modules2-import-equals-alias.diff` (§1, rebased);
+2. `r6-modules2-global-script.diff` (§2);
+3. `r6-modules2-const-enum-tdz.diff` (§4);
+4. `r6-modules2-export-equals-entity.diff` (§5);
+5. `r6-modules2-rewrite-extensions.diff` (§7);
+6. `r6-modules2-node-can-be-decorated.diff` (§8);
+7. `r6-modules2-format-nested-placeholder.diff` (§11), independent of the rest.
+
+When a hook diff lands, the `#[allow(dead_code, reason = …)]` naming it in
+`isolated_alias.rs` can be dropped in the same commit.
+
+Diffs 1–6 stacked, against the base frozen at `b9ede2e` (unfiltered, both
+dumps):
+
+- diagnostics **+11 rows**, zero losses:
+  - `blockScopedEnumVariablesUseBeforeDef_isolatedModules` and
+    `_verbatimModuleSyntax` (§4);
+  - `isolatedModulesGlobalNamespacesAndEnums` (§2);
+  - both `verbatimmodulesyntax=true` rows of
+    `isolatedModulesShadowGlobalTypeNotValue` (§5);
+  - `cjsErrors` ×3 and `packageJsonImportsErrors` ×3 (§7).
+- types **+15 lines**, zero losses: §1's 10 and §5's 5
+  (`exportEqualsProperty2`).
+- `slowcases` clean on both dumps.
+- Callgrind Ir: domain-model 1,091,700,207 → 1,092,269,679 (+0.05%, inside
+  the base binary's own run-to-run spread recorded in §8), generic-imports
+  343,084,736 → 343,090,061.
+- `cargo test --workspace --release`: 3,595 passed, 0 failed.
+- The committed branch alone (item 0, plus the unhooked ports) is
+  verdict-neutral against the same base.
+
+## 11. `{0}` inside literal braces (a held diff, found during §0)
+
+TS1290's message ends `Consider using 'export type { {0} as default }'.`,
+and TSR printed it with a literal `{0}`. `tsr-diagnostics::format_template`
+took the first `{` up to the next `}` as the placeholder body, so it read
+` {0` as one non-numeric body, emitted it verbatim and skipped past the
+real placeholder. Upstream's `Format` (`diagnostics/diagnostics.go:115`)
+substitutes every `{(\d+)}` match, so any other `{` is literal text.
+
+`r6-modules2-format-nested-placeholder.diff` (`tsr-diagnostics`, unowned
+this round) treats a `{` that does not open `{digits}` as literal and
+resumes scanning right after it. The out-of-range-index behaviour is
+unchanged. Six generated messages contain such a nested placeholder. It adds
+`a_placeholder_inside_literal_braces_is_substituted`.
+
+Measured on main `b9ede2e`: both dumps are byte-identical outside the timing
+columns (the oracles compare code and position, not text), `slowcases` is
+clean, and the workspace tests pass (3,588 passed, 0 failed).

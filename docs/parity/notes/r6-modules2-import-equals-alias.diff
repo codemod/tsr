@@ -1,27 +1,8 @@
-diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
---- a/crates/tsr-checker/src/symbols.rs
-+++ b/crates/tsr-checker/src/symbols.rs
-@@ -1358,6 +1358,16 @@
-                 if flags.intersects(SymbolFlags::NAMESPACE) {
-                     return Some(found);
-                 }
-+                // `getSymbol` (`checker.go:2176`) admits an alias whose chain
-+                // carries the meaning (`getSymbolFlags`), and
-+                // `getSymbolOfPartOfRightHandSideOfImportEquals` (`:14474`) resolves with
-+                // `dontResolveAlias`, so `import { N } from "./m"; import M =
-+                // N;` targets the import alias `N` itself.
-+                if flags.intersects(SymbolFlags::ALIAS)
-+                    && self.get_symbol_flags(found).intersects(SymbolFlags::NAMESPACE)
-+                {
-+                    return Some(found);
-+                }
-                 if flags.intersects(SymbolFlags::ALIAS) {
-                     // Force the alias even on a cold query. A known module
-                     // copy retains its source's namespace meaning, not the
 diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 83c56a3..ee17207 100644
 --- a/crates/tsr-checker/src/checker.rs
 +++ b/crates/tsr-checker/src/checker.rs
-@@ -3726,8 +3726,14 @@
+@@ -3726,8 +3726,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                  }
                  let Some(link) = self.resolve_alias(candidate) else { continue };
                  // The two-hop signature: the immediate target is the
@@ -38,10 +19,40 @@ diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.
                      continue;
                  }
                  if self.binder.merged_symbol(self.resolve_alias_fully(link)) != target {
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index f002baf..3760914 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -1382,16 +1382,14 @@ impl<'a> Checker<'a, '_> {
+                     // import of a type-only namespace has no value to clone,
+                     // so the arm above never saw it: `import { JSXInternal }
+                     // from '..'` then `export import JSX = JSXInternal`
+-                    // (`docs/parity/notes/r5-errorsplit6.md` §4). Only for a
+-                    // target with no value meaning: a value namespace resolved
+-                    // here would print under the importing alias's name
+-                    // (`typeof x` where upstream records `typeof a`,
+-                    // `es6ImportNamedImportInIndirectExportAssignment`), the
+-                    // naming hazard this function's other declines record.
+-                    let target_flags = self.get_symbol_flags(found);
+-                    if target_flags.intersects(SymbolFlags::NAMESPACE)
+-                        && !target_flags.intersects(SymbolFlags::VALUE)
+-                    {
++                    // (`docs/parity/notes/r5-errorsplit6.md` §4). A value
++                    // namespace target too: r6-errorsplit §8 refused that half
++                    // for printing `typeof x` where upstream records `typeof a`
++                    // (`es6ImportNamedImportInIndirectExportAssignment`). The
++                    // cause was `export_equals_alias_name_at`'s two-hop rename
++                    // matching an `import x = a` chain, and that walk is now
++                    // limited to the `export=` link it names (r6-modules2 §1).
++                    if self.get_symbol_flags(found).intersects(SymbolFlags::NAMESPACE) {
+                         return Some(found);
+                     }
+                 }
 diff --git a/crates/tsr-checker/tests/symbol_chain.rs b/crates/tsr-checker/tests/symbol_chain.rs
+index 220d274..7e4ec0f 100644
 --- a/crates/tsr-checker/tests/symbol_chain.rs
 +++ b/crates/tsr-checker/tests/symbol_chain.rs
-@@ -1221,6 +1221,15 @@
+@@ -1221,6 +1221,15 @@ fn module_copy_calls_require_a_certified_empty_global_function() {
                              {
                                  intrinsics.any
                              }
@@ -59,6 +70,7 @@ diff --git a/crates/tsr-checker/tests/symbol_chain.rs b/crates/tsr-checker/tests
                              // `any` for all four; r5-relater7.md §7).
 diff --git a/crates/tsr-compiler/tests/r6_modules2_import_equals.rs b/crates/tsr-compiler/tests/r6_modules2_import_equals.rs
 new file mode 100644
+index 0000000..39f5d07
 --- /dev/null
 +++ b/crates/tsr-compiler/tests/r6_modules2_import_equals.rs
 @@ -0,0 +1,83 @@
