@@ -144,6 +144,7 @@ pub mod implicit_any;
 mod import_attributes;
 mod import_call;
 mod import_meta;
+mod import_type_constraints;
 mod index_access_reports;
 pub mod index_constraint;
 pub mod index_signatures;

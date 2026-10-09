@@ -213,3 +213,82 @@ code. Unfiltered against the frozen base:
 Unit tests (in the diffs): `tests/type_query_receivers.rs` (four fixtures)
 and `tests/implemented_alias.rs` (three). Every fixture's expectation was
 probed against native.
+
+### 2.5 TS2344 on an import type's arguments — `import_type_constraints.rs`
+
+Cases on the base, each missing one TS2344:
+
+- `unmetTypeConstraintInImportCall`: `type Bar<T> = import('./file1').Foo<T>`
+  with `Foo<T extends string>` (`file2.ts(1,37)`);
+- `unmetTypeConstraintInJSDocImportCall`: the same through
+  `@typedef {import('./file1').Foo<T>} Bar` in JS (not converted, below).
+
+Native: `checkImportType` (`checker.go:3324`) ends in
+`checkTypeReferenceOrImport` (`:2998`), the tail a type reference runs. With
+type arguments and a resolved symbol that has type parameters,
+`checkTypeArgumentConstraints` (`:3016`) relates each argument to its
+constraint. The symbol is the one `getTypeFromImportTypeNode` (`:24575`)
+resolves: the module with `export =` followed, then the qualifier through
+each namespace's exports (`Namespace` meaning, `Type` for the last segment),
+then `resolveSymbol`.
+
+TSR's check walk ran the constraint check for `TypeReference` and heritage
+entries only. The new file resolves the import type's symbol the same way;
+the hook (`r6-smallcodes5-import-type-constraints.diff`) calls the existing
+`check_type_argument_constraints_of` (`constraints.rs`, main's) from the
+walk's `ImportTypeNode` arm in `check.rs`, and makes that function
+`pub(crate)`. The constraint check keeps every gate it has for type
+references.
+
+One test is replaced rather than ported: `checkTypeReferenceOrImport` runs
+only when the node's type is not an error. TSR's
+`get_type_from_import_type_node` (`declared.rs`) answers the gap for every
+import type written with type arguments, so the test cannot be asked. The
+symbol resolution fails exactly where upstream's type is an error from a
+missing module or member (TS2307, TS2694), so it stands in for the test.
+
+- **Rejected: routing through r6-smallcodes4's held `import_type_node.rs`.**
+  That port answers the declared type for non-generic targets only, and
+  is held on printer losses (its §3.2). This check needs the symbol, not the
+  type.
+
+Probe, native and TSR identical:
+
+```text
+type Bar<T> = import('./file1').Foo<T>;      (1,37) TS2344 Type 'T' … 'string'.
+type Ok = import('./file1').Foo<"a">;        none
+type Bad = import('./file1').Foo<1>;         (3,34) TS2344 Type 'number' … 'string'.
+type B = import('./f1').N.Box<number>;       (1,31) TS2344
+```
+
+**The JSDoc twin is not converted.** Two blockers, both main's:
+
+- its `@typedef` comment is the last thing in `file2.js`, so it hangs on the
+  end-of-file token, and the check walk never visits JSDoc there (with a
+  statement after the comment, the walk reaches the import type);
+- `file1.js`'s `@typedef … Foo` binds into file locals
+  (`declare_jsdoc_symbol`, `binder.rs`), not into the module's exports.
+  Upstream's reparsed `JSTypeAliasDeclaration` is implicitly exported
+  (`ast.IsImplicitlyExportedJSDocDeclaration`, `binder.go:375`), so
+  `import('./file1').Foo` resolves upstream and not here.
+
+**Measured** with the diff stacked on §2.1–§2.3, unfiltered against the
+frozen base: +1 case (`unmetTypeConstraintInImportCall`) beyond the stack's
+eight, zero losses, no other row changed; types unchanged; slowcases clean;
+Ir domain-model 1,091,558,539, generic-imports 343,087,791 (the base's own
+three runs span 1,090,830,746–1,091,476,917), CLI output identical.
+
+Unit test: `tests/import_type_constraints.rs` (three fixtures, two modules
+through a `ModuleHost`), in the diff.
+
+## 3. Apply order
+
+| # | Diff | New file | Cases |
+|---|---|---|---|
+| 1 | `r6-smallcodes5-private-name-identity.diff` (`relater.rs`) | `private_name_identity.rs` | +6 |
+| 2 | `r6-smallcodes5-type-query-receivers.diff` (`check.rs`) | `type_query_receivers.rs` | +1 |
+| 3 | `r6-smallcodes5-implemented-alias.diff` (`heritage_conformance.rs`) | `implemented_alias.rs` | +1 |
+| 4 | `r6-smallcodes5-import-type-constraints.diff` (`check.rs`, `constraints.rs`) | `import_type_constraints.rs` | +1 |
+
+Each later diff is relative to the ones before it. Stacked, the four diffs
+reproduce the measured tree byte for byte.
