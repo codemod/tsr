@@ -318,10 +318,9 @@ Apply order: `55cbd3f` (r6-declared), then this diff.
 ## 7. Rows not converted, with causes
 
 Item 2, [`r6-relater-write-constraint.diff`](r6-relater-write-constraint.diff)
-(+23/−2): **not re-measured.** It waits on getMappedTypeNameTypeKind
-deciding Remapping for `{ [K in TEvent["type"] as K extends
-Uppercase<string> ? K : never]?: … }`; no such `mapped.rs` diff exists on
-r6-declared's branch (`2708012`) or on main (`10fe6c6`).
+(+23/−2): held; its blocker is instantiateContextualType's first-pass
+instantiation (`contextual.rs`/`inference.rs`, MAIN), not the mapped name
+kind — see §8.
 
 r6-relater §8.1's unreached rows:
 
@@ -396,7 +395,17 @@ Diffs, in apply order:
    (`conditionalTypesExcessProperties`); 0 lost, Ir flat.
 
 Held: [`r6-relater-write-constraint.diff`](r6-relater-write-constraint.diff)
-(r6-relater §4), still waiting on getMappedTypeNameTypeKind's Remapping.
+(r6-relater §4). **Cause corrected** (integrator, from r6-declared2's
+re-measurement, `r6-declared2.md` §2 on its branch): still +23/−2, and the
+two losses (`contextualTypeFunctionObjectPropertyIntersection` 107, 108) are
+not getMappedTypeNameTypeKind's — native probes show the port's
+Filtering/Remapping kinds match native's. Native's `any` comes from
+instantiateContextualType instantiating `on`'s contextual type with the
+first inference pass (`TEvent := { type: "FOO" } | { type: "bar" }`); the
+port keeps `TEvent` at its constraint (visible on the base at 40–47 and
+85–92). Routed to main (`contextual.rs`/`inference.rs`); the diff stays
+held until that lands. r6-relater §4's attribution to `mapped.rs` was
+wrong.
 
 Needed outside the lane (function, file, reason, cases), beyond r6-relater
 §9's list:
