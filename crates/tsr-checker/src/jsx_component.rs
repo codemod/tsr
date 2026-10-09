@@ -108,15 +108,14 @@ impl Checker<'_, '_> {
         self.jsx_attributes_context(node);
         // A failed overload set resolves to `getCandidateForOverloadFailure`'s
         // signature, whose return type is checked against the bound too.
-        let instance = match failure_return {
-            Some(instance) => instance,
-            None => {
-                let Some(signature) = self.resolved_call_signatures.get(&node).cloned() else {
-                    return;
-                };
-                let Some(instance) = self.get_return_type_of_signature(&signature) else { return };
-                instance
-            }
+        let instance = if let Some(instance) = failure_return {
+            instance
+        } else {
+            let Some(signature) = self.resolved_call_signatures.get(&node).cloned() else {
+                return;
+            };
+            let Some(instance) = self.get_return_type_of_signature(&signature) else { return };
+            instance
         };
         if self.is_gap(instance) {
             return;
