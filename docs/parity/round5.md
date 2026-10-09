@@ -1133,3 +1133,22 @@ with its blocker:
 
 r5-smallcodes3 takes the slot, with the single-code clusters outside main's
 active lanes (`tsr-2zk.1117`).
+
+### r5-nodereuse finished (batch AV); r5-nodereuse2 dispatched
+
+r5-nodereuse ported one reuse decision per native node-builder slot:
+- the type-parameter constraint (`typeParameterToDeclaration`);
+- the return (`serializeReturnTypeForSignature` with the pseudochecker's
+  return answers);
+- the property (`serializeTypeForDeclaration` with `GetTypeOfDeclaration`'s
+  Direct arms).
+
+Its three call-site diffs land in printer and spread files. The box measured
+them together: +207 type lines across 61 cases, 0 lost; dm Ir +0.33%, gi 0.00%.
+
+The cost is a consequence of baking text when a type is created. Native does
+that work only when it prints. Printing spread members on demand is filed as
+`tsr-2zk.1120`, and the identity relation cache the predicate gate wants as
+`tsr-2zk.1119`. `tsr-2zk.1101` is closed.
+
+r5-nodereuse2 continues with structural pseudo types (`tsr-2zk.1118`).
