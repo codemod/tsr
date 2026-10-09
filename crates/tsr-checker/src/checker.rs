@@ -2288,12 +2288,9 @@ impl<'a, 'n> Checker<'a, 'n> {
                         }
                     };
                     if let Some(part) = self.type_to_string_at(entry, reference) {
-                        let intersection =
-                            matches!(
-                                self.store.get(entry).data,
-                                crate::types::TypeData::Intersection { .. }
-                            ) && !crate::printing::prints_as_a_single_token(self.store.get(entry));
-                        parts.push(if multiple && intersection {
+                        let parenthesised =
+                            crate::unions::union_constituent_needs_parentheses(&self.store, entry);
+                        parts.push(if multiple && parenthesised {
                             format!("({part})")
                         } else {
                             part

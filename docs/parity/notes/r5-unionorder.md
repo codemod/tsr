@@ -243,3 +243,58 @@ spread into a tuple would be misread as Rest.
 which could have moved other lines; none moved. Diagnostics unchanged;
 perf 0.962 (domain-model), 0.995 (generic-imports), 21 samples;
 `slowcases` clean.
+
+## 8. `union-members-differ`: what is in this lane, and the parenthesis helper
+
+The row was re-run at this lane's head with a stricter filter (both sides
+top-level unions, no `=>`, member sets differ): 94 lines over 41 cases.
+Almost all are other producers (narrowing, mapped types, accessors,
+qualified names, `exactOptionalPropertyTypes`). The union-printing ones:
+
+- **Parenthesisation of a constituent** (6 lines, 3 cases):
+  `nonNullableReduction(NonStrict):0:15,18` want
+  `T | (string extends T ? null | undefined : never)`;
+  `narrowByInstanceof:0:10,23` want `AA | BB` where TSR printed
+  `AA | (BB)`. Native: `emitUnionTypeConstituent` (`printer.go:2038`)
+  parenthesises below `TypePrecedenceTypeOperator`; a `ConditionalTypeNode`
+  is the lowest precedence, and an alias of a signature literal is a
+  `TypeReferenceNode`. TSR's `parenthesised` wrapped every
+  `Anonymous { signature: true }` (the bit survives alias naming) and had no
+  conditional arm.
+
+  **Change** (`unions.rs`): `union_constituent_needs_parentheses` is the one
+  test, shared by `parenthesised` (baked text) and the `checker.rs` origin
+  arm. The node kind is not stored, so it is read from the printed text: a
+  function or constructor type node starts with `(`, `<`, `new ` or
+  `abstract new ` (an alias name cannot: `new` is reserved and `abstract`
+  alone is not followed by ` new`); a conditional node has a depth-0
+  ` extends ` (`has_top_level_extends`), which a reference's type arguments
+  can hold only inside brackets. This is a text recovery forced by baking
+  text at creation; storing the node kind beside `signature` would remove it.
+
+  **Measured.** The owned half alone (`unions.rs` + `checker.rs`): zero
+  transitions on both dumps; the lines are printed by the site renderer
+  `printing.rs` `union_text_at`, which keeps its own copy of the test.
+  `r5-unionorder-printing-parentheses.diff` (r5-shapes' file) replaces that
+  copy with the shared helper: types **+6** (the lines above), zero
+  losses, diagnostics unchanged. The helper is committed so the diff is a
+  three-line call change. Owned half: perf 1.007 (domain-model), 1.003
+  (generic-imports), 21 samples; tests, clippy (also with the diff applied) clean.
+
+- **Enum collapse** (`enumLiteralAssignableToEnumInsideUnion:0:42`, want
+  `boolean | X.Foo`): `formatUnionTypes`' enum clause (`printer.go:390`)
+  was built (a store-side table of each union enum's declared type, read by
+  `union_print_parts`) and measured **zero transitions** corpus-wide;
+  reverted. The witness does not reach it: its `X.Foo.A` is an `OBJECT`
+  `Named` image minted for a qualified enum-member reference
+  (`declared.rs`), not an `EnumLiteral`, so no printer clause can collapse
+  it. The existing `get_union_type` SS202 shortcut (all members of one enum
+  answer the declared type) covers the unions that do reach.
+
+- **Alias name of a signature literal in `CompareTypes`**:
+  `getTypeNameSymbol` answers the alias symbol (`utilities.go:607`), so
+  `AA | BB` sorts by name. TSR's `alias_of` is not populated for an alias
+  of a signature-only type literal, so the comparator sees no name and
+  falls to declaration position (`BB | AA` when `BB` is declared first).
+  The producer is `declared.rs`; no corpus line was found that this alone
+  blocks.
