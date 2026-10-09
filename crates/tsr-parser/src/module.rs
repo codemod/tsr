@@ -696,44 +696,13 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_module_specifier(&mut self) -> Expression<'a> {
         let start = self.pos();
         if !self.at(SyntaxKind::StringLiteral) {
-            // `parseModuleSpecifier` (`parser.go`) **parses an arbitrary
-            // expression** here — its own comment says *"we allow arbitrary
-            // expressions here, even though the grammar only allows string
-            // literals; we check to ensure that it is only a string literal
-            // later in the grammar check pass"*. So `import foo = require(x)`
-            // consumes `x`, finds the `)`, and yields exactly one diagnostic.
-            //
-            // This port reported at the same position — which is right — and
-            // then returned a **missing** identifier without consuming, so the
-            // `)` was reported missing too. `importNonStringLiteral` is one
-            // TS1141 upstream and was TS1141 plus a TS1005 here.
-            //
-            // The report stays in the parser rather than moving to a grammar
-            // pass: it lands at upstream's own position, and moving it would
-            // trade a bounded fix for an unported check. §217.
-            //
-            // §279: but ONLY when an expression can actually start here.
-            // `import` on its own line before another import statement made
-            // this arm call `parse_expression` on the SECOND `import`, which
-            // swallowed that whole declaration into the first one's specifier
-            // (`importCallExpressionIncorrect1/2`). Upstream's expression
-            // parse mints a missing identifier — one TS1109 at the token,
-            // NOTHING consumed — and the next statement parses intact, which
-            // is exactly what its baseline records.
-            if !self.is_start_of_expression() {
-                // `parseIdentifierWithDiagnostic`: at end of file the report
-                // sits zero-width at the token's full start
-                // (`importTag11`/`12`: `@import foo` / `@import foo from`
-                // closing the comment).
-                let span = if self.at(SyntaxKind::EndOfFile) {
-                    tsr_core::Span::at(self.node_end())
-                } else {
-                    self.token.span
-                };
-                self.error_at(&messages::EXPRESSION_EXPECTED, span);
-                return Expression::Identifier(self.missing_identifier());
-            }
-            self.error_at_current(&messages::STRING_LITERAL_EXPECTED);
+            // `parseModuleSpecifier` (`parser.go:2322`) parses an arbitrary
+            // expression here: "we check to ensure that it is only a string
+            // literal later in the grammar check pass"
+            // (`checkExternalImportOrExportDeclaration`'s TS1141). A token
+            // that starts no expression is `parsePrimaryExpression`'s TS1109
+            // with a missing identifier, nothing consumed; a `,` after it
+            // still continues the comma expression (`import { a }, from "m"`).
             return self.parse_expression();
         }
         let text = self.token_value();

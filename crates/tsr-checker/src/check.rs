@@ -12165,6 +12165,11 @@ impl Checker<'_, '_> {
             return;
         }
         let specifier = declaration.module_specifier.and_then(|s| s.node_id());
+        // `checkExternalImportOrExportDeclaration` returns after TS1141 for a
+        // module name that is not a string literal, before TS1194.
+        if specifier.is_some_and(|s| self.nodes.kind(s) != SyntaxKind::StringLiteral) {
+            return;
+        }
         if specifier.is_none() && in_module_block && self.declaration_is_in_an_ambient_context(node)
         {
             // `inAmbientNamespaceDeclaration` — legal.

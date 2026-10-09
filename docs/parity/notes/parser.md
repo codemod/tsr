@@ -582,3 +582,9 @@ per-file flag must become per-node.
   meta-property; any other `import` reaches `parsePrimaryExpression`, where a
   reserved word is TS1109 and the import declaration that follows parses on
   its own (`var x = import { foo } from "m"`).
+- Module specifiers (`parseModuleSpecifier`): anything but a string literal
+  is `parseExpression`, with no parser TS1141; the checker's
+  `checkExternalImportOrExportDeclaration` reports TS1141 and returns before
+  TS1194 (`check_export_declaration_in_namespace` now returns for a
+  non-literal specifier). A token that starts no expression is TS1109 with
+  nothing consumed, and a `,` after it continues the comma expression.
