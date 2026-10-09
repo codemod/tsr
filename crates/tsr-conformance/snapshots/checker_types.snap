@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8489/9538 (89.00%)
-Assertion lines: 472939/478853 (98.76%)  — a gradient, not a pass rate
-Failed         : 1049
+Passed         : 8494/9538 (89.05%)
+Assertion lines: 472964/478853 (98.77%)  — a gradient, not a pass rate
+Failed         : 1044
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1049 failures:
+First 100 of 1044 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -115,8 +115,6 @@ compiler/checkerInitializationCrash
   /node_modules/@fullcalendar/core/index.d.ts: >VNode : any — expected >VNode : VNode
 compiler/checkingObjectWithThisInNamePositionNoCrash
   checkingObjectWithThisInNamePositionNoCrash.ts: >this : this — expected >this : { doit(): { [x: number]: string; }; }
-compiler/circularAccessorAnnotations
-  circularAccessorAnnotations.ts: >c2 : { foo: any; } — expected >c2 : { foo: typeof c2.foo; }
 compiler/circularInlineMappedGenericTupleTypeNoCrash
   circularInlineMappedGenericTupleTypeNoCrash.ts: >...this.elements : any — expected >...this.elements : { bar: unknown; }
 compiler/circularInstantiationExpression
@@ -144,7 +142,7 @@ compiler/commentsOnObjectLiteral2
 compiler/commonJsImportClassExpression
   use.ts: >Chunk : typeof (Anonymous class) — expected >Chunk : typeof Chunk
 compiler/complexRecursiveCollections
-  immutable.ts: >isAssociative : (maybeAssociative: any) => maybeAssociative is Collection.Indexed<any> | Collection.Keyed<any, any> — expected >isAssociative : (maybeAssociative: any) => maybeAssociative is Collection.Keyed<any, any> | Collection.Indexed<any>
+  immutable.ts: >Keyed : any — expected >Keyed : { <K, V>(collection: Iterable<[K, V]>): Seq.Keyed<K, V>; <V_1>(obj: { [key: string]: V_1; }): Seq.Keyed<string, V_1>; <K_1, V_1>(): Seq.Keyed<K_1, V_1>; (): Seq.Keyed<any, any>; }
 compiler/complicatedGenericRecursiveBaseClassReference
   complicatedGenericRecursiveBaseClassReference.ts: >(new S18(123)) : any — expected >(new S18(123)) : S18<unknown, unknown, unknown>
 compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
@@ -213,3 +211,5 @@ compiler/contextualTypeSelfReferencing
   contextualTypeSelfReferencing.ts: >result : { a: string; }[] — expected >result : [{ a: "foo"; }]
 compiler/contextualTypeShouldBeLiteral
   contextualTypeShouldBeLiteral.ts: >{    type2: 'y',    value: 'done',    method() {        this;        this.value;    }} : { type2: "y"; value: string; method(): void; } — expected >{    type2: 'y',    value: 'done',    method() {        this;        this.value;    }} : { type2: "y"; value: "done"; method(): void; }
+compiler/contextualTypingOfTooShortOverloads
+  contextualTypingOfTooShortOverloads.ts: >app.use((err: any, req, res, next) => { return; }) : error — expected >app.use((err: any, req, res, next) => { return; }) : MyApp
