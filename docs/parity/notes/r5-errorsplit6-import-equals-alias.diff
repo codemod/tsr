@@ -1,0 +1,76 @@
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -1375,6 +1375,25 @@
+                     {
+                         return Some(found);
+                     }
++                    // `resolveEntityName(…, SymbolFlagsNamespace, …,
++                    // dontResolveAlias)` (`checker.go:14486`) reaches the
++                    // alias through `getSymbol`, which accepts an alias whose
++                    // *target* carries the meaning (`getSymbolFlags`). An
++                    // import of a type-only namespace has no value to clone,
++                    // so the arm above never saw it: `import { JSXInternal }
++                    // from '..'` then `export import JSX = JSXInternal`
++                    // (`docs/parity/notes/r5-errorsplit6.md` §4). Only for a
++                    // target with no value meaning: a value namespace resolved
++                    // here would print under the importing alias's name
++                    // (`typeof x` where upstream records `typeof a`,
++                    // `es6ImportNamedImportInIndirectExportAssignment`), the
++                    // naming hazard this function's other declines record.
++                    let target_flags = self.get_symbol_flags(found);
++                    if target_flags.intersects(SymbolFlags::NAMESPACE)
++                        && !target_flags.intersects(SymbolFlags::VALUE)
++                    {
++                        return Some(found);
++                    }
+                 }
+                 None
+             }
+diff --git a/crates/tsr-checker/tests/import_equals_type_only_namespace.rs b/crates/tsr-checker/tests/import_equals_type_only_namespace.rs
+new file mode 100644
+index 0000000..98f26d8
+--- /dev/null
++++ b/crates/tsr-checker/tests/import_equals_type_only_namespace.rs
+@@ -0,0 +1,41 @@
++//! `import a = b` where `b` is itself an alias of a type-only namespace
++//! (`getSymbolOfPartOfRightHandSideOfImportEquals`, `checker.go:14486`):
++//! `getSymbol` accepts the alias by its target's flags, so `a` resolves and a
++//! type reference through it reads the namespace's members
++//! (`docs/parity/notes/r5-errorsplit6.md` §4.1).
++
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++fn type_of_declaration(source: &str, name: &str) -> String {
++    let arena = Arena::new();
++    let parsed = tsr_parser::parse(&arena, source);
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "test.ts", text: source },
++    );
++    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
++    let symbol = bound.lookup_local(root, name).unwrap_or_else(|| panic!("`{name}` is declared"));
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    let id = checker.get_type_of_symbol(symbol);
++    checker.type_to_string(id)
++}
++
++#[test]
++fn an_alias_of_an_alias_of_a_type_only_namespace_resolves() {
++    let source = "namespace N { export interface I { a: number } }\n\
++                  import Y = N;\nimport X = Y;\n\
++                  declare let v: X.I;\nconst a = v.a;\n";
++    assert_eq!(type_of_declaration(source, "a"), "number");
++}
++
++/// The control: one hop, which the arm before this one already resolved.
++#[test]
++fn a_direct_alias_of_a_type_only_namespace_resolves() {
++    let source = "namespace N { export interface I { a: number } }\n\
++                  import Y = N;\n\
++                  declare let v: Y.I;\nconst a = v.a;\n";
++    assert_eq!(type_of_declaration(source, "a"), "number");
++}

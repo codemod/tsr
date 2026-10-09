@@ -1,0 +1,81 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index 94feeda..163e191 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -1129,10 +1129,20 @@ impl<'a, 'n> Binder<'a, 'n> {
+             // excluded. A non-alias target resolves to itself, and the excludes
+             // test above already passed, so upstream merges and there is
+             // nothing to report (`misc-checks.md` §19).
+-            if target_flags.intersects(SymbolFlags::ALIAS) && !assignment {
+-                self.alias_merges.push((target, source));
++            if target_flags.intersects(SymbolFlags::ALIAS) {
++                if !assignment {
++                    self.alias_merges.push((target, source));
++                }
++                return;
+             }
+-            return;
++            // A non-alias target is its own `resolveSymbol`, so upstream's
++            // second excludes test is the one above and it merges
++            // (`checker.go:14153-14159`): a script's `import q = Q` into an
++            // earlier script's `var q` yields one `Variable | Alias` symbol
++            // whose type is the variable's (`getTypeOfSymbol` tests
++            // `Variable` before `Alias`). Only an alias *target* needs a
++            // resolution this binder cannot make (r5-errorsplit6 §5,
++            // `duplicateVarsAcrossFileBoundaries`).
+         }
+ 
+         // `recordMergedSymbol(target, source)` (`internal/checker/checker.go:14372`),
+diff --git a/crates/tsr-conformance/tests/script_alias_merge.rs b/crates/tsr-conformance/tests/script_alias_merge.rs
+new file mode 100644
+index 0000000..8dcfc50
+--- /dev/null
++++ b/crates/tsr-conformance/tests/script_alias_merge.rs
+@@ -0,0 +1,47 @@
++//! A script's `import q = Q` merging into an earlier script's `var q`
++//! (`mergeSymbol`, `checker.go:14153-14159`): the non-alias target is its own
++//! `resolveSymbol`, so upstream merges, and `q` is the variable's type rather
++//! than upstream's `errorType` for an alias of a non-value
++//! (`docs/parity/notes/r5-errorsplit6.md` §5).
++
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Each line of `file` with its top-level error identity.
++fn identities(source: &str, file: &str) -> Vec<(String, types_producer::TopError)> {
++    let case = TestCase::parse("probe/script_alias_merge", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    let arena = tsr_core::Arena::new();
++    let (rendered, kinds) =
++        types_producer::assertions_for_case_with_error_kinds(&arena, &case, &expected);
++    let index = case.files.iter().position(|unit| unit.name == file).expect("the file");
++    rendered[index].iter().zip(&kinds[index]).map(|(line, kind)| (line.line(), kind.top)).collect()
++}
++
++#[test]
++fn an_import_merged_into_an_earlier_var_is_the_variable() {
++    let source = "// @target: es2015
++// @Filename: a.ts
++namespace P { }
++var q;
++// @Filename: b.ts
++namespace Q { }
++import q = Q;
++";
++    let lines = identities(source, "b.ts");
++    let q = lines
++        .iter()
++        .find(|(line, _)| line == "q : any")
++        .unwrap_or_else(|| panic!("a `q` line: {lines:?}"));
++    assert_eq!(q.1, types_producer::TopError::Other, "{lines:?}");
++    // The control: `Q` is a non-value namespace, upstream's `errorType`
++    // (printed `error`: the probe case has no error baseline).
++    let namespace = lines
++        .iter()
++        .find(|(line, _)| line == "Q : error")
++        .unwrap_or_else(|| panic!("a `Q` line: {lines:?}"));
++    assert_eq!(namespace.1, types_producer::TopError::Native, "{lines:?}");
++}

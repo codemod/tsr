@@ -237,3 +237,136 @@ of each rewrite, as RIGHT→GAP lines:
 | credited gap | 2,577 | 2,210 |
 
 No rewrite reaches zero, so none is narrowed.
+
+## §4 Item 2a: the JSX namespace through an implicit import or a global re-export
+
+r5-errorsplit5 §4 listed two false claims, `<div></div>` in
+`jsxNamespaceGlobalReexport` and `jsxNamespaceImplicitImportJSXNamespace`.
+Natively both are `JSX.Element` (printed `JSX.Element` and
+`import("preact").JSXInternal.Element`); the port answered `errorType`
+because `jsx_type_symbol` found no `Element`. Both runtimes reach `JSX`
+through an import-equals of an *imported* type-only namespace:
+
+```ts
+import { JSXInternal } from '..';
+export import JSX = JSXInternal;                       // implicit import
+declare global { export import JSX = JSXInternal; }    // global re-export
+```
+
+Two roots:
+
+1. **`resolve_alias`'s import-equals identifier arm (`symbols.rs`, main's).**
+   `getSymbolOfPartOfRightHandSideOfImportEquals` resolves `|b|` in
+   `import a = b` with `Namespace` meaning (`checker.go:14486`), and
+   `getSymbol` accepts an alias whose *target* carries the meaning
+   (`getSymbolFlags`). The port accepted a found alias only when its value
+   type was a module clone. `JSXInternal` has no value, so `JSX` resolved to
+   nothing. Shipped as a diff (§4.1).
+2. **`jsx_type_symbol`'s global fallback (`jsx_intrinsic.rs`, unowned).**
+   Native's fallback is `c.resolveSymbol(getGlobalSymbol(JSX, Namespace))`
+   (`jsx.go:1334`); the port read `exports` off the global `JSX` symbol
+   itself, which for `declare global { export import JSX = … }` is the
+   alias. Ported in commit 2: an alias global is resolved before its exports
+   are read.
+
+Commit 2 alone moves no line (measured: zero transitions on both dumps
+against commit 1). The alias it now resolves is the one root 1 leaves
+unresolved, so its effect appears only with the diff.
+
+### §4.1 Diff S (`symbols.rs`, main's): an alias whose target is a type-only namespace
+
+[`r5-errorsplit6-import-equals-alias.diff`](r5-errorsplit6-import-equals-alias.diff)
+applies on commit 2. After the module-clone arm, the identifier arm returns
+the found alias when `getSymbolFlags` reaches a namespace that has **no value
+meaning**.
+
+The value half is held back. With it (any namespace target), the first
+measurement gained 8 lines (`chainedImportAlias` ×7,
+`aliasInaccessibleModule2`) but lost 2 RIGHT lines in
+`es6ImportNamedImportInIndirectExportAssignment`: `import x = a` over an
+imported value namespace resolved, and `x` then printed `typeof x` where
+upstream records `typeof a`. That is the alias-naming hazard
+`resolve_alias`'s other declines record (`bd tsr-4jk`). Moving the arm after
+the clone arm did not change it. The type-only half has no value to name and
+is what the JSX roots need.
+
+**Measured** on commit 2 (unfiltered, both dumps, against §1's base):
+
+- zero losses;
+- types **548,920 / 879 / 6,492** (+6, below);
+- diagnostics 5,440 / **5,596 / 1,151 / 51**:
+  `jsxNamespaceImplicitImportJSXNamespace` EMPTY_WRONG→EMPTY_RIGHT;
+- credited gap 2,210 → **2,208**. The 2 lines that move to `native_error` are
+  both `errorType` natively;
+- `StatementName` 29 → **27**.
+
+The six type lines are `Comp`, `() => <div></div>` and `<div></div>` in each
+case: 2 WRONG→RIGHT and 1 GAP→RIGHT per case. The two former false claims
+(`<div></div>` claiming `errorType`) now compute `JSX.Element` and
+`import("preact").JSXInternal.Element`.
+
+The diff carries its own test, `tests/import_equals_type_only_namespace.rs`.
+`import X = Y` with `import Y = N` and `N` type-only resolves `X.I`. It fails
+without the diff, and the one-hop control passes either way.
+
+## §5 Item 2b and 2c: JS `require` receivers, and the script alias merge
+
+### §5.1 JS `require` receivers (r5-js's area)
+
+On this base, r5-errorsplit5 §7's JS receivers reduce to two cases:
+
+- `commonJSImportExportedClassExpression`: `const { K } = require("./mod1");
+  /** @param {K} k */`, then `k.values()`;
+- `varRequireFromTypescript`: `var ex = require('./ex'); /** @param
+  {ex.Greatest} greatest */`, then `greatest.day`.
+
+`varRequireFromJavascript` is RIGHT. The root is JSDoc type-reference
+resolution through a CommonJS `require` binding, destructured or
+namespace-like. It falls to the unresolved mint, and diff B's property twin
+then claims `errorType`. That is JSDoc/CommonJS code, r5-js's. It was sent
+to r5-js (`session_01GnG6zfXfbbkM9Lx93oc1ZS`) with both cases; nothing here
+changes it.
+
+### §5.2 Diff M (`binder.rs`, main's): a script alias merges into an earlier non-alias global
+
+`duplicateVarsAcrossFileBoundaries` declares, in two script files:
+
+```ts
+// _4.ts                    // _5.ts
+namespace P { }             namespace Q { }
+import p = P;               import q = Q;
+var q;                      var p;
+```
+
+The probe tags `p` (4:0) and `Q` (5:1) `errorType`. `P` (4:1) and `q` (5:0) are
+untagged. They print `any` because they are the variable's type. With diff A,
+the port claimed `errorType` on all four.
+
+Upstream merges globals in `mergeSymbol` (`checker.go:14146`). A
+non-transient target is first resolved (`resolveSymbol`), the excludes test
+is repeated against the resolution, and the source merges into a *clone* of
+the resolved target (`:14153-14159`):
+
+- `_5`'s alias `q` into `_4`'s `var q`: the target is no alias, so it
+  resolves to itself. The merge succeeds and `q` is `Variable | Alias`.
+  `getTypeOfSymbol` tests `Variable` before `Alias`, so `q` is the variable's
+  type.
+- `_5`'s `var p` into `_4`'s alias `p`: the target resolves to `P`, and the
+  `var` merges into a clone of `P`. `cloneSymbol` records `P` as merged into
+  the clone, so the reference `P` now reads the variable. The alias `p`
+  itself stays unmerged, an alias of a non-value: `errorType`.
+
+The port's binder declines every merge in which either side is an alias,
+because it cannot resolve aliases (`bd tsr-y4u.12`). The first shape needs
+no resolution: the target is its own. The diff
+[`r5-errorsplit6-script-alias-merge.diff`](r5-errorsplit6-script-alias-merge.diff)
+lets a non-alias target merge an alias source. An alias target still
+declines, and its error arm stays with the checker. The second shape needs
+the checker-side resolve-and-clone, and stays a false claim (`P`, 4:1).
+
+**Measured** on commit 2 (unfiltered, both dumps): zero transitions. Exactly
+one line moves, `duplicateVarsAcrossFileBoundaries:5:0` (`q`), from
+`native_error` to the variable's type, as the probe has it. Credited gap and
+narrowing are unchanged, because the line was a matched `native_error`, not
+the gap. The diff carries a test,
+`tsr-conformance/tests/script_alias_merge.rs`, which fails without it.
