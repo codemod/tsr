@@ -1544,6 +1544,13 @@ impl<'a> Checker<'a, '_> {
             Node::PropertyAssignment(element) => {
                 self.contextual_type_for_object_literal_element(parent, element)
             }
+            // The same `getContextualTypeForObjectLiteralElement` arm
+            // (`checker.go:29376`): a shorthand member has no type node, so its
+            // name (and object-assignment initializer) reads the literal's
+            // contextual property type.
+            Node::ShorthandPropertyAssignment(element) => {
+                self.contextual_type_for_object_literal_named_element(parent, element.name)
+            }
             // §68 (`checker-notes-narrow.md`): `getContextualTypeForReturnExpression`
             // (`checker.go:29621`), the WRITTEN-annotation half — a returned
             // expression's contextual type is the enclosing function's
@@ -2494,9 +2501,6 @@ impl<'a> Checker<'a, '_> {
     ///   name is absent from the contextual type is a gap, and gapping it is why
     ///   the 23 nested-object-literal cases above are counted as unreachable
     ///   rather than as an untested claim.
-    /// - **`ShorthandPropertyAssignment`**, which shares upstream's arm
-    ///   (`checker.go:29376`) but cannot hold a function expression, so it could
-    ///   never reach [`Checker::get_contextually_typed_parameter_type`].
     /// - **A `SpreadAssignment`**, a separate upstream branch (`checker.go:29378`).
     fn contextual_type_for_object_literal_element(
         &mut self,

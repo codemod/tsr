@@ -619,3 +619,13 @@ fold's fresh literal or `string`, `getContextFreeTypeOfExpression` pushing
 discriminant test, member read or relation. No state: native memoizes per
 `(node, type)` in `discriminatedContextualTypes`; this recomputes per member
 read, members × constituents relation checks.
+
+## 30. getContextualType's ShorthandPropertyAssignment arm (tsr-2zk.16.95)
+
+`getContextualType` (`checker.go:29376`) sends a shorthand member's name (and
+its object-assignment initializer) to `getContextualTypeForObjectLiteralElement`
+like a `PropertyAssignment`'s initializer; a shorthand has no type node, so the
+answer is the literal's contextual property type. `get_contextual_type` had no
+arm, so `const kind = "a"; invoke({ kind, method(a) {…} })` widened `kind` to
+`string` where tsgo keeps `"a"` (`contextuallyTypedByDiscriminableUnion`).
+No state.
