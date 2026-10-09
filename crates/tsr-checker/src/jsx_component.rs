@@ -48,8 +48,8 @@ impl Checker<'_, '_> {
     /// - a `JSX.ElementType` in scope: upstream takes the other branch,
     ///   [`Checker::check_jsx_element_type_constraint`], for every tag
     ///   (intrinsic included);
-    /// - overloads, or a union tag: the resolved candidate is `resolveCall`'s
-    ///   choice (calls lane);
+    /// - a union tag, or an overload set [`Checker::choose_jsx_overload`]
+    ///   did not resolve (a failed set publishes no candidate);
     /// - an error return type or bound: `errorType` relates to everything.
     pub(crate) fn check_jsx_component_bound(&mut self, node: NodeId, typed: Node<'_>) {
         self.check_jsx_runtime_module(node, typed);
@@ -67,7 +67,32 @@ impl Checker<'_, '_> {
             self.check_jsx_signatureless_tag(tag, tag_id);
             self.check_jsx_class_attributes_member(node, typed, tag);
         }
-        self.check_jsx_attributes_assignable(node, typed, tag, tag_id);
+        let overloads = if intrinsic || self.jsx_implicit_import_unresolved(node) {
+            JsxOverloads::Declined
+        } else {
+            match Expression::try_from(Node::from(tag)) {
+                Ok(expression) => {
+                    let tag_type = self.check_expression(expression);
+                    if self.is_error(tag_type)
+                        || self
+                            .store
+                            .get(tag_type)
+                            .flags
+                            .intersects(TypeFlags::ANY | TypeFlags::UNION)
+                    {
+                        JsxOverloads::Declined
+                    } else {
+                        self.choose_jsx_overload(node, typed, tag_type)
+                    }
+                }
+                Err(_) => JsxOverloads::Declined,
+            }
+        };
+        let failure = match overloads {
+            JsxOverloads::Failed { last, props, count } => Some((*last, props, count)),
+            JsxOverloads::Declined | JsxOverloads::Chosen => None,
+        };
+        self.check_jsx_attributes_assignable(node, typed, tag, tag_id, failure);
         if let Some(constraint) = self.jsx_element_type_type_at(node) {
             self.check_jsx_element_type_constraint(tag, tag_id, constraint);
             return;
@@ -243,9 +268,10 @@ impl Checker<'_, '_> {
     /// `checkApplicableSignatureForJsxCallLikeElement`'s
     /// `checkTypeRelatedToAndOptionallyElaborate(attributes, paramType,
     /// tagName, attributes)` (`jsx.go:682-698`) on the candidate `resolveCall`
-    /// reports for — here only the single published signature
-    /// ([`Checker::jsx_attributes_context`]); overloads are `chooseOverload`'s
-    /// (calls lane) and decline.
+    /// reports for: the single published signature
+    /// ([`Checker::jsx_attributes_context`]), or, for an overload set no
+    /// candidate of which applies, `failure` — the last argument-error
+    /// candidate [`Checker::choose_jsx_overload`] found.
     ///
     /// The error node is the tag name and the elaboration node the
     /// `JsxAttributes`; `elaborateError`'s `JsxAttributes` arm
@@ -262,6 +288,7 @@ impl Checker<'_, '_> {
         typed: Node<'_>,
         tag: JsxTagNameExpression<'_>,
         tag_id: NodeId,
+        failure: Option<(crate::signatures::Signature, TypeId, usize)>,
     ) {
         let attributes = match typed {
             Node::JsxOpeningElement(element) => element.attributes,
@@ -298,11 +325,43 @@ impl Checker<'_, '_> {
                 }
             }
         }
+        // `reportCallResolutionErrors` (`checker.go:9649`): a failed overload
+        // set reports against its last argument-error candidate, with that
+        // candidate's first argument as the attributes' contextual type, and
+        // with several such candidates the head is TS2769 (the chain and the
+        // related information await `tsr-2zk.22`, as on the call road).
+        if let Some((last, target, count)) = failure {
+            let before = self.diagnostics.len();
+            self.with_jsx_candidate_context(node, &last, |checker| {
+                checker.report_jsx_attributes_failure(node, attributes_id, tag_id, target);
+                Some(())
+            });
+            if count > 1 {
+                for (_, diagnostic) in &mut self.diagnostics[before..] {
+                    diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
+                    diagnostic.args.clear();
+                }
+            }
+            return;
+        }
         let Some(target) = self.jsx_attributes_context(node) else { return };
         if !intrinsic && !self.resolved_call_signatures.contains_key(&node) {
             return;
         }
-        let Some(source) = self.jsx_checked_attributes_type(node) else { return };
+        self.report_jsx_attributes_failure(node, attributes_id, tag_id, target);
+    }
+
+    /// Whether the attributes type `source` relates to the effective first
+    /// argument `target` under `relation`, as `isRelatedTo` answers for a
+    /// fresh JSX attributes object, with the excess member it found. `None`
+    /// where this port does not decide.
+    fn jsx_attributes_relation(
+        &mut self,
+        attributes_id: NodeId,
+        source: TypeId,
+        target: TypeId,
+        relation: Relation,
+    ) -> Option<(Ternary, JsxExcess)> {
         // `isComparingJsxAttributes` (`ObjectFlagsJsxAttributes` on the
         // source): a hyphenated member, written or spread, is known to
         // `hasCommonProperties` and skipped by `membersRelatedToIndexInfo`
@@ -322,13 +381,13 @@ impl Checker<'_, '_> {
             None => Vec::new(),
         };
         if !hyphenated.is_empty() && self.jsx_hyphen_sensitive_target(target, &hyphenated) {
-            return;
+            return None;
         }
-        if self.is_gap(source)
-            || self.is_gap(target)
-            || self.store.get(target).flags.intersects(TypeFlags::ANY)
-        {
-            return;
+        if self.is_gap(source) || self.is_gap(target) {
+            return None;
+        }
+        if self.store.get(target).flags.intersects(TypeFlags::ANY) {
+            return Some((Ternary::Related, JsxExcess::None));
         }
         // The attributes type is a fresh object literal (`ObjectFlagsFreshLiteral`,
         // `jsx.go:721`), so `isRelatedTo` meets `hasExcessProperties` before
@@ -339,14 +398,36 @@ impl Checker<'_, '_> {
         // of the target has a complete member table: a name missing from an
         // unresolved table (a mapped or conditional target this port does not
         // enumerate) is not evidence.
-        let Some(excess) = self.jsx_excess_attribute(attributes_id, source, target) else {
+        let excess = self.jsx_excess_attribute(attributes_id, source, target)?;
+        let related = self.relate_ternary(source, target, relation);
+        if related == Ternary::NotRelated
+            || matches!(excess, JsxExcess::Member { .. })
+                && self.jsx_target_members_complete(target)
+        {
+            return Some((Ternary::NotRelated, excess));
+        }
+        match excess {
+            JsxExcess::None => Some((related, excess)),
+            JsxExcess::Member { .. } => Some((Ternary::Unknown, excess)),
+        }
+    }
+
+    /// The relation half of [`Checker::check_jsx_attributes_assignable`]
+    /// against one effective first argument: `checkTypeRelatedToAndOptionallyElaborate`
+    /// with the tag name as error node and the attributes as elaboration node.
+    fn report_jsx_attributes_failure(
+        &mut self,
+        node: NodeId,
+        attributes_id: NodeId,
+        tag_id: NodeId,
+        target: TypeId,
+    ) {
+        let Some(source) = self.jsx_checked_attributes_type(node) else { return };
+        let Some((Ternary::NotRelated, excess)) =
+            self.jsx_attributes_relation(attributes_id, source, target, Relation::Assignable)
+        else {
             return;
         };
-        if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
-            && (matches!(excess, JsxExcess::None) || !self.jsx_target_members_complete(target))
-        {
-            return;
-        }
         // `checkTypeRelatedToAndOptionallyElaborate` (`checker.go`):
         // `elaborateError` on the attributes node first — its `JsxAttributes`
         // arm is `elaborateJsxComponents` — and only when that stays silent
@@ -1429,4 +1510,465 @@ impl Checker<'_, '_> {
             _ => String::new(),
         }
     }
+}
+
+/// `chooseOverload`'s answer for a value tag with several candidates
+/// ([`Checker::choose_jsx_overload`]).
+enum JsxOverloads {
+    /// Not an overload set, or a shape this port does not decide: the
+    /// single-candidate road (the published signature) or nothing.
+    Declined,
+    /// A candidate is applicable; it is published for the element.
+    Chosen,
+    /// No candidate is applicable. `last` is `candidatesForArgumentError`'s
+    /// last entry, as checked (instantiated when generic), with its
+    /// effective first argument as the only parameter; `count` that list's
+    /// length — above one, the report is TS2769.
+    Failed { last: Box<crate::signatures::Signature>, props: TypeId, count: usize },
+}
+
+/// [`Checker::jsx_check_candidate`]'s answer for one candidate.
+enum JsxCandidate {
+    /// The checked candidate and its effective first argument.
+    Checked(Box<crate::signatures::Signature>, TypeId),
+    /// A written type argument outside its constraint
+    /// (`candidateForTypeArgumentError`).
+    TypeArgumentError,
+}
+
+/// `getJsxElementPropertiesName` (`jsx.go:1075`).
+enum JsxPropertiesName {
+    /// `InternalSymbolNameMissing`: no `ElementAttributesProperty`.
+    Missing,
+    /// The container's single member, or `""` for an empty container.
+    Name(String),
+}
+
+impl Checker<'_, '_> {
+    /// `resolveCall` (`checker.go:8843`) for a JSX value tag whose
+    /// uninstantiated signature list (`getUninstantiatedJsxSignaturesOfType`,
+    /// `jsx.go:898`: construct signatures, else call signatures) has more than
+    /// one candidate: `reorderCandidates`, then `chooseOverload`
+    /// (`checker.go:9025`) under `subtypeRelation` and again under
+    /// `assignableRelation`, each candidate filtered by
+    /// `hasCorrectTypeArgumentArity` and the JSX arm of `hasCorrectArity`
+    /// ([`Checker::jsx_has_correct_arity`]), instantiated when generic
+    /// ([`Checker::jsx_check_candidate`]), and tested by
+    /// `checkApplicableSignatureForJsxCallLikeElement` (`jsx.go:590`): the
+    /// attributes type, checked with the candidate's effective first
+    /// argument as contextual type, related to that argument.
+    ///
+    /// The chosen candidate is published in `resolved_call_signatures` in the
+    /// shape the single-candidate resolver publishes (one `props`
+    /// parameter), so contextual typing and the `ElementClass` bound read it.
+    /// A failure is reported by [`Checker::check_jsx_attributes_assignable`]
+    /// against the last argument-error candidate (`reportCallResolutionErrors`).
+    ///
+    /// Declines (no publication, no report): context-sensitive attributes or
+    /// children (`argCheckMode` `SkipContextSensitive` re-checks them per
+    /// candidate; this port caches an expression's first type), a candidate
+    /// this port cannot instantiate or relate, an active resolution of the
+    /// same element, and a failure with no argument-error candidate (the
+    /// arity and type-argument reports are not ported here).
+    fn choose_jsx_overload(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+        tag_type: TypeId,
+    ) -> JsxOverloads {
+        use crate::signatures::SignatureKind;
+        let (attributes, type_arguments) = match typed {
+            Node::JsxOpeningElement(element) => (element.attributes, element.type_arguments),
+            Node::JsxSelfClosingElement(element) => (element.attributes, element.type_arguments),
+            _ => return JsxOverloads::Declined,
+        };
+        let Some(attributes) = attributes else { return JsxOverloads::Declined };
+        if self.resolved_call_signatures.contains_key(&node) {
+            return JsxOverloads::Declined;
+        }
+        let Some(mut signatures) = self.signatures_of_type_kind(tag_type, SignatureKind::Construct)
+        else {
+            return JsxOverloads::Declined;
+        };
+        let component = !signatures.is_empty();
+        if signatures.is_empty() {
+            match self.call_signatures_of_type(tag_type) {
+                Some(calls) => signatures = calls,
+                None => return JsxOverloads::Declined,
+            }
+        }
+        if signatures.len() < 2 {
+            return JsxOverloads::Declined;
+        }
+        // `getEffectiveCallArguments`' JSX arm: the attributes node when it
+        // has properties or the element has children.
+        let children = self.jsx_semantic_children(node);
+        let arguments = usize::from(!attributes.properties.is_empty() || !children.is_empty());
+        // `isContextSensitive(JsxAttributes)`.
+        let context_sensitive =
+            attributes.properties.iter().any(|attribute| match attribute {
+                JsxAttributeLike::JsxAttribute(attribute) => attribute
+                    .initializer
+                    .and_then(|value| Expression::try_from(Node::from(value)).ok())
+                    .is_some_and(|value| self.is_context_sensitive_argument(&value)),
+                JsxAttributeLike::JsxSpreadAttribute(_) => false,
+            }) || children.iter().any(|child| self.is_context_sensitive_argument(child));
+        if context_sensitive {
+            return JsxOverloads::Declined;
+        }
+        let incomplete = attributes
+            .node_id
+            .is_some_and(|id| self.nodes.span(id).end == self.nodes.span(node).end);
+        let candidates = self.reorder_candidates(signatures);
+        let type_argument_count = type_arguments.len();
+        let mut failed: Vec<(crate::signatures::Signature, TypeId)> = Vec::new();
+        let relations: &[Relation] = &[Relation::Subtype, Relation::Assignable];
+        for &relation in relations {
+            failed.clear();
+            for candidate in &candidates {
+                if !jsx_has_correct_type_argument_arity(candidate, type_argument_count) {
+                    continue;
+                }
+                match self.jsx_has_correct_arity(candidate, arguments, incomplete) {
+                    Some(true) => {}
+                    Some(false) => continue,
+                    None => return JsxOverloads::Declined,
+                }
+                let Some(check) = self.jsx_check_candidate(node, tag_type, candidate, component)
+                else {
+                    return JsxOverloads::Declined;
+                };
+                let JsxCandidate::Checked(check, props) = check else { continue };
+                let check = *check;
+                let verdict = self.with_jsx_candidate_context(node, &check, |checker| {
+                    let source = checker.jsx_checked_attributes_type(node)?;
+                    let attributes_id = attributes.node_id?;
+                    checker
+                        .jsx_attributes_relation(attributes_id, source, props, relation)
+                        .map(|(related, _)| related)
+                });
+                match verdict {
+                    Some(Ternary::Related) => {
+                        self.resolved_call_signatures.insert(node, check);
+                        return JsxOverloads::Chosen;
+                    }
+                    Some(Ternary::NotRelated) => failed.push((check, props)),
+                    _ => return JsxOverloads::Declined,
+                }
+            }
+        }
+        let count = failed.len();
+        match failed.pop() {
+            Some((last, props)) => JsxOverloads::Failed { last: Box::new(last), props, count },
+            None => JsxOverloads::Declined,
+        }
+    }
+
+    /// The semantic children of the `JsxElement` whose opening element is
+    /// `opening` (none for a self-closing element), as expressions: JSX text
+    /// that is only whitespace with a newline is not a child
+    /// (`getSemanticJsxChildren`).
+    fn jsx_semantic_children(&self, opening: NodeId) -> Vec<Expression<'_>> {
+        let Some(parent) = self.nodes.parent(opening) else { return Vec::new() };
+        let Some(Node::JsxElement(element)) = self.node_map.get(parent) else { return Vec::new() };
+        if element.opening_element.and_then(|node| node.node_id) != Some(opening) {
+            return Vec::new();
+        }
+        element
+            .children
+            .iter()
+            .copied()
+            .filter(crate::jsx_intrinsic::semantic_jsx_child)
+            .filter_map(|child| Expression::try_from(Node::from(child)).ok())
+            .collect()
+    }
+
+    /// `hasCorrectArity`'s JSX arm (`checker.go:9136`): with an attributes
+    /// argument the candidate takes one argument (a class may declare an
+    /// argumentless constructor; an SFC's `context` is the framework's), and
+    /// without one its own parameter count bounds nothing. `None` where a
+    /// missing position's type is unresolved.
+    fn jsx_has_correct_arity(
+        &mut self,
+        signature: &crate::signatures::Signature,
+        arguments: usize,
+        incomplete: bool,
+    ) -> Option<bool> {
+        if incomplete {
+            return Some(true);
+        }
+        let minimum = self.signature_min_argument_count(signature);
+        let parameter_count = self.signature_parameter_count(signature);
+        let argument_count = if minimum == 0 { arguments } else { 1 };
+        let parameter_count = if arguments == 0 { parameter_count } else { 1 };
+        let minimum = minimum.min(1);
+        if !self.signature_has_effective_rest(signature) && argument_count > parameter_count {
+            return Some(false);
+        }
+        if argument_count >= minimum {
+            return Some(true);
+        }
+        // `filterType(getTypeAtPosition(signature, i), acceptsVoid)` is not
+        // `never` for every missing position.
+        for position in argument_count..minimum {
+            let Some(t) = self.signature_type_at_position(signature, position) else {
+                return Some(false);
+            };
+            if self.is_gap(t) {
+                return None;
+            }
+            let accepts_void = match &self.store.get(t).data {
+                crate::types::TypeData::Union { types, .. } => {
+                    types.iter().any(|&part| self.store.get(part).flags.contains(TypeFlags::VOID))
+                }
+                _ => self.store.get(t).flags.contains(TypeFlags::VOID),
+            };
+            if !accepts_void {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    /// `chooseOverload`'s `checkCandidate` for one candidate, paired with its
+    /// effective first argument (`getEffectiveFirstArgumentForJsxSignature`),
+    /// in the single-candidate resolver's published shape: one `props`
+    /// parameter, no type parameters. A non-generic candidate is itself;
+    /// written type arguments instantiate a generic one
+    /// (`checkTypeArguments` without reports: a type argument outside its
+    /// constraint makes the candidate a type-argument error, [`JsxCandidate::TypeArgumentError`]);
+    /// otherwise its type arguments are inferred from the attributes
+    /// (`inferJsxTypeArguments`, `jsx.go:197`) as the single-candidate
+    /// resolver infers them. `None` declines.
+    fn jsx_check_candidate(
+        &mut self,
+        node: NodeId,
+        tag_type: TypeId,
+        candidate: &crate::signatures::Signature,
+        component: bool,
+    ) -> Option<JsxCandidate> {
+        use crate::inference::InferenceFlags;
+        let props = self.jsx_effective_first_argument(node, tag_type, candidate, component)?;
+        let mut signature = candidate.clone();
+        signature.parameters =
+            vec![crate::signatures::Parameter::new("props".to_string(), false, false, props, None)];
+        if signature.type_parameters.is_empty() {
+            return Some(JsxCandidate::Checked(Box::new(signature), props));
+        }
+        let parameters = self.type_parameter_types(&signature)?;
+        let names: Vec<String> = signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let type_arguments = match self.node_map.get(node) {
+            Some(Node::JsxOpeningElement(element)) => element.type_arguments,
+            Some(Node::JsxSelfClosingElement(element)) => element.type_arguments,
+            _ => return None,
+        };
+        let map: Vec<(TypeId, TypeId)> = if type_arguments.is_empty() {
+            let context_node = self.jsx_overload_context_node(node);
+            if self.active_inference_contexts.contains_key(&context_node) {
+                return None;
+            }
+            let flags = if self.in_js_file(node) {
+                InferenceFlags::ANY_DEFAULT
+            } else {
+                InferenceFlags::NONE
+            };
+            self.with_jsx_candidate_context(node, &signature, |checker| {
+                let source = checker.jsx_checked_attributes_type(node)?;
+                let mut infos = Vec::new();
+                checker.infer_from_types(source, props, &parameters, &mut infos, 0);
+                let context = checker.active_inference_contexts.get_mut(&context_node)?;
+                context.inferences = infos;
+                context.inferential = true;
+                let source = checker.jsx_checked_attributes_type(node)?;
+                let mut infos =
+                    checker.active_inference_contexts.get(&context_node)?.inferences.clone();
+                checker.infer_from_types(source, props, &parameters, &mut infos, 0);
+                checker.resolved_inference_map(&infos, &signature, &parameters, flags)
+            })?
+        } else {
+            let mut written = Vec::with_capacity(parameters.len());
+            for (index, &parameter) in parameters.iter().enumerate() {
+                let argument = match type_arguments.get(index) {
+                    Some(&argument) => self.get_type_from_type_node(argument),
+                    // `fillMissingTypeArguments`: the default, else the
+                    // constraint, else `unknown`; not modelled here.
+                    None => return None,
+                };
+                written.push((parameter, argument));
+            }
+            for (index, type_parameter) in signature.type_parameters.iter().enumerate() {
+                let Some(constraint) = type_parameter.constraint else { continue };
+                let constraint = self.instantiate_type(constraint, &written, &parameters, &names);
+                let argument = written[index].1;
+                if self.is_gap(constraint) || self.is_gap(argument) {
+                    return None;
+                }
+                match self.relate_ternary(argument, constraint, Relation::Assignable) {
+                    Ternary::Related => {}
+                    Ternary::NotRelated => return Some(JsxCandidate::TypeArgumentError),
+                    Ternary::Unknown => return None,
+                }
+            }
+            written
+        };
+        let mut resolved = self.instantiate_signature(signature, &map, &parameters, &names)?;
+        resolved.type_parameters.clear();
+        let props = self.parameter_type(&resolved.parameters[0]);
+        Some(JsxCandidate::Checked(Box::new(resolved), props))
+    }
+
+    /// `getEffectiveFirstArgumentForJsxSignature` (`jsx.go:927`): the
+    /// candidate's props through `getJsxPropsTypeFromClassType` for a
+    /// component reference (`jsx.go:944`) or `getJsxPropsTypeFromCallSignature`
+    /// otherwise (`jsx.go:934`), with `LibraryManagedAttributes`,
+    /// `IntrinsicClassAttributes<instance>` and `IntrinsicAttributes`
+    /// applied as the single-candidate resolver applies them. `None` where a
+    /// piece is not decided (an unenumerable `ElementAttributesProperty`, a
+    /// managed alias this port cannot evaluate).
+    fn jsx_effective_first_argument(
+        &mut self,
+        node: NodeId,
+        tag_type: TypeId,
+        signature: &crate::signatures::Signature,
+        component: bool,
+    ) -> Option<TypeId> {
+        let unknown = self.intrinsics.unknown;
+        let first = |checker: &mut Self| {
+            signature
+                .parameters
+                .first()
+                .map_or(unknown, |parameter| checker.parameter_type(parameter))
+        };
+        let managed = |checker: &mut Self, props: TypeId| -> Option<TypeId> {
+            match checker.jsx_type_symbol(node, "LibraryManagedAttributes") {
+                Some(managed) => checker.evaluate_alias_body(managed, &[tag_type, props]),
+                None => Some(props),
+            }
+        };
+        let intrinsic_attributes = |checker: &mut Self, props: TypeId| match checker
+            .jsx_type_symbol(node, "IntrinsicAttributes")
+        {
+            Some(symbol) => {
+                let intrinsic = checker.get_declared_type_of_symbol(symbol);
+                checker.get_intersection_type(&[intrinsic, props], None)
+            }
+            None => props,
+        };
+        if !component {
+            let props = first(self);
+            let props = managed(self, props)?;
+            return Some(intrinsic_attributes(self, props));
+        }
+        let props = match self.jsx_element_properties_name(node)? {
+            JsxPropertiesName::Missing => first(self),
+            JsxPropertiesName::Name(name) if name.is_empty() => signature.r#type,
+            JsxPropertiesName::Name(name) => {
+                let instance = signature.r#type;
+                if self.is_type_any(instance) {
+                    instance
+                } else {
+                    // A missing member is TS2607's
+                    // (`check_jsx_class_attributes_member`); the props are
+                    // then `unknown`.
+                    self.get_type_of_property_of_type(instance, &name).unwrap_or(unknown)
+                }
+            }
+        };
+        let props = managed(self, props)?;
+        if self.is_type_any(props) {
+            return Some(props);
+        }
+        let mut props = props;
+        if let Some(symbol) = self.jsx_type_symbol(node, "IntrinsicClassAttributes") {
+            let intrinsic = match self.local_type_parameters_of(symbol).len() {
+                0 => self.get_declared_type_of_symbol(symbol),
+                1 => self.create_type_reference(symbol, vec![signature.r#type]),
+                _ => return None,
+            };
+            props = self.get_intersection_type(&[intrinsic, props], None);
+        }
+        Some(intrinsic_attributes(self, props))
+    }
+
+    /// `getJsxElementPropertiesName` (`jsx.go:1075`) through
+    /// `getNameFromJsxElementAttributesContainer` (`jsx.go:1093`):
+    /// [`JsxPropertiesName::Missing`] without an `ElementAttributesProperty`,
+    /// `""` for an empty one, the single member's name otherwise. `None` for an unenumerable container
+    /// or one with several members (TS2608, not ported here).
+    fn jsx_element_properties_name(&mut self, location: NodeId) -> Option<JsxPropertiesName> {
+        let Some(symbol) = self.jsx_type_symbol(location, "ElementAttributesProperty") else {
+            return Some(JsxPropertiesName::Missing);
+        };
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE) {
+            return Some(JsxPropertiesName::Missing);
+        }
+        let ty = self.get_declared_type_of_symbol(symbol);
+        match self.get_property_names_of_type(ty)?.as_slice() {
+            [] => Some(JsxPropertiesName::Name(String::new())),
+            [name] => Some(JsxPropertiesName::Name(name.clone())),
+            _ => None,
+        }
+    }
+
+    /// The node `jsx_attributes_context` keys an element's active context by:
+    /// the containing `JsxElement` for an opening element (its children read
+    /// the same context), else the element itself.
+    fn jsx_overload_context_node(&self, opening: NodeId) -> NodeId {
+        match self.nodes.parent(opening).and_then(|parent| self.node_map.get(parent)) {
+            Some(Node::JsxElement(element))
+                if element.opening_element.and_then(|node| node.node_id) == Some(opening) =>
+            {
+                element.node_id.unwrap_or(opening)
+            }
+            _ => opening,
+        }
+    }
+
+    /// `checkExpressionWithContextualType(attributes, paramType, …)` for one
+    /// candidate: the candidate is the element's active context while `work`
+    /// runs, so `jsx_attributes_context` (the contextual type of every
+    /// attribute and child) answers its first parameter. The context is
+    /// removed on every exit; an element already under an active context
+    /// declines.
+    fn with_jsx_candidate_context<T>(
+        &mut self,
+        node: NodeId,
+        signature: &crate::signatures::Signature,
+        work: impl FnOnce(&mut Self) -> Option<T>,
+    ) -> Option<T> {
+        use crate::inference::{InferenceContextSnapshot, InferenceFlags};
+        let context_node = self.jsx_overload_context_node(node);
+        if self.active_inference_contexts.contains_key(&context_node) {
+            return None;
+        }
+        self.active_inference_contexts.insert(
+            context_node,
+            InferenceContextSnapshot {
+                signature: signature.clone(),
+                inferences: Vec::new(),
+                return_inferences: Vec::new(),
+                flags: InferenceFlags::NONE,
+                inferential: false,
+                intra_expression_sites: Vec::new(),
+                outer_return_map: None,
+            },
+        );
+        let result = work(self);
+        self.active_inference_contexts.remove(&context_node);
+        result
+    }
+}
+
+/// `hasCorrectTypeArgumentArity` (`checker.go:9214`).
+fn jsx_has_correct_type_argument_arity(
+    signature: &crate::signatures::Signature,
+    count: usize,
+) -> bool {
+    let minimum = signature
+        .type_parameters
+        .iter()
+        .rposition(|parameter| parameter.default.is_none())
+        .map_or(0, |index| index + 1);
+    count == 0 || count >= minimum && count <= signature.type_parameters.len()
 }
