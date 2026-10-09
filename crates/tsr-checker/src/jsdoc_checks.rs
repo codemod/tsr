@@ -97,6 +97,26 @@ impl<'a> Checker<'a, '_> {
             // `checkExportAssignment` (`checker.go:5662`) resolves the
             // reparsed `Type` the expression is checked against.
             Some(Node::ExportAssignment(_)) => push(self.jsdoc_export_assignment_type(node)),
+            // `checkClassLikeDeclaration` (`checker.go:4316`):
+            // `checkSourceElements(baseTypeNode.TypeArguments())`, which
+            // `reparseHosted`'s `KindJSDocAugmentsTag` arm copied from an
+            // `@augments` tag onto an `extends` element that writes none.
+            Some(
+                Node::ClassDeclaration(tsr_ast::ClassDeclaration { heritage_clauses, .. })
+                | Node::ClassExpression(tsr_ast::ClassExpression { heritage_clauses, .. }),
+            ) => {
+                if let Some(element) = heritage_clauses
+                    .iter()
+                    .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+                    .and_then(|clause| clause.types.first())
+                    && element.type_arguments.is_empty()
+                    && let Some(id) = element.node_id
+                {
+                    for &argument in self.jsdoc_augments_type_arguments(id).unwrap_or_default() {
+                        push(Some(argument));
+                    }
+                }
+            }
             Some(_)
                 if hosts_reparse
                     && kind != SyntaxKind::VariableDeclaration

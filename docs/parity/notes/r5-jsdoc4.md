@@ -170,3 +170,79 @@ of an `@augments`/`@implements` tag's class name, plus the walk's arm
 (`jsdoc_checks.rs`, `checkSourceElements(baseTypeNode.TypeArguments())`,
 `checker.go:4316`) that visits the `@augments` arguments the `extends`
 element takes. Measured in §2.2.
+
+### 2.2 Measured
+
+On §2's commit, unfiltered:
+
+| Set | diagnostics RIGHT | types RIGHT | losses |
+|---|---|---|---|
+| §2 | 5,393 | 545,044 | — |
+| walk arm alone (committed) | 5,393 | 545,044 | none; no row changes |
+| walk arm + `r5-jsdoc4-augments-binding.diff` | **5,394** (extendsTag5) | **545,048** (extendsTag5 ×4) | none |
+
+Ir with the walk arm: domain-model 1,199,698,811, generic-imports
+342,891,775 (§2: 1,199,725,707 / 342,897,414); the arm runs only behind the
+hook's `file_is_js`. The binder diff binds JS comments only.
+
+**Landing.** Apply `r5-jsdoc4-augments-binding.diff` on this lane's commit;
+it is independent of everything else here.
+
+### 2.3 Not done: `unmetTypeConstraintInJSDocImportCall`
+
+Native reaches TS2344 through `checkTypeReferenceOrImport` (`checker.go:2998`)
+for an `ImportType` with type arguments, gated on
+`!isErrorType(getTypeFromTypeNode(node))`. TSR's
+`get_type_from_import_type_node` (`declared.rs`, r5-declared2's) answers
+`error` for **every** import type that writes type arguments ("written type
+arguments … the instantiated print is its own row"), so the gate can never
+pass; the TS twin `unmetTypeConstraintInImportCall` is WRONG for the same
+reason. Reaching the check without the type would be a guess at
+`getTypeFromImportTypeNode`'s answer, which §3a of the box protocol rules
+out. Needs: `getTypeReferenceType` over the import type's symbol with its
+written arguments in `declared.rs`; then an `ImportType` arm in
+`check_type_argument_constraints` (the qualifier's symbol, the written
+arguments, `check_type_argument_constraints_of`). Its argument `T` is a bare
+type parameter, which `bare_type_parameter_argument_is_decidable` already
+admits for a `TypeReferenceNode` argument.
+
+## 3. Catch clauses (item 3, jsdocCatchClauseWithTypeAnnotation)
+
+The case wants TS18046 ×2, TS2492, TS2339 ×2 beyond the TS1196 rows
+r5-jsdoc3 landed. Its TypeScript twin `catchClauseWithTypeAnnotation` is
+WRONG on exactly the same rows, so none of them is a JSDoc question.
+
+### 3.1 TS2492 (ported)
+
+**Native.** `checkCatchClause` (`checker.go:4247`): for an unannotated catch
+variable without an initializer, each name the clause declares
+(`node.Locals()`) that the catch block's locals hold as a block-scoped
+variable is TS2492 at that variable's value declaration
+(`grammarErrorOnNode`, the declaration's name). TSR had no TS2492 at all.
+
+**Port.** `check_catch_clause_block_redeclarations` (`grammar.rs`), called
+from `check_catch_clause_declaration`'s new `else` arm — the third branch of
+the same `if typeNode / else if initializer / else` native writes. The two
+locals tables are the binder's (`locals(catch_clause)`,
+`locals(block)`); no new table.
+
+**Measured** (on §2.2's committed walk arm, unfiltered): diagnostics
+**+1 RIGHT** (redeclareParameterInCatchBlock); catchClauseWithTypeAnnotation
+and jsdocCatchClauseWithTypeAnnotation gain their TS2492 row and stay WRONG
+on §3.2's rows. Types unchanged; zero losses. Ir domain-model 1,199,769,056, generic-imports
+342,898,629 (flat against §2.2).
+`crates/tsr-checker/tests/catch_clause_redeclaration.rs`: four tests.
+
+### 3.2 Not done: TS18046 and TS2339 on `unknown`
+
+- **TS18046** (`err.foo` with `err: unknown`): `checkNonNullTypeWithReporter`
+  (`checker.go:7413`). TSR's `check_non_null_type_reporting`
+  (`nullable_operand.rs`) deliberately does not report it: a
+  context-sensitive arrow parameter is read as `unknown` by the
+  diagnostics walk while inference answers `number`, and reporting cost two
+  EMPTY_RIGHT cases (`mapGroupBy`, `nonInferrableTypePropagation2`). The
+  property-access path (`members.rs`, main) reports nothing on an `unknown`
+  receiver either. Unblocking it is the inference cache, not this lane.
+- **TS2339** (`catch ({ x }: unknown)`): `getTypeOfDestructuredProperty`'s
+  missing-property report on an `unknown` parent — destructuring
+  (`destructure.rs`, r5-shapes).
