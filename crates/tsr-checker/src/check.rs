@@ -837,6 +837,7 @@ impl Checker<'_, '_> {
         match typed {
             Node::YieldExpression(_) => {
                 self.check_yield_grammar(node);
+                self.check_yield_in_parameter_initializer(node);
                 self.check_yield_expression_assignability(node);
             }
             Node::AwaitExpression(_) => {
@@ -9953,6 +9954,53 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(
                 &messages::AWAIT_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
+                span,
+            ),
+        );
+    }
+
+    /// TS2523 — `'yield' expressions cannot be used in a parameter initializer.`
+    ///
+    /// `checkGrammarYieldExpression`'s second arm (`grammarchecks.go:1783`),
+    /// an ungated `c.error(node, …)` as TS2524's is.
+    ///
+    /// Upstream only reaches it for a node its parser built as a
+    /// `YieldExpression`. Parameters are parsed in their function's yield
+    /// context (`parseParametersWorker`), so inside a generator's parameter
+    /// list every `yield` is one; elsewhere `isYieldExpression` takes `yield`
+    /// only before an identifier, keyword or literal on the same line, and a
+    /// bare `yield` is a name. This parser builds a `YieldExpression` in both
+    /// places, so outside a generator the rule asks for the operand shapes
+    /// [`Self::check_yield_grammar`] already bounds itself to.
+    fn check_yield_in_parameter_initializer(&mut self, node: NodeId) {
+        if !self.is_in_parameter_initializer_before_containing_function(node) {
+            return;
+        }
+        let Some(Node::YieldExpression(yielded)) = self.node_map.get(node) else { return };
+        let operand_shape = yielded.asterisk_token.is_none()
+            && yielded.expression.is_some_and(|operand| {
+                !matches!(operand, tsr_ast::Expression::ParenthesizedExpression(_))
+            });
+        let in_generator_parameters = self
+            .nodes
+            .ancestors(node)
+            .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::Parameter)
+            .and_then(|parameter| self.nodes.parent(parameter))
+            .is_some_and(|function| match self.node_map.get(function) {
+                Some(Node::FunctionDeclaration(f)) => f.asterisk_token.is_some(),
+                Some(Node::FunctionExpression(f)) => f.asterisk_token.is_some(),
+                Some(Node::MethodDeclaration(f)) => f.asterisk_token.is_some(),
+                _ => false,
+            });
+        if !in_generator_parameters && !operand_shape {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::YIELD_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
                 span,
             ),
         );
