@@ -156,3 +156,14 @@ reference chain, the next alias's arguments) and gates the union arm.
 Controls: `K2<{ a: 1; b: 2 }>` over `T[keyof T]` keeps its alias;
 `Example<{ a: MyU }>` prints `MyU`. No cache; evaluation reuses
 `alias_evaluation_bindings` frames under the depth guard.
+
+## New alias on indexed-access union instantiations (tsr-2zk.16.57)
+
+`getTypeFromTypeAliasReference`'s `newAliasSymbol` reaches
+`getIndexedAccessTypeEx` through `instantiateTypeWithAlias`, so a union built
+over a union index carries the declaring non-generic alias:
+`type P3Names = RequiredPropNames<P3>` prints `P3Names`. The reference road
+now re-mints such a union (one the indexed-access arm aliased by its target)
+under the declaring alias with `get_named_union_type`, as it already does
+for distributed mapped unions. A single-key answer (no alias) is untouched.
+No new cache.

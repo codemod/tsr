@@ -5451,6 +5451,21 @@ impl<'a> Checker<'a, '_> {
             let types = types.clone();
             return self.get_named_union_type(&types,TypeFlags::empty(),alias);
         }
+        // The same new alias handed to getIndexedAccessTypeEx by an
+        // indexed-access declared type (instantiateTypeWithAlias): the union
+        // built over a union index (getIndexedAccessTypeOrUndefined,
+        // checker.go:26996) carries the declaring alias, not the target's
+        // (`type Res3 = K2<{ a: 1; b: 2 }>` prints `Res3`). A union carrying no
+        // alias was a single key's property type and keeps its own display.
+        if let crate::types::TypeData::Union { types, symbol: Some(owner), .. } =
+            self.store.get(result).data.clone()
+            && owner == symbol
+            && let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && self.local_type_parameters_of(alias).is_empty()
+            && self.alias_body_is_indexed_access(symbol, 0)
+        {
+            return self.get_named_union_type(&types, TypeFlags::empty(), alias);
+        }
         if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             return self.new_alias_instantiation(result, symbol, alias);
         }
