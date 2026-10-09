@@ -1691,3 +1691,14 @@ intersection inference lands (`inference.rs`, MAIN).
 Closed: .16.7, .16.79, .16.73 and .16.65 (their roots). .16.6 and .16.76 are
 reopened unassigned, waiting on `tsr-2zk.39`'s naming. r6-typesroots3 takes
 .16.69, .16.74 and `tsr-2zk.1151`.
+
+### main merged into round 6 (batch BV)
+
+Batch BV merges the 23 commits main gained since `17265fac`:
+- property reads through extends expressions and `this` receivers (.16.88, .4);
+- contextual-type arms (.16.95, .16.288, .31);
+- the shared-contract alias carriers (.16.56, .16.57, .47.5);
+- parser recovery spans (.2);
+- the box setup's detached bd bootstrap (.50).
+
+The gate measures the merge against the batch-BU tip, like any box batch.
