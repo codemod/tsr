@@ -154,3 +154,129 @@ read `Foo`/`{ cause?: string; }` and only lack the printer's dropped
 **Falsifier.** A JS case where a `@param` in a *non-last* comment of the
 host types a parameter in native: the replay reads the last comment only,
 as `reparseTags`' `isLast` does.
+
+### 4.3 T2: a function's `@type` signature is its signature (diff)
+
+**Forcing fact.** `/** @type {<T>(param?: T) => T | undefined} */ function
+typed(param)` printed `(param: any) => any`. Native's `getSignaturesOfSymbol`
+(`checker.go:19827`) takes `getSignatureOfFullSignatureType(decl)` before
+`getSignatureFromDeclaration`, and that is `getSingleCallSignature` of the
+tag's type (`:20072`): the tag's own signature, **type parameters
+included** (`getTypeParametersFromDeclaration`, `:19913`, reads the same).
+TSR built the declaration's signature and patched each parameter from the
+tag through the *contextual* `single_call_signature` (`contextual.rs`),
+which refuses a generic signature, so every generic `@type` fell to `any`.
+
+**Diff** [`r5-jsdoc5-full-signature.diff`](r5-jsdoc5-full-signature.diff),
+three files that must land together:
+
+- `jsdoc_full_signature.rs` (owned): `jsdoc_full_signature(function)` —
+  `getSignatureOfFullSignatureType` over a faithful
+  `getSingleSignature(t, Call, allowMembers=false)` (`:19353`: one call
+  signature, no construct signature, no property or index). The
+  parameter and return readers go through it.
+- `signatures.rs` `get_signatures_of_symbol_for_type`: the full signature
+  first, as native's loop.
+- `members.rs` `property_names_of_type`: the anonymous arm answers a
+  function or constructor type node's literal symbol (it declares only
+  `__call`/`__new`). Without it the `getSingleSignature` property test
+  meets "unknown" for an **alias-named** function type (`@type {Foo}` with
+  `@typedef {(a: string) => void} Foo`, whose `signature` print flag is
+  cleared by the alias name) and declines: alone, the first two hunks
+  measured **+26 / −7 lines** (`checkJsdocTypeTag7` ×3 and
+  `returnTagTypeGuard` ×4 — an `@callback Cb` predicate — RIGHT→WRONG),
+  which the old contextual reader had answered.
+
+**Not split.** The owned hunk alone is wrong: the parameter reader would
+read the tag's `T` while the function's signature keeps no `T`
+(`f : (l: T) => T`). So the owned file ships inside the diff.
+
+**Measured** (all three hunks, on `00527ff`, unfiltered): types **548,928
+→ 548,945 RIGHT (+17 lines)**, cases **+2** (`typeTagWithGenericSignature`,
+`checkJsdocTypeTag7`); diagnostics unchanged; zero losses on both dumps; no
+non-RIGHT line changed text; `slowcases` clean. Ir domain-model
+1,156,961,873 (−0.003%), generic-imports 342,949,676 (−0.002%).
+`crates/tsr-checker/tests/jsdoc_full_signature_generic.rs` (in the diff):
+two tests, one fails without it.
+
+**Left.** `typeTagOnFunctionReferencesGeneric`'s arrow and
+`typeTagNoErasure` want the contextual generic signature's type parameters
+on the arrow itself (`<T>(j: T) => T`, contextual instantiation —
+`contextual.rs`, main); `jsdocTemplateTag7`/`8` want `@template private T`
+and `<in T>` kept, which `type_parameter_of` declines whole for any
+non-`const` modifier (`signatures.rs`); `typeFromJSInitializer3` wants the
+tag's non-widening `undefined`/`null` return at the call.
+
+**Falsifier.** A JS function whose `@type` names a type with both a call
+signature and a property (a callable interface): native refuses the full
+signature (`allowMembers=false`) and types the parameters from context;
+this port does the same — a case wanting the tag's parameters there would
+show the property test is wrong.
+
+### 4.4 T3: a `@template {C} T` constraint on a function's signature (diff)
+
+**Forcing fact.** `@template {{ a: number, b: string }} T,U` on a JS
+function printed `<T, U, …>`. `gatherTypeParameters` (`reparser.go:293`)
+gives the tag's *first* parameter the constraint; `members.rs`'
+`type_parameter_constraint` already asks `jsdoc_template_constraint` for it,
+but `signatures.rs`' `type_parameter_of` — which builds the printed and
+inferred `TypeParameter` — read `node.constraint` only.
+
+**Diff** [`r5-jsdoc5-template-constraint.diff`](r5-jsdoc5-template-constraint.diff):
+`type_parameter_of` reads `node.constraint`, else
+`jsdoc_template_constraint(node)` (one parent-kind test for an
+unconstrained TypeScript parameter). Test
+`jsdoc_template_constraint.rs` (in the diff) fails without it.
+
+### 4.5 `.1100`: the arity rule counts a typedef's `@template` (diff)
+
+`declared_type_parameter_arity` (`type_argument_arity.rs`) returned `None`
+for a `JSDocTypedefTag`/`JSDocCallbackTag` declaration, silencing TS2314.
+The reparsed alias's parameters are `local_type_parameters_of(symbol)` —
+the list `declared.rs` already gathers (`gatherTypeParameters(jsDoc,
+true)`). **Diff** [`r5-jsdoc5-typedef-arity.diff`](r5-jsdoc5-typedef-arity.diff),
+with `jsdoc_typedef_arity.rs` (one of two tests fails without it).
+
+### 4.6 §4.4 + §4.5 measured
+
+Stacked (disjoint files, disjoint rows), on `affe6c2`, unfiltered: types
+**548,928 → 548,936 RIGHT (+8 lines)**, cases **+1** (`jsdocTemplateTag3`);
+diagnostics **5,440 → 5,441 RIGHT** (`typedefMultipleTypeParameters`),
+EMPTY_RIGHT unchanged; zero losses on both dumps; no non-RIGHT line changed
+text; `slowcases` clean. Ir domain-model 1,157,001,705 (+0.001%),
+generic-imports 342,948,011 (−0.002%). The constraint hunk owns every type
+line (the arity hunk only reports), and the arity hunk the diagnostics row.
+
+## 5. Totals and landing
+
+| step | on | types RIGHT | cases | diagnostics RIGHT | losses |
+|---|---|---:|---|---:|---|
+| base | `28648eb` | 548,914 | — | 5,440 | — |
+| §4.1 cast context (commit `00527ff`) | base | 548,928 (+14) | 0 | 5,440 | none |
+| §4.2 `r5-jsdoc5-param-replay.diff` | `00527ff` | +17 | +2 | — | none |
+| §4.3 `r5-jsdoc5-full-signature.diff` | `00527ff` | +17 | +2 | — | none |
+| §4.4–4.5 `template-constraint` + `typedef-arity` | `affe6c2` | +8 | +1 | +1 | none |
+
+Sum of the separate measurements: types **+56 lines, +5 cases**,
+diagnostics **+1 case**. The four diffs touch disjoint hunks (the two
+`signatures.rs` hunks are in different functions) and apply together on
+`affe6c2` in any order; `cargo fmt --check` is clean with all four, and
+`cargo test --workspace --release` passes with all four applied (exit 0).
+Every diff carries its test, each failing without its diff.
+
+## 6. Remaining, and what each waits on
+
+| cluster | cases | waits on | site (owner) |
+|---|---:|---|---|
+| T6 JS value references / import types | 13 | `getTypeFromJSDocValueReference`, qualified and type-argument import types; then narrowing `check_type_reference_name`'s JS decline (r5-jsdoc4 §4.1) | `declared.rs` (r5-declared3) |
+| T4 `@overload` | 5 | reparsed overload declarations in the symbol's declarations | binder + `signatures.rs` (`.16.163`) |
+| T10 literal/tuple preservation under JSDoc context | 6 | contextual literal freshness | `contextual.rs` (main) |
+| T9 printer reuse of JSDoc nodes | 5 | node reuse of `?`/`=`/nullable JSDoc forms; `?: Foo` without the bracket's `undefined` on a pattern parameter | `node_reuse.rs`, `printing.rs` |
+| T2 left | 4 | contextual generic signature instantiation of an arrow (`typeTagNoErasure`, `typeTagOnFunctionReferencesGeneric`); `@template` variance modifiers declining `type_parameter_of`; non-widening tag return at a call | `contextual.rs`, `signatures.rs` |
+| T8 EOF comment | 2–3 | `parse_source_file` attaching `_end_docs` to the EOF token, the binder binding it, the walk reaching it | parser (main, `.17.1`) |
+| T5 `@callback` parameters | 2 | contextual signature of a callback alias for an arrow initializer | unread past the producer |
+| T7 `Object.<K, V>` | 1 | `getTypeAliasInstantiation(Record, [K, V])` | `declared.rs` |
+| T11 predicates via `@return` | 2 | `this is T` / `asserts` from a reparsed return on a JS method | `signatures.rs` |
+| TS1273/TS1274/TS1277, TS2706/TS2744 | 3 | `checkGrammarModifiers`' type-parameter arms and `checkTypeParameters`' default rules are unported **for TypeScript too**; the faithful home is `check_type_parameter_list` (`check.rs`), which the walk would then call for `@template` lists | `check.rs` (hub) |
+| TS2300 on `@import`/`@typedef` conflicts | 3 | the binder's duplicate-declaration report for reparsed aliases | binder (main) |
+| TS18046/TS2339 on `unknown` (`.1100`) | 1 (+TS twin) | `check_non_null_type_reporting` declines `unknown` (r5-jsdoc4 §3.2) | `nullable_operand.rs`/`members.rs` (main) |
