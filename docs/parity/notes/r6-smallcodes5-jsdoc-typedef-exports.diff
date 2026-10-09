@@ -1,0 +1,141 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3457,15 +3457,15 @@
+                 for tag in doc.tags {
+                     match tag {
+                         JSDocTag::JSDocTypedefTag(typedef) => {
+-                            let name = match typedef.name {
++                            let (name, name_node) = match typedef.name {
+                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
+-                                    identifier.text
++                                    (identifier.text, identifier.node_id)
+                                 }
+                                 _ => continue,
+                             };
+                             let Some(id) = typedef.node_id else { continue };
+                             let scope = self.jsdoc_alias_scope(*host, root);
+-                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
++                            self.declare_jsdoc_type_alias(scope, root, name, name_node, id);
+                             // The tag's type expression is parsed syntax — a
+                             // `{{a: string}}` object carries members upstream
+                             // binds like any written type literal.
+@@ -3531,15 +3531,15 @@
+                             }
+                         }
+                         JSDocTag::JSDocCallbackTag(callback) => {
+-                            let name = match callback.name {
++                            let (name, name_node) = match callback.name {
+                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
+-                                    identifier.text
++                                    (identifier.text, identifier.node_id)
+                                 }
+                                 _ => continue,
+                             };
+                             let Some(id) = callback.node_id else { continue };
+                             let scope = self.jsdoc_alias_scope(*host, root);
+-                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
++                            self.declare_jsdoc_type_alias(scope, root, name, name_node, id);
+                             if let Some(expression) = callback.type_expression {
+                                 self.bind(tsr_ast::Node::from(expression));
+                             }
+@@ -3706,6 +3706,43 @@
+         self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
+     }
+ 
++    /// One `@typedef`/`@callback` alias. Upstream reparses it into a
++    /// `JSTypeAliasDeclaration`; at a module's top level that declaration is
++    /// implicitly exported (`ast.IsImplicitlyExportedJSDocDeclaration`), and
++    /// `bindContainer` binds it last with `bindBlockScopedDeclaration`
++    /// (`binder.go:1600`), which goes through `declareModuleMember`
++    /// (`:375`) into the module's exports with `SymbolFlagsTypeAliasExcludes`.
++    /// So a top-level typedef named `default` beside `export default class`
++    /// is TS2300 on both. Elsewhere (a script, or nested in a function or
++    /// block) it keeps the comment-scoped local below.
++    fn declare_jsdoc_type_alias(
++        &mut self,
++        scope: NodeId,
++        root: NodeId,
++        name: &'a str,
++        name_node: Option<NodeId>,
++        declaration: NodeId,
++    ) {
++        if scope == root
++            && let Some(module) = self.module_symbol
++        {
++            if let Some(name_node) = name_node {
++                self.name_nodes.push((declaration, name_node));
++            }
++            let symbol = self.declare_into(
++                Destination::Exports,
++                root,
++                Some(module),
++                name,
++                SymbolFlags::TYPE_ALIAS,
++                declaration,
++            );
++            self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
++            return;
++        }
++        self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, declaration);
++    }
++
+     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
+     fn declare_jsdoc_symbol(
+         &mut self,
+diff --git a/crates/tsr-binder/tests/jsdoc_typedef_exports.rs b/crates/tsr-binder/tests/jsdoc_typedef_exports.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-binder/tests/jsdoc_typedef_exports.rs
+@@ -0,0 +1,51 @@
++//! A top-level `@typedef` in a JS module is an implicitly exported
++//! `JSTypeAliasDeclaration` (`ast.IsImplicitlyExportedJSDocDeclaration`),
++//! bound into the module's exports with `SymbolFlagsTypeAliasExcludes`
++//! (`binder.go:1600`, `:375`). Expectations were checked against a native
++//! `tsgo` built from the pinned submodule.
++
++use tsr_ast::NodeFlags;
++use tsr_binder::{BindResult, FileInfo};
++use tsr_core::Arena;
++
++fn ts2300_spans(source: &str) -> Vec<String> {
++    let arena = Arena::new();
++    let mut parsed = tsr_parser::parse_with_options(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("index.js"),
++    );
++    assert!(parsed.diagnostics.is_empty());
++    let root = parsed.source_file.node_id.expect("registered source file");
++    parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
++    let docs: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        FileInfo { name: "index.js", text: source },
++        &docs,
++    );
++    let mut spans: Vec<String> = bound
++        .diagnostics()
++        .iter()
++        .filter(|d| d.code() == "TS2300")
++        .map(|d| source[d.span.start as usize..d.span.end as usize].to_string())
++        .collect();
++    spans.sort();
++    spans
++}
++
++#[test]
++fn a_typedef_named_default_conflicts_with_a_default_exported_class() {
++    let source =
++        "export default class C {};\n/**\n * @typedef {string | number} default\n */\nvar q;\n";
++    assert_eq!(ts2300_spans(source), ["C", "default"]);
++}
++
++#[test]
++fn a_typedef_beside_an_export_assignment_alias_does_not_conflict() {
++    let source = "class Cls {}\nexport default Cls;\n/**\n * @typedef {string | number} default\n */\nvar q;\n";
++    assert!(ts2300_spans(source).is_empty());
++}

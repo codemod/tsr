@@ -1,0 +1,147 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1062,6 +1062,10 @@
+         if matches!(typed, Node::ImportTypeNode(_)) {
+             self.check_import_type_argument(node);
+             self.check_import_type_attributes(node);
++            // `checkImportType`'s `checkTypeReferenceOrImport` (`checker.go:3324`).
++            if let Some((symbol, arguments)) = self.import_type_constraint_target(node) {
++                self.check_type_argument_constraints_of(symbol, arguments);
++            }
+         }
+         if matches!(
+             typed,
+diff --git a/crates/tsr-checker/src/constraints.rs b/crates/tsr-checker/src/constraints.rs
+--- a/crates/tsr-checker/src/constraints.rs
++++ b/crates/tsr-checker/src/constraints.rs
+@@ -891,7 +891,7 @@
+     /// `checkTypeArgumentConstraints` (`checker.go:3016`) for `symbol`'s
+     /// type parameters against the written `type_arguments`, after the
+     /// caller has resolved the reference to a class, interface or alias.
+-    fn check_type_argument_constraints_of(
++    pub(crate) fn check_type_argument_constraints_of(
+         &mut self,
+         symbol: SymbolId,
+         type_arguments: &'a [tsr_ast::TypeNode<'a>],
+diff --git a/crates/tsr-checker/src/import_type_constraints.rs b/crates/tsr-checker/src/import_type_constraints.rs
+--- a/crates/tsr-checker/src/import_type_constraints.rs
++++ b/crates/tsr-checker/src/import_type_constraints.rs
+@@ -40,7 +40,6 @@
+ 
+ use crate::checker::Checker;
+ 
+-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
+ impl<'a> Checker<'a, '_> {
+     /// `checkTypeReferenceOrImport`'s constraint arm for one import type:
+     /// the resolved class, interface or alias and the written arguments
+diff --git a/crates/tsr-checker/tests/import_type_constraints.rs b/crates/tsr-checker/tests/import_type_constraints.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-checker/tests/import_type_constraints.rs
+@@ -0,0 +1,105 @@
++//! TS2344 on an import type's type arguments: `checkImportType`'s
++//! `checkTypeReferenceOrImport` (`checker.go:2998`, `:3324`) over the symbol
++//! `getTypeFromImportTypeNode` (`checker.go:24575`) resolves. Expectations
++//! were checked against a native `tsgo` built from the pinned submodule.
++
++use tsr_ast::{NodeId, NodeMap, NodeTable};
++use tsr_binder::BindResult;
++use tsr_checker::check::FileContext;
++use tsr_checker::{Checker, resolution::ModuleHost};
++use tsr_core::Arena;
++
++struct Fixtures {
++    files: Vec<(&'static str, NodeId, &'static str)>,
++}
++
++impl ModuleHost for Fixtures {
++    fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
++        self.resolved_module(importing_file, specifier).is_some()
++    }
++
++    fn resolved_module(&self, _importing_file: NodeId, specifier: &str) -> Option<NodeId> {
++        let name = specifier.strip_prefix("./").unwrap_or(specifier);
++        self.files.iter().find(|(fixture, ..)| *fixture == name).map(|&(_, id, _)| id)
++    }
++
++    fn source_text(&self, file: NodeId, _nodes: &NodeTable) -> Option<&str> {
++        self.files.iter().find(|(_, id, _)| *id == file).map(|&(.., text)| text)
++    }
++}
++
++/// The TS2344 messages reported for the last fixture file.
++fn ts2344(files: &[(&'static str, &'static str)]) -> Vec<String> {
++    let arena = Arena::new();
++    let mut nodes = NodeTable::new();
++    let mut node_map = NodeMap::new();
++    let mut parsed = Vec::new();
++    for &(name, source) in files {
++        let file = tsr_parser::parse_into(
++            &arena,
++            source,
++            tsr_parser::ParseOptions::default(),
++            &mut nodes,
++            &mut node_map,
++        );
++        assert!(file.diagnostics.is_empty(), "fixture {name} must parse");
++        parsed.push((name, source, file.source_file));
++    }
++    let mut bound = BindResult::empty();
++    let mut host = Fixtures { files: Vec::new() };
++    for (name, source, source_file) in parsed {
++        let file_name: &str = arena.alloc_str(&format!("/{name}.ts"));
++        host.files.push((name, source_file.node_id.expect("a parsed file has an id"), source));
++        bound = tsr_binder::bind_into(
++            bound,
++            &arena,
++            source_file,
++            &nodes,
++            tsr_binder::FileInfo { name: file_name, text: source },
++        );
++    }
++    let root = host.files.last().expect("a fixture").1;
++    let mut checker = Checker::with_module_host(&bound, &nodes, &node_map, Some(&host));
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    let mut messages: Vec<String> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(_, d)| d.code() == "TS2344")
++        .map(|(_, d)| d.text())
++        .collect();
++    messages.sort();
++    messages
++}
++
++#[test]
++fn an_unconstrained_type_parameter_argument_reports() {
++    assert_eq!(
++        ts2344(&[
++            ("file1", "export type Foo<T extends string> = { foo: T }"),
++            ("file2", "type Bar<T> = import('./file1').Foo<T>;"),
++        ]),
++        ["Type 'T' does not satisfy the constraint 'string'."]
++    );
++}
++
++#[test]
++fn a_satisfying_argument_does_not_report() {
++    assert!(
++        ts2344(&[
++            ("file1", "export type Foo<T extends string> = { foo: T }"),
++            ("file2", "type Ok = import('./file1').Foo<\"a\">;"),
++        ])
++        .is_empty()
++    );
++}
++
++#[test]
++fn a_namespace_qualifier_is_walked() {
++    assert_eq!(
++        ts2344(&[
++            ("file1", "export namespace N { export interface Box<T extends string> { v: T } }"),
++            ("file2", "type B = import('./file1').N.Box<number>;"),
++        ]),
++        ["Type 'number' does not satisfy the constraint 'string'."]
++    );
++}
