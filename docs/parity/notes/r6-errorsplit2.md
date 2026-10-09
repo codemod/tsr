@@ -412,3 +412,30 @@ N, P, Q, W, M on §1's base, unfiltered, both dumps:
 | **total** | 2,647 | 2,209 | **2,094** |
 
 No rewrite costs zero, so none is narrowed.
+
+## §10 Re-verified on the frozen base
+
+Batch BH landed during this session (then BI and BJ). As the dispatch
+requires, the base is now frozen at the integration tip `b9ede2e` (batch BJ),
+merged into this branch, unfiltered:
+
+- types 550,131 RIGHT / 768 GAP / 5,404 WRONG;
+- diagnostics 5,612 RIGHT / 5,606 EMPTY_RIGHT / 981 WRONG / 39 EMPTY_WRONG;
+- `ceiling`: credited gap 2,131; narrowing 2,650 (`HadErrorBaseline` 1,985,
+  `AtLocation` 576, `AccessOrQualifiedParent` 62, `StatementName` 27).
+
+All five diffs apply unchanged, each alone and stacked in the order N, P, Q,
+W, M. Stacked, against this base, unfiltered:
+
+- **zero losses** on both dumps; types +9 WRONG→RIGHT (§8's nine), and no
+  other transition;
+- 555 lines move to `native_error`, every one `errorType` natively;
+- 2 lines leave the gap for `anyType`, both `anyType` natively (§4);
+- credited gap 2,131 → **1,602**; narrowing 2,650 → **2,097**
+  (`HadErrorBaseline` 1,519, `AtLocation` 543, `AccessOrQualifiedParent` 8,
+  `StatementName` 27);
+- slowcases clean on both dumps;
+- `cargo test --workspace --release` passes;
+- Ir against the base binary: domain-model +0.060%, −0.065% and +0.005% on
+  three runs (the base binary alone spans 1,091,289,580 to 1,092,044,018);
+  generic-imports −0.007%. Inside the noise.
