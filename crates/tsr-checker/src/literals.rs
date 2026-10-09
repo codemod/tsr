@@ -11,8 +11,11 @@ use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
 impl Checker<'_, '_> {
     /// The regular (non-fresh) form of a literal type.
     ///
-    /// Ported from `Checker.getRegularTypeOfLiteralType`. A no-op for anything
-    /// that is not a fresh literal.
+    /// Ported from `Checker.getRegularTypeOfLiteralType` (`checker.go:25273`),
+    /// including its union arm, `mapType(t, getRegularTypeOfLiteralType)`: a
+    /// union holding a fresh literal answers the union of the regular forms
+    /// (`true ? E.A : x` types as `E | T` once `getTypeOfNode` asks for the
+    /// regular type of the expression). A no-op for anything else.
     pub fn get_regular_type_of_literal_type(&mut self, id: TypeId) -> TypeId {
         // An enum member's regular form is the union's own constituent —
         // interning would mint a twin the relater cannot match
@@ -20,10 +23,39 @@ impl Checker<'_, '_> {
         if let Some(&regular) = self.enum_member_regular.get(&id) {
             return regular;
         }
-        if !self.store.get(id).fresh {
+        let ty = self.store.get(id);
+        if ty.fresh {
+            return self.store.literal_twin(id, false);
+        }
+        if ty.flags.intersects(TypeFlags::UNION) {
+            return self.get_regular_type_of_union(id);
+        }
+        id
+    }
+
+    /// The union arm of [`Self::get_regular_type_of_literal_type`]:
+    /// `mapType(t, getRegularTypeOfLiteralType)`.
+    #[inline(never)]
+    fn get_regular_type_of_union(&mut self, id: TypeId) -> TypeId {
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(id).data else {
+            return id;
+        };
+        // `mapType` hands back its input when no member changed, which keeps
+        // an alias-named union intact (see
+        // `get_widened_unique_es_symbol_type`). Upstream caches the answer on
+        // the union (`regularType`); a union with no fresh member, the common
+        // case, is answered by this scan without a rebuild.
+        if !types.iter().any(|&member| {
+            self.store.get(member).fresh || self.enum_member_regular.contains_key(&member)
+        }) {
             return id;
         }
-        self.store.literal_twin(id, false)
+        let constituents = types.clone();
+        let regular: Vec<TypeId> = constituents
+            .iter()
+            .map(|&member| self.get_regular_type_of_literal_type(member))
+            .collect();
+        if regular == constituents { id } else { self.get_union_type(&regular) }
     }
 
     /// The fresh form of a literal type.

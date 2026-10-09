@@ -510,7 +510,10 @@ pub(crate) fn signature_member_text(
         // The node-reuse rule on `Parameter::written_text`
         // (`crate::node_reuse`), for a printer with no print site.
         let parameter_type = checker.parameter_type(parameter);
-        if let Some(written) = parameter
+        if let Some(implicit) = checker.implicit_undefined_parameter_type(parameter, parameter_type)
+        {
+            out.push_str(&checker.type_to_string(implicit));
+        } else if let Some(written) = parameter
             .written_text
             .and_then(|written| checker.site_free_annotation_text(written, parameter_type))
         {

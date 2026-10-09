@@ -1,0 +1,94 @@
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index 6efab54..48657fd 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -775,15 +775,6 @@ impl Checker<'_, '_> {
+                                     self.get_flow_type_of_reference(node_id, Some(symbol), start)
+                                 }
+                             }
+-                        } else if let Some(&spelled) = self.enum_access_spelling.get(&declared) {
+-                            // §280: a bare enum-member REFERENCE takes the
+-                            // access spelling, exactly as the property-access
+-                            // road does — `a` inside `b = a` prints `E` when
+-                            // the enum's values collapse to one
+-                            // (`mergedEnumDeclarationCodeGen`,
+-                            // `preserveConstEnums`). An enum member is not a
+-                            // narrowable symbol, so this is that branch alone.
+-                            spelled
+                         } else {
+                             declared
+                         }
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 56aebdb..4d65b28 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -140,14 +140,11 @@ impl Checker<'_, '_> {
+         {
+             return self.intrinsics.any;
+         }
+-        let computed = self.check_property_access_expression_worker(node);
+-        // §55.1 (`checker-notes-narrow.md`): a single-member enum's ACCESS
+-        // prints the enum spelling while its declaration line keeps the
+-        // per-name fresh form (`Enum.A : Enum` beside `>A : Enum.A`).
+-        if let Some(&spelled) = self.enum_access_spelling.get(&computed) {
+-            return spelled;
+-        }
+-        computed
++        // §55.1's single-member enum spelling (`Enum.A : Enum` beside
++        // `>A : Enum.A`) is not this road's: the access keeps the member's
++        // fresh literal, and the baseline writer's `getRegularTypeOfExpression`
++        // reads the enum-spelled regular form (`r5-printer3.md` §3).
++        self.check_property_access_expression_worker(node)
+     }
+ 
+     /// SS186: does the class body lexically containing `node` declare the
+diff --git a/crates/tsr-conformance/src/types_producer.rs b/crates/tsr-conformance/src/types_producer.rs
+index 92e4c1b..35f934d 100644
+--- a/crates/tsr-conformance/src/types_producer.rs
++++ b/crates/tsr-conformance/src/types_producer.rs
+@@ -591,6 +591,15 @@ pub enum ProducerArm {
+ }
+ 
+ /// [`type_id_at_location_tracking`], also naming the arm that answered.
++///
++/// Every arm that stands for `getTypeOfNode`'s `ast.IsExpressionNode` branch
++/// answers `getRegularTypeOfExpression` (`checker.go:32111`): the regular
++/// form of the expression's type. A fresh literal stays fresh in the value
++/// (an object-literal property or an inference keeps it, `{ type: E.A }`);
++/// only the baseline line reads the regular form, which is what prints a
++/// single-value enum's member access as the enum (`E.A : E`, the node
++/// builder's `getDeclaredTypeOfSymbol(parent) == t` arm,
++/// `nodebuilderimpl.go:3266`). See `docs/parity/notes/r5-printer3.md` §3.
+ pub fn type_id_at_location_arm<'a>(
+     checker: &mut tsr_checker::Checker<'a, '_>,
+     binder: &tsr_binder::BindResult<'a>,
+@@ -599,6 +608,29 @@ pub fn type_id_at_location_arm<'a>(
+     id: NodeId,
+     saw_checker_error: &mut bool,
+     arm: &mut ProducerArm,
++) -> tsr_checker::TypeId {
++    let computed =
++        type_id_at_location_arm_inner(checker, binder, nodes, map, id, saw_checker_error, arm);
++    if matches!(
++        arm,
++        ProducerArm::Expression
++            | ProducerArm::PropertyAccessName
++            | ProducerArm::TypeQueryName
++            | ProducerArm::QualifiedNameLeft
++    ) {
++        return checker.get_regular_type_of_literal_type(computed);
++    }
++    computed
++}
++
++fn type_id_at_location_arm_inner<'a>(
++    checker: &mut tsr_checker::Checker<'a, '_>,
++    binder: &tsr_binder::BindResult<'a>,
++    nodes: &NodeTable,
++    map: &NodeMap<'a>,
++    id: NodeId,
++    saw_checker_error: &mut bool,
++    arm: &mut ProducerArm,
+ ) -> tsr_checker::TypeId {
+     let error = checker.intrinsics().error;
+     let Some(node) = map.get(id) else {
