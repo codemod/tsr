@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 919/1091 (84.23%)
-Failed         : 172
+Passed         : 923/1091 (84.60%)
+Failed         : 168
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 172 failures:
+First 100 of 168 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -112,10 +112,6 @@ compiler/jsxChildrenArrayWrongType(target=es2015)
   2 missing (first TS2769 at index.tsx(12,9))
 compiler/jsxFragmentFactoryReference(jsx=react)
   1 missing (first TS2879 at jsxFragmentFactoryReference.tsx(3,9))
-compiler/jsxSpreadTag(target=es2015)
-  4 missing (first TS2304 at /a.tsx(5,13))
-compiler/jsxSpreadTag(target=esnext)
-  4 missing (first TS2304 at /a.tsx(5,13))
 compiler/moduleAugmentationGlobal8_1(target=es2015)
   1 missing (first TS2670 at moduleAugmentationGlobal8_1.ts(2,5))
 compiler/multipleBaseInterfaesWithIncompatibleProperties2(exactoptionalpropertytypes=true)
@@ -226,3 +222,7 @@ conformance/esDecorators-classDeclaration-fields-staticAmbient(target=es2022)
   3 unexpected (first TS1039 at esDecorators-classDeclaration-fields-staticAmbient.ts(6,37)), 0 missing
 conformance/esDecorators-classDeclaration-fields-staticAmbient(target=esnext)
   3 unexpected (first TS1039 at esDecorators-classDeclaration-fields-staticAmbient.ts(6,37)), 0 missing
+conformance/esDecorators-decoratorExpression.1(experimentaldecorators=false)
+  37 unexpected (first TS1359 at esDecorators-decoratorExpression.1.ts(5,4)), 22 missing
+conformance/esDecorators-decoratorExpression.1(experimentaldecorators=true)
+  37 unexpected (first TS1359 at esDecorators-decoratorExpression.1.ts(5,4)), 22 missing
