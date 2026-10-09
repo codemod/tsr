@@ -1807,25 +1807,36 @@ impl<'a> Checker<'a, '_> {
                 r#type,
             );
         }
-        // assignContextualParameterTypes copies the contextual `this` slot
-        // whenever contextual assignment runs, including functions sensitive
-        // through ordinary parameters or returned callbacks. A completed
-        // object's method retains this assigned slot, just like native symbol
-        // links, while its return type can still be resolved in a later context.
-        if this_parameter.is_none()
-            && type_parameters.is_empty()
-            && self.is_context_sensitive_function_like(declaration)
-        {
-            let inherited = match self.contextual_this_parameters.get(&declaration) {
-                Some(inherited) => *inherited,
-                None => self
-                    .contextual_signature(declaration)
-                    .and_then(|signature| signature.this_parameter)
-                    .map(|parameter| self.parameter_type(&parameter)),
-            };
-            if let Some(inherited) = inherited {
-                this_parameter =
-                    Some(Parameter::new("this".to_string(), false, false, inherited, None));
+        // assignContextualParameterTypes (`checker.go:10349`), for a
+        // context-sensitive signature with no type parameters of its own.
+        //
+        // Its first arm (`:10350`): the signature takes the contextual
+        // signature's type parameters, so `foo((t, u: number) => t.a)`
+        // against `<T extends { a: number }>(t: T, ...rest: A) => number`
+        // prints `<T extends { a: number; }>(t: T, u: number) => number`.
+        //
+        // It copies the contextual `this` slot whenever contextual
+        // assignment runs, including functions sensitive through ordinary
+        // parameters or returned callbacks. A completed object's method
+        // retains this assigned slot, just like native symbol links, while
+        // its return type can still be resolved in a later context.
+        if type_parameters.is_empty() && self.is_context_sensitive_function_like(declaration) {
+            let contextual = self.contextual_signature(declaration);
+            if this_parameter.is_none() {
+                let inherited = match self.contextual_this_parameters.get(&declaration) {
+                    Some(inherited) => *inherited,
+                    None => contextual
+                        .as_ref()
+                        .and_then(|signature| signature.this_parameter.as_ref())
+                        .map(|parameter| self.parameter_type(parameter)),
+                };
+                if let Some(inherited) = inherited {
+                    this_parameter =
+                        Some(Parameter::new("this".to_string(), false, false, inherited, None));
+                }
+            }
+            if let Some(contextual) = contextual {
+                type_parameters = contextual.type_parameters;
             }
         }
         Some(Signature {

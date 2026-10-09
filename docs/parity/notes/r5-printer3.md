@@ -149,3 +149,69 @@ natively but is listed above would print a regular form where native prints
 `getTypeOfSymbol`'s fresh one; for every type but a single-value enum's
 member the two print the same text, so only an enum line could show it, and
 none did.
+
+## 4. A context-sensitive function takes the contextual signature's type parameters (item 4)
+
+**Forcing constraint.** `assignContextualParameterTypes` (`checker.go:10349`)
+opens with: if the contextual signature has type parameters and the
+function's own signature has none, the function's signature takes them
+(`sig.typeParameters = context.typeParameters`). So
+`foo((t, u: number) => t.a)` against
+`arg: <T extends { a: number }>(t: T, ...rest: A) => number` prints the arrow
+as `<T extends { a: number; }>(t: T, u: number) => number`; the port printed
+`(t: T, u: number) => number`, a type parameter with no binder in the print.
+
+`get_signature_from_declaration` (`signatures.rs`) already ports that
+function's `this` arm (the contextual `this` slot for a context-sensitive
+function with no type parameters of its own). The type-parameter arm goes
+beside it, under the same gate, and both read one `contextual_signature`
+call: computing it twice (a first cut) cost domain-model +0.76% Ir, because
+this port rebuilds a declaration's signature on every read rather than
+caching it.
+
+r5-printer2 §7 routed this to `contextual.rs`; the contextual signature is
+already right there (the parameters print `T`), and only the construction
+dropped its type parameters, so no contextual.rs diff is needed.
+
+Measured on top of §3.1, unfiltered: +25 type lines, 0 lost; +4 cases
+(`contextuallyTypedGenericAssignment`, `genericCallWithinOwnBodyCastTypeParameterIdentity`,
+`importTypeGenericArrowTypeParenthesized`, `promisePermutations2`); lines also
+in `contextualOuterTypeParameters`, `genericFunctionParameters` (11),
+`promisePermutations{,3}`, `typeTagOnFunctionReferencesGeneric`. Against the
+frozen base: 0 lost on both dumps. Diagnostics unchanged; slowcases clean.
+Ir: domain-model 1,124,499,997 → 1,124,528,536 (+0.003%), generic-imports
+342,949,224 → 342,944,464; CLI output identical.
+
+**What is not ported.** Native's instantiated contextual signature clones
+its own type parameters (`instantiateSignature`'s fresh type parameters), so
+the function owns `T'`; the port hands over the contextual signature's own
+`T`. They print the same; a relation that compares the function against its
+contextual type could tell them apart, and none in the corpus moved.
+
+**How this would be wrong.** Native skips the arm when the signature already
+has type parameters from an earlier contextual assignment ("already has a
+contextual inference performed and cached on it"); the port recomputes the
+signature, so a function checked under two contexts takes the second one's.
+No line in the corpus shows it.
+
+## 5. `circularObjectLiteralAccessors` is node reuse, not accessor identity (item 3)
+
+Native prints `a`'s declaration as
+`{ b: { get foo(): string; set foo(value: string); }; foo: string; }`, and
+the object-literal expression lines as `{ foo: string; }`. r5-printer2 §4.1
+guessed at the read/write identity of object-literal accessor symbols. It is
+not: a scratch tsgo with a print in `addPropertyToElementList`'s accessor arm
+(`nodebuilderimpl.go:2522`; built, run, and the vendor file restored) shows
+the read and write types identical (`string`, the same type id) for every
+`foo`, so that arm prints the property form, as the port does.
+
+The accessor form comes from declaration reuse: `serializeTypeForDeclaration`
+reuses the initializer's pseudo type when `pseudoTypeEquivalentToType` holds
+(its object-literal arm, `pseudotypenodebuilder.go:418`, counts a get/set
+pair as two elements), and `pseudoTypeToNode` re-emits the written accessors
+(`:292`). Probes: the form appears only for an object literal **nested** in
+the declaration's initializer and only with annotated accessors
+(`const m = { x: 1, b: { get foo(): string …, set foo(v: string) … } }`); a
+top-level pair (`const k = { get foo(): string …, set … }`) and an unannotated
+pair print the property form natively. Why the top level differs was not
+established. Routed to r5-nodereuse (`node_reuse.rs`).
