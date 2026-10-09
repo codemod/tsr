@@ -1571,3 +1571,22 @@ ADR numbering: 0051 is the lone-surrogate ADR and 0052 this one.
 r6-checkperf's held JSDoc-deferral ADR must take the next free number.
 
 r6-printer4 takes the printer lane (`tsr-2zk.1145`).
+
+### r6-modules2 finished (batch BP); r6-modules3 dispatched
+
+Batch BP lands r6-modules2's commits and seven diffs:
+- the import-equals value half (r5-errorsplit6's refused +8/−2, now lossless by
+  narrowing the export= two-hop rename): +10 types;
+- TS1280/TS1281;
+- the const-enum TDZ under isolatedModules;
+- `export =` of a dotted entity: +2 rows, +5 types;
+- rewriteRelativeImportExtensions TS2876/TS2877: +6 rows;
+- grammar's NodeCanBeDecorated made the single faithful copy;
+- the diagnostic formatter's nested `{0}` placeholder.
+
+Measured by the box: +11 diagnostics rows, +15 types, 0 lost, dm Ir +0.05%,
+which is within the base's own 0.06% run spread.
+
+Refused: typing unannotated initializers for TS2475 (+1/−3). It waits on lazy
+signature resolution. r6-modules3 takes the remaining module rows
+(`tsr-2zk.1146`).
