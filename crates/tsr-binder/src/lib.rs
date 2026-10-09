@@ -70,6 +70,7 @@ mod names;
 mod narrowing;
 #[cfg(test)]
 mod parallel_tests;
+mod scope_change;
 mod suggestion;
 mod symbol;
 mod symbol_table;
@@ -83,6 +84,7 @@ pub use binder::{is_declaration_file, is_external_module, is_external_module_in}
 pub use container::{ContainerFlags, container_flags};
 pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
 pub use names::PreparedNames;
+pub use scope_change::ScopeChangeOptions;
 pub use suggestion::{SuggestionHost, SuggestionWalk};
 pub use symbol::{
     Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable, SymbolTableField,
@@ -899,6 +901,7 @@ impl<'a> BindResult<'a> {
             meaning,
             &mut |_, _| Some(false),
             false,
+            None,
         )
     }
 
@@ -924,6 +927,36 @@ impl<'a> BindResult<'a> {
             meaning,
             &mut exported_alias,
             true,
+            None,
+        )
+    }
+
+    /// [`Self::resolve_name_with_export_alias`] with the compiler options
+    /// `useOuterVariableScopeInParameter` reads (`nameresolver.go:74`, `:346`).
+    /// Native's `NameResolver` holds `CompilerOptions`; a `BindResult` does
+    /// not, so the checker passes them per call from its own fields. The other
+    /// entry points pass none and decline that arm.
+    /// `docs/parity/notes/r6-names2.md` §1.
+    #[allow(clippy::too_many_arguments)]
+    pub fn resolve_name_with_export_alias_in_scope(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+        scope_change: ScopeChangeOptions,
+        mut exported_alias: impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
+    ) -> Option<SymbolId> {
+        self.resolve_name_with_alias_meaning(
+            nodes,
+            node_map,
+            start,
+            name,
+            meaning,
+            &mut exported_alias,
+            true,
+            Some(scope_change),
         )
     }
 
@@ -941,6 +974,7 @@ impl<'a> BindResult<'a> {
         meaning: SymbolFlags,
         alias_meaning: &mut impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
         filter_local_aliases: bool,
+        scope_change: Option<ScopeChangeOptions>,
     ) -> Option<SymbolId> {
         let resolved = self.resolve_name_excluding_with_export_alias(
             nodes,
@@ -951,6 +985,7 @@ impl<'a> BindResult<'a> {
             None,
             alias_meaning,
             filter_local_aliases,
+            scope_change,
         )?;
         // §265. `declare global { … }` does NOT declare a binding called
         // `global` — the keyword is syntax, not a name. Upstream reports
@@ -1127,6 +1162,7 @@ impl<'a> BindResult<'a> {
             exclude,
             &mut |_, _| Some(false),
             false,
+            None,
         )
     }
 
@@ -1141,6 +1177,7 @@ impl<'a> BindResult<'a> {
         exclude: Option<NodeId>,
         exported_alias: &mut impl FnMut(SymbolId, SymbolFlags) -> Option<bool>,
         filter_local_aliases: bool,
+        scope_change: Option<ScopeChangeOptions>,
     ) -> Option<SymbolId> {
         // Upstream's `lastLocation`: the node the walk came *from*. The static
         // rule below is a question about it, not about the class.
@@ -1178,6 +1215,21 @@ impl<'a> BindResult<'a> {
                 && !self.symbol_is_declared_within(found, exclude, nodes)
                 && !self.parameter_hidden_from_type_parameter_list(found, node, last, nodes)
                 && !self.local_type_hidden_outside_body(found, node, last, meaning, nodes, node_map)
+                // `useOuterVariableScopeInParameter` (`nameresolver.go:74`),
+                // whose first test (`IsParameterDeclaration(lastLocation)`)
+                // stays inline: the rest runs on almost no lookup. Without
+                // the options it still answers every parameter list whose
+                // answer does not depend on them (`scope_change.rs`).
+                && !(last.is_some_and(|last| nodes.kind(last) == SyntaxKind::Parameter)
+                    && self.use_outer_variable_scope_in_parameter(
+                        scope_change,
+                        found,
+                        node,
+                        last,
+                        meaning,
+                        nodes,
+                        node_map,
+                    ))
                 // resolveNameHelper exposes conditional infer locals only in
                 // the true branch; check/extends/false continue outward.
                 && !matches!(node_map.get(node), Some(tsr_ast::Node::ConditionalTypeNode(conditional))

@@ -42,7 +42,6 @@ pub struct ScopeChangeOptions {
     pub emit_standard_class_fields: bool,
 }
 
-#[allow(dead_code, reason = "hook: docs/parity/notes/r6-names2-parameter-scope.diff")]
 impl BindResult<'_> {
     /// The `useResult = false` arm of `resolveNameHelper`
     /// (`nameresolver.go:72-75`): `symbol`, found in `location`'s locals on a
