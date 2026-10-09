@@ -138,3 +138,60 @@ the frozen base):
   resolution and print of a generic instance. The diff adds one
   instantiation of the target per generic homomorphic instance whose
   apparent type is asked for and whose constraint is array-like.
+
+## 2. `.16.100`: a mapped node under alias bindings maps a tuple image elementwise (committed)
+
+**Forcing constraint.** `mappedArrayTupleIntersections:11`:
+`type Hmm<T extends any[]> = T extends number[] ? MustBeArray<{ [I in keyof T]: 1 }> : never`,
+and `Hmm<[3, 4, 5]>`. Native prints `[1, 1, 1]`; the port printed the
+tuple's members (`{ [x: number]: 1; 0: 1; 1: 1; 2: 1; concat: 1; … }`).
+
+**Native.** getConditionalType instantiates the true branch with the
+alias mapper (`checker.go:24300`), so the mapped node's declared type,
+a MappedType with homomorphic variable `T`, goes through
+instantiateMappedType (`:22535`). Its `mapTypeWithAlias` over `T`'s image
+`[3, 4, 5]` reaches instantiateMappedTupleType, one template
+instantiation per element.
+
+**Cause.** The port has no declared generic type for the node. It
+re-evaluates the node under the alias-evaluation frames (r5-mapped4 §5),
+so `keyof T` resolves to the tuple's keys and the members print. The alias
+road (`instantiate_mapped_alias_sequence`, for `Boxify<[…]>`) already
+takes instantiateMappedType's sequence arms; a node written inline in a
+branch did not.
+
+**Ported.** `evaluate_mapped_type_node`, under alias frames and for a
+homomorphic node, asks `instantiate_mapped_sequence` first, the same
+function the alias road uses. Its `replace_source` re-evaluates the node
+with the homomorphic variable rebound to one constituent, in a frame of its
+own, which is the port's `prependTypeMapping(typeVariable, t, mapper)`.
+That covers native's arms for a primitive image (answered as is), a union
+image (distributed), an array or array intersection, and a tuple. Outside
+alias frames the variable is the declared type parameter, which no arm
+admits, so nothing else changes.
+
+**Measured** (on top of §1's commit, both dumps unfiltered, against the
+frozen base):
+- types **+1 RIGHT** (`mappedArrayTupleIntersections:11`); no other
+  line's text changes; diagnostics unchanged;
+- zero losses; slowcases clean;
+- Ir against §1's commit: domain-model 1,091,707,823 → 1,091,671,012
+  (−0.003%), generic-imports 343,063,422 → 343,092,245 (+0.008%);
+- median child CPU new/old against the frozen base (21 samples):
+  domain-model 0.971, generic-imports 0.963. `diagnostics_match: true`.
+
+### Ownership and work boundaries (checker port convention)
+
+- **Native operation:** instantiateMappedType's `mapTypeWithAlias` arms
+  (`checker.go:22535`), instantiateMappedTupleType and
+  instantiateMappedArrayType.
+- **Key identity and owner:** the result is published in
+  `type_literal_types` under the node's `type_literal_key`, as a built
+  mapped node already was. Each constituent's re-evaluation runs under a
+  frame that binds the variable to that constituent, so it has its own key.
+- **Publication states:** unchanged; an `error` constituent declines the
+  node, and a declined node is not published (r5-mapped6 §1).
+- **Receiver/alias context:** the frame pushed for a constituent sits on
+  top of the caller's frames and is popped before the result is published.
+- **Expensive work boundary:** one template instantiation per tuple
+  element instead of the tuple's whole member table and its print.

@@ -143,6 +143,37 @@ impl<'a> Checker<'a, '_> {
         let Some(info) = self.mapped_type_info(node) else {
             return MappedNodeType::Declined(None);
         };
+        // A node evaluated under alias-evaluation frames is this port's image
+        // of instantiateMappedType (checker.go:22535) applied to the
+        // declared mapped type: the homomorphic type variable's image is
+        // mapped with mapTypeWithAlias, and a primitive, array, tuple or
+        // array-intersection image takes instantiateMappedArrayType /
+        // instantiateMappedTupleType instead of the member print
+        // (`Hmm<[3, 4, 5]>`'s `{ [I in keyof T]: 1 }` is `[1, 1, 1]`). Each
+        // constituent re-evaluates the node with the variable rebound, as
+        // native instantiates with `prependTypeMapping(typeVariable, t)`.
+        if !self.alias_evaluation_bindings.is_empty()
+            && let Some(variable) = info.homomorphic_symbol
+        {
+            let replace_source = |checker: &mut Self, source: TypeId| {
+                checker.alias_evaluation_bindings.push([(variable, source)].into_iter().collect());
+                let result = match checker.evaluate_mapped_type_node(node) {
+                    MappedNodeType::Built(ty) => ty,
+                    MappedNodeType::Declined(_) => checker.intrinsics.error,
+                };
+                checker.alias_evaluation_bindings.pop();
+                result
+            };
+            if let Some(ty) = self.instantiate_mapped_sequence(&info, None, replace_source) {
+                if ty == self.intrinsics.error {
+                    return MappedNodeType::Declined(Some(info));
+                }
+                if let Some(key) = key {
+                    self.type_literal_types.insert(key, ty);
+                }
+                return MappedNodeType::Built(ty);
+            }
+        }
         let ty = if self.is_generic_mapped_info(&info) {
             let Some(text) = self.mapped_type_text(&info) else {
                 return MappedNodeType::Declined(Some(info));
