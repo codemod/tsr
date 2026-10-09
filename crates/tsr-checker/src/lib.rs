@@ -109,6 +109,7 @@ mod base_types;
 pub mod binary;
 mod binding_patterns;
 pub mod call_arity;
+mod call_reports;
 mod callable_expandos;
 pub mod calls;
 pub mod check;
