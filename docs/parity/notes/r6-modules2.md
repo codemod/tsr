@@ -455,3 +455,101 @@ Nothing is committed for item 6 besides this record. **Falsifier for the
 refusal**: once function-like expression types are deferred, the same hook
 should measure zero losses. `constEnumErrors` and `constEnumPropertyAccess2`
 then also need TS2476 from `indexed.rs`.
+
+## 7. `rewriteRelativeImportExtensions`: TS2876 and TS2877 (item 7)
+
+### Classification against native
+
+r6-isolated §5 left out `resolveExternalModule`'s last arm
+(`checker.go:15261`–`15317`), for want of `SourceFileMayBeEmitted`, the
+redirect and the common source directory. Six rows need it, and native
+`tsgo` prints both lines text for text:
+
+- `conformance/cjsErrors` (`node18`/`node20`/`nodenext`): TS2876 at
+  `index.ts(1,22)`. `import foo = require("./foo.ts")` resolves to
+  `./foo.ts/index.ts`, so rewriting `.ts` → `.js` would break it. The
+  `import type` twin is exempt.
+- `conformance/packageJsonImportsErrors` (same three modes): TS2877 at
+  `/index.ts(2,16)`. `"#internal/foo.ts"` reaches an input file through a
+  wildcard `imports` entry, and a non-relative specifier is never
+  rewritten.
+
+### What the facts turned out to need
+
+- `SourceFileMayBeEmitted` is already ported:
+  `Program::source_file_may_be_emitted` (`tsr-compiler`, emitter.go:452),
+  used by the program diagnostics. Only the host trait lacked it.
+- `GetRedirectForResolution` is nil in this program, which has no project
+  references. So the third arm, the one that reads both common source
+  directories, cannot report. TS2876 needs only `GetRelativePathFromFile`
+  with the program's `ComparePathsOptions`.
+- `ResolvedUsingTsExtension` and the resolved file name are r6-isolated's
+  plumbing (`resolved_module_extension`, `resolved_module_path_in_mode`).
+
+### The port
+
+`Checker::check_rewrite_relative_import_extensions` in `isolated_alias.rs`
+is upstream's arm. It covers:
+
+- the location guards: not ambient, not a `.d.ts` specifier, not a literal
+  `import("…")` type (`is_literal_import_type_node`, new), and not part of
+  a type-only import or export;
+- `core.ShouldRewriteModuleSpecifier` (`core/core.go:701`);
+- TS2876 with `GetRelativePathFromFile` + `EnsurePathIsNonModuleName`;
+- TS2877 with `GetAnyExtensionFromPath`.
+
+It re-tests the exits ahead of it in upstream's chain:
+
+- `sourceFile == nil` (not in the program, or a non-TS6142 resolution
+  diagnostic, from the same `resolution_diagnostic`);
+- the ambient-module answer;
+- TS2846's and TS5097's conditions.
+
+So it can run after `check_module_resolution_diagnostic` returns `false`.
+With the option on, `GetAllowImportingTsExtensions()` is true, so TS5097
+cannot precede it anyway. `ResolvedModuleFacts` becomes `Copy` so the
+caller can pass it twice.
+
+Until the hook lands, the option, the `ComparePathsOptions` and the
+`SourceFileMayBeEmitted` answer arrive as parameters. That is r6-isolated's
+pattern for `emitDecoratorMetadata`. It keeps this file compiling on main
+with or without BE's `checker.rs` literal of `ResolutionDiagnosticOptions`,
+which a new field there would break.
+
+### The diff: `r6-modules2-rewrite-extensions.diff`
+
+It applies on top of BE's `r6-isolated-resolution-diagnostic.diff`.
+
+- `resolution.rs`: `ModuleHost::source_file_may_be_emitted(file)` (default
+  `false`) and `ModuleHost::compare_paths_options()` (default
+  case-sensitive, no current directory);
+- `tsr-compiler/src/lib.rs`: `Program`'s implementations, from
+  `Program::source_file_may_be_emitted` and its own
+  `use_case_sensitive_file_names`/`current_directory`;
+- `checker.rs`: `rewrite_relative_import_extensions`
+  (`RewriteRelativeImportExtensions.IsTrue()`), set in
+  `apply_compiler_options`;
+- `check.rs::check_module_specifier`: the call after
+  `check_module_resolution_diagnostic`, gated on the option, so an import
+  without it does no new work;
+- `crates/tsr-compiler/tests/r6_modules2_rewrite_extensions.rs`: both
+  cases, and native's answers without the option (nothing for `cjsErrors`,
+  TS5097 for `packageJsonImportsErrors`).
+
+`tsr-compiler` is this lane's, but its half implements a trait method that
+exists only with the `resolution.rs` half, so the two travel together.
+
+### Measured
+
+Applied on the base (BE + BC):
+
+- diagnostics **+6 rows**: the six above, WRONG → RIGHT. Zero losses, types
+  identical, `slowcases` clean.
+- Callgrind Ir: domain-model 1,091,988,569 → 1,091,542,596 (−0.04%),
+  generic-imports 343,059,251 → 343,082,989 (+0.007%). Neither project
+  sets the option.
+- `cargo test --workspace --release` with the diff applied: 3,510 passed, 0
+  failed.
+
+This commit also fixes a `doc_markdown` lint (`CommonJS`) in §2's
+`check_global_script_namespace` comment.

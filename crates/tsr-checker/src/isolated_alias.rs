@@ -1169,7 +1169,7 @@ impl Checker<'_, '_> {
     /// symbol" in a TypeScript file. The binder makes one exactly for an
     /// external module there, including one forced by `moduleDetection`
     /// (`is_external_or_common_js_module`, ADR-0041). A JavaScript file can
-    /// also get one as a CommonJS module, so there the statement indicators
+    /// also get one as a `CommonJS` module, so there the statement indicators
     /// (`is_external_module_in`) answer instead.
     #[allow(
         dead_code,
@@ -1299,6 +1299,154 @@ impl Checker<'_, '_> {
                 [text.to_string(), self.isolated_modules_like_flag_name().to_string(), qualified],
             ),
         );
+    }
+
+    /// `resolveExternalModule`'s `rewriteRelativeImportExtensions` arm
+    /// (`checker.go:15261`–`15317`): TS2876 and TS2877 on a relative import
+    /// whose emitted specifier would be rewritten wrongly or not at all.
+    ///
+    /// Upstream reaches it in the `sourceFile != nil` block, as the last
+    /// `else if` after [`Checker::check_module_resolution_diagnostic`]'s
+    /// TS2846 and TS5097 arms. Those exits are tested again here, so the
+    /// caller can run this after that function returns `false`. A
+    /// non-TS6142 resolution diagnostic leaves `sourceFile` nil, so it ends
+    /// the arm too.
+    ///
+    /// The option and the program facts arrive as parameters until the hook
+    /// (`r6-modules2-rewrite-extensions.diff`) lands:
+    /// - `rewrite` is `RewriteRelativeImportExtensions.IsTrue()`;
+    /// - `compare` is the program's `ComparePathsOptions`;
+    /// - `may_be_emitted` is `program.SourceFileMayBeEmitted(file, false)`
+    ///   (`Program::source_file_may_be_emitted`).
+    ///
+    /// `GetRedirectForResolution` is nil, since this program has no project
+    /// references, so the third arm never reports.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules2-rewrite-extensions.diff"
+    )]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the option and program facts the hook passes until the host carries them"
+    )]
+    pub(crate) fn check_rewrite_relative_import_extensions(
+        &mut self,
+        declaration: NodeId,
+        specifier: NodeId,
+        resolved: ResolvedModuleFacts<'_>,
+        options: ResolutionDiagnosticOptions,
+        rewrite: bool,
+        compare: &tsr_path::ComparePathsOptions,
+        may_be_emitted: impl FnOnce(NodeId) -> bool,
+    ) {
+        if !rewrite || !resolved.in_program {
+            return;
+        }
+        let Some(importing) = self.source_file_of_for_diagnostics(specifier) else { return };
+        let Some(host) = self.module_host else { return };
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return };
+        let module_reference = literal.text;
+        // `tryFindAmbientModule` (`checker.go:15154`) answers first.
+        if !tsr_path::is_external_module_name_relative(module_reference)
+            && self.binder.globals().get(format!("\"{module_reference}\"").as_str()).is_some()
+        {
+            return;
+        }
+        let diagnostic = resolution_diagnostic(
+            resolved.extension,
+            || host.is_declaration_file(importing),
+            self.jsx_emit == tsr_core::JsxEmit::None,
+            self.no_implicit_any,
+            options,
+        );
+        if diagnostic.is_some_and(|message| {
+            message.code() != messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_JSX_IS_NOT_SET.code()
+        }) {
+            return;
+        }
+        let declaration_specifier = tsr_path::is_declaration_file_name(module_reference);
+        // The TS2846 and TS5097 arms come first in the `else if` chain.
+        if resolved.resolved_using_ts_extension
+            && (declaration_specifier
+                || !self.allow_importing_ts_extensions_from(importing, options))
+        {
+            return;
+        }
+        let type_only = std::iter::once(declaration)
+            .chain(self.nodes.ancestors(declaration))
+            .any(|at| self.is_type_only_import_or_export_declaration(at));
+        if self.declaration_is_in_an_ambient_context(declaration)
+            || declaration_specifier
+            || self.is_literal_import_type_node(declaration)
+            || type_only
+        {
+            return;
+        }
+        // `core.ShouldRewriteModuleSpecifier` (`core/core.go:701`).
+        let should_rewrite = tsr_path::path_is_relative(module_reference)
+            && !declaration_specifier
+            && tsr_path::extension::file_extension_is_one_of(
+                module_reference,
+                tsr_path::extension::SUPPORTED_TS_EXTENSIONS_FLAT,
+            );
+        let span = self.error_span(specifier);
+        if !resolved.resolved_using_ts_extension && should_rewrite {
+            let mode = self.module_resolution_mode(host, importing, declaration);
+            let Some(resolved_file_name) =
+                host.resolved_module_path_in_mode(importing, module_reference, mode)
+            else {
+                return;
+            };
+            let Some(importing_file_name) = host.file_path(importing) else { return };
+            let from = tsr_path::get_normalized_absolute_path(
+                &importing_file_name,
+                &compare.current_directory,
+            );
+            let to = tsr_path::get_normalized_absolute_path(
+                &resolved_file_name,
+                &compare.current_directory,
+            );
+            // `tspath.GetRelativePathFromFile` (`tspath/path.go:781`), with
+            // `EnsurePathIsNonModuleName` (`:924`).
+            let relative = tsr_path::get_relative_path_from_directory(
+                tsr_path::get_directory_path(&from),
+                &to,
+                compare,
+            );
+            let relative = if tsr_path::is_rooted_disk_path(&relative)
+                || tsr_path::path_is_relative(&relative)
+            {
+                relative
+            } else {
+                format!("./{relative}")
+            };
+            self.report(importing, Diagnostic::with_args(
+                &messages::THIS_RELATIVE_IMPORT_PATH_IS_UNSAFE_TO_REWRITE_BECAUSE_IT_LOOKS_LIKE_A_FILE_NAME_BUT_ACTUALLY_RESOLVES_TO_0,
+                span,
+                [relative],
+            ));
+        } else if resolved.resolved_using_ts_extension && !should_rewrite {
+            let mode = self.module_resolution_mode(host, importing, declaration);
+            let Some(target) = host.resolved_module_in_mode(importing, module_reference, mode)
+            else {
+                return;
+            };
+            if may_be_emitted(target) {
+                self.report(importing, Diagnostic::with_args(
+                    &messages::THIS_IMPORT_USES_A_0_EXTENSION_TO_RESOLVE_TO_AN_INPUT_TYPESCRIPT_FILE_BUT_WILL_NOT_BE_REWRITTEN_DURING_EMIT_BECAUSE_IT_IS_NOT_A_RELATIVE_PATH,
+                    span,
+                    [tsr_path::get_any_extension_from_path(module_reference).to_string()],
+                ));
+            }
+        }
+    }
+
+    /// `ast.IsLiteralImportTypeNode` (`ast/utilities.go:1334`): an
+    /// `import("…")` type whose argument is a string literal type.
+    fn is_literal_import_type_node(&self, node: NodeId) -> bool {
+        matches!(self.node_map.get(node), Some(Node::ImportTypeNode(import))
+            if matches!(import.argument, Some(TypeNode::LiteralTypeNode(literal))
+                if matches!(literal.literal, Some(Node::StringLiteral(_)))))
     }
 
     /// `getIsolatedModulesLikeFlagName` (`checker.go`).
@@ -1463,6 +1611,7 @@ fn annotated_accessor_type_node(accessor: Node<'_>) -> Option<TypeNode<'_>> {
     dead_code,
     reason = "built by the held hook docs/parity/notes/r6-isolated-resolution-diagnostic.diff"
 )]
+#[derive(Clone, Copy)]
 pub(crate) struct ResolvedModuleFacts<'s> {
     /// `Extension`: the resolver's, e.g. `.d.html.ts` for an arbitrary
     /// extension's declaration file, which the path alone cannot tell from
