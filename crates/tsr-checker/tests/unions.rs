@@ -390,6 +390,40 @@ fn an_enum_is_a_named_union_in_a_subtype_reduced_origin() {
 }
 
 #[test]
+fn no_infer_sorts_as_a_substitution_type() {
+    // NoInfer<T> is a substitution type natively (getNoInferType,
+    // checker.go:27394): TypeFlagsSubstitution (1 << 24) sorts after an
+    // object (1 << 20) whatever the alias reference's name says
+    // (`noInferUnionExcessPropertyCheck1.types:12`).
+    let source = "type NoInfer<T> = intrinsic;
+                  function f<T>(b: NoInfer<T> | (() => NoInfer<T>)) {}";
+    with_checker(source, |checker, _bound, statements| {
+        let Statement::FunctionDeclaration(function) = statements[1] else {
+            panic!("statement 1 must be the function");
+        };
+        let annotation = function.parameters[0].r#type.expect("annotated");
+        let id = checker.get_type_from_type_node(annotation);
+        assert_eq!(checker.type_to_string(id), "(() => NoInfer<T>) | NoInfer<T>");
+    });
+}
+
+#[test]
+fn tuples_order_by_element_flags_before_their_arguments() {
+    // compareTupleTypes (utilities.go:620): equal arity, then ElementFlags
+    // (Required 1 < Variadic 8) before labels and type arguments, and a
+    // tuple has no type-name symbol (`genericRestParameters3.types:267`).
+    let source = "function f<A extends unknown[]>(...args: [x: string, ...rest: A | [number]]) {}";
+    with_checker(source, |checker, _bound, statements| {
+        let Statement::FunctionDeclaration(function) = statements[0] else {
+            panic!("statement 0 must be the function");
+        };
+        let annotation = function.parameters[0].r#type.expect("annotated");
+        let id = checker.get_type_from_type_node(annotation);
+        assert_eq!(checker.type_to_string(id), "[x: string, number] | [x: string, ...rest: A]");
+    });
+}
+
+#[test]
 fn a_partly_removed_named_union_does_not_resurrect_its_alias() {
     with_checker(
         "interface Broad { tag: 'a' }
