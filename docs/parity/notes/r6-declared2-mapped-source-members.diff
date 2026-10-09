@@ -1,0 +1,38 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index e4d8630..3242fa7 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -4905,6 +4905,16 @@ impl<'a> Checker<'a, '_> {
+                 let Some(target) = self.global_type_symbol(target_name) else { return Some(error) };
+                 return Some(self.create_type_reference(target, vec![mapped_element]));
+             }
++            // A resolved mapped image (`Pick<SomeProps, "x">`) keeps its
++            // members per instance (`anonymous_properties`); its owner
++            // symbol is the mapped node's, shared by every instance and with
++            // no members of its own. Reusing it would give the image no
++            // properties, so the source takes instantiateMappedType's general
++            // road (`capture_mapped_alias`), which resolves the keys of the
++            // source and applies the modifiers per member.
++            if self.mapped_types.contains_key(&arguments[0]) {
++                return None;
++            }
+             let source_owner = self.members_owner_of(arguments[0])?;
+             // Native getTypeAliasInstantiation owns completed reuse by alias
+             // symbol and ordered type identities, never rendered argument text.
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 063d321..b7ce955 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -3482,6 +3482,12 @@ impl Checker<'_, '_> {
+         // their existing tuple/array path; unsupported keys remain unenumerated.
+         if self.is_generic_homomorphic_mapped_type(id) && self.apparent_mapped_type(id) == id {
+             self.resolve_mapped_type_members(id);
++        } else if self.mapped_types.contains_key(&id) && !self.is_generic_mapped_type(id) {
++            // getPropertiesOfType resolves a mapped type's structured members
++            // (resolveStructuredTypeMembers -> resolveMappedTypeMembers,
++            // checker.go:19295) before reading them; the image's owner symbol
++            // is the mapped node's, which declares none.
++            self.resolve_mapped_type_members(id);
+         }
+         if let Some((properties, true)) = self.anonymous_properties.get(&id) {
+             return Some(

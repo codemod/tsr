@@ -228,3 +228,45 @@ commit.
 **Falsifier.** A template literal, string mapping or `never` argument to a
 homomorphic alias that native maps: native's flag test returns those as is
 too, so a mapped print for one here would be a port difference elsewhere.
+
+### 3(b): `Required<Pick<…>>` — held as a diff
+
+**Cause.** `instantiate_identity_mapped_alias` (§952's identity road) mints
+`Required<X>` with X's member *owner* and reads property types through X.
+When X is itself a resolved mapped image (`Pick<SomeProps, "x">`, `PX`), its
+members live per instance in `anonymous_properties`; its owner is the mapped
+alias's symbol, shared by every instance and declaring nothing. The relater
+enumerates the minted image's names from that owner and finds none, so
+`{ x?: string }` relates to `Required<PX>` and to `Required<Pick<SomeProps,
+"x">>` without a property check. Native (tsgo, `--strict`) reports TS2322 on
+both (and TS2741 for `= {}`); the port reported neither unless an earlier
+object-literal check happened to resolve members first.
+
+**Port (diff).** [`r6-declared2-mapped-source-members.diff`](r6-declared2-mapped-source-members.diff):
+- `declared.rs`: the identity road declines a source in `mapped_types`, so
+  `Required<PX>` takes instantiateMappedType's general road
+  (`capture_mapped_alias`, per-member modifiers in
+  `resolve_mapped_type_members_worker`). Native has no identity shortcut.
+- `members.rs` (MAIN): `property_names_of_type_worker` resolves a non-generic
+  mapped image's members before reading them (getPropertiesOfType ->
+  resolveStructuredTypeMembers). Without it a relation that enumerates
+  `Required<PX>` before any property read sees the mapped node symbol's empty
+  table.
+
+**Measured** on top of §3(a)'s commit `9d6bd2c`, unfiltered:
+- diagnostics **+4 cases**, 0 lost: `identicalTypesNoDifferByCheckOrder` (the
+  brief's target), `mappedTypeRecursiveInference`, `checkJsdocSatisfiesTag10`,
+  `typeSatisfaction_propNameConstraining`, all WRONG → RIGHT;
+- types **−2**: `destructuringParameterDeclaration10(strict=false):0:20/24`.
+  The contextually typed arrow `({ additionalFiles: { json = [] } = {} } =
+  {}) => …` against `{ additionalFiles?: Partial<Record<…, string[]>> }`
+  types `json` as `any[]` where native (and the identity image) give
+  `string[]`. A top-level `({ json = [] })` against the same type is right on
+  the general road; only the nested pattern with a default reads the mapped
+  image through the identity-optionality channel. The reader is contextual
+  destructuring (`contextual.rs`/`destructure.rs`, MAIN). The declared.rs half
+  alone measured −2 and +0, so neither half lands without that reader.
+
+A narrower decline (only sources whose owner enumerates no names) was not
+taken: spreads and property reads answer correctly through either road, and
+the only principled boundary is native's, which has no identity road.
