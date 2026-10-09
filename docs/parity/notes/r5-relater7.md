@@ -117,3 +117,41 @@ declaration differs from native's single symbol (classes cannot redeclare a
 private identifier, so none is known).
 
 Test: `tests/relater7_arms.rs` `a_private_identifier_of_another_class_is_an_absent_property`.
+
+## 4. Only the target class's privacy is nominal
+
+**Forcing constraint.** The gate's class shortcut (`nominal_class_pair_verdict`,
+`unions.rs`, §17 of `checker-notes-assign.md`) answers NotRelated for two
+heritage-free classes when *either* declares a private or protected property.
+Native has no such rule: `propertiesRelatedTo` walks the **target's**
+properties (relater.go:4253). A source's own private members against a target
+that declares none are extra properties, so `class C { #x } -> class D {}`
+relates (`privateNameDeclarationMerging` 8:22, an extra TS2322). Only a target
+private/protected (or `#`) member is one an unrelated class cannot supply: a
+private member needs the same declaration (relater.go:4270, binder.go:369), a
+protected one a valid override.
+
+**Ported.** The shortcut's NotRelated is kept only when the target class
+declares such a property (`class_declares_own_privacy`, the same syntax test
+the shortcut makes, applied to the target alone). Other pairs take the
+structural walk, whose privacy arm compares declarations.
+
+**Alternatives.** Dropping the shortcut entirely: the structural walk decides
+the same pairs, but `nominal_class_pair_verdict` would become dead code in a
+file this lane does not own (`unions.rs`, r5-unionorder). The narrowed form is
+native's answer on every pair the shortcut sees: an unrelated heritage-free
+source never has the target's private declaration, and never validly
+overrides its protected member. One edge stays: an *optional* target private
+member natively admits a source lacking it; the shortcut still says
+NotRelated there.
+
+**Measured** against §3's commit, both loss checks (vs §0) empty:
+- diagnostics: `privateNameDeclarationMerging` WRONG → RIGHT;
+- types unchanged;
+- `Ir`: generic-imports 342,977,973 → 342,991,541 (+0.004%); domain-model
+  1,200,333,445 → 1,200,094,867 (−0.020%). CLI output identical.
+
+**Falsifier.** A heritage-free class pair natively related while the target
+declares a required private, protected or `#` property.
+
+Test: `tests/relater7_arms.rs` `only_the_target_class_privacy_is_nominal`.

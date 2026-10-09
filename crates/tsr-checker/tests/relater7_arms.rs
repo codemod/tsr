@@ -107,3 +107,17 @@ const a: A = new C();
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn only_the_target_class_privacy_is_nominal() {
+    let source = r#"class C { private x = 1 }
+class D {}
+class E { #y = 1 }
+class F { x = 1 }
+const d: D = new C();
+const d2: D = new E();
+const f: F = new C(); // error
+const c: C = new F(); // error
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}

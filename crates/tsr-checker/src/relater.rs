@@ -1428,9 +1428,18 @@ impl Relater<'_, '_, '_> {
         // relater.go:4270), so `Derived extends Base` relates to `Base` even
         // when both declare privates. Such pairs take the structural walk,
         // whose privacy arm compares declarations.
+        //
+        // Only the TARGET's privacy decides: a private or protected member
+        // the source must match is one an unrelated class cannot supply
+        // (another declaration, or not a valid override). A source's own
+        // private members against a target that declares none are simply
+        // extra properties: `class C { #x } -> class D {}` relates
+        // (`privateNameDeclarationMerging`), so that pair takes the
+        // structural walk.
         if !self.class_declares_heritage(source)
             && !self.class_declares_heritage(target)
             && let Some(answer) = self.checker.nominal_class_pair_verdict(source, target)
+            && (answer || self.class_declares_own_privacy(target))
         {
             return if answer { RelationResult::Related } else { RelationResult::NotRelated };
         }
@@ -2852,6 +2861,39 @@ impl Relater<'_, '_, '_> {
 
     /// Whether `id` is a class instance whose declaration has an `extends` or
     /// `implements` clause.
+    /// Whether `id` is a class instance type whose declaration has a
+    /// property declared `private`/`protected` or named by a private
+    /// identifier: the members `propertyRelatedTo`'s privacy arms
+    /// (relater.go:4270) and private-name keying (binder.go:369) require an
+    /// unrelated source to match by declaration.
+    fn class_declares_own_privacy(&self, id: TypeId) -> bool {
+        let Some(symbol) = self.checker.class_instance_symbol(id) else { return false };
+        let Some(declaration) = self.checker.binder.symbols().get(symbol).value_declaration else {
+            return false;
+        };
+        let Some(tsr_ast::Node::ClassDeclaration(class)) = self.checker.node_map.get(declaration)
+        else {
+            return false;
+        };
+        class.members.iter().any(|member| {
+            let Some(id) = tsr_ast::Node::from(*member).node_id() else { return false };
+            let Some(tsr_ast::Node::PropertyDeclaration(property)) = self.checker.node_map.get(id)
+            else {
+                return false;
+            };
+            matches!(property.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+                || property.modifiers.iter().any(|modifier| {
+                    tsr_ast::Node::from(*modifier).node_id().is_some_and(|m| {
+                        matches!(
+                            self.checker.nodes.kind(m),
+                            tsr_ast::SyntaxKind::PrivateKeyword
+                                | tsr_ast::SyntaxKind::ProtectedKeyword
+                        )
+                    })
+                })
+        })
+    }
+
     fn class_declares_heritage(&self, id: TypeId) -> bool {
         self.checker
             .class_instance_symbol(id)
