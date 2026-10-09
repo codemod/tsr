@@ -58,6 +58,16 @@ Real API refuses the private candidate at **120.293s/11.89GB RSS**, versus one
 frozen-main5.816s observation; sampled CPU471.655s is not a speed ratio.
 `tsr-1yb.11.7` owns actual type-literal frame/key preparation and native mapper
 continuation. [Attribution and refusal](docs/architecture/checker-accessible-chain-attribution.md).
+Fresh source193/201 key observers change the diagnosis: canonical API completes
+with408,068 conditional-node workers/depth16; the capped private observation
+already has34,685,736/depth100. Direct Drizzle mapped fields over `any` reproduce
+without application source; a standalone recursive `Simplify` mapped intersection
+also times out in main. Native completes those constructor-only producers with
+zero mapped-template getter calls, while private source222 prepares the Drizzle
+template>=52,439times before its3second cap. Seventy-two complete ordinary/off/on
+qualification runs preserve outputs and repeated semantic counts. The actual
+constructor/template demand boundary is existing `tsr-1yb.16.3.10.4`, linked from
+11.7; no sort cache or runtime fix is retained. [Reduction, counters and replay](docs/architecture/checker-mapped-template-attribution.md).
 Full runtime review, attribution,
 canonical integration and verified equivalent-work TSR/native ratio<=0.50 remain
 unfinished. [Exact replay and measured gates](docs/architecture/checker-owner-performance-qualification.md).
@@ -3958,9 +3968,15 @@ table scans. Native direct lookup and borrowed Program alias names under
 Native accessible-chain attribution under `tsr-1yb.11.5.1` now supports eager
 presentation separation `tsr-1yb.16.3.10` on generated400: no native requests and
 no repeated private TSR first-scope keys. Real API source158 exceeds120s with
-11.89GB RSS. First qualify actual type-literal binding-frame key preparation and
-native node/mapper instantiation under `tsr-1yb.11.7`/`tsr-1yb.4.1.2`; preserve
-meaning/scope/owner, alias stack and publication state. No cache is retained.
+11.89GB RSS. Fresh attribution under `tsr-1yb.11.7` isolates mapped template
+construction: the Drizzle `any` control completes in native with zero template
+getter requests, while private TSR enters template preparation at least52,439
+times before a three-second cap. Existing `tsr-1yb.16.3.10.4` owns the next
+native declaration/mapper retention and consumer-demand repair. A standalone
+recursive `Simplify` also times out in main; sorting binding keys alone cannot
+resolve this expansion. Preserve meaning/scope/owner, alias stack and publication
+state under `tsr-1yb.4.1.2`. No cache or semantic fix is retained.
+[Mapped-template attribution](docs/architecture/checker-mapped-template-attribution.md).
 Do not retry the
 rejected `Rc` representation.
 All six original goal tickets remain in progress for their full acceptance,
@@ -7796,6 +7812,18 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Current mapped-template attribution at `f8f98157` (runtime `2e47ffaa`) refuses a
+sort-only explanation for the private API slowdown: complete main observes
+408,068 conditional node workers; private observes at least34,685,736 before its
+30-second cap. A dependency-free recursive mapped `Simplify` finishes in native
+but reaches a three-second cap in both main and private TSR. The Drizzle `any`
+control starts at least52,439 private template preparations versus zero native
+template getter requests. These capped counts are incomplete work, not equivalent
+worker or speed ratios. The probes preserve complete outputs/counts on72 eligible
+ordinary/off/on qualification runs, but no mapped-demand implementation is yet
+qualified. Full six-ticket acceptance and verified<=0.50 ratio remain unmet.
+[Sources, reductions and replay](docs/architecture/checker-mapped-template-attribution.md).
 
 Frozen `2e47ffaa` plus the full owner replay passes the no-RIGHT-loss corpus
 gates but fails ordinary CLI retention: **0.639249→1.002839s default** and
@@ -16233,3 +16261,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `2e47ffaa` runtime plus exact private154/158 naming variants / native `5b1047d` | — | — | **Native direct/borrowed naming preparation verified privately.** Both actual full native14960 rows retain8303EXACT and all non-timing payloads; legacy552533types/12238diag byte-identical to owner111. Borrowed workspace3287/0/19,strictalltargetsClippy/fmt/work-trace pass. Primary copied entries1758304→516704, name payload26759920→7993920→0; exact repeats/default+single and402checkedfiles. Ordinary direct batch0.746497→0.673110s vs localArc; separate borrowed batch0.672601→0.645021s vs direct, but main0.604817s remains faster. Borrowed/main ratios1.066474default/1.058547single; observednative2.058696default is not a verified equivalent-work ratio. Four more1056-input source/probe replays; no runtime retention/full92-file review or six-goal completion. Next tsr-1yb.11.5.1 native accessible-chain owner/scope/meaning completion. [Source, counters and full gates](docs/architecture/checker-owner-performance-qualification.md). |
 
 | 2026-10-08 | `a6b8a68f` canonical / private158 and185 probes / native `5b1047d` | — | — | **Accessible-chain attribution changes priority; API refuses private integration.** Native generated0requests; private TSR2000best-name workers/2000distinct first-legacy-scope keys,1200TYPE-helper declines. Exact two repeats/default+single,402checked,465loaded; native declaration9requests/2walks/7success hits and API42/1/41nil hits with615checked/9861loaded. Source185 feature build/ordinary releasecheck pass; exact private probe replays, all canonical1056 inputs stable. Private API sampled repeat120.293s,471.655suserCPU,11.888GB RSS,-9; frozenmain5.816s locating observation. No timed ratio/cache/runtime retention or goal completion. New P1 tsr-1yb.11.7 attributes type_literal_key frame flatten/sort versus native node/mapper preparation; eager presentation16.3.10 remains. [Counters, source and failures](docs/architecture/checker-accessible-chain-attribution.md). |
+| 2026-10-08 | `f8f98157` canonical/runtime `2e47ffaa`; source193/201/222/223 and native221 probes | — | — | **Mapped constructor demand is the next repair boundary.** API canonical408068conditional nodes/depth16 versus private>=34685736/depth100 at30scap; generated root/node workers match. PgSelect member reads and actual Drizzle fields over any reproduce; standalone recursive Simplify also times out in main. Native constructor-only controls complete with0template getter calls; private Drizzle>=52439template preparations at3scap. Three exact counter replays, Rust feature builds/ordinary checks and native Go1.26build pass;72complete ordinary/off/on runs preserve outputs/repeated semantic counts. Existing16.3.10.4 owns demand, linked11.7. No runtime fix/native ratio/six-goal completion. [Source, standalone red and limits](docs/architecture/checker-mapped-template-attribution.md). |

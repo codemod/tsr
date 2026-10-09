@@ -1,0 +1,119 @@
+--- a/cmd/tsgo/main.go
++++ b/cmd/tsgo/main.go
+@@ -19,0 +20 @@
++	defer checker.ReportLiteralProbe()
+--- a/internal/checker/checker.go
++++ b/internal/checker/checker.go
+@@ -2200,0 +2201 @@
++		literalProbeChecked(c, sourceFile)
+@@ -22305,0 +22307 @@
++	literalProbe(c, 0, 1)
+@@ -22327,0 +22330 @@
++		literalProbe(c, 1, 1)
+@@ -22349,0 +22353,2 @@
++	} else {
++		literalProbe(c, 2, 1)
+@@ -22351,0 +22357 @@
++		literalProbe(c, 3, 1)
+@@ -22356,0 +22363 @@
++	literalProbe(c, 4, uint64(len(typeParameters)))
+@@ -22367,0 +22375 @@
++		literalProbe(c, 5, 1)
+@@ -22371,0 +22380,3 @@
++	if result != nil {
++		literalProbe(c, 6, 1)
++	}
+@@ -22372,0 +22384 @@
++		literalProbe(c, 7, 1)
+@@ -22459,0 +22472 @@
++	literalProbe(c, 11, 1)
+@@ -22679,0 +22693 @@
++	literalProbe(c, 18, 1)
+@@ -22681,0 +22696 @@
++		literalProbe(c, 19, 1)
+@@ -22687,0 +22703 @@
++	literalProbe(c, 20, 1)
+@@ -22692,0 +22709 @@
++		literalProbe(c, 21, 1)
+@@ -22698,0 +22716 @@
++	literalProbe(c, 16, 1)
+@@ -22700,0 +22719 @@
++		literalProbe(c, 17, 1)
+@@ -22934,0 +22954 @@
++	literalProbe(c, 8, 1)
+@@ -22935,0 +22956,3 @@
++	if links.resolvedType != nil {
++		literalProbe(c, 9, 1)
++	}
+@@ -22936,0 +22960 @@
++		literalProbe(c, 10, 1)
+@@ -24256,0 +24281 @@
++	literalProbe(c, 14, 1)
+@@ -24258,0 +24284 @@
++		literalProbe(c, 15, 1)
+@@ -24301,0 +24328 @@
++	literalProbe(c, 12, 1)
+--- /dev/null
++++ b/internal/checker/literal_key_probe.go
+@@ -0,0 +1,61 @@
++package checker
++
++import (
++	"encoding/json"
++	"fmt"
++	"github.com/microsoft/typescript-go/internal/ast"
++	"os"
++	"sync"
++)
++
++var literalProbeEnabled = os.Getenv("TSR_NATIVE_LITERAL_PROBE") == "1"
++var literalProbeData = struct {
++	sync.Mutex
++	Counters map[*Checker]*[22]uint64
++	Files    map[string]uint64
++}{}
++
++func literalProbe(c *Checker, index int, value uint64) {
++	if !literalProbeEnabled {
++		return
++	}
++	literalProbeData.Lock()
++	defer literalProbeData.Unlock()
++	if literalProbeData.Counters == nil {
++		literalProbeData.Counters = make(map[*Checker]*[22]uint64)
++	}
++	d := literalProbeData.Counters[c]
++	if d == nil {
++		d = new([22]uint64)
++		literalProbeData.Counters[c] = d
++	}
++	d[index] += value
++}
++func literalProbeChecked(c *Checker, file *ast.SourceFile) {
++	if !literalProbeEnabled {
++		return
++	}
++	literalProbe(c, 13, 1)
++	literalProbeData.Lock()
++	defer literalProbeData.Unlock()
++	if literalProbeData.Files == nil {
++		literalProbeData.Files = make(map[string]uint64)
++	}
++	literalProbeData.Files[file.FileName()]++
++}
++func ReportLiteralProbe() {
++	if !literalProbeEnabled {
++		return
++	}
++	literalProbeData.Lock()
++	defer literalProbeData.Unlock()
++	rows := make([]*[22]uint64, 0, len(literalProbeData.Counters))
++	for _, d := range literalProbeData.Counters {
++		rows = append(rows, d)
++	}
++	payload, err := json.Marshal(map[string]any{"checkers": rows, "checked_files": literalProbeData.Files})
++	if err != nil {
++		panic(err)
++	}
++	fmt.Fprintf(os.Stderr, "TSR_NATIVE_LITERAL_PROBE\t%s\n", payload)
++}

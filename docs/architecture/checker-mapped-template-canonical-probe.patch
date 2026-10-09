@@ -1,0 +1,184 @@
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -2047,0 +2048,2 @@
++        #[cfg(feature = "work-trace")]
++        let started = crate::literal_key_probe::start();
+@@ -2053,0 +2056,2 @@
++        #[cfg(feature = "work-trace")]
++        let map_ns = started.map_or(0, |s| s.elapsed().as_nanos() as u64);
+@@ -2054,0 +2059,15 @@
++        #[cfg(feature = "work-trace")]
++        if let Some(started) = started {
++            let sort_ns = started.elapsed().as_nanos() as u64 - map_ns;
++            crate::literal_key_probe::key(
++                node,
++                self.alias_evaluation_bindings.len(),
++                self.alias_evaluation_bindings.iter().map(|f| f.len()).sum(),
++                bindings.len(),
++                self.instantiation_depth,
++                self.type_literal_types.len(),
++                0,
++                map_ns,
++                sort_ns,
++            );
++        }
+@@ -2059 +2078,4 @@
+-        self.type_literal_types.get(&self.type_literal_key(node)).copied()
++        let result = self.type_literal_types.get(&self.type_literal_key(node)).copied();
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::lookup(node, 1, result.is_some());
++        result
+@@ -2065,0 +2088,2 @@
++            #[cfg(feature = "work-trace")]
++            crate::literal_key_probe::lookup(node_id, 0, true);
+@@ -2067,0 +2092,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::lookup(node_id, 0, false);
+@@ -2081,0 +2108,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(22);
+@@ -7625,0 +7654,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(12);
+@@ -7657,0 +7688,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(13);
+@@ -8007,0 +8040,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(14);
+@@ -8567,0 +8602,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(15);
+@@ -8569,0 +8606,2 @@
++            #[cfg(feature = "work-trace")]
++            crate::literal_key_probe::event(16);
+--- a/crates/tsr-checker/src/lib.rs
++++ b/crates/tsr-checker/src/lib.rs
+@@ -156,0 +157,2 @@
++#[cfg(feature = "work-trace")]
++pub mod literal_key_probe;
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -259,0 +260,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(24);
+@@ -279,0 +282,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(25);
+@@ -294,0 +299,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(26);
+@@ -295,0 +302,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(27);
+@@ -304,0 +313,2 @@
++        #[cfg(feature = "work-trace")]
++        crate::literal_key_probe::event(28);
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -116,0 +117,2 @@
++        #[cfg(feature = "work-trace")]
++        tsr_checker::literal_key_probe::reset(owner);
+@@ -175,0 +178,2 @@
++        #[cfg(feature = "work-trace")]
++        tsr_checker::literal_key_probe::emit(true, checked_count);
+--- /dev/null
++++ b/crates/tsr-checker/src/literal_key_probe.rs
+@@ -0,0 +1,97 @@
++//! Private opt-in observation only; no retained semantic keys or mapper changes.
++use rustc_hash::FxHashMap;
++use std::{cell::RefCell, sync::OnceLock, time::Instant};
++use tsr_ast::NodeId;
++#[derive(Default)]
++struct Data {
++    owner: usize,
++    counts: [u64; 32],
++    nodes: FxHashMap<NodeId, [u64; 6]>,
++    frame_hist: [u64; 16],
++    binding_hist: [u64; 16],
++}
++thread_local! { static DATA: RefCell<Data> = RefCell::new(Data::default()); }
++pub fn enabled() -> bool {
++    static ENABLED: OnceLock<bool> = OnceLock::new();
++    *ENABLED.get_or_init(|| std::env::var("TSR_LITERAL_KEY_PROBE").as_deref() == Ok("1"))
++}
++pub fn reset(owner: usize) {
++    if enabled() {
++        DATA.with(|d| *d.borrow_mut() = Data { owner, ..Data::default() });
++    }
++}
++pub fn start() -> Option<Instant> {
++    enabled().then(Instant::now)
++}
++fn bucket(n: usize) -> usize {
++    if n == 0 { 0 } else { (usize::BITS - n.leading_zeros()) as usize }.min(15)
++}
++pub fn key(
++    node: NodeId,
++    frames: usize,
++    raw: usize,
++    visible: usize,
++    depth: u32,
++    cache: usize,
++    comparisons: u64,
++    map_ns: u64,
++    sort_ns: u64,
++) {
++    if !enabled() {
++        return;
++    }
++    DATA.with(|d| {
++        let mut d = d.borrow_mut();
++        d.counts[0] += 1;
++        d.counts[1] += frames as u64;
++        d.counts[2] += raw as u64;
++        d.counts[3] += visible as u64;
++        for (i, n) in [(4, frames), (5, raw), (6, visible), (7, depth as usize), (11, cache)] {
++            d.counts[i] = d.counts[i].max(n as u64);
++        }
++        d.counts[8] += comparisons;
++        d.counts[9] += map_ns;
++        d.counts[10] += sort_ns;
++        d.frame_hist[bucket(frames)] += 1;
++        d.binding_hist[bucket(visible)] += 1;
++        if d.nodes.contains_key(&node) || d.nodes.len() < 16384 {
++            let n = d.nodes.entry(node).or_default();
++            n[0] += 1;
++            n[1] += raw as u64;
++            n[2] += visible as u64;
++            n[3] = n[3].max(depth as u64);
++        } else {
++            d.counts[23] += 1;
++        }
++    });
++    if DATA.with(|d| d.borrow().counts[0] % 4096 == 0) {
++        emit(false, 0);
++    }
++}
++pub fn event(index: usize) {
++    if enabled() {
++        DATA.with(|d| d.borrow_mut().counts[index] += 1);
++    }
++}
++pub fn lookup(node: NodeId, route: usize, hit: bool) {
++    if !enabled() {
++        return;
++    }
++    DATA.with(|d| {
++        let mut d = d.borrow_mut();
++        d.counts[18 + route * 2 + usize::from(!hit)] += 1;
++        if let Some(n) = d.nodes.get_mut(&node) {
++            n[if hit { 4 } else { 5 }] += 1;
++        }
++    });
++}
++pub fn emit(final_row: bool, checked: usize) {
++    if !enabled() {
++        return;
++    }
++    DATA.with(|d| {
++        let d=d.borrow(); let mut nodes: Vec<_>=d.nodes.iter().collect(); nodes.sort_unstable_by_key(|(_,n)| std::cmp::Reverse(n[0]));
++        let nodes: Vec<_>=nodes.into_iter().take(32).map(|(node,n)| format!("[{}, {:?}]",node.as_u32(),n)).collect();
++        eprintln!("TSR_LITERAL_KEY_PROBE\t{{\"final\":{},\"owner\":{},\"checked\":{},\"counts\":{:?},\"frame_hist\":{:?},\"binding_hist\":{:?},\"node_count\":{},\"top_nodes\":[{}]}}", final_row,d.owner,checked,d.counts,d.frame_hist,d.binding_hist,d.nodes.len(),nodes.join(","));
++    });
++}
