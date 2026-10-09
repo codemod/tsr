@@ -3649,9 +3649,6 @@ impl Checker<'_, '_> {
     /// directive and upstream reports anyway, because `null.foo` is wrong under
     /// every flag. §397.
     fn check_null_or_undefined_receiver(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let (receiver, is_chain_root) = match self.node_map.get(node) {
             Some(Node::PropertyAccessExpression(access)) => {
                 (access.expression, access.question_dot_token.is_some())
