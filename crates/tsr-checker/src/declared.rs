@@ -9403,6 +9403,8 @@ impl<'a> Checker<'a, '_> {
         if target == self.intrinsics.error {
             return None;
         }
+        // getIndexTypeEx reduces its operand first (checker.go:26685).
+        let target = self.get_reduced_type(target);
         if let Some(keys) = self.mapped_index_type(target) {
             return Some(keys);
         }
@@ -9421,8 +9423,16 @@ impl<'a> Checker<'a, '_> {
         let deferred_intersection = matches!(&self.store.get(target).data, crate::types::TypeData::Intersection { types, .. }
                 if self.maybe_type_of_kind(target, TypeFlags::INSTANTIABLE)
                     && types.iter().any(|&part| self.is_empty_anonymous_object_type(part)));
+        // shouldDeferIndexType's union arm (checker.go:26838): a union an
+        // instantiation could reduce keeps its `keyof` deferred. Native's
+        // keyof-target relation arm (relater.go:3514) passes
+        // IndexFlagsNoReducibleCheck; the port's (`relater.rs`) has no index
+        // flags, so a reducible union constraint defers there too.
+        let reducible_union = self.store.get(target).flags.contains(TypeFlags::UNION)
+            && self.is_generic_reducible_type(target);
         if self.store.get(target).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
             || deferred_intersection
+            || reducible_union
             || self.is_generic_tuple_type(target)
             || self.is_generic_homomorphic_mapped_type(target)
             || self.mapped_types.get(&target).cloned().is_some_and(|info| {
