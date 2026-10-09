@@ -257,8 +257,12 @@ TS2304. The port with the diff matches every row except two pre-existing
 ones (the namespace TS2303, and TS1003 for `export { "str" as s2 }`, a parser
 difference).
 
-The diff also makes `check.rs`'s `cannot_find_name_message` `pub(crate)` so
-the tail shares the table rather than copying it. Measured alone: +1 case
+The hook passes `check.rs`'s `cannot_find_name_message` in as a function
+pointer, so the tail shares the table rather than copying it.
+**Correction:** the first push of this cluster (`9f70f8d`) had the new file
+call that function by path, which needs it `pub(crate)`; the diff carried
+that change, so the branch itself did not compile without the diff. Fixed in
+the next commit by passing the table in; behaviour is unchanged. Measured alone: +1 case
 (`duplicateErrorNameNotFound`), 0 losses, missing rows −2
 (`bigintArbirtraryIdentifier`'s `badExport.ts` row converts too; that case
 stays WRONG on a parse-recovery row, §2 F), no new extra row, `slowcases`

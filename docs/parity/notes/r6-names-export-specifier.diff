@@ -1,5 +1,5 @@
 diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
-index d1facaf..98cb5a6 100644
+index d1facaf..916c534 100644
 --- a/crates/tsr-checker/src/check.rs
 +++ b/crates/tsr-checker/src/check.rs
 @@ -850,6 +850,9 @@ impl Checker<'_, '_> {
@@ -8,21 +8,12 @@ index d1facaf..98cb5a6 100644
                  self.check_export_specifier_is_local(node);
 +                // r6-names: `resolveEntityName`'s failure tail for a local
 +                // specifier (`export_specifier_names.rs`).
-+                self.names_check_export_specifier_target(node);
++                self.names_check_export_specifier_target(node, cannot_find_name_message);
              }
              // `checkImportBinding` (`checker.go:5287`-`:5303`, `:5473`) and
              // `checkExportDeclaration`'s clause (`:5534`).
-@@ -14907,7 +14910,7 @@ pub(crate) fn modifiers_of(typed: Node<'_>) -> Option<&[tsr_ast::ModifierLike<'_
-     })
- }
- 
--fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Message> {
-+pub(crate) fn cannot_find_name_message(name: &str) -> Option<&'static tsr_diagnostics::Message> {
-     Some(match name {
-         "document" | "console" => {
-             &messages::CANNOT_FIND_NAME_0_DO_YOU_NEED_TO_CHANGE_YOUR_TARGET_LIBRARY_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_INCLUDE_DOM
 diff --git a/crates/tsr-checker/src/export_specifier_names.rs b/crates/tsr-checker/src/export_specifier_names.rs
-index 0fe07b1..a3b09b5 100644
+index 492c57e..ed55647 100644
 --- a/crates/tsr-checker/src/export_specifier_names.rs
 +++ b/crates/tsr-checker/src/export_specifier_names.rs
 @@ -20,7 +20,6 @@ use tsr_diagnostics::{Diagnostic, messages};

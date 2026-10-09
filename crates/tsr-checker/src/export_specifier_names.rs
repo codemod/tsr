@@ -33,7 +33,15 @@ impl Checker<'_, '_> {
     /// `report_exporting_primitive_type`, which
     /// `check_export_specifier_is_local` already runs; it is consulted here
     /// only to stay silent after it.
-    pub(crate) fn names_check_export_specifier_target(&mut self, node: NodeId) {
+    ///
+    /// `name_not_found` is `getCannotFindNameDiagnosticForName`'s table
+    /// (`check.rs`'s `cannot_find_name_message`), passed by the caller so the
+    /// two reporters share one table.
+    pub(crate) fn names_check_export_specifier_target(
+        &mut self,
+        node: NodeId,
+        name_not_found: fn(&str) -> Option<&'static tsr_diagnostics::Message>,
+    ) {
         let Some(Node::ExportSpecifier(specifier)) = self.node_map.get(node) else { return };
         // `PropertyNameOrName()`; a string literal resolves to nothing and
         // reports nothing (`checker.go:14967`).
@@ -122,8 +130,7 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        let message =
-            crate::check::cannot_find_name_message(text).unwrap_or(&messages::CANNOT_FIND_NAME_0);
+        let message = name_not_found(text).unwrap_or(&messages::CANNOT_FIND_NAME_0);
         self.report(file, Diagnostic::with_args(message, span, [text.to_string()]));
     }
 }
