@@ -142,3 +142,17 @@ conditional/indexed targets keep `GenericStructure<K>`, `Omit<T, K>`,
 `TestBit<A, B>`; a union answer keeps the mint (`mapTypeWithAlias`).
 Predicate `alias_instantiation_keeps_declared_alias` (bounded chain, depth 8);
 no new cache: `declared_types` stays the owner.
+
+## Indexed-access alias unions only over a union index (tsr-2zk.16.56)
+
+`getIndexedAccessTypeOrUndefined` (checker.go:26975) passes its alias to
+`getUnionTypeEx` only when the index type is a non-boolean union; a single
+key answers `getPropertyTypeForIndexType`'s property type unaliased. The
+port's indexed-access arm re-minted every union answer under the alias, so
+`type Res1 = Example<{ a: "x" } | { a: "y" }>` over `T['a']` printed
+`Example<..>` (native `"x" | "y"`). `alias_indexed_access_index_is_union`
+resolves the written index node in the alias's binding frame (or, through a
+reference chain, the next alias's arguments) and gates the union arm.
+Controls: `K2<{ a: 1; b: 2 }>` over `T[keyof T]` keeps its alias;
+`Example<{ a: MyU }>` prints `MyU`. No cache; evaluation reuses
+`alias_evaluation_bindings` frames under the depth guard.
