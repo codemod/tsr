@@ -23,6 +23,42 @@ enum Identity {
     Other(String),
 }
 
+fn identity_of(checker: &mut Checker<'_, '_>, id: tsr_checker::TypeId) -> Identity {
+    let intrinsics = checker.intrinsics();
+    if id == intrinsics.native_error {
+        Identity::NativeError
+    } else if id == intrinsics.error {
+        Identity::Gap
+    } else if id == intrinsics.any {
+        Identity::Any
+    } else {
+        Identity::Other(checker.type_to_string(id))
+    }
+}
+
+/// What the first `super` keyword of the file answered.
+fn super_identity(source: &str) -> Identity {
+    let arena = Arena::new();
+    let parsed =
+        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
+    let bound = tsr_binder::bind(
+        &arena,
+        parsed.source_file,
+        &parsed.nodes,
+        tsr_binder::FileInfo { name: "t.ts", text: source },
+    );
+    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+    #[allow(clippy::cast_possible_truncation)]
+    let id = (0..parsed.nodes.len() as u32)
+        .map(tsr_ast::NodeId::new)
+        .find(|&id| parsed.nodes.kind(id) == tsr_ast::SyntaxKind::SuperKeyword)
+        .expect("a `super`");
+    let node = parsed.node_map.get(id).expect("a mapped node");
+    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
+    let type_id = checker.check_expression(expression);
+    identity_of(&mut checker, type_id)
+}
+
 fn initializer_identity(file: &str, source: &str) -> Identity {
     let arena = Arena::new();
     let parsed =
@@ -42,16 +78,7 @@ fn initializer_identity(file: &str, source: &str) -> Identity {
         .and_then(|declaration| declaration.initializer)
         .expect("an initializer");
     let id = checker.check_expression(initializer);
-    let intrinsics = checker.intrinsics();
-    if id == intrinsics.native_error {
-        Identity::NativeError
-    } else if id == intrinsics.error {
-        Identity::Gap
-    } else if id == intrinsics.any {
-        Identity::Any
-    } else {
-        Identity::Other(checker.type_to_string(id))
-    }
+    identity_of(&mut checker, id)
 }
 
 /// `checkNonNullType`'s tail (`checker.go:7429`): `null` has no non-nullable
@@ -105,4 +132,33 @@ fn a_jsx_fragment_without_a_jsx_namespace_is_any() {
 fn a_declared_jsx_element_is_the_element_type() {
     let source = "declare namespace JSX { interface Element { e: 1 } }\nvar x = <></>;";
     assert_eq!(initializer_identity("t.tsx", source), Identity::Other("Element".to_owned()));
+}
+
+/// `super` in an object-literal method is upstream's `anyType`
+/// (`checker.go:7917`). `compiler/superInObjectLiterals_ES6`.
+#[test]
+fn super_in_an_object_literal_method_is_any() {
+    assert_eq!(super_identity("var o = { m() { return super.x; } };"), Identity::Any);
+}
+
+/// A function container is never a legal `super` container
+/// (`checker.go:7907`): `errorType`. `compiler/superErrors`.
+#[test]
+fn super_in_a_plain_function_is_native_error() {
+    assert_eq!(super_identity("function f() { return super.x; }"), Identity::NativeError);
+}
+
+/// A class without `extends` reports TS2335 and answers `errorType`
+/// (`checker.go:7924`). `conformance/superCallInConstructorWithNoBaseType`.
+#[test]
+fn super_in_a_class_without_a_base_is_native_error() {
+    assert_eq!(super_identity("class C { m() { return super.x; } }"), Identity::NativeError);
+}
+
+/// A static block is a static member container (`ast/utilities.go:1835`),
+/// so its `super` is the base constructor type. `compiler/classFieldSuperAccessible`.
+#[test]
+fn super_in_a_static_block_is_the_base_constructor() {
+    let source = "class B { static n = 1; }\nclass C extends B { static { super.n; } }";
+    assert_eq!(super_identity(source), Identity::Other("typeof B".to_owned()));
 }

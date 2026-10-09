@@ -180,18 +180,94 @@ Tests: `tests/errortype_producers.rs` pins `<div />` without a namespace as
 `native_error` and `<></>` as `any`, with a declared `JSX.Element` as the
 control.
 
+## §5 Commit 3: `checkSuperExpression`'s identities, and `GetSuperContainer`'s static-block and decorator arms
+
+This one function holds item 2's largest native-`anyType` population
+(`superInObjectLiterals_ES6`, 18 lines, plus `classExtendingAny`) and a row of
+native-`errorType` exits. All of them were spelled as the gap or as the `any`
+stand-in:
+
+- **object-literal container.** Upstream answers `anyType`: "for object
+  literal assume that type of 'super' is 'any'" (`checker.go:7917`). The port
+  kept the gap, under `checker-notes-rank.md` §6's ban on banking `any`. The
+  probe shows the line *is* upstream's `anyType`, so the ban no longer
+  applies: it guarded against a guessed `any`, and this one is measured.
+- **illegal usage** (`checker.go:7912`, after its diagnostic). These
+  cover a function container, a super call outside a constructor, a call
+  through an arrow, a computed name, and the walk finding no member. Native
+  answers `errorType` for all of them.
+- **the base arms.** No `extends` (TS2335, `:7925`), a call on an `extends
+  null` class (`:7929`), a class without base types (`:7939`), and a
+  constructor-argument initializer (`:7944`) all answer `errorType`.
+
+**The probe found the walk incomplete.** Switched alone, the "no member found"
+exit claimed `errorType` for 13 lines that natively have types:
+
+- `classFieldSuperAccessible`, `classFieldSuperAccessibleJs1`,
+  `javascriptThisAssignmentInStaticBlock`. `GetSuperContainer`
+  (`ast/utilities.go:1835`) returns a `ClassStaticBlockDeclaration` as a
+  container, and `ast.IsStatic` holds for it. The port's walk had no such
+  arm, so a static block's `super` walked to the class and found no member.
+- `esDecorators-preservesThis`. The `KindDecorator` arm (`:1837`) skips the
+  decorated class element, or the member that owns a decorated parameter,
+  and keeps walking past the class. The port stopped at the decorated
+  element's class.
+
+Both arms are ported, the decorator one with the same skip the computed-name
+arm uses. After that, the exit moves 4 lines, all `errorType`, and it switches
+too.
+
+**Probe join** (each arm alone, against commit 2):
+
+| arm | lines moved | native `errorType` | native `anyType` | other |
+|---|---:|---:|---:|---:|
+| object-literal container → `any` | 27 | 0 | **27** | 0 |
+| illegal usage and base arms → `native_error` | 131 | 131 | 0 | 0 |
+| the stand-in `any` exits → `native_error` | 35 | 29 | 0 | 6 |
+| "no member found", after the walk fix | 4 | 4 | 0 | 0 |
+
+The 6 "other" lines are not false claims. They are a parse-recovery
+misalignment in `derivedClassSuperCallsInNonConstructorMembers` (`a: super()`
+in a type position, §1). The probe tags that case's `super` lines `@@E`.
+
+**Measured** cumulatively with commits 1–2 (unfiltered, both dumps, against
+`22a5e1a`):
+
+| | commits 1+2 | commits 1–3 |
+|---|---:|---:|
+| types RIGHT / GAP / WRONG | 544,688 / 956 / 6,889 | **544,751 / 936 / 6,846** |
+| diagnostics | unchanged | unchanged, zero transitions |
+| type / diagnostics losses vs base | 0 / 0 | **0 / 0** |
+| credited gap | 3,184 | **3,058** |
+| wholesale narrowing RIGHT→GAP | 3,768 | **3,606** |
+
+**Gains (+63: 43 WRONG→RIGHT, 20 GAP→RIGHT)**, all from the two walk arms:
+
+- static blocks: `classStaticBlock5` ×18 (three targets),
+  `javascriptThisAssignmentInStaticBlock` 15, `classFieldSuperAccessible` 6,
+  `classFieldSuperAccessibleJs1` 6;
+- decorators: `esDecorators-preservesThis` 12, `decoratorOnClassMethod12` 4;
+- `errorSuperPropertyAccess(target=es2015)` 2.
+
+Tests: `tests/errortype_producers.rs` covers four cases:
+
+- object-literal `super` is `any`;
+- a function container is `native_error`;
+- a class without a base is `native_error`;
+- a static block's `super` is `typeof B`.
+
 ## §9 Narrowing, re-measured after each switch
 
 ADR-0048's decision log narrows a rewrite only at zero RIGHT cost. The cost
 of each rewrite, as RIGHT→GAP lines:
 
-| rewrite | base (`22a5e1a`) | commit 1 | commit 2 |
-|---|---:|---:|---:|
-| `HadErrorBaseline` | 3,375 | 3,184 | 2,639 |
-| `AtLocation` | 732 | 732 | 732 |
-| `StatementName` | 312 | 312 | 312 |
-| `AccessOrQualifiedParent` | 62 | 62 | 62 |
-| `GlobalAugmentation` | 23 | 23 | 23 |
-| **total** | 4,504 | 4,313 | 3,768 |
+| rewrite | base (`22a5e1a`) | commit 1 | commit 2 | commit 3 |
+|---|---:|---:|---:|---:|
+| `HadErrorBaseline` | 3,375 | 3,184 | 2,639 | 2,513 |
+| `AtLocation` | 732 | 732 | 732 | 696 |
+| `StatementName` | 312 | 312 | 312 | 312 |
+| `AccessOrQualifiedParent` | 62 | 62 | 62 | 62 |
+| `GlobalAugmentation` | 23 | 23 | 23 | 23 |
+| **total** | 4,504 | 4,313 | 3,768 | 3,606 |
 
 No rewrite reaches zero, so none is narrowed.

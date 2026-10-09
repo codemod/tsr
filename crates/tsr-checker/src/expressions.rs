@@ -1902,11 +1902,16 @@ impl Checker<'_, '_> {
     /// reading upstream's tail said so — the data structure had nothing to
     /// confess. See `docs/architecture/checker-notes-this.md` and `bd tsr-h1s`.
     ///
-    /// # What is deliberately not answered
+    /// # The object-literal container and the error exits
     ///
-    /// - **An object-literal container.** Upstream assumes `any` there
-    ///   (`checker.go:7917`), and `checker-notes-rank.md` §6 forbids banking on
-    ///   `any`.
+    /// An object-literal container is upstream's `anyType` (`checker.go:7917`).
+    /// It used to be the gap, because `checker-notes-rank.md` §6 forbids
+    /// banking on `any`. ADR-0048's identity probe now shows it is upstream's
+    /// own `anyType` on every line (`superInObjectLiterals_ES6`,
+    /// `classExtendingAny`), so it answers that. The illegal-usage exits answer
+    /// upstream's `errorType`, including the one where the walk finds no
+    /// member, now that the walk carries `GetSuperContainer`'s static-block
+    /// and decorator arms (`docs/parity/notes/r5-errorsplit5.md` §5).
     ///
     /// The base itself comes from [`Checker::get_base_types`] and
     /// [`Checker::get_base_constructor_type_of_class`] (`crate::base_types`).
@@ -1941,20 +1946,36 @@ impl Checker<'_, '_> {
         // fixtures; the skip is the rule, not the position.
         let mut crossed_computed_name = false;
         let mut skip_named_member = false;
+        // `GetSuperContainer`'s `KindDecorator` arm (`ast/utilities.go:1837`):
+        // a decorator is applied outside the class element it decorates (or
+        // outside the member owning the decorated parameter), so that element
+        // is skipped, and so is a class met before any member, as for a
+        // computed name. `esDecorators-preservesThis` records
+        // `>super : DecoratorProvider` for `@(super.decorate)` on a nested
+        // class's method.
+        let mut crossed_decorator = false;
+        // ADR-0048: every illegal-usage exit below is upstream's `errorType`
+        // (`checker.go:7912`), and an object-literal container is its
+        // `anyType` (`:7917`). Verified line by line against the native
+        // identity probe (`docs/parity/notes/r5-errorsplit5.md` §5).
+        let native_error = self.intrinsics.native_error;
         while let Some(id) = current {
             match self.nodes.kind(id) {
                 // A plain function is where `getSuperContainer(node,
                 // stopOnFunctions: true)` stops, so an outer class is not
-                // reached.
-                SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => return error,
-                // An object-literal CONTAINER is upstream's `any`
-                // (`checker.go:7917`), which `checker-notes-rank.md` §6
-                // forbids banking on — but only when a member was actually
+                // reached, and a function container is never legal.
+                SyntaxKind::FunctionDeclaration | SyntaxKind::FunctionExpression => {
+                    return native_error;
+                }
+                // An object-literal CONTAINER is upstream's `anyType`
+                // (`checker.go:7917`, "for object literal assume that type
+                // of 'super' is 'any'") — but only when a member was actually
                 // found; a literal passed while skipping a computed-named
-                // member is just an expression on the way.
+                // member is just an expression on the way. A super CALL in
+                // an object-literal member already left at the member.
                 SyntaxKind::ObjectLiteralExpression => {
                     if is_static.is_some() {
-                        return error;
+                        return self.intrinsics.any;
                     }
                 }
                 // §481: upstream skips arrows ONLY for a non-call `super`
@@ -1966,10 +1987,36 @@ impl Checker<'_, '_> {
                 // `any` (`derivedClassConstructorWithoutSuperCall` records
                 // `>super : any` for `() => super()`). A property access
                 // keeps the transparent-arrow behaviour.
-                SyntaxKind::ArrowFunction if is_call => return self.intrinsics.any,
+                SyntaxKind::ArrowFunction if is_call => return native_error,
                 SyntaxKind::ComputedPropertyName => {
                     crossed_computed_name = true;
                     skip_named_member = true;
+                }
+                SyntaxKind::Decorator if is_static.is_none() => {
+                    let parent = self.nodes.parent(id);
+                    let decorated = match parent.map(|parent| self.nodes.kind(parent)) {
+                        Some(SyntaxKind::Parameter) => parent.and_then(|p| self.nodes.parent(p)),
+                        _ => parent,
+                    };
+                    if decorated.is_some_and(|element| self.is_class_element(element)) {
+                        crossed_decorator = true;
+                        skip_named_member = true;
+                    }
+                }
+                // A static block is a member container (`ast/utilities.go:1835`)
+                // and is static (`ast.IsStatic`), so its `super` is legal
+                // (`checker.go:7879`) and reads the base constructor type
+                // (`classFieldSuperAccessible`). A super CALL there is not.
+                SyntaxKind::ClassStaticBlockDeclaration if is_static.is_none() => {
+                    if skip_named_member {
+                        skip_named_member = false;
+                    } else {
+                        if is_call {
+                            return native_error;
+                        }
+                        is_static = Some(true);
+                        container = Some(id);
+                    }
                 }
                 SyntaxKind::MethodDeclaration
                 | SyntaxKind::Constructor
@@ -1987,7 +2034,7 @@ impl Checker<'_, '_> {
                         // the arrow arm above (`superCallOutsideConstructor`,
                         // `errorSuperCalls`, `typeOfThisInStaticMembers6`).
                         if is_call && self.nodes.kind(id) != SyntaxKind::Constructor {
-                            return self.intrinsics.any;
+                            return native_error;
                         }
                         is_static = Some(self.has_static_modifier(id));
                         container = Some(id);
@@ -2004,7 +2051,7 @@ impl Checker<'_, '_> {
                 // stopping here is the same answer upstream reaches by
                 // returning the member.
                 SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-                    if is_static.is_some() || !crossed_computed_name =>
+                    if is_static.is_some() || !(crossed_computed_name || crossed_decorator) =>
                 {
                     class = Some(id);
                     break;
@@ -2014,13 +2061,12 @@ impl Checker<'_, '_> {
             current = self.nodes.parent(id);
         }
         let (Some(class), Some(is_static)) = (class, is_static) else {
-            // The walk found no member. Through a computed name that is
-            // upstream's specific error and the deliberate error-any; every
-            // other exit keeps the honest gap.
-            if crossed_computed_name {
-                return self.intrinsics.any;
-            }
-            return error;
+            // The walk found no member: `container == nil`, upstream's
+            // diagnostic and `errorType` (`checker.go:7912`), through a
+            // computed name or not. This kept the gap while the walk missed
+            // static blocks and decorators; with those ported, every line it
+            // moves is `errorType` natively (notes §5).
+            return native_error;
         };
 
         // `checkSuperExpression`'s base arm (`checker.go:7854`), after the
@@ -2043,19 +2089,21 @@ impl Checker<'_, '_> {
             .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
             .is_none_or(|clause| clause.types.is_empty())
         {
-            return error;
+            return native_error;
         }
         let Some(class_symbol) = self.binder.symbol_of(class) else { return error };
         let constructor = self.get_base_constructor_type_of_class(class_symbol);
         if constructor == self.intrinsics.null {
-            return if is_call { error } else { self.intrinsics.null };
+            return if is_call { native_error } else { self.intrinsics.null };
         }
-        let Some(&base) = self.get_base_types(class_symbol).first() else { return error };
+        let Some(&base) = self.get_base_types(class_symbol).first() else {
+            return native_error;
+        };
         if let Some(container) = container
             && self.nodes.kind(container) == SyntaxKind::Constructor
             && self.is_in_constructor_argument_initializer(node, container)
         {
-            return error;
+            return native_error;
         }
         if is_static || is_call {
             return constructor;

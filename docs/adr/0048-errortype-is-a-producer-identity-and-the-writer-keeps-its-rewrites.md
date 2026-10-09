@@ -281,3 +281,22 @@ WRONG (notes §4).
 **Narrowing**, per rewrite: `HadErrorBaseline` 2,639, `AtLocation` 732,
 `StatementName` 312, `AccessOrQualifiedParent` 62, `GlobalAugmentation` 23.
 None costs zero, so none is narrowed. The residual fell 4,313 → 3,768.
+
+### 2026-10-08 — step 5, commit 3: `checkSuperExpression` by identity; no rewrite narrowed
+
+`super` in an object-literal member is upstream's `anyType` on every probed
+line (27 of 27, `checker.go:7917`). Its illegal-usage and base exits are
+`errorType`: 164 of 164 aligned lines. That retires the gap `checker-notes-rank.md`
+§6 had kept there, because the `any` is now measured, not guessed.
+
+The probe also showed the port's container walk lacked `GetSuperContainer`'s
+static-block and decorator arms. Both are ported, and they give +63 type lines
+(notes §5).
+
+**Measured** cumulatively with commits 1–2 (unfiltered, both dumps, against
+`22a5e1a`): zero losses; types 544,751 / 936 / 6,846; credited gap 3,184 →
+**3,058**.
+
+**Narrowing**, per rewrite: `HadErrorBaseline` 2,513, `AtLocation` 696,
+`StatementName` 312, `AccessOrQualifiedParent` 62, `GlobalAugmentation` 23.
+None costs zero, so none is narrowed. The residual fell 3,768 → 3,606.
