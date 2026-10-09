@@ -1043,6 +1043,7 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::LabeledStatement(_)) {
             self.check_duplicate_label(node, ambient);
+            self.check_unused_label(node);
             self.check_label_is_allowed(node);
         }
         if matches!(typed, Node::ForInOrOfStatement(_)) {
@@ -2973,6 +2974,28 @@ impl Checker<'_, '_> {
             self.report(file, Diagnostic::with_args(&messages::DUPLICATE_LABEL_0, span, [text]));
             return;
         }
+    }
+
+    /// TS7028 — `Unused label.`
+    ///
+    /// `checkLabeledStatement` (`checker.go:4219`): the binder marks a label
+    /// nothing `break`s or `continue`s to (`NodeFlagsUnreachable` on the
+    /// label; here [`NodeFacts::UNUSED_LABEL`]), and the checker reports it at
+    /// the label through `errorOrSuggestion`, an error only when
+    /// `allowUnusedLabels` is explicitly `false` (a suggestion otherwise, which
+    /// no consumer of this checker collects). `docs/parity/notes/decls.md` §28.
+    fn check_unused_label(&mut self, node: NodeId) {
+        if !self.unused_label_is_error {
+            return;
+        }
+        let Some(Node::LabeledStatement(statement)) = self.node_map.get(node) else { return };
+        let Some(label) = statement.label.and_then(|label| label.node_id) else { return };
+        if !self.binder.facts(label).contains(NodeFacts::UNUSED_LABEL) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(label) else { return };
+        let span = self.error_span(label);
+        self.report(file, Diagnostic::new(&messages::UNUSED_LABEL, span));
     }
 
     /// TS1192 — `Module '{0}' has no default export.`

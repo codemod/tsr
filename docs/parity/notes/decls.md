@@ -547,3 +547,12 @@ with `DeclarationNameToString` (source text; `"a"` keeps its quotes) and,
 when the wrapping parameter has no type annotation, relates TS2843 at the
 zero-width range at the parameter's end. `check_renamed_binding_element_in_signature`
 now does both; the reference scan still matches the cooked name.
+
+## §28 TS7028 unused label
+
+`checkLabeledStatement` (`checker.go:4219`) reports `Unused label.` at a
+label the binder marked unreferenced, through `errorOrSuggestion` with
+`isError = allowUnusedLabels == TSFalse`. The binder already recorded
+`NodeFacts::UNUSED_LABEL`; the checker gains `unused_label_is_error`
+(set in `apply_compiler_options` beside `unreachable_code_is_error`) and
+`check_unused_label`. The suggestion form is not collected by any consumer.
