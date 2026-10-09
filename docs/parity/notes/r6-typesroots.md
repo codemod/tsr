@@ -226,6 +226,36 @@ diagnostics unchanged: typesWithDuplicateTypeParameters 2,
 genericsWithDuplicateTypeParameters1 14, duplicateTypeParameters1 1.
 slowcases clean. Ir ×1.00038 / ×1.00001 cumulative.
 
+## 6. `.16.47`: a rest parameter's binding pattern is its implied type (diff)
+
+**Re-measured.** noImplicitAnyDestructuringVarDeclaration and
+declarationInAmbientContext are already RIGHT. restParameterWithBindingPattern1
+printed `(...{ a, b }: any[]) => void`, and its elements were gaps.
+
+**Forcing constraint.** `getTypeForVariableLikeDeclaration`'s final arm
+(`checker.go:16790`) answers `getTypeFromBindingPattern` for any
+unannotated declaration with a pattern name. Only when it answers nothing
+does `getWidenedTypeForVariableLikeDeclaration` fall back, and its rest
+parameter arm (`anyArrayType`) comes after that. TSR's port of the
+implied-pattern arm (`symbols.rs`, §429) excluded rest parameters, so the
+rest fallback won.
+
+**Port.** The diff removes the `dot_dot_dot_token.is_none()` condition. The
+admission gates for the container (declaration, or an expression shown
+uncontextual) are unchanged. An array pattern's implied tuple then spreads
+into the signature's parameters. Native prints `function f(...[a, b])` as
+`(a: any, b: any) => void` (probed with the pinned `tsgo`), and TSR already
+did, through the same tuple-rest expansion.
+
+**Measured** (on top of §2-§5): types +6 (3 GAP→RIGHT, 3 WRONG→RIGHT), zero
+losses, diagnostics unchanged: restParameterWithBindingPattern1 3,
+restParameterWithBindingPattern2 1, iterableArrayPattern25 2. slowcases
+clean. Ir ×1.00037 / ×1.00000 cumulative.
+
+renamingDestructuredPropertyInFunctionType's line
+(`({ a: string }: { a: any; }) => any`) is a call-signature parameter of a
+type literal, and its own blocker is CLONE-BINDING-NAME. It is unchanged.
+
 ## Diffs, in apply order
 
 Every diff applies to `b18aec06` plus this branch's commits and the diffs
@@ -241,3 +271,5 @@ above it.
 4. `r6-typesroots-duplicate-type-parameters.diff` (§5): `signatures.rs`
    (r6-printer), `signature_type_parameters.rs`, tests. +17 types, zero
    losses. Independent of 1-3.
+5. `r6-typesroots-rest-binding-pattern.diff` (§6): `symbols.rs` (main),
+   tests. +6 types, zero losses. Independent of 1-4.
