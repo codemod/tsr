@@ -5021,7 +5021,13 @@ impl Checker<'_, '_> {
         let mut current = self.binder.merged_symbol(symbol);
         for _ in 0..16 {
             let entry = self.binder.symbols().get(current);
-            if !entry.flags.intersects(SymbolFlags::ALIAS) {
+            // `getTypeOnlyAliasDeclarationEx`'s loop (`checker.go:2144`)
+            // runs while the symbol is an alias **with no value meaning**: an
+            // alias merged with a local value (`import { A }` beside
+            // `const A`) is a value, whatever its import says.
+            if !entry.flags.intersects(SymbolFlags::ALIAS)
+                || entry.flags.intersects(SymbolFlags::VALUE)
+            {
                 return None;
             }
             let declaration = *entry.declarations.first()?;
