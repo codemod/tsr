@@ -98,6 +98,7 @@
 //! evidence until something deliberately wrong has been pushed through the whole
 //! path and seen to go red.
 
+mod alias_accessibility;
 pub mod array_literals;
 pub mod assertion_overlap;
 pub mod assertions;
@@ -225,6 +226,7 @@ mod type_query_receivers;
 pub mod types;
 mod union_signatures;
 pub mod unions;
+mod unique_symbol_keys;
 mod unique_symbols;
 mod unknown_operand;
 pub mod unused;
