@@ -1,0 +1,55 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..1def354 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -3664,6 +3664,11 @@ impl Checker<'_, '_> {
+             receiver_expression.map_or(self.intrinsics.error, |e| self.check_expression(e));
+         let non_optional =
+             self.get_optional_expression_type(receiver_type, Some(receiver), is_chain_root);
++        // `checkNonNullTypeWithReporter`'s `Unknown` arm comes first
++        // (`checker.go:7414`); `crate::unknown_operand`.
++        if self.report_unknown_operand(receiver, non_optional) {
++            return;
++        }
+         // `checkNonNullType` reaches `reportObjectPossiblyNullOrUndefinedError`
+         // only when the facts say nullish (`checker.go:7425`), which is why
+         // `null?.x` is silent while `null.x` is not — the chain root strips the
+diff --git a/crates/tsr-checker/src/nullable_operand.rs b/crates/tsr-checker/src/nullable_operand.rs
+index 449d40a..7cd698f 100644
+--- a/crates/tsr-checker/src/nullable_operand.rs
++++ b/crates/tsr-checker/src/nullable_operand.rs
+@@ -155,15 +155,10 @@ impl Checker<'_, '_> {
+         ty: TypeId,
+         operand: tsr_ast::Expression<'_>,
+     ) -> TypeId {
+-        if self.strict_null_checks && self.type_of(ty).flags.intersects(TypeFlags::UNKNOWN) {
+-            // TS18046 / TS2571 are **not reported yet**. A context-sensitive
+-            // arrow argument of a generic call (`Map.groupBy([0], x => x < 5)`)
+-            // has its parameter read as `unknown` by the diagnostics walk while
+-            // the type dump answers `number` — a node type cached during an
+-            // inference pass, outside this file. Reporting here measured two
+-            // EMPTY_RIGHT losses (`mapGroupBy`, `nonInferrableTypePropagation2`);
+-            // `docs/parity/notes/operators.md`.
+-            return self.intrinsics.error;
++        if let Some(id) = operand.node_id()
++            && self.report_unknown_operand(id, ty)
++        {
++            return self.intrinsics.native_error;
+         }
+         // The reporter runs on `getTypeFacts(t, IsUndefinedOrNull)` whatever
+         // `strictNullChecks` says: `null` and `undefined` keep `IsNull` /
+diff --git a/crates/tsr-checker/src/unknown_operand.rs b/crates/tsr-checker/src/unknown_operand.rs
+index ef8fd9d..01beeb3 100644
+--- a/crates/tsr-checker/src/unknown_operand.rs
++++ b/crates/tsr-checker/src/unknown_operand.rs
+@@ -25,10 +25,6 @@ use tsr_diagnostics::{Diagnostic, messages};
+ 
+ use crate::{checker::Checker, flags::TypeFlags, types::TypeId};
+ 
+-#[expect(
+-    dead_code,
+-    reason = "its readers are hooked by docs/parity/notes/r6-smallcodes4-unknown-operand.diff, which removes this"
+-)]
+ impl Checker<'_, '_> {
+     /// `checkNonNullTypeWithReporter`'s `Unknown` arm (`checker.go:7414-7424`).
+     ///

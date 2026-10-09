@@ -1,0 +1,160 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..ab3ccde 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -247,6 +247,14 @@ impl Checker<'_, '_> {
+             }
+             Node::ImportEqualsDeclaration(declaration) => {
+                 self.check_circular_import_alias(node);
++                // `import a = b`: the unqualified right side is a namespace
++                // lookup (`crate::namespace_not_found`).
++                if let Some(tsr_ast::ModuleReference::Identifier(name)) =
++                    declaration.module_reference
++                    && let Some(name) = name.node_id
++                {
++                    self.check_import_equals_identifier_reference(name);
++                }
+                 // **`import a = b.c` carries TS2694 too**, under a wider
+                 // meaning: an alias may name a value, where a type reference may
+                 // not. §559.
+@@ -10721,25 +10729,12 @@ impl Checker<'_, '_> {
+             // a conditional type is the corpus's shape — reaches a different
+             // arm entirely, and reporting TS2503 there was 60 wrong lines.
+             // §302.
+-            if [SymbolFlags::TYPE, SymbolFlags::VALUE, SymbolFlags::NAMESPACE].into_iter().any(
+-                |meaning| {
+-                    self.binder
+-                        .resolve_name(self.nodes, self.node_map, left, &namespace_name, meaning)
+-                        .is_some()
+-                },
+-            ) {
+-                return;
+-            }
+-            if let Some(file) = self.source_file_of_for_diagnostics(left) {
+-                let span = self.nodes.span(left);
+-                self.report(
+-                    file,
+-                    Diagnostic::with_args(
+-                        &messages::CANNOT_FIND_NAMESPACE_0,
+-                        span,
+-                        [namespace_name],
+-                    ),
+-                );
++            // **Only an enum or `globalThis` succeeds here.** `SymbolFlagsNamespace` holds
++            // `Enum`, which the `MODULE` lookup above leaves out; a type is
++            // `checkAndReportErrorForUsingTypeAsNamespace`'s, and a value has
++            // no other arm (`crate::namespace_not_found`).
++            if !self.resolves_as_namespace(left, &namespace_name) {
++                self.report_cannot_find_namespace(left, &namespace_name);
+             }
+             return;
+         };
+diff --git a/crates/tsr-checker/src/namespace_not_found.rs b/crates/tsr-checker/src/namespace_not_found.rs
+index a565dc4..e85570f 100644
+--- a/crates/tsr-checker/src/namespace_not_found.rs
++++ b/crates/tsr-checker/src/namespace_not_found.rs
+@@ -29,10 +29,6 @@ use tsr_diagnostics::{Diagnostic, messages};
+ 
+ use crate::checker::Checker;
+ 
+-#[expect(
+-    dead_code,
+-    reason = "its two readers are hooked by docs/parity/notes/r6-smallcodes4-namespace-not-found.diff, which removes this"
+-)]
+ impl Checker<'_, '_> {
+     /// `resolveName(location, name, SymbolFlagsNamespace)` as this port asks
+     /// it: a module, an enum, or an alias. An alias is accepted whatever its
+diff --git a/crates/tsr-checker/tests/namespace_not_found.rs b/crates/tsr-checker/tests/namespace_not_found.rs
+new file mode 100644
+index 0000000..f4e9f21
+--- /dev/null
++++ b/crates/tsr-checker/tests/namespace_not_found.rs
+@@ -0,0 +1,88 @@
++//! TS2503 / TS2833 — `onFailedToResolveSymbol` with `SymbolFlagsNamespace`
++//! (`checker.go:1564`), from a qualified type name's left identifier and from
++//! `import a = b` (`getSymbolOfPartOfRightHandSideOfImportEquals`'s case 1,
++//! `checker.go:5020`). Expectations were checked against a native `tsgo`
++//! built from the pinned submodule. Needs
++//! `docs/parity/notes/r6-smallcodes4-namespace-not-found.diff`.
++
++use tsr_ast::NodeId;
++use tsr_checker::Checker;
++use tsr_checker::check::FileContext;
++use tsr_core::Arena;
++
++fn reports(source: &str) -> Vec<String> {
++    let arena = Arena::new();
++    let mut nodes = tsr_ast::NodeTable::default();
++    let mut node_map = tsr_ast::NodeMap::default();
++    let file = tsr_parser::parse_into(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("a.ts"),
++        &mut nodes,
++        &mut node_map,
++    );
++    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
++    let has_parse_errors = !file.diagnostics.is_empty();
++    let bound = tsr_binder::bind_into(
++        tsr_binder::BindResult::empty(),
++        &arena,
++        file.source_file,
++        &nodes,
++        tsr_binder::FileInfo { name: "a.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &nodes, &node_map);
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors });
++    let mut reports: Vec<String> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(_, d)| matches!(d.code().to_string().as_str(), "TS2503" | "TS2833"))
++        .map(|(_, d)| format!("{}: {}", d.code(), d.text()))
++        .collect();
++    reports.sort();
++    reports
++}
++
++#[test]
++fn an_unresolved_import_equals_identifier_is_ts2503() {
++    assert_eq!(reports("import d = asdf;"), ["TS2503: Cannot find namespace 'asdf'."]);
++}
++
++#[test]
++fn an_import_equals_of_a_namespace_or_globalthis_does_not_report() {
++    assert!(reports("namespace N { export var x = 1; }\nimport a = N;\nimport g = globalThis;").is_empty());
++}
++
++#[test]
++fn a_missing_import_equals_identifier_does_not_report() {
++    // `import abstract class D {}`: the module reference is the parser's
++    // missing identifier, which `resolveEntityName` never resolves.
++    assert!(reports("import abstract class D {}").is_empty());
++}
++
++#[test]
++fn a_value_used_as_a_namespace_is_ts2503() {
++    assert_eq!(
++        reports("function f1() { let intrinsic: intrinsic.intrinsic; }"),
++        ["TS2503: Cannot find namespace 'intrinsic'."]
++    );
++}
++
++#[test]
++fn an_enum_or_globalthis_left_side_does_not_report() {
++    assert!(reports("enum E { A }\nlet e: E.A;\ntype F = globalThis.Function;").is_empty());
++}
++
++#[test]
++fn a_type_used_as_a_namespace_does_not_report_ts2503() {
++    // `checkAndReportErrorForUsingTypeAsNamespace` answers instead (TS2702,
++    // not ported here).
++    assert!(reports("interface I { a: number }\nlet i: I.a;").is_empty());
++}
++
++#[test]
++fn a_near_miss_namespace_is_ts2833() {
++    assert_eq!(
++        reports("namespace Outer { export interface T {} }\nlet o: Outr.T;"),
++        ["TS2833: Cannot find namespace 'Outr'. Did you mean 'Outer'?"]
++    );
++}
