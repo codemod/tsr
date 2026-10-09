@@ -1,0 +1,143 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3476,8 +3476,10 @@
+                         // §269: `@import { Foo } from "./m"` declares each
+                         // binding as an alias in FILE locals — the same
+                         // (ALIAS, Locals) classification the written form's
+-                        // nodes get, filed through `declare_jsdoc_symbol`
+-                        // because this loop runs outside the container walk.
++                        // nodes get, filed through `declare_jsdoc_import_binding`
++                        // (`declareSymbol` with the alias excludes, so a
++                        // repeated binding is TS2300) because this loop runs
++                        // outside the container walk.
+                         // Upstream reaches the identical state by reparsing
+                         // the tag into a `JSImportDeclaration` and binding
+                         // that; this port binds JSDoc directly (the
+@@ -3485,7 +3487,12 @@
+                         JSDocTag::JSDocImportTag(import) => {
+                             let Some(clause) = import.import_clause else { continue };
+                             if let (Some(name), Some(id)) = (clause.name, clause.node_id) {
+-                                self.declare_jsdoc_symbol(root, name.text, SymbolFlags::ALIAS, id);
++                                self.declare_jsdoc_import_binding(
++                                    root,
++                                    name.text,
++                                    name.node_id,
++                                    id,
++                                );
+                             }
+                             match clause.named_bindings {
+                                 Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
+@@ -3493,10 +3500,10 @@
+                                         if let (Some(name), Some(id)) =
+                                             (specifier.name, specifier.node_id)
+                                         {
+-                                            self.declare_jsdoc_symbol(
++                                            self.declare_jsdoc_import_binding(
+                                                 root,
+                                                 name.text,
+-                                                SymbolFlags::ALIAS,
++                                                name.node_id,
+                                                 id,
+                                             );
+                                         }
+@@ -3512,10 +3519,10 @@
+                                     if let (Some(name), Some(id)) =
+                                         (namespace.name, namespace.node_id)
+                                     {
+-                                        self.declare_jsdoc_symbol(
++                                        self.declare_jsdoc_import_binding(
+                                             root,
+                                             name.text,
+-                                            SymbolFlags::ALIAS,
++                                            name.node_id,
+                                             id,
+                                         );
+                                     }
+@@ -3671,6 +3678,34 @@
+         root
+     }
+ 
++    /// One `@import` binding. Upstream reparses the tag into a
++    /// `JSImportDeclaration` and binds each binding through
++    /// `declareSymbolAndAddToSymbolTable(…, SymbolFlagsAlias,
++    /// SymbolFlagsAliasExcludes)` into the file's locals
++    /// (`declareModuleMember`, `binder.go:380`), so a second `@import` of the
++    /// same name is TS2300 on both, like any other alias redeclaration. The
++    /// name node positions that report (`GetNameOfDeclaration`).
++    fn declare_jsdoc_import_binding(
++        &mut self,
++        root: NodeId,
++        name: &'a str,
++        name_node: Option<NodeId>,
++        declaration: NodeId,
++    ) {
++        if let Some(name_node) = name_node {
++            self.name_nodes.push((declaration, name_node));
++        }
++        let symbol = self.declare_into(
++            Destination::Locals,
++            root,
++            None,
++            name,
++            SymbolFlags::ALIAS,
++            declaration,
++        );
++        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
++    }
++
+     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
+     fn declare_jsdoc_symbol(
+         &mut self,
+diff --git a/crates/tsr-binder/tests/jsdoc_import_duplicates.rs b/crates/tsr-binder/tests/jsdoc_import_duplicates.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-binder/tests/jsdoc_import_duplicates.rs
+@@ -0,0 +1,47 @@
++//! `@import` bindings are alias declarations in the file's locals, bound
++//! with `SymbolFlagsAliasExcludes` (`declareModuleMember`, `binder.go:380`),
++//! so a second `@import` of a name is TS2300 on both. Expectations were
++//! checked against a native `tsgo` built from the pinned submodule.
++
++use tsr_ast::NodeFlags;
++use tsr_binder::{BindResult, FileInfo};
++use tsr_core::Arena;
++
++fn codes(source: &str) -> Vec<(String, u32)> {
++    let arena = Arena::new();
++    let mut parsed = tsr_parser::parse_with_options(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("foo.js"),
++    );
++    assert!(parsed.diagnostics.is_empty());
++    let root = parsed.source_file.node_id.expect("registered source file");
++    parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
++    let docs: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        FileInfo { name: "foo.js", text: source },
++        &docs,
++    );
++    let mut codes: Vec<(String, u32)> =
++        bound.diagnostics().iter().map(|d| (d.code().to_string(), d.span.start)).collect();
++    codes.sort();
++    codes
++}
++
++#[test]
++fn a_repeated_import_tag_binding_is_ts2300_on_both() {
++    let source = "/**\n * @import { Foo } from \"./types\"\n */\n\n/**\n * @import { Foo } from \"./types\"\n */\nfunction f() {}\n";
++    let first = u32::try_from(source.find("Foo").expect("first")).expect("small");
++    let second = u32::try_from(source.rfind("Foo").expect("second")).expect("small");
++    assert_eq!(codes(source), [("TS2300".to_string(), first), ("TS2300".to_string(), second)]);
++}
++
++#[test]
++fn distinct_import_tag_bindings_do_not_report() {
++    let source = "/**\n * @import { Foo } from \"./types\"\n * @import { Bar as Baz } from \"./types\"\n */\nfunction f() {}\n";
++    assert!(codes(source).is_empty());
++}

@@ -1150,7 +1150,7 @@ impl Checker<'_, '_> {
 
     /// `ast.IsTypeOnlyImportOrExportDeclaration`
     /// (`IsTypeOnlyImportDeclaration` || `IsTypeOnlyExportDeclaration`).
-    fn is_type_only_import_or_export_declaration(&self, node: NodeId) -> bool {
+    pub(crate) fn is_type_only_import_or_export_declaration(&self, node: NodeId) -> bool {
         let clause_is_type_only = |clause: Option<NodeId>| {
             matches!(clause.and_then(|clause| self.node_map.get(clause)), Some(Node::ImportClause(clause))
                 if clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword))

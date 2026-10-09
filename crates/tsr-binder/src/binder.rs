@@ -1129,10 +1129,20 @@ impl<'a, 'n> Binder<'a, 'n> {
             // excluded. A non-alias target resolves to itself, and the excludes
             // test above already passed, so upstream merges and there is
             // nothing to report (`misc-checks.md` §19).
-            if target_flags.intersects(SymbolFlags::ALIAS) && !assignment {
-                self.alias_merges.push((target, source));
+            if target_flags.intersects(SymbolFlags::ALIAS) {
+                if !assignment {
+                    self.alias_merges.push((target, source));
+                }
+                return;
             }
-            return;
+            // A non-alias target is its own `resolveSymbol`, so upstream's
+            // second excludes test is the one above and it merges
+            // (`checker.go:14153-14159`): a script's `import q = Q` into an
+            // earlier script's `var q` yields one `Variable | Alias` symbol
+            // whose type is the variable's (`getTypeOfSymbol` tests
+            // `Variable` before `Alias`). Only an alias *target* needs a
+            // resolution this binder cannot make (r5-errorsplit6 §5,
+            // `duplicateVarsAcrossFileBoundaries`).
         }
 
         // `recordMergedSymbol(target, source)` (`internal/checker/checker.go:14372`),
@@ -3457,15 +3467,15 @@ impl<'a, 'n> Binder<'a, 'n> {
                 for tag in doc.tags {
                     match tag {
                         JSDocTag::JSDocTypedefTag(typedef) => {
-                            let name = match typedef.name {
+                            let (name, name_node) = match typedef.name {
                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
-                                    identifier.text
+                                    (identifier.text, identifier.node_id)
                                 }
                                 _ => continue,
                             };
                             let Some(id) = typedef.node_id else { continue };
                             let scope = self.jsdoc_alias_scope(*host, root);
-                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
+                            self.declare_jsdoc_type_alias(scope, root, name, name_node, id);
                             // The tag's type expression is parsed syntax — a
                             // `{{a: string}}` object carries members upstream
                             // binds like any written type literal.
@@ -3476,8 +3486,10 @@ impl<'a, 'n> Binder<'a, 'n> {
                         // §269: `@import { Foo } from "./m"` declares each
                         // binding as an alias in FILE locals — the same
                         // (ALIAS, Locals) classification the written form's
-                        // nodes get, filed through `declare_jsdoc_symbol`
-                        // because this loop runs outside the container walk.
+                        // nodes get, filed through `declare_jsdoc_import_binding`
+                        // (`declareSymbol` with the alias excludes, so a
+                        // repeated binding is TS2300) because this loop runs
+                        // outside the container walk.
                         // Upstream reaches the identical state by reparsing
                         // the tag into a `JSImportDeclaration` and binding
                         // that; this port binds JSDoc directly (the
@@ -3485,7 +3497,12 @@ impl<'a, 'n> Binder<'a, 'n> {
                         JSDocTag::JSDocImportTag(import) => {
                             let Some(clause) = import.import_clause else { continue };
                             if let (Some(name), Some(id)) = (clause.name, clause.node_id) {
-                                self.declare_jsdoc_symbol(root, name.text, SymbolFlags::ALIAS, id);
+                                self.declare_jsdoc_import_binding(
+                                    root,
+                                    name.text,
+                                    name.node_id,
+                                    id,
+                                );
                             }
                             match clause.named_bindings {
                                 Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
@@ -3493,10 +3510,10 @@ impl<'a, 'n> Binder<'a, 'n> {
                                         if let (Some(name), Some(id)) =
                                             (specifier.name, specifier.node_id)
                                         {
-                                            self.declare_jsdoc_symbol(
+                                            self.declare_jsdoc_import_binding(
                                                 root,
                                                 name.text,
-                                                SymbolFlags::ALIAS,
+                                                name.node_id,
                                                 id,
                                             );
                                         }
@@ -3512,10 +3529,10 @@ impl<'a, 'n> Binder<'a, 'n> {
                                     if let (Some(name), Some(id)) =
                                         (namespace.name, namespace.node_id)
                                     {
-                                        self.declare_jsdoc_symbol(
+                                        self.declare_jsdoc_import_binding(
                                             root,
                                             name.text,
-                                            SymbolFlags::ALIAS,
+                                            name.node_id,
                                             id,
                                         );
                                     }
@@ -3524,15 +3541,15 @@ impl<'a, 'n> Binder<'a, 'n> {
                             }
                         }
                         JSDocTag::JSDocCallbackTag(callback) => {
-                            let name = match callback.name {
+                            let (name, name_node) = match callback.name {
                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
-                                    identifier.text
+                                    (identifier.text, identifier.node_id)
                                 }
                                 _ => continue,
                             };
                             let Some(id) = callback.node_id else { continue };
                             let scope = self.jsdoc_alias_scope(*host, root);
-                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
+                            self.declare_jsdoc_type_alias(scope, root, name, name_node, id);
                             if let Some(expression) = callback.type_expression {
                                 self.bind(tsr_ast::Node::from(expression));
                             }
@@ -3669,6 +3686,71 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
         }
         root
+    }
+
+    /// One `@import` binding. Upstream reparses the tag into a
+    /// `JSImportDeclaration` and binds each binding through
+    /// `declareSymbolAndAddToSymbolTable(…, SymbolFlagsAlias,
+    /// SymbolFlagsAliasExcludes)` into the file's locals
+    /// (`declareModuleMember`, `binder.go:380`), so a second `@import` of the
+    /// same name is TS2300 on both, like any other alias redeclaration. The
+    /// name node positions that report (`GetNameOfDeclaration`).
+    fn declare_jsdoc_import_binding(
+        &mut self,
+        root: NodeId,
+        name: &'a str,
+        name_node: Option<NodeId>,
+        declaration: NodeId,
+    ) {
+        if let Some(name_node) = name_node {
+            self.name_nodes.push((declaration, name_node));
+        }
+        let symbol = self.declare_into(
+            Destination::Locals,
+            root,
+            None,
+            name,
+            SymbolFlags::ALIAS,
+            declaration,
+        );
+        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
+    }
+
+    /// One `@typedef`/`@callback` alias. Upstream reparses it into a
+    /// `JSTypeAliasDeclaration`; at a module's top level that declaration is
+    /// implicitly exported (`ast.IsImplicitlyExportedJSDocDeclaration`), and
+    /// `bindContainer` binds it last with `bindBlockScopedDeclaration`
+    /// (`binder.go:1600`), which goes through `declareModuleMember`
+    /// (`:375`) into the module's exports with `SymbolFlagsTypeAliasExcludes`.
+    /// So a top-level typedef named `default` beside `export default class`
+    /// is TS2300 on both. Elsewhere (a script, or nested in a function or
+    /// block) it keeps the comment-scoped local below.
+    fn declare_jsdoc_type_alias(
+        &mut self,
+        scope: NodeId,
+        root: NodeId,
+        name: &'a str,
+        name_node: Option<NodeId>,
+        declaration: NodeId,
+    ) {
+        if scope == root
+            && let Some(module) = self.module_symbol
+        {
+            if let Some(name_node) = name_node {
+                self.name_nodes.push((declaration, name_node));
+            }
+            let symbol = self.declare_into(
+                Destination::Exports,
+                root,
+                Some(module),
+                name,
+                SymbolFlags::TYPE_ALIAS,
+                declaration,
+            );
+            self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
+            return;
+        }
+        self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, declaration);
     }
 
     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
@@ -4015,8 +4097,21 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
             _ => None,
         };
-        // A computed name is late-bound; see `lib.rs`.
-        let name = name?;
+        // A dynamic name is late-bound (`ast.HasDynamicName`): upstream binds
+        // an anonymous `__computed` property (`bindAnonymousDeclaration`) and
+        // files the assignment under the target's
+        // `InternalSymbolNameAssignmentDeclaration` export
+        // (`addLateBoundAssignmentDeclarationToSymbol`, `binder.go:1000`),
+        // which `getResolvedMembersOrExportsOfSymbol` late-binds
+        // (`checker.go:15963`).
+        let Some(name) = name else {
+            if let Node::BinaryExpression(binary) = node
+                && matches!(binary.left, Some(Expression::ElementAccessExpression(_)))
+            {
+                self.bind_late_bound_assignment_declaration(id, symbol);
+            }
+            return None;
+        };
 
         // "We declare expandos only when there are no non-expando declarations
         // for that name": a real `class F { x }` wins, and the assignment adds
@@ -4037,6 +4132,32 @@ impl<'a, 'n> Binder<'a, 'n> {
         );
         self.node_symbols[id.index() - self.node_base] = Some(declared);
         Some(())
+    }
+
+    /// `foo[k] = v` on an expando target whose key is no literal: an
+    /// anonymous `__computed` property symbol for the assignment
+    /// (`bindAnonymousDeclaration`, which parents a class member to the
+    /// container's symbol), and the assignment appended to the declarations
+    /// of the target's `__assignment` export, created flagless on first use
+    /// (`addLateBoundAssignmentDeclarationToSymbol`, `binder.go:1000`).
+    fn bind_late_bound_assignment_declaration(&mut self, id: NodeId, target: SymbolId) {
+        let flags = SymbolFlags::PROPERTY | SymbolFlags::ASSIGNMENT;
+        let computed = self.symbols.create(INTERNAL_COMPUTED, flags);
+        self.symbols.get_mut(computed).declarations.push(id);
+        self.symbols.get_mut(computed).value_declaration = Some(id);
+        self.symbols.get_mut(computed).parent =
+            self.node_symbols[self.container.index() - self.node_base];
+        self.node_symbols[id.index() - self.node_base] = Some(computed);
+        let existing =
+            self.symbols.get(target).exports.get(INTERNAL_ASSIGNMENT_DECLARATION).copied();
+        let table = if let Some(table) = existing {
+            table
+        } else {
+            let table = self.symbols.create(INTERNAL_ASSIGNMENT_DECLARATION, SymbolFlags::empty());
+            self.symbols.get_mut(target).exports.insert(INTERNAL_ASSIGNMENT_DECLARATION, table);
+            table
+        };
+        self.symbols.get_mut(table).declarations.push(id);
     }
 
     /// Resolve a name, or a dotted chain of them, against one container.
@@ -5005,6 +5126,10 @@ pub(crate) const INTERNAL_INDEX: &str = "__index";
 /// deliberately *not* a key in any symbol table: two `[k]`s in one class are two
 /// symbols, and which — if either — ends up reachable is the checker's answer.
 pub(crate) const INTERNAL_COMPUTED: &str = "__computed";
+/// `ast.InternalSymbolNameAssignmentDeclaration`: the export under which an
+/// expando target files its late-bound assignment declarations
+/// (`foo[k] = v`), read by the checker's late binding.
+pub(crate) const INTERNAL_ASSIGNMENT_DECLARATION: &str = "__assignment";
 /// The name a declaration gets when the parser could not read one
 /// (`ast.InternalSymbolNameMissing`). Like `__computed`, it is in no symbol
 /// table: two unreadable names are two declarations, not one symbol.

@@ -28,7 +28,6 @@ use crate::jsx_intrinsic::is_intrinsic_jsx_name;
 ///   the opening tag and `checkJsxElementDeferred` (`jsx.go:84`) for the
 ///   closing one. A property-access tag already reaches the
 ///   `PropertyAccessExpression` arm through its receiver.
-#[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-value-slots.diff")]
 pub(crate) fn value_reference_slot(node: NodeId, parent: Node<'_>) -> bool {
     let value_tag = |tag: Option<JsxTagNameExpression<'_>>| {
         matches!(tag, Some(JsxTagNameExpression::Identifier(name))
@@ -69,7 +68,6 @@ impl Checker<'_, '_> {
     /// One walk answers both, testing the kind column before building a typed
     /// node: it runs for every value identifier, and a typed node per ancestor
     /// was most of its cost (`docs/parity/notes/r6-names.md` §12).
-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-unchecked-regions.diff")]
     pub(crate) fn names_in_unchecked_region(&self, node: NodeId) -> bool {
         let mut current = node;
         while let Some(parent) = self.nodes.parent(current) {
@@ -117,7 +115,6 @@ impl Checker<'_, '_> {
     /// A reparsed JSDoc root has no parent edge here (the parser's
     /// `attach_jsdoc`), so a walk that ends anywhere but a source file is in
     /// a comment.
-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-js-type-annotations.diff")]
     pub(crate) fn names_in_jsdoc(&self, node: NodeId) -> bool {
         let mut current = node;
         loop {
@@ -144,7 +141,6 @@ impl Checker<'_, '_> {
     /// with `allowReservedWords`, so `typeof null` is an identifier natively
     /// too, and `checkIdentifier` reports TS2304 *Cannot find name 'null'*
     /// (`invalidTypeOfTarget`). The decline must not fire there.
-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-typeof-null.diff")]
     pub(crate) fn names_in_type_query_entity_name(&self, node: NodeId) -> bool {
         let mut current = node;
         while let Some(parent) = self.nodes.parent(current) {

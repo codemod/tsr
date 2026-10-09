@@ -1,0 +1,355 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index bd62f11..6748ee8 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -4015,8 +4015,21 @@ impl<'a, 'n> Binder<'a, 'n> {
+             }
+             _ => None,
+         };
+-        // A computed name is late-bound; see `lib.rs`.
+-        let name = name?;
++        // A dynamic name is late-bound (`ast.HasDynamicName`): upstream binds
++        // an anonymous `__computed` property (`bindAnonymousDeclaration`) and
++        // files the assignment under the target's
++        // `InternalSymbolNameAssignmentDeclaration` export
++        // (`addLateBoundAssignmentDeclarationToSymbol`, `binder.go:1000`),
++        // which `getResolvedMembersOrExportsOfSymbol` late-binds
++        // (`checker.go:15963`).
++        let Some(name) = name else {
++            if let Node::BinaryExpression(binary) = node
++                && matches!(binary.left, Some(Expression::ElementAccessExpression(_)))
++            {
++                self.bind_late_bound_assignment_declaration(id, symbol);
++            }
++            return None;
++        };
+ 
+         // "We declare expandos only when there are no non-expando declarations
+         // for that name": a real `class F { x }` wins, and the assignment adds
+@@ -4039,6 +4052,32 @@ impl<'a, 'n> Binder<'a, 'n> {
+         Some(())
+     }
+ 
++    /// `foo[k] = v` on an expando target whose key is no literal: an
++    /// anonymous `__computed` property symbol for the assignment
++    /// (`bindAnonymousDeclaration`, which parents a class member to the
++    /// container's symbol), and the assignment appended to the declarations
++    /// of the target's `__assignment` export, created flagless on first use
++    /// (`addLateBoundAssignmentDeclarationToSymbol`, `binder.go:1000`).
++    fn bind_late_bound_assignment_declaration(&mut self, id: NodeId, target: SymbolId) {
++        let flags = SymbolFlags::PROPERTY | SymbolFlags::ASSIGNMENT;
++        let computed = self.symbols.create(INTERNAL_COMPUTED, flags);
++        self.symbols.get_mut(computed).declarations.push(id);
++        self.symbols.get_mut(computed).value_declaration = Some(id);
++        self.symbols.get_mut(computed).parent =
++            self.node_symbols[self.container.index() - self.node_base];
++        self.node_symbols[id.index() - self.node_base] = Some(computed);
++        let existing =
++            self.symbols.get(target).exports.get(INTERNAL_ASSIGNMENT_DECLARATION).copied();
++        let table = if let Some(table) = existing {
++            table
++        } else {
++            let table = self.symbols.create(INTERNAL_ASSIGNMENT_DECLARATION, SymbolFlags::empty());
++            self.symbols.get_mut(target).exports.insert(INTERNAL_ASSIGNMENT_DECLARATION, table);
++            table
++        };
++        self.symbols.get_mut(table).declarations.push(id);
++    }
++
+     /// Resolve a name, or a dotted chain of them, against one container.
+     ///
+     /// Upstream's `lookupEntity`/`lookupName`. Deliberately *not* a scope walk:
+@@ -5005,6 +5044,10 @@ pub(crate) const INTERNAL_INDEX: &str = "__index";
+ /// deliberately *not* a key in any symbol table: two `[k]`s in one class are two
+ /// symbols, and which — if either — ends up reachable is the checker's answer.
+ pub(crate) const INTERNAL_COMPUTED: &str = "__computed";
++/// `ast.InternalSymbolNameAssignmentDeclaration`: the export under which an
++/// expando target files its late-bound assignment declarations
++/// (`foo[k] = v`), read by the checker's late binding.
++pub(crate) const INTERNAL_ASSIGNMENT_DECLARATION: &str = "__assignment";
+ /// The name a declaration gets when the parser could not read one
+ /// (`ast.InternalSymbolNameMissing`). Like `__computed`, it is in no symbol
+ /// table: two unreadable names are two declarations, not one symbol.
+diff --git a/crates/tsr-checker/src/callable_expandos.rs b/crates/tsr-checker/src/callable_expandos.rs
+index 1995558..cf651ac 100644
+--- a/crates/tsr-checker/src/callable_expandos.rs
++++ b/crates/tsr-checker/src/callable_expandos.rs
+@@ -34,13 +34,31 @@ impl Checker<'_, '_> {
+         // Registered declaration identities follow the program's source walk;
+         // sorting restores insertion order from the binder's hash table.
+         exports.sort_by_key(|(declaration, _, _)| *declaration);
+-        let mut members = Vec::with_capacity(exports.len());
+-        for (_, name, member) in exports {
++        // combineSymbolTables(early, late) (5b1047d checker.go:15975): the
++        // late-bound assignment members follow the early exports, in
++        // declaration order, and an early name shadows a late one.
++        let mut late = Vec::new();
++        if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::FUNCTION) {
++            for (name, member) in self.late_bound_static_members_of(symbol) {
++                if exports.iter().any(|(_, early, _)| *early == name)
++                    || late.iter().any(|(_, seen, _)| *seen == name)
++                {
++                    continue;
++                }
++                late.push((usize::MAX, name, member));
++            }
++        }
++        let mut members = Vec::with_capacity(exports.len() + late.len());
++        for (order, name, member) in exports.into_iter().chain(late) {
+             let t = self.get_type_of_symbol(member);
+             if t == self.intrinsics.error {
+                 return None;
+             }
+-            let printed_name = self.callable_property_name(member, &name);
++            let printed_name = if order == usize::MAX {
++                self.late_bound_assignment_printed_name(member, &name)
++            } else {
++                self.callable_property_name(member, &name)
++            };
+             members.push(AnonymousProperty {
+                 accessor_write: None,
+                 method: false,
+@@ -57,6 +75,35 @@ impl Checker<'_, '_> {
+         Some(members)
+     }
+ 
++    /// The printed name of a late-bound assignment member: its name type
++    /// decides (`getPropertyNameNodeForSymbol` reads the late symbol's
++    /// `nameType`), so `foo[k] = 1` with `const k = "10"` prints `"10"`
++    /// where a numeric `k` prints `10`. A unique symbol prints its bracketed
++    /// entity name, which is already the member's name here.
++    fn late_bound_assignment_printed_name(&mut self, member: SymbolId, name: &str) -> String {
++        if name.starts_with('[') || crate::objects::is_identifier_text(name) {
++            return name.to_owned();
++        }
++        let declaration = self.binder.symbols().get(member).value_declaration;
++        let argument = match declaration.and_then(|declaration| self.node_map.get(declaration)) {
++            Some(Node::BinaryExpression(binary)) => match binary.left {
++                Some(tsr_ast::Expression::ElementAccessExpression(access)) => {
++                    access.argument_expression
++                }
++                _ => None,
++            },
++            _ => None,
++        };
++        let string_named = argument.is_some_and(|argument| {
++            let name_type = self.check_expression(argument);
++            self.store.get(name_type).flags.intersects(crate::flags::TypeFlags::STRING_LIKE)
++        });
++        if !string_named && crate::index_signatures::is_numeric_literal_name(name) {
++            return name.to_owned();
++        }
++        crate::printing::quote_ascii(name)
++    }
++
+     /// `getPropertyNameNodeForSymbol` / `classifyPropertyName`
+     /// (internal/checker/nodebuilderimpl.go): numeric names retain the
+     /// distinction between string-named and numeric declarations.
+diff --git a/crates/tsr-checker/src/indexed.rs b/crates/tsr-checker/src/indexed.rs
+index 0b973cd..c4b10d3 100644
+--- a/crates/tsr-checker/src/indexed.rs
++++ b/crates/tsr-checker/src/indexed.rs
+@@ -774,9 +774,6 @@ impl Checker<'_, '_> {
+     ///   a key it can admit (20 false claims);
+     /// - a mapped receiver: the port's member image misses enum-keyed and
+     ///   other unresolved mapped members (2);
+-    /// - a function's type: its late-bound assignment members
+-    ///   (`InternalSymbolNameAssignmentDeclaration`, `binder.go:1002`, read by
+-    ///   `getResolvedMembersOrExportsOfSymbol`) are unbound (24);
+     /// - a named reference without a members table, which the type's own
+     ///   contract marks as a lookup that would be wrong, or whose members
+     ///   symbol is an unexpanded type alias (`constr<{}, …>`; 2). `typeof
+@@ -787,6 +784,11 @@ impl Checker<'_, '_> {
+     ///   upstream empties the bases and still reads the receiver's own
+     ///   signatures (no corpus line; `tests/types.rs` pins it).
+     ///
++    /// A function's type was excluded until its late-bound assignment
++    /// members were bound (`InternalSymbolNameAssignmentDeclaration`,
++    /// `binder.go:1002`, read by `getResolvedMembersOrExportsOfSymbol`;
++    /// `docs/parity/notes/r6-errorsplit.md` §6).
++    ///
+     /// A union with an object-literal constituent was excluded until
+     /// `createUnionOrIntersectionProperty`'s object-literal `undefined` arm
+     /// was ported in `crate::members` (`(options || {})["a"]`;
+@@ -815,12 +817,6 @@ impl Checker<'_, '_> {
+             return true;
+         }
+         match self.store.get(object_type).data.clone() {
+-            TypeData::Anonymous { symbol, .. } => !self
+-                .binder
+-                .symbols()
+-                .get(symbol)
+-                .flags
+-                .intersects(tsr_binder::SymbolFlags::FUNCTION),
+             TypeData::Named { members, .. } => members.is_some_and(|members| {
+                 !self
+                     .binder
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 1e48fb1..c9b3801 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -2838,7 +2838,7 @@ impl Checker<'_, '_> {
+         // through `export *`, so `z.string` found nothing.
+         let found = match data.exports.get(name).copied() {
+             Some(found) => Some(found),
+-            None if is_class => self
++            None if is_class || data.flags.contains(SymbolFlags::FUNCTION) => self
+                 .late_bound_static_members_of(symbol)
+                 .into_iter()
+                 .find_map(|(spelled, member)| (spelled == name).then_some(member))
+@@ -3165,11 +3165,49 @@ impl Checker<'_, '_> {
+                 }
+             }
+         }
++        // getResolvedMembersOrExportsOfSymbol's static arm (5b1047d
++        // checker.go:15962): the late-bound assignment declarations the binder
++        // filed under `__assignment` (`foo[k] = v`, binder.go:1000) bind like
++        // computed members, `lateBindMember` keying each by its element
++        // access argument's type.
++        if is_static
++            && let Some(&table) = self.binder.symbols().get(owner).exports.get("__assignment")
++        {
++            let assignments: Vec<tsr_ast::NodeId> =
++                self.binder.symbols().get(table).declarations.iter().copied().collect();
++            for assignment in assignments {
++                if let Some(name) = self.late_bound_assignment_name(assignment) {
++                    out.push((name, assignment));
++                }
++            }
++        }
+         self.late_bound_member_names.insert(cache_key, out.clone());
+         self.perf_links.late_bound_active.remove(&cache_key);
+         out
+     }
+ 
++    /// `hasLateBindableName` / `lateBindMember` for an assignment declaration
++    /// `foo[k] = v` (5b1047d checker.go:19948, :16005): the argument must be
++    /// an entity name expression (`isLateBindableAST`) whose type is usable
++    /// as a property name. Literal keys name the member by value; a unique
++    /// symbol keeps this port's bracketed entity spelling, as
++    /// [`Self::late_bound_members_of`]'s computed members do.
++    fn late_bound_assignment_name(&mut self, assignment: tsr_ast::NodeId) -> Option<String> {
++        let Some(Node::BinaryExpression(binary)) = self.node_map.get(assignment) else {
++            return None;
++        };
++        let Some(tsr_ast::Expression::ElementAccessExpression(access)) = binary.left else {
++            return None;
++        };
++        let argument = access.argument_expression?;
++        let entity = crate::destructure::late_bound_entity_name(&argument)?;
++        let name_type = self.check_expression(argument);
++        if let Some(name) = self.property_name_from_index(name_type) {
++            return Some(name);
++        }
++        self.store.get(name_type).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL).then_some(entity)
++    }
++
+     /// resolveAnonymousTypeMembers (checker.go): class values own a static side.
+     pub(crate) fn class_static_symbol(&self, id: TypeId) -> Option<tsr_binder::SymbolId> {
+         if self.module_value_clones.contains_key(&id) {
+diff --git a/crates/tsr-checker/tests/element_access_miss.rs b/crates/tsr-checker/tests/element_access_miss.rs
+index 50a7acb..548df05 100644
+--- a/crates/tsr-checker/tests/element_access_miss.rs
++++ b/crates/tsr-checker/tests/element_access_miss.rs
+@@ -109,13 +109,13 @@ fn a_readonly_tuple_write_splits_by_index_road() {
+     assert_eq!(last_element_access(indexed), Identity::Any);
+ }
+ 
+-/// A function's late-bound assignment members are unbound in this port
+-/// (`binder.go:1002`), so a miss on a function's type is the port's gap,
+-/// not a claim about the receiver.
++/// A function's late-bound assignment members are bound
++/// (`binder.go:1002`, `docs/parity/notes/r6-errorsplit.md` §6), so a miss on
++/// a function's type is a claim about the receiver: `errorType`.
+ #[test]
+-fn a_miss_on_a_function_receiver_stays_the_gap() {
++fn a_miss_on_a_function_receiver_is_error_type() {
+     let source = "function foo() {}\ndeclare const s: \"x\";\nfoo[s];\n";
+-    assert_eq!(last_element_access(source), Identity::Gap);
++    assert_eq!(last_element_access(source), Identity::NativeError);
+ }
+ 
+ /// `createUnionOrIntersectionProperty`'s object-literal arm is ported
+diff --git a/crates/tsr-checker/tests/late_bound_assignment_members.rs b/crates/tsr-checker/tests/late_bound_assignment_members.rs
+new file mode 100644
+index 0000000..2a5bed6
+--- /dev/null
++++ b/crates/tsr-checker/tests/late_bound_assignment_members.rs
+@@ -0,0 +1,77 @@
++//! Late-bound assignment declarations (`foo[k] = v`): the binder files them
++//! under the target's `InternalSymbolNameAssignmentDeclaration` export
++//! (`binder.go:1000`) and `getResolvedMembersOrExportsOfSymbol` late-binds
++//! them (`checker.go:15963`), so the function's type carries the members.
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The printed type of the file's last expression of `kind`, or
++/// `gap`/`errorType` for the two error identities.
++fn last_of(source: &str, kind: tsr_ast::SyntaxKind) -> String {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    #[allow(clippy::cast_possible_truncation)]
++    let id = (0..parsed.nodes.len() as u32)
++        .map(tsr_ast::NodeId::new)
++        .filter(|&id| parsed.nodes.kind(id) == kind)
++        .last()
++        .expect("an expression of the kind");
++    let node = parsed.node_map.get(id).expect("a mapped node");
++    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
++    let type_id = checker.check_expression(expression);
++    let intrinsics = checker.intrinsics();
++    if type_id == intrinsics.native_error {
++        "errorType".to_owned()
++    } else if type_id == intrinsics.error {
++        "gap".to_owned()
++    } else {
++        checker.type_to_string(type_id)
++    }
++}
++
++/// A late-bound string key reads back its assigned member.
++#[test]
++fn a_late_bound_assignment_is_a_member_of_the_function() {
++    let source = "function foo() {}\n\
++                  const strMem = \"strMemName\";\n\
++                  foo[strMem] = \"ok\";\n\
++                  foo[strMem];";
++    assert_eq!(last_of(source, tsr_ast::SyntaxKind::ElementAccessExpression), "string");
++}
++
++/// The function's type prints the late member after the early ones, named by
++/// its key's type (`declarationEmitLateBoundAssignments`).
++#[test]
++fn the_function_type_prints_its_late_bound_members() {
++    let source = "function foo() {}\n\
++                  foo.bar = 12;\n\
++                  const dashStrMem = \"dashed-str-mem\";\n\
++                  foo[dashStrMem] = \"ok\";\n\
++                  const numMem = 42;\n\
++                  foo[numMem] = \"ok\";\n\
++                  foo;";
++    assert_eq!(
++        last_of(source, tsr_ast::SyntaxKind::Identifier),
++        "{ (): void; bar: number; \"dashed-str-mem\": string; 42: string; }"
++    );
++}
++
++/// With the members bound, a key the function lacks is a complete miss:
++/// `errorType` (`checker.go:8176`).
++#[test]
++fn a_key_the_function_lacks_is_error_type() {
++    let source = "function foo() {}\n\
++                  const strMem = \"strMemName\";\n\
++                  foo[strMem] = \"ok\";\n\
++                  const other = \"other\";\n\
++                  foo[other];";
++    assert_eq!(last_of(source, tsr_ast::SyntaxKind::ElementAccessExpression), "errorType");
++}

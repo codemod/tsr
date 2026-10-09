@@ -779,12 +779,21 @@ impl<'a> Checker<'a, '_> {
                 // instantiated per reference, and `mappedTypeRelationships`'s 63
                 // gains are exactly those expanded forms.
                 if matches!(node, TypeNode::MappedTypeNode(_))
-                    && let Some(id) = tsr_ast::Node::from(node).node_id()
-                    && let Some(name) = self.non_generic_alias_body_name(id)
+                    && let Some(body) = tsr_ast::Node::from(node).node_id()
+                    && let Some(name) = self.non_generic_alias_body_name(body)
                 {
                     let id = self.store.new_named(TypeFlags::OBJECT, name, None);
                     if let TypeNode::MappedTypeNode(mapped) = node {
                         self.capture_mapped_type(id, mapped);
+                    }
+                    // getTypeFromMappedTypeNode (checker.go:24255) gives the
+                    // type `getAliasForTypeNode` (`:23711`), ADR-0045 rule 2;
+                    // the printer names it where it is accessible
+                    // (`nodebuilderimpl.go:3362`, `crate::alias_accessibility`).
+                    if let Some(alias) =
+                        self.nodes.parent(body).and_then(|p| self.binder.symbol_of(p))
+                    {
+                        self.alias_of.insert(id, (alias, Vec::new()));
                     }
                     return id;
                 }
@@ -5870,6 +5879,11 @@ impl<'a> Checker<'a, '_> {
         // qualified print with the real lookup table. Generic references
         // stay print-only mints.
         if node.type_arguments.is_empty() {
+            // A generic target written without its required arguments is
+            // upstream's `errorType` (`qualified_reference_arity.rs`).
+            if self.argument_less_reference_is_error(resolved, node.node_id) {
+                return self.intrinsics.native_error;
+            }
             // §280's annotation half: a qualified name resolving to an ENUM
             // MEMBER answers the member's declared type in REGULAR form, not
             // a mint of the written text — upstream's `getTypeFromTypeNode`

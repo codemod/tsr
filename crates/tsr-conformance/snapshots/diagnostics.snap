@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4664/5502 (84.77%)
-Failed         : 838
+Passed         : 4689/5502 (85.22%)
+Failed         : 813
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 838 failures:
+First 100 of 813 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -81,7 +81,7 @@ compiler/baseExpressionTypeParameters
 compiler/betterErrorForUnionCall
   1 missing (first TS2349 at betterErrorForUnionCall.ts(8,1))
 compiler/bigintArbirtraryIdentifier
-  1 unexpected (first TS2304 at badImport.ts(1,16)), 1 missing
+  1 unexpected (first TS2304 at badImport.ts(1,16)), 0 missing
 compiler/bigintPropertyName
   3 unexpected (first TS2322 at g.ts(26,18)), 22 missing
 compiler/bigintWithLib
@@ -126,8 +126,6 @@ compiler/circularlyReferentialInterfaceAccessNoCrash
   3 missing (first TS4109 at circularlyReferentialInterfaceAccessNoCrash.ts(1,12))
 compiler/classExpressionExtendingAbstractClass
   1 missing (first TS2653 at classExpressionExtendingAbstractClass.ts(5,9))
-compiler/classExpressionWithDecorator1
-  1 unexpected (first TS2304 at classExpressionWithDecorator1.ts(1,10)), 0 missing
 compiler/classExtendsNull2
   1 missing (first TS2417 at classExtendsNull2.ts(5,7))
 compiler/classFieldSuperAccessibleJs1
@@ -212,3 +210,5 @@ compiler/declarationEmitExpressionInExtends4
   1 missing (first TS2315 at declarationEmitExpressionInExtends4.ts(5,17))
 compiler/declarationEmitInvalidReferenceAllowJs
   1 unexpected (first TS6053 at declarationEmitInvalidReferenceAllowJs.ts(1,22)), 1 missing
+compiler/declarationEmitMappedTypeTemplateTypeofSymbol
+  2 missing (first TS4118 at b.ts(2,14))

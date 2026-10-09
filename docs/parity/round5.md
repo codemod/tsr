@@ -1415,3 +1415,78 @@ Held:
 - the union-walk decline lift: loses correlatedUnions 181/299.
 
 r6-relater2 continues with `tsr-2zk.1139`.
+
+### r6-errorsplit finished (batch BH); r6-errorsplit2 dispatched
+
+Batch BH lands r6-errorsplit's two commits:
+- getPropertyNameFromType's unique-symbol arm;
+- the element-access receiver widened for a write or a call.
+
+It also lands five diffs, measured lossless together:
+- O, createUnionOrIntersectionProperty's object-literal undefined arm: +19;
+- L, the binder's InternalSymbolNameAssignmentDeclaration table and its late
+  binding: +87 types, +1 diagnostic;
+- G, getApparentType's unconstrained-instantiable unknown: +32;
+- S, import-equals alias: +6 types, +2 diagnostics;
+- M, script alias merge: no transitions.
+
+The credited gap goes from 2,164 to about 2,129.
+
+S's value half was refused at +8/−2: it prints `typeof x` where native has
+`typeof a` (tsr-4jk). r6-errorsplit2 takes ADR-0048 step 8 (`tsr-2zk.1140`).
+
+### r6-smallcodes5 finished (batch BI); r6-jsx dispatched
+
+Batch BI lands r6-smallcodes5's nine hook diffs, measured lossless as a stack
+(+16 diagnostics, +9 types):
+- relater.go:988's per-class private names;
+- checkQualifiedName's receiver check;
+- `implements` of a non-generic alias;
+- import-type constraint checks;
+- argument-less generic qualified references as errorType;
+- @import alias excludes;
+- removal of a parse-error gate that has no upstream counterpart;
+- TS18042/TS18043's JS arm;
+- JS module @typedef exports.
+
+19 cases remain, routed in r6-smallcodes5.md §4. r6-jsx takes the 55 still-WRONG
+JSX/TSX diagnostics cases (`tsr-2zk.1141`).
+
+### r6-names finished (batch BJ); r6-names2 dispatched
+
+Batch BJ lands r6-names' commits and six hook diffs:
+- value slots for `with` and JSX tags;
+- unchecked regions;
+- TS-only annotations in JS;
+- primitive spellings;
+- `typeof null`;
+- the export-specifier failure tail.
+
+Measured by the box: +17 diagnostics cases.
+
+The parameter-scope diff (resolveName's useOuterVariableScopeInParameter:
++5 diagnostics, +38 types) is held. Its BindResult options slot adds about
+1.5M Ir on dm through layout, and the stack read dm +0.19–0.25%.
+r6-names2 lands it without that cost (`tsr-2zk.1142`).
+
+### r6-accessible finished (batch BK); r6-specifiers dispatched
+
+Batch BK lands r6-accessible's ports of IsTypeSymbolAccessible/IsSymbolAccessible
+as the type printer asks them, and getPropertyNameFromType's unique-symbol key.
+It also lands three hook diffs:
+- the alias arm;
+- a mapped object printed at its site where it has no accessible alias;
+- unique-symbol mapped keys.
+
+Measured by the box: +12 types on the batch-BG tip, Ir within noise. The
+serialize-type-name diff was superseded by r6-printer's identical change.
+
+Remaining, routed:
+- the chain printer for `import("./x").T` spellings (`.39`);
+- opaque `Alias<Args>` mints with no structure to fall back to (`.16.2`,
+  ADR-0045 rule 4);
+- an inline mapped node in an intersection alias under strictNullChecks off
+  (r6-declared).
+
+r6-specifiers takes module specifiers into node_modules: `.999`, `.1098`,
+`.16.59` and `.16.77`, about 36 blocked cases.
