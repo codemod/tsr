@@ -185,3 +185,46 @@ not on `mapped.rs`.
 
 (Native prints `ev` as `string`, not `"bar"`, in the TS2322 for `x`/`y`/`z`;
 the port gives `"bar"`. Not chased here.)
+
+## 3. Homomorphic mapped alias arms
+
+### 3(a), 3(c): instantiateConstituent's unmapped constituents (landed)
+
+**Forcing constraint.** instantiateMappedType (checker.go:22535) distributes a
+homomorphic mapped type over its instantiated type variable
+(mapTypeWithAlias), and instantiateConstituent (:22551) returns a constituent
+unchanged unless it is any/unknown, a non-primitive instantiable, an object or
+an intersection (or returns errorType as is). `mapped.rs` had that arm only on
+the path with captured mapped info, and there as `PRIMITIVE | NEVER`. A
+recursive alias whose capture declines (`RequiredDeep<T> = { [K in keyof T]-?:
+RequiredDeep<T[K]> }` over `undefined`: its template `undefined[K]` does not
+resolve) reached the union-only arm and minted `RequiredDeep<undefined>`.
+
+**Port.** `is_unmapped_homomorphic_constituent` is native's flag test; both
+`instantiate_mapped_alias_sequence` paths ask it before distributing.
+
+Native probe (tsgo `--declaration`):
+- `RequiredDeep<undefined>` is `undefined` (port: `RequiredDeep<undefined>`
+  before, `undefined` now);
+- `x.a` of `RequiredDeep<{ a?: 1 }>` is `1`: the template reads
+  `RequiredDeep<1 | undefined>`, which distributes into `1 | undefined` with
+  the alias kept for print (`vv : RequiredDeep<1 | undefined>` matches), and
+  getTypeOfMappedSymbol's StripOptional removes `undefined`. The port printed
+  `RequiredDeep<1 | undefined>`; now `1`. The `-?` removal itself was already
+  in place (`PropertySlot::of_mapped`'s `strip_optional`); only the
+  distribution's unmapped constituent was missing.
+
+**Measured** (unfiltered against §1's commit): no verdict moves in either
+dump; slowcases clean; Ir flat (domain-model 1,094,335,565, generic-imports
+343,215,617). The relation over `RequiredDeep<1 | undefined>` was already
+native's (r6-relater §2(2) normalizes the memberless image); this changes the
+type itself.
+
+Tests: `tests/r6_declared2.rs`
+`a_required_deep_member_distributes_and_strips_undefined` and
+`a_homomorphic_alias_over_a_primitive_is_the_primitive`, both failing on §1's
+commit.
+
+**Falsifier.** A template literal, string mapping or `never` argument to a
+homomorphic alias that native maps: native's flag test returns those as is
+too, so a mapped print for one here would be a port difference elsewhere.

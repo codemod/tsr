@@ -76,3 +76,24 @@ fn a_concrete_check_does_not_defer() {
          const r = b.v;\n";
     assert_eq!(type_of_last_initializer(source), "string");
 }
+
+const REQUIRED_DEEP: &str = "type RequiredDeep<T> = { [K in keyof T]-?: RequiredDeep<T[K]> };\n";
+
+/// §3(a): `x.a` reads `RequiredDeep<1 | undefined>`, which instantiateMappedType
+/// distributes into `1 | undefined` (each constituent unmapped), and `-?`
+/// removes the `undefined` (tsgo: `1`).
+#[test]
+fn a_required_deep_member_distributes_and_strips_undefined() {
+    let source =
+        format!("{REQUIRED_DEEP}declare const x: RequiredDeep<{{ a?: 1 }}>;\nconst r = x.a;\n");
+    assert_eq!(type_of_last_initializer(&source), "1");
+}
+
+/// §3(c): instantiateConstituent leaves a primitive constituent unmapped, so
+/// `RequiredDeep<undefined>` is `undefined` (tsgo prints `undefined`).
+#[test]
+fn a_homomorphic_alias_over_a_primitive_is_the_primitive() {
+    let source =
+        format!("{REQUIRED_DEEP}declare const u: RequiredDeep<undefined>;\nconst r = u;\n");
+    assert_eq!(type_of_last_initializer(&source), "undefined");
+}

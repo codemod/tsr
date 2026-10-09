@@ -1535,11 +1535,31 @@ impl<'a> Checker<'a, '_> {
             // instantiateMappedType (checker.go:22535) distributes over the
             // mapped type variable before it reads the constraint, so a union
             // argument whose `keyof` this port cannot resolve (capture
-            // declined) still maps per constituent (r4-mapped.md §1).
+            // declined) still maps per constituent (r4-mapped.md §1), and a
+            // constituent instantiateConstituent does not map is itself.
             let source = *arguments.get(slot)?;
+            if self.is_unmapped_homomorphic_constituent(source) {
+                return Some(source);
+            }
             return self.distribute_mapped_union(source, Some(id), replace_source);
         };
         self.instantiate_mapped_sequence(&info, Some(id), replace_source)
+    }
+
+    /// instantiateConstituent's first test (checker.go:22551): a constituent
+    /// that is not any/unknown, a non-primitive instantiable, an object or an
+    /// intersection (a primitive, literal, `never`, a template literal or
+    /// string mapping), or that is errorType, is not mapped.
+    fn is_unmapped_homomorphic_constituent(&self, source: TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        !self.store.get(source).flags.intersects(
+            TypeFlags::ANY
+                | TypeFlags::UNKNOWN
+                | TypeFlags::INSTANTIABLE_NON_PRIMITIVE
+                | TypeFlags::OBJECT
+                | TypeFlags::INTERSECTION,
+        ) && !self.store.get(source).flags.contains(TypeFlags::UNION)
+            || self.is_error(source)
     }
 
     /// The union arm of instantiateMappedType: mapTypeWithAlias over the
@@ -1577,9 +1597,7 @@ impl<'a> Checker<'a, '_> {
         use crate::{flags::TypeFlags, tuples::TupleElement, types::TypeData};
         let source = info.modifiers_source?;
         let parameter = info.homomorphic_symbol?;
-        if self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE | TypeFlags::NEVER)
-            || self.is_error(source)
-        {
+        if self.is_unmapped_homomorphic_constituent(source) {
             return Some(source);
         }
         if self.store.get(source).flags.contains(TypeFlags::UNION) {
