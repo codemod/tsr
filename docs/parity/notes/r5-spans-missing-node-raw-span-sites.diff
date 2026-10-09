@@ -1,0 +1,62 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index abe99e3..827e504 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -4487,9 +4487,24 @@ impl<'a, 'n> Binder<'a, 'n> {
+             self.name_index.insert(id, name);
+         }
+         self.name_indexed = self.name_nodes.len();
+-        self.name_index
++        let span = self
++            .name_index
+             .get(&declaration)
+-            .map_or_else(|| self.nodes.span(declaration), |name| self.nodes.span(*name))
++            .map_or_else(|| self.nodes.span(declaration), |name| self.nodes.span(*name));
++        // `createDiagnosticForNode` → `GetErrorRangeForNode`
++        // (`scanner.go:2649`): a missing name (`export default var …`'s
++        // missing expression) reports zero-width at its full start, the end
++        // of the previous token. This parser puts a missing node at the next
++        // token's start, so step back over the whitespace between, as the
++        // checker's `error_span` does.
++        if span.start == span.end
++            && let Some(before) = self.source.get(..span.start as usize)
++        {
++            return tsr_core::Span::at(
++                u32::try_from(before.trim_end().len()).unwrap_or(span.start),
++            );
++        }
++        span
+     }
+ 
+     /// Add `name` to the appropriate table, merging with an existing symbol where
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index e0f5402..b717b36 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -10355,7 +10355,9 @@ impl Checker<'_, '_> {
+         // this one difference, all in the `deleteOperatorWith*Type` family.
+         let at = if skip_assertions { target } else { spine };
+         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+-        let span = self.nodes.span(at);
++        // `c.error(expr, …)` → `GetErrorRangeForNode`: a missing operand
++        // (`delete ;`) reports zero-width at its full start.
++        let span = self.error_span(at);
+         self.report(file, Diagnostic::new(message, span));
+     }
+ 
+diff --git a/crates/tsr-checker/src/strict_mode.rs b/crates/tsr-checker/src/strict_mode.rs
+index 5eb1df3..3b8c195 100644
+--- a/crates/tsr-checker/src/strict_mode.rs
++++ b/crates/tsr-checker/src/strict_mode.rs
+@@ -144,8 +144,9 @@ impl Checker<'_, '_> {
+             return;
+         }
+         let Some(file) = self.source_file_of_for_diagnostics(operand) else { return };
+-        // `errorOnNode` — the operand's own span, as the sites above.
+-        let span = self.nodes.span(operand);
++        // `errorOnNode` → `GetErrorRangeForNode`: a missing operand
++        // (`delete ;`) reports zero-width at its full start.
++        let span = self.error_span(operand);
+         self.report(
+             file,
+             Diagnostic::new(

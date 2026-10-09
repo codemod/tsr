@@ -31,7 +31,7 @@ file name included. Leaving the file out misreads `bigintArbirtraryIdentifier`
 | `parserKeywordsAsIdentifierName2`, `scannerS7.4_A2_T2` | TS1010 at the comment opener | `s.error(Asterisk_Slash_expected)` (`scanner.go:677`) is `errorAt(s.pos, 0)`: zero width at the end of the text | scanner, §1.3 diff A |
 | `decoratorOnClassMethodThisParameter` | TS1433 one column late (`, @dec this`) | the **parser** reports it at `modifiers.Nodes[0].Loc` (`parser.go:3335`), which starts at the full start; the checker's `grammarErrorOnFirstToken` is then silent, because the file has parse diagnostics | parser + `grammar.rs`, §1.3 diff B |
 | `commaOperatorWithoutOperand`, `MemberFunctionDeclaration5_es6`, `parserEqualsGreaterThanAfterFunction1`, `…2` | one column late, or the whole declaration | `GetErrorRangeForNode` (`scanner.go:2649`): a missing node keeps its full start, with no `SkipTrivia` | `error_span`'s missing-node arm: r5-smallcodes2 §3.1 |
-| `deleteOperatorInvalidOperations` (`delete ;`), `jsFileCompilationBindMultipleDefaultExports` (`export default var`) | TS1102/TS2703 and TS2528, one column late | the same missing-node arm: the operand or expression is missing | r5-smallcodes2 §3.1 (sent to that box) |
+| `deleteOperatorInvalidOperations` (`delete ;`), `jsFileCompilationBindMultipleDefaultExports` (`export default var`) | TS1102/TS2703 and TS2528, one column late | the same missing-node arm: the operand or expression is missing | §1.3a, a diff stacked on r5-smallcodes2 §3.1 (its reporters read raw spans) |
 | `awaitUsingDeclarationsWithImportHelpers` | TS2354 at `using`, not `await` | the report is on the declaration list, and `parseVariableDeclarationList` (`parser.go:1563`) consumes the `await` itself, so the list starts at `await` | parser, §1.4 (held) |
 | `deleteExpressionMustBeOptional_exactOptionalPropertyTypes` | TS2790 on `f.b`, `f.e` missing; extra on `g.a`, `g.c` | `checkDeleteExpressionMustBeOptional`'s `exactOptionalPropertyTypes` arm (`checker.go:10829`) is not ported; `Partial<Foo>`'s members resolve to `Foo`'s own symbols | §1.5 (held) |
 | `bigintArbirtraryIdentifier` | not a span. `export { foo as 0n }` misses TS2304 on `foo`; `import { 0n as foo }` reports an extra TS2304 on `foo` | recovery in the specifier checks | not taken; module/specifier owners |
@@ -40,8 +40,9 @@ file name included. Leaving the file out misreads `bigintArbirtraryIdentifier`
 | `keyRemappingKeyofResult` | TS2322 at a different line | `keyof` of a key-remapped mapped type | `mapped.rs` (r5-mapped5) |
 | `generatorReturnTypeInference` | TS7057 at a different line | the contextual type of a `yield` in an unannotated generator | main's |
 
-Seven of the 20 are fixed by the two diffs in §1.3. Six are r5-smallcodes2's
-missing-node arm. Two are held (§1.4, §1.5). Five are semantic, not span
+Seven of the 20 are fixed by the two diffs in §1.3. Four are fixed by
+r5-smallcodes2's missing-node arm, and two more by §1.3a's diff stacked on
+it. Two are held (§1.4, §1.5). Five are semantic, not span
 rules, and are routed above.
 
 ### 1.3 Shipped diffs (main's files)
@@ -82,6 +83,47 @@ rows the two diffs change are disjoint by case:
   token-kind test per parameter, so the difference is code layout. CLI output
   is `cmp`-identical on both projects;
 - `tsr-scanner` and `tsr-parser` tests pass.
+
+### 1.3a The missing-node reporters that read raw spans (stacked diff)
+
+r5-smallcodes2's `error_span` missing-node arm
+(`r5-smallcodes2-error-span-missing-node.diff`) does not reach
+`deleteOperatorInvalidOperations` or
+`jsFileCompilationBindMultipleDefaultExports`. Their reporters read the node's
+raw span instead of going through `GetErrorRangeForNode`'s port (that box
+measured this and handed the cases back). Upstream reports all three
+through `GetErrorRangeForNode`:
+
+- TS1102: the binder's `errorOnNode` (`binder.go:1402`), in this port
+  `check_strict_mode_delete_expression` (`strict_mode.rs`);
+- TS2703/TS2364: `checkReferenceExpression`'s `c.error(expr, …)`
+  (`checker.go:13134`), in this port the operand-reference report in
+  `check.rs`;
+- TS2528: the binder's `createDiagnosticForNode` on the declaration name
+  (`binder.go:265`), in this port `declaration_name_span` (`binder.rs`).
+
+`r5-spans-missing-node-raw-span-sites.diff` applies **on top of** r5-smallcodes2's
+diff. The two checker sites call `error_span`. The binder, which cannot
+reach the checker, takes the same step for a zero-width name: back over the
+whitespace before it, the same approximation of `Pos()` that diff makes
+(comments are not stepped over).
+
+The stack (r5-smallcodes2's diff plus this one), measured unfiltered against
+the frozen base:
+
+- diagnostics: +6 cases, r5-smallcodes2's four plus `deleteOperatorInvalidOperations`
+  and `jsFileCompilationBindMultipleDefaultExports`. Seven WRONG rows change
+  and none gets worse: `reservedWords2` 31 → 37 matched and 10 → 4 extra;
+  `reservedWords3`, `parametersSyntaxErrorNoCrash2`/`3` and
+  `varianceAnnotationsWithCircularlyReferencesError` each gain one matched
+  row and lose one extra; the two `esDecorators-decoratorExpression.1` rows
+  are level. Both loss checks are empty;
+- type lines: unchanged;
+- slowcases: only the KNOWN_SLOW cases;
+- Ir: domain-model +0.103%, generic-imports −0.006%, for the whole stack. All
+  of the new code is on error paths, so this is layout. CLI output is
+  `cmp`-identical;
+- `tsr-binder` and `tsr-checker` tests pass.
 
 ### 1.4 Held: the `await using` list span
 
