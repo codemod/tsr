@@ -21,7 +21,9 @@ fn ts2322_lines(source: &str) -> Vec<usize> {
         type Partial<T> = { [P in keyof T]?: T[P] }; \
         type Required<T> = { [P in keyof T]-?: T[P] }; \
         type Readonly<T> = { readonly [P in keyof T]: T[P] }; \
-        type Record<K extends keyof any, T> = { [P in K]: T };";
+        type Record<K extends keyof any, T> = { [P in K]: T }; \
+        type Capitalize<S extends string> = intrinsic; \
+        type Uncapitalize<S extends string> = intrinsic;";
     let global = tsr_parser::parse_into(
         &arena,
         globals,
@@ -141,6 +143,18 @@ class I<SS extends string> {
   f() {
     let w: [...args: { [S in SS]: [a: number] }[SS]] = [1];
   }
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
+
+#[test]
+fn a_string_mapping_meets_a_template_through_its_base_constraint() {
+    let source = r#"function f(t: `A${string}`, c: Capitalize<string>, u: Uncapitalize<string>, l: `a${string}`) {
+  t = c; // error
+  l = u; // error
+  c = t;
+  u = l;
 }
 "#;
     assert_eq!(ts2322_lines(source), marked(source));

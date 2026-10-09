@@ -203,3 +203,33 @@ variadic shapes (`tests/relater7_arms.rs`
 **Falsifier.** A generic tuple pair where native's normalized element list
 differs from `normalize_variadic_tuple`'s (a union spread distributing into a
 union of tuples is the likeliest).
+
+## 6. A string-mapping source against a template-literal target
+
+**Forcing constraint.** For `Capitalize<string> -> `A${string}``, native's
+template target arm (relater.go:3572) asks `isTypeMatchedByTemplateLiteralType`,
+whose `inferTypesFromTemplateLiteralType` (relater.go:2345) answers only for a
+string-literal or template source, so it fails. The source switch's
+string-mapping case (relater.go:3782) then relates the base constraint:
+`computeBaseConstraint` of `Capitalize<string>` is `string`
+(checker.go:27544, the inner constraint equals the inner type), and `string ->
+`A${string}`` is False. The port's gate routed only literal, template and
+`string` sources against a template target to the worker, so the pair fell to
+`Unknown` (`stringMappingOverPatternLiterals` 129-131, 147-149).
+
+**Ported.** The gate routes a string-mapping source too; in the worker, after
+the template target arm, a string-mapping source against a template target
+answers `string_like_source_constraint` (r5-relater6 §2.2(2)'s helper), with no
+later arm, since none relates a non-object target.
+
+**Measured** against §5's commit, both loss checks (vs §0) empty:
+- diagnostics: `stringMappingOverPatternLiterals` WRONG → RIGHT;
+- types unchanged;
+- `Ir`: generic-imports 342,969,719 → 342,974,161 (+0.001%); domain-model
+  1,200,168,204 → 1,200,297,638 (+0.011%). CLI output identical.
+
+**Falsifier.** A string mapping whose port base constraint is not native's
+(`string_like_source_constraint` declines a gap or self constraint, leaving
+`Unknown`).
+
+Test: `tests/relater7_arms.rs` `a_string_mapping_meets_a_template_through_its_base_constraint`.

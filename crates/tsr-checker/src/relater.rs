@@ -1567,7 +1567,10 @@ impl Relater<'_, '_, '_> {
             || t.contains(TypeFlags::STRING_MAPPING)
             || (t.contains(TypeFlags::TEMPLATE_LITERAL)
                 && s.intersects(
-                    TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING,
+                    TypeFlags::STRING_LITERAL
+                        | TypeFlags::TEMPLATE_LITERAL
+                        | TypeFlags::STRING
+                        | TypeFlags::STRING_MAPPING,
                 ))
         {
             return self.recursive_type_related_to(source, target, flags);
@@ -4619,6 +4622,19 @@ impl Relater<'_, '_, '_> {
             } else {
                 RelationResult::NotRelated
             };
+        }
+        // A string-mapping source against a template target: the target's
+        // arm matches only literal and template sources
+        // (inferTypesFromTemplateLiteralType, relater.go:2345), so the
+        // source switch's string-mapping case relates its base constraint
+        // (relater.go:3782; `Capitalize<string>`'s is `string`,
+        // computeBaseConstraint checker.go:27544), and no later arm relates
+        // a non-object target.
+        if self.checker.type_of(source).flags.contains(TypeFlags::STRING_MAPPING)
+            && self.checker.template_literal_parts.contains_key(&target)
+            && let Some(result) = self.string_like_source_constraint(source, target)
+        {
+            return result;
         }
         if let Some((target_symbol, target_inner)) =
             self.checker.string_mapping_types.get(&target).copied()
