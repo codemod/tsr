@@ -3033,9 +3033,13 @@ impl<'a> Checker<'a, '_> {
     /// `markSymbolOfAliasDeclarationIfTypeOnly` for the specifier.
     ///
     /// `declaration` is an `ImportSpecifier`, or an `ExportSpecifier` of a
-    /// declaration with a module specifier. No cache: asked only when a name
-    /// is not an own export of a module that has `export *` declarations, and
-    /// the walk is bounded by the star graph.
+    /// declaration with a module specifier. The star walk runs when a name is
+    /// not an own export of a module that has `export *` declarations; its
+    /// answer is a function of the resolved module and the name alone (the
+    /// binder's export tables and the host's resolutions do not change while
+    /// checking), so it is kept per `(module, name)` in
+    /// [`Checker::type_only_export_stars`], as native keeps the whole
+    /// `typeOnlyExportStarMap` per module (`docs/parity/notes/perf.md` §17).
     pub(crate) fn specifier_type_only_export_star(
         &mut self,
         declaration: NodeId,
@@ -3066,9 +3070,14 @@ impl<'a> Checker<'a, '_> {
         if entry.exports.contains_key(name) || !entry.exports.contains_key(INTERNAL_EXPORT_STAR) {
             return None;
         }
+        if let Some(&answer) = self.type_only_export_stars.get(&(module, name)) {
+            return answer;
+        }
         let mut walk = TypeOnlyStarWalk::default();
         self.visit_type_only_export_star(Some(module), None, false, name, &mut walk);
-        if walk.non_type_only { None } else { walk.type_only_star }
+        let answer = if walk.non_type_only { None } else { walk.type_only_star };
+        self.type_only_export_stars.insert((module, name), answer);
+        answer
     }
 
     /// `visit` inside `getExportsOfModuleWorker` (`checker.go:16154`),

@@ -638,3 +638,34 @@ mallocs (`LD_PRELOAD` counter, release, default pool): domain-model-large
 4,212,942 → **4,165,069** (−1.1%), domain-model 897,448 → 887,256,
 generic-imports 80,181 → 80,076, jsTyping 49,698,849 → 49,202,720.
 Dumps byte-identical.
+
+## §17 Type-only `export *` answers per module and name
+
+Native op (pinned `5b1047d`): `getExportsOfModuleWorker`
+(`checker.go:16148`) builds `typeOnlyExportStarMap` once per module, beside
+`resolvedExports`; `getExportOfModule` (`checker.go:14793`) hands its entry
+to `markSymbolOfAliasDeclarationIfTypeOnly`, and
+`getTypeOnlyAliasDeclarationEx` (`checker.go:1861`) reads the alias link.
+This port's `specifier_type_only_export_star` (`symbols.rs`) re-ran the
+star walk on every ask, and `check_value_identifier` →
+`type_only_alias_declaration` asks for every value identifier bound by an
+import specifier. TypeScript's own sources import everything through
+`_namespaces/ts.ts`, a module of `export *` declarations, so jsTyping walked
+the whole star graph per identifier: 6.2% of its single-threaded check
+(`perf record`, frame-pointer `profiling` build).
+
+- **Key and owner**: `(resolved module SymbolId, export name)`, private to
+  one `Checker` (`Checker::type_only_export_stars`), for its lifetime.
+  Value: the type-only `export *` declaration, or `None`.
+- **Publication**: written once after a complete walk; the walk reads only
+  binder export tables and host module resolutions, neither of which
+  changes during checking, and keeps no provisional state.
+- **Context**: none — no receiver, mapper or diagnostic is involved; the
+  cheap own-export/no-star exits stay ahead of the lookup.
+- **Work boundary**: one star walk per (module, name) instead of one per
+  identifier use.
+
+jsTyping `--singleThreaded` task-clock 9,079 → 8,654 ms (−4.7%, 3 runs
+each); mallocs 49,173,590 → 49,104,071, reallocs 3,535,777 → 3,361,937.
+Bench projects have no star re-exports (unchanged). CLI output on jsTyping
+`cmp`-identical; dumps byte-identical.

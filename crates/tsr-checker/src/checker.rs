@@ -1223,6 +1223,12 @@ pub struct Checker<'a, 'n> {
     /// Memo tables for answers native keeps in symbol/type links
     /// (`crate::perf_links`; contracts in `docs/parity/notes/r4-perf.md`).
     pub(crate) perf_links: crate::perf_links::PerfLinks,
+    /// `(module, export name) -> the type-only `export *` declaration` that
+    /// [`Checker::specifier_type_only_export_star`]'s walk answers: native
+    /// `typeOnlyExportStarMap[name]`, built once per module by
+    /// `getExportsOfModuleWorker` (`checker.go:16148`). Owned by that function;
+    /// `docs/parity/notes/perf.md` §17.
+    pub(crate) type_only_export_stars: FxHashMap<(SymbolId, &'a str), Option<NodeId>>,
     /// `(baked signature type, substitution map) -> the instantiated type`,
     /// upstream's per-mapper instantiation cache (`checker.go:22125`) reduced
     /// to the one key this port can build.
@@ -1680,6 +1686,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             circular_any_declarations: rustc_hash::FxHashSet::default(),
             class_construct_signatures: FxHashMap::default(),
             perf_links: crate::perf_links::PerfLinks::default(),
+            type_only_export_stars: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),
