@@ -8,11 +8,16 @@
 //! module path containing `/node_modules/`, before the relative specifier
 //! `computeModuleSpecifiers` (`:359`) falls back to. The program answers the
 //! `package.json` reads through `ModuleHost::package_json_for_specifiers`;
-//! no cache, side table or traversal lives here, and every function is a
+//! the one side table here is [`KnownSymlinks`], the program's, built
+//! before the checker and read-only to it (its convention record is on the
+//! type); every other function is a
 //! pure function of the paths and those reads.
 //!
-//! Not ported, each named where it would sit: symlinked module paths
-//! (`GetEachFileNameOfModule`'s symlink cache, `:260`), project-reference
+//! `GetEachFileNameOfModule` (`:260`) and `getAllModulePathsWorker`
+//! (`:198`) are ported over [`KnownSymlinks`], the program's symlink cache
+//! (`internal/symlinks`), so `computeModuleSpecifiers`' loop runs over every
+//! path that reaches a module (r6-specifiers §2). Not ported, each named
+//! where it would sit: project-reference
 //! and duplicate-package redirects (`IsRedirect`), the global typings cache
 //! (empty in every corpus program), the `.d.json.ts` remap
 //! (`TryGetRealFileNameForNonJSDeclarationFileName`), and the `.ts` ending
@@ -306,9 +311,9 @@ impl Checker<'_, '_> {
     /// caller's (`Checker::module_specifier_for_symbol_in_mode`).
     ///
     /// `module_file` is the module's source file, `importing` the
-    /// reference's. The module paths are the file's own path only:
-    /// `GetEachFileNameOfModule`'s symlink and redirect alternatives are not
-    /// ported (r5-modules2 §2), so the per-path loops run once.
+    /// reference's. The module paths are [`all_module_paths`]: the symlinked
+    /// paths the program's [`KnownSymlinks`] knows, then the file's own;
+    /// redirects are not ported (r6-specifiers §2).
     ///
     /// No cache: native memoizes the answer per `(symbol, file, mode)`
     /// (`links.specifierCache`); every input here is a pure function of the
@@ -338,26 +343,62 @@ impl Checker<'_, '_> {
         let from = host.file_path(importing)?;
         let to = host.file_path(module_file)?;
         let source_directory = tsr_path::get_directory_path(&from);
-        // The `IsInNodeModules` arm: a package-name specifier, after which
-        // `getLocalModuleSpecifier` runs `pathsOnly` and (with no `paths`)
-        // answers nothing, so the package name wins.
-        if to.contains("/node_modules/")
-            && let Some(name) = self.node_module_specifier(
-                importing,
-                source_directory,
-                &to,
-                override_mode,
-                preferences,
-            )
-        {
-            return Some(name);
-        }
+        // `getAllModulePathsWorker`: the symlinked paths that reach the
+        // file, then its own, nearest the importing file first.
+        let module_paths = all_module_paths(&from, &to, self.known_symlinks(), "", true);
+        let imported_file_is_in_node_modules =
+            module_paths.iter().any(|path| path.is_in_node_modules);
         let import_mode = if override_mode == ModuleKind::None {
             host.default_resolution_mode_for_file(importing)
         } else {
             override_mode
         };
-        self.local_module_specifier(importing, &from, &to, import_mode, preferences)
+        // `computeModuleSpecifiers`' priority (`:415`): a package-name
+        // specifier for any path beats every relative one. With no
+        // `paths`, `getLocalModuleSpecifier`'s `pathsOnly` answer is
+        // empty, and a relative specifier is never bare, so the paths and
+        // redirect buckets stay empty.
+        let mut node_modules_specifier = None;
+        let mut relative_specifier = None;
+        for module_path in &module_paths {
+            if module_path.is_in_node_modules
+                && let Some(name) = self.node_module_specifier(
+                    importing,
+                    source_directory,
+                    &module_path.file_name,
+                    override_mode,
+                    preferences,
+                )
+            {
+                node_modules_specifier.get_or_insert(name);
+                continue;
+            }
+            // "If some path to the file was in node_modules but another
+            // was not, … the module specifier we actually go with will be
+            // the relative path through node_modules" (`:451`).
+            if relative_specifier.is_none()
+                && (!imported_file_is_in_node_modules || module_path.is_in_node_modules)
+            {
+                relative_specifier = self.local_module_specifier(
+                    importing,
+                    &from,
+                    &module_path.file_name,
+                    import_mode,
+                    preferences,
+                );
+            }
+        }
+        node_modules_specifier.or(relative_specifier)
+    }
+
+    /// The program's symlink cache (`host.GetSymlinkCache()`), which
+    /// `GetEachFileNameOfModule` reads. The checker's `ModuleHost` does not
+    /// expose one yet, so every module has its own path only; the host half
+    /// is `docs/parity/notes/r6-specifiers-symlink-cache.diff`
+    /// (r6-specifiers §2).
+    #[allow(clippy::unused_self)]
+    fn known_symlinks(&self) -> Option<&KnownSymlinks> {
+        None
     }
 
     /// `getLocalModuleSpecifier` (`modulespecifiers/specifiers.go:481`) with
@@ -1037,6 +1078,357 @@ impl Checker<'_, '_> {
     }
 }
 
+/// `symlinks.KnownDirectoryLink` (`internal/symlinks/knownsymlinks.go:13`):
+/// the real directory a directory symlink points at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KnownDirectoryLink {
+    /// `Real`: the realpath's spelling, with a trailing separator.
+    pub real: String,
+    /// `RealPath`: `toPath(real)`, with a trailing separator.
+    pub real_path: String,
+}
+
+/// `symlinks.KnownSymlinks` (`internal/symlinks/knownsymlinks.go:22`): the
+/// program's symlink cache, which `GetEachFileNameOfModule` reads to name a
+/// realpath'd module file by the symlinked paths that reach it.
+///
+/// Checker port convention record (`docs/conventions.md`). Native operation:
+/// `Program.GetSymlinkCache` (`compiler/program.go:2059`), built once per
+/// program from every resolution's `(OriginalPath, ResolvedFileName)` and
+/// from each emitted package's runtime dependencies. Key identity: the
+/// symlink directory's path (`directories`) and the real directory's path
+/// (`directories_by_realpath`), both `toPath` spellings with a trailing
+/// separator. Owner: the program (`tsr-compiler`), which builds it after
+/// loading and hands it to the checker read-only through `ModuleHost`.
+/// Publication: built whole before any checker exists, never mutated after,
+/// so there is no partial state to observe; native's lazy `getValue` builds
+/// it on first ask, which answers the same. Receiver/alias context: none (a
+/// program-wide path table). Expensive work: the build (one
+/// `guessDirectorySymlink` per resolution whose original path differs);
+/// reads are hash lookups.
+///
+/// Native's sets are `SyncSet`s, iterated in no fixed order; the symlink
+/// directories here keep insertion order, and every consumer sorts
+/// (`getAllModulePathsWorker`), so the order never reaches an answer.
+#[derive(Debug, Clone, Default)]
+pub struct KnownSymlinks {
+    directories: rustc_hash::FxHashMap<String, Option<KnownDirectoryLink>>,
+    directories_by_realpath: rustc_hash::FxHashMap<String, Vec<String>>,
+    files: rustc_hash::FxHashMap<String, String>,
+    files_by_realpath: rustc_hash::FxHashMap<String, Vec<String>>,
+    current_directory: String,
+    use_case_sensitive_file_names: bool,
+}
+
+impl KnownSymlinks {
+    /// `symlinks.NewKnownSymlink`.
+    #[must_use]
+    pub fn new(current_directory: &str, use_case_sensitive_file_names: bool) -> Self {
+        Self {
+            current_directory: current_directory.to_string(),
+            use_case_sensitive_file_names,
+            ..Self::default()
+        }
+    }
+
+    /// `tspath.ToPath` under this cache's directory and case sensitivity.
+    fn to_path(&self, file_name: &str) -> String {
+        tsr_path::to_path(file_name, &self.current_directory, self.use_case_sensitive_file_names)
+            .as_str()
+            .to_string()
+    }
+
+    /// Whether nothing was recorded (no resolution went through a symlink).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.directories.is_empty() && self.files.is_empty()
+    }
+
+    /// `HasDirectory`.
+    #[must_use]
+    pub fn has_directory(&self, symlink_path: &str) -> bool {
+        self.directories.contains_key(&tsr_path::ensure_trailing_directory_separator(symlink_path))
+    }
+
+    /// `DirectoriesByRealpath().Load(real_directory_path)`: the symlink
+    /// directories (as spelled when recorded) that point at the real
+    /// directory `real_directory_path` (a path with a trailing separator).
+    #[must_use]
+    pub fn symlinks_of_real_directory(&self, real_directory_path: &str) -> Option<&[String]> {
+        self.directories_by_realpath.get(real_directory_path).map(Vec::as_slice)
+    }
+
+    /// `FilesByRealpath().Load(realpath)`.
+    #[must_use]
+    pub fn symlinks_of_real_file(&self, real_path: &str) -> Option<&[String]> {
+        self.files_by_realpath.get(real_path).map(Vec::as_slice)
+    }
+
+    /// `SetDirectory`.
+    pub fn set_directory(
+        &mut self,
+        symlink: &str,
+        symlink_path: String,
+        real_directory: Option<KnownDirectoryLink>,
+    ) {
+        if let Some(real) = &real_directory
+            && !self.directories.contains_key(&symlink_path)
+        {
+            let set = self.directories_by_realpath.entry(real.real_path.clone()).or_default();
+            if !set.iter().any(|known| known == symlink) {
+                set.push(symlink.to_string());
+            }
+        }
+        self.directories.insert(symlink_path, real_directory);
+    }
+
+    /// `SetFile`.
+    pub fn set_file(&mut self, symlink: &str, symlink_path: String, realpath: &str) {
+        if !self.files.contains_key(&symlink_path) {
+            let realpath_path = self.to_path(realpath);
+            let set = self.files_by_realpath.entry(realpath_path).or_default();
+            if !set.iter().any(|known| known == symlink) {
+                set.push(symlink.to_string());
+            }
+        }
+        self.files.insert(symlink_path, realpath.to_string());
+    }
+
+    /// `ProcessResolution` (`knownsymlinks.go:94`): record that
+    /// `original_path` was resolved to `resolved_file_name`, and the
+    /// directory symlink `guessDirectorySymlink` infers from the two.
+    pub fn process_resolution(&mut self, original_path: &str, resolved_file_name: &str) {
+        if original_path.is_empty() || resolved_file_name.is_empty() {
+            return;
+        }
+        self.set_file(original_path, self.to_path(original_path), resolved_file_name);
+        if let Some((common_resolved, common_original)) =
+            self.guess_directory_symlink(resolved_file_name, original_path)
+        {
+            let symlink_path = self.to_path(&common_original);
+            if !contains_ignored_path(&symlink_path) {
+                let real_path =
+                    tsr_path::ensure_trailing_directory_separator(&self.to_path(&common_resolved));
+                self.set_directory(
+                    &common_original,
+                    tsr_path::ensure_trailing_directory_separator(&symlink_path),
+                    Some(KnownDirectoryLink {
+                        real: tsr_path::ensure_trailing_directory_separator(&common_resolved),
+                        real_path,
+                    }),
+                );
+            }
+        }
+    }
+
+    /// `guessDirectorySymlink` (`knownsymlinks.go:113`): strip the common
+    /// trailing components of the two paths, stopping at a `node_modules`
+    /// or `@scope` directory; the remaining prefixes are the real directory
+    /// and its symlink.
+    fn guess_directory_symlink(&self, a: &str, b: &str) -> Option<(String, String)> {
+        let mut a_parts = tsr_path::get_path_components(
+            &tsr_path::get_normalized_absolute_path(a, &self.current_directory),
+            "",
+        );
+        let mut b_parts = tsr_path::get_path_components(
+            &tsr_path::get_normalized_absolute_path(b, &self.current_directory),
+            "",
+        );
+        let canonical = |name: &str| {
+            tsr_path::get_canonical_file_name(name, self.use_case_sensitive_file_names)
+        };
+        let is_node_modules_or_scope = |name: &str| {
+            !name.is_empty() && (canonical(name) == "node_modules" || name.starts_with('@'))
+        };
+        let mut is_directory = false;
+        while a_parts.len() >= 2
+            && b_parts.len() >= 2
+            && !is_node_modules_or_scope(&a_parts[a_parts.len() - 2])
+            && !is_node_modules_or_scope(&b_parts[b_parts.len() - 2])
+            && canonical(&a_parts[a_parts.len() - 1]) == canonical(&b_parts[b_parts.len() - 1])
+        {
+            a_parts.pop();
+            b_parts.pop();
+            is_directory = true;
+        }
+        is_directory.then(|| {
+            (
+                tsr_path::get_path_from_path_components(&a_parts),
+                tsr_path::get_path_from_path_components(&b_parts),
+            )
+        })
+    }
+}
+
+/// `tspath.ContainsIgnoredPath` (`tspath/ignoredpaths.go:11`), which
+/// `modulespecifiers.containsIgnoredPath` duplicates.
+fn contains_ignored_path(path: &str) -> bool {
+    path.contains("/node_modules/.") || path.contains("/.git") || path.contains(".#")
+}
+
+/// `tspath.StartsWithDirectory` (`tspath/path.go:1203`).
+fn starts_with_directory(file_name: &str, directory_name: &str, case_sensitive: bool) -> bool {
+    if directory_name.is_empty() {
+        return false;
+    }
+    let file = tsr_path::get_canonical_file_name(file_name, case_sensitive);
+    let directory = tsr_path::get_canonical_file_name(directory_name, case_sensitive);
+    let directory = directory.trim_end_matches('/').trim_end_matches('\\');
+    file.starts_with(&format!("{directory}/")) || file.starts_with(&format!("{directory}\\"))
+}
+
+/// `ModulePath` (`modulespecifiers/types.go:36`). `IsRedirect` (a project
+/// reference's output) is never set: this port has no project-reference
+/// redirects (r6-specifiers §2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModulePath {
+    /// `FileName`.
+    pub file_name: String,
+    /// `IsInNodeModules`: the path contains `/node_modules/`.
+    pub is_in_node_modules: bool,
+}
+
+impl ModulePath {
+    fn new(file_name: String) -> Self {
+        let is_in_node_modules = file_name.contains("/node_modules/");
+        Self { file_name, is_in_node_modules }
+    }
+}
+
+/// `GetEachFileNameOfModule` (`modulespecifiers/specifiers.go:260`) with
+/// `preferSymlinks = true`, the only value `getAllModulePathsWorker` passes:
+/// every path through a known directory symlink that reaches
+/// `imported_file_name`, then the file's own (real) path.
+///
+/// `GetProjectReferenceFromSource` and `GetRedirectTargets` answer nothing
+/// here (no project references; duplicate-package redirects are not
+/// exposed to the checker), so the targets are the one imported file. The
+/// global typings cache is empty in every program this port builds, so the
+/// ancestor walk stops only at the root.
+#[must_use]
+pub fn each_file_name_of_module(
+    importing_file_name: &str,
+    imported_file_name: &str,
+    symlinks: Option<&KnownSymlinks>,
+    current_directory: &str,
+    case_sensitive: bool,
+) -> Vec<ModulePath> {
+    let target = tsr_path::get_normalized_absolute_path(imported_file_name, current_directory);
+    let targets = [target];
+    let mut should_filter_ignored_paths = !targets.iter().all(|path| contains_ignored_path(path));
+    let mut results = Vec::with_capacity(2);
+    if let Some(symlinks) = symlinks.filter(|symlinks| !symlinks.is_empty()) {
+        let mut real_path_directory = tsr_path::get_directory_path(&targets[0]).to_string();
+        loop {
+            let key = tsr_path::ensure_trailing_directory_separator(
+                tsr_path::to_path(&real_path_directory, current_directory, case_sensitive).as_str(),
+            );
+            if let Some(symlink_set) = symlinks.symlinks_of_real_directory(&key) {
+                // "Don't want to a package to globally import from itself":
+                // every ancestor hits the same test, so the walk stops.
+                if starts_with_directory(importing_file_name, &real_path_directory, case_sensitive)
+                {
+                    break;
+                }
+                for target in &targets {
+                    if !starts_with_directory(target, &real_path_directory, case_sensitive) {
+                        continue;
+                    }
+                    let relative = tsr_path::get_relative_path_from_directory(
+                        &real_path_directory,
+                        target,
+                        &tsr_path::ComparePathsOptions {
+                            use_case_sensitive_file_names: case_sensitive,
+                            current_directory: current_directory.to_string(),
+                        },
+                    );
+                    for symlink_directory in symlink_set {
+                        let option = tsr_path::normalize_path(&tsr_path::combine_paths(
+                            symlink_directory,
+                            &[&relative],
+                        ));
+                        results.push(ModulePath::new(option));
+                        should_filter_ignored_paths = true;
+                    }
+                }
+            }
+            let parent = tsr_path::get_directory_path(&real_path_directory).to_string();
+            if parent == real_path_directory {
+                break;
+            }
+            real_path_directory = parent;
+        }
+    }
+    for path in targets {
+        if !(should_filter_ignored_paths && contains_ignored_path(&path)) {
+            results.push(ModulePath::new(path));
+        }
+    }
+    results
+}
+
+/// `getAllModulePathsWorker` (`modulespecifiers/specifiers.go:198`): the
+/// module's paths ordered by closeness to the importing file's directory
+/// (paths under it first, then under each ancestor), ties broken by
+/// `comparePathsByRedirect` (fewer directory separators, then the path).
+#[must_use]
+pub fn all_module_paths(
+    importing_file_name: &str,
+    imported_file_name: &str,
+    symlinks: Option<&KnownSymlinks>,
+    current_directory: &str,
+    case_sensitive: bool,
+) -> Vec<ModulePath> {
+    let paths = each_file_name_of_module(
+        importing_file_name,
+        imported_file_name,
+        symlinks,
+        current_directory,
+        case_sensitive,
+    );
+    // `allFileNames`, a map keyed by file name: a later duplicate replaces
+    // the earlier entry, which is the same path.
+    let mut remaining: Vec<ModulePath> = Vec::with_capacity(paths.len());
+    for path in paths {
+        if let Some(existing) = remaining.iter_mut().find(|p| p.file_name == path.file_name) {
+            *existing = path;
+        } else {
+            remaining.push(path);
+        }
+    }
+    let compare = |a: &ModulePath, b: &ModulePath| {
+        let separators = |path: &str| path.bytes().filter(|&byte| byte == b'/').count();
+        separators(&a.file_name).cmp(&separators(&b.file_name)).then_with(|| {
+            tsr_path::compare_paths(
+                &a.file_name,
+                &b.file_name,
+                &tsr_path::ComparePathsOptions {
+                    use_case_sensitive_file_names: case_sensitive,
+                    current_directory: String::new(),
+                },
+            )
+        })
+    };
+    let mut sorted = Vec::with_capacity(remaining.len());
+    let mut directory = tsr_path::get_directory_path(importing_file_name).to_string();
+    while !remaining.is_empty() {
+        let directory_start = tsr_path::ensure_trailing_directory_separator(&directory);
+        let (mut in_directory, rest): (Vec<_>, Vec<_>) =
+            remaining.into_iter().partition(|path| path.file_name.starts_with(&directory_start));
+        remaining = rest;
+        in_directory.sort_by(compare);
+        sorted.extend(in_directory);
+        let parent = tsr_path::get_directory_path(&directory).to_string();
+        if parent == directory {
+            break;
+        }
+        directory = parent;
+    }
+    remaining.sort_by(compare);
+    sorted.extend(remaining);
+    sorted
+}
+
 /// What one `tryDirectoryWithPackageJson` attempt answered.
 enum DirectoryAttempt {
     /// `blockedByExports`.
@@ -1079,10 +1471,99 @@ fn pattern_matches(key: &str, candidate: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_path_is_non_module_name, js_extension_for_declaration_file_extension,
-        node_module_path_parts, package_name_from_types_package_name,
-        real_file_name_for_non_js_declaration_file_name,
+        KnownSymlinks, all_module_paths, each_file_name_of_module, ensure_path_is_non_module_name,
+        js_extension_for_declaration_file_extension, node_module_path_parts,
+        package_name_from_types_package_name, real_file_name_for_non_js_declaration_file_name,
     };
+
+    /// `symlinkedWorkspaceDependenciesNoDirectLinkGeneratesNonrelativeName`'s
+    /// layout: `packageA` linked into two packages' `node_modules`.
+    fn workspace_symlinks() -> KnownSymlinks {
+        let mut symlinks = KnownSymlinks::new("/", true);
+        symlinks.process_resolution(
+            "/w/packageB/node_modules/package-a/index.d.ts",
+            "/w/packageA/index.d.ts",
+        );
+        symlinks.process_resolution(
+            "/w/packageC/node_modules/package-a/package.json",
+            "/w/packageA/package.json",
+        );
+        symlinks
+    }
+
+    #[test]
+    fn a_resolution_through_a_link_records_the_directory_symlink() {
+        // `guessDirectorySymlink` strips the shared `index.d.ts` and stops
+        // at the `node_modules` parent.
+        let symlinks = workspace_symlinks();
+        assert!(symlinks.has_directory("/w/packageB/node_modules/package-a"));
+        assert!(symlinks.has_directory("/w/packageC/node_modules/package-a/"));
+        assert_eq!(
+            symlinks.symlinks_of_real_directory("/w/packageA/"),
+            Some(
+                &[
+                    "/w/packageB/node_modules/package-a".to_string(),
+                    "/w/packageC/node_modules/package-a".to_string(),
+                ][..]
+            )
+        );
+        // The same path on both sides records nothing.
+        let mut none = KnownSymlinks::new("/", true);
+        none.process_resolution("", "/a/b.ts");
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn each_file_name_puts_the_symlinked_paths_before_the_realpath() {
+        let symlinks = workspace_symlinks();
+        let paths = each_file_name_of_module(
+            "/w/packageC/index.ts",
+            "/w/packageA/index.d.ts",
+            Some(&symlinks),
+            "/",
+            true,
+        );
+        let names: Vec<_> = paths.iter().map(|path| path.file_name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "/w/packageB/node_modules/package-a/index.d.ts",
+                "/w/packageC/node_modules/package-a/index.d.ts",
+                "/w/packageA/index.d.ts",
+            ]
+        );
+        assert!(paths[0].is_in_node_modules && !paths[2].is_in_node_modules);
+        // A package never names itself through its own links.
+        let own = each_file_name_of_module(
+            "/w/packageA/src/x.ts",
+            "/w/packageA/index.d.ts",
+            Some(&symlinks),
+            "/",
+            true,
+        );
+        assert_eq!(own.len(), 1);
+    }
+
+    #[test]
+    fn module_paths_sort_nearest_the_importing_directory_first() {
+        let symlinks = workspace_symlinks();
+        let paths = all_module_paths(
+            "/w/packageC/index.ts",
+            "/w/packageA/index.d.ts",
+            Some(&symlinks),
+            "/",
+            true,
+        );
+        let names: Vec<_> = paths.iter().map(|path| path.file_name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "/w/packageC/node_modules/package-a/index.d.ts",
+                "/w/packageA/index.d.ts",
+                "/w/packageB/node_modules/package-a/index.d.ts",
+            ]
+        );
+    }
 
     #[test]
     fn non_js_declaration_files_remap_to_their_real_names() {
