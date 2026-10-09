@@ -22,11 +22,17 @@
 //!   `--floor-ms` (1 s), so a 4 ms case going to 13 ms is not noise-flagged;
 //!   or peak memory is above `--ratio` × the base's AND above
 //!   `--floor-mib` (256 MiB);
-//! - `FAILED`: its verdict is `PANIC`, `OOM` or `TIMEOUT`;
+//! - `FAILED`: its verdict is `PANIC`, `OOM`, `TIMEOUT` or `CRASH` (a
+//!   process that died with no row, from `examples/divergentcost.rs`), and
+//!   the base did not fail the same way;
 //! - `MISSING`: the base has rows for it and NEW has none. A dump the kernel
 //!   killed, or the watchdog ended, is missing every case it had not printed;
 //!   the key/verdict `join` of the loss check drops such cases silently,
 //!   which is half of what `tsr-2zk.1041` is about.
+//!
+//! A case with the same marker in the base is listed as `KNOWN_FAILED` and
+//! does not fail the gate: `divergentcost` runs `recursiveConditionalCrash3`,
+//! which hangs at the base (`docs/parity/notes/r5-align.md` §5).
 //!
 //! A case over budget in the base too is listed as `KNOWN_SLOW` and does not
 //! fail the gate unless it is also `SLOWER`: at `1252ab9` four cases already
@@ -84,6 +90,7 @@ fn load(path: &str) -> Result<BTreeMap<String, Cost>, String> {
             "PANIC" => Some("PANIC"),
             "OOM" => Some("OOM"),
             "TIMEOUT" => Some("TIMEOUT"),
+            "CRASH" => Some("CRASH"),
             _ => None,
         });
     }
@@ -155,7 +162,11 @@ fn main() -> ExitCode {
             fmt(cost.mib)
         );
         if let Some(failed) = cost.failed {
-            reports.push(format!("FAILED {failed}\t{detail}"));
+            if was.failed == Some(failed) {
+                known.push(format!("KNOWN_FAILED {failed}\t{detail}"));
+            } else {
+                reports.push(format!("FAILED {failed}\t{detail}"));
+            }
             continue;
         }
         let over = |now: Option<u64>, before: Option<u64>, budget: u64| {

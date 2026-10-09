@@ -114,6 +114,84 @@ pub fn parse(text: &str) -> Vec<FileTypes> {
     files
 }
 
+/// [`parse`], told each section's source so that an echoed **code line** that
+/// starts with `>` is not read as an assertion.
+///
+/// `iterateBaseline` (`type_symbol_baseline.go:208`) interleaves the file's own
+/// lines, `codeLines`, with the `>text : type` rows, every code line exactly
+/// once and in order. A code line may itself start with `>` and contain
+/// `" : "`: `compiler/deferredConditionalTypes2` continues a type alias on a
+/// line reading `>() => G extends B ? 1 : 2`, which [`parse`] counted as an
+/// assertion no walker can produce (`docs/parity/notes/r5-align.md` §2.3).
+/// §294's separator test cannot see it, because the line has the separator.
+///
+/// So each section walks its code lines in step: a baseline line equal to the
+/// next unconsumed code line is that line's echo and is skipped. The writer's
+/// other lines (assertions, and the blank it inserts before a non-blank,
+/// non-bracket code line) are never equal to that next code line: an assertion
+/// would have to repeat the source verbatim, and the inserted blank precedes
+/// only a code line that is not blank. Code lines are split as
+/// `codeLinesRegexp` does, with `\r\n` as one break, and pass through
+/// `removeTestPathPrefixes`, which the writer applies to the whole section.
+///
+/// `source_of` answers a section's unit content by section name. A section it
+/// cannot answer, or whose echo stops matching, keeps [`parse`]'s reading for
+/// its remaining lines, so this never reads fewer lines than it can prove are
+/// echoes.
+#[must_use]
+pub fn parse_with_sources<'s>(
+    text: &str,
+    mut source_of: impl FnMut(&str) -> Option<&'s str>,
+) -> Vec<FileTypes> {
+    let mut files: Vec<FileTypes> = Vec::new();
+    let mut code: Vec<String> = Vec::new();
+    let mut next = 0usize;
+    for line in text.lines() {
+        if let Some(name) = line.strip_prefix("=== ").and_then(|rest| rest.strip_suffix(" ===")) {
+            files.push(FileTypes { file: name.to_string(), assertions: Vec::new() });
+            code = source_of(name).map(code_lines).unwrap_or_default();
+            next = 0;
+            continue;
+        }
+        if files.is_empty() {
+            continue;
+        }
+        if let Some(expected) = code.get(next)
+            && line.strip_prefix('\u{feff}').unwrap_or(line) == expected.as_str()
+        {
+            next += 1;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('>')
+            && rest.contains(" : ")
+            && let Some(current) = files.last_mut()
+        {
+            current.assertions.push(TypeAssertion { text: rest.to_string() });
+        }
+    }
+    files
+}
+
+/// A unit's lines as the baseline echoes them: `codeLinesRegexp`'s breaks
+/// (`\r\n`, `\n`, `\r`, U+2028, U+2029), each line through
+/// `removeTestPathPrefixes`.
+fn code_lines(source: &str) -> Vec<String> {
+    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+    let mut lines = Vec::new();
+    let mut rest = source;
+    while let Some(at) = rest.find(['\r', '\n', '\u{2028}', '\u{2029}']) {
+        lines.push(crate::full_oracle::printed_path(&rest[..at], false));
+        let width = if rest[at..].starts_with("\r\n") {
+            2
+        } else {
+            rest[at..].chars().next().map_or(1, char::len_utf8)
+        };
+        rest = &rest[at + width..];
+    }
+    lines.push(crate::full_oracle::printed_path(rest, false));
+    lines
+}
+
 /// How many type assertions a baseline carries, across every file.
 #[must_use]
 pub fn assertion_count(files: &[FileTypes]) -> usize {
@@ -171,6 +249,41 @@ let y: string;
         // ambiguous.
         let files = parse("=== a.ts ===\n>f : (this: any) => void\n");
         assert_eq!(files[0].assertions[0].split(), Some(("f", "(this: any) => void")));
+    }
+
+    #[test]
+    fn an_echoed_code_line_that_looks_like_an_assertion_is_not_one() {
+        // `compiler/deferredConditionalTypes2`: the alias continues on a line
+        // that starts with `>` and carries the separator.
+        let source = "type T<A> = (<G>() => G) extends <\r\n  G,\r\n>() => G extends A ? 1 : 2\r\n  ? true\r\n  : false;\r\n";
+        let baseline = "\
+=== a.ts ===
+type T<A> = (<G>() => G) extends <
+>T : T<A>
+
+  G,
+>() => G extends A ? 1 : 2
+  ? true
+>true : true
+
+  : false;
+>false : false
+
+";
+        assert_eq!(assertion_count(&parse(baseline)), 4, "the plain reader counts the echo");
+        let files = parse_with_sources(baseline, |name| (name == "a.ts").then_some(source));
+        let lines: Vec<&str> = files[0].assertions.iter().map(|a| a.text.as_str()).collect();
+        assert_eq!(lines, ["T : T<A>", "true : true", "false : false"]);
+        // No source for the section: the plain reading, unchanged.
+        assert_eq!(assertion_count(&parse_with_sources(baseline, |_| None)), 4);
+    }
+
+    #[test]
+    fn code_lines_break_like_the_writer_and_drop_test_path_prefixes() {
+        assert_eq!(
+            code_lines("a\r\nb\rc\u{2028}d\n/// <reference path=\"/.lib/x.d.ts\" />"),
+            ["a", "b", "c", "d", "/// <reference path=\"x.d.ts\" />"]
+        );
     }
 
     #[test]

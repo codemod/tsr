@@ -35,6 +35,10 @@ fn verdict_of(row: &str) -> (&str, &str) {
     (key, verdict)
 }
 
+/// The matrix's name for a line with no row on one side: no aligned
+/// expression there, so no verdict.
+const UNALIGNED: &str = "UNALIGNED";
+
 fn case_of(key: &str) -> &str {
     key.rsplitn(3, ':').nth(2).unwrap_or(key)
 }
@@ -87,12 +91,26 @@ fn main() {
         .collect();
     let current: BTreeMap<&str, &str> = rows.iter().map(|r| verdict_of(r)).collect();
 
+    // A row exists only for an ALIGNED line (`verdict::case_rows`), so a key
+    // on one side alone is a line that changed alignment. It used to be
+    // skipped, and a RIGHT line whose expression stopped aligning left the
+    // matrix silently (`docs/parity/notes/r5-harness.md` §5 item 8). Both
+    // directions are transitions to or from `UNALIGNED`; losing a RIGHT one
+    // is adverse like any other RIGHT->non-RIGHT.
     let mut matrix: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for (key, was) in &baseline {
-        let Some(now) = current.get(key) else { continue };
-        if was != now {
+        let now = current.get(key).copied().unwrap_or(UNALIGNED);
+        if *was != now {
             matrix
-                .entry(((*was).to_string(), (*now).to_string()))
+                .entry(((*was).to_string(), now.to_string()))
+                .or_default()
+                .push((*key).to_string());
+        }
+    }
+    for (key, now) in &current {
+        if !baseline.contains_key(key) {
+            matrix
+                .entry((UNALIGNED.to_string(), (*now).to_string()))
                 .or_default()
                 .push((*key).to_string());
         }
