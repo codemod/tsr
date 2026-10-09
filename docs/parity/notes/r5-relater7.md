@@ -1,0 +1,84 @@
+# r5-relater7 — relater arms, unique symbols, held work (`tsr-2zk.1088`, `.1055`, `.1065`, `.1068`)
+
+Lane under epic `tsr-2zk`, successor to r5-relater6 ([`r5-relater6.md`](r5-relater6.md)).
+Owns `crates/tsr-checker/src/relater.rs`, `index_access_reports.rs`, the
+binder's declare-module import binding (item 5 only), the tests for its items
+(`crates/tsr-checker/tests/relater7_arms.rs`) and this file. Native anchors are
+`vendor/typescript-go` @ `5b1047d`.
+
+## 0. Frozen base
+
+`0fb3e6c`: the integration head `d57fffe` (batch AD) with r5-relater6's branch
+tip `dc54b2c` merged in. r5-relater6's commits land in batch AF, which was not
+on `claude/beautiful-shannon-ar5gh0` when this lane started, so the lane
+builds on them directly.
+
+- `diagverdictdump`: RIGHT 5405, EMPTY_RIGHT 5585, WRONG 1186, EMPTY_WRONG 62.
+- `verdictdump`: RIGHT 545046, WRONG 6579, GAP 908.
+- Callgrind `Ir` of the base `tsr` (`-p <project> --singleThreaded --pretty
+  false`): generic-imports 342,986,360; domain-model 1,200,177,830.
+
+Every `Ir` below uses that command; the complete CLI output of each run is
+compared with the base's (`cmp`).
+
+## 1. Item 1 (`tsr-2zk.1088`): triage of the relater-attributed sole-TS2322 cases
+
+r5-ts2322's `map.tsv` attributes 36 cases to the relater. On the base, four of
+them are already RIGHT (r5-relater6: `stringMappingDeferralInConditionalTypes`,
+`templateLiteralTypes5`, `errorInfoForRelatedIndexTypesNoConstraintElaboration`,
+`mappedTypeUnionConstrainTupleTreatedAsArrayLike`). `r5census` under
+`TSR_ASSIGN_PROBE` names every missing line of the rest `DECLINED` (the
+relation answered `Unknown`), except `invariantGenericErrorElaboration` 4:19
+(`NEVER`). Each was then traced through the relater (a local, uncommitted
+trace of `is_related_to_with_flags`). Findings that move a case out of this
+lane:
+
+- **`enumAssignmentCompat3` (12 lines), `enumLiteralAssignableToEnumInsideUnion`
+  (2): not a relater arm.** A namespace-rooted qualified enum reference
+  (`First.E`) is minted as an OBJECT-flagged `Named` type (`declared.rs`,
+  QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE's enum arm is scoped to
+  alias-rooted names). `Abc.Nope.a -> First.E` then never reaches
+  `isEnumTypeRelatedTo`; even `z = "x"` with `z: First.E` is silent. Owner:
+  `declared.rs` (r5-declared3).
+- **`assignFromBooleanInterface2`, `assignFromNumberInterface2`,
+  `invalidBooleanAssignments` (extras): not a relater arm.** The relation
+  answers Related (`boolean -> NotBoolean` relates `true`/`false` through the
+  augmented `Boolean` apparent type), yet TS2322 is reported: the report is
+  produced in `report_relation_failure` before the relation is asked
+  (`missing_required_property`, `assignreport.rs`, r5-ts2322's lane).
+- **`typeParameterHasSelfAsConstraint`: not a relater arm.** No `T -> number`
+  relation is asked for `return x` under `T extends T`; the check site
+  declines first.
+
+## 2. A `unique symbol` against a decidable type
+
+**Forcing constraint.** `isRelatedToEx` (relater.go:2605) answers a pair with
+neither side structured or instantiable by `isSimpleTypeRelatedTo` alone. That
+function's only arms for a `unique symbol` are `ESSymbolLike -> ESSymbol`
+(relater.go:236) and identity. The port kept `UNIQUE_ES_SYMBOL` out of
+`FLAG_DECIDABLE`, so every such pair answered `Unknown`:
+`"" in Symbol.toPrimitive` (`typeof Symbol.toPrimitive -> object`,
+`symbolType2`) and `const s: string = Symbol()` (`uniqueSymbolsErrors` 87).
+
+**Ported.** A unique symbol against any flag-decidable type, or a decidable
+type against a unique symbol, is NotRelated, after the simple arms (so
+`unique symbol -> symbol`, `any`, `unknown` still relate). It mirrors the
+existing object-against-unique-symbol arm.
+
+**Alternatives.** Adding `UNIQUE_ES_SYMBOL` to `FLAG_DECIDABLE` would also
+decide two *distinct* unique-symbol types as NotRelated. Rejected: a
+predicate's or type-parameter constraint's `unique symbol` is still minted per
+written node (`unique_symbols.rs`, `unique_symbol_awaits_printer_reuse`), so
+two TypeIds may be one native type. That pair stays `Unknown`; it would win
+once every slot reads `uniqueESSymbolTypes`.
+
+**Measured** against §0, both dumps unfiltered, both loss checks empty:
+- diagnostics: `symbolType2` and `uniqueSymbolsErrors` WRONG → RIGHT;
+- types: `extractInferenceImprovement:0:41` and `:0:43` WRONG → RIGHT;
+- `Ir`: generic-imports 342,986,360 → 342,958,772 (−0.008%); domain-model
+  1,200,177,830 → 1,200,379,140 (+0.017%). CLI output identical.
+
+**Falsifier.** A unique symbol that native relates to a non-symbol primitive
+or to `object` (none exists in `isSimpleTypeRelatedTo`).
+
+Test: `tests/relater7_arms.rs` `a_unique_symbol_against_a_decidable_target_is_decided`.

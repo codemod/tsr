@@ -1743,6 +1743,20 @@ impl Relater<'_, '_, '_> {
             }
             return RelationResult::NotRelated;
         }
+        // isRelatedToEx (relater.go:2605): with neither side structured or
+        // instantiable, isSimpleTypeRelatedTo is the whole answer. Its only
+        // arms for a `unique symbol` are `ESSymbolLike -> ESSymbol`
+        // (relater.go:236) and identity, so a unique symbol against any other
+        // decidable type, or a decidable type against a unique symbol, is
+        // False: `Symbol() -> string`, `typeof Symbol.toPrimitive -> object`.
+        // Two distinct unique-symbol types stay undecided: a predicate's or
+        // constraint's `unique symbol` is still minted per written node
+        // (`unique_symbols.rs`), so their identity is not native's.
+        if (s == TypeFlags::UNIQUE_ES_SYMBOL && self.flag_decidable(target))
+            || (self.flag_decidable(source) && t == TypeFlags::UNIQUE_ES_SYMBOL)
+        {
+            return RelationResult::NotRelated;
+        }
         if self.flag_decidable(source) && self.flag_decidable(target) {
             RelationResult::NotRelated
         } else {
