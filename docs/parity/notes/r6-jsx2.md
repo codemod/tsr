@@ -196,3 +196,120 @@ Message text checked against the oracle on the case's own source. Median
 child CPU against the frozen binary (21 samples): domain-model 0.966,
 generic-imports 0.989. Oracle-checked fixture:
 `a_tag_needing_more_arguments_than_the_factory_provides_is_ts6229`.
+
+## 3. TS2607 on a class extending `any` — routed, two producers
+
+`tsxSpreadAttributesResolution17`: `class Empty extends React.Component<{}, {}>`
+with `declare var React: any`. Native: `getDefaultConstructSignatures`
+(`checker.go:20857`) finds no construct signature on the `any` base
+constructor (`getSignaturesOfType(any, …)` is empty: `any` is not
+structured), so `typeof Empty` has one default signature returning `Empty`;
+`resolveBaseTypesOfClass` makes the base type `any`, which contributes no
+members (only an `any` string index), so `getPropertyOfType(Empty,
+"props")` is nil and `getJsxPropsTypeFromClassType` reports TS2607.
+
+Two producers stand between the port and that answer, neither in this lane:
+
+1. `resolve_class_construct_signatures` (`signatures.rs`, r6-printer4)
+   asks `signatures_of_type_kind(any, Construct)`, which is `None`, so the
+   whole list is `None`. Diff **J3** (`r6-jsx2-any-base-default-construct.diff`)
+   treats an `any` base like `null`: empty, then the default signature.
+   Measured alone on top of §1–§2: **no transition** on either dump (no
+   corpus case reads it without the second piece). Faithful; ship with 2.
+2. `get_property_names_of_type(Empty)` (`members.rs`, main) is `None`: the
+   heritage walk (`base_symbol_of_heritage_entry`) cannot name a base symbol
+   for an expression of type `any` and declines the whole table. Native's
+   names are the class's own members. The fix is an `any` base constructor
+   arm in the class names walk (and the `any` index info beside it); not
+   attempted here, since property-name completeness feeds the excess and
+   relation checks everywhere.
+
+`check_jsx_class_attributes_member` needs no change once both land.
+
+## 4. TS2786 with `JSX.ElementType` defaults — routed, `declared.rs`
+
+`jsxElementTypeLiteralWithGeneric` (and `jsxElementType` 91:2). Native's
+`getJsxElementTypeTypeAt` is `getJsxType(ElementType)`, i.e.
+`getDeclaredTypeOfSymbol` of the alias: for a **generic** alias that is its
+body with the type parameter `P` free — not instantiated with `P`'s
+default. `"ruhroh"` is then not assignable to the mapped/indexed-access arm
+(`P extends IntrinsicElements[K] ? K : never` over a free `P`) nor to
+`ComponentType<P>`, so TS2786.
+
+The port's `jsx_element_type_type_at` asks `instantiated_heritage_base(symbol,
+&[])`, which declines a generic alias. Both substitutes were tried and do
+not exist in the port: `get_declared_type_of_symbol` of a generic alias is
+a print-only `Named` mint with no members (`ElementType<P>`), and
+`evaluate_alias_body(symbol, own type parameters)` answers `None`. The
+missing piece is the generic alias's declared body type
+(`getDeclaredTypeOfTypeAlias`), `declared.rs` (r6-declared2). Once it
+exists, the reader here is one line, and the relation of a string literal
+to that body must then decide (`relater.rs`).
+
+## 5. TS2609 on an `errorType` spread child — routed, the property-access producer
+
+`inlineJsxFactoryDeclarationsLocalTypes` (`component.tsx` 4:136): the
+spread child is `{...this.props.children}` at module level, where `this` is
+`undefined` (TS2532, reported). Native's property access on that receiver
+answers `errorType`, and `checkJsxExpression` reports TS2609 because
+`errorType` is not `anyType`. Traced in the port: `this.props` and
+`this.props.children` both answer the intrinsic **`any`** — not a gap, and
+not `native_error` — so `check_jsx_expression`'s `ty == any` test (which
+is native's own `type != anyType`) declines correctly. Removing the gap
+test would change nothing here, and would make TS2609 claims on port gaps
+(ADR-0048, `box-protocol.md` §3a). The fix is the producer: property access
+on a receiver that `checkNonNullExpression` reduced (TS2532) must answer
+`native_error`, not `any` (main's property-access road).
+
+## 6. Hyphenated attributes against an index signature — routed, `relater.rs`
+
+`ignoredJsxAttributes` 20:11. `r5-jsx3.md` §2's decline
+(`jsx_hyphen_sensitive_target`) stays: removing it was measured at +1 row
+and −5 cases, because the relater relates a hyphenated member like any
+other. The prerequisite is `ObjectFlagsJsxAttributes` in the relater, in
+the three places native reads it (`relater.go`): `hasExcessProperties`
+(`isIgnoredJsxProperty`), `hasCommonProperties` (`isKnownProperty` with
+`isComparingJsxAttributes`) and `membersRelatedToIndexInfo` (skip a
+hyphenated source member). The source identity is available: every
+attributes object is minted by `mint_jsx_attributes_chunk`
+(`jsx_intrinsic.rs`), which would record the type in a checker set the
+relater reads. Not attempted this session (three relater arms, r6-relater2,
+plus a `checker.rs` field); once in, the decline in `jsx_component.rs` is
+removed in this lane.
+
+## 7. TS1099/TS1009 on a JSX type-argument list — routed, the parser
+
+6 rows (`jsxIntrinsicElementsTypeArgumentErrors` 5:15, 7:22, 18:15, 20:22;
+`tsxTypeArgumentResolution` 26:12, 28:12). `checkGrammarJsxElement`'s
+`checkGrammarTypeArguments` reads `NodeList` facts the parser drops in
+`parse_type_arguments` (`types.rs`): an empty list is `&[]`, the same as no
+list, and the trailing comma returned by `parse_delimited_list` is
+discarded. Proposal for the parser (main): in the JSX opening arm
+(`jsx.rs`), set `NodeFlags::HAS_TRAILING_COMMA` on the element when the
+list had one (a JSX element owns no other comma list, so the flag is
+unambiguous), and record a written-but-empty list (no free `NodeFlags` bit
+is obvious; a side table keyed by the element, or the `<` position, would
+do). The grammar check itself (`check_grammar_jsx_element`) is this lane's:
+TS1099 at the list's `pos` (just after `<`) through its end, TS1009 on the
+comma. Not attempted here, because the AST change is the larger half.
+
+## 8. Not touched (routed by the brief)
+
+TS7006 in JSX callbacks (`implicit_any.rs`, main), children relations
+against tuple/`Iterable` unions (relater/intersections), and
+`tsxLibraryManagedAttributes`' alias targets. The managed-attributes alias
+also blocks §1's `reactDefaultPropsInferenceSuccess`.
+
+## 9. Diffs, in apply order
+
+All against `2e26f22` plus this lane's commits.
+
+| | File (owner) | What | Measured |
+|---|---|---|---|
+| J1 | `jsx_intrinsic.rs` (r6-errorsplit2) | `jsx_attributes_inference_type` → `pub(crate)` | required by §1; with §1: +1 case, +8 type lines, 0 lost |
+| J2 | `checker.rs` (main) | `jsx_factory_entity`, the option-derived factory text | required by §2; with §2: +1 case, 0 lost |
+| J3 | `signatures.rs` (r6-printer4) | an `any` base constructor has no construct signatures | alone: no transition; §3 needs it with the members fix |
+| — | `signatures.rs` | alias-reference signatures (`r6-jsx2-alias-reference-signatures.diff`) | **held, not for apply**: +1 case but a false TS2345 in `coAndContraVariantInferences6` (§2) |
+
+The lane's commits **do not compile without J1 and J2**: §1 calls the
+builder J1 exposes and §2 reads the field J2 adds.
