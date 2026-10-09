@@ -6434,7 +6434,7 @@ impl Checker<'_, '_> {
         } else {
             computed_type
         };
-        self.is_discriminant_property(t, &name).then_some(access)
+        self.is_discriminant_property(t, &name).unwrap_or(false).then_some(access)
     }
 
     /// `isMatchingConstructorReference` (`flow.go:750`). §760.
@@ -6909,60 +6909,6 @@ impl Checker<'_, '_> {
             }
             _ => None,
         }
-    }
-
-    /// `isDiscriminantProperty` (`relater.go:1087`), computed from the
-    /// constituents rather than read off a synthetic union property — this
-    /// port builds no `createUnionOrIntersectionProperty` symbol and carries
-    /// no `CheckFlags`. The three conditions it encodes are transcribed:
-    /// the property exists in SOME constituent (`singleProp != nil`), its
-    /// types are NON-UNIFORM across the constituents that have it
-    /// (`HasNonUniformType`), and at least one of them is a literal type
-    /// (`HasLiteralType`), and the union property's type is not generic.
-    /// §750.
-    ///
-    /// Not transcribed: the `ContainsPrivate | ContainsProtected` mismatch
-    /// rule (`checker.go:21556`, answers nil) and `isPatternLiteralType`
-    /// (this port has no template-literal types to be one). A constituent
-    /// lacking the property makes the synthetic property partial upstream
-    /// but does not stop it from being a discriminant, and does not here.
-    fn is_discriminant_property(&mut self, t: TypeId, name: &str) -> bool {
-        let constituents: Vec<TypeId> = match &self.store.get(t).data {
-            TypeData::Union { types, .. } => types.clone(),
-            _ => return false,
-        };
-        let mut first: Option<TypeId> = None;
-        let mut non_uniform = false;
-        let mut has_literal = false;
-        for constituent in constituents {
-            let flags = self.store.get(constituent).flags;
-            if constituent == self.intrinsics.error || flags.contains(TypeFlags::NEVER) {
-                continue;
-            }
-            let Some(prop_type) = self.get_type_of_property_of_type(constituent, name) else {
-                continue;
-            };
-            if prop_type == self.intrinsics.error {
-                // A property this port cannot type is not evidence either way.
-                return false;
-            }
-            match first {
-                None => first = Some(prop_type),
-                Some(f) if f != prop_type => non_uniform = true,
-                Some(_) => {}
-            }
-            // createUnionOrIntersectionProperty (checker.go:21618) sets
-            // HasLiteralType for literal and pattern-literal property types.
-            if self.is_literal_type(prop_type) || self.is_pattern_template(prop_type) {
-                has_literal = true;
-            }
-            if self.store.get(prop_type).flags.intersects(TypeFlags::TYPE_PARAMETER) {
-                // `!isGenericType(getTypeOfSymbol(prop))`, reduced to the
-                // shape this port can see.
-                return false;
-            }
-        }
-        first.is_some() && non_uniform && has_literal
     }
 
     /// getReducedType / isDiscriminantWithNeverType (checker.go:21819).

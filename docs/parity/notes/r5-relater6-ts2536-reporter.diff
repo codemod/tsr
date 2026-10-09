@@ -1,0 +1,258 @@
+diff --git a/crates/tsr-checker/src/index_access_reports.rs b/crates/tsr-checker/src/index_access_reports.rs
+index b2e9bf3..bda227b 100644
+--- a/crates/tsr-checker/src/index_access_reports.rs
++++ b/crates/tsr-checker/src/index_access_reports.rs
+@@ -13,7 +13,7 @@
+ //! These reports run at check sites over types `check_expression` and
+ //! `get_type_from_type_node` already cached; they add no table.
+ 
+-use tsr_ast::{Node, NodeId, SyntaxKind};
++use tsr_ast::{Node, NodeId, SyntaxKind, TypeNode};
+ use tsr_diagnostics::{Diagnostic, messages};
+ 
+ use crate::checker::Checker;
+@@ -21,7 +21,7 @@ use crate::flags::TypeFlags;
+ use crate::relater::{Relation, Ternary};
+ use crate::types::{TypeData, TypeId};
+ 
+-impl Checker<'_, '_> {
++impl<'a> Checker<'a, '_> {
+     /// `indexType.flags&TypeFlagsNullable == 0 &&
+     /// isTypeAssignableToKind(indexType, StringLike|NumberLike|ESSymbolLike)`
+     /// (`checker.go:27081`). `None` when the relation is undecided here.
+@@ -134,6 +134,9 @@ impl Checker<'_, '_> {
+         }
+         self.report_invalid_index_types(object_type, index_type, argument_id);
+         self.report_implicit_any_element_access(node, object_type, index_type, argument_id);
++        let access_type =
++            self.check_expression(tsr_ast::Expression::ElementAccessExpression(access));
++        self.check_indexed_access_index_type(access_type, node);
+     }
+ 
+     /// `getPropertyTypeForIndexType`'s access-expression arm
+@@ -378,6 +381,225 @@ impl Checker<'_, '_> {
+             return;
+         }
+         self.report_indexed_access_type_misses(object_type, index_type, index_id);
++        let access_type =
++            self.get_type_from_type_node(tsr_ast::TypeNode::IndexedAccessTypeNode(access));
++        // getTypeFromTypeReference substitutes a reference in a conditional's
++        // true branch with its implied constraint (getConditionalFlowTypeOfType,
++        // checker.go:24952). An index reference relates as `K & C` through
++        // getSubstitutionIntersection; an object reference with a constraint,
++        // or any other node kind inside a true branch, declines.
++        let in_true_branch = self.in_conditional_true_branch(node);
++        let object_constraints = match object_node {
++            TypeNode::TypeReferenceNode(_) => match object_node.node_id() {
++                Some(object_id) => self.conditional_flow_constraints(object_id, object_type),
++                None => None,
++            },
++            _ if in_true_branch => None,
++            _ => Some(Vec::new()),
++        };
++        if object_constraints.is_none_or(|constraints| !constraints.is_empty()) {
++            return;
++        }
++        let index_constraints = match index_node {
++            TypeNode::TypeReferenceNode(_) => {
++                self.conditional_flow_constraints(index_id, index_type)
++            }
++            _ if in_true_branch => None,
++            _ => Some(Vec::new()),
++        };
++        let Some(mut index_constraints) = index_constraints else { return };
++        let implied_index = (!index_constraints.is_empty()).then(|| {
++            index_constraints.insert(0, index_type);
++            self.get_intersection_type(&index_constraints, None)
++        });
++        self.check_indexed_access_index_type_with(access_type, node, implied_index);
++    }
++
++    /// Whether `node` lies in the true branch of an enclosing conditional
++    /// type node.
++    fn in_conditional_true_branch(&self, node: NodeId) -> bool {
++        let mut child = node;
++        while let Some(parent) = self.nodes.parent(child) {
++            if let Some(Node::ConditionalTypeNode(conditional)) = self.node_map.get(parent)
++                && conditional.true_type.and_then(|ty| ty.node_id()) == Some(child)
++            {
++                return true;
++            }
++            child = parent;
++        }
++        false
++    }
++
++    /// The constraints `getConditionalFlowTypeOfType` (`checker.go:24952`)
++    /// collects for a reference `node` of type `ty`: walking out through the
++    /// node's ancestors (no conditional type encloses a statement), each conditional whose true branch holds the
++    /// node adds `getImpliedConstraint` (`:24989`) when the position is
++    /// covariant (a parameter flips it) or `ty` is a type variable. `None`
++    /// where the walk meets the homomorphic mapped-type arm, which this
++    /// reporter does not compute (array/tuple keys become `number |
++    /// `${number}``).
++    fn conditional_flow_constraints(&mut self, node: NodeId, ty: TypeId) -> Option<Vec<TypeId>> {
++        let type_variable = self
++            .store
++            .get(ty)
++            .flags
++            .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS);
++        let mut constraints = Vec::new();
++        let mut covariant = true;
++        let mut child = node;
++        while let Some(parent) = self.nodes.parent(child) {
++            match self.node_map.get(parent) {
++                Some(Node::ParameterDeclaration(_)) => covariant = !covariant,
++                Some(Node::ConditionalTypeNode(conditional))
++                    if (covariant || type_variable)
++                        && conditional.true_type.and_then(|ty| ty.node_id()) == Some(child) =>
++                {
++                    if let (Some(check), Some(extends)) =
++                        (conditional.check_type, conditional.extends_type)
++                        && let Some(constraint) = self.implied_constraint(ty, check, extends)
++                    {
++                        constraints.push(constraint);
++                    }
++                }
++                Some(Node::MappedTypeNode(mapped))
++                    if mapped.name_type.is_none()
++                        && mapped.r#type.and_then(|ty| ty.node_id()) == Some(child)
++                        && self.store.get(ty).flags.contains(TypeFlags::TYPE_PARAMETER) =>
++                {
++                    return None;
++                }
++                _ => {}
++            }
++            child = parent;
++        }
++        Some(constraints)
++    }
++
++    /// `getImpliedConstraint` (`checker.go:24989`): unary tuples are
++    /// unwrapped pairwise; a check type that is `ty` implies the extends type.
++    fn implied_constraint(
++        &mut self,
++        ty: TypeId,
++        check: TypeNode<'a>,
++        extends: TypeNode<'a>,
++    ) -> Option<TypeId> {
++        if let (TypeNode::TupleTypeNode(check_tuple), TypeNode::TupleTypeNode(extends_tuple)) =
++            (check, extends)
++            && let ([check], [extends]) = (check_tuple.elements, extends_tuple.elements)
++        {
++            return self.implied_constraint(ty, *check, *extends);
++        }
++        (self.get_type_from_type_node(check) == ty).then(|| self.get_type_from_type_node(extends))
++    }
++
++    /// `checkIndexedAccessIndexType` (`checker.go:8220`): a deferred indexed
++    /// access `T[K]` whose every index constituent is assignable to `keyof T`
++    /// (or applicable to `T`'s number index) is valid; otherwise TS2536 at
++    /// the access node. For a generic mapped object with a remapping `as`
++    /// clause the keys are `getIndexTypeForMappedType`'s.
++    ///
++    /// Stated divergences:
++    /// - a constituent whose relation is `Unknown` declines the report: this
++    ///   port's relater says `Unknown` where it cannot prove a pair, and
++    ///   only a proven failure is native's TS2536
++    ///   (`docs/parity/notes/r5-relater6.md` §2);
++    /// - a literal key into a generic object declines instead of reading
++    ///   the constituent property's accessibility (TS4105,
++    ///   `getConstituentProperty`), which is not ported;
++    /// - TS2542 for a readonly mapped object is `readonly_target.rs`'s.
++    ///
++    /// No cache or table: `get_type_from_type_node`/`check_expression`
++    /// answers already cached, and one relation per index constituent.
++    fn check_indexed_access_index_type(&mut self, ty: TypeId, access_node: NodeId) {
++        self.check_indexed_access_index_type_with(ty, access_node, None);
++    }
++
++    /// [`Self::check_indexed_access_index_type`] with the index's implied
++    /// constraint intersection (the substitution type's
++    /// getSubstitutionIntersection) related in place of the index.
++    fn check_indexed_access_index_type_with(
++        &mut self,
++        ty: TypeId,
++        access_node: NodeId,
++        implied_index: Option<TypeId>,
++    ) {
++        let Some(&(object_type, index_type, _)) = self.deferred_indexed_access_types.get(&ty)
++        else {
++            return;
++        };
++        if self.is_gap(object_type) || self.is_gap(index_type) {
++            return;
++        }
++        self.ensure_mapped_type_info(object_type);
++        let remapping = match self.mapped_types.get(&object_type).cloned() {
++            Some(info) if info.name_type.is_some() => {
++                if !self.is_generic_index_type(info.constraint) {
++                    false
++                } else {
++                    match self.relate_ternary(
++                        info.name_type.unwrap(),
++                        info.parameter,
++                        Relation::Assignable,
++                    ) {
++                        Ternary::Related => false,
++                        Ternary::NotRelated => true,
++                        Ternary::Unknown => return,
++                    }
++                }
++            }
++            _ => false,
++        };
++        let object_index_type = if remapping {
++            self.mapped_index_type(object_type)
++        } else {
++            self.resolved_keyof_type(object_type)
++        };
++        let Some(object_index_type) = object_index_type else { return };
++        if self.is_gap(object_index_type) {
++            return;
++        }
++        // getIndexInfoOfType reads getReducedApparentType: `T extends
++        // string[]` has `string[]`'s number index.
++        let apparent = self.apparent_type(object_type);
++        let Some(infos) = self.get_index_infos_of_type(apparent) else { return };
++        let has_number_index_info = infos.iter().any(|info| info.key == self.intrinsics.number);
++        let related_index = implied_index.unwrap_or(index_type);
++        let parts = match &self.store.get(related_index).data {
++            TypeData::Union { types, .. } => types.clone(),
++            _ => vec![related_index],
++        };
++        let mut valid = true;
++        for part in parts {
++            match self.relate_ternary(part, object_index_type, Relation::Assignable) {
++                Ternary::Related => continue,
++                Ternary::Unknown => return,
++                Ternary::NotRelated => {}
++            }
++            if has_number_index_info && self.is_applicable_index_type(part, self.intrinsics.number)
++            {
++                continue;
++            }
++            valid = false;
++            break;
++        }
++        if valid {
++            return;
++        }
++        if literal_key_name(&self.store.get(index_type).data).is_some() {
++            return;
++        }
++        let Some(file) = self.source_file_of_for_diagnostics(access_node) else { return };
++        let span = self.error_span(access_node);
++        let index_text = self.type_to_string(index_type);
++        let object_text = self.type_to_string(object_type);
++        self.report(
++            file,
++            Diagnostic::with_args(
++                &messages::TYPE_0_CANNOT_BE_USED_TO_INDEX_TYPE_1,
++                span,
++                [index_text, object_text],
++            ),
++        );
+     }
+ 
+     /// Is `node` (of type `ty`) inside the true branch of an enclosing

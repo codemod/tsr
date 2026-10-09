@@ -3905,7 +3905,7 @@ impl<'a> Checker<'a, '_> {
         let mut unwidened = Vec::new();
         let mut widened = false;
         for name in self.get_property_names_of_type(source)? {
-            if self.is_discriminant_property_of_union(&types, &name)? {
+            if self.is_discriminant_property_of_types(&types, &name)? {
                 let source_property = self.get_type_of_property_of_type(source, &name)?;
                 let written =
                     self.discriminant_member_written_literal(source, &name, source_property);
@@ -3973,43 +3973,6 @@ impl<'a> Checker<'a, '_> {
         (self.type_of(written).flags.intersects(TypeFlags::UNIT)
             && self.get_base_type_of_literal_type(written) == source_property)
             .then(|| self.get_regular_type_of_literal_type(written))
-    }
-
-    /// `isDiscriminantProperty` (`relater.go:1087`) over the synthetic union
-    /// property `createUnionOrIntersectionProperty` (`checker.go:21452`)
-    /// would build: `CheckFlagsNonUniformAndLiteral` — the constituents that
-    /// have the property disagree on its type (`HasNonUniformType`) and one
-    /// of those types is `isLiteralType` or `isPatternLiteralType`
-    /// (`HasLiteralType`) — and the property's type is not generic. A
-    /// property found in one constituent only is not synthetic-non-uniform.
-    /// `None` where a constituent lacking the name has an uncertified table.
-    fn is_discriminant_property_of_union(&mut self, types: &[TypeId], name: &str) -> Option<bool> {
-        let mut first = None;
-        let mut non_uniform = false;
-        let mut literal = false;
-        let mut generic = false;
-        for &part in types {
-            let flags = self.type_of(part).flags;
-            if self.is_error(part) || flags.contains(TypeFlags::NEVER) {
-                continue;
-            }
-            let Some(member) = self.get_type_of_property_of_type(part, name) else {
-                if flags.intersects(TypeFlags::OBJECT | TypeFlags::INTERSECTION) {
-                    self.type_of_property_or_index_signature(part, name).ok()?;
-                }
-                continue;
-            };
-            match first {
-                None => first = Some(member),
-                Some(seen) if seen != member => non_uniform = true,
-                Some(_) => {}
-            }
-            let member_flags = self.type_of(member).flags;
-            literal |= self.is_literal_type_for_discriminant(member)
-                || member_flags.intersects(TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING_MAPPING);
-            generic |= self.maybe_type_of_kind(member, TypeFlags::INSTANTIABLE);
-        }
-        Some(non_uniform && literal && !generic)
     }
 
     /// `discriminateTypeByDiscriminableItems` (`relater.go:1212`) with

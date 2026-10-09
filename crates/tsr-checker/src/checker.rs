@@ -573,6 +573,10 @@ pub struct Checker<'a, 'n> {
     /// Native `Relation.results` for every relation kind, for the checker's
     /// lifetime (`tsr-2zk.902`); see [`crate::relation_cache`].
     pub(crate) relation_results: crate::relation_cache::RelationResults,
+    /// `isDiscriminantProperty`'s answer per `(union, property name)`, the
+    /// port's stand-in for native's `CheckFlagsIsDiscriminant` on the
+    /// synthetic union property; see `Checker::is_discriminant_property`.
+    pub(crate) discriminant_properties: FxHashMap<TypeId, FxHashMap<Box<str>, bool>>,
     pub(crate) variance_markers: Option<[TypeId; 3]>,
     pub(crate) variance_marker_types: rustc_hash::FxHashSet<TypeId>,
     /// Contextual signature instantiations and their recursion sentinel,
@@ -1494,6 +1498,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             variance_cache: FxHashMap::default(),
             variance_in_progress: rustc_hash::FxHashSet::default(),
             relation_results: crate::relation_cache::RelationResults::default(),
+            discriminant_properties: FxHashMap::default(),
             variance_markers: None,
             variance_marker_types: rustc_hash::FxHashSet::default(),
             signature_context_cache: FxHashMap::default(),
