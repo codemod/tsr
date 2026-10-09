@@ -3022,7 +3022,7 @@ impl Relater<'_, '_, '_> {
     fn is_pure_signature_type(&mut self, id: TypeId) -> bool {
         // The signature list decides most calls; test it before enumerating
         // members and index infos, which every relation pair reaches here.
-        if !self.checker.signature_types.get(&id).is_some_and(|signatures| !signatures.is_empty()) {
+        if self.checker.signature_types.get(&id).is_none_or(Vec::is_empty) {
             return false;
         }
         if self.checker.get_property_names_of_type_shared(id).is_some_and(|names| !names.is_empty())
