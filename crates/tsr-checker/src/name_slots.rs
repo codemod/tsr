@@ -115,7 +115,6 @@ impl Checker<'_, '_> {
     /// A reparsed JSDoc root has no parent edge here (the parser's
     /// `attach_jsdoc`), so a walk that ends anywhere but a source file is in
     /// a comment.
-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-js-type-annotations.diff")]
     pub(crate) fn names_in_jsdoc(&self, node: NodeId) -> bool {
         let mut current = node;
         loop {

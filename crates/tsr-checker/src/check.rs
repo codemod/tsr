@@ -5149,6 +5149,12 @@ impl Checker<'_, '_> {
         // annotation is a construct the file may not contain, so nothing inside
         // it is resolved. The value-position rule has carried this decline
         // since it was written; this one never got it. §779.
+        // **Corrected by r6-names:** upstream does resolve it. TS8008/TS8010
+        // are syntactic (`getJSSyntacticDiagnosticsForFile`) and the checker
+        // still reaches the annotation, so native reports TS2304 beside them
+        // (`fillInMissingTypeArgsOnJSConstructCalls`). Only names inside a
+        // JSDoc comment keep the decline (`name_slots.rs`,
+        // `docs/parity/notes/r6-names.md` §6).
         // **No `file_has_parse_errors` here.** §254's −14 measurement was made
         // on `check_value_identifier`, which has never carried the gate; this
         // path always has and nobody had measured it. `interface I { a: Foo; b }`
@@ -5175,7 +5181,8 @@ impl Checker<'_, '_> {
             self.report_primitive_type_as_value_at(node, text);
             return;
         }
-        if is_specially_diagnosed_name(text) || self.in_js_file(node) {
+        if is_specially_diagnosed_name(text) || (self.in_js_file(node) && self.names_in_jsdoc(node))
+        {
             return;
         }
         // **A duplicate heritage clause is recovered syntax.** `class C
