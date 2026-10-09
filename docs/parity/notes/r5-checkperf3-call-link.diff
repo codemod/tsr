@@ -1,0 +1,139 @@
+--- a/crates/tsr-checker/src/array_literals.rs
++++ b/crates/tsr-checker/src/array_literals.rs
+@@ -293,35 +293,25 @@
+         }
+         {
+             let Some(call_id) = call.node_id else { return false };
+-            let has_const_parameter = if let Some(context) =
+-                self.active_inference_contexts.get(&call_id)
+-            {
+-                context.signature.type_parameters.iter().any(|p| p.is_const)
+-            } else if crossed_function {
+-                // Overload selection can check a callback before parking an
+-                // inference context. A freshness query must not select that
+-                // overload again and check the same callback recursively.
+-                callee
+-                    .and_then(|callee| callee.node_id())
+-                    .and_then(|callee| self.node_types.get(&callee))
+-                    .and_then(|callee| self.signature_types.get(callee))
+-                    .is_some_and(|signatures| {
+-                        signatures
+-                            .iter()
+-                            .any(|signature| signature.type_parameters.iter().any(|p| p.is_const))
+-                    })
+-            } else {
+-                if !self.resolving_signature_calls.insert(call_id) {
+-                    return false;
+-                }
+-                let has_const_parameter = call
+-                    .expression
+-                    .map(|callee| self.check_expression(callee))
+-                    .and_then(|callee| self.resolve_call_signature(callee, Some(call.arguments)))
+-                    .is_some_and(|signature| signature.type_parameters.iter().any(|p| p.is_const));
+-                self.resolving_signature_calls.remove(&call_id);
+-                has_const_parameter
+-            };
++            let has_const_parameter =
++                if let Some(context) = self.active_inference_contexts.get(&call_id) {
++                    context.signature.type_parameters.iter().any(|p| p.is_const)
++                } else if crossed_function {
++                    // Overload selection can check a callback before parking an
++                    // inference context. A freshness query must not select that
++                    // overload again and check the same callback recursively.
++                    callee
++                        .and_then(|callee| callee.node_id())
++                        .and_then(|callee| self.node_types.get(&callee))
++                        .and_then(|callee| self.signature_types.get(callee))
++                        .is_some_and(|signatures| {
++                            signatures.iter().any(|signature| {
++                                signature.type_parameters.iter().any(|p| p.is_const)
++                            })
++                        })
++                } else {
++                    self.call_resolves_const_type_parameter(call)
++                };
+             if !has_const_parameter {
+                 return false;
+             }
+--- a/crates/tsr-checker/src/perf_links.rs
++++ b/crates/tsr-checker/src/perf_links.rs
+@@ -107,6 +107,17 @@
+     /// Steps of a declared-symbol walk that read unsettled state; a walk
+     /// publishes only when this did not move (`r5-checkperf.md` §12).
+     pub(crate) property_walk_provisional: u64,
++
++    // ---- r5-checkperf3 (`tsr-2zk.1091`). ----
++    /// `call -> whether its resolved signature declares a const type
++    /// parameter`: the one fact `literal_in_const_type_variable_context`
++    /// reads from native's `signatureLinks.resolvedSignature`
++    /// (`getResolvedSignature`, `checker.go:8410`), which native computes once
++    /// per call. Absent = unresolved, `resolving_signature_calls` = native's
++    /// `resolvingSignature` sentinel, an entry = resolved. Holds only answers
++    /// computed and read outside every contextual, inference and flow-loop
++    /// frame (`r5-checkperf3.md` §3).
++    pub(crate) call_const_type_parameters: FxHashMap<NodeId, bool>,
+ }
+ 
+ /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
+@@ -440,6 +451,61 @@
+     }
+ }
+ 
++// ---- r5-checkperf3 (`tsr-2zk.1091`). ----
++impl Checker<'_, '_> {
++    /// Whether `call`'s resolved signature declares a const type parameter,
++    /// asked outside the call's own inference: native reads
++    /// `signatureLinks.resolvedSignature` (`getResolvedSignature`,
++    /// `checker.go:8410`), set once per call, and answers its
++    /// `resolvingSignature` sentinel on re-entry (`checker.go:29786`). This
++    /// port resolves the call again on each ask; the answer is published per
++    /// call node under [`Self::call_link_context_clean`] and
++    /// [`Self::publishable_since`], and read only under the same clean
++    /// context (`r5-checkperf3.md` §3).
++    pub(crate) fn call_resolves_const_type_parameter(
++        &mut self,
++        call: &tsr_ast::CallExpression<'_>,
++    ) -> bool {
++        let Some(call_id) = call.node_id else { return false };
++        if !self.resolving_signature_calls.insert(call_id) {
++            return false;
++        }
++        let clean = self.call_link_context_clean();
++        if clean && let Some(&answer) = self.perf_links.call_const_type_parameters.get(&call_id) {
++            self.resolving_signature_calls.remove(&call_id);
++            return answer;
++        }
++        let mark = self.publication_mark();
++        let answer = call
++            .expression
++            .map(|callee| self.check_expression(callee))
++            .and_then(|callee| self.resolve_call_signature(callee, Some(call.arguments)))
++            .is_some_and(|signature| signature.type_parameters.iter().any(|p| p.is_const));
++        self.resolving_signature_calls.remove(&call_id);
++        if clean && self.call_link_context_clean() && self.publishable_since(mark) {
++            self.perf_links.call_const_type_parameters.insert(call_id, answer);
++        }
++        answer
++    }
++
++    /// Native's own rule: `getResolvedSignature` publishes unless a flow
++    /// loop is active (`checker.go:8443`). This port also keeps out the
++    /// frames under which a call can resolve against bindings native never
++    /// has open at a call: an active inference context, a higher-order or
++    /// uninstantiated contextual read, an alias-evaluation or mapped-template
++    /// frame (`r5-checkperf3.md` §3).
++    fn call_link_context_clean(&self) -> bool {
++        self.flow_loop_stack.is_empty()
++            && self.active_inference_contexts.is_empty()
++            && self.higher_order_context_calls.is_empty()
++            && !self.contextual_prefers_uninstantiated
++            && self.uninstantiated_context_node.is_none()
++            && self.mapped_template_depth == 0
++            && !self.identity_unmapped_type_parameters
++            && self.alias_evaluation_bindings.iter().all(FxHashMap::is_empty)
++    }
++}
++
+ #[cfg(test)]
+ mod receiver_signature_kinds_tests {
+     use tsr_ast::{HasNodeId, NodeId};
