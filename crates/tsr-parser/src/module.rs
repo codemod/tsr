@@ -568,6 +568,7 @@ impl<'a> Parser<'a> {
         if !self.eat(SyntaxKind::CommaToken) {
             return None;
         }
+        let open_brace_position = self.pos();
         self.expect(SyntaxKind::OpenBraceToken);
         if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
             return None;
@@ -586,7 +587,7 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         let attributes = self.parse_import_attributes_body(start, token);
         self.eat(SyntaxKind::CommaToken);
-        self.expect(SyntaxKind::CloseBraceToken);
+        self.expect_close_brace_relating_last_expected(open_brace_position);
         Some(attributes)
     }
 
@@ -595,19 +596,46 @@ impl<'a> Parser<'a> {
         start: u32,
         token: &'a Token<'a>,
     ) -> &'a ImportAttributes<'a> {
-        self.expect(SyntaxKind::OpenBraceToken);
-
-        // `parseDelimitedList(PCImportAttributes, parseImportAttribute)`.
-        let (elements, _) = self
-            .parse_delimited_list(ParsingContext::ImportAttributes, Self::parse_import_attribute);
-        self.expect(SyntaxKind::CloseBraceToken);
-
-        let elements = self.arena.alloc_slice(&elements);
+        // `parseImportAttributes` (`parser.go:3085`): the members are parsed
+        // only after a `{`.
+        let open_brace_position = self.pos();
+        let elements: &[_] = if self.expect(SyntaxKind::OpenBraceToken) {
+            // `parseDelimitedList(PCImportAttributes, parseImportAttribute)`.
+            let (elements, _) = self.parse_delimited_list(
+                ParsingContext::ImportAttributes,
+                Self::parse_import_attribute,
+            );
+            self.expect_close_brace_relating_last_expected(open_brace_position);
+            self.arena.alloc_slice(&elements)
+        } else {
+            &[]
+        };
         self.finish_node(
             ImportAttributes::new(token, elements, false),
             SyntaxKind::ImportAttributes,
             start,
         )
+    }
+
+    /// The closing `}` of `parseImportAttributes` and of `parseImportType`'s
+    /// attribute object (`parser.go:3096`, `:3049`): when it is missing, the
+    /// **last** parse diagnostic — whichever report that is — gets TS1007 at the
+    /// `{` if its code is TS1005.
+    fn expect_close_brace_relating_last_expected(&mut self, open_brace_position: u32) {
+        if self.expect(SyntaxKind::CloseBraceToken) {
+            return;
+        }
+        if self
+            .diagnostics
+            .last()
+            .is_some_and(|last| last.message.code() == messages::_0_EXPECTED.code())
+        {
+            self.relate_last_error_to_opener(
+                SyntaxKind::OpenBraceToken,
+                SyntaxKind::CloseBraceToken,
+                open_brace_position,
+            );
+        }
     }
 
     /// `type: "json"` — typescript-go's `Parser.parseImportAttribute`

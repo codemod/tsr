@@ -536,3 +536,12 @@ per-file flag must become per-node.
   non-async arm), TS1206 (`findFirstIllegalDecorator`, the legacy private-name
   arm) and the `checkGrammarModifiers` decorator/`this`-parameter arm. Each
   spans the scanned first token, not the whole node or one character.
+- Missing closing brackets (`parseExpectedMatchingBrackets`): block, `if`/`do`/
+  `while`/`with` parentheses and array/object literals report `'x' expected`
+  and, when the opener was parsed and the report was not dropped by the
+  same-position guard, attach TS1007 at the opener. `parseImportAttributes`
+  and `parseImportType`'s attribute object attach it to whichever diagnostic
+  is last if that one is TS1005, and the attribute members are parsed only
+  after a `{`. The related record's file is set when the program file is
+  built (`tsr-compiler` `ProgramFile::new`, the related half of
+  `attachFileToDiagnostics`), sharing one file image per file.

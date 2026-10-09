@@ -1331,13 +1331,17 @@ impl<'a> Parser<'a> {
     /// real `isInSomeParsingContext`).
     pub(crate) fn parse_array_literal(&mut self) -> Expression<'a> {
         let start = self.pos();
-        self.expect(SyntaxKind::OpenBracketToken);
+        let open_bracket_parsed = self.expect(SyntaxKind::OpenBracketToken);
         let saved_no_in = std::mem::take(&mut self.no_in);
         let (elements, _) =
             self.parse_delimited_list(ParsingContext::ArrayLiteralMembers, Self::parse_argument);
         self.no_in = saved_no_in;
-        // `parseExpectedMatchingBrackets`.
-        self.expect(SyntaxKind::CloseBracketToken);
+        self.expect_matching_brackets(
+            SyntaxKind::OpenBracketToken,
+            SyntaxKind::CloseBracketToken,
+            open_bracket_parsed,
+            start,
+        );
         let elements = self.arena.alloc_slice(&elements);
         let node = self.finish_node(
             ArrayLiteralExpression::new(elements, false),
@@ -1355,12 +1359,17 @@ impl<'a> Parser<'a> {
     /// past a token that is not a member unless an enclosing list wants it.
     pub(crate) fn parse_object_literal(&mut self) -> Expression<'a> {
         let start = self.pos();
-        self.expect(SyntaxKind::OpenBraceToken);
+        let open_brace_parsed = self.expect(SyntaxKind::OpenBraceToken);
         let (properties, _) = self.parse_delimited_list(
             ParsingContext::ObjectLiteralMembers,
             Self::parse_object_literal_element,
         );
-        self.expect(SyntaxKind::CloseBraceToken);
+        self.expect_matching_brackets(
+            SyntaxKind::OpenBraceToken,
+            SyntaxKind::CloseBraceToken,
+            open_brace_parsed,
+            start,
+        );
         let properties = self.arena.alloc_slice(&properties);
         let node = self.finish_node(
             ObjectLiteralExpression::new(properties, false),

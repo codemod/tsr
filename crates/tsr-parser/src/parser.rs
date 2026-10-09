@@ -448,6 +448,45 @@ impl<'a> Parser<'a> {
         false
     }
 
+    /// `Parser.parseExpectedMatchingBrackets` (`parser.go:971`): consume
+    /// `close`, or report `'{close}' expected.` and, when the opener was parsed
+    /// and that report was not dropped by the same-position guard, attach
+    /// TS1007 at the opener's token start (`open_position`).
+    pub(crate) fn expect_matching_brackets(
+        &mut self,
+        open: SyntaxKind,
+        close: SyntaxKind,
+        open_parsed: bool,
+        open_position: u32,
+    ) {
+        if self.eat(close) {
+            return;
+        }
+        let reported = !self.would_repeat_last_error(self.token.span);
+        self.error_at_current_with(&messages::_0_EXPECTED, &[token_to_text(close)]);
+        if open_parsed && reported {
+            self.relate_last_error_to_opener(open, close, open_position);
+        }
+    }
+
+    /// `lastError.AddRelatedInfo(NewDiagnostic(nil, {openPosition,
+    /// openPosition}, The_parser_expected_to_find_a_1_to_match_the_0_token_here,
+    /// open, close))`. The file is attached with the file's other parse
+    /// diagnostics (`attachFileToDiagnostics`).
+    pub(crate) fn relate_last_error_to_opener(
+        &mut self,
+        open: SyntaxKind,
+        close: SyntaxKind,
+        open_position: u32,
+    ) {
+        let Some(last) = self.diagnostics.last_mut() else { return };
+        last.add_related_information(Some(Diagnostic::with_args(
+            &messages::THE_PARSER_EXPECTED_TO_FIND_A_1_TO_MATCH_THE_0_TOKEN_HERE,
+            Span::at(open_position),
+            [token_to_text(open).to_string(), token_to_text(close).to_string()],
+        )));
+    }
+
     /// The position at which the current token starts.
     pub(crate) fn pos(&self) -> u32 {
         self.token.span.start
