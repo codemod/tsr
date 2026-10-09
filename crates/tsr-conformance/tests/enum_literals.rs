@@ -2,7 +2,19 @@
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
 
 fn expect(source: &str, wanted: &[&str]) {
-    let case = TestCase::parse("probe/enum_literals", "probe.ts", source);
+    expect_with(source, wanted, false);
+}
+
+/// A source that natively reports diagnostics: its writer runs with
+/// `hadErrorBaseline` (`type_symbol_baseline.go:379`), so upstream's
+/// `errorType` prints `any` (ADR-0048).
+fn expect_reported(source: &str, wanted: &[&str]) {
+    expect_with(source, wanted, true);
+}
+
+fn expect_with(source: &str, wanted: &[&str], had_error_baseline: bool) {
+    let mut case = TestCase::parse("probe/enum_literals", "probe.ts", source);
+    case.had_error_baseline = had_error_baseline;
     let expected: Vec<_> = case
         .files
         .iter()
@@ -224,7 +236,9 @@ async function myFunc(): Promise<void> {
 fn enum_static_members() {
     // Native declarations: /tmp/tsr-99-enum-static-native. Invalid const-enum
     // value/access expressions report TS2475/TS2476 and still emit types.
-    expect(
+    // `Constant[0]` and `Constant[key]` are `errorType` (`checker.go:8157`),
+    // printed `any` under the reported case's `hadErrorBaseline`.
+    expect_reported(
         r"// @strict: true
 // @target: esnext
 declare function strings<T>(value: {[key:string]:T}):T;

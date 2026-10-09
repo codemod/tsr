@@ -1924,13 +1924,15 @@ fn the_index_name_comes_from_the_types_of_the_index_not_its_syntax() {
         "boolean"
     );
     // A `let` widens to `string`, which names no property — the same rule read
-    // from the other side, and a gap rather than a guess.
+    // from the other side. No index signature applies, so upstream reports and
+    // answers `errorType` (`checker.go:8176`), which the checker prints `any`
+    // (ADR-0048; `docs/parity/notes/r5-errorsplit6.md` §2).
     assert_eq!(
         type_of_declaration(
             "declare const a: { b: number };\nlet k = \"b\";\nconst x = a[k];",
             "x"
         ),
-        "error"
+        "any"
     );
 }
 
@@ -1939,17 +1941,20 @@ fn an_element_access_this_slice_cannot_resolve_is_a_gap() {
     // A non-literal index falls to the index signatures, and this receiver
     // declares none. (When it declares one, see
     // `a_string_index_signature_applies_to_a_numeric_key_but_not_the_reverse`.)
+    // ADR-0048: these misses were the gap and are now upstream's `errorType`,
+    // printed `any` by the checker (`docs/parity/notes/r5-errorsplit6.md`
+    // §2); a miss the port cannot vouch for still gaps (`a_cycle_…` below).
     assert_eq!(
         type_of_declaration(
             "declare const a: { b: number };\ndeclare const i: string;\nconst x = a[i];",
             "x"
         ),
-        "error"
+        "any"
     );
     // No such property: upstream reports and answers `errorType`.
     assert_eq!(
         type_of_declaration("declare const a: { b: number };\nconst x = a[\"c\"];", "x"),
-        "error"
+        "any"
     );
     // This assertion said "an optional chain is unported" and asserted
     // `error` until the `checker-notes-nnaccess.md` build. The chain now
@@ -2121,7 +2126,8 @@ fn a_string_index_signature_applies_to_a_numeric_key_but_not_the_reverse() {
     // The reverse does not hold, and this is the assertion that pins the
     // asymmetry: a `number` index signature never applies to a `string` key.
     assert_eq!(with("[k: number]: boolean", "number"), "boolean");
-    assert_eq!(with("[k: number]: boolean", "string"), "error");
+    // No applicable signature: upstream's `errorType`, printed `any` (ADR-0048).
+    assert_eq!(with("[k: number]: boolean", "string"), "any");
 }
 
 #[test]
@@ -2162,7 +2168,8 @@ fn a_named_lookup_that_misses_falls_back_to_an_index_signature() {
     // number index signature. The round-trip is the definition, so `"0"` is a
     // numeric name and `"00"` is not — they are distinct property names.
     assert_eq!(lookup("[k: number]: boolean", "\"0\""), "boolean");
-    assert_eq!(lookup("[k: number]: boolean", "\"00\""), "error");
+    // `"00"` misses: upstream's `errorType`, printed `any` (ADR-0048).
+    assert_eq!(lookup("[k: number]: boolean", "\"00\""), "any");
 }
 
 /// Inherited index signatures — the base-type loop in `resolveObjectTypeMembers`

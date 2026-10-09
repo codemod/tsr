@@ -87,10 +87,23 @@ impl Checker<'_, '_> {
     /// Pinned tsgo 5b1047d, jsx.go getJsxType/getJsxNamespaceAt. Factory
     /// namespace selection precedes the global fallback, including Element.
     pub(crate) fn jsx_type_symbol(&mut self, location: NodeId, name: &str) -> Option<SymbolId> {
-        let namespace = self
-            .jsx_namespace_symbol(location)
-            .or_else(|| self.binder.globals().get(JSX).copied())?;
-        let namespace = self.binder.merged_symbol(namespace);
+        // The global fallback is `c.resolveSymbol(getGlobalSymbol(JSX,
+        // Namespace))` (`jsx.go:1334`): a `declare global { export import JSX
+        // = … }` is an alias, and its exports are the target's
+        // (`jsxNamespaceGlobalReexport`; `docs/parity/notes/r5-errorsplit6.md`
+        // §4).
+        let namespace = if let Some(namespace) = self.jsx_namespace_symbol(location) {
+            self.binder.merged_symbol(namespace)
+        } else {
+            let global = self.binder.globals().get(JSX).copied()?;
+            let global = self.binder.merged_symbol(global);
+            if self.binder.symbols().get(global).flags.intersects(SymbolFlags::ALIAS) {
+                let target = self.resolve_alias_fully(global);
+                self.binder.merged_symbol(target)
+            } else {
+                global
+            }
+        };
         self.binder.symbols().get(namespace).exports.get(name).copied()
     }
 

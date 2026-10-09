@@ -59,7 +59,8 @@ impl Checker<'_, '_> {
     /// Ported from `Checker.checkElementAccessExpression` (`checker.go:8146`).
     ///
     /// Const-enum accesses require string-literal-like syntax before index
-    /// lookup; invalid syntax has the native error recovery type (`any`).
+    /// lookup; invalid syntax answers upstream's `errorType` (`checker.go:8157`,
+    /// ADR-0048; `docs/parity/notes/r5-errorsplit6.md` §2).
     /// The `for…in` numeric special case was ported at §477 and the readonly
     /// write answer at §473.
     pub fn check_element_access_expression(
@@ -83,6 +84,16 @@ impl Checker<'_, '_> {
             return computed;
         }
         let Some(id) = node.node_id else { return computed };
+        // ADR-0048: a failed lookup is `errorType`, and a definite write
+        // target takes it as is (`getFlowTypeOfAccessExpression`'s
+        // `AssignmentKindDefinite` arm, `checker.go:8176`). The write-type
+        // recomputation below would answer `T[string] & T[symbol]` where
+        // upstream's access failed (`cannotIndexGenericWritingError`).
+        if computed == self.intrinsics.native_error
+            && self.assignment_target_kind(id) == crate::expressions::AssignmentTargetKind::Definite
+        {
+            return computed;
+        }
         // §473: `isAssignmentToReadonlyEntity`'s element-access half — the
         // §27 arm the property-access twin has had since that landing: a
         // READONLY property as an assignment target answers upstream's
@@ -90,6 +101,12 @@ impl Checker<'_, '_> {
         // `any` (`constDeclarations-access3/4/5` record `M["x"] : any` for
         // every write spelling against an exported `const`). The same
         // this-in-constructor carve-out as the twin, fields only.
+        //
+        // ADR-0048: these arms answered the `any` stand-in. The element-access
+        // road's own exit is `getPropertyTypeForIndexType`'s
+        // `isAssignmentToReadonlyEntity` arm, which reports TS2540 and returns
+        // `nil`, so `errorType` (`checker.go:27036`, `:8176`). Probed per arm
+        // (`docs/parity/notes/r5-errorsplit6.md` §2.3).
         if self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
             && let (Some(receiver), Some(index)) = (node.expression, node.argument_expression)
         {
@@ -106,7 +123,20 @@ impl Checker<'_, '_> {
                             || name.parse::<usize>().is_ok_and(|index| index.to_string() == name)
                     }))
             {
-                return self.intrinsics.any;
+                // A name the tuple has as a property is the readonly-entity
+                // arm above (2 of 2 probed lines `errorType`). A non-literal or
+                // out-of-range index takes the index-signature road instead,
+                // where `errorIfWritingToReadonlyIndex` reports and the element
+                // type is still answered (`checker.go:27076`): not `errorType`
+                // natively (3 of 3), so that half keeps its stand-in.
+                let names_property = self
+                    .property_name_from_index(index_type)
+                    .is_some_and(|name| self.tuple_has_property(object_type, &name));
+                return if names_property {
+                    self.intrinsics.native_error
+                } else {
+                    self.intrinsics.any
+                };
             }
             let readonly_target = self
                 .property_name_from_index(index_type)
@@ -119,7 +149,8 @@ impl Checker<'_, '_> {
                 |container| self.nodes.kind(container) == tsr_ast::SyntaxKind::Constructor,
             );
             if readonly_target && !constructor_field_write {
-                return self.intrinsics.any;
+                // 7 of 7 probed lines `errorType`.
+                return self.intrinsics.native_error;
             }
         }
         if self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
@@ -132,7 +163,10 @@ impl Checker<'_, '_> {
                 .property_name_from_index(key)
                 .is_some_and(|name| self.get_property_of_type(source, &name).is_some())
             {
-                return self.intrinsics.any;
+                // A namespace import's member is a readonly entity
+                // (`isAssignmentToReadonlyEntity`), so the same `nil`:
+                // `errorType`, 12 of 12 probed lines (ADR-0048).
+                return self.intrinsics.native_error;
             }
         }
         // `isThisPropertyAccessInConstructor` (`checker.go:27042`), the
@@ -323,7 +357,11 @@ impl Checker<'_, '_> {
                     | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
             )
         {
-            return self.intrinsics.any;
+            // ADR-0048: `checkElementAccessExpression` reports TS2476 and
+            // returns `errorType` (`checker.go:8157`). This answered the `any`
+            // stand-in; the probe reads `errorType` on all 8 lines it moves
+            // (`docs/parity/notes/r5-errorsplit6.md` §2).
+            return self.intrinsics.native_error;
         }
         // §477: `isForInVariableForNumericPropertyNames` (`checker.go:8161`)
         // — an index that is the FOR-IN VARIABLE of a loop over an object
@@ -467,8 +505,11 @@ impl Checker<'_, '_> {
                     widened,
                     no_index_signatures,
                 );
-                if value == error {
-                    return error;
+                // One miss fails the whole access with that miss's identity:
+                // upstream's `nil` becomes `errorType` (`checker.go:8176`),
+                // the port's gap stays the gap (ADR-0048).
+                if value == error || value == self.intrinsics.native_error {
+                    return value;
                 }
                 // formatUnionTypes compares enum members by their regular
                 // types when collapsing the complete enum (printer.go).
@@ -523,7 +564,6 @@ impl Checker<'_, '_> {
         widened: bool,
         no_index_signatures: bool,
     ) -> TypeId {
-        let error = self.intrinsics.error;
         let Some(name) = self.property_name_from_index(index_type) else {
             // Higher-order accesses defer before applicable index signatures
             // are considered (getIndexedAccessTypeOrUndefined). A constraint
@@ -546,7 +586,9 @@ impl Checker<'_, '_> {
             // falls to the index signatures (`checker.go:21902`).
             if let Some(info) = self.get_applicable_index_info(apparent, index_type) {
                 if no_index_signatures && info.key != self.intrinsics.number {
-                    return error;
+                    // Reported (TS2862/TS2536) and `nil`, so `errorType`
+                    // (`checker.go:27094`, `:8176`; ADR-0048).
+                    return self.intrinsics.native_error;
                 }
                 return self.include_unchecked_undefined(
                     info.value,
@@ -580,7 +622,7 @@ impl Checker<'_, '_> {
             }
             return self
                 .object_literal_index_fallback(object_type, index_type, widened)
-                .unwrap_or(error);
+                .unwrap_or_else(|| self.element_access_miss(object_type, index_type));
         };
         // Through [`Checker::get_type_of_property_of_type`] rather than
         // `get_property_of_type` + `get_type_of_symbol`, because the symbol
@@ -628,11 +670,17 @@ impl Checker<'_, '_> {
         {
             return property_type;
         }
+        if Some(apparent) == self.global_this_type
+            && let Some(property_type) = self.global_this_property_type(&name)
+        {
+            return property_type;
+        }
         // A named lookup that misses still reaches the index signatures, which is
         // what makes `{ [k: string]: number }["anything"]` answer `number`.
         if let Some(info) = self.get_applicable_index_info(object_type, index_type) {
             if no_index_signatures && info.key != self.intrinsics.number {
-                return error;
+                // `checker.go:27094`, as above (ADR-0048).
+                return self.intrinsics.native_error;
             }
             return self.include_unchecked_undefined(
                 info.value,
@@ -653,7 +701,8 @@ impl Checker<'_, '_> {
             && let Some(info) = self.get_applicable_index_info(apparent, index_type)
         {
             if no_index_signatures && info.key != self.intrinsics.number {
-                return error;
+                // `checker.go:27094`, as above (ADR-0048).
+                return self.intrinsics.native_error;
             }
             return self.include_unchecked_undefined(
                 info.value,
@@ -676,7 +725,130 @@ impl Checker<'_, '_> {
         if !self.no_implicit_any && self.js_literal_types.contains(&object_type) {
             return self.intrinsics.any;
         }
-        self.object_literal_index_fallback(object_type, index_type, widened).unwrap_or(error)
+        self.object_literal_index_fallback(object_type, index_type, widened)
+            .unwrap_or_else(|| self.element_access_miss(object_type, index_type))
+    }
+
+    /// `getPropertyTypeForIndexType`'s failure: `nil` after its diagnostic,
+    /// which `checkElementAccessExpression` turns into `errorType`
+    /// (`checker.go:27196`, `:8176`). The JS-literal `anyType` arm answers
+    /// before this is reached.
+    ///
+    /// ADR-0048: the miss is upstream's `errorType` only where the port's
+    /// lookup over this receiver is complete. Where the port's member image
+    /// is known to be short, a miss is the port's own and stays the gap. Each
+    /// exclusion below is a false claim the native identity probe found when
+    /// the miss was switched unconditionally
+    /// (`docs/parity/notes/r5-errorsplit6.md` §2).
+    fn element_access_miss(&mut self, object_type: TypeId, index_type: TypeId) -> TypeId {
+        if self.element_access_receiver_is_complete(object_type, index_type) {
+            self.intrinsics.native_error
+        } else {
+            self.intrinsics.error
+        }
+    }
+
+    /// Whether a failed element-access lookup over `object_type` is a fact
+    /// about the receiver rather than a gap in the port's member image.
+    ///
+    /// Each `false` arm names the unported upstream piece; the probe found
+    /// false claims under each, and none under the receivers that pass:
+    ///
+    /// - a generic index or receiver: upstream defers `T[K]` before any
+    ///   lookup (`getIndexedAccessTypeOrUndefined`), and the port defers only
+    ///   a key it can admit (20 false claims);
+    /// - a `unique symbol` index: `getPropertyNameFromType`'s third arm,
+    ///   unported (this module's doc; 8);
+    /// - a mapped receiver: the port's member image misses enum-keyed and
+    ///   other unresolved mapped members (2);
+    /// - a union with an object-literal constituent:
+    ///   `createUnionOrIntersectionProperty`'s object-literal `undefined` arm
+    ///   is unported in `crate::members` (`(options || {})["a"]`; 4);
+    /// - a function's type: its late-bound assignment members
+    ///   (`InternalSymbolNameAssignmentDeclaration`, `binder.go:1002`, read by
+    ///   `getResolvedMembersOrExportsOfSymbol`) are unbound (24);
+    /// - a named reference without a members table, which the type's own
+    ///   contract marks as a lookup that would be wrong, or whose members
+    ///   symbol is an unexpanded type alias (`constr<{}, …>`; 2);
+    /// - index signatures the port could not decide (`None` from
+    ///   [`Checker::get_index_infos_of_type`], a cycle in the base graph):
+    ///   upstream empties the bases and still reads the receiver's own
+    ///   signatures (no corpus line; `tests/types.rs` pins it).
+    fn element_access_receiver_is_complete(
+        &mut self,
+        object_type: TypeId,
+        index_type: TypeId,
+    ) -> bool {
+        use crate::flags::TypeFlags;
+        if self.indexed_access_index_is_generic(index_type)
+            || self.indexed_access_object_is_generic(object_type)
+            || self.store.get(index_type).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL)
+            || self.mapped_types.contains_key(&object_type)
+            || self.get_index_infos_of_type(object_type).is_none()
+        {
+            return false;
+        }
+        match self.store.get(object_type).data.clone() {
+            TypeData::Union { types, .. } => {
+                !types.iter().any(|&member| self.is_object_literal_type(member))
+            }
+            TypeData::Anonymous { symbol, .. } => !self
+                .binder
+                .symbols()
+                .get(symbol)
+                .flags
+                .intersects(tsr_binder::SymbolFlags::FUNCTION),
+            TypeData::Named { members, .. } => members.is_some_and(|members| {
+                !self
+                    .binder
+                    .symbols()
+                    .get(members)
+                    .flags
+                    .intersects(tsr_binder::SymbolFlags::TYPE_ALIAS)
+            }),
+            _ => true,
+        }
+    }
+
+    /// Whether `getPropertyOfType` finds `name` on a tuple: `length`, or a
+    /// numeric name below the fixed head (`createTupleTargetType` declares a
+    /// property per element before the first variable one, `checker.go:24775`).
+    /// An out-of-range or
+    /// rest-position index is not a property.
+    fn tuple_has_property(&self, tuple: TypeId, name: &str) -> bool {
+        if name == "length" {
+            return true;
+        }
+        let Some(index) = name.parse::<usize>().ok().filter(|index| index.to_string() == name)
+        else {
+            return false;
+        };
+        if let Some((elements, _)) = self.tuple_element_lists.get(&tuple) {
+            return index < elements.len();
+        }
+        self.variadic_tuple_elements.get(&tuple).is_some_and(|(elements, _)| {
+            index < elements.iter().position(|element| element.spread).unwrap_or(elements.len())
+        })
+    }
+
+    /// `getPropertyOfType` over the `typeof globalThis` anonymous type:
+    /// `resolveAnonymousTypeMembers` keeps the globals that are not
+    /// block-scoped (`BlockScopedVariable | Class | Enum`), and
+    /// `getPropertyOfObjectType` answers only a value. The same table
+    /// `crate::members`' property-access arm reads; the element-access road
+    /// lacked it, so `globalThis['x']` for a `var x` missed
+    /// (`globalThisBlockscopedProperties`).
+    fn global_this_property_type(&mut self, name: &str) -> Option<TypeId> {
+        let symbol = self.binder.global(name)?;
+        if self.binder.symbols().get(symbol).flags.intersects(
+            tsr_binder::SymbolFlags::BLOCK_SCOPED_VARIABLE
+                | tsr_binder::SymbolFlags::CLASS
+                | tsr_binder::SymbolFlags::ENUM,
+        ) || !self.symbol_is_value(symbol)
+        {
+            return None;
+        }
+        Some(self.get_type_of_symbol(symbol))
     }
 
     /// `getPropertyTypeForIndexType`'s object-literal arm (`checker.go:27134`),
