@@ -2238,6 +2238,21 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(text) = self.object_literal_text_at(id, reference, true) {
                 return Some(text);
             }
+            // A resolved mapped object prints its members at the site
+            // (createTypeNodeFromObjectType); one carrying an alias does so
+            // only where the alias cannot be named
+            // (`nodebuilderimpl.go:3362`, `crate::alias_accessibility`).
+            if !self.rendering_composites.contains(&id)
+                && self.mapped_types.contains_key(&id)
+                && !self.prints_accessible_alias(id, reference)
+            {
+                self.rendering_composites.insert(id);
+                let out = self.mapped_object_text_at(id, reference);
+                self.rendering_composites.remove(&id);
+                if out.is_some() {
+                    return out;
+                }
+            }
             if self.signature_types.contains_key(&id)
                 && self.anonymous_properties.contains_key(&id)
                 && !self.rendering_composites.contains(&id)
