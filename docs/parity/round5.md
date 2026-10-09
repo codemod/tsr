@@ -936,3 +936,21 @@ It refused narrowing the JS decline in check_type_reference_name on its
 number: +1 / −6. That waits on JS value-reference arms in declared.rs. The
 freed slot went to r5-js: the 113 cases blocked only by JS-file causes, with a
 rule not to duplicate main's `.5` epic.
+
+### r5-unionorder finished; r5-nodereuse dispatched (`tsr-2zk.1101`)
+
+r5-unionorder corrected the brief's premise. tsgo orders union members with
+CompareTypes (utilities.go:415); the type id is only the last tiebreak, so no
+id or init-order change was needed. It fixed the real sort and origin bugs:
+- origin entries per addNamedUnions, printed with formatUnionTypes;
+- enum named unions;
+- NoInfer as a substitution type;
+- compareTupleTypes.
+
+That is +15 type lines with no losses. Its printing-parentheses and
+object-mapper diffs land later, for +7.
+
+37 of the 54 union-order lines are node reuse: native re-emits the written
+node. node_reuse.rs therefore moves from r5-mapped5 to a new owner,
+r5-nodereuse, which takes those lines together with r5-shapes' pseudochecker
+group.
