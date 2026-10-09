@@ -212,3 +212,32 @@ Two diagnostics rows change text, both still WRONG:
 **Left.** `callbackTag2`'s four `Final<…>` lines: the `@callback Final`
 comment ends the file, so it waits on T8's EOF host (this lane's item 5).
 `callbackTagNamespace` waits on dotted `@callback` names (item 6).
+
+## 5. T4, continued: a JS function's return union (after §2)
+
+**Forcing fact.** With §2 applied, `assertionsAndNonReturningFunctions`' `f2`
+(`switch (b) { case true: return 1; case false: return 0; }`) still printed
+`error`, as does any JS function with two distinct return types.
+`signatures.rs` declines `getReturnTypeFromBody`'s `UnionReductionSubtype`
+aggregate (`checker.go:20191`; and its yield, generator-return and async
+twins) in every JS file. The decline's own comment gives the reason: "JSDoc
+`@overload` signatures this port does not model — 10 of §11.1's 26 wrong
+lines". §2 models them, so the decline's reason is gone; native has no JS arm
+here.
+
+**Diff** [`r6-jsdoc-js-return-union.diff`](r6-jsdoc-js-return-union.diff),
+**applied after** `r6-jsdoc-overload.diff`: the four `in_js_file` declines
+go.
+
+**Measured** (on §2's diff state, unfiltered): types **549,890 → 549,893
+RIGHT (+3 lines)**, cases **+2** (`unreachableJavascriptChecked`,
+`unreachableJavascriptUnchecked`; the third line is `f2`); diagnostics
+unchanged; zero losses against both §2's state and the frozen base; no other
+row changed text; `slowcases` clean. Ir domain-model 1,092,343,897 (−0.001%
+against §2's state), generic-imports 343,055,524 (−0.006%).
+`js_return_union.rs` (in the diff): one test, failing without it, checked
+against `tsgo`.
+
+**Falsifier.** A JS function with two return types that native prints as one
+of them: the decline would have been hiding a reduction difference, not an
+overload.
