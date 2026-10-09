@@ -1,0 +1,132 @@
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -4482,39 +4482,26 @@
+         tables.push(Table::Globals);
+         let binder = self.binder;
+         for table in tables {
+-            let table: Vec<(String, crate::symbol_access::SymbolRef)> = match table {
+-                Table::Locals(node) => binder
+-                    .locals(node)
+-                    .into_iter()
+-                    .flat_map(|locals| locals.iter())
+-                    .map(|(&name, &id)| {
+-                        (
+-                            name.to_owned(),
+-                            self.symbols.bound(id).expect("syntax local belongs to this Program"),
+-                        )
++            // Native 5b1047d `trySymbolTable` (symbolaccessibility.go:535)
++            // checks the direct key before `getSymbolTableAliases` prepares
++            // alias candidates. These bound Program tables are frozen; keep
++            // their selected identities and scope order, and snapshot only
++            // aliases after a miss. This adds no table completion cache.
++            let direct = match &table {
++                Table::Locals(node) => binder.locals(*node).and_then(|locals| {
++                    locals.get(own.as_str()).map(|&id| {
++                        self.symbols.bound(id).expect("syntax local belongs to this Program")
+                     })
+-                    .collect(),
++                }),
+                 Table::Exports(module) => {
+-                    let view = self.symbols.view(&module).expect("selected namespace table");
+-                    view.export_names()
+-                        .map(|name| {
+-                            (name.to_owned(), view.export(name).expect("existing export edge"))
+-                        })
+-                        .collect()
+-                }
+-                Table::ClassName(name, symbol) => vec![(name, symbol)],
++                    self.symbols.view(module).expect("selected namespace table").export(&own)
++                }
++                Table::ClassName(name, symbol) => (name == &own).then(|| symbol.clone()),
+                 Table::Globals => binder
+                     .globals()
+-                    .iter()
+-                    .map(|(&name, &id)| {
+-                        (
+-                            name.to_owned(),
+-                            self.symbols.bound(id).expect("global belongs to this Program"),
+-                        )
+-                    })
+-                    .collect(),
++                    .get(own.as_str())
++                    .map(|&id| self.symbols.bound(id).expect("global belongs to this Program")),
+             };
+-            let direct = table.iter().find(|(name, _)| *name == own).map(|(_, hit)| hit.clone());
+             if direct.as_ref().is_some_and(|hit| {
+                 self.symbols.merged_symbol(hit).expect("selected naming candidate") == target
+             }) {
+@@ -4540,17 +4527,64 @@
+                         })
+                 })
+                 .map(|_| (own.clone(), symbol.clone()));
++            let aliases: Vec<(String, crate::symbol_access::SymbolRef)> = match table {
++                Table::Locals(node) => binder
++                    .locals(node)
++                    .into_iter()
++                    .flat_map(|locals| locals.iter())
++                    .filter(|(_, id)| {
++                        binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
++                    })
++                    .map(|(&name, &id)| {
++                        (
++                            name.to_owned(),
++                            self.symbols.bound(id).expect("syntax local belongs to this Program"),
++                        )
++                    })
++                    .collect(),
++                Table::Exports(module) => {
++                    let view = self.symbols.view(&module).expect("selected namespace table");
++                    view.export_names()
++                        .filter_map(|name| {
++                            let symbol = view.export(name).expect("existing export edge");
++                            self.symbols
++                                .view(&symbol)
++                                .expect("selected naming candidate")
++                                .flags()
++                                .intersects(SymbolFlags::ALIAS)
++                                .then(|| (name.to_owned(), symbol))
++                        })
++                        .collect()
++                }
++                Table::ClassName(name, symbol) => {
++                    if self
++                        .symbols
++                        .view(&symbol)
++                        .expect("selected naming candidate")
++                        .flags()
++                        .intersects(SymbolFlags::ALIAS)
++                    {
++                        vec![(name, symbol)]
++                    } else {
++                        Vec::new()
++                    }
++                }
++                Table::Globals => binder
++                    .globals()
++                    .iter()
++                    .filter(|(_, id)| {
++                        binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
++                    })
++                    .map(|(&name, &id)| {
++                        (
++                            name.to_owned(),
++                            self.symbols.bound(id).expect("global belongs to this Program"),
++                        )
++                    })
++                    .collect(),
++            };
+             let mut qualified = Vec::new();
+-            for (name, candidate) in table {
+-                if !self
+-                    .symbols
+-                    .view(&candidate)
+-                    .expect("selected naming candidate")
+-                    .flags()
+-                    .intersects(SymbolFlags::ALIAS)
+-                {
+-                    continue;
+-                }
++            for (name, candidate) in aliases {
+                 // Upstream's own alias exclusions (`trySymbolTable`,
+                 // `symbolaccessibility.go:564`–`:575`) under
+                 // `useOnlyExternalAliasing == false` — which is the value the

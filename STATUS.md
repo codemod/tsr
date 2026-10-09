@@ -44,8 +44,14 @@ CLI benefit and changed handle thread safety. The safe variant's actual full
 native rerun retains all 8,303 EXACT cases and every non-timing case payload,
 with strict checker all-targets Clippy passing. Naming probe repeats 400 global
 queries/891,600 copied entries/15.2MB name payload with zero aliases, and 5,200
-local queries/865,904 entries/516,704 aliases. `tsr-1yb.33.1.2` owns native direct
-lookup before alias-only preparation. Full runtime review, attribution,
+local queries/865,904 entries/516,704 aliases. Private `tsr-1yb.33.1.2` direct
+lookup and borrowed-name variants now pass complete native/legacy preservation.
+They remove 1,241,600 primary entry copies and all 26,759,920 snapshot name bytes
+on this fixture. Borrowed preparation passes workspace **3287/0/19** and strict
+Clippy/fmt/work-trace, but remains **6.647% default/5.855% single** slower than
+main in its own paired batch. Native accessible-chain completion keys and reuse
+are now `tsr-1yb.11.5.1`; alias table caching remains `tsr-1yb.11.5`.
+Full runtime review, attribution,
 canonical integration and verified equivalent-work TSR/native ratio<=0.50 remain
 unfinished. [Exact replay and measured gates](docs/architecture/checker-owner-performance-qualification.md).
 
@@ -3935,12 +3941,16 @@ rendering `any` for `errorType` (ADR-0038).
 
 Continue from the full-corpus-preserving private owner replay at frozen
 `2e47ffaa`. All old selected-owner RIGHT losses are repaired, but ordinary
-runtime retention fails the main comparison even after the local `Arc` holder:
-**+20.997% default wall/+16.244% single**. `tsr-1yb.11.6` owns lifetime-holder
+runtime retention still fails the main comparison after direct/borrowed naming
+preparation: **+6.647% default wall/+5.855% single** in the latest paired batch.
+The earlier local-Arc-only comparison remains **+20.997%/+16.244%**.
+`tsr-1yb.11.6` owns lifetime-holder
 attribution/controls, and existing `tsr-1yb.11.5` owns native alias-only naming
-table scans. Attribute the remaining semantic forcing/allocation cost before
-another runtime candidate; the actual naming counts now select native direct
-lookup before alias-only preparation under `tsr-1yb.33.1.2`. Do not retry the
+table scans. Native direct lookup and borrowed Program alias names under
+`tsr-1yb.33.1.2` pass full preservation but do not finish the main keep gate.
+Next qualify actual native accessible-chain completion keys and saved workers
+under `tsr-1yb.11.5.1`, preserving meaning/scope/owner and publication state.
+Do not retry the
 rejected `Rc` representation.
 All six original goal tickets remain in progress for their full acceptance,
 including complete equivalent-work ratio<=0.50 and canonical integration.
@@ -7788,6 +7798,13 @@ The `Rc` experiment is rejected: Rc/local-Arc ratios **1.001725 default** and
 The earlier partial clone count omitted four edge sites and is explicitly a
 lower bound; corrected counts are preserved separately. Broad runtime review
 is incomplete and canonical Rust is unchanged. [Qualified negatives and source](docs/architecture/checker-owner-performance-qualification.md).
+
+The later direct/borrowed preparation preserves both full corpora but still
+refuses integration: borrowed/main **0.645021/0.604817s default** and
+**1.327131/1.253729s single** in one independent paired batch. Copy counters show
+zero primary snapshot name bytes, while 516,704 alias handles and their
+resolutions remain. These improvements do not certify the full six-ticket goal
+or native equivalent-work ratio. The source patches remain passive experiments.
 
 The following `18d77c9e` 2/2-loss refusal is historical; the current private
 continuation restores those losses but remains refused by the performance gate.
@@ -16197,3 +16214,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `18d77c9e` plus exact48-source cumulative private overlay / native `5b1047d` | — | — | **Selected workspace/alias/callable continuation.** Exact1056-input phase replays;91 files differ from frozen main. Workspace3279/0/19, library225/0/0; strictClippy/fullfmt/work-trace pass. Native20 call/12 parent rows/two clone publications plus6 property,10 diagnostic and8 merged callable observations qualify scoped repairs. Both legacy dumps complete552533types/12238diagnostics: first12type/10diagnostic losses reduced to2/2,124type/9diagnostic gains,0missing. Failed alias abort and lint/formatting probes preserved. Remaining selected property/type-only and inherited-member losses stay under active tickets; no canonical runtime or speed proof. [Replay](docs/architecture/checker-workspace-owner-continuation.json). |
 
 | 2026-10-08 | `2e47ffaa` plus exact private92-file owner replay / native `5b1047d` | — | — | **Full owner preservation and refcount/naming attribution.** Actual full native8275→8303 EXACT,28gains/0losses/0missing; full legacy552533type/12238diag keys,124/9gains/0RIGHTlosses. Workspace3286/0/19,strictClippy/fmt/work-trace pass. Safe localArc230library/strictcheckeralltargets and actual full native8303 with0non-timing payload changes; originalport default+56.88%/single+17.16%main regression reduced by22.43%defaultwall/36.26%CPU, yet directmain comparison remains+20.997%/+16.244%. Rc rejected1.001725default/0.993764single. Corrected21.55M/21.32M ownership counts; naming globals400queries/891600copies/15.2MB/zeroaliases selects newP1 tsr-1yb.33.1.2 native direct/alias-only preparation. Four exact1056-input replays; no canonical Rust retention or verified equivalent-work <=0.50. Six goals remain in progress. [Qualified source and gates](docs/architecture/checker-owner-performance-qualification.md). |
+| 2026-10-08 | `2e47ffaa` runtime plus exact private154/158 naming variants / native `5b1047d` | — | — | **Native direct/borrowed naming preparation verified privately.** Both actual full native14960 rows retain8303EXACT and all non-timing payloads; legacy552533types/12238diag byte-identical to owner111. Borrowed workspace3287/0/19,strictalltargetsClippy/fmt/work-trace pass. Primary copied entries1758304→516704, name payload26759920→7993920→0; exact repeats/default+single and402checkedfiles. Ordinary direct batch0.746497→0.673110s vs localArc; separate borrowed batch0.672601→0.645021s vs direct, but main0.604817s remains faster. Borrowed/main ratios1.066474default/1.058547single; observednative2.058696default is not a verified equivalent-work ratio. Four more1056-input source/probe replays; no runtime retention/full92-file review or six-goal completion. Next tsr-1yb.11.5.1 native accessible-chain owner/scope/meaning completion. [Source, counters and full gates](docs/architecture/checker-owner-performance-qualification.md). |

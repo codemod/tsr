@@ -159,10 +159,81 @@ seven bound ownership sites; it does not supply naming eligibility.
 
 `tsr-1yb.11.6` owns the actual handle-site attribution and lifetime-holder
 experiment; `tsr-1yb.11.5` already owns native alias-only naming-table scans.
-The measured naming handoff is `tsr-1yb.33.1.2`; implement its native preparation
-boundary, then rerun the ordinary keep gate. The broad 92-file
+The private naming preparation under `tsr-1yb.33.1.2` now passes the gates below,
+but its whole-port main comparison remains red. The broad 92-file
 runtime review remains incomplete. No correctness prerequisite is a speed win,
 and no diagnostic/loaded-file agreement certifies complete equivalent work.
 Canonical integration, member builder/publication, broad alias acceptance,
 eager-rendering handoff, representative full-project attribution and verified
 TSR/native median wall ratio <=0.50 remain under the original six goal tickets.
+
+## Verified direct and borrowed preparation
+
+[Direct preparation](checker-owner-direct-preparation.patch) applies to step133
+and moves keyed lookup before alias snapshots, preserving the existing
+ExportSymbol candidate competition. Only aliases acquire copied names and
+selected handles. [Borrowed preparation](checker-owner-borrowed-preparation.patch)
+then borrows immutable Program local/global table keys through the mutable
+alias-resolution walk. Export and class display keys remain owned. Neither
+variant changes alias forcing, receiver context, spelling, scope/declaration
+order or the nested raw alias-export route, and neither adds a semantic cache.
+Each production delta changes only `checker.rs`.
+
+Both variants pass 230 library and 32 existing symbol-chain tests. Their actual
+complete native runs retain all 8,303 EXACT cases, the one failure/timeout and
+every non-timing payload field across all 14,960 rows against step111/133.
+The unfiltered 552,533 type rows and 12,238 diagnostic cases are byte-identical
+to the qualified owner variant. Borrowed preparation also passes 3,287 workspace
+tests, zero failures, 19 existing ignores, strict workspace all-targets Clippy,
+formatting and work-trace compilation. These are preservation results, not
+evidence that the remaining WRONG cases are correct.
+
+The separate anchor check exits 1 with exactly one inherited unresolved filename
+in unchanged `full_oracle.rs`: its downstream native producer exists in TSR but
+the checker interprets the filename as an upstream file. An independently built
+frozen-main tool reproduces all 4,797 checks and the same failure. Sections pass
+with zero dangling citations. `tsr-1yb.11.4.1` tracks the downstream reference;
+the native pin is unchanged. This checkpoint does not claim a green anchor gate.
+
+Two instrumented repetitions per worker mode preserve the ordinary complete
+output and 402 checked files. Direct preparation reduces primary snapshot
+entries from 1,758,304 to 516,704 and copied name payload from 26,759,920 to
+7,993,920 bytes. Borrowed preparation removes the remaining snapshot name text
+copies, while retaining those 516,704 selected alias handles. No direct hit
+occurs in this fixture. The original absent/initialized-empty distinctions and
+alias resolutions remain. Result-name copies, allocator capacity, worker
+executions and completed cache hits are outside these snapshot byte counts.
+[Direct probe](checker-owner-direct-preparation-probe.patch) and
+[borrowed probe](checker-owner-borrowed-preparation-probe.patch) reproduce the
+instrumentation. All four added patches replay exactly across 1,056 inputs and
+pass reverse apply checks; they are private experiment sources.
+
+Each ordinary batch has five measured fresh children per tool after warmup,
+with matching effective options and loaded inputs. Builds, probes and profilers
+are outside timing. CPU/RSS, complete outputs, binary/source hashes and every
+sample are in the evidence. Rows in this table are separate batches:
+
+| Mode and batch | Frozen main | Local Arc | Direct preparation | Borrowed preparation | Native |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Four workers, direct batch | 0.607222 s | 0.746497 s | 0.673110 s | — | 0.319402 s |
+| Single, direct batch | 1.235464 s | 1.434398 s | 1.376946 s | — | 0.508454 s |
+| Four workers, borrowed batch | 0.604817 s | — | 0.672601 s | 0.645021 s | 0.313315 s |
+| Single, borrowed batch | 1.253729 s | — | 1.389183 s | 1.327131 s | 0.512727 s |
+
+Direct preparation improves 9.83% against local Arc in its default batch.
+Borrowing improves a further 4.10% against direct preparation in its own default
+batch. Borrowed/main ratios remain **1.066474 default** and **1.058547 single**;
+main integration remains refused. Do not combine medians from different batches.
+The native observed default ratio is 2.058696, but equivalent complete performed
+work remains unverified, so the verified native ratio remains null.
+
+The next native boundary is `tsr-1yb.11.5.1`: `getAccessibleSymbolChainEx`
+(`symbolaccessibility.go:441`) caches chains, including completed nil, on the
+actual symbol owner with first relevant scope, meaning and external-aliasing
+mode. This differs from alias-table slice caching. Current Rust routes do not
+publish that matched completion; supported repeated keys and actual saved
+workers remain unmeasured. Qualify them and the active/private/raw/resolved
+publication boundary before reuse. Native nil-symbol/property-method refusals
+precede the cache; a Rust unsupported/active decline is not a completed nil hit.
+Eager semantic member rendering remains
+`tsr-1yb.16.3.10`; faster preparation does not finish that task.
