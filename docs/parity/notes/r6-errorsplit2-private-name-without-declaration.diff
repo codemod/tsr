@@ -1,0 +1,202 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 063d321..f4c5f8b 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -240,18 +240,30 @@ impl Checker<'_, '_> {
+         // `Base` and `any` (its errorType) inside `Derived`
+         // (`privateNameFieldDerivedClasses`).
+         let mut lexical_private_class = None;
++        let mut private_without_lexical_symbol = None;
+         if let tsr_ast::MemberName::PrivateIdentifier(_) = member
+             && let Some(access_id) = node.node_id
+         {
+             lexical_private_class = self.lexical_private_declaring_class(access_id, name);
+             if lexical_private_class.is_none() {
+-                return error;
++                private_without_lexical_symbol = Some(access_id);
+             }
+         }
+         let receiver_type = self.check_expression(receiver);
+         if receiver_type == error {
+             return error;
+         }
++        // `checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
++        // with no lexically scoped symbol (`checker.go:11284-11310`): an
++        // any-like receiver outside every class body answers `anyType`;
++        // anything else finds no property and answers `errorType`, the
++        // shadowing report and the JS-literal and `globalThis` exits aside
++        // (`docs/parity/notes/r6-errorsplit2.md` §4).
++        if let Some(access) = private_without_lexical_symbol
++            && receiver_type == self.intrinsics.native_error
++        {
++            return self.private_name_without_lexical_symbol(access, receiver_type, name);
++        }
+         // ADR-0048: an any-like receiver that is upstream's `errorType`
+         // answers `errorType` (`checker.go:11314-11320`, `isAnyLike` then
+         // `isErrorType(apparentType)`), whatever the member.
+@@ -317,6 +329,9 @@ impl Checker<'_, '_> {
+         if widen_receiver {
+             stripped = self.widen_object_literal_freshness(stripped);
+         }
++        if let Some(access) = private_without_lexical_symbol {
++            return self.private_name_without_lexical_symbol(access, stripped, name);
++        }
+         // §471 the shadow half of upstream's mangled-name lookup: the
+         // property the receiver's type serves under this spelling must be
+         // THE lexical class's member — `getPrivateIdentifierPropertyOfType`
+@@ -725,6 +740,49 @@ impl Checker<'_, '_> {
+         self.access_member_lookup(stripped, right.text, node.node_id)
+     }
+ 
++    /// The private-name arm of `checkPropertyAccessExpressionOrQualifiedName`
++    /// when `lookupSymbolForPrivateIdentifierDeclaration` finds nothing
++    /// (`checker.go:11284-11310`, then the `prop == nil` exits at
++    /// `:11327-11353`). `stripped` is the receiver's non-null, widened type.
++    fn private_name_without_lexical_symbol(
++        &mut self,
++        access: tsr_ast::NodeId,
++        stripped: TypeId,
++        name: &str,
++    ) -> TypeId {
++        let apparent = self.apparent_type(stripped);
++        if self.is_type_any(apparent)
++            && self.containing_class_excluding_class_decorators(access).is_none()
++        {
++            // Reported as TS18016, `Private identifiers are not allowed
++            // outside class bodies`.
++            return self.intrinsics.any;
++        }
++        // `checkPrivateIdentifierPropertyAccess` (`:11494`): a property with
++        // the same private spelling on the type is reported (not accessible,
++        // or shadowed) and answers `errorType`.
++        if let Some(property) = self.get_property_of_type(stripped, name)
++            && self
++                .binder
++                .symbols()
++                .get(property)
++                .value_declaration
++                .is_some_and(|declaration| self.declaration_names_a_private(declaration))
++        {
++            return self.intrinsics.native_error;
++        }
++        // `leftType.symbol == globalThisSymbol` answers `anyType` (`:11336`).
++        if Some(apparent) == self.global_this_type {
++            return self.intrinsics.any;
++        }
++        // A JS file keeps the gap: its `isUncheckedJSSuggestion` and
++        // `isJSLiteralType` exits are not consulted on this road.
++        if self.in_js_file(access) {
++            return self.intrinsics.error;
++        }
++        self.intrinsics.native_error
++    }
++
+     /// The shared tail of `checkPropertyAccessExpressionOrQualifiedName`
+     /// (`checker.go:11244`): apparent type, the `any` fast path, the member
+     /// lookup, and flow narrowing keyed on the access node itself.
+diff --git a/crates/tsr-checker/src/readonly_target.rs b/crates/tsr-checker/src/readonly_target.rs
+index c94e78b..cf44644 100644
+--- a/crates/tsr-checker/src/readonly_target.rs
++++ b/crates/tsr-checker/src/readonly_target.rs
+@@ -1025,7 +1025,10 @@ impl Checker<'_, '_> {
+     /// `getContainingClassExcludingClassDecorators` (`utilities.go:994`): a
+     /// name written in a class's own decorator starts the search above that
+     /// class.
+-    fn containing_class_excluding_class_decorators(&self, node: NodeId) -> Option<NodeId> {
++    pub(crate) fn containing_class_excluding_class_decorators(
++        &self,
++        node: NodeId,
++    ) -> Option<NodeId> {
+         let decorator = self.nodes.ancestors(node).find(|&ancestor| {
+             self.nodes.kind(ancestor) == SyntaxKind::Decorator
+                 && self.nodes.parent(ancestor).is_some_and(|parent| {
+diff --git a/crates/tsr-checker/tests/private_name_without_declaration.rs b/crates/tsr-checker/tests/private_name_without_declaration.rs
+new file mode 100644
+index 0000000..d824875
+--- /dev/null
++++ b/crates/tsr-checker/tests/private_name_without_declaration.rs
+@@ -0,0 +1,68 @@
++//! `checkPropertyAccessExpressionOrQualifiedName`'s private-name arm when no
++//! enclosing class declares the name (`checker.go:11284-11310`):
++//! `anyType` for an any-like receiver outside every class body, otherwise
++//! `errorType` (`docs/parity/notes/r6-errorsplit2.md` §4).
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The printed type of the file's last property access expression, or
++/// `gap`/`errorType` for the two error identities.
++fn last_property_access(source: &str) -> String {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    #[allow(clippy::cast_possible_truncation)]
++    let id = (0..parsed.nodes.len() as u32)
++        .map(tsr_ast::NodeId::new)
++        .filter(|&id| parsed.nodes.kind(id) == tsr_ast::SyntaxKind::PropertyAccessExpression)
++        .last()
++        .expect("a property access");
++    let node = parsed.node_map.get(id).expect("a mapped node");
++    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
++    let type_id = checker.check_expression(expression);
++    let intrinsics = checker.intrinsics();
++    if type_id == intrinsics.native_error {
++        "errorType".to_owned()
++    } else if type_id == intrinsics.error {
++        "gap".to_owned()
++    } else {
++        checker.type_to_string(type_id)
++    }
++}
++
++/// Outside every class body, an `any` receiver answers `anyType`
++/// (`privateNameBadAssignment`'s `A.prototype.#no`).
++#[test]
++fn an_any_receiver_outside_a_class_is_any() {
++    let source = "declare const a: any;\na.#nope;";
++    assert_eq!(last_property_access(source), "any");
++}
++
++/// Inside a class that does not declare the name: `errorType`.
++#[test]
++fn an_undeclared_name_inside_a_class_is_error_type() {
++    let source = "class C {\n  #bar = 6;\n  m() { return this.#foo; }\n}";
++    assert_eq!(last_property_access(source), "errorType");
++}
++
++/// Outside the declaring class, the type's own private member is reported
++/// as not accessible: `errorType`.
++#[test]
++fn a_private_member_read_outside_its_class_is_error_type() {
++    let source = "class C {\n  #bar = 6;\n}\ndeclare const c: C;\nc.#bar;";
++    assert_eq!(last_property_access(source), "errorType");
++}
++
++/// The declaring class still reads its member.
++#[test]
++fn a_declared_name_reads_its_member() {
++    let source = "class C {\n  #bar = 6;\n  m() { return this.#bar; }\n}";
++    assert_eq!(last_property_access(source), "number");
++}
+diff --git a/crates/tsr-checker/tests/private_names.rs b/crates/tsr-checker/tests/private_names.rs
+index d476d19..d752f9c 100644
+--- a/crates/tsr-checker/tests/private_names.rs
++++ b/crates/tsr-checker/tests/private_names.rs
+@@ -108,7 +108,10 @@ fn an_absent_private_name_is_a_gap() {
+     // spell that `any` only in files that have an errors baseline, which is
+     // the SS180 printing guard and not the type. The conformance board is
+     // the evidence: the lexical rule measured +10 whole cases, 0 lost.
+-    assert_eq!(type_of_private_access(absent), "error");
++    // r6-errorsplit2 §4: the answer is now upstream's own `errorType`
++    // (`native_error`, which the checker prints `any`), not the port's gap
++    // (`checker.go:11300`, confirmed by the native identity probe).
++    assert_eq!(type_of_private_access(absent), "any");
+ }
+ 
+ /// The printed type of the first element access in the fixture.

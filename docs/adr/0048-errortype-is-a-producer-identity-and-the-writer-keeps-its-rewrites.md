@@ -434,3 +434,27 @@ with the diffs. **Narrowing**, per rewrite with the diffs: `HadErrorBaseline`
 1,983, `AtLocation` 575, `AccessOrQualifiedParent` 62, `StatementName` 29
 (27 with diff S). None costs zero, so none is narrowed. The residual fell
 2,679 → 2,649 (2,647 with diff S).
+
+### 2026-10-09 — round 6, second box: three producers by native identity; no rewrite narrowed
+
+r6-errorsplit2 (notes [r6-errorsplit2](../parity/notes/r6-errorsplit2.md))
+rebuilt the probe with a third tag for other any-flagged types and classified
+`HadErrorBaseline`'s 1,983 RIGHT lines on BH's content: 1,923 are `errorType`
+natively and 60 `anyType`. None is any other type. Three producers switch, each
+held as a diff because its file is main's:
+
+- **Diff N** (the harness): `getTypeOfNode`'s fall-through (`checker.go:32035`)
+  is `errorType`. 384 lines move, all `errorType`.
+- **Diff P** (`members.rs`): the property-access miss (`:11353-11369`), only
+  for a complete receiver that is no flow reference. 15 lines move, all
+  `errorType`. Reads with a reference receiver were refused: +391 to +430
+  lines against 40 to 46 false claims, rooted in the port's narrowing and
+  augmentation.
+- **Diff Q** (`members.rs`): a private name no class declares
+  (`:11284-11310`). 37 lines move to `errorType` and 2 to `anyType`, all as
+  the probe tags them.
+
+Zero transitions on both dumps. Credited gap 2,129 → **1,693**.
+**Narrowing**: `HadErrorBaseline` 1,609, `AtLocation` 565,
+`AccessOrQualifiedParent` 8, `StatementName` 27. None costs zero, so none is
+narrowed. The residual fell 2,647 → 2,209.
