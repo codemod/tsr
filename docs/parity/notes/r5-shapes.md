@@ -311,3 +311,22 @@ domain-model, 1.021 generic-imports, both under the 1.03 bar.
 
 The three diffs touch different files and each applies to this branch's
 head on its own.
+
+### 5.4 `r5-shapes-indexed-never-and-shared-keys.diff` (`indexed.rs`)
+
+**Owner:** r5-errorsplit5. The diff also makes one `destructure.rs` helper
+`pub(crate)`.
+
+**What it ports.** In `resolved_indexed_access_type`, the `never` half of
+`getPropertyTypeForIndexType`'s index arm (`checker.go:27072`): once no
+property has answered, an `any` or `never` object read with a property-key
+type is itself. The `any` half already returned early. The diff also
+removes the two duplicates §4.1 had to leave in place: the inline
+string-index fallback now calls `destructuring_index_info`, and the §381
+entity-text key calls `late_bound_entity_name`.
+
+**Measured** unfiltered on top of `e80f37e`: types +8 lines, 0 lost against
+`e80f37e` or the frozen base. The lines are `arrayDestructuringInSwitch2`
+0:17, `indexingTypesWithNever` 0:119 and `checkJsdocSatisfiesTag15` (6).
+Case converted: `arrayDestructuringInSwitch2`. The code is the
+behaviour that `e3af572` carried and that §4's first measurement gated.
