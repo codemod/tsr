@@ -1,12 +1,12 @@
 diff --git a/crates/tsr-checker/src/private_name_identity.rs b/crates/tsr-checker/src/private_name_identity.rs
-index 05d60e9..7cb1b51 100644
+index a8e8e23..7cb1b51 100644
 --- a/crates/tsr-checker/src/private_name_identity.rs
 +++ b/crates/tsr-checker/src/private_name_identity.rs
 @@ -31,7 +31,6 @@ use crate::{
      types::{TypeData, TypeId},
  };
  
--#[expect(dead_code, reason = "called from relater.rs once docs/parity/notes/r6-smallcodes5-private-name-identity.diff is applied")]
+-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
  impl Checker<'_, '_> {
      /// `isStaticPrivateIdentifierProperty(prop)` (`checker.go`) for the
      /// property `name` of `target`: its value declaration is a class element
