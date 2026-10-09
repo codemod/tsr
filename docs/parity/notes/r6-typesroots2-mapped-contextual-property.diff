@@ -1,0 +1,62 @@
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+index b73e8d5..7fe874e 100644
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -2569,6 +2569,15 @@ impl<'a> Checker<'a, '_> {
+                     // origins, but their semantic values are already substituted.
+                     self.get_type_of_property_of_type(contextual, &name)?
+                 }
++                // getTypeOfSymbol of a mapped instance's property is
++                // getTypeOfMappedSymbol (`checker.go`), the template
++                // instantiated for that key. This port's homomorphic
++                // member carries the SOURCE property's symbol, whose own
++                // type is the source's declared member, so the instance's
++                // property type is read through the instance.
++                Some(property) if self.mapped_types.contains_key(&contextual) => self
++                    .get_type_of_property_of_type(contextual, &name)
++                    .unwrap_or_else(|| self.get_type_of_symbol(property)),
+                 Some(property) => self.get_type_of_symbol(property),
+                 None => self.union_contextual_property_type(contextual, &name, object_literal)?,
+             }
+diff --git a/crates/tsr-conformance/tests/r6_typesroots2_mapped_contextual_property.rs b/crates/tsr-conformance/tests/r6_typesroots2_mapped_contextual_property.rs
+new file mode 100644
+index 0000000..a15c609
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_typesroots2_mapped_contextual_property.rs
+@@ -0,0 +1,36 @@
++//! getTypeOfPropertyOfContextualType (`checker.go`) reads a mapped instance's
++//! property through `getTypeOfSymbol` of the MAPPED symbol, the template
++//! instantiated for that key, so `Readonly<FC<V>>`'s `validate` is
++//! `(props: V) => void` for the call's `V`, which the inference mapper then
++//! fixes. `docs/parity/notes/r6-typesroots2.md` §2.
++//!
++//! Expectations read from the pinned tsgo (assign the parameter to `never`:
++//! `Type '{ foo: string; }' is not assignable to type 'never'`).
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++fn lines(source: &str) -> Vec<String> {
++    let case = TestCase::parse("probe/r6_typesroots2_mapped_contextual", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect()
++}
++
++#[test]
++fn a_homomorphic_mapped_member_is_read_through_the_instance() {
++    let lines = lines(
++        r#"// @target: es2015
++// @strict: true
++interface FC<V> { initialValues: V; validate?: (props: V) => void; }
++declare function F4<V = object>(x: Readonly<FC<V>>): void;
++F4({ initialValues: { foo: "" }, validate: p4 => { p4; } });
++"#,
++    );
++    assert!(lines.iter().any(|line| line == "p4 : { foo: string; }"), "{lines:?}");
++}
