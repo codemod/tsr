@@ -355,3 +355,45 @@ identical. Ir: domain-model 1,091,023,913 and 1,092,245,024 on two runs
 `quote` runs when a literal type is minted, so its sentinel arm matches
 only the lead character U+10FFFF before decoding. A first cut that decoded
 at every character measured 1,093,128,080 once (1,091,890,780 on a rerun).
+
+## 6. Report
+
+**Commits** (on `claude/beautiful-shannon-ar5gh0-r6-printer`, base
+`b18aec06`):
+
+| Commit | What | Types alone |
+|---|---|---|
+| `12d9d73` | diff only: `declare global` visibility for node reuse (§1) | — |
+| `679ed32` | erased-alias reuse asks `IsSymbolAccessible` (§2.2) + node_reuse diff | +0 / −0 |
+| `2d9c2ea` | mutable-location literal reads `instantiateContextualType` (§3.1) | **+5** / −0 |
+| `f6c2f65` | `rescan_template` clears its value (§4) + parser diff; §3.2–§3.3 records | +0 / −0 |
+| `d9a82e9` | lone surrogate sentinel, ADR-0051 (§5) | **+4** / −0 |
+
+At `d9a82e9`: types 549,862 RIGHT (+9 against the base's 549,853),
+diagnostics unchanged. The coverage run reports `checker_types`
+8490/9538 (89.01%) and `diagnostics` 4636/5502 (84.26%).
+
+**Diffs, in apply order** (each applies cleanly on `d9a82e9` after the ones
+before it):
+
+1. `r6-printer-global-augmentation-visible.diff` (node_reuse.rs) then
+   `r5-declared4-print-arity-WIP.diff` (declared.rs): +37 / −0.
+2. `r6-printer-serialize-type-name-accessible.diff` (node_reuse.rs): +21 / −0.
+3. `r6-printer-parser-rescan-template.diff` (parser): +14 / −0.
+4. `r6-printer-entity-name-discriminant.diff` (symbols.rs): +0 / −0 (§3.2).
+
+All stacked on `d9a82e9`: types **549,934 RIGHT, +81 / −0** against the
+base, diagnostics unchanged, slowcases clean on both dumps.
+
+**Remaining, with causes:**
+
+- `declarationEmitPartialNodeReuseTypeReferences` `c.ts` (3 lines): the site
+  namer never emits an import type (`import("./a").N.SpecialString`);
+  `checker.rs` (main).
+- `mappedTypeOverlappingStringEnumKeys` (5): a mapped template that is a
+  conditional alias instantiates to `error`; mapped.rs (r6-mapped).
+- Contextual rest-tuple labels from combined overloads: no corpus
+  population; needs a nameable-declaration bit across signatures.rs,
+  contextual.rs and inference.rs (§3.3).
+- ADR-0051's accepted gaps: `CombineSurrogatePairs` at joins, and sentinel
+  decoding in the emitters. No corpus population.
