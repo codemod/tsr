@@ -314,3 +314,33 @@ ships as a measured diff.
 **Measured** cumulatively (unfiltered, both dumps, against `22a5e1a`): zero
 losses; types 544,752 / 936 / 6,845. Credited gap (3,058) and narrowing
 (3,606) are unchanged, so no rewrite is narrowed.
+
+### 2026-10-08 — step 5, held diffs: the ALIAS row and the property twin; `GlobalAugmentation` narrowed with them
+
+Two diffs for main's files, each applying on commit 4 (notes §6, §7.2):
+
+- **Diff A (`symbols.rs`).**
+  - `getTypeOfAlias`'s not-a-value arm (`checker.go:18614`) answers
+    `errorType`, but only for a chain that resolves to its end. Natively a
+    chain through `unknownSymbol` is all-flags (`:16379`), so the probe
+    traced every false claim of a looser arm to a chain the port breaks.
+    The `None` arm stays the gap: it is mixed natively in every
+    declaration form.
+  - `getTypeOfSymbol`'s fallthrough (`:16521`) answers `errorType`.
+  - A circular accessor (`:18557`) answers `anyType`.
+
+  Zero losses; +2 GAP→RIGHT; credited gap 3,058 → **2,575**; narrowing
+  3,606 → 3,030 (`StatementName` 312 → 29).
+- **Diff B (`members.rs`).** The property twin answers `errorType` for an
+  unresolved receiver outside import-machinery files (`:11314-11320`): 3,196
+  of 3,205 lines. Zero losses. Credited gap and narrowing are unchanged,
+  because the old answer was `anyType`, not the gap.
+
+**First narrowing.** With diff A's fallthrough, `GlobalAugmentation` costs
+**zero** RIGHT lines. So, per this log's rule, that rewrite now applies to
+`native_error` only (`types_producer.rs`), and narrowing it changes no line.
+It ships inside diff A, because without the fallthrough it would cost 23.
+The other four rewrites still cost RIGHT lines (`HadErrorBaseline` 2,353,
+`AtLocation` 586, `AccessOrQualifiedParent` 62, `StatementName` 29) and stay.
+The falsifier ("the residual stops falling") has not fired: the residual fell
+4,504 → 3,030 in this step.
