@@ -14542,16 +14542,33 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn error_span(&self, node: NodeId) -> tsr_core::Span {
-        self.declaration_name_of(node).map_or_else(
-            || self.nodes.span(node),
-            |name| {
-                // `if errorNode == nil` upstream falls back to the node's own
-                // first token; a name node with an empty span is the same
-                // "missing" case and takes the same fallback.
-                let span = self.error_span(name);
-                if span.start == span.end { self.nodes.span(node) } else { span }
-            },
-        )
+        if let Some(name) = self.declaration_name_of(node) {
+            return self.error_span(name);
+        }
+        let span = self.nodes.span(node);
+        // `GetErrorRangeForNode` (`scanner.go:2649`) skips trivia only for a
+        // node that is not missing: a missing node (a missing declaration
+        // name included) reports zero-width at its own `Pos()`, the end of the
+        // previous token. This port's missing node sits at the next token's
+        // start, so step back over the whitespace between. A comment there is
+        // not stepped over. `r5-smallcodes2.md` §3.1.
+        if span.start == span.end {
+            return tsr_core::Span::at(self.missing_node_full_start(node, span.start));
+        }
+        span
+    }
+
+    /// `node.Pos()` for a zero-width (missing) node whose span sits at the
+    /// next token's start: the source position before the whitespace in
+    /// front of it. Without source text, `start`.
+    fn missing_node_full_start(&self, node: NodeId, start: u32) -> u32 {
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return start };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return start;
+        };
+        let Some(before) = text.get(..start as usize) else { return start };
+        u32::try_from(before.trim_end().len()).unwrap_or(start)
     }
 
     /// Append to the collection upstream keeps as `c.diagnostics`
