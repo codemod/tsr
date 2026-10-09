@@ -3610,6 +3610,22 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 self.bind(tsr_ast::Node::from(expression));
                             }
                         }
+                        // `reparseHosted`'s heritage arms (`parser/reparser.go:563`,
+                        // `:589`) clone `@implements`' reference and
+                        // `@augments`' type arguments into the class's heritage
+                        // clauses, where they bind like written ones.
+                        JSDocTag::JSDocAugmentsTag(tsr_ast::JSDocAugmentsTag {
+                            class_name: Some(reference),
+                            ..
+                        })
+                        | JSDocTag::JSDocImplementsTag(tsr_ast::JSDocImplementsTag {
+                            class_name: Some(reference),
+                            ..
+                        }) => {
+                            for argument in reference.type_arguments {
+                                self.bind(tsr_ast::Node::from(*argument));
+                            }
+                        }
                         JSDocTag::JSDocOverloadTag(overload) => {
                             let Some(id) = overload.node_id else { continue };
                             if let Some(symbol) = self.node_symbols[host.index() - self.node_base] {
