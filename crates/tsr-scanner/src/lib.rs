@@ -696,11 +696,39 @@ impl<'a> Scanner<'a> {
             b'"' | b'\'' => self.scan_string(flags),
             b'`' => self.scan_template(flags),
             // `#x` is a private identifier: one token, not `#` then `x`.
-            b'#' if self.peek_at(1).is_some_and(|c| is_identifier_start(c) || c == '\\') => {
+            b'#' if self.peek_at(1).is_some_and(is_identifier_start)
+                || self.peek_at(1) == Some('\\')
+                    && self.private_name_escape_starts_identifier() =>
+            {
                 self.bump();
                 self.scan_identifier_or_keyword(flags);
                 SyntaxKind::PrivateIdentifier
             }
+            // `Scan`'s `#` arm (`scanner.go:897-925`), its other two exits:
+            // `#!` past the file's start is TS18026 over both characters and
+            // an `Unknown` token of the `#` alone; a `#` that starts no
+            // identifier is `Invalid character` at the `#`, and the token is
+            // still a `PrivateIdentifier` (value `#`), which the parser then
+            // places as a private name.
+            b'#' if self.peek_at(1) == Some('!') => {
+                let start = self.pos;
+                self.bump();
+                self.error(
+                    &messages::CAN_ONLY_BE_USED_AT_THE_START_OF_A_FILE,
+                    Span::new(start, start + 2),
+                );
+                SyntaxKind::Unknown
+            }
+            b'#' => {
+                let start = self.pos;
+                self.bump();
+                self.error(&messages::INVALID_CHARACTER, Span::new(start, self.pos));
+                SyntaxKind::PrivateIdentifier
+            }
+            // `case '.'` (`scanner.go:604`): a digit after the dot is
+            // `scanNumber`, which owns the bigint and identifier-suffix checks
+            // (`.1n` is TS1353).
+            b'.' if self.peek_at(1).is_some_and(|c| c.is_ascii_digit()) => self.scan_number(flags),
             b'\\' => self.scan_identifier_or_keyword(flags),
             b if ASCII_ID_START[b as usize] => self.scan_identifier_or_keyword(flags),
             b if b < 0x80 => self.scan_punctuation(),
@@ -876,6 +904,16 @@ impl<'a> Scanner<'a> {
         self.scan_unicode_escape_ex(true)
     }
 
+    /// `Scan`'s `#\\` test (`scanner.go:911-919`): the escape after the `#`
+    /// decodes to an identifier start. The cursor is on the `#`.
+    fn private_name_escape_starts_identifier(&mut self) -> bool {
+        let saved = self.pos;
+        self.bump();
+        let decoded = self.peek_unicode_escape().and_then(char::from_u32);
+        self.pos = saved;
+        decoded.is_some_and(is_identifier_start)
+    }
+
     /// `peekUnicodeEscape` (`scanner.go:1571`): decode the escape the cursor is
     /// sitting on **without moving** and without reporting.
     ///
@@ -988,10 +1026,14 @@ impl<'a> Scanner<'a> {
                 *flags |= flag;
                 let digits = self.scan_digits(radix, flags);
                 if digits == 0 {
-                    self.error(
-                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
-                        Span::new(self.pos, self.pos),
-                    );
+                    // `Scan`'s `0x`/`0b`/`0o` arms (`scanner.go:697-746`)
+                    // each name their own radix: TS1125, TS1177, TS1178.
+                    let message = match radix {
+                        2 => &messages::BINARY_DIGIT_EXPECTED,
+                        8 => &messages::OCTAL_DIGIT_EXPECTED,
+                        _ => &messages::HEXADECIMAL_DIGIT_EXPECTED,
+                    };
+                    self.error(message, Span::new(self.pos, self.pos));
                 }
                 if self.eat('n') {
                     return SyntaxKind::BigIntLiteral;
