@@ -33,7 +33,7 @@ four cases RIGHT now) and its TS2538 index-image diff (six of seven).
 | TS1238 | `constructableDecoratorOnClass01`, `decoratorCallGeneric`, `decoratorOnClass8` (es2015), `esDecorators-arguments` (4) | missing | `checkDecorator` → `resolveDecorator` | `calls.rs` (main's): §4.2 |
 | TS2540 | `omitTypeHelperModifiers01`, `readonlyAssignmentInSubclassOfClassExpression`, `readonlyMembers` (es2015), `globalThisReadonlyProperties` (4) | missing | `isAssignmentToReadonlyEntity` | two are fixed on r5-smallcodes2's branch (its §2.4), not yet integrated; two are `mapped.rs` (r5-mapped6) |
 | TS2403 | `typeOfEnumAndVarRedeclarations`, `FunctionAndModuleWithSameNameAndCommonRoot`, `objectLiteralContextualTyping`, `parserCastVersusArrowFunction1` (4) | missing | `isTypeIdenticalTo`; inference of `T` with no candidate | relater identity (r5-relater7), `inference.rs` (main's); `r5-smallcodes2.md` §4 |
-| TS17006 | `exponentiationOperatorInTemplateStringWithSyntaxError1`/`2`/`3`, `exponentiationOperatorSyntaxError1` (es2015) (4) | missing | `parseUnaryExpressionOrHigher` (`parser.go:4694`) | parser (main's): §4.1, waits for batch AU |
+| TS17006 | `exponentiationOperatorInTemplateStringWithSyntaxError1`/`2`/`3`, `exponentiationOperatorSyntaxError1` (es2015) (4) | missing | `parseUnaryExpressionOrHigher` (`parser.go:4694`) | parser (main's): §4.1, lossless diff |
 | TS2702 | `decoratorMetadataWithImportDeclarationNameCollision7` (es2015), `invalidUseOfTypeAsNamespace`, `strictModeReservedWordInClassDeclaration` (3) | missing | `checkAndReportErrorForUsingTypeAsNamespace` (`checker.go:1608`) | `check.rs` (main's): §3.2, held diff |
 | TS2308 | `doubleUnderscoreExportStarConflict`, `exportNamespace8`, `exportStar` (es2015) (3) | missing | `getExportsOfModuleWorker` (`checker.go:16148`) | new module plus a `check.rs` hook: §2.1, lossless diff |
 | TS2523 | `expressionsForbiddenInParameterInitializers`, `parser.asyncGenerators.functionDeclarations`/`functionExpressions.es2018` (alwaysstrict) (3) | missing | `checkGrammarYieldExpression` (`grammarchecks.go:1783`) | `check.rs` (main's): §2.2, lossless diff |
@@ -320,11 +320,12 @@ Native and TSR are both silent on the probe
 
 ## 4. Open clusters
 
-### 4.1 TS2391 and TS17006 wait for batches AP and AU
+### 4.1 TS2391 and TS17006, after batches AP and AU
 
-The brief holds both until r5-smallcodes2's `error_span` missing-node diff
-(batch AP) and r5-spans' span diffs (batch AU) are on the integration branch.
-Neither was on it when this lane started.
+The brief held both until r5-smallcodes2's `error_span` missing-node diff
+(batch AP) and r5-spans' span diffs (batch AU) were on the integration
+branch. Neither was there when this lane started. Both landed during it, and
+the numbers below are measured on a head that has them.
 
 **TS2391.** For `function f() => 4;` native's `parseFunctionBlockOrSemicolon`
 falls through to `parseFunctionBlock` → `parseBlock(…)` (`parser.go:1205`).
@@ -364,18 +365,81 @@ body", where upstream asks `NodeIsMissing(body)`:
 | `checkFunctionOrMethodDeclaration`'s TS7010: `NodeIsMissing(body)` | TS7010 no longer reported | 10 TS7010 rows lost (`reservedWords3` ×5, `destructuringParameterDeclaration6` ×2, `parserErrantEqualsGreaterThanAfterFunction1`/`2`, `parserSkippedTokens16`) |
 | `checkFunctionOrConstructorSymbol`: `bodyIsPresent := NodeIsPresent(body)` (`checker.go:3627`) | the missing body counts as an implementation | TS2393 ×6 and TS2389 ×2 extra, TS2391 ×4 lost (`overloadConsecutiveness`, `commonMissingSemicolons`) |
 
+**Re-measured on `77afe69`** (batches AP and AU in):
+
+- diagnostics: +2 (the same two cases) and −3. `parserEqualsGreaterThanAfterFunction1`
+  joins the losses, because batch AP made its TS7010 position right and the
+  missing `Block` now suppresses that TS7010.
+- TS7010 rows lost: 13;
+- types: −31 lines;
+- causes: the same three readers.
+
 The diff lands together with those three readers. They are spread over
 `check.rs`, `signatures.rs` and the declared-type road, which are main's and
 r5-printer3's. The parser half also removes 15 extra TS2391 rows, which is
 what the cluster needs. TS7010's positions were moved by batch AP, so this
 is re-measured on a head that has it.
 
-**TS17006.** `parseUnaryExpressionOrHigher` (`parser.go:4694`) reports when
-a simple unary expression is followed by `**`. The report spans
-`SkipTrivia(pos)` to the operand's end. TSR's `parse_unary_expression`
-(`tsr-parser/src/expression.rs`) has no such report, and no TS17006 site
-exists anywhere in the workspace. It is a parser diff in the same function
-batch AU's parser diff touches, so it waits.
+**TS17006 / TS17007 — `r5-smallcodes3-exponentiation-unary-operand.diff`**
+(lossless, measured after batch AU landed).
+
+`parseUnaryExpressionOrHigher` (`parser.go:4660`) is the binary operand
+parser. If the operand is not an update expression (`isUpdateExpression`:
+not a prefix `+ - ~ ! delete typeof void await`, and not a `<` in a non-JSX
+file), it is parsed by `parseSimpleUnaryExpression`. When `**` follows, the
+parser reports:
+
+- TS17007 for a type assertion;
+- TS17006 otherwise, naming the operator.
+
+The span runs from `SkipTrivia(pos)` to the operand's end (`:4694`). The tree
+does not change: the binary loop takes the `**` next.
+
+TSR's binary loop called `parse_unary_expression` directly, and no TS17006
+site existed in the workspace. The diff adds
+`parse_unary_expression_or_higher` (`tsr-parser/src/expression.rs`) as the
+loop's operand entry. It has the same `isUpdateExpression` test, the report,
+and upstream's same-position guard. Only that entry reports. A prefix
+operator's own operand goes through the unchanged `parse_unary_expression`,
+as upstream's goes through `parseSimpleUnaryExpression`, so `- -x ** 2`
+reports once, at the outer `-`.
+
+Probe, positions and texts identical in native and TSR:
+
+| Source | Report |
+|---|---|
+| `-x ** 2` | TS17006 `'-'` |
+| `typeof x ** 2` | TS17006 `'typeof'` |
+| `- -x ** 2` | TS17006 `'-'` (once) |
+| `++x ** 2` | none |
+| `<number>x ** 2` | TS17007 |
+| `delete x ** 2` | TS17006 `'delete'` |
+| `1 + -x ** 2` | TS17006 at the `-` |
+
+Measured alone, unfiltered, against a base frozen at `77afe69` (batch AU;
+diagnostics 11,089 right, types 549,360 RIGHT):
+
+- diagnostics: +5 cases (`exponentiationOperatorInTemplateStringWithSyntaxError1`/`2`/`3`
+  and `exponentiationOperatorSyntaxError1`/`2`, all es2015). 169 TS17006 and
+  5 TS17007 rows newly match. No extra row, no other code changed, zero
+  losses;
+- types: unchanged;
+- slowcases: only the KNOWN_SLOW cases.
+
+Ir: the new entry runs once per binary operand, so it is on the parser's hot
+path. Two runs of each binary:
+
+| Project | base | diff |
+|---|---|---|
+| domain-model | 1,113,345,654 / 1,112,640,369 | 1,113,293,362 / 1,113,283,779 |
+| generic-imports | 343,104,889 / 343,079,736 | 343,102,964 / 343,080,846 |
+
+The means differ by +0.03% (domain-model) and 0.000% (generic-imports). The
+base's own two runs differ by 0.06%. CLI output is identical.
+
+`tsr-parser` tests pass, including the new
+`tests/exponentiation_unary_left_operand.rs` (six fixtures from the probe).
+Clippy is clean on the parser.
 
 ### 4.2 TS1238: `resolveDecorator` is a calls.rs feature
 
@@ -410,7 +474,7 @@ baseline's TS2538 (`Type 'null' cannot be used as an index type`) is
 | TS2702/TS2713 type used as namespace | diff, held (`callbackTagNamespace`: JSDoc dotted names) | +3 / −1 |
 | TS2721–2723 cannot invoke possibly-nullish | diff, lossless on the flow diff below | +8 |
 | `isMatchingReference` `super`/`MetaProperty` arms | diff, lossless (`flow.rs`) | +10 type lines |
-| TS2391 parser half (`parser-missing-brace-body.diff`) | held: needs the three `NodeIsMissing(body)` readers (§4.1) | +2 / −2, −31 type lines alone |
-| TS17006 | diff prepared; measured once batch AU lands | 4 (+1 not sole) |
+| TS2391 parser half (`parser-missing-brace-body.diff`) | held: needs the three `NodeIsMissing(body)` readers (§4.1) | +2 / −3, −31 type lines alone (on `77afe69`) |
+| TS17006/TS17007 unary left of `**` | diff, lossless (parser) | +5 |
 | TS2307, TS2883, TS1238, TS2403, TS2538 | routed, owners above | 19 |
 | TS2540 | 2 on r5-smallcodes2's branch, 2 `mapped.rs` | 4 |
