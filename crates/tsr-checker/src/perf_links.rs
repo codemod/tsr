@@ -132,6 +132,15 @@ pub(crate) struct PerfLinks {
     /// (`r5-checkperf3.md` §5).
     pub(crate) union_index_infos:
         FxHashMap<TypeId, Option<Vec<crate::index_signatures::IndexInfo>>>,
+
+    // ---- r6-checkperf (`tsr-2zk.1131`). ----
+    /// Calls whose main resolution (`check_call_expression_worker`'s
+    /// `resolve_call_signature_at`) is running: native's `resolvingSignature`
+    /// parked by `getResolvedSignature` (`checker.go:8410`) as the call link
+    /// [`PerfLinks::call_const_type_parameters`] reads it. Kept apart from
+    /// `resolving_signature_calls`, whose contextual readers answer `any` on
+    /// it (`r6-checkperf.md` §2).
+    pub(crate) main_resolving_calls: FxHashSet<NodeId>,
 }
 
 /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
@@ -489,6 +498,11 @@ impl Checker<'_, '_> {
         call: &tsr_ast::CallExpression<'_>,
     ) -> bool {
         let Some(call_id) = call.node_id else { return false };
+        // The call's own resolution is running: native reads its
+        // `resolvingSignature` sentinel here (`r6-checkperf.md` §2).
+        if self.perf_links.main_resolving_calls.contains(&call_id) {
+            return false;
+        }
         if !self.resolving_signature_calls.insert(call_id) {
             return false;
         }
@@ -508,6 +522,20 @@ impl Checker<'_, '_> {
             self.perf_links.call_const_type_parameters.insert(call_id, answer);
         }
         answer
+    }
+
+    /// Parks `call`'s main resolution for the call link (see
+    /// [`PerfLinks::main_resolving_calls`]); `true` when this frame parked it
+    /// and must [`Self::unpark_call_resolution`]. A call already parked
+    /// resolves nested, as native's re-entry does (`r6-checkperf.md` §2).
+    pub(crate) fn park_call_resolution(&mut self, call: Option<NodeId>) -> bool {
+        call.is_some_and(|call| self.perf_links.main_resolving_calls.insert(call))
+    }
+
+    pub(crate) fn unpark_call_resolution(&mut self, call: Option<NodeId>) {
+        if let Some(call) = call {
+            self.perf_links.main_resolving_calls.remove(&call);
+        }
     }
 
     /// Native's own rule: `getResolvedSignature` publishes unless a flow

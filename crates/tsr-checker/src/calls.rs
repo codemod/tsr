@@ -2973,12 +2973,20 @@ impl Checker<'_, '_> {
         if self.is_untyped_function_typed_callee(callee_type) {
             return self.intrinsics.any;
         }
+        // getResolvedSignature (`checker.go:8410`) parks `resolvingSignature`
+        // in the call's links while `resolveSignature` runs, so the call
+        // link read during the call's own candidate checks sees the sentinel
+        // instead of resolving again (`r6-checkperf.md` §2).
+        let parked = self.park_call_resolution(node.node_id);
         let resolved = self.resolve_call_signature_at(
             node.node_id,
             callee_type,
             Some(node.arguments),
             !node.type_arguments.is_empty(),
         );
+        if parked {
+            self.unpark_call_resolution(node.node_id);
+        }
         let Some(signature) = resolved else {
             // §250. Overload resolution FAILING does not make the call's type
             // unknown. Upstream reports on the arguments and then takes a
