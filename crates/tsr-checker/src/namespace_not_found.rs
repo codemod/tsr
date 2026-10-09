@@ -29,10 +29,6 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
-#[expect(
-    dead_code,
-    reason = "its two readers are hooked by docs/parity/notes/r6-smallcodes4-namespace-not-found.diff, which removes this"
-)]
 impl Checker<'_, '_> {
     /// `resolveName(location, name, SymbolFlagsNamespace)` as this port asks
     /// it: a module, an enum, or an alias. An alias is accepted whatever its

@@ -247,6 +247,14 @@ impl Checker<'_, '_> {
             }
             Node::ImportEqualsDeclaration(declaration) => {
                 self.check_circular_import_alias(node);
+                // `import a = b`: the unqualified right side is a namespace
+                // lookup (`crate::namespace_not_found`).
+                if let Some(tsr_ast::ModuleReference::Identifier(name)) =
+                    declaration.module_reference
+                    && let Some(name) = name.node_id
+                {
+                    self.check_import_equals_identifier_reference(name);
+                }
                 // **`import a = b.c` carries TS2694 too**, under a wider
                 // meaning: an alias may name a value, where a type reference may
                 // not. §559.
@@ -10721,25 +10729,12 @@ impl Checker<'_, '_> {
             // a conditional type is the corpus's shape — reaches a different
             // arm entirely, and reporting TS2503 there was 60 wrong lines.
             // §302.
-            if [SymbolFlags::TYPE, SymbolFlags::VALUE, SymbolFlags::NAMESPACE].into_iter().any(
-                |meaning| {
-                    self.binder
-                        .resolve_name(self.nodes, self.node_map, left, &namespace_name, meaning)
-                        .is_some()
-                },
-            ) {
-                return;
-            }
-            if let Some(file) = self.source_file_of_for_diagnostics(left) {
-                let span = self.nodes.span(left);
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::CANNOT_FIND_NAMESPACE_0,
-                        span,
-                        [namespace_name],
-                    ),
-                );
+            // **Only an enum or `globalThis` succeeds here.** `SymbolFlagsNamespace` holds
+            // `Enum`, which the `MODULE` lookup above leaves out; a type is
+            // `checkAndReportErrorForUsingTypeAsNamespace`'s, and a value has
+            // no other arm (`crate::namespace_not_found`).
+            if !self.resolves_as_namespace(left, &namespace_name) {
+                self.report_cannot_find_namespace(left, &namespace_name);
             }
             return;
         };
