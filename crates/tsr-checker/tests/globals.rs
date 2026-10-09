@@ -85,7 +85,7 @@ fn a_let_initialised_with_undefined_widens_only_without_strict_null_checks() {
     assert_eq!(type_of_declaration("var x = undefined;", "x"), "undefined");
 }
 
-fn other_intrinsic_indices(i: &tsr_checker::Intrinsics) -> [usize; 24] {
+fn other_intrinsic_indices(i: &tsr_checker::Intrinsics) -> [usize; 25] {
     [
         i.any,
         i.error,
@@ -111,6 +111,7 @@ fn other_intrinsic_indices(i: &tsr_checker::Intrinsics) -> [usize; 24] {
         i.implicit_never,
         i.unreachable_never,
         i.non_primitive,
+        i.unique_literal,
     ]
     .map(tsr_checker::types::TypeId::index)
 }
@@ -124,11 +125,15 @@ fn intrinsic_construction_defaults_to_strict_without_moving_other_allocations() 
     // 9 (null, created right after nullType as upstream does,
     // checker.go:990); the active strict slots alias the ordinary types.
     // Slots 18-20 are the regular `""`, `0` and `0n` (`checker.go:1049`),
-    // interned after `boolean`.
-    assert_eq!(store.len(), 30);
+    // interned after `boolean`. Slot 30 is `uniqueLiteralType`
+    // (`checker.go:1015`), created last.
+    assert_eq!(store.len(), 31);
     assert_eq!(
         other_intrinsic_indices(&i),
-        [0, 1, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+        [
+            0, 1, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28,
+            29, 30
+        ]
     );
     assert_eq!(i.undefined_widening, i.undefined);
     assert_eq!(i.null_widening, i.null);
@@ -165,7 +170,7 @@ fn undefined_slot_reselection_is_allocation_free_and_reseeds_the_global() {
             let i = checker.intrinsics();
             assert_eq!(i.undefined_widening.index(), if strict { 5 } else { 6 });
             assert_eq!(i.null_widening.index(), if strict { 8 } else { 9 });
-            assert_eq!(checker.type_count(), 30);
+            assert_eq!(checker.type_count(), 31);
             assert_eq!(other_intrinsic_indices(i), other_ids);
             assert_eq!(
                 checker.type_of(i.undefined_widening).flags,

@@ -252,3 +252,79 @@ The relater's `mapped_substitution_out_of_reach` decline should now never
 fire for these instances, since the object has mapped info. r5-relater7 can
 retire it, and the intersection-source variant
 (`NonNullable<Partial<Config>[T]> → Config[T]`), after re-measuring.
+
+## 6. `reducibleIndexedAccessTypes`: isGenericReducibleType (committed + three diffs)
+
+**Forcing constraint.** r5-mapped4 §6 found the root cause.
+`(Payload & { dataType: K })["data"]` under
+`{ [K in Type]?: (data: …) => void }` must stay deferred, so that the
+instance's `K := Type.A` reduces the union to `PayloadA & { dataType: Type.A }`
+and the read is `string`. Native defers through `shouldDeferIndexedAccessType`'s
+third disjunct, `isGenericReducibleType` (`checker.go:27370`, `:24932`). The
+port projected the whole value union at once.
+
+**Ported, in this lane's files:**
+- `Intrinsics::unique_literal`: `uniqueLiteralType` (`checker.go:1015`), a
+  distinct `never`. It is created last, so every earlier intrinsic keeps its
+  slot (`tests/globals.rs` slot list, 31 types).
+- `is_generic_reducible_type` and `is_reducible_intersection`
+  (`intersections.rs`): instantiate with every type parameter mapped to
+  `uniqueLiteralType`, then ask `get_reduced_type`. The port's instantiation
+  takes an explicit mapper, so the parameters are collected first. They are
+  the constituents and property types (and their union constituents) that
+  are type parameters, which are the positions `isDiscriminantWithNeverType`
+  reads. Native caches the instantiation on the intersection; the port
+  recomputes it, since only a type-level access with an otherwise concrete
+  union object asks.
+
+**Diffs, one per owner, measured together:**
+- [`r5-mapped5-reducible-indexed-access.diff`](r5-mapped5-reducible-indexed-access.diff)
+  (`indexed.rs`, r5-errorsplit5), with two hunks:
+  - `resolved_indexed_access_type` reduces its object first (`getReducedType`,
+    `checker.go:26939`);
+  - it defers a generic reducible union object. It also removes
+    `intersections.rs`' `allow(dead_code)`.
+  - The expression road needs no arm: native applies the reducible disjunct
+    only without an access node or for an `IndexedAccessTypeNode`
+    (`:27374`).
+- [`r5-mapped5-unique-literal-flow.diff`](r5-mapped5-unique-literal-flow.diff)
+  (`flow.rs`, main's): `intersection_has_never_discriminant` does not count a
+  `uniqueLiteralType` property as HasNeverType
+  (createUnionOrIntersectionProperty, `:21621`).
+- [`r5-mapped5-reducible-keyof.diff`](r5-mapped5-reducible-keyof.diff)
+  (`declared.rs`, r5-declared3), with two hunks:
+  - `resolved_keyof_type` reduces its operand first (`getIndexTypeEx`,
+    `:26685`);
+  - it defers a generic reducible union (shouldDeferIndexType, `:26838`).
+  - **Divergence kept:** native's keyof-target relation arm (relater.go:3514)
+    passes `IndexFlagsNoReducibleCheck`. The port's `resolved_keyof_type` has
+    no index flags.
+
+**Measured,** all three diffs on top of §5, both dumps unfiltered:
+- types **+14 RIGHT**:
+  - `reducibleIndexedAccessTypes:0:19/22/23/27/28/33` (all six);
+  - `iterableWithNeverAsUnionMember(target=esnext)` ×4;
+  - `intersectionReduction` and `intersectionReductionStrict` `:55` and
+    `:58`.
+- diagnostics unchanged;
+- zero losses against §5 and against the frozen base; slowcases clean;
+- Ir against §5: domain-model 1,154,901,490 → 1,155,222,864 (+0.028%),
+  generic-imports 342,971,668 → 342,954,503 (−0.005%).
+
+One WRONG line changes text: `mappedTypeNotMistakenlyHomomorphic:0:26`
+(`keyof Gen2<ABC.A>`, native `"a" | "v"`) printed `"v"` and now prints the
+deferred `keyof ({ v: ABC.A; } & ({ … } | { … }))`. `keyof Gen<T>` is now
+deferred, as native's is, because `Gen<T>` is a generic reducible union. Its
+instance does not re-resolve, because the port keeps
+`{ v: A } & (X | Y)` as an intersection of a union. Native distributes it
+into a union of intersections when it creates the type, and that union then
+reduces. That is `intersections.rs`' distribution rule, not this port's
+deferral. It is a follow-up for this lane.
+
+The commit alone (no diffs) is byte-identical to §5 on both dumps.
+`crates/tsr-conformance/tests/undefined_widening_modes.rs` asserts the
+construction-time type count, and its 30 becomes 31. That one number is the
+only change in a harness file, flagged for the integrator. The unit coverage
+is the corpus case. The reducible predicate needs the
+`flow.rs` diff to answer true, so a unit test here would only exercise the
+false arm.
