@@ -54,7 +54,37 @@ three are span cases in the shared `error_span`, not in `implicit_any.rs`.
 
 ### 2.1 TS1156
 
-*In progress.*
+Two causes, both in the variable-statement form.
+
+**A `with` body is never checked.** `checkWithStatement` (`checker.go:4156`)
+checks its expression, reports TS2410, and never hands the statement to
+`checkSourceElement`; nothing below a `with` is checked at all. This port's
+walk visits every child (`check_node`'s doc comment records the consequence:
+every rule carries its own position test), so the TS1156 rule fired on the
+`const c5 = 0` inside `with (obj)`. Both TS1156 functions now return for a
+node inside a `with` statement's body, through the existing
+`is_inside_with_statement`.
+
+The alternative is to stop the walk at a `with` body for every rule, which is
+upstream's shape. It is a change to `check_node` (the hub), so it would be
+measured and shipped separately; this lane needed only its own rule.
+
+**The modifier chain gates it.** `checkVariableStatement`
+(`checker.go:5767`) asks `checkGrammarForDisallowedBlockScopedVariableStatement`
+only when `!checkGrammarModifiers(node) && !checkGrammarVariableDeclarationList(…)`.
+`if (true) export const x: T;` gets TS1184 from `findFirstIllegalModifier`'s
+default arm and no TS1156. Two changes:
+
+- `check_modifier_on_nested_statement` (that arm) records the node in
+  `modifier_chain_reported`, as every other arm of the chain does (§876);
+- the variable form's call moves from the `VariableStatement` arm at the top
+  of `check_node` into `check_declaration_statement_container`, which the
+  walk calls after the modifier chain, and is skipped for a node the chain
+  reported. The type alias and interface forms are not gated
+  (`checker.go:6878`, `:4996`) and are unchanged.
+
+`checkGrammarVariableDeclarationList`'s half of the gate (trailing comma,
+empty list, `using` placement) is not added: no listed case needs it.
 
 ### 2.2 TS2695 inside a TS2657 range
 

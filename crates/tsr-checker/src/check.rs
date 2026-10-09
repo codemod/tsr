@@ -353,7 +353,6 @@ impl Checker<'_, '_> {
                     || self.is_ambient_module_node(node)
             }
             Node::VariableStatement(statement) => {
-                self.check_block_scoped_statement_container(node);
                 ambient || has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
             }
             Node::FunctionDeclaration(declaration) => {
@@ -2891,6 +2890,11 @@ impl Checker<'_, '_> {
             return;
         };
         let Some(id) = first.node_id else { return };
+        // `findFirstIllegalModifier` is an arm of `checkGrammarModifiers`, and
+        // a report returns `true` from it: the rules its callers gate on
+        // `!checkGrammarModifiers(node)` stay quiet (§876; TS1156 for a
+        // variable statement, `r5-smallcodes2.md` §2.1).
+        self.modifier_chain_reported.insert(node);
         let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
         let span = self.nodes.span(id);
         self.report(file, Diagnostic::new(&messages::MODIFIERS_CANNOT_APPEAR_HERE, span));
@@ -3484,6 +3488,13 @@ impl Checker<'_, '_> {
         } else {
             return;
         };
+        // `checkWithStatement` (`checker.go:4156`) checks the expression and
+        // never hands the statement to `checkSourceElement`, so nothing below
+        // a `with` is checked; this walk descends there anyway.
+        // `r5-smallcodes2.md` §2.1.
+        if self.is_inside_with_statement(node) {
+            return;
+        }
         if !self.container_allows_block_scoped(node) {
             self.report_block_scoped_container(node, keyword);
         }
@@ -3494,6 +3505,13 @@ impl Checker<'_, '_> {
     /// `containerAllowsBlockScopedVariable` with §395's variable form and could
     /// not reach it while the predicate lived inside that rule. §624's rule,
     /// third instance. §660.
+    ///
+    /// Also the entry of §395's variable form, so that it runs after the
+    /// modifier chain: `checkVariableStatement` (`checker.go:5767`) asks
+    /// `checkGrammarForDisallowedBlockScopedVariableStatement` only
+    /// `!checkGrammarModifiers(node) && …`, and `if (true) export const x`
+    /// reports TS1184 and not TS1156. The type alias and interface sites are
+    /// not gated that way (`checker.go:6878`, `:4996`). `r5-smallcodes2.md` §2.1.
     fn check_declaration_statement_container(&mut self, node: NodeId, typed: Node<'_>) {
         if self.file_has_parse_errors {
             return;
@@ -3501,8 +3519,19 @@ impl Checker<'_, '_> {
         let keyword = match typed {
             Node::TypeAliasDeclaration(_) => "type",
             Node::InterfaceDeclaration(_) => "interface",
+            Node::VariableStatement(_) => {
+                if !self.modifier_chain_reported.contains(&node) {
+                    self.check_block_scoped_statement_container(node);
+                }
+                return;
+            }
             _ => return,
         };
+        // See `check_block_scoped_statement_container`: a `with` body is never
+        // checked.
+        if self.is_inside_with_statement(node) {
+            return;
+        }
         if !self.container_allows_block_scoped(node) {
             self.report_block_scoped_container(node, keyword);
         }
