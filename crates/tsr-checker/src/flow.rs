@@ -2284,8 +2284,11 @@ impl Checker<'_, '_> {
             // built for (1 R→W, measured).
             return true;
         }
+        // `tryGetTypeFromEffectiveTypeNode` answers first: a JS variable's
+        // `@type` tag is its effective annotation (`getEffectiveTypeAnnotationNode`).
         if node.r#type.is_some()
             || self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
+            || self.jsdoc_type_annotation(declaration).is_some()
         {
             return false;
         }

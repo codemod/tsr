@@ -663,3 +663,16 @@ readonly (`mappedTypes6`, measured). Native control: `obj.x`, `obj[0]`
 `string`; a mutable tuple and `Readwrite<{ readonly x }>` stay
 `string | number`, in both. `controlFlowAliasing`'s type half converges
 (13 lines); its remaining diagnostics are TS2339 and elaboration chains.
+
+## 33. A JSDoc `@type` variable is not auto-typed
+
+Pinned `getWidenedTypeForVariableLikeDeclaration`: `autoType` is reached only
+after `tryGetTypeFromEffectiveTypeNode` finds no annotation, and in a JS file
+the `@type` tag is the effective annotation (`getEffectiveTypeAnnotationNode`).
+`is_auto_typed_declaration` only read the syntactic `r#type`, so
+`/** @type {D} */ var d; d.chunk` started the flow walk at `undefined` and
+reported TS18048 (strict) / printed `d : undefined`. It now also asks
+`jsdoc_type_annotation`. Native control (`jsdocImportType`): `d : D`,
+`d.chunk : number`, no TS18048, in both. TS18048 extras 12 → 9;
+`jsdocImportType`'s `c` (an `@type` sharing its comment with a `@typedef`)
+stays auto: `jsdoc_type_annotation` does not return that tag (jsdoc lane).
