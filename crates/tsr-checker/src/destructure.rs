@@ -1245,11 +1245,9 @@ impl Checker<'_, '_> {
     /// assignable to `string | number | symbol`, so the fallback carries that
     /// gate. A destructuring key of type `symbol` against
     /// `{ [k: string]: V }` is `V` (`lateBoundDestructuringImplicitAnyError`,
-    /// r5-shapes §2.7). `resolved_indexed_access_type` (`indexed.rs`) holds
-    /// the same rule inline; unifying the two is
-    /// `r5-shapes-indexed-never-and-shared-keys.diff`, because `indexed.rs`
-    /// belongs to another lane.
-    fn destructuring_index_info(
+    /// r5-shapes §2.7). `resolved_indexed_access_type` (`indexed.rs`) reads
+    /// its index signatures through this too.
+    pub(crate) fn destructuring_index_info(
         &mut self,
         object: TypeId,
         index: TypeId,
