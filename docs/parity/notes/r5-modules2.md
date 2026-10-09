@@ -122,17 +122,13 @@ Tests: `cargo test --workspace --release` passes except
 identically at the baseline (`7472473`, r5-instexpr's landed patch), not
 here.
 
-### 3.2 `symbolToTypeNode`'s import-type arm (commit 2)
+### 3.2 `symbolToTypeNode`'s import-type arm (commits 2 and 3)
 
 What a printer writes inside `import(…)` is not `getSpecifierForModuleSymbol`
 alone: `symbolToTypeNode` (`nodebuilderimpl.go:659`-`:707`) first asks
 whether, under `node16`/`nodenext` resolution, the target file is emitted
 as ESM while the context file is not; if so it generates the specifier in
-ESM mode and writes `, { with: { "resolution-mode": "import" } }`. A
-specifier still diving into `/node_modules/` is generated again in the
-swapped mode (CommonJS from an ESM file, ESM otherwise) and, if that one is
-portable, written with the swapped mode's attribute. Only a specifier that
-stays unportable reaches `ReportLikelyUnsafeImportRequiredError`.
+ESM mode and writes `, { with: { "resolution-mode": "import" } }`.
 
 `Checker::import_type_argument` (`module_specifiers.rs`) is that arm, and
 `Checker::module_specifier_for_symbol` (this lane's function in
@@ -140,12 +136,21 @@ stays unportable reaches `ReportLikelyUnsafeImportRequiredError`.
 it. `GetEmitModuleFormatOfFile` is `ModuleHost::implied_node_format_for_emit`,
 the same host question r5-modules §6's tracker already uses.
 
-Consequence for the tracker (r5-modules §6, `symbol_access.rs`
-`inferred_type_reports`): a specifier that the swap made portable is no
-longer recorded by `track_unsafe_import` at all, since it no longer contains
-`/node_modules/`, which is native's order (the report sits after the swap).
-The tracker's own swap test is now redundant for those entries but still
-correct for the rest; it is not edited (not this lane's file).
+**Correction (commit 3).** Commit 2 also ported the arm's second half: a
+specifier still diving into `/node_modules/` is regenerated in the swapped
+mode and written with that mode's attribute. That half runs only when
+`FlagsAllowNodeModulesRelativePaths` is unset (`:678`), and `typeToString`
+always sets it: its flags include `FlagsIgnoreErrors` (`printer.go:202`),
+which contains `FlagsAllowNodeModulesRelativePaths`
+(`nodebuilder/types.go:61`). So no printed type ever swaps; only
+declaration emit does, and r5-modules §6's tracker (`symbol_access.rs`
+`inferred_type_reports`) already asks the swapped mode itself. The swap was
+inert on the committed producers, so commit 2's measurement stands, but the
+import-call producer diff (§4) exposed it:
+`nodeModulesImportAttributesTypeModeDeclarationEmitErrors` printed
+`typeof import("pkg", { with: { "resolution-mode": "import" } })` where
+native prints `typeof import("./node_modules/pkg/import")`. Commit 3 removes
+the swap.
 
 Rejected: writing the attribute in each producer. Native has one place for
 it, and the producers already call `module_specifier_for_symbol`.
@@ -180,6 +185,23 @@ Each diff applies on this lane's head and routes one producer through
   site, falling back to the written text where none is computed. The mint
   stays keyed by its text, so it is still one type per spelling.
 
+Measured, all three applied on commit 3, unfiltered: **types +59 lines**
+(59 WRONG → RIGHT), diagnostics unchanged, **zero losses** on either dump
+against the frozen baseline. By diff (each touches disjoint cases):
+
+- symbol chain, 26: `inlineJsxFactoryDeclarationsLocalTypes` 7,
+  `jsDeclarationsWithDefaultAsNamespaceLikeMerge` 5,
+  `declarationEmitTransitiveImportOfHtmlDeclarationItem` 4 (the
+  `foo.d.html.ts` → `./foo.html` remap), `inlineJsxFactoryLocalTypeGlobalFallback`
+  4, `constEnumNoPreserveDeclarationReexport` 2,
+  `inferrenceInfiniteLoopWithSubtyping` 2, `mergeSymbolReexportInterface` 1,
+  `mergeSymbolReexportedTypeAliasInstantiation` 1;
+- `export =` class, 13: `jsDeclarationsExportAssignedClassExpressionAnonymous(target=es2015)`
+  5 (`typeof import(".")`), `multiImportExport` 5, `umd9` 2, `umd8` 1;
+- `import()` call, 20: `nodeModulesImportAttributesTypeModeDeclarationEmitErrors`
+  3 × 4 configurations, `nodeModulesDeclarationEmitDynamicImportWithPackageExports`
+  2 × 3, `parseAssertEntriesError` 1, `parseImportAttributesError` 1.
+
 Measured and rejected: **`declared.rs` `get_type_from_import_type_node`**
 returning the member's declared type (native `resolveImportSymbolType`)
 instead of the written-text mint. It is the faithful shape, and it fixes
@@ -192,3 +214,50 @@ for `symbol_chain`'s file-module arm to cover nested directories (main,
 `tsr-2zk.39`); with that, the same one-line change should convert the
 written-text rows of `nodeModules{,ImportAttributes}TypeModeDeclarationEmit*`
 (3 lines × 4 configurations each) and `declarationEmitUsingTypeAlias1`.
+
+## 5. `tsr-2zk.1060`: JSON files and `import()` of an `export =` module
+
+### 5.1 JSON files are JavaScript files (committed)
+
+tsgo's parser gives a `ScriptKindJSON` file `NodeFlagsJavaScriptFile |
+NodeFlagsJsonFile` (`internal/parser/parser.go:306`), so `ast.IsInJSFile` is
+true inside a JSON file. This port's two parse sites (`loader.rs`'s
+`load_task` and `Program::in_arena` in `lib.rs`) stamped
+`JAVASCRIPT_FILE` from the `.js`-family extensions only; the JSON parser
+(`tsr-parser/src/json.rs`) stamps `JSON_FILE` itself. Both sites now add
+`JAVASCRIPT_FILE` to a root the JSON parser stamped, which is the
+`ScriptKindJSON` test rather than a second reading of the extension.
+`tests/module_host.rs` pins both sites.
+
+Measured: **inert** on both dumps (unfiltered, against commit 3), as
+r5-modexports §5 predicted: a JSON module binds `export =`, so
+`canHaveSyntheticDefault`'s TypeScript and JavaScript arms agree, and no
+corpus JSON file has an `"__esModule"` key. Landed anyway: it is the
+upstream flag, and the falsifier is a JSON file with `"__esModule"`.
+Perf: median child CPU (21 samples) domain-model 1.027, generic-imports
+1.005; Ir 342,875,228 / 1,195,112,994 (−0.006% / −0.085% against the
+baseline). One flag read per parsed file.
+
+### 5.2 `import()` of an `export =` module (diff)
+
+`checkImportCallExpression` (`checker.go:8305`-`:8310`) types the call as
+`Promise<getTypeWithSyntheticDefaultImportType(getTypeOfSymbol(esModuleSymbol), …)>`
+with `esModuleSymbol = resolveExternalModuleSymbol(moduleSymbol)`. For an
+`export =` module that is the *target's* type. The port's `import()` mint
+(`calls.rs`) stands for the module symbol's own type, so r5-modexports §3
+skipped `getTypeWithSyntheticDefaultImportType` for such modules.
+
+`r5-modules2-import-call-export-equals.diff` adds
+`Checker::import_call_module_type` (`module_exports.rs`): the mint for a
+module without `export =`, else `get_type_of_symbol(es_module)`, then the
+synthetic-default import type. The `calls.rs` call site replaces the
+decline with it. Both halves ship as one diff because the function's only
+caller is in `calls.rs` (main's); committed alone it would be dead code.
+
+Measured on commit 4 (unfiltered): **types +19 lines** (18 WRONG → RIGHT,
+1 GAP → RIGHT), **diagnostics +1 case** (`esModuleInteropImportCall`
+EMPTY_WRONG → EMPTY_RIGHT), zero losses. Converted:
+`esModuleInteropImportCall` 8, `modulePreserve4` 7,
+`importCallExpressionInExportEqualsCJS` 3, `errorForConflictingExportEqualsValue` 1.
+It applies independently of `r5-modules2-import-call-specifier.diff`
+(different hunks of the same function).
