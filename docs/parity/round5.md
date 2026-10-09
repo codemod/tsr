@@ -1671,3 +1671,23 @@ times there (notes §11).
 The box refused the reference-receiver property miss: +391 to +430 lines
 against 40 to 46 false claims. Its causes are the narrowing and augmentation
 ports. The remainder is in `tsr-2zk.1150`.
+
+### r6-typesroots2 finished (batch BU); r6-typesroots3 dispatched
+
+Batch BU lands r6-typesroots2's new files and three diffs:
+- import-type value meaning (checker.go:24575);
+- the shadowed type-parameter rename: enterNewScope's render scope, the
+  binder's ComputedPropertyName arm, and native's collision condition;
+- the mapped contextual property read through getTypeOfMappedSymbol. This one
+  is a correctness prerequisite; it is byte-identical on both dumps.
+
+Measured by the box against `e6eadf4`: +67 types and +2 diagnostics cases,
+0 lost. Ir is ×1.0007 on domain-model and ×1.0001 on generic-imports.
+
+The conditional-node consumers diff (+35 types) is held. It loses
+complicatedIndexesOfIntersectionsAreInferencable until reverse-mapped
+intersection inference lands (`inference.rs`, MAIN).
+
+Closed: .16.7, .16.79, .16.73 and .16.65 (their roots). .16.6 and .16.76 are
+reopened unassigned, waiting on `tsr-2zk.39`'s naming. r6-typesroots3 takes
+.16.69, .16.74 and `tsr-2zk.1151`.
