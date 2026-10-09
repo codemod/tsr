@@ -6781,24 +6781,6 @@ impl<'a> Checker<'a, '_> {
             crate::types::TypeData::Intersection { types, .. } => types,
             _ => vec![declared],
         };
-        // Native relates an intersection structurally, constituent by
-        // constituent, and probes alias variance only for object and
-        // conditional types (relater.go:3389). A constituent that is an alias
-        // reference whose body this port cannot build (an instantiation
-        // expression `typeof Class<T>`, which getTypeFromTypeQueryNode answers
-        // as `error` until `tsr-2zk.1006` lands) is a member-less name mint, so
-        // the structural relation native takes is undecidable here. Keep the
-        // alias's own name mint, whose relation reads the alias's arguments,
-        // until that constituent has a real type.
-        for &constituent in &constituents {
-            if let Some((owner, owner_arguments)) =
-                self.type_reference_targets.get(&constituent).cloned()
-                && self.binder.symbols().get(owner).flags.contains(SymbolFlags::TYPE_ALIAS)
-                && self.evaluate_alias_body(owner, &owner_arguments).is_none()
-            {
-                return None;
-            }
-        }
         let mapper: Vec<_> = parameters.iter().copied().zip(arguments.iter().copied()).collect();
         let mut instantiated = Vec::with_capacity(constituents.len());
         for constituent in constituents {

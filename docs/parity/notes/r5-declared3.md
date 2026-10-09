@@ -197,3 +197,49 @@ nothing in `declared.rs`/`checker.rs`. Unit tests:
   `T[K]` reads (`mapped.rs`, r5-mapped4), and the eager printed text
   (`written_type_text_flags`, `signatures.rs`) and `resolve_name_with_export_alias`
   (`symbols.rs`) on every mint.
+
+## 2. `.1061`'s decline removed (r5-declared2 §1.2)
+
+r5-declared2 kept the alias's own name mint for an intersection-bodied alias
+when a constituent was an alias reference whose body `evaluate_alias_body`
+could not build. That covered `typeof Class<T>`, which a type query with type
+arguments answered as `error` before `tsr-2zk.1006`. r5-instexpr's
+instantiation expressions have landed (`get_type_from_type_query_node` now
+calls `get_instantiation_expression_type`), and the decline's own falsifier
+said to re-measure without it. It is removed, so the intersection road is
+getTypeAliasInstantiation's (`:23641`) for every constituent.
+
+**Measured** unfiltered, against the frozen base `d91243e` (with §1's commit
+under it):
+
+| | base | after |
+|---|---|---|
+| diagnostics RIGHT + EMPTY_RIGHT | 10983 | 10983 |
+| type lines RIGHT | 545161 | 545162 (+1) |
+| losses (diag / types / base-RIGHT keys missing) | | 0 / 0 / 0 |
+
+Gain: `contextualTypeBasedOnIntersectionWithAnyInTheMix5:0:17`
+(`this : ExtractComputedReturns<{}>`). Ir vs §1's commit is flat
+(generic-imports 342,902,017 → 342,894,718; domain-model 1,153,360,167 →
+1,153,379,821). Median child CPU vs the base binary, 21 samples:
+generic-imports 1.019, domain-model 1.002; `diagnostics_match: true`.
+`slowcases` flagged `ramdaToolsNoInfinite2` once (diag dump, 408 → 1,647 ms,
+the 3× rule over 1,000 ms). That was one noisy sample. Filtered reruns read
+545–597 ms, and the CLI on the case reads 766–781 ms against the base
+binary's 806–922 ms.
+
+**Not converted: `aliasInstantiationExpressionGenericIntersectionNoCrash2`.**
+It was already WRONG at the base (TS2352 missing), with or without the
+decline, so the decline was no longer holding a RIGHT. Two type lines in it
+remain: the alias lines `ClassAlias`/`FnAlias` print the written
+`typeof Class<T>` / `typeof fn<T>` where native prints the structure
+(`{ new (): Class<T>; prototype: Class<any>; }`, `() => T`). The missing TS2352
+needs that structural relation, so it is the same root.
+
+## 3. The two small diffs other lanes left: already folded
+
+`r5-errorsplit4-default-declared.diff` (getResolvedTypeParameterDefault
+caches unconditionally, `:22007`) and `r5-typetriage-enum-member-ascii-escape.diff`
+(`quote_ascii` at the two `(typeof {name})[…]` enum-member sites) were
+both folded by r5-declared2 in `62d62f3`, which landed in batch AC. Nothing
+to apply. Their measurements are in [`r5-declared2.md`](r5-declared2.md).
