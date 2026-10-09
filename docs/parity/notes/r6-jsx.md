@@ -234,6 +234,29 @@ path only, which runs only for a malformed container).
 **Measured** on top of §1–§3: WRONG → RIGHT `tsxElementResolution15`, no
 new missing or extra row, type lines byte-identical, slowcases clean.
 
+## 5. The return-type bound after a failed overload set (TS2786)
+
+**Forcing constraint.** `resolveCall` answers a failed set with
+`getCandidateForOverloadFailure`; with several non-generic candidates that
+is `createUnionOfSignaturesForOverloadFailure` (`checker.go:9581`), whose
+return type is the **intersection** of every candidate's return type, and
+`checkJsxOpeningLikeElementOrOpeningFragment` relates that return type to
+the `JSX.Element | null` / `ElementClass` bound like any resolved
+signature's. `tsxElementResolution9` reports TS2786 with `Its return type
+'{ x: number; } & { y: string; }'`; the port published nothing for a failed
+set and skipped the bound.
+
+**What is ported.** `JsxOverloads::Failed` carries
+`jsx_overload_failure_return`: the intersection over all (reordered)
+candidates when none is generic, the candidate itself for one, `None`
+otherwise (`pickLongestCandidateSignature` among generic candidates is not
+ported). The component check relates it to the bound in place of a
+published signature. The signature itself is still not published (its
+combined parameters would be the attributes' contextual type).
+
+**Measured** on top of §1–§4: WRONG → RIGHT `tsxElementResolution9`, no new
+missing or extra row, type lines byte-identical, slowcases clean.
+
 ## 9. Diffs for files this lane does not own
 
 Each diff is against the frozen base plus this lane's commits, measured

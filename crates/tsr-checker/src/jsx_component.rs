@@ -73,8 +73,12 @@ impl Checker<'_, '_> {
         }
         let overloads =
             if intrinsic { JsxOverloads::Declined } else { self.jsx_overloads_at(node) };
+        let mut failure_return = None;
         let failure = match overloads {
-            JsxOverloads::Failed { last, props, count } => Some((*last, props, count)),
+            JsxOverloads::Failed { last, props, count, failure_return: answer } => {
+                failure_return = answer;
+                Some((*last, props, count))
+            }
             JsxOverloads::TypeArgumentArity(arities) => {
                 self.report_jsx_type_argument_arity(typed, &arities);
                 None
@@ -102,8 +106,18 @@ impl Checker<'_, '_> {
         }
         let Some(kind) = self.jsx_reference_kind(tag_type) else { return };
         self.jsx_attributes_context(node);
-        let Some(signature) = self.resolved_call_signatures.get(&node).cloned() else { return };
-        let Some(instance) = self.get_return_type_of_signature(&signature) else { return };
+        // A failed overload set resolves to `getCandidateForOverloadFailure`'s
+        // signature, whose return type is checked against the bound too.
+        let instance = match failure_return {
+            Some(instance) => instance,
+            None => {
+                let Some(signature) = self.resolved_call_signatures.get(&node).cloned() else {
+                    return;
+                };
+                let Some(instance) = self.get_return_type_of_signature(&signature) else { return };
+                instance
+            }
+        };
         if self.is_gap(instance) {
             return;
         }
@@ -1517,7 +1531,14 @@ pub(crate) enum JsxOverloads {
     /// last entry, as checked (instantiated when generic), with its
     /// effective first argument as the only parameter; `count` that list's
     /// length — above one, the report is TS2769.
-    Failed { last: Box<crate::signatures::Signature>, props: TypeId, count: usize },
+    /// `failure_return` is the return type of `getCandidateForOverloadFailure`'s
+    /// signature where this port builds it.
+    Failed {
+        last: Box<crate::signatures::Signature>,
+        props: TypeId,
+        count: usize,
+        failure_return: Option<TypeId>,
+    },
     /// No candidate takes the written number of type arguments: each
     /// candidate's `(getMinTypeArgumentCount, type parameter count)`.
     TypeArgumentArity(Vec<(usize, usize)>),
@@ -1724,7 +1745,10 @@ impl Checker<'_, '_> {
         }
         let count = failed.len();
         match (failed.pop(), type_argument_error) {
-            (Some((last, props)), _) => JsxOverloads::Failed { last: Box::new(last), props, count },
+            (Some((last, props)), _) => {
+                let failure_return = self.jsx_overload_failure_return(&candidates);
+                JsxOverloads::Failed { last: Box::new(last), props, count, failure_return }
+            }
             (None, Some(candidate)) => JsxOverloads::TypeArgumentError(Box::new(candidate)),
             (None, None) => JsxOverloads::Declined,
         }
@@ -1841,6 +1865,35 @@ impl Checker<'_, '_> {
             );
             self.report(file, diagnostic);
             return;
+        }
+    }
+
+    /// The return type of `getCandidateForOverloadFailure` (`checker.go`) for
+    /// a failed JSX resolution: with several candidates none of which is
+    /// generic, `createUnionOfSignaturesForOverloadFailure`'s
+    /// (`checker.go:9581`) intersection of every candidate's return type; a
+    /// single non-generic candidate is its own pick. `None` where
+    /// `pickLongestCandidateSignature` would choose among generic candidates
+    /// (not ported here).
+    fn jsx_overload_failure_return(
+        &mut self,
+        candidates: &[crate::signatures::Signature],
+    ) -> Option<TypeId> {
+        if candidates.iter().any(|candidate| !candidate.type_parameters.is_empty()) {
+            return None;
+        }
+        let mut returns = Vec::with_capacity(candidates.len());
+        for candidate in candidates {
+            let returned = self.get_return_type_of_signature(candidate)?;
+            if self.is_gap(returned) {
+                return None;
+            }
+            returns.push(returned);
+        }
+        match returns.as_slice() {
+            [] => None,
+            [only] => Some(*only),
+            _ => Some(self.get_intersection_type(&returns, None)),
         }
     }
 
