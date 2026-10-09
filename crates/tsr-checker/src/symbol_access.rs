@@ -1166,9 +1166,18 @@ impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
                     .and_then(|p| self.parent(p)),
                 _ => None,
             };
+            // A JSDoc `@import` is native's reparsed `JSImportDeclaration`
+            // (`reparser.go:119`), a statement of the nearest source file or
+            // block statement list enclosing the comment's host; the tag
+            // itself sits under the comment, which has no parent edge.
             if let Some(import) = import
                 && !self.has_modifier(import, K::ExportKeyword)
-                && self.parent(import).is_some_and(|parent| self.is_declaration_visible(parent))
+                && if self.kind(import) == K::JSDocImportTag {
+                    self.checker.jsdoc_import_declaration_parent(import)
+                } else {
+                    self.parent(import)
+                }
+                .is_some_and(|parent| self.is_declaration_visible(parent))
             {
                 add_visible_alias(self, declaration, import);
                 continue;
