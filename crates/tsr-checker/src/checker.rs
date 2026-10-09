@@ -2277,7 +2277,16 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let mut parts = Vec::with_capacity(entries.len());
                 let mut complete = true;
                 let multiple = entries.len() > 1;
-                for entry in entries {
+                // formatUnionTypes (printer.go:383) orders the printed
+                // entries: `null` then `undefined` last, booleans collapsed.
+                for part in crate::unions::union_print_parts(&self.store, &entries) {
+                    let entry = match part {
+                        crate::unions::UnionPrintPart::Type(entry) => entry,
+                        crate::unions::UnionPrintPart::Keyword(keyword) => {
+                            parts.push(keyword.to_string());
+                            continue;
+                        }
+                    };
                     if let Some(part) = self.type_to_string_at(entry, reference) {
                         let intersection =
                             matches!(
