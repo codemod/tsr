@@ -244,12 +244,17 @@ impl Checker<'_, '_> {
     ///
     /// Under `node16`/`nodenext` resolution, a target emitted as ESM from a
     /// context file of another emit format is named in ESM mode with the
-    /// `import` attribute. A specifier still diving into `/node_modules/` is
-    /// generated again in the swapped mode and, if that one does not, written
-    /// with the swapped mode's attribute. The tracker report for a specifier
-    /// that stays unportable is `track_unsafe_import`'s (r5-modules §6).
-    /// `GetEmitModuleFormatOfFile` is `ModuleHost::implied_node_format_for_emit`,
-    /// as there.
+    /// `import` attribute. `GetEmitModuleFormatOfFile` is
+    /// `ModuleHost::implied_node_format_for_emit`, as in r5-modules §6.
+    ///
+    /// The arm's second half — regenerating a specifier that dives into
+    /// `/node_modules/` in the swapped mode — is gated on
+    /// `FlagsAllowNodeModulesRelativePaths` being *unset*. `typeToString`
+    /// always sets it (`FlagsIgnoreErrors`, `printer.go:202`,
+    /// `nodebuilder/types.go:61`), so a printed type never swaps; only
+    /// declaration emit does, and its tracker
+    /// (`symbol_access.rs` `inferred_type_reports`) asks the swapped mode
+    /// itself (r5-modules2 §3.2).
     pub(crate) fn import_type_argument(
         &self,
         module: tsr_binder::SymbolId,
@@ -282,27 +287,12 @@ impl Checker<'_, '_> {
                 self.module_specifier_for_symbol_in_mode(module, reference, ModuleKind::ESNext);
             attribute = Some("import");
         }
-        let mut specifier = match specifier {
+        let specifier = match specifier {
             Some(specifier) => specifier,
             None => {
                 self.module_specifier_for_symbol_in_mode(module, reference, ModuleKind::None)?
             }
         };
-        if specifier.contains("/node_modules/") {
-            let swapped =
-                if context_file.is_some_and(|context| format(context) == ModuleKind::ESNext) {
-                    ModuleKind::CommonJS
-                } else {
-                    ModuleKind::ESNext
-                };
-            if let Some(retry) =
-                self.module_specifier_for_symbol_in_mode(module, reference, swapped)
-                && !retry.contains("/node_modules/")
-            {
-                specifier = retry;
-                attribute = Some(if swapped == ModuleKind::ESNext { "import" } else { "require" });
-            }
-        }
         Some(match attribute {
             Some(mode) => format!("{specifier}, {{ with: {{ \"resolution-mode\": \"{mode}\" }} }}"),
             None => specifier,

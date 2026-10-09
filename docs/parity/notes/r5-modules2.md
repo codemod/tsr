@@ -122,17 +122,13 @@ Tests: `cargo test --workspace --release` passes except
 identically at the baseline (`7472473`, r5-instexpr's landed patch), not
 here.
 
-### 3.2 `symbolToTypeNode`'s import-type arm (commit 2)
+### 3.2 `symbolToTypeNode`'s import-type arm (commits 2 and 3)
 
 What a printer writes inside `import(…)` is not `getSpecifierForModuleSymbol`
 alone: `symbolToTypeNode` (`nodebuilderimpl.go:659`-`:707`) first asks
 whether, under `node16`/`nodenext` resolution, the target file is emitted
 as ESM while the context file is not; if so it generates the specifier in
-ESM mode and writes `, { with: { "resolution-mode": "import" } }`. A
-specifier still diving into `/node_modules/` is generated again in the
-swapped mode (CommonJS from an ESM file, ESM otherwise) and, if that one is
-portable, written with the swapped mode's attribute. Only a specifier that
-stays unportable reaches `ReportLikelyUnsafeImportRequiredError`.
+ESM mode and writes `, { with: { "resolution-mode": "import" } }`.
 
 `Checker::import_type_argument` (`module_specifiers.rs`) is that arm, and
 `Checker::module_specifier_for_symbol` (this lane's function in
@@ -140,12 +136,21 @@ stays unportable reaches `ReportLikelyUnsafeImportRequiredError`.
 it. `GetEmitModuleFormatOfFile` is `ModuleHost::implied_node_format_for_emit`,
 the same host question r5-modules §6's tracker already uses.
 
-Consequence for the tracker (r5-modules §6, `symbol_access.rs`
-`inferred_type_reports`): a specifier that the swap made portable is no
-longer recorded by `track_unsafe_import` at all, since it no longer contains
-`/node_modules/`, which is native's order (the report sits after the swap).
-The tracker's own swap test is now redundant for those entries but still
-correct for the rest; it is not edited (not this lane's file).
+**Correction (commit 3).** Commit 2 also ported the arm's second half: a
+specifier still diving into `/node_modules/` is regenerated in the swapped
+mode and written with that mode's attribute. That half runs only when
+`FlagsAllowNodeModulesRelativePaths` is unset (`:678`), and `typeToString`
+always sets it: its flags include `FlagsIgnoreErrors` (`printer.go:202`),
+which contains `FlagsAllowNodeModulesRelativePaths`
+(`nodebuilder/types.go:61`). So no printed type ever swaps; only
+declaration emit does, and r5-modules §6's tracker (`symbol_access.rs`
+`inferred_type_reports`) already asks the swapped mode itself. The swap was
+inert on the committed producers, so commit 2's measurement stands, but the
+import-call producer diff (§4) exposed it:
+`nodeModulesImportAttributesTypeModeDeclarationEmitErrors` printed
+`typeof import("pkg", { with: { "resolution-mode": "import" } })` where
+native prints `typeof import("./node_modules/pkg/import")`. Commit 3 removes
+the swap.
 
 Rejected: writing the attribute in each producer. Native has one place for
 it, and the producers already call `module_specifier_for_symbol`.
@@ -179,6 +184,23 @@ Each diff applies on this lane's head and routes one producer through
   mint of an `import()` call spells the computed argument at the call
   site, falling back to the written text where none is computed. The mint
   stays keyed by its text, so it is still one type per spelling.
+
+Measured, all three applied on commit 3, unfiltered: **types +59 lines**
+(59 WRONG → RIGHT), diagnostics unchanged, **zero losses** on either dump
+against the frozen baseline. By diff (each touches disjoint cases):
+
+- symbol chain, 26: `inlineJsxFactoryDeclarationsLocalTypes` 7,
+  `jsDeclarationsWithDefaultAsNamespaceLikeMerge` 5,
+  `declarationEmitTransitiveImportOfHtmlDeclarationItem` 4 (the
+  `foo.d.html.ts` → `./foo.html` remap), `inlineJsxFactoryLocalTypeGlobalFallback`
+  4, `constEnumNoPreserveDeclarationReexport` 2,
+  `inferrenceInfiniteLoopWithSubtyping` 2, `mergeSymbolReexportInterface` 1,
+  `mergeSymbolReexportedTypeAliasInstantiation` 1;
+- `export =` class, 13: `jsDeclarationsExportAssignedClassExpressionAnonymous(target=es2015)`
+  5 (`typeof import(".")`), `multiImportExport` 5, `umd9` 2, `umd8` 1;
+- `import()` call, 20: `nodeModulesImportAttributesTypeModeDeclarationEmitErrors`
+  3 × 4 configurations, `nodeModulesDeclarationEmitDynamicImportWithPackageExports`
+  2 × 3, `parseAssertEntriesError` 1, `parseImportAttributesError` 1.
 
 Measured and rejected: **`declared.rs` `get_type_from_import_type_node`**
 returning the member's declared type (native `resolveImportSymbolType`)
