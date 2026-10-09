@@ -1,0 +1,22 @@
+diff --git a/crates/tsr-checker/src/printing.rs b/crates/tsr-checker/src/printing.rs
+index 12f4b2e..edc306a 100644
+--- a/crates/tsr-checker/src/printing.rs
++++ b/crates/tsr-checker/src/printing.rs
+@@ -382,6 +382,17 @@ impl Checker<'_, '_> {
+                 ) {
+                     return Some(());
+                 }
++                // `addPropertyToElementList` → `serializeTypeForDeclaration`
++                // (`nodebuilderimpl.go:2605`): the declaration's pseudo type
++                // is reused when equivalent, structural kinds included (an
++                // annotated get/set pair keeps its accessors).
++                if let Some(text) = property
++                    .origin
++                    .and_then(|symbol| self.reused_property_type_text(symbol, property_type, Some(reference)))
++                {
++                    *printed = text;
++                    return Some(());
++                }
+                 // Native serializeTypeForDeclaration can reuse an original
+                 // SingleCallSignature initializer. pseudoTypeToNode builds
+                 // its signature directly, without visiting the callable
