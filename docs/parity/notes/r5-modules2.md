@@ -122,7 +122,73 @@ Tests: `cargo test --workspace --release` passes except
 identically at the baseline (`7472473`, r5-instexpr's landed patch), not
 here.
 
+### 3.2 `symbolToTypeNode`'s import-type arm (commit 2)
+
+What a printer writes inside `import(…)` is not `getSpecifierForModuleSymbol`
+alone: `symbolToTypeNode` (`nodebuilderimpl.go:659`-`:707`) first asks
+whether, under `node16`/`nodenext` resolution, the target file is emitted
+as ESM while the context file is not; if so it generates the specifier in
+ESM mode and writes `, { with: { "resolution-mode": "import" } }`. A
+specifier still diving into `/node_modules/` is generated again in the
+swapped mode (CommonJS from an ESM file, ESM otherwise) and, if that one is
+portable, written with the swapped mode's attribute. Only a specifier that
+stays unportable reaches `ReportLikelyUnsafeImportRequiredError`.
+
+`Checker::import_type_argument` (`module_specifiers.rs`) is that arm, and
+`Checker::module_specifier_for_symbol` (this lane's function in
+`checker.rs`, called by every printer that writes `import(…)`) now returns
+it. `GetEmitModuleFormatOfFile` is `ModuleHost::implied_node_format_for_emit`,
+the same host question r5-modules §6's tracker already uses.
+
+Consequence for the tracker (r5-modules §6, `symbol_access.rs`
+`inferred_type_reports`): a specifier that the swap made portable is no
+longer recorded by `track_unsafe_import` at all, since it no longer contains
+`/node_modules/`, which is native's order (the report sits after the swap).
+The tracker's own swap test is now redundant for those entries but still
+correct for the rest; it is not edited (not this lane's file).
+
+Rejected: writing the attribute in each producer. Native has one place for
+it, and the producers already call `module_specifier_for_symbol`.
+
+Measured, unfiltered against the frozen baseline: **types +21 lines**
+(21 WRONG → RIGHT, zero losses; diagnostics unchanged):
+`nodeModulesDeclarationEmitDynamicImportWithPackageExports` 6 lines in each
+of node18/node20/nodenext (`Promise<typeof import("package/mjs", { with:
+{ "resolution-mode": "import" } })>`), and `esmModuleExports1`,
+`esmModuleExports2(esmoduleinterop=true)`, `esmModuleExports3` one each.
+Perf: median child CPU (21 samples) domain-model 0.994, generic-imports
+1.014; Ir 342,875,206 (−0.006%) and 1,195,792,683 (−0.028%) against the
+baseline's 342,896,129 and 1,196,126,364.
+
 ## 4. Producer diffs (not committed; files owned elsewhere)
 
-Each diff is against this lane's head and routes a producer through
-`module_specifier_for_symbol`. See the report (§6) for numbers.
+Each diff applies on this lane's head and routes one producer through
+`module_specifier_for_symbol`, so the printed text is native's
+`symbolToTypeNode` argument instead of a name- or written-text spelling.
+
+- `r5-modules2-symbol-chain-specifier.diff` (`checker.rs` `symbol_chain`,
+  main's `tsr-2zk.39`): the flat file-module arm spells
+  `module_specifier_for_symbol(parent, reference)` instead of `./{stem}`.
+  The arm's gates (`imported_here`, `same_file`, the flat-directory slice)
+  are unchanged; only the text changes.
+- `r5-modules2-export-equals-class-specifier.diff` (`printing.rs:147`,
+  r5-shapes): the `typeof import(…)` of a class that is its file's
+  `export =`.
+- `r5-modules2-import-call-specifier.diff` (`calls.rs`
+  `check_import_call_expression`, main): the `typeof import(…)` namespace
+  mint of an `import()` call spells the computed argument at the call
+  site, falling back to the written text where none is computed. The mint
+  stays keyed by its text, so it is still one type per spelling.
+
+Measured and rejected: **`declared.rs` `get_type_from_import_type_node`**
+returning the member's declared type (native `resolveImportSymbolType`)
+instead of the written-text mint. It is the faithful shape, and it fixes
+`nodeModulesImportTypeModeDeclarationEmit1` and friends, but the symbol
+chain does not qualify a module in a nested directory (the flat-directory
+gate above), so `import("./inner").SomeType` written in
+`node_modules/some-dep/dist/index.d.ts` printed bare `SomeType`: 2 RIGHT →
+WRONG in `declarationEmitUsingTypeAlias1` alone on the target set. It waits
+for `symbol_chain`'s file-module arm to cover nested directories (main,
+`tsr-2zk.39`); with that, the same one-line change should convert the
+written-text rows of `nodeModules{,ImportAttributes}TypeModeDeclarationEmit*`
+(3 lines × 4 configurations each) and `declarationEmitUsingTypeAlias1`.

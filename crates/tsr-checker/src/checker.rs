@@ -2414,8 +2414,16 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///   host path, the module symbol's name (the path with its extension
     ///   stripped, `bind_source_file_as_external_module`) is spelled
     ///   `./name` when it sits at the root.
-    fn module_specifier_for_symbol(&self, module: SymbolId, reference: NodeId) -> Option<String> {
-        self.module_specifier_for_symbol_in_mode(module, reference, tsr_core::ModuleKind::None)
+    ///
+    /// What the printers write inside `import(…)`: `symbolToTypeNode`'s
+    /// import-type arm over this function, with its `resolution-mode`
+    /// attribute ([`Checker::import_type_argument`], r5-modules2 §3.2).
+    pub(crate) fn module_specifier_for_symbol(
+        &self,
+        module: SymbolId,
+        reference: NodeId,
+    ) -> Option<String> {
+        self.import_type_argument(module, reference)
     }
 
     /// [`Checker::module_specifier_for_symbol`] under `getSpecifierForModuleSymbol`'s
