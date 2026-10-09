@@ -1284,7 +1284,7 @@ impl<'a> Checker<'a, '_> {
     /// `checkReferenceExpression`'s verdict (`checker.go:13130`) without its
     /// reports (those are `check_reference_expression`'s): an identifier or
     /// access under assertions and parentheses, not an optional chain.
-    fn is_assignable_reference(&self, node: NodeId) -> bool {
+    pub(crate) fn is_assignable_reference(&self, node: NodeId) -> bool {
         let spine = self.skip_reference_spine(node, true);
         matches!(
             self.nodes.kind(spine),
@@ -1308,7 +1308,7 @@ impl<'a> Checker<'a, '_> {
     /// variable is `any` and upstream reports nothing — the same auto-to-any
     /// mechanism `docs/architecture/checker-notes-narrow.md` §9 measures from the
     /// `.types` side.
-    fn assignment_target_type(&mut self, node: NodeId) -> Option<TypeId> {
+    pub(crate) fn assignment_target_type(&mut self, node: NodeId) -> Option<TypeId> {
         // `checkParenthesizedExpression` answers its operand's type, and
         // `getAssignmentTargetKind` looks through parentheses, so `(x) = ''`
         // writes into `x`'s declared type exactly as `x = ''` does.
