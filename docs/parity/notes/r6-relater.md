@@ -198,3 +198,33 @@ Tests: `tests/relater8_arms.rs` `an_unreliable_variance_falls_back_to_the_struct
 `a_homomorphic_alias_over_a_primitive_is_that_primitive`,
 `an_alias_written_as_an_interface_reference_keeps_no_alias_variance`;
 `variances::tests::written_variance_on_a_reference_to_an_object_alias_is_declared`.
+
+## 3. Lift: the `mapped_conditionals` decline (r5-relater6 §3)
+
+**What it was.** The gate answered `Unknown` for every pair with a mapped
+template's conditional on either side (an `as` clause such as `T[P] extends
+Function ? P : never`). r5-relater6 §3 refused the lift on three extras
+(`mappedTypeAsClauseRelationships` 11:9, `mappedTypeConstraints2` 32:7 and
+50:7), caused by two `mapped.rs` gaps: the shared (not per-instance) mapped
+iteration parameter, and `keyof` of a generic `as`-clause mapped type being
+the whole key domain instead of getIndexTypeForMappedType's filtered keys.
+
+**Re-measured on §2's commit** with the two `mapped_conditionals` tests
+removed from the gate (the object-flagged-conditional decline stays):
+- diagnostics: no verdict moves; none of the three extras returns, so the
+  `mapped.rs` gaps that produced them have closed since round 5;
+- types: `mappedTypeConstraints2:0:90`, `:91`, `:92`, `:95`, `:98` WRONG →
+  RIGHT (`boundsForKey : NumericBoundsOf<T>[keyof NumericBoundsOf<T>]` and
+  its `min`/`max` reads);
+- both loss checks (against §0) empty, slowcases clean;
+- `Ir`: generic-imports 343,085,705 → 343,085,849 (+0.00004%); domain-model
+  1,091,417,136 → 1,091,396,745 (−0.002%). CLI output identical.
+
+r5-relater6's target diagnostic lines (`mappedTypeAsClauseRelationships` 12
+and 22; `mappedTypeConstraints2` 10, 16, 59, 90) do not convert: they wait
+on per-instance mapped iteration parameters (r5-relater6 §3, cause 1), which
+is `mapped.rs`'s.
+
+**Falsifier.** An `as`-clause mapped pair whose decided answer feeds a
+consumer that reads it as concrete where native defers (the reason the
+object-flagged decline stays).

@@ -1448,18 +1448,11 @@ impl Relater<'_, '_, '_> {
             // it is acted on as if it were concrete: `Distributive<[T]
             // extends [never] ? X : never>` would evaluate to `X`. It stays
             // undecided until the mint carries CONDITIONAL
-            // (`docs/parity/notes/r5-relater4.md` §2).
-            //
-            // Likewise a mapped template's conditional (an `as` clause such as
-            // `P extends \`_${string}\` ? P : never`): deciding it makes
-            // `mapped_indexed_access_constraint` treat the mapped type as
-            // filtering, and the base constraint this port then computes for
-            // `keyof Mapped<K>` is the whole key domain instead of the
-            // filtered keys (`mappedTypeConstraints2`).
+            // (`docs/parity/notes/r5-relater4.md` §2). A mapped template's
+            // conditional (an `as` clause) is decided like any other
+            // (`docs/parity/notes/r6-relater.md` §3).
             if self.is_object_flagged_conditional(source)
                 || self.is_object_flagged_conditional(target)
-                || self.checker.mapped_conditionals.contains_key(&source)
-                || self.checker.mapped_conditionals.contains_key(&target)
             {
                 return RelationResult::Unknown;
             }
