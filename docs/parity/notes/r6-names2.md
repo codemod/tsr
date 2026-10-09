@@ -153,3 +153,51 @@ deleted from this directory (its measurements stay in `r6-names.md` §11 and
 in variant A above). It applies on the base above (after r6-names' diffs
 1–6) and alone on the tip; the owned half (`scope_change.rs`'s three-valued
 worker) is committed on this branch.
+
+## §2 Batch BJ's unattributed residuals, against the pre-BJ tip
+
+`r6-names.md` §12 attributed the r6-names stack's cost against its own base
+(`b18aec06`) with diff 7 applied, and left two items open:
+`check_node_worker` +0.66 M "not attributed to any new call" and
+`value_reference_slot` +0.25 M. Re-measured here against the right pair:
+the pre-BJ tip `23e1689` (release `tsr`, built alone) and batch BJ as it
+lands (§0's base: r6-names merged, diffs 1–6, no diff 7).
+
+| Build | domain-model Ir (two runs) | generic-imports |
+|---|---|---|
+| pre-BJ `23e1689` | 1,091,369,859 / 1,091,265,219 | 343,073,434 / 343,051,263 |
+| BJ (diffs 1–6) | 1,091,736,111 / 1,091,780,839 | 343,052,879 / 343,047,703 |
+| BJ + `r6-names2-value-slot-inline.diff` | 1,090,893,161 / 1,091,511,794 | 343,051,569 / 343,076,814 |
+
+BJ costs domain-model +0.37–0.52 M (+0.03–0.05%), inside the ±0.08% bar;
+r6-names' +0.19–0.25% was mostly diff 7 (§1). Per function, BJ against
+pre-BJ, identical in both run pairs (so not noise):
+
+- `check_node_worker` **+0.055 M**, not +0.66 M. The +0.66 M was measured
+  in the diff-7 build, whose `BindResult` layout change also moved code in
+  this function; against the real pre-BJ tip what remains is the
+  export-specifier tail's call site (diff 6). Real, but 0.005%: no action.
+- `value_reference_slot` **+0.255 M**, real: one out-of-line call per
+  identifier the allow-list's other arms do not take.
+- `check_value_identifier` +0.11 M, the region walk on the reporting paths
+  (§12's figure, unchanged).
+
+Everything else that moves is the allocator (`_int_malloc`, `_int_free`,
+`unlink_chunk`, ±0.05–0.12 M between runs of the same binary), which is
+also why the last row's two totals are 0.6 M apart.
+
+**The cheaper placement.** r6-names proposed inlining
+`value_reference_slot` into `check.rs`'s allow-list (main's file). The same
+placement is reachable from the owned file: `#[inline(always)]` on the
+function folds its four-variant match into `is_value_reference`'s fallback
+arm. Plain `#[inline]` was measured first and not taken (profile identical
+to BJ). With `#[inline(always)]` the function disappears from the profile and
+no caller grows (`check_node_worker`, the only one that inlines
+`is_value_reference`, reads the same +0.055 M), so the 0.255 M is gone. The
+attribute carries an `allow(clippy::inline_always)` with that reason; it is
+the repository's first.
+
+It ships as a diff although `name_slots.rs` is owned, because the lines it
+touches are next to the `allow(dead_code)` line that r6-names' diff 1
+removes; committing it now would make batch BJ's merge conflict. Apply it
+after diff 1. Codegen only: no dump can change, and none was re-run for it.
