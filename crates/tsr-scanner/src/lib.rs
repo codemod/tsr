@@ -657,6 +657,9 @@ impl<'a> Scanner<'a> {
         let byte = self.source.as_bytes()[self.pos as usize];
         match byte {
             b'0'..=b'9' => self.scan_number(flags),
+            // `case '.'` (`scanner.go`): a digit after the dot is `scanNumber`
+            // from the dot, so `.1n` reaches its bigint-suffix report.
+            b'.' if self.peek_at(1).is_some_and(|c| c.is_ascii_digit()) => self.scan_number(flags),
             b'"' | b'\'' => self.scan_string(flags),
             b'`' => self.scan_template(flags),
             // `#x` is a private identifier: one token, not `#` then `x`.
@@ -952,10 +955,13 @@ impl<'a> Scanner<'a> {
                 *flags |= flag;
                 let digits = self.scan_digits(radix, flags);
                 if digits == 0 {
-                    self.error(
-                        &messages::HEXADECIMAL_DIGIT_EXPECTED,
-                        Span::new(self.pos, self.pos),
-                    );
+                    // `scanner.go:703/728/740`: one message per radix.
+                    let message = match radix {
+                        16 => &messages::HEXADECIMAL_DIGIT_EXPECTED,
+                        2 => &messages::BINARY_DIGIT_EXPECTED,
+                        _ => &messages::OCTAL_DIGIT_EXPECTED,
+                    };
+                    self.error(message, Span::new(self.pos, self.pos));
                 }
                 if self.eat('n') {
                     return SyntaxKind::BigIntLiteral;
@@ -1846,20 +1852,6 @@ impl<'a> Scanner<'a> {
                     self.bump();
                     self.bump();
                     SyntaxKind::DotDotDotToken
-                } else if self.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    // `.5` is a numeric literal, not a dot followed by 5.
-                    self.pos = start;
-                    let mut flags = TokenFlags::empty();
-                    self.bump(); // '.'
-                    self.scan_digits(10, &mut flags);
-                    if matches!(self.peek(), Some('e' | 'E')) {
-                        self.bump();
-                        if matches!(self.peek(), Some('+' | '-')) {
-                            self.bump();
-                        }
-                        self.scan_digits(10, &mut flags);
-                    }
-                    SyntaxKind::NumericLiteral
                 } else {
                     SyntaxKind::DotToken
                 }

@@ -548,3 +548,6 @@ per-file flag must become per-node.
 - Nested namespace segments (`parseModuleOrNamespaceDeclaration(…, nested)`):
   a segment after a dot is `parseIdentifierName`, so `chrome.debugger` is a
   name and only the first segment can report TS1359.
+- Numbers (`Scanner.Scan` `case '.'`, `case '0'`): a `.` before a digit is
+  `scanNumber` from the dot (so `.1n` reports TS1353), and an empty `0b`/`0o`
+  literal reports TS1177/TS1178 rather than the hex message.
