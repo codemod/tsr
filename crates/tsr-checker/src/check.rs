@@ -14615,9 +14615,10 @@ impl Checker<'_, '_> {
     ///
     /// Four of upstream's arms need the file's **text** or a scanner —
     /// `KindSourceFile`, `KindArrowFunction`, the case/default clauses, and
-    /// `return`/`yield`/`constructor`. The `return`/`yield` arm scans the
-    /// keyword through the module host's text (`docs/parity/notes/decls.md`
-    /// §18); the others keep the node's own span (§48).
+    /// `return`/`yield`/`constructor`. The `return`/`yield` and
+    /// `constructor` arms scan through the module host's text
+    /// (`docs/parity/notes/decls.md` §18, §23); the others keep the node's
+    /// own span (§48).
     /// [`Checker::error_span`], exposed for probes.
     ///
     /// A diagnostic's position is `error_span(anchor)`, so joining a baseline
@@ -14634,10 +14635,12 @@ impl Checker<'_, '_> {
             return self.error_span(name);
         }
         let span = self.nodes.span(node);
+        let kind = self.nodes.kind(node);
         if matches!(
-            self.nodes.kind(node),
-            SyntaxKind::ReturnStatement | SyntaxKind::YieldExpression
-        ) && let Some(token) = self.first_token_span(node, span.start)
+            kind,
+            SyntaxKind::ReturnStatement | SyntaxKind::YieldExpression | SyntaxKind::Constructor
+        ) && let Some(token) =
+            self.first_token_span(node, span.start, kind == SyntaxKind::Constructor)
         {
             return token;
         }
@@ -14699,14 +14702,34 @@ impl Checker<'_, '_> {
     /// trivia-free start, i.e. the `return`/`yield` keyword. Scans one token,
     /// on the diagnostic path only; a host without source text keeps the
     /// node's own span.
-    fn first_token_span(&self, node: NodeId, start: u32) -> Option<tsr_core::Span> {
+    ///
+    /// With `through_constructor_keyword`, the `KindConstructor` arm
+    /// (`scanner.go:2632`): from the first token through the first
+    /// `constructor` keyword, string literal or end of file, so modifiers
+    /// before the keyword are included.
+    fn first_token_span(
+        &self,
+        node: NodeId,
+        start: u32,
+        through_constructor_keyword: bool,
+    ) -> Option<tsr_core::Span> {
         let file = self.source_file_of_for_diagnostics(node)?;
         let rest = self
             .module_host
             .and_then(|host| host.source_text(file, self.nodes))
             .and_then(|text| text.get(start as usize..))?;
-        let token = tsr_scanner::Scanner::new(rest).scan().span;
-        Some(tsr_core::Span::new(start + token.start, start + token.end))
+        let mut scanner = tsr_scanner::Scanner::new(rest);
+        let first = scanner.scan();
+        let mut last = first;
+        while through_constructor_keyword
+            && !matches!(
+                last.kind,
+                SyntaxKind::ConstructorKeyword | SyntaxKind::StringLiteral | SyntaxKind::EndOfFile
+            )
+        {
+            last = scanner.scan();
+        }
+        Some(tsr_core::Span::new(start + first.span.start, start + last.span.end))
     }
 
     /// `node.Pos()` for a zero-width (missing) node whose span sits at the

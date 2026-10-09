@@ -499,3 +499,13 @@ related records are `tsr-binder`'s.
 statement span (`return;` = 7, native 6). It now calls
 `grammar_error_on_first_token`, which also carries native's parse-diagnostic
 silence.
+
+## §23 Error span of a constructor: first token through `constructor`
+
+`GetErrorRangeForNode`'s `KindConstructor` arm (`scanner.go:2632`) scans
+from the node's first token until a `constructor` keyword, a string literal
+(`"constructor"()`) or end of file, and reports that range, so modifiers are
+included (`public constructor`). `Checker::first_token_span` now takes that
+mode; TS2376/TS2377/TS2390/TS2392/TS2394 at a constructor all route through
+`error_span`. The native `NodeFlagsReparsed` exemption (JSDoc-reparsed
+constructors) has no TSR counterpart reaching this arm.
