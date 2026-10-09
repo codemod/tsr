@@ -74,6 +74,13 @@ impl Checker<'_, '_> {
         let saved_current_node = node.node_id().map(|id| self.enter_current_node(id));
         self.computations += 1;
         let computed = self.check_expression_worker(expression);
+        // `checkExpressionEx` (`checker.go:7566`): `isConstEnumObjectType(t)`
+        // → `checkConstEnumAccess`, `isolated_alias.rs`.
+        if let Some(id) = node.node_id()
+            && self.is_const_enum_object_type(computed)
+        {
+            self.check_const_enum_access(id, computed);
+        }
         if let Some(saved) = saved_current_node {
             self.leave_current_node(saved);
         }
