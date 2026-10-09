@@ -37,7 +37,10 @@ impl<'a> Checker<'a, '_> {
     /// `minted_from` is the type store's length before the computation, so a
     /// result minted by it is told from a pre-existing one (the expression
     /// type itself, a constraint).
-    #[expect(dead_code, reason = "consumer: r6-typesroots-typeof-reuse.diff (instantiation_expressions.rs)")]
+    #[expect(
+        dead_code,
+        reason = "consumer: r6-typesroots-typeof-reuse.diff (instantiation_expressions.rs)"
+    )]
     pub(crate) fn reuse_instantiation_type_query_node(
         &mut self,
         node: NodeId,

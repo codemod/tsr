@@ -197,6 +197,35 @@ asserted the structural `(y: string) => string` for
 `var a: typeof identity<string>`. Native prints `typeof identity<string>`
 (the `FnAlias` line above is the same shape), so the diff flips it.
 
+## 5. `.16.16`: duplicate type parameters of a signature (diff)
+
+**Re-measured.** Four of six finished-alone cases are already RIGHT. The
+class and interface half (`local_type_parameters_of`'s merged-symbol dedupe)
+landed in an earlier round. typesWithDuplicateTypeParameters still printed
+`<T, T>() => void` for `function f<T, T>() { }`. recursiveGenericMethodCall's
+2 lines (`Generator<T, any, any>` against `Generator<T>`) are the
+return-annotation printing of a defaulted reference, which belongs to the
+printer lane, not this cluster's root cause.
+
+**Forcing constraint.** `SymbolFlagsTypeParameterExcludes` is
+`SymbolFlagsType &^ SymbolFlagsTypeParameter` (`ast/symbolflags.go:72`). Two
+same-named type parameters of one declaration therefore do not conflict in
+`declareSymbolEx` (`binder.go:152`): they merge into one symbol, and the
+checker reports the duplicate. `getTypeParametersFromDeclaration`
+(`checker.go:19912`) appends `getDeclaredTypeOfTypeParameter(node.Symbol())`
+with `core.AppendIfUnique`, so the merged parameter is listed once.
+`get_signature_from_declaration` (`signatures.rs`, r6-printer) built one
+type parameter per written node.
+
+**Port.** `crate::signature_type_parameters::unique_type_parameter_declarations`
+keeps the first node of each merged symbol, in order. The hook is one line
+where the signature takes its type-parameter nodes.
+
+**Measured** (on top of §2-§4): types +17 WRONG→RIGHT, zero losses,
+diagnostics unchanged: typesWithDuplicateTypeParameters 2,
+genericsWithDuplicateTypeParameters1 14, duplicateTypeParameters1 1.
+slowcases clean. Ir ×1.00038 / ×1.00001 cumulative.
+
 ## Diffs, in apply order
 
 Every diff applies to `b18aec06` plus this branch's commits and the diffs
@@ -209,3 +238,6 @@ above it.
 3. `r6-typesroots-typeof-reuse.diff` (§4): `instantiation_expressions.rs`
    (r6-declared), `instantiation_type_query_reuse.rs`, tests. +4 types,
    zero losses. Independent of 1-2.
+4. `r6-typesroots-duplicate-type-parameters.diff` (§5): `signatures.rs`
+   (r6-printer), `signature_type_parameters.rs`, tests. +17 types, zero
+   losses. Independent of 1-3.
