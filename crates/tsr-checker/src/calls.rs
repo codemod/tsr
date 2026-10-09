@@ -515,7 +515,7 @@ impl<'a> Checker<'a, '_> {
         }
         match self.check_candidates_arity(node, signatures) {
             CallArity::Applicable(Some(signature)) => {
-                self.check_single_candidate_arguments(node, &signature);
+                self.report_single_candidate_arguments(node, &signature);
             }
             CallArity::ApplicableOverloads(candidates) => {
                 self.check_overload_candidates_arguments(node, &candidates);
@@ -750,7 +750,7 @@ impl Checker<'_, '_> {
                 match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
                     CallArity::Reported => {}
                     CallArity::Applicable(Some(signature)) => {
-                        self.check_single_candidate_arguments(node, &signature);
+                        self.report_single_candidate_arguments(node, &signature);
                     }
                     CallArity::ApplicableGeneric(candidate) => {
                         if !self.check_single_generic_candidate_arguments(node, &candidate) {
@@ -987,6 +987,14 @@ impl Checker<'_, '_> {
     /// `getTypeAtPosition`, stopping at the first failure (TS2345, or the
     /// object literal's excess-property elaboration). An unsupported
     /// parameter type stops the walk.
+    fn report_single_candidate_arguments(&mut self, node: tsr_ast::NodeId, signature: &Signature) {
+        let before = self.diagnostics.len();
+        self.check_single_candidate_arguments(node, signature);
+        self.chain_overload_argument_failures(node, before, signature, 1);
+    }
+
+    /// [`Checker::report_single_candidate_arguments`] without
+    /// `reportCallResolutionErrors`' notes: the failing candidate's reports.
     fn check_single_candidate_arguments(&mut self, node: tsr_ast::NodeId, signature: &Signature) {
         let Some(written) = self.written_call_arguments(node) else { return };
         if self.check_this_argument(node, signature, true) != Ternary::Related {
@@ -1257,12 +1265,7 @@ impl Checker<'_, '_> {
         let Some(last) = candidates.last() else { return false };
         let before = self.diagnostics.len();
         self.check_single_candidate_arguments(node, last);
-        if candidates.len() > 1 {
-            for (_, diagnostic) in &mut self.diagnostics[before..] {
-                diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
-                diagnostic.args.clear();
-            }
-        }
+        self.chain_overload_argument_failures(node, before, last, candidates.len());
         true
     }
 
@@ -1388,13 +1391,159 @@ impl Checker<'_, '_> {
             }
             break;
         }
-        if failure.count > 1 {
-            for (_, diagnostic) in &mut self.diagnostics[before..] {
-                diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
-                diagnostic.args.clear();
+        self.chain_overload_argument_failures(node, before, &last, failure.count);
+        true
+    }
+
+    /// `reportCallResolutionErrors`' `candidatesForArgumentError` arm
+    /// (`checker.go:9651`) over the diagnostics the last candidate's
+    /// `isSignatureApplicable` reported from `before` on: with several
+    /// rejected candidates each is chained under
+    /// `The_last_overload_gave_the_following_error` and
+    /// `No_overload_matches_this_call` (TS2769) and notes
+    /// `The_last_overload_is_declared_here` at the candidate's declaration.
+    /// Each also gets `addImplementationSuccessElaboration`'s note
+    /// ([`Checker::implementation_success_note`]), single candidates
+    /// included.
+    fn chain_overload_argument_failures(
+        &mut self,
+        node: tsr_ast::NodeId,
+        before: usize,
+        last: &Signature,
+        count: usize,
+    ) {
+        if self.diagnostics.len() == before {
+            return;
+        }
+        let implementation = self.implementation_success_note(node, last);
+        if count <= 1 {
+            if implementation.is_some() {
+                for index in before..self.diagnostics.len() {
+                    self.diagnostics[index].1.add_related_information(implementation.clone());
+                }
+            }
+            return;
+        }
+        let declared = self.related_diagnostic(
+            last.declaration,
+            &messages::THE_LAST_OVERLOAD_IS_DECLARED_HERE,
+            [],
+        );
+        for index in before..self.diagnostics.len() {
+            let placeholder =
+                Diagnostic::new(&messages::NO_OVERLOAD_MATCHES_THIS_CALL, tsr_core::Span::new(0, 0));
+            let mut reported = std::mem::replace(&mut self.diagnostics[index].1, placeholder);
+            if let Some(image) = self.diagnostic_file_image(self.diagnostics[index].0) {
+                reported.set_file(image);
+            }
+            let chained = Diagnostic::new_chain(
+                Some(reported),
+                &messages::THE_LAST_OVERLOAD_GAVE_THE_FOLLOWING_ERROR,
+                [],
+            );
+            let mut chained =
+                Diagnostic::new_chain(Some(chained), &messages::NO_OVERLOAD_MATCHES_THIS_CALL, []);
+            chained.add_related_information(declared.clone());
+            chained.add_related_information(implementation.clone());
+            self.diagnostics[index].1 = chained;
+        }
+    }
+
+    /// `addImplementationSuccessElaboration` (`checker.go:9686`): when the
+    /// failed candidate's symbol has several declarations, one of them a
+    /// function-like declaration with a body, and `chooseOverload` accepts
+    /// that implementation's signature for the call, the note
+    /// `The_call_would_have_succeeded_against_this_implementation_...`
+    /// (TS2793) at the implementation.
+    ///
+    /// `chooseOverload` over the sole implementation candidate is ported for
+    /// a non-generic implementation: `hasCorrectArity`, the `this` argument,
+    /// then each argument's checked type against `getTypeAtPosition` under the
+    /// assignable relation. An argument whose type follows the contextual
+    /// type (an object, array or class literal, a context-sensitive function,
+    /// the shapes of [`Checker::argument_type_is_not_upstreams`]), a spread,
+    /// a generic implementation and an undecidable pair answer no note. No
+    /// cache: one relation per argument, on report paths only.
+    fn implementation_success_note(
+        &mut self,
+        node: tsr_ast::NodeId,
+        failed: &Signature,
+    ) -> Option<Diagnostic> {
+        let symbol = self.binder.symbol_of(failed.declaration)?;
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        if declarations.len() <= 1 {
+            return None;
+        }
+        let implementation = declarations.into_iter().find(|&declaration| {
+            match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::FunctionDeclaration(n)) => n.body.is_some(),
+                Some(tsr_ast::Node::MethodDeclaration(n)) => n.body.is_some(),
+                Some(tsr_ast::Node::ConstructorDeclaration(n)) => n.body.is_some(),
+                Some(tsr_ast::Node::GetAccessorDeclaration(n)) => n.body.is_some(),
+                Some(tsr_ast::Node::SetAccessorDeclaration(n)) => n.body.is_some(),
+                Some(tsr_ast::Node::FunctionExpression(n)) => n.body.is_some(),
+                Some(tsr_ast::Node::ArrowFunction(n)) => n.body.is_some(),
+                _ => false,
+            }
+        })?;
+        let candidate = self.get_signature_from_declaration(implementation)?;
+        if !candidate.type_parameters.is_empty() {
+            return None;
+        }
+        let written = self.written_call_arguments(node)?;
+        let effective = self.effective_written_arguments(&written)?;
+        if effective.iter().any(|argument| argument.spread)
+            || effective.len() != written.arguments.len() + usize::from(written.template.is_some())
+        {
+            return None;
+        }
+        if self.has_correct_arity(&candidate, &effective, false) != Some(true) {
+            return None;
+        }
+        if self.check_this_argument(node, &candidate, false) != Ternary::Related {
+            return None;
+        }
+        let offset = usize::from(written.template.is_some());
+        if written.template.is_some() {
+            let strings = self.global_template_strings_array_type()?;
+            let target = self.signature_type_at_position(&candidate, 0)?;
+            if self.is_gap(target)
+                || self.relate_ternary(strings, target, Relation::Assignable) != Ternary::Related
+            {
+                return None;
             }
         }
-        true
+        for (index, argument) in written.arguments.iter().enumerate() {
+            let mut inner = *argument;
+            while let Expression::ParenthesizedExpression(parenthesized) = inner {
+                inner = parenthesized.expression?;
+            }
+            if matches!(
+                inner,
+                Expression::ObjectLiteralExpression(_)
+                    | Expression::ArrayLiteralExpression(_)
+                    | Expression::ClassExpression(_)
+            ) || self.is_context_sensitive_argument(argument)
+                || self.argument_type_is_not_upstreams(*argument)
+            {
+                return None;
+            }
+            let target = self.signature_type_at_position(&candidate, index + offset)?;
+            if self.is_gap(target) {
+                return None;
+            }
+            let source = self.check_expression(*argument);
+            if self.head_could_contain_type_variables(source, 3)
+                || self.relate_ternary(source, target, Relation::Assignable) != Ternary::Related
+            {
+                return None;
+            }
+        }
+        self.related_diagnostic(
+            implementation,
+            &messages::THE_CALL_WOULD_HAVE_SUCCEEDED_AGAINST_THIS_IMPLEMENTATION_BUT_IMPLEMENTATION_SIGNATURES_OF_OVERLOADS_ARE_NOT_EXTERNALLY_VISIBLE,
+            [],
+        )
     }
 
     /// Whether a function-like or class declaration enclosing `node` declares
@@ -2200,7 +2349,7 @@ impl Checker<'_, '_> {
                 match self.check_resolve_call_arity(node, apparent, kind) {
                     CallArity::Reported => {}
                     CallArity::Applicable(Some(signature)) => {
-                        self.check_single_candidate_arguments(node, &signature);
+                        self.report_single_candidate_arguments(node, &signature);
                     }
                     CallArity::Applicable(None)
                     | CallArity::ApplicableGeneric(_)
@@ -2288,7 +2437,7 @@ impl Checker<'_, '_> {
     fn check_tagged_template_resolution(&mut self, node: tsr_ast::NodeId, apparent: TypeId) {
         match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
             CallArity::Applicable(Some(signature)) => {
-                self.check_single_candidate_arguments(node, &signature);
+                self.report_single_candidate_arguments(node, &signature);
             }
             CallArity::ApplicableOverloads(candidates) => {
                 self.check_overload_candidates_arguments(node, &candidates);
@@ -2708,20 +2857,31 @@ impl Checker<'_, '_> {
         args: impl IntoIterator<Item = String>,
     ) -> Option<Diagnostic> {
         let file = self.source_file_of_for_diagnostics(node)?;
-        let image = if let Some(image) = self.diagnostic_files.get(&file) {
-            image.clone()
-        } else {
-            let image = self.module_host.and_then(|host| {
-                let name = host.file_path(file)?;
-                let text = host.source_text(file, self.nodes)?;
-                Some(std::sync::Arc::new(tsr_diagnostics::DiagnosticFile::new(name, text)))
-            });
-            self.diagnostic_files.insert(file, image.clone());
-            image
-        }?;
+        let image = self.diagnostic_file_image(file)?;
         let mut diagnostic = Diagnostic::with_args(message, self.error_span(node), args);
         diagnostic.set_file(image);
         Some(diagnostic)
+    }
+
+    /// The source image of `file` (a `SourceFile` node) for a diagnostic
+    /// that is located on its own: a related note, or a reported diagnostic
+    /// that becomes a chain child (`NewDiagnosticChain` keeps the child's
+    /// file and location). Built once per file in `diagnostic_files`; see
+    /// [`Checker::related_diagnostic`].
+    fn diagnostic_file_image(
+        &mut self,
+        file: tsr_ast::NodeId,
+    ) -> Option<std::sync::Arc<tsr_diagnostics::DiagnosticFile>> {
+        if let Some(image) = self.diagnostic_files.get(&file) {
+            return image.clone();
+        }
+        let image = self.module_host.and_then(|host| {
+            let name = host.file_path(file)?;
+            let text = host.source_text(file, self.nodes)?;
+            Some(std::sync::Arc::new(tsr_diagnostics::DiagnosticFile::new(name, text)))
+        });
+        self.diagnostic_files.insert(file, image.clone());
+        image
     }
 
     /// The type of a call expression.
