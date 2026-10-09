@@ -31,7 +31,6 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
 impl Checker<'_, '_> {
     /// `isStaticPrivateIdentifierProperty(prop)` (`checker.go`) for the
     /// property `name` of `target`: its value declaration is a class element
