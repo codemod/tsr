@@ -439,3 +439,127 @@ W, M. Stacked, against this base, unfiltered:
 - Ir against the base binary: domain-model +0.060%, −0.065% and +0.005% on
   three runs (the base binary alone spans 1,091,289,580 to 1,092,044,018);
   generic-imports −0.007%. Inside the noise.
+
+## §11 Item 2 (c), diff C (`contextual.rs`): an expando element assignment's context
+
+[`r6-errorsplit2-expando-element-context.diff`](r6-errorsplit2-expando-element-context.diff)
+applies on §10's base alone (`contextual.rs` is main's).
+
+r6-errorsplit §6 left `expandoFunctionExpressionsWithDynamicNames2` WRONG.
+`bar[t] = true` and `foo[mySymbol] = true`, under a declared callable
+interface whose member is `true`, printed `boolean` where upstream prints
+`true`. It called that the declared-type arm of
+`getWidenedTypeForAssignmentDeclaration`. Read against the pinned code, the
+`true` does not come from there. `getAssignmentDeclarationInitializerType`
+checks the right side with `checkExpressionForMutableLocation`, and that
+keeps the literal because the right side's contextual type is the literal.
+
+That context is `getContextualTypeForAssignmentExpression`'s `F[xxx] = expr`
+arm (`checker.go:29859-29863`). For an assignment declaration whose receiver
+is a variable with a type annotation, it checks the key
+(`checkExpressionCached`):
+
+- a key usable as a property name reads the annotation's property by
+  `getPropertyNameFromType`;
+- any other key gives the left's own type.
+
+The port's twin named only a string- or numeric-literal key's syntax, so a
+`const t = "test" as const` key or a unique symbol had no context. The diff
+checks the key and reads the property by its name type: literal values by
+value, a unique symbol by this port's bracketed entity spelling, as
+`late_bound_assignment_name` does. Otherwise it answers the left's type. The
+new arm is a separate, out-of-line function.
+
+**Measured** on §10's base (unfiltered, both dumps): **zero losses; types +2
+WRONG→RIGHT** (`expandoFunctionExpressionsWithDynamicNames2:0:7` and `:0:19`,
+`{ (): void; [mySymbol]: true; }` and `{ (): void; test: true; }`);
+diagnostics **+1**, the same case EMPTY_WRONG→EMPTY_RIGHT (its spurious
+assignability report goes). slowcases clean. The test
+`tsr-checker/tests/expando_element_context.rs` fails without the diff.
+
+**Ir.** The new path runs zero times on domain-model.
+`contextual_type_for_binary_operand` costs 3,319 Ir there in all, and
+callgrind records no call of the new function. Yet domain-model's Ir reads
++0.045% within its low mode on three runs (1,091,3xx,xxx → 1,091,8xx,xxx;
+the high mode is noise). The function-level diff shows inlining moving
+elsewhere in the crate (`check_type_argument_constraints_of` emitted out of
+line, for one), so it is codegen layout, not work. Moving the arm out of line
+did not remove it. generic-imports reads +0.005% to +0.009%.
+
+## §12 Item 2 (a), diff A (`assignment_declarations.rs`): one late name, every declaration
+
+[`r6-errorsplit2-late-bound-union.diff`](r6-errorsplit2-late-bound-union.diff)
+applies on §10's base alone (`assignment_declarations.rs` has no lane owner).
+
+`lateBindMember` (`checker.go:16005`) gathers every late-bound assignment
+declaration with one late name into one symbol, and
+`getWidenedTypeForAssignmentDeclaration` unions over all of them. Diff L
+gave each `foo[k] = v` its own `__computed` symbol. The lookup and the
+printer took the first, so `foo[k] = 1; foo[k] = "s"` read `number`.
+
+The checker has no transient symbols, and a merged late symbol would be a
+new table. So the diff keeps the per-assignment symbols and gives each the
+merged declaration list when it is typed:
+`late_bound_assignment_declarations` resolves the receiver identifier as the
+binder did, checks that its `__assignment` table holds the declaration, and
+answers every declaration in `late_bound_members_of`'s existing
+`(owner, static)` entry that late-binds to the same name.
+`get_widened_type_for_assignment_declaration` then runs its loop over that
+list instead of the symbol's own one. Every same-named symbol answers the
+same type, whichever the lookup returns first.
+
+Checker port boundary: no new cache or table. The native operation is
+`lateBindMember`'s `addDeclarationToLateBoundSymbol` read by
+`getWidenedTypeForAssignmentDeclaration`. The key is the owner symbol and the
+late name, owned by `late_bound_member_names`. The work is one name
+resolution and one scan per symbol, cached by `get_type_of_symbol`. A
+receiver that is not an identifier (`a.b[k] = v`) keeps the old
+single-declaration answer, as a known limit.
+
+**Measured** on C (unfiltered, both dumps): the types dump is byte-identical
+(text included), and diagnostics are identical. No corpus case assigns one
+late name twice, as r6-errorsplit §6 found. The test
+`tsr-checker/tests/late_bound_assignment_union.rs` reads `foo[k]` inside a
+function (outside the assignments' flow) as `string | number`, and fails
+without the diff.
+
+## §13 Item 2 (b), diff B (`binder.rs`): the JS `this[k] = v` arm
+
+[`r6-errorsplit2-late-bound-this-assignment.diff`](r6-errorsplit2-late-bound-this-assignment.diff)
+applies on §10's base alone (the binder is main's).
+
+`bindThisPropertyAssignment` (`binder.go:1115`) binds a JS class member's
+dynamic `this[k] = v` as a `__computed` property (`isComputedName`), and
+files the assignment under the class symbol's `__assignment` export
+(`addLateBoundAssignmentDeclarationToSymbol`). Only the static resolution
+reads that table (`getResolvedMembersOrExportsOfSymbol`, `checker.go:15962`).
+So upstream gives the class's *static* side the member, even for an instance
+`this[k]` in the constructor, and an instance read misses.
+
+The pinned tsgo was run on a scratch case through the probe runner
+(`TestLocal`; the file was removed afterwards):
+
+- `MyClass[_sym] : string`;
+- `MyClass[k] : number`, although a static method also writes
+  `this[k] = true`, because the first declaration is constructor-declared and
+  `getFlowTypeInConstructor` answers;
+- the instance `inst[k] : any @@E`.
+
+The port's binder dropped the assignment. The diff ports the arm: a
+`__computed` property (`PROPERTY | REPLACEABLE_BY_METHOD`, value declaration
+the assignment) in no table, which is this binder's convention for a
+late-bound member, and the assignment in the class's `__assignment`
+declarations. Diff L's checker side then reads it unchanged.
+
+**Measured** on C and A (unfiltered, both dumps): types and diagnostics
+byte-identical. The corpus cases that exercise this arm,
+`lateBoundClassMemberAssignmentJS{,2,3}`, carry upstream `.types.diff`
+files and are skipped as known divergences; the
+`lateBoundAssignmentCandidateJS*` cases were already RIGHT. The test
+`tsr-conformance/tests/late_bound_this_assignment.rs` pins the two static
+reads above, and fails without the diff.
+
+**C, A and B together** on §10's base: zero losses; types +2, diagnostics +1;
+slowcases clean; `cargo test --workspace --release` passes; clippy reports
+nothing in the touched code. Ir: domain-model +0.045%, +0.094% and −0.022%,
+the same bimodal spread as C alone (§11); generic-imports +0.009%.
