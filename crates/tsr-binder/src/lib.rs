@@ -1446,13 +1446,24 @@ impl<'a> BindResult<'a> {
                 && (mask == SymbolFlags::ENUM_MEMBER || name != binder::INTERNAL_DEFAULT)
                 && let Some(symbol) = self.symbol_of(node)
                 && let Some(&found) = self.symbols.get(self.merged_symbol(symbol)).exports.get(name)
+                // A pure export-specifier alias is not in scope, but only in
+                // an external module's exports: `IsSourceFile(location) ||
+                // (IsModuleDeclaration(location) && Ambient &&
+                // !IsGlobalScopeAugmentation(location))`
+                // (`nameresolver.go:105`, `:121-133`). A non-ambient
+                // namespace's walk finds it (`r6-names2.md` §3).
                 && (self.symbols.get(self.merged_symbol(found)).flags != SymbolFlags::ALIAS
                     || !self.symbols.get(self.merged_symbol(found)).declarations.iter().any(|&d| {
                         matches!(
                             nodes.kind(d),
                             SyntaxKind::ExportSpecifier | SyntaxKind::NamespaceExport
                         )
-                    }))
+                    })
+                    || !(nodes.kind(node) == SyntaxKind::SourceFile
+                        || (self.facts(node).contains(NodeFacts::AMBIENT_CONTEXT)
+                            && !matches!(node_map.get(node),
+                                Some(tsr_ast::Node::ModuleDeclaration(module))
+                                    if module.keyword.kind == SyntaxKind::GlobalKeyword))))
                 // An `export { X }` specifier's own symbol lives in the file's
                 // **exports**, not its `locals`, so the exclusion belongs on
                 // this arm too — §836's first measurement found the specifier
@@ -1470,6 +1481,15 @@ impl<'a> BindResult<'a> {
                     // Preserve the existing qualified import-equals admission.
                     // Only external require aliases use the checker callback.
                     for &declaration in &entry.declarations {
+                        // `getSymbol`'s alias arm (`checker.go:2183`) on an
+                        // export specifier the skip above let through: the
+                        // alias is the answer when its target carries the
+                        // meaning, which only the checker can ask.
+                        if let Some(tsr_ast::Node::ExportSpecifier(_)) = node_map.get(declaration)
+                            && exported_alias(found, meaning & mask)?
+                        {
+                            return Some(found);
+                        }
                         if let Some(tsr_ast::Node::ImportEqualsDeclaration(alias)) =
                             node_map.get(declaration)
                         {
