@@ -2,12 +2,12 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols_configured Summary:
 What a pass means: the binder_symbols judgement for each configuration upstream's runner compiles a configuration-varied case under, against that configuration's suffixed .symbols baseline
-Passed         : 1666/1706 (97.66%)
+Passed         : 1665/1705 (97.65%)
 Failed         : 40
-Skipped        : 2462 (excluded from the denominator)
+Skipped        : 2463 (excluded from the denominator)
 
   195  skipped: the baseline names no symbols in any unit we bind
-  63  skipped: the parser reports errors for this file
+  64  skipped: the parser reports errors for this file
   458  skipped: upstream recorded no .symbols baseline
   36  skipped: upstream recorded no output for this case
   68  skipped: upstream records a known divergence from TypeScript (.diff baseline)
