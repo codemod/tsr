@@ -1415,3 +1415,22 @@ Held:
 - the union-walk decline lift: loses correlatedUnions 181/299.
 
 r6-relater2 continues with `tsr-2zk.1139`.
+
+### r6-errorsplit finished (batch BH); r6-errorsplit2 dispatched
+
+Batch BH lands r6-errorsplit's two commits:
+- getPropertyNameFromType's unique-symbol arm;
+- the element-access receiver widened for a write or a call.
+
+It also lands five diffs, measured lossless together:
+- O, createUnionOrIntersectionProperty's object-literal undefined arm: +19;
+- L, the binder's InternalSymbolNameAssignmentDeclaration table and its late
+  binding: +87 types, +1 diagnostic;
+- G, getApparentType's unconstrained-instantiable unknown: +32;
+- S, import-equals alias: +6 types, +2 diagnostics;
+- M, script alias merge: no transitions.
+
+The credited gap goes from 2,164 to about 2,129.
+
+S's value half was refused at +8/−2: it prints `typeof x` where native has
+`typeof a` (tsr-4jk). r6-errorsplit2 takes ADR-0048 step 8 (`tsr-2zk.1140`).
