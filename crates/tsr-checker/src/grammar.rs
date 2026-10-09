@@ -1151,6 +1151,63 @@ impl Checker<'_, '_> {
         true
     }
 
+    /// The line-terminator arm of `checkGrammarArrowFunction`
+    /// (`grammarchecks.go:791`): TS1200 on the `=>` when its *full* text
+    /// (`file.Text()[token.Pos():token.End()]`, leading trivia included)
+    /// holds a line break.
+    ///
+    /// The `=>` token node's span starts at the token itself, so the token's
+    /// full start, the end of the token before it, is recovered by scanning
+    /// from the end of the last child that precedes the arrow (the return
+    /// type, else the last parameter, else the last type parameter, else the
+    /// arrow's start): only `,`, `)` and `>` can sit between that child and
+    /// the `=>`. Error path only: the text before the `=>` is scanned only
+    /// when it holds a line break at all.
+    ///
+    /// Not ported: the `.mts`/`.cts` single-type-parameter arm (TS7060).
+    pub(crate) fn check_grammar_arrow_line_terminator(&mut self, node: NodeId) {
+        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(node) else { return };
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(token) = arrow.equals_greater_than_token.and_then(|token| token.node_id) else {
+            return;
+        };
+        let arrow_span = self.nodes.span(token);
+        let anchor = arrow
+            .r#type
+            .and_then(|ty| ty.node_id())
+            .or_else(|| arrow.parameters.last().and_then(|parameter| parameter.node_id))
+            .or_else(|| arrow.type_parameters.last().and_then(|parameter| parameter.node_id))
+            .map_or(self.nodes.span(node).start, |child| self.nodes.span(child).end);
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return;
+        };
+        let Some(between) = text.get(anchor as usize..arrow_span.start as usize) else { return };
+        if !between.chars().any(tsr_scanner::is_line_break) {
+            return;
+        }
+        // The end of the last token before the `=>`.
+        let mut scanner = tsr_scanner::Scanner::new(between);
+        let mut full_start = 0;
+        loop {
+            let scanned = scanner.scan();
+            if scanned.kind == SyntaxKind::EndOfFile {
+                break;
+            }
+            full_start = scanned.span.end;
+        }
+        if !between[full_start as usize..].chars().any(tsr_scanner::is_line_break) {
+            return;
+        }
+        self.report(
+            file,
+            Diagnostic::new(&messages::LINE_TERMINATOR_NOT_PERMITTED_BEFORE_ARROW, arrow_span),
+        );
+    }
+
     /// The grammar arms of `Checker.checkCatchClause` (`checker.go:4247`): a
     /// type annotation whose type is not `any`/`unknown` is TS1196, else an
     /// initializer is TS1197, both on the offending node's first token.

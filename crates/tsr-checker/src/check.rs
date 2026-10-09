@@ -978,7 +978,12 @@ impl Checker<'_, '_> {
         self.check_dynamic_import_specifier(typed);
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
-        self.check_grammar_parameter_list(node);
+        // `checkGrammarFunctionLikeDeclaration`: `… || checkGrammarParameterList
+        // || checkGrammarArrowFunction`.
+        if !self.check_grammar_parameter_list(node) && !self.modifier_chain_reported.contains(&node)
+        {
+            self.check_grammar_arrow_line_terminator(node);
+        }
         // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
         if !self.modifier_chain_reported.contains(&node) {
             self.check_grammar_modifier_shapes(node, typed);
@@ -9726,9 +9731,11 @@ impl Checker<'_, '_> {
     /// One loop with a `seenOptionalParameter` flag, returning on the **first**
     /// offender, which is why this runs once per *list* and not once per
     /// parameter. §287.
-    fn check_grammar_parameter_list(&mut self, owner: NodeId) {
+    /// Returns whether it reported, for `checkGrammarFunctionLikeDeclaration`'s
+    /// `||` chain.
+    fn check_grammar_parameter_list(&mut self, owner: NodeId) -> bool {
         if self.file_has_parse_errors {
-            return;
+            return false;
         }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
@@ -9758,7 +9765,7 @@ impl Checker<'_, '_> {
                     continue;
                 };
                 self.report_grammar_at(at, message);
-                return;
+                return true;
             }
             // `isOptionalDeclaration` is **`ast.HasQuestionToken` alone**
             // (`checker/utilities.go:299`) — an initialiser does *not* make a
@@ -9790,9 +9797,10 @@ impl Checker<'_, '_> {
                     name,
                     &messages::A_REQUIRED_PARAMETER_CANNOT_FOLLOW_AN_OPTIONAL_PARAMETER,
                 );
-                return;
+                return true;
             }
         }
+        false
     }
 
     /// `checkGrammarAccessor`'s body arms (`grammarchecks.go:1309`, `:1315`)

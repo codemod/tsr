@@ -568,3 +568,8 @@ per-file flag must become per-node.
   first position is TS18026 over both characters and an `Unknown` token; any
   other `#` is TS1127 and a nameless `PrivateIdentifier` (`HashToken` is only
   ever a rescan, `ReScanHashToken`).
+- `=>` after a line break (`checkGrammarArrowFunction`, TS1200): the arrow
+  token's full text is recovered by scanning from the end of the last child
+  before it (return type, last parameter, last type parameter, or the arrow's
+  start), only when that text holds a line break. It runs behind the
+  parameter-list check, which now returns whether it reported.
