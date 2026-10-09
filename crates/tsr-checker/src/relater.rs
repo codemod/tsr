@@ -4657,17 +4657,18 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, variable]);
             }
-            // The fallthrough is not taken for an indexed-access source
-            // (above). For `{ [P in K]: E }[X]` with a generic `X`, native's
-            // goes on to the substitution and to `{ [P in K]: E }[constraint
-            // of X]` (isMappedTypeGenericIndexedAccess, relater.go:3681):
-            // `Funcs[K]` meets `Func<"a"> | Func<"b">` as `Funcs[keyof
-            // ArgMap]` (`correlatedUnions`). Without those steps the failed
-            // walk is no proof.
+            // The fallthrough is taken for an indexed-access source only when
+            // it is `{ [P in K]: E }[X]` with a generic `X`: native's goes on
+            // to the substitution `E[P := X]` and to `{ [P in K]: E
+            // }[constraint of X]` (isMappedTypeGenericIndexedAccess,
+            // relater.go:3681), so `Funcs[K]` meets `Func<"a"> | Func<"b">`
+            // as `Funcs[keyof ArgMap]` and `Partial<Foo1>[K]` meets `Foo1[K]
+            // | undefined` as its substitution (`correlatedUnions`).
             if result == RelationResult::NotRelated
                 && self.is_mapped_type_generic_indexed_access(source)
+                && let Some(variable) = self.type_variable_source_related_to(source, target)
             {
-                return RelationResult::Unknown;
+                return RelationResult::any([result, variable]);
             }
             return result;
         }
@@ -4708,17 +4709,18 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, variable]);
             }
-            // The fallthrough is not taken for an indexed-access source
-            // (above). For `{ [P in K]: E }[X]` with a generic `X`, native's
-            // goes on to the substitution and to `{ [P in K]: E }[constraint
-            // of X]` (isMappedTypeGenericIndexedAccess, relater.go:3681):
-            // `Funcs[K]` meets `Func<"a"> | Func<"b">` as `Funcs[keyof
-            // ArgMap]` (`correlatedUnions`). Without those steps the failed
-            // walk is no proof.
+            // The fallthrough is taken for an indexed-access source only when
+            // it is `{ [P in K]: E }[X]` with a generic `X`: native's goes on
+            // to the substitution `E[P := X]` and to `{ [P in K]: E
+            // }[constraint of X]` (isMappedTypeGenericIndexedAccess,
+            // relater.go:3681), so `Funcs[K]` meets `Func<"a"> | Func<"b">`
+            // as `Funcs[keyof ArgMap]` and `Partial<Foo1>[K]` meets `Foo1[K]
+            // | undefined` as its substitution (`correlatedUnions`).
             if result == RelationResult::NotRelated
                 && self.is_mapped_type_generic_indexed_access(source)
+                && let Some(variable) = self.type_variable_source_related_to(source, target)
             {
-                return RelationResult::Unknown;
+                return RelationResult::any([result, variable]);
             }
             // structuredTypeRelatedToWorker (relater.go:3889): an object or
             // intersection source that failed every constituent may still
@@ -5502,57 +5504,32 @@ impl Relater<'_, '_, '_> {
         if self.checker.type_of(source).flags.contains(TypeFlags::INDEXED_ACCESS)
             && !self.checker.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
         {
-            // getConstraintOfType (relater.go:3667): for `{ [P in K]: E }[X]`
-            // that is the substitution `E[P := X]`, not the base constraint
-            // `{ [P in K]: E }[constraint of X]` (getConstraintFromIndexedAccess,
-            // checker.go:17227). The base constraint stays the road where the
-            // port's constraint is undecided. A lazily captured mapped
-            // object is captured first, as getConstraintTypeFromMappedType
-            // resolves on first use.
-            if let Some(&(object, _, _)) = self.checker.deferred_indexed_access_types.get(&source) {
-                self.checker.ensure_mapped_type_info(object);
+            let result = self.indexed_access_source_constraint_related_to(source, target);
+            if result.is_success() || !self.is_mapped_type_generic_indexed_access(source) {
+                return Some(result);
             }
-            match self.checker.constraint_of_type(source) {
-                crate::constraints::ConstraintOfType::Constraint(constraint)
-                    if constraint != source =>
-                {
-                    return Some(self.is_related_to_with_flags(
-                        constraint,
-                        target,
-                        RecursionFlags::SOURCE,
-                    ));
+            // isMappedTypeGenericIndexedAccess (relater.go:3681): for `{ [P in
+            // K]: E }[X]`, the substitution `E[P := X]` was explored above;
+            // native also explores `{ [P in K]: E }[C]`, where `C` is the
+            // constraint of `X` (`Funcs[K] -> Funcs[keyof ArgMap]`,
+            // `correlatedUnions`). A nil index constraint skips the step.
+            let Some(&(object, index, _)) = self.checker.deferred_indexed_access_types.get(&source)
+            else {
+                return Some(result);
+            };
+            let mapped = match self.checker.constraint_of_type(index) {
+                crate::constraints::ConstraintOfType::Constraint(constraint) => {
+                    match self.checker.resolved_indexed_access_type(object, constraint, false) {
+                        Some(access) => {
+                            self.is_related_to_with_flags(access, target, RecursionFlags::SOURCE)
+                        }
+                        None => RelationResult::Unknown,
+                    }
                 }
-                crate::constraints::ConstraintOfType::Nil => {
-                    let unknown = self.checker.intrinsics.unknown;
-                    return Some(self.is_related_to_with_flags(
-                        unknown,
-                        target,
-                        RecursionFlags::SOURCE,
-                    ));
-                }
-                _ => {}
-            }
-            if let Some(constraint) = self.checker.base_constraint_of_type(source) {
-                return Some(if constraint == source {
-                    RelationResult::Unknown
-                } else {
-                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
-                });
-            }
-            // No base constraint: native relates getConstraintOfType, or
-            // `unknown` for a nil one (relater.go:3668).
-            return Some(match self.checker.constraint_of_type(source) {
-                crate::constraints::ConstraintOfType::Constraint(constraint)
-                    if constraint != source =>
-                {
-                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
-                }
-                crate::constraints::ConstraintOfType::Nil => {
-                    let unknown = self.checker.intrinsics.unknown;
-                    self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE)
-                }
-                _ => RelationResult::Unknown,
-            });
+                crate::constraints::ConstraintOfType::Nil => RelationResult::NotRelated,
+                crate::constraints::ConstraintOfType::Undecided => RelationResult::Unknown,
+            };
+            return Some(RelationResult::any([result, mapped]));
         }
         // Synthetic polymorphic this is a source type variable too, not the
         // object member table carried by its representation (relater.go:3665).
@@ -5600,6 +5577,60 @@ impl Relater<'_, '_, '_> {
             return Some(self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE));
         }
         None
+    }
+
+    /// The constraint steps of structuredTypeRelatedToWorker's type-variable
+    /// arm (relater.go:3665-3678) for an indexed-access source whose target
+    /// is not an indexed access: getConstraintOfType, or `unknown` for a nil
+    /// one.
+    fn indexed_access_source_constraint_related_to(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> RelationResult {
+        // getConstraintOfType (relater.go:3667): for `{ [P in K]: E }[X]`
+        // that is the substitution `E[P := X]`, not the base constraint
+        // `{ [P in K]: E }[constraint of X]` (getConstraintFromIndexedAccess,
+        // checker.go:17227). The base constraint stays the road where the
+        // port's constraint is undecided. A lazily captured mapped
+        // object is captured first, as getConstraintTypeFromMappedType
+        // resolves on first use.
+        if let Some(&(object, _, _)) = self.checker.deferred_indexed_access_types.get(&source) {
+            self.checker.ensure_mapped_type_info(object);
+        }
+        match self.checker.constraint_of_type(source) {
+            crate::constraints::ConstraintOfType::Constraint(constraint)
+                if constraint != source =>
+            {
+                return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+            }
+            crate::constraints::ConstraintOfType::Nil => {
+                let unknown = self.checker.intrinsics.unknown;
+                return self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE);
+            }
+            _ => {}
+        }
+        if let Some(constraint) = self.checker.base_constraint_of_type(source) {
+            return if constraint == source {
+                RelationResult::Unknown
+            } else {
+                self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+            };
+        }
+        // No base constraint: native relates getConstraintOfType, or
+        // `unknown` for a nil one (relater.go:3668).
+        match self.checker.constraint_of_type(source) {
+            crate::constraints::ConstraintOfType::Constraint(constraint)
+                if constraint != source =>
+            {
+                self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+            }
+            crate::constraints::ConstraintOfType::Nil => {
+                let unknown = self.checker.intrinsics.unknown;
+                self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE)
+            }
+            _ => RelationResult::Unknown,
+        }
     }
 
     /// Whether `id` is a deferred conditional type. The CONDITIONAL flag
