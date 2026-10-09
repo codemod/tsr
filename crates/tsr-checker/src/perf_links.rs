@@ -107,6 +107,17 @@ pub(crate) struct PerfLinks {
     /// Steps of a declared-symbol walk that read unsettled state; a walk
     /// publishes only when this did not move (`r5-checkperf.md` §12).
     pub(crate) property_walk_provisional: u64,
+
+    // ---- r5-checkperf3 (`tsr-2zk.1091`). ----
+    /// `call -> whether its resolved signature declares a const type
+    /// parameter`: the one fact `literal_in_const_type_variable_context`
+    /// reads from native's `signatureLinks.resolvedSignature`
+    /// (`getResolvedSignature`, `checker.go:8410`), which native computes once
+    /// per call. Absent = unresolved, `resolving_signature_calls` = native's
+    /// `resolvingSignature` sentinel, an entry = resolved. Holds only answers
+    /// computed and read outside every contextual, inference and flow-loop
+    /// frame (`r5-checkperf3.md` §3).
+    pub(crate) call_const_type_parameters: FxHashMap<NodeId, bool>,
 }
 
 /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
@@ -437,6 +448,61 @@ impl Checker<'_, '_> {
         let symbol = self.binder.resolve_name(self.nodes, self.node_map, node, name, meaning);
         self.perf_links.resolved_identifiers.insert(key, symbol);
         symbol
+    }
+}
+
+// ---- r5-checkperf3 (`tsr-2zk.1091`). ----
+impl Checker<'_, '_> {
+    /// Whether `call`'s resolved signature declares a const type parameter,
+    /// asked outside the call's own inference: native reads
+    /// `signatureLinks.resolvedSignature` (`getResolvedSignature`,
+    /// `checker.go:8410`), set once per call, and answers its
+    /// `resolvingSignature` sentinel on re-entry (`checker.go:29786`). This
+    /// port resolves the call again on each ask; the answer is published per
+    /// call node under [`Self::call_link_context_clean`] and
+    /// [`Self::publishable_since`], and read only under the same clean
+    /// context (`r5-checkperf3.md` §3).
+    pub(crate) fn call_resolves_const_type_parameter(
+        &mut self,
+        call: &tsr_ast::CallExpression<'_>,
+    ) -> bool {
+        let Some(call_id) = call.node_id else { return false };
+        if !self.resolving_signature_calls.insert(call_id) {
+            return false;
+        }
+        let clean = self.call_link_context_clean();
+        if clean && let Some(&answer) = self.perf_links.call_const_type_parameters.get(&call_id) {
+            self.resolving_signature_calls.remove(&call_id);
+            return answer;
+        }
+        let mark = self.publication_mark();
+        let answer = call
+            .expression
+            .map(|callee| self.check_expression(callee))
+            .and_then(|callee| self.resolve_call_signature(callee, Some(call.arguments)))
+            .is_some_and(|signature| signature.type_parameters.iter().any(|p| p.is_const));
+        self.resolving_signature_calls.remove(&call_id);
+        if clean && self.call_link_context_clean() && self.publishable_since(mark) {
+            self.perf_links.call_const_type_parameters.insert(call_id, answer);
+        }
+        answer
+    }
+
+    /// Native's own rule: `getResolvedSignature` publishes unless a flow
+    /// loop is active (`checker.go:8443`). This port also keeps out the
+    /// frames under which a call can resolve against bindings native never
+    /// has open at a call: an active inference context, a higher-order or
+    /// uninstantiated contextual read, an alias-evaluation or mapped-template
+    /// frame (`r5-checkperf3.md` §3).
+    fn call_link_context_clean(&self) -> bool {
+        self.flow_loop_stack.is_empty()
+            && self.active_inference_contexts.is_empty()
+            && self.higher_order_context_calls.is_empty()
+            && !self.contextual_prefers_uninstantiated
+            && self.uninstantiated_context_node.is_none()
+            && self.mapped_template_depth == 0
+            && !self.identity_unmapped_type_parameters
+            && self.alias_evaluation_bindings.iter().all(FxHashMap::is_empty)
     }
 }
 
