@@ -3680,10 +3680,26 @@ impl Checker<'_, '_> {
         owner: SymbolId,
         name: &str,
     ) -> Option<SymbolId> {
+        if let Some(&found) =
+            self.perf_links.declared_properties.get(&owner).and_then(|names| names.get(name))
+        {
+            return found;
+        }
+        let provisional = self.perf_links.property_walk_provisional;
         let mut visiting = std::mem::take(&mut self.perf_links.visiting_scratch);
         visiting.clear();
         let found = self.get_property_of_declared_symbol(owner, name, &mut visiting);
         self.perf_links.visiting_scratch = visiting;
+        // Publish only an answer every step of which read settled state
+        // (`r5-checkperf.md` §12): a later walk would then read exactly the
+        // same tables and answer the same.
+        if self.perf_links.property_walk_provisional == provisional {
+            self.perf_links
+                .declared_properties
+                .entry(owner)
+                .or_default()
+                .insert(name.into(), found);
+        }
         found
     }
 
@@ -3715,21 +3731,60 @@ impl Checker<'_, '_> {
             return None;
         }
         visiting.push(owner);
-        if let Some(&found) = self.binder.symbols().get(owner).members.get(name)
-            && self.symbol_is_value(found)
-        {
-            return Some(found);
-        }
-        // getPropertyOfType searches the resolved member table for every
-        // semantic key, including string and numeric late-bound names.
-        for (key, member) in self.late_bound_members_of(owner, false) {
-            if key == name
-                && let Some(symbol) = self.binder.symbol_of(member)
-            {
-                return Some(symbol);
+        if let Some(&found) = self.binder.symbols().get(owner).members.get(name) {
+            // An alias member's value-ness follows its alias chain, which can
+            // be mid-resolution: such a step is not settled (§12).
+            if !self.binder.symbols().get(found).flags.intersects(SymbolFlags::VALUE) {
+                self.perf_links.property_walk_provisional += 1;
+            }
+            if self.symbol_is_value(found) {
+                return Some(found);
             }
         }
-        for base in self.base_symbols_of(owner)? {
+        // getPropertyOfType searches the resolved member table for every
+        // semantic key, including string and numeric late-bound names. A
+        // published list is searched in place rather than copied per step
+        // (`r5-checkperf.md` §11).
+        let late_bound = |members: &[(String, tsr_ast::NodeId)],
+                          binder: &tsr_binder::BindResult<'_>| {
+            members.iter().find_map(
+                |(key, member)| if key == name { binder.symbol_of(*member) } else { None },
+            )
+        };
+        let binder = self.binder;
+        // The placeholder of a late-bound list still computing is not its
+        // answer (§12).
+        if self.perf_links.late_bound_active.contains(&(owner, false)) {
+            self.perf_links.property_walk_provisional += 1;
+        }
+        let found = match self.late_bound_member_names.get(&(owner, false)) {
+            Some(members) => late_bound(members, binder),
+            None => late_bound(&self.late_bound_members_of(owner, false), binder),
+        };
+        if found.is_some() {
+            return found;
+        }
+        // A published base list never changes once stored, so it is read by
+        // index instead of copied per step; an unpublished one is computed
+        // as before (`r5-checkperf.md` §11).
+        let key = (owner, true);
+        if self.base_symbols.contains_key(&key) {
+            let mut index = 0;
+            while let Some(&base) = self.base_symbols.get(&key).and_then(|bases| bases.get(index)) {
+                if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {
+                    return Some(found);
+                }
+                index += 1;
+            }
+            return None;
+        }
+        // A base list that was not published (a gap, or computed while an
+        // alias resolves) may answer differently later (§12).
+        let bases = self.base_symbols_of(owner);
+        if !self.base_symbols.contains_key(&key) {
+            self.perf_links.property_walk_provisional += 1;
+        }
+        for base in bases? {
             if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {
                 return Some(found);
             }

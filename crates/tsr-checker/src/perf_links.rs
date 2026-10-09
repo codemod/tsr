@@ -83,6 +83,30 @@ pub(crate) struct PerfLinks {
     /// declarations or parameters (`r5-typeparams2.md` §2). Interior-mutable
     /// because the reader, `Checker::local_type_parameters_of`, takes `&self`.
     pub(crate) local_type_parameters: std::cell::RefCell<Vec<Option<LocalTypeParametersLink>>>,
+
+    // ---- r5-checkperf (`tsr-2zk.996`). ----
+    /// `(identifier, meaning bits) -> symbol`: `resolveName` from an
+    /// identifier for its own text, the answer native keeps in the
+    /// identifier's `links.resolvedSymbol` (`getResolvedSymbol`,
+    /// `checker.go`). Every entry is a completed answer, `None` included
+    /// (`r5-checkperf.md` §4).
+    pub(crate) resolved_identifiers: FxHashMap<(NodeId, u32), Option<SymbolId>>,
+    // ---- r5-checkperf (`tsr-2zk.17`). ----
+    /// `scan root -> assignment-target identifiers by text`: the one walk
+    /// `Checker::symbol_has_any_assignment` makes of a control-flow
+    /// container, shared by every symbol declared in it. A pure function of
+    /// the bound tree, so every entry is complete (`r5-checkperf.md` §10).
+    pub(crate) assignment_targets: FxHashMap<NodeId, AssignmentTargets>,
+    // ---- r5-checkperf (`tsr-2zk.967`). ----
+    /// `owner -> name -> property`: a class's or interface's property as the
+    /// declared-symbol walk finds it from an empty path — native
+    /// `getPropertyOfType` reading `resolveStructuredTypeMembers`' table.
+    /// Holds only answers whose walk read settled state, `None` included
+    /// (`r5-checkperf.md` §12).
+    pub(crate) declared_properties: FxHashMap<SymbolId, FxHashMap<Box<str>, Option<SymbolId>>>,
+    /// Steps of a declared-symbol walk that read unsettled state; a walk
+    /// publishes only when this did not move (`r5-checkperf.md` §12).
+    pub(crate) property_walk_provisional: u64,
 }
 
 /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
@@ -95,6 +119,10 @@ pub(crate) enum LocalTypeParametersLink {
     Declared(NodeId),
     Merged(std::rc::Rc<[NodeId]>),
 }
+
+/// [`PerfLinks::assignment_targets`]' value: a scan root's assignment-target
+/// identifiers by text, in walk order.
+pub(crate) type AssignmentTargets = std::rc::Rc<FxHashMap<Box<str>, Vec<NodeId>>>;
 
 /// [`PerfLinks::heritage_bases`]' key: base symbol, reference location, the
 /// first written type argument's node and the written argument count. A
@@ -284,6 +312,134 @@ impl Checker<'_, '_> {
     }
 }
 
+// ---- r5-checkperf (`tsr-2zk.17`): the shared-flow stack's layout. ----
+
+/// Upstream's `c.sharedFlows` (`checker.go:799`, `flow.go:136`): the stack of
+/// `(flow node, flow type)` answers the backwards walk shares between
+/// branches of one `getFlowTypeOfReference`. Same stack, same truncation
+/// points, same answer: the first entry for the node at or after the
+/// query's `sharedFlowStart`.
+///
+/// Native finds it with a linear scan of the stack. On domain-model-large
+/// that scan averaged ~88 entries over 435,254 lookups, about 300 M Ir
+/// (`r5-checkperf.md` §3). Here each entry also records the position of the
+/// previous live entry for the same node, and `last` holds the newest
+/// position per node, so a lookup walks only that node's own entries (almost
+/// always none or one). `truncate` unlinks the dropped entries newest first,
+/// which restores `last` exactly.
+///
+/// The `Vec`-shaped methods (`len`, `push`, `truncate`) keep every existing
+/// call site unchanged.
+pub(crate) struct SharedFlows<T = crate::flow::FlowType> {
+    /// Per entry: its `FlowId::index`, and one plus the position of the
+    /// previous entry for the same id (`0` when it is the oldest).
+    links: Vec<(u32, u32)>,
+    types: Vec<T>,
+    /// Per id (indexed by it, grown on demand): one plus the position of its
+    /// newest entry, or `0` when it has none.
+    last: Vec<u32>,
+}
+
+impl<T> Default for SharedFlows<T> {
+    fn default() -> Self {
+        Self { links: Vec::new(), types: Vec::new(), last: Vec::new() }
+    }
+}
+
+fn flow_key(id: tsr_binder::FlowId) -> usize {
+    use tsr_core::Idx;
+    id.index()
+}
+
+impl<T: Copy> SharedFlows<T> {
+    pub(crate) fn len(&self) -> usize {
+        self.links.len()
+    }
+
+    pub(crate) fn push(&mut self, (id, flow_type): (tsr_binder::FlowId, T)) {
+        let id = flow_key(id);
+        if id >= self.last.len() {
+            self.last.resize(id + 1, 0);
+        }
+        let position = u32::try_from(self.links.len()).expect("shared-flow stack fits in u32");
+        self.links.push((u32::try_from(id).expect("a FlowId is a u32"), self.last[id]));
+        self.last[id] = position + 1;
+        self.types.push(flow_type);
+    }
+
+    pub(crate) fn truncate(&mut self, len: usize) {
+        while self.links.len() > len {
+            let (id, previous) = self.links.pop().expect("non-empty");
+            self.last[id as usize] = previous;
+        }
+        self.types.truncate(len);
+    }
+
+    /// The first entry for `id` at or after `start`, as native's
+    /// `for i := f.sharedFlowStart; i < len(c.sharedFlows); i++` finds it.
+    pub(crate) fn find(&self, start: usize, id: tsr_binder::FlowId) -> Option<T> {
+        let mut link = self.last.get(flow_key(id)).copied().unwrap_or(0);
+        let mut first = None;
+        while link != 0 && link as usize > start {
+            let position = link as usize - 1;
+            first = Some(position);
+            link = self.links[position].1;
+        }
+        first.map(|position| self.types[position])
+    }
+}
+
+// ---- r5-checkperf (`tsr-2zk.996`): identifier name resolution. ----
+
+impl Checker<'_, '_> {
+    /// [`tsr_binder::BindResult::resolve_name`] from the identifier `node`
+    /// for its own text, memoised per `(node, meaning)`.
+    ///
+    /// **Native operation.** `getResolvedSymbol` (`checker.go`, pinned
+    /// `5b1047d`) resolves an identifier once and keeps the answer in
+    /// `links.resolvedSymbol`; `checkIdentifier`'s rules then read that one
+    /// symbol. This port's identifier rules resolve per rule, three of them
+    /// with `getResolvedSymbol`'s own meaning, and the flow walk's dotted-name
+    /// reads resolve per query.
+    ///
+    /// **Identity and owner.** Key: the identifier's `NodeId` and the meaning
+    /// bits; the name is the identifier's text, so it is not in the key — a
+    /// `start` that is not an identifier spelled `name` bypasses the memo.
+    /// Private `Checker`, Program lifetime.
+    ///
+    /// **Publication.** Exact, so every answer publishes, `None` included:
+    /// the walk reads only the binder's tables, the node table and the node
+    /// map, all immutable `&'a` borrows for the checker's lifetime, and
+    /// takes no checker callback (the export-alias variant, which does, is
+    /// not routed here).
+    ///
+    /// **Context.** None: no receiver, mapper or alias frame enters the walk.
+    ///
+    /// **Work boundary.** One ancestor walk per `(identifier, meaning)`
+    /// (`r5-checkperf.md` §4).
+    pub(crate) fn resolve_identifier_memo(
+        &mut self,
+        node: NodeId,
+        name: &str,
+        meaning: tsr_binder::SymbolFlags,
+    ) -> Option<SymbolId> {
+        let is_own_text = matches!(
+            self.node_map.get(node),
+            Some(tsr_ast::Node::Identifier(identifier)) if identifier.text == name
+        );
+        if !is_own_text {
+            return self.binder.resolve_name(self.nodes, self.node_map, node, name, meaning);
+        }
+        let key = (node, meaning.bits());
+        if let Some(&symbol) = self.perf_links.resolved_identifiers.get(&key) {
+            return symbol;
+        }
+        let symbol = self.binder.resolve_name(self.nodes, self.node_map, node, name, meaning);
+        self.perf_links.resolved_identifiers.insert(key, symbol);
+        symbol
+    }
+}
+
 #[cfg(test)]
 mod receiver_signature_kinds_tests {
     use tsr_ast::{HasNodeId, NodeId};
@@ -344,5 +500,36 @@ mod receiver_signature_kinds_tests {
                 assert_eq!(checker.receiver_signature_kinds(plain), (true, false));
             },
         );
+    }
+
+    #[test]
+    fn shared_flows_find_the_first_entry_at_or_after_start() {
+        use super::SharedFlows;
+        use tsr_binder::FlowId;
+        use tsr_core::Idx;
+        let id = |n: usize| FlowId::from_usize(n);
+        let ty = |n: usize| n * 10;
+        let mut flows = SharedFlows::<usize>::default();
+        // 40 entries: id k at position k, plus a second id-7 entry at 35.
+        for k in 0..40 {
+            flows.push((id(if k == 35 { 7 } else { k }), ty(k)));
+        }
+        for start in [0, 3, 8, 16, 17, 33, 36, 40] {
+            for k in 0..41 {
+                let want = (start..40).find(|&p| (if p == 35 { 7 } else { p }) == k).map(ty);
+                assert_eq!(flows.find(start, id(k)), want);
+            }
+        }
+        flows.truncate(20);
+        assert_eq!(flows.len(), 20);
+        assert!(flows.find(0, id(35)).is_none());
+        assert_eq!(flows.find(0, id(19)), Some(ty(19)));
+        // The truncated id-7 duplicate is gone; the first id-7 entry stays.
+        assert_eq!(flows.find(0, id(7)), Some(ty(7)));
+        assert!(flows.find(8, id(7)).is_none());
+        flows.truncate(0);
+        assert!(flows.find(0, id(7)).is_none());
+        flows.push((id(7), ty(99)));
+        assert_eq!(flows.find(0, id(7)), Some(ty(99)));
     }
 }

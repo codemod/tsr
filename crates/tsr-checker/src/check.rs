@@ -1227,9 +1227,7 @@ impl Checker<'_, '_> {
         if !tsr_binder::is_external_module_in(source, self.nodes) {
             return;
         }
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
+        let Some(symbol) = self.resolve_identifier_memo(
             node,
             text,
             SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
@@ -6397,14 +6395,7 @@ impl Checker<'_, '_> {
         }
         let Some(symbol) = self
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
-            .binder
-            .resolve_name(
-                self.nodes,
-                self.node_map,
-                node,
-                text,
-                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
-            )
+            .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
             // **`a.C` is not a name in scope.** Upstream reaches this use
             // through `resolveEntityName`, which resolves the receiver and
             // takes the member from its exports; this rule is dispatched per
@@ -7033,13 +7024,7 @@ impl Checker<'_, '_> {
         }
         let Some(symbol) =
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
-            self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                node,
-                text,
-                SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
-            )
+            self.resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
         else {
             return false;
         };
