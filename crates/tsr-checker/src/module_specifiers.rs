@@ -437,7 +437,18 @@ impl Checker<'_, '_> {
         }
         Some(match allowed.first().copied().unwrap_or(Ending::Minimal) {
             Ending::Minimal => {
-                no_extension.strip_suffix("/index").unwrap_or(no_extension).to_string()
+                let without_index = no_extension.strip_suffix("/index").unwrap_or(no_extension);
+                // "Can't remove index if there's a file by the same name as
+                // the directory" (`specifiers.go:674`, `tryGetAnyFileFromPath`).
+                if without_index != no_extension
+                    && self
+                        .module_host
+                        .and_then(|host| host.any_file_from_path(without_index))
+                        .unwrap_or(false)
+                {
+                    return Some(no_extension.to_string());
+                }
+                without_index.to_string()
             }
             Ending::Index => no_extension.to_string(),
             Ending::Js => {

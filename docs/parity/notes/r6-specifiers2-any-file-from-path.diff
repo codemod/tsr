@@ -1,0 +1,165 @@
+diff --git a/crates/tsr-compiler/src/lib.rs b/crates/tsr-compiler/src/lib.rs
+index 223a5f9..47b4385 100644
+--- a/crates/tsr-compiler/src/lib.rs
++++ b/crates/tsr-compiler/src/lib.rs
+@@ -253,6 +253,13 @@ pub struct Program<'a> {
+     /// program built from a file list. Immutable after construction.
+     package_jsons_for_specifiers:
+         FxHashMap<String, Option<tsr_checker::resolution::PackageJsonView>>,
++    /// `tryGetAnyFileFromPath` (`modulespecifiers/util.go:194`) for the
++    /// directory of every program file named `index.*`, probed once after
++    /// loading: whether a file shares the directory's name. Keyed by the
++    /// directory's normalized absolute path. Empty for a program built from
++    /// a file list. Immutable after construction.
++    /// `docs/parity/notes/r6-specifiers2.md` §3.
++    index_directories_with_file: FxHashMap<String, bool>,
+     /// One rather than one per file, which is the whole of the widening: a
+     /// `SymbolId` names one symbol across the program, and its declarations
+     /// index `nodes`, so a symbol from another file can be handed to the checker
+@@ -395,6 +402,7 @@ impl<'a> Program<'a> {
+             resolved_modules: Vec::new(),
+             meta_datas: Vec::new(),
+             package_jsons_for_specifiers: FxHashMap::default(),
++            index_directories_with_file: FxHashMap::default(),
+             current_directory,
+             use_case_sensitive_file_names,
+             lib_file_count: 0,
+@@ -459,6 +467,8 @@ impl<'a> Program<'a> {
+ 
+         let package_jsons_for_specifiers =
+             package_jsons_for_specifiers(&loaded.files, host, &current_directory);
++        let index_directories_with_file =
++            index_directories_with_file(&loaded.files, host, &current_directory);
+ 
+         let mut program = Self {
+             options: compiler_options,
+@@ -468,6 +478,7 @@ impl<'a> Program<'a> {
+             resolved_modules,
+             meta_datas: loaded.meta_datas,
+             package_jsons_for_specifiers,
++            index_directories_with_file,
+             // From the host, which is where the loader took them from too — so
+             // a name looked up afterwards canonicalises exactly as the path it
+             // is being compared against did.
+@@ -1251,6 +1262,11 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
+         self.package_jsons_for_specifiers.get(package_directory)?.as_ref()
+     }
+ 
++    fn any_file_from_path(&self, path: &str) -> Option<bool> {
++        let path = tsr_path::get_normalized_absolute_path(path, &self.current_directory);
++        self.index_directories_with_file.get(&path).copied()
++    }
++
+     fn specifier_options(&self, mode: ResolutionMode) -> tsr_checker::resolution::SpecifierOptions {
+         tsr_checker::resolution::SpecifierOptions {
+             resolve_package_json_exports: self.options.get_resolve_package_json_exports(),
+@@ -1548,6 +1564,47 @@ fn package_jsons_for_specifiers(
+     found
+ }
+ 
++/// `tryGetAnyFileFromPath` (`modulespecifiers/util.go:194`), probed once
++/// after loading for the directory `D` of every program file `D/index.*`:
++/// does `D` plus any of `AllSupportedExtensions` exist? That directory is
++/// what `processEnding`'s minimal arm (`specifiers.go:674`) asks about when
++/// it would drop `/index` from that file's specifier.
++///
++/// Native asks the host lazily, per specifier. The loader's file system is
++/// not kept past loading (r5-modules §4.2), so the probe happens here, and
++/// only for the paths a specifier can name: a program file's own
++/// directory. Native resolves a relative `processEnding` input against the
++/// current directory, not the importing file's; that lands on a key here
++/// exactly when it names a program directory, and anything else answers
++/// `None`, which the checker reads as "no file". A program without an
++/// `index.*` file probes nothing. `docs/parity/notes/r6-specifiers2.md` §3.
++fn index_directories_with_file(
++    files: &[ProgramFile<'_>],
++    host: &dyn tsr_module::types::ResolutionHost,
++    current_directory: &str,
++) -> FxHashMap<String, bool> {
++    let mut found = FxHashMap::default();
++    for file in files {
++        // Only an `index.*` file has a directory to ask about; the test
++        // before normalizing keeps the pass free for every other file.
++        if !tsr_path::remove_file_extension(file.file_name()).ends_with("index") {
++            continue;
++        }
++        let path = tsr_path::get_normalized_absolute_path(file.file_name(), current_directory);
++        let without_extension = tsr_path::remove_file_extension(&path);
++        let Some(directory) = without_extension.strip_suffix("/index") else { continue };
++        if directory.is_empty() || found.contains_key(directory) {
++            continue;
++        }
++        let exists = tsr_path::extension::ALL_SUPPORTED_EXTENSIONS
++            .iter()
++            .flat_map(|group| group.iter())
++            .any(|extension| host.fs().file_exists(&format!("{directory}{extension}")));
++        found.insert(directory.to_string(), exists);
++    }
++    found
++}
++
+ /// [`tsr_checker::resolution::PackageJsonView`] of a parsed `package.json`.
+ fn package_json_view(
+     package_json: &tsr_module::package_json::PackageJson,
+diff --git a/crates/tsr-compiler/tests/r6_specifiers2_any_file_from_path.rs b/crates/tsr-compiler/tests/r6_specifiers2_any_file_from_path.rs
+new file mode 100644
+index 0000000..27977a3
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_specifiers2_any_file_from_path.rs
+@@ -0,0 +1,56 @@
++//! `tryGetAnyFileFromPath` (`modulespecifiers/util.go:194`) as the program
++//! answers it after loading: for the directory of each `index.*` program
++//! file, whether a file shares the directory's name.
++//! `docs/parity/notes/r6-specifiers2.md` §3.
++
++use tsr_checker::resolution::ModuleHost;
++use tsr_compiler::{LoadOptions, Program};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// `declarationEmitCommonJsModuleReferencedType`'s `foo` package, reduced:
++/// `foo/other/index.d.ts` beside `foo/other.d.ts`, and `foo/sole/index.d.ts`
++/// with no sibling.
++const FILES: [(&str, &str); 4] = [
++    ("/a.ts", "import \"foo/other/index\";\nimport \"foo/sole\";\nimport \"foo/other\";\n"),
++    ("/node_modules/foo/other/index.d.ts", "export interface OtherIndexProps {}\n"),
++    ("/node_modules/foo/other.d.ts", "export interface OtherProps {}\n"),
++    ("/node_modules/foo/sole/index.d.ts", "export interface SoleProps {}\n"),
++];
++
++#[test]
++fn the_program_answers_the_index_directories_it_loaded() {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            FILES.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions { root_file_names: vec!["/a.ts".to_string()], ..Default::default() },
++    );
++    assert!(program.source_file("/node_modules/foo/sole/index.d.ts").is_some());
++    let module_host: &dyn ModuleHost = &program;
++    // `/node_modules/foo/other.d.ts` exists, so `/index` stays.
++    assert_eq!(module_host.any_file_from_path("/node_modules/foo/other"), Some(true));
++    assert_eq!(module_host.any_file_from_path("node_modules/foo/other"), Some(true));
++    assert_eq!(module_host.any_file_from_path("/node_modules/foo/sole"), Some(false));
++    // Not the directory of an `index.*` program file: not probed.
++    assert_eq!(module_host.any_file_from_path("/node_modules/foo/elsewhere"), None);
++}

@@ -365,6 +365,25 @@ pub trait ModuleHost {
         None
     }
 
+    /// `tryGetAnyFileFromPath(host, path)` (`modulespecifiers/util.go:194`),
+    /// which `processEnding`'s minimal-ending arm (`specifiers.go:674`) asks
+    /// before dropping `/index`: does a file `path + ext` exist for any of
+    /// `GetSupportedExtensions({allowJs}, [.node, .json])`'s extensions? The
+    /// two extras carry `ScriptKindExternal`/`ScriptKindJSON`, which
+    /// `GetSupportedExtensions` (`tsoptions/tsconfigparsing.go:1828`) does
+    /// not add, so the set is `AllSupportedExtensions`. `path` is the
+    /// specifier text with `/index` removed; native resolves it with
+    /// `GetNormalizedAbsolutePath(path + ext, host.GetCurrentDirectory())`.
+    ///
+    /// The file system is gone once loading ends (r5-modules §4.2), so a
+    /// program answers from what its loader probed: `Some` for a directory
+    /// it asked about, `None` for any other path. Defaulted to `None`, which
+    /// the caller reads as "no such file" — the pre-port answer.
+    /// `docs/parity/notes/r6-specifiers2.md` §3.
+    fn any_file_from_path(&self, _path: &str) -> Option<bool> {
+        None
+    }
+
     /// The compiler options `tryGetModuleNameAsNodeModule` reads, and
     /// `module.GetConditions(options, mode)` for its `exports` matching.
     /// Defaulted to a host that does not resolve `exports`.

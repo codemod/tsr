@@ -153,3 +153,82 @@ r6-specifiers §4's: `NonReactStatics` takes the alias
 `hoistNonReactStatics.` (the accessibility walk, `tsr-2zk.39`). Owner of the
 diff: whoever takes `node_reuse.rs`; it touches no other file. Independent
 of §1.
+
+## 3. `processEnding` keeps `/index` beside a same-named file (`tryGetAnyFileFromPath`)
+
+### 3.1 The constraint
+
+`declarationEmitCommonJsModuleReferencedType` (with r6-specifiers' §3.4
+composite-slots diff) prints `import("foo/other").OtherIndexProps` where
+native keeps `foo/other/index`. `processEnding`'s minimal arm
+(`specifiers.go:674`) drops `/index` only when `tryGetAnyFileFromPath(host,
+withoutIndex)` (`util.go:194`) finds no `withoutIndex + ext` on disk, and
+`foo/other.d.ts` exists. The probe asks the file system, which the checker's
+host does not keep past loading (r5-modules §4.2).
+
+The extension set: `GetSupportedExtensions({allowJs: true}, [.node, .json])`.
+Its extras are `ScriptKindExternal` and `ScriptKindJSON`, and
+`GetSupportedExtensions` (`tsoptions/tsconfigparsing.go:1828`) adds an extra
+only for `ScriptKindDeferred`, or for JS/JSX when JS is allowed. So neither
+is added, and the set is exactly `AllSupportedExtensions`.
+
+### 3.2 What landed in this lane (commit 3)
+
+- `ModuleHost::any_file_from_path(path) -> Option<bool>` (`resolution.rs`),
+  defaulted to `None`.
+- `process_ending`'s `Ending::Minimal` arm (`module_specifiers.rs`) keeps
+  `no_extension` when the host answers `Some(true)`. `None` reads as "no
+  file", which is the pre-port answer, so alone the commit changes nothing.
+
+### 3.3 The host half — `r6-specifiers2-any-file-from-path.diff`
+
+`crates/tsr-compiler/src/lib.rs` (r6-modules3's) and a new
+`crates/tsr-compiler/tests/r6_specifiers2_any_file_from_path.rs`.
+
+- `index_directories_with_file`, after loading, beside
+  `package_jsons_for_specifiers`: for each program file `D/index.*`, it
+  probes `D + ext` over `AllSupportedExtensions` once and records `D →
+  bool`, keyed by the normalized absolute path. Files whose stem is not
+  `index` are skipped before any normalization.
+- `Program::any_file_from_path` normalizes its input against the program's
+  current directory (native's `GetNormalizedAbsolutePath(…,
+  host.GetCurrentDirectory())`) and answers the map.
+
+Checker-port record: native operation `ModuleSpecifierGenerationHost.FileExists`
+through `tryGetAnyFileFromPath`, asked by `processEnding`. Key: a
+directory's normalized absolute path. Value: whether a sibling file exists.
+Owner: the program. Published whole at construction, so there is no
+partial state; `None` means not probed. No receiver context. The
+expensive work is at most 12 `file_exists` calls per `index.*` program
+file, done once.
+
+**The accepted limitation.** Native asks about any path. The
+`getLocalModuleSpecifier` caller (`specifiers.go:509`) passes a path
+relative to the importing file, which native then resolves against the
+**current directory**. This map holds only program-file directories, so
+that relative form lands on a key exactly when the importing file sits in
+the current directory. Elsewhere it answers `None` (no file), where native
+would probe the cwd-relative path, which is almost never a real file.
+Rejected: keeping the loader's file system or its resolver alive in
+`Program`. The program is shared across checker threads by reference, and
+r5-modules §5.1 refused the resolver for the same reason.
+
+When the symlink cache lands (BS §3.1), symlinked module paths reach
+`process_ending` too, and those are not program-file paths. The map would
+then need their `index` directories as well. Falsifier: a symlinked
+`…/index.d.ts` beside a same-named file printing without `/index`.
+
+### 3.4 Measured
+
+- Commit 3 alone, and commit 3 with this diff, against `5e4d21b`: both dumps
+  byte-identical (types and diagnostics verdicts; 0 changed).
+  `slowcases` clean.
+- With r6-specifiers' `composite-slots.diff` underneath (its tuple slots
+  print at the site): against base + composite-slots, **types +4, 0 lost**.
+  That is all four of `declarationEmitCommonJsModuleReferencedType`'s
+  remaining lines, so the case is fully RIGHT. Diagnostics unchanged;
+  `slowcases` clean.
+- Ir (alone + diff): dm 1,090,331,932 → 1,090,781,890 (+0.04%), gi
+  343,096,589 → 343,142,635 (+0.013%). The base binary itself moved 0.06%
+  on dm between two runs. An earlier build that normalized every file's path
+  measured gi +0.1%, which is why the stem test runs first.
