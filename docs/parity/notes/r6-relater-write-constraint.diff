@@ -1,0 +1,21 @@
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 08f973d..b9ff36b 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -2387,16 +2387,6 @@ impl Relater<'_, '_, '_> {
+         }
+         let apparent = self.checker.apparent_type(object);
+         if let Some(name) = self.checker.property_name_from_index(index) {
+-            // Held decline: a constrained object's property write type is
+-            // native's constraint, but deciding it turns
+-            // `mapped.rs`'s `generic_mapped_contextual_property_type` on,
+-            // which keys a computed symbol property by its display name
+-            // (`"[A]"`) where native passes the name's type (`typeof A`), and
+-            // `contextuallyTypedSymbolNamedProperties` loses its EMPTY_RIGHT
+-            // (`docs/parity/notes/r5-relater6.md` §4). It retires with that key.
+-            if no_index_signatures {
+-                return WriteConstraint::Undecided;
+-            }
+             let Some(property) = self.checker.get_property_of_type(apparent, &name) else {
+                 return WriteConstraint::Undecided;
+             };

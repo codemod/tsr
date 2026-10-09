@@ -1375,6 +1375,25 @@ impl<'a> Checker<'a, '_> {
                     {
                         return Some(found);
                     }
+                    // `resolveEntityName(…, SymbolFlagsNamespace, …,
+                    // dontResolveAlias)` (`checker.go:14486`) reaches the
+                    // alias through `getSymbol`, which accepts an alias whose
+                    // *target* carries the meaning (`getSymbolFlags`). An
+                    // import of a type-only namespace has no value to clone,
+                    // so the arm above never saw it: `import { JSXInternal }
+                    // from '..'` then `export import JSX = JSXInternal`
+                    // (`docs/parity/notes/r5-errorsplit6.md` §4). Only for a
+                    // target with no value meaning: a value namespace resolved
+                    // here would print under the importing alias's name
+                    // (`typeof x` where upstream records `typeof a`,
+                    // `es6ImportNamedImportInIndirectExportAssignment`), the
+                    // naming hazard this function's other declines record.
+                    let target_flags = self.get_symbol_flags(found);
+                    if target_flags.intersects(SymbolFlags::NAMESPACE)
+                        && !target_flags.intersects(SymbolFlags::VALUE)
+                    {
+                        return Some(found);
+                    }
                 }
                 None
             }
@@ -2536,8 +2555,8 @@ impl<'a> Checker<'a, '_> {
     /// the union of every meaning that name already carries; the rule asks
     /// whether the imported target claims one of them.
     ///
-    /// Upstream's `IsInJSFile` arm above this is unreachable rather than
-    /// declined — §197 excludes `allowJs` cases from the diagnostics suite.
+    /// Upstream's `IsInJSFile` arm (TS18042/TS18043) is
+    /// [`Checker::report_js_type_alias`].
     pub(crate) fn check_alias_symbol(&mut self, node: NodeId) -> Option<()> {
         let declared = self.binder.symbol_of(node)?;
         let target = match self.resolve_alias(declared) {
@@ -2557,6 +2576,12 @@ impl<'a> Checker<'a, '_> {
         let local = self.binder.merged_symbol(local);
         let flags = self.binder.symbols().get(local).flags;
         let target_flags = self.get_symbol_flags(target);
+        // The JS arm (`checker.go:6751`) returns before the conflict test
+        // (`js_alias_types.rs`).
+        let type_only = self.is_type_only_import_or_export_declaration(node);
+        if self.report_js_type_alias(node, local, target, target_flags, type_only) {
+            return None;
+        }
         let mut excluded = SymbolFlags::empty();
         if flags.intersects(SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE) {
             excluded |= SymbolFlags::VALUE;
@@ -4279,12 +4304,27 @@ impl<'a> Checker<'a, '_> {
                 _ => continue,
             };
             let Some(initializer) = assignment.initializer else { continue };
+            // `isPossiblyDiscriminantValue` (`checker.go`) admits an entity
+            // name expression too: an enum member `E.A` (and a dotted
+            // namespace path to one) is read context-free like a literal.
+            fn entity_name_expression(expression: tsr_ast::Expression<'_>) -> bool {
+                match expression {
+                    tsr_ast::Expression::Identifier(_) => true,
+                    tsr_ast::Expression::PropertyAccessExpression(access) => {
+                        access.expression.is_some_and(entity_name_expression)
+                    }
+                    _ => false,
+                }
+            }
             let context_free = match initializer {
                 tsr_ast::Expression::StringLiteral(_) | tsr_ast::Expression::NumericLiteral(_) => {
                     true
                 }
                 tsr_ast::Expression::KeywordExpression(keyword) => {
                     matches!(keyword.kind, SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword)
+                }
+                tsr_ast::Expression::PropertyAccessExpression(access) => {
+                    access.expression.is_some_and(entity_name_expression)
                 }
                 _ => false,
             };

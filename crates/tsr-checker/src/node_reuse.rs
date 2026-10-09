@@ -1687,10 +1687,20 @@ impl<'a> Checker<'a, '_> {
         let symbol = self.binder.merged_symbol(record.export_symbol.unwrap_or(symbol));
         let record = self.binder.symbols().get(symbol);
         let text = record.name;
-        // `IsSymbolAccessible` (`symbolaccessibility.go:26`): a symbol whose
-        // declarations are not visible from outside (a function-local alias)
-        // cannot be named; the visitor serializes the node from its type.
-        if !self.has_visible_declarations(symbol) {
+        // `IsSymbolAccessible(symbol, enclosingDeclaration, meaning, false)`
+        // (`symbolaccessibility.go:841`), the whole walk: a symbol no
+        // accessible chain reaches from the site (a module's unexported
+        // alias printed in another file, a function-local alias) cannot be
+        // named, and the visitor serializes the node from its type.
+        let accessible = {
+            let mut resolver = crate::symbol_access::DeclarationEmitResolver::new(self);
+            if is_type_of {
+                resolver.is_value_symbol_accessible(symbol, site)
+            } else {
+                resolver.is_type_symbol_accessible(symbol, site)
+            }
+        };
+        if !accessible {
             return None;
         }
         let module_member = record.parent.is_some_and(|parent| {

@@ -1,0 +1,156 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..84237ed 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -210,6 +210,9 @@ impl Checker<'_, '_> {
+         }
+         let Some(typed) = self.node_map.get(node) else { return };
+         self.check_construct_emit_helpers(node, typed);
++        // `checkDecorators`' `markLinkedReferences(node, ReferenceHintDecorator)`
++        // (`checker.go:6053`), `isolated_alias.rs`.
++        self.check_decorator_linked_references(node, typed, self.emit_decorator_metadata);
+         let ambient = match typed {
+             Node::ImportDeclaration(declaration) => {
+                 self.check_import_in_namespace(
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 7eec834..015cb87 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -624,6 +624,9 @@ pub struct Checker<'a, 'n> {
+     pub(crate) unsafe_import_tracker: Option<Vec<crate::module_specifiers::UnsafeImport>>,
+     /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
+     pub(crate) legacy_decorators: bool,
++    /// `compilerOptions.EmitDecoratorMetadata.IsTrue()`, read by
++    /// `markDecoratorAliasReferenced` (`crate::isolated_alias`).
++    pub(crate) emit_decorator_metadata: bool,
+     /// `compilerOptions.ImportHelpers.IsTrue()`, read by
+     /// `checkExternalEmitHelpers` (`crate::emit_helpers`).
+     pub(crate) import_helpers: bool,
+@@ -1540,6 +1543,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             module_kind: tsr_core::ModuleKind::None,
+             unsafe_import_tracker: None,
+             legacy_decorators: false,
++            emit_decorator_metadata: false,
+             import_helpers: false,
+             external_helpers: FxHashMap::default(),
+             standard_class_fields: false,
+@@ -1758,6 +1762,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+         self.strict_bind_call_apply = options.strict_option_value(options.strict_bind_call_apply);
+         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
+         self.legacy_decorators = options.experimental_decorators.is_true();
++        self.emit_decorator_metadata = options.emit_decorator_metadata.is_true();
+         self.import_helpers = options.import_helpers.is_true();
+         // `GetEmitStandardClassFields` — the flag, defaulting to
+         // `target >= ES2022`. §751.
+diff --git a/crates/tsr-compiler/tests/r6_isolated_decorator_metadata.rs b/crates/tsr-compiler/tests/r6_isolated_decorator_metadata.rs
+new file mode 100644
+index 0000000..4b4de48
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_isolated_decorator_metadata.rs
+@@ -0,0 +1,106 @@
++//! `markDecoratorAliasReferenced` → `markEntityNameOrEntityExpressionAsReference`
++//! (`checker.go:28686`, `:28857`): TS1272. `docs/parity/notes/r6-isolated.md` §3.
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ModuleKind, ScriptTarget, Tristate};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// The codes the checker reports in `file`, sorted.
++fn codes(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<u32> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: options,
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    let mut codes: Vec<u32> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(at, _)| *at == id)
++        .map(|(_, diagnostic)| diagnostic.message.code())
++        .collect();
++    codes.sort_unstable();
++    codes
++}
++
++fn options(isolated_modules: bool, verbatim_module_syntax: bool) -> CompilerOptions {
++    CompilerOptions {
++        module: ModuleKind::CommonJS,
++        target: ScriptTarget::ES2015,
++        isolated_modules: Tristate::from_bool(isolated_modules),
++        verbatim_module_syntax: Tristate::from_bool(verbatim_module_syntax),
++        ..Default::default()
++    }
++}
++
++/// `compiler/emitDecoratorMetadata_isolatedModules`, reduced.
++const FILES: [(&str, &str); 3] = [
++    ("/type1.ts", "interface T1 {}\nexport type { T1 };\n"),
++    ("/type2.ts", "export interface T2 {}\n"),
++    (
++        "/index.ts",
++        "import { T1 } from './type1';\nimport type { T2 } from './type2';\n\
++         declare var D: any;\nclass C {\n  @D m(a: T1, b: T2) {}\n}\nexport {};\n",
++    ),
++];
++
++fn decorator_options(module: ModuleKind, emit_decorator_metadata: bool) -> CompilerOptions {
++    CompilerOptions {
++        module,
++        experimental_decorators: Tristate::True,
++        emit_decorator_metadata: Tristate::from_bool(emit_decorator_metadata),
++        ..options(true, false)
++    }
++}
++
++#[test]
++fn a_type_only_value_in_decorated_metadata_needs_import_type() {
++    // `T1` reaches only a type; `T2` is imported `import type`.
++    assert_eq!(codes(&FILES, decorator_options(ModuleKind::ESNext, true), "/index.ts"), [1272]);
++}
++
++#[test]
++fn ts1272_needs_emit_decorator_metadata_and_an_es_module_target() {
++    assert_eq!(
++        codes(&FILES, decorator_options(ModuleKind::ESNext, false), "/index.ts"),
++        [] as [u32; 0]
++    );
++    assert_eq!(
++        codes(&FILES, decorator_options(ModuleKind::CommonJS, true), "/index.ts"),
++        [] as [u32; 0]
++    );
++}

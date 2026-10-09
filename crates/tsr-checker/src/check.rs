@@ -210,6 +210,9 @@ impl Checker<'_, '_> {
         }
         let Some(typed) = self.node_map.get(node) else { return };
         self.check_construct_emit_helpers(node, typed);
+        // `checkDecorators`' `markLinkedReferences(node, ReferenceHintDecorator)`
+        // (`checker.go:6053`), `isolated_alias.rs`.
+        self.check_decorator_linked_references(node, typed, self.emit_decorator_metadata);
         let ambient = match typed {
             Node::ImportDeclaration(declaration) => {
                 self.check_import_in_namespace(
@@ -774,6 +777,7 @@ impl Checker<'_, '_> {
             }
             Node::TypeQueryNode(_) => {
                 self.check_instantiation_expression_reports(node);
+                self.check_type_query_nullable_receivers(node);
                 ambient
             }
             Node::TypeLiteralNode(_) => {
@@ -1070,6 +1074,10 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
             self.check_import_type_attributes(node);
+            // `checkImportType`'s `checkTypeReferenceOrImport` (`checker.go:3324`).
+            if let Some((symbol, arguments)) = self.import_type_constraint_target(node) {
+                self.check_type_argument_constraints_of(symbol, arguments);
+            }
         }
         if matches!(
             typed,
@@ -1644,6 +1652,8 @@ impl Checker<'_, '_> {
                 Diagnostic::new(&messages::AN_EXPORT_ASSIGNMENT_CANNOT_HAVE_MODIFIERS, span),
             );
         }
+        // `checker.go:5609`–`5650`, `isolated_alias.rs`.
+        self.check_export_assignment_isolated(node, ambient);
         // Ported from typescript-go's `checkExportAssignment`
         // (`internal/checker/checker.go:5666`, pinned `5b1047d`): ambient
         // assignment expressions must be entity-name expressions. The caller
@@ -3639,9 +3649,6 @@ impl Checker<'_, '_> {
     /// directive and upstream reports anyway, because `null.foo` is wrong under
     /// every flag. §397.
     fn check_null_or_undefined_receiver(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let (receiver, is_chain_root) = match self.node_map.get(node) {
             Some(Node::PropertyAccessExpression(access)) => {
                 (access.expression, access.question_dot_token.is_some())
@@ -3862,6 +3869,36 @@ impl Checker<'_, '_> {
             // TS2307's; it is TS7016's when that file is JavaScript and
             // `noImplicitAny` is on. The rule's own table above has named this
             // arm since it was written; only the resolved path was missing. §357.
+            // `resolveExternalModule`'s resolution-diagnostic branch
+            // (`checker.go:15209`), `isolated_alias.rs`. The resolution every
+            // mode agrees on answers without computing the usage's mode.
+            if let Some(host) = self.module_host
+                && let Some(importing) = self.source_file_of_for_diagnostics(specifier)
+                && let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier)
+            {
+                let resolved = host
+                    .resolved_module_extension(importing, literal.text, None)
+                    .or_else(|| {
+                        let mode = self.module_resolution_mode(host, importing, declaration);
+                        host.resolved_module_extension(importing, literal.text, Some(mode))
+                    })
+                    .map(|(extension, resolved_using_ts_extension, in_program)| {
+                        crate::isolated_alias::ResolvedModuleFacts {
+                            extension,
+                            resolved_using_ts_extension,
+                            in_program,
+                        }
+                    });
+                let options = self.resolution_diagnostic_options;
+                if self.check_module_resolution_diagnostic(
+                    declaration,
+                    specifier,
+                    resolved,
+                    options,
+                ) {
+                    return;
+                }
+            }
             self.check_untyped_module_import(declaration, specifier);
             self.check_esm_import_from_commonjs(declaration, specifier);
             return;
@@ -4654,6 +4691,9 @@ impl Checker<'_, '_> {
                 // `VALUE` where upstream's do not (§119), so the test belongs
                 // here rather than on the meaning ladder below. §121.
                 self.report_type_only_alias_used_as_value(node, value, text);
+                // TS2866, `resolveNameHelper`'s next success arm
+                // (`checker.go:1872`), `isolated_alias.rs`.
+                self.check_import_conflicts_with_global_value(node, value, text);
                 // `getSymbol` again, on the **value** lookup: `import a = A`
                 // where `A` is an uninstantiated namespace carries `ALIAS` here
                 // and satisfies nothing upstream, so the cascade's value branch

@@ -1,0 +1,51 @@
+diff --git a/crates/tsr-parser/src/expression.rs b/crates/tsr-parser/src/expression.rs
+index 680ff2f..a73f88f 100644
+--- a/crates/tsr-parser/src/expression.rs
++++ b/crates/tsr-parser/src/expression.rs
+@@ -1159,7 +1159,7 @@ impl<'a> Parser<'a> {
+             SyntaxKind::NoSubstitutionTemplateLiteral => {
+                 // Untagged: re-scan reporting invalid escapes, since the first
+                 // pass is silent (`scanner.go:522`). §223.
+-                self.token = self.scanner.rescan_template(false);
++                self.rescan_template(false);
+                 let raw = self.token_text();
+                 let (text, flags) = self.take_literal();
+                 let node = self.finish_node(
+@@ -1170,7 +1170,7 @@ impl<'a> Parser<'a> {
+                 Expression::NoSubstitutionTemplateLiteral(node)
+             }
+             SyntaxKind::TemplateHead => {
+-                self.token = self.scanner.rescan_template(false);
++                self.rescan_template(false);
+                 self.parse_template_expression()
+             }
+             // `<` is a type assertion in `.ts` and a JSX element in `.tsx`. The
+@@ -2160,7 +2160,7 @@ impl<'a> Parser<'a> {
+     /// four diagnostics upstream has none of. `templateLiteralEscapeSequence`
+     /// invents thirty-two lines that way. §223.
+     fn parse_template_literal(&mut self, is_tagged: bool) -> TemplateLiteral<'a> {
+-        self.token = self.scanner.rescan_template(is_tagged);
++        self.rescan_template(is_tagged);
+         if self.at(SyntaxKind::NoSubstitutionTemplateLiteral) {
+             let start = self.pos();
+             let raw = self.token_text();
+diff --git a/crates/tsr-parser/src/parser.rs b/crates/tsr-parser/src/parser.rs
+index dfa0de2..18ed17c 100644
+--- a/crates/tsr-parser/src/parser.rs
++++ b/crates/tsr-parser/src/parser.rs
+@@ -487,6 +487,15 @@ impl<'a> Parser<'a> {
+         self.token_value = capture_value(&self.scanner);
+     }
+ 
++    /// `reScanTemplateToken(isTaggedTemplate)` (`parser.go:3692`) for a
++    /// template's head, refreshing the cached value: an untagged template is
++    /// re-scanned with invalid escapes reported, which cooks a legacy octal
++    /// escape to its character (`scanEscapeSequence`, `scanner.go:1700`).
++    pub(crate) fn rescan_template(&mut self, is_tagged: bool) {
++        self.token = self.scanner.rescan_template(is_tagged);
++        self.token_value = capture_value(&self.scanner);
++    }
++
+     /// Re-scan a `}` as the continuation of a template literal.
+     pub(crate) fn rescan_template_continuation(&mut self) {
+         self.token = self.scanner.rescan_template_continuation();
