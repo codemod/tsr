@@ -140,11 +140,12 @@ impl Checker<'_, '_> {
         if let Some(name) = self.best_name(symbol, enclosing) {
             return Some(format!("typeof {name}"));
         }
-        let relative = self.binder.symbols().get(module).name.strip_prefix('/')?;
-        if relative.contains('/') {
-            return None;
-        }
-        Some(format!("typeof import({})", quote(&format!("./{relative}"))))
+        // `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`) through
+        // `crate::module_specifiers` (r5-modules2 §4): the module symbol's
+        // name keeps `index` and declaration suffixes (`./foo.d`) that
+        // `processEnding` removes.
+        let specifier = self.module_specifier_for_symbol(module, reference)?;
+        Some(format!("typeof import({specifier})"))
     }
 
     pub(crate) fn allocate_type_parameter_name(
