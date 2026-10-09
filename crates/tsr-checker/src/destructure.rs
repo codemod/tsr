@@ -455,8 +455,13 @@ impl Checker<'_, '_> {
             SyntaxKind::BindingElement => self.get_type_for_binding_element_impl(holder, None),
             SyntaxKind::VariableDeclaration | SyntaxKind::Parameter => {
                 // An annotation wins over an initialiser, always
-                // (`checker.go:16694`).
-                if let Some(annotation) = self.type_annotation_of(holder) {
+                // (`checker.go:16694`). In JS the effective type node of a
+                // parameter is its reparsed `@param` (ADR-0046).
+                if let Some(annotation) = self.type_annotation_of(holder).or_else(|| {
+                    (self.nodes.kind(holder) == SyntaxKind::Parameter)
+                        .then(|| self.jsdoc_reparsed_parameter_type(holder))
+                        .flatten()
+                }) {
                     return self.get_type_from_type_node(annotation);
                 }
                 // §902: a CATCH CLAUSE's variable is `any`, or `unknown` under

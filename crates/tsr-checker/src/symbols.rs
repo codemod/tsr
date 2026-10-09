@@ -6763,7 +6763,7 @@ impl<'a> Checker<'a, '_> {
         if !self.in_js_file(parameter) {
             return None;
         }
-        let Some(Node::ParameterDeclaration(node)) = self.node_map.get(parameter) else {
+        let Some(Node::ParameterDeclaration(_)) = self.node_map.get(parameter) else {
             return None;
         };
         // `reparseHosted`'s `KindParameter` arm: the parameter's own `@type`
@@ -6771,8 +6771,6 @@ impl<'a> Checker<'a, '_> {
         if let Some(annotation) = self.jsdoc_parameter_hosted_type(parameter) {
             return Some((annotation, false));
         }
-        let Some(tsr_ast::BindingName::Identifier(identifier)) = node.name else { return None };
-        let name = identifier.text;
         let function = self.nodes.parent(parameter)?;
         let mut hosts = vec![function];
         let mut current = self.nodes.parent(function);
@@ -6810,22 +6808,14 @@ impl<'a> Checker<'a, '_> {
                 return None;
             }
         }
-        for host in hosts {
-            let Some(docs) = self.jsdoc_entries.get(&host) else { continue };
-            for doc in *docs {
-                for tag in doc.tags {
-                    if let tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(tag) = tag
-                        && matches!(tag.tag_name.text, "param" | "parameter" | "arg" | "argument")
-                        && matches!(tag.name, Some(tsr_ast::EntityName::Identifier(n)) if n.text == name)
-                    {
-                        return tag
-                            .type_expression
-                            .map(|annotation| (annotation, tag.is_bracketed));
-                    }
-                }
-            }
-        }
-        None
+        // `getEffectiveTypeAnnotationNode`'s JSDoc arm reads the reparsed
+        // `param.Type`: the `@param` `findMatchingParameter` chose for this
+        // position in the host's last comment (ADR-0046's one replay).
+        let parts = self.function_like_parts(function)?;
+        let index = parts.parameters.iter().position(|p| p.node_id == Some(parameter))?;
+        let slot = *self.jsdoc_reparsed_function(function).parameters.get(index)?;
+        let annotation = slot.r#type?;
+        Some((annotation, slot.tag.is_some_and(|tag| tag.is_bracketed)))
     }
 
     /// §273's exposure, repaired: the `@type` tag an unannotated JS variable
