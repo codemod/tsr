@@ -281,6 +281,50 @@ three runs span 1,090,830,746–1,091,476,917), CLI output identical.
 Unit test: `tests/import_type_constraints.rs` (three fixtures, two modules
 through a `ModuleHost`), in the diff.
 
+### 2.6 A qualified generic reference without its arguments is `errorType` — `qualified_reference_arity.rs`
+
+Case on the base: `genericCloduleInModule2`, an extra TS2454 at (15,1) on
+`b.foo()` after `var b: A.B`, where `A.B` is `class B<T>`.
+
+Native: `getTypeReferenceType` (`checker.go:23146`) counts the written
+arguments against `getMinTypeArgumentCount` (`:21938`) and the parameter
+count. Outside that window it reports TS2314/TS2707 and answers `errorType`:
+the class/interface arm (`getTypeFromClassOrInterfaceReference`, `:23170`)
+outside JS (`!isJs`, `:23195`), the alias arm (`getTypeFromTypeAliasReference`,
+`:23580`) in every file. `errorType` is `any` to its consumers: `b` prints
+`any`, and `checkIdentifier`'s definite-assignment test assumes an
+`any`-typed variable initialized (`checker.go:11156`), so there is no TS2454.
+
+TSR's unqualified road already answered the error. The qualified road
+(`qualified_type_reference`, `declared.rs`, r6-declared's) minted a named
+object type for an argument-less reference to a generic class, so `b` looked
+like a class instance and was reported as unassigned. The new file is the
+arity test; the hook (`r6-smallcodes5-qualified-reference-arity.diff`)
+answers `native_error` from the argument-less arm when it fails. The TS2314
+report was already made (`type_argument_arity.rs`) and is unchanged.
+
+Probe, native and TSR identical:
+
+```text
+namespace A { export class B<T> { foo() {} } export class D<T = number> { foo() {} } }
+function f() { var b: A.B; b.foo(); var d: A.D; d.foo(); }
+  (3,10) TS2314 Generic type 'B<T>' requires 1 type argument(s).
+  (6,3)  TS2454 Variable 'd' is used before being assigned.
+```
+
+Measured with §2.7 and §2.8 (all three stacked on §2.1–§2.5; the codes are
+disjoint, so rows are attributed by code): this diff converts
+`genericCloduleInModule2` and `genericTypeReferenceWithoutTypeArgument`,
+moves `genericTypeReferenceWithoutTypeArgument2` toward its baseline (an
+extra TS2352 on `<C>x` goes; its missing TS2694 is unrelated), and turns 9
+type lines WRONG → RIGHT (`genericCloduleInModule2` 0:8, 0:10–0:13 now
+`any`; `genericTypeReferenceWithoutTypeArgument` 0:43–0:44;
+`genericTypeReferenceWithoutTypeArgument2` 0:39–0:40). Zero losses. The
+batch's totals are in §2.8.
+
+Unit test: `tests/qualified_reference_arity.rs` (a required parameter, and a
+defaulted one that still reports TS2454), in the diff.
+
 ## 3. Apply order
 
 | # | Diff | New file | Cases |
@@ -289,6 +333,7 @@ through a `ModuleHost`), in the diff.
 | 2 | `r6-smallcodes5-type-query-receivers.diff` (`check.rs`) | `type_query_receivers.rs` | +1 |
 | 3 | `r6-smallcodes5-implemented-alias.diff` (`heritage_conformance.rs`) | `implemented_alias.rs` | +1 |
 | 4 | `r6-smallcodes5-import-type-constraints.diff` (`check.rs`, `constraints.rs`) | `import_type_constraints.rs` | +1 |
+| 5 | `r6-smallcodes5-qualified-reference-arity.diff` (`declared.rs`) | `qualified_reference_arity.rs` | +2, +9 type lines |
 
 Each later diff is relative to the ones before it. Stacked, the four diffs
 reproduce the measured tree byte for byte.

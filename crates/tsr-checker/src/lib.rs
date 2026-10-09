@@ -191,6 +191,7 @@ pub mod printing;
 mod private_name_identity;
 mod private_setter_read;
 mod pseudochecker;
+mod qualified_reference_arity;
 pub mod readonly_target;
 mod reference_target;
 pub mod relater;
