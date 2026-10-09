@@ -1,0 +1,660 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index bd62f11..41e9d4f 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3628,10 +3628,30 @@ impl<'a, 'n> Binder<'a, 'n> {
+                                 self.bind(tsr_ast::Node::from(*argument));
+                             }
+                         }
++                        // `reparseUnhosted`'s `KindJSDocOverloadTag` arm
++                        // (`parser/reparser.go:134`): a function, method or
++                        // constructor declaration outside every object
++                        // literal gets a body-less declaration per tag, which
++                        // `parseListIndex` (`parser/parser.go:619`) puts
++                        // *before* the host, so the binder files it ahead of
++                        // the host in the shared symbol's declarations — the
++                        // order `getSignaturesOfSymbol`'s implementation rule
++                        // reads. Its parameters bind like a written
++                        // signature's.
+                         JSDocTag::JSDocOverloadTag(overload) => {
+                             let Some(id) = overload.node_id else { continue };
++                            if !self.jsdoc_hosts_overloads(*host) {
++                                continue;
++                            }
++                            if let Some(signature) = overload.type_expression {
++                                self.bind(tsr_ast::Node::from(signature));
++                            }
+                             if let Some(symbol) = self.node_symbols[host.index() - self.node_base] {
+-                                self.symbols.get_mut(symbol).declarations.push(id);
++                                let declarations = &mut self.symbols.get_mut(symbol).declarations;
++                                match declarations.iter().position(|&d| d == *host) {
++                                    Some(at) => declarations.insert(at, id),
++                                    None => declarations.push(id),
++                                }
+                             }
+                         }
+                         _ => {}
+@@ -3641,6 +3661,29 @@ impl<'a, 'n> Binder<'a, 'n> {
+         }
+     }
+ 
++    /// Whether `reparseUnhosted` makes overload declarations from `host`'s
++    /// comments: a function, method or constructor declaration parsed
++    /// outside every object literal's member list (`parsingContexts` keeps
++    /// `PCObjectLiteralMembers` through every list nested in one).
++    fn jsdoc_hosts_overloads(&self, host: NodeId) -> bool {
++        if !matches!(
++            self.nodes.kind(host),
++            SyntaxKind::FunctionDeclaration
++                | SyntaxKind::MethodDeclaration
++                | SyntaxKind::Constructor
++        ) {
++            return false;
++        }
++        let mut current = self.nodes.parent(host);
++        while let Some(id) = current {
++            if self.nodes.kind(id) == SyntaxKind::ObjectLiteralExpression {
++                return false;
++            }
++            current = self.nodes.parent(id);
++        }
++        true
++    }
++
+     /// The locals a `@typedef`/`@callback` alias documented on `host` is
+     /// declared in. `reparseUnhosted` makes it a `JSTypeAliasDeclaration`
+     /// that `parseListIndex` (`parser/parser.go:610`) keeps in the nearest
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..446945d 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1143,6 +1143,7 @@ impl Checker<'_, '_> {
+         self.check_jsdoc_satisfies_tags(node, ambient);
+         if self.file_is_js {
+             self.check_jsdoc_reparsed_this_parameter(node);
++            self.check_jsdoc_overload_declarations(node);
+             for reparsed in self.jsdoc_reparsed_type_nodes(node) {
+                 self.check_node(reparsed, ambient, depth + 1);
+             }
+@@ -13022,6 +13023,8 @@ impl Checker<'_, '_> {
+     /// the file being checked reads the walk's ambient state; one of another
+     /// file asks [`Self::is_ambient_declaration`].
+     fn overload_effective_flags(&self, declaration: NodeId, current_file: NodeId) -> u8 {
++        // A JS `@overload` declaration copies its host's modifiers.
++        let declaration = self.jsdoc_overload_host(declaration).unwrap_or(declaration);
+         let modifiers = self.node_map.get(declaration).and_then(modifiers_of);
+         let has = |kind| modifiers.is_some_and(|modifiers| has_modifier(modifiers, kind));
+         let mut flags = 0;
+@@ -13141,7 +13144,16 @@ impl Checker<'_, '_> {
+                 .map(str::to_string)
+                 .and_then(|name| self.export_merge_local_symbol(node, own, &name))
+                 .filter(|&local| local != own && local != symbol);
++            // `checkFunctionOrMethodDeclaration` (`checker.go:3430`): a JS
++            // file never checks the local symbol, and checks the symbol
++            // itself only when it has a parent (an export or a member).
+             for checked in local.into_iter().chain(std::iter::once(symbol)) {
++                if self.file_is_js
++                    && (Some(checked) == local
++                        || self.binder.symbols().get(checked).parent.is_none())
++                {
++                    continue;
++                }
+                 if self.function_symbol_checked.insert(checked) {
+                     lists.push(
+                         self.binder.symbols().get(checked).declarations.iter().copied().collect(),
+@@ -13150,7 +13162,9 @@ impl Checker<'_, '_> {
+             }
+         } else {
+             let siblings = self.constructor_siblings_of(node);
+-            if siblings.first() == Some(&node) {
++            if siblings.iter().find(|&&sibling| self.jsdoc_overload_host(sibling).is_none())
++                == Some(&node)
++            {
+                 lists.push(siblings);
+             }
+         }
+@@ -13243,7 +13257,10 @@ impl Checker<'_, '_> {
+         // silence where upstream says something else, and it was 18 of the 21
+         // wrong lines left after the class-merge decline above.
+         let parents_agree = {
+-            let mut parents = declarations.iter().filter_map(|&d| self.nodes.parent(d));
++            // A JS `@overload` declaration sits beside its host.
++            let mut parents = declarations
++                .iter()
++                .filter_map(|&d| self.nodes.parent(self.jsdoc_overload_host(d).unwrap_or(d)));
+             let first = parents.next();
+             parents.all(|parent| Some(parent) == first)
+         };
+@@ -13284,6 +13301,7 @@ impl Checker<'_, '_> {
+                     duplicate_function_implementation = true;
+                 }
+             } else if let Some(earlier) = previous
++                && self.jsdoc_overload_host(earlier).is_none()
+                 && self.nodes.parent(earlier) == self.nodes.parent(declaration)
+                 && !self.declaration_follows_immediately(earlier, declaration)
+             {
+@@ -13399,16 +13417,20 @@ impl Checker<'_, '_> {
+         let Some(implementation) = self.get_signature_from_declaration(body) else { return };
+         let Some(implementation) = self.complete_signature_return(implementation) else { return };
+         for &declaration in overloads {
+-            let Some(overload) = self.get_signature_from_declaration(declaration) else {
+-                continue;
++            let overload = match self.jsdoc_overload_host(declaration) {
++                Some(_) => self.jsdoc_overload_signature(declaration),
++                None => self.get_signature_from_declaration(declaration),
+             };
++            let Some(overload) = overload else { continue };
+             let Some(overload) = self.complete_signature_return(overload) else { continue };
+             if self.implementation_compatible_with_overload(&implementation, &overload)
+                 != Ternary::NotRelated
+             {
+                 continue;
+             }
+-            let span = self.error_span(declaration);
++            let span = self
++                .jsdoc_overload_error_span(declaration)
++                .unwrap_or_else(|| self.error_span(declaration));
+             self.report(
+                 file,
+                 Diagnostic::new(
+@@ -13766,6 +13788,12 @@ impl Checker<'_, '_> {
+                 ClassElement::ConstructorDeclaration(constructor) => constructor.node_id,
+                 _ => None,
+             })
++            // A JS constructor's `@overload` declarations precede it.
++            .flat_map(|constructor| {
++                let mut declarations = self.jsdoc_overload_tags(constructor);
++                declarations.push(constructor);
++                declarations
++            })
+             .collect()
+     }
+ 
+@@ -13846,7 +13874,7 @@ impl Checker<'_, '_> {
+                 | SyntaxKind::MethodDeclaration
+                 | SyntaxKind::MethodSignature
+                 | SyntaxKind::Constructor
+-        )
++        ) || self.jsdoc_overload_host(node).is_some()
+     }
+ 
+     /// `ast.NodeIsPresent(node.Body())`.
+diff --git a/crates/tsr-checker/src/jsdoc_overloads.rs b/crates/tsr-checker/src/jsdoc_overloads.rs
+index 8a01ddb..876612b 100644
+--- a/crates/tsr-checker/src/jsdoc_overloads.rs
++++ b/crates/tsr-checker/src/jsdoc_overloads.rs
+@@ -36,15 +36,13 @@ use tsr_core::Span;
+ use tsr_diagnostics::{Diagnostic, messages};
+ 
+ use crate::checker::Checker;
++use crate::jsdoc_params::top_level_tags;
++use crate::signatures::Signature;
+ 
+ impl<'a> Checker<'a, '_> {
+     /// The host whose comment holds `tag`, when `tag` is an `@overload` that
+     /// `reparseUnhosted` makes a declaration of (a function, method or
+     /// constructor declaration outside every object literal).
+-    #[expect(
+-        dead_code,
+-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
+-    )]
+     pub(crate) fn jsdoc_overload_host(&self, tag: NodeId) -> Option<NodeId> {
+         if self.nodes.kind(tag) != SyntaxKind::JSDocOverloadTag {
+             return None;
+@@ -59,10 +57,6 @@ impl<'a> Checker<'a, '_> {
+ 
+     /// The `@overload` tags whose declarations `reparseUnhosted` puts before
+     /// `host`, in source order: every comment's, not only the last one's.
+-    #[expect(
+-        dead_code,
+-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
+-    )]
+     pub(crate) fn jsdoc_overload_tags(&self, host: NodeId) -> Vec<NodeId> {
+         let Some(docs) = self.jsdoc_entries.get(&host) else { return Vec::new() };
+         if !self.jsdoc_hosts_overloads(host) || !self.in_js_file(host) {
+@@ -83,10 +77,6 @@ impl<'a> Checker<'a, '_> {
+     /// and parent — upstream's `decl.Parent == previous.Parent && decl.Kind ==
+     /// previous.Kind`, with the reparsed flag standing in for adjacency.
+     /// `None` when `previous` is not an `@overload` declaration.
+-    #[expect(
+-        dead_code,
+-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
+-    )]
+     pub(crate) fn jsdoc_overload_precedes_implementation(
+         &self,
+         declaration: NodeId,
+@@ -109,10 +99,6 @@ impl<'a> Checker<'a, '_> {
+     /// Where an error on the reparsed declaration lands:
+     /// `reparseJSDocSignature` finishes it at the tag's name
+     /// (`finishReparsedNode(signature, tag.TagName())`).
+-    #[expect(
+-        dead_code,
+-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
+-    )]
+     pub(crate) fn jsdoc_overload_error_span(&self, tag: NodeId) -> Option<Span> {
+         self.jsdoc_overload_host(tag)?;
+         let Some(Node::JSDocOverloadTag(overload)) = self.node_map.get(tag) else { return None };
+@@ -126,10 +112,6 @@ impl<'a> Checker<'a, '_> {
+     /// reports implicit any, which `reportImplicitAny` words as TS7012 for a
+     /// reparsed one (`checker.go:18332`). The signature-set checks run once
+     /// per symbol from the host (`check_function_or_constructor_symbol`).
+-    #[expect(
+-        dead_code,
+-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
+-    )]
+     pub(crate) fn check_jsdoc_overload_declarations(&mut self, host: NodeId) {
+         if !self.no_implicit_any {
+             return;
+@@ -158,6 +140,53 @@ impl<'a> Checker<'a, '_> {
+         }
+     }
+ 
++    /// The signature of the declaration `reparseJSDocSignature` makes of an
++    /// `@overload` tag: `getSignatureFromDeclaration` over its reparsed
++    /// parameters and return type, with the type parameters
++    /// `gatherTypeParameters(jsDoc, false)` gives it — or, for a
++    /// constructor, the class's (`checker.go:19891`), which the constructor
++    /// list's caller sets with the kind and return type.
++    /// `None` when `tag` is not an `@overload` declaration or a part does
++    /// not compute.
++    pub(crate) fn jsdoc_overload_signature(&mut self, tag: NodeId) -> Option<Signature> {
++        let host = self.jsdoc_overload_host(tag)?;
++        let Some(Node::JSDocOverloadTag(overload)) = self.node_map.get(tag) else { return None };
++        let Some(TypeNode::FunctionTypeNode(function)) = overload.type_expression else {
++            return None;
++        };
++        let mut signature = self.get_signature_from_declaration(function.node_id?)?;
++        if self.nodes.kind(host) != SyntaxKind::Constructor {
++            let doc = self.nodes.parent(tag)?;
++            let mut type_parameters = Vec::new();
++            for node in self.jsdoc_gathered_type_parameters(doc) {
++                type_parameters.push(self.type_parameter_of(node)?);
++            }
++            signature.type_parameters = type_parameters;
++        }
++        Some(signature)
++    }
++
++    /// `gatherTypeParameters(jsDoc, false)` (`parser/reparser.go:293`): the
++    /// parameters of every top-level `@template` tag of the comment, or none
++    /// when the comment declares a `@typedef` or `@callback`.
++    fn jsdoc_gathered_type_parameters(
++        &self,
++        doc: NodeId,
++    ) -> Vec<&'a tsr_ast::TypeParameterDeclaration<'a>> {
++        let Some(Node::JSDoc(doc)) = self.node_map.get(doc) else { return Vec::new() };
++        let mut out = Vec::new();
++        for tag in top_level_tags(doc.tags) {
++            match tag {
++                JSDocTag::JSDocTypedefTag(_) | JSDocTag::JSDocCallbackTag(_) => return Vec::new(),
++                JSDocTag::JSDocTemplateTag(template) => {
++                    out.extend(template.type_parameters.iter().copied());
++                }
++                _ => {}
++            }
++        }
++        out
++    }
++
+     /// Whether `reparseUnhosted`'s `KindJSDocOverloadTag` arm
+     /// (`parser/reparser.go:134`) makes signatures from `host`'s comments:
+     /// a function, method or constructor declaration parsed outside every
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index 26229ce..16dacc7 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -814,6 +814,11 @@ impl<'a> Checker<'a, '_> {
+             self.binder.symbols().get(symbol).declarations.iter().copied().collect();
+         let mut result = Vec::new();
+         for (index, &declaration) in declarations.iter().enumerate() {
++            // A JS `@overload` is a reparsed declaration (`jsdoc_overloads.rs`).
++            if self.jsdoc_overload_host(declaration).is_some() {
++                result.push(self.jsdoc_overload_signature(declaration)?);
++                continue;
++            }
+             if self.signature_parts_of(declaration).is_none() {
+                 continue;
+             }
+@@ -1002,13 +1007,27 @@ impl<'a> Checker<'a, '_> {
+                 tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id,
+                 _ => None,
+             })
++            // The `__constructor` symbol's declarations: a JS constructor's
++            // `@overload` declarations precede it (`jsdoc_overloads.rs`).
++            .flat_map(|constructor| {
++                let mut declarations = self.jsdoc_overload_tags(constructor);
++                declarations.push(constructor);
++                declarations
++            })
+             .collect();
+         let mut signatures = Vec::new();
+         for (index, &constructor) in constructors.iter().enumerate() {
+             if index > 0 && self.is_overload_implementation(constructor, constructors[index - 1]) {
+                 continue;
+             }
+-            let mut signature = self.get_signature_from_declaration(constructor)?;
++            let mut signature = match self.jsdoc_overload_host(constructor) {
++                Some(_) => {
++                    let mut signature = self.jsdoc_overload_signature(constructor)?;
++                    signature.type_parameters.clone_from(&type_parameters);
++                    signature
++                }
++                None => self.get_signature_from_declaration(constructor)?,
++            };
+             signature.kind = kind;
+             signature.r#type = instance;
+             signatures.push(signature);
+@@ -1370,6 +1389,11 @@ impl<'a> Checker<'a, '_> {
+     /// next child of the shared parent answers the same question from the data
+     /// this port does have.
+     pub(crate) fn is_overload_implementation(&self, declaration: NodeId, previous: NodeId) -> bool {
++        if let Some(implementation) =
++            self.jsdoc_overload_precedes_implementation(declaration, previous)
++        {
++            return implementation;
++        }
+         if self.signature_parts_of(declaration).and_then(|parts| parts.body).is_none()
+             || self.nodes.kind(declaration) != self.nodes.kind(previous)
+         {
+@@ -6348,7 +6372,10 @@ impl<'a> Checker<'a, '_> {
+     }
+ 
+     /// One type parameter, or `None` for a form this port cannot print exactly.
+-    fn type_parameter_of(&mut self, node: &TypeParameterDeclaration<'a>) -> Option<TypeParameter> {
++    pub(crate) fn type_parameter_of(
++        &mut self,
++        node: &TypeParameterDeclaration<'a>,
++    ) -> Option<TypeParameter> {
+         // §33: exactly the `const` modifier is admitted (and printed);
+         // variance modifiers still decline the signature whole.
+         let mut is_const = false;
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index b1368e0..c30ddf2 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -6772,42 +6772,6 @@ impl<'a> Checker<'a, '_> {
+             return Some((annotation, false));
+         }
+         let function = self.nodes.parent(parameter)?;
+-        let mut hosts = vec![function];
+-        let mut current = self.nodes.parent(function);
+-        for _ in 0..4 {
+-            let Some(id) = current else { break };
+-            match self.nodes.kind(id) {
+-                SyntaxKind::VariableDeclaration
+-                | SyntaxKind::VariableDeclarationList
+-                | SyntaxKind::VariableStatement
+-                | SyntaxKind::PropertyAssignment
+-                | SyntaxKind::PropertyDeclaration
+-                | SyntaxKind::ExpressionStatement
+-                | SyntaxKind::ParenthesizedExpression
+-                | SyntaxKind::ExportAssignment
+-                | SyntaxKind::BinaryExpression => {
+-                    hosts.push(id);
+-                    current = self.nodes.parent(id);
+-                }
+-                _ => break,
+-            }
+-        }
+-        // An `@overload`-documented implementation is a different regime: its
+-        // parameters aggregate the UNION of the overload signatures' types
+-        // (`overloadTag1` wants `a : string | number`), which the existing
+-        // signature machinery already answers. A first-match read here
+-        // overrode it with the first overload's slot — 11 lines RIGHT→WRONG
+-        // on the first draft's pair, so the whole road declines when any doc
+-        // in scope carries an `@overload`.
+-        for host in &hosts {
+-            if let Some(docs) = self.jsdoc_entries.get(host)
+-                && docs.iter().any(|doc| {
+-                    doc.tags.iter().any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocOverloadTag(_)))
+-                })
+-            {
+-                return None;
+-            }
+-        }
+         // `getEffectiveTypeAnnotationNode`'s JSDoc arm reads the reparsed
+         // `param.Type`: the `@param` `findMatchingParameter` chose for this
+         // position in the host's last comment (ADR-0046's one replay).
+diff --git a/crates/tsr-checker/tests/jsdoc_overloads.rs b/crates/tsr-checker/tests/jsdoc_overloads.rs
+new file mode 100644
+index 0000000..2c8c8bf
+--- /dev/null
++++ b/crates/tsr-checker/tests/jsdoc_overloads.rs
+@@ -0,0 +1,139 @@
++//! JS `@overload` tags are declarations, pinned to 5b1047d1:
++//! `reparseUnhosted`'s `KindJSDocOverloadTag` arm (`parser/reparser.go:134`)
++//! puts a body-less declaration per tag before its host, which
++//! `getSignaturesOfSymbol` (`checker.go:19806`) reads as an overload and
++//! whose host it skips as the implementation. `docs/parity/notes/r6-jsdoc.md`
++//! §2.
++use tsr_ast::{Node, NodeId, SyntaxKind};
++use tsr_binder::BindResult;
++use tsr_checker::{Checker, check::FileContext};
++use tsr_core::Arena;
++
++struct Checked {
++    /// The type of every named declaration of the asked kind, in order.
++    types: Vec<String>,
++    /// Every diagnostic, as `(code, text at its span)`.
++    diagnostics: Vec<(u32, String)>,
++}
++
++fn check(source: &str, kind: SyntaxKind, name: &str) -> Checked {
++    let arena = Arena::new();
++    let mut parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.js"));
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
++    // As the loader stamps a JS file: the root and every comment's root.
++    parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++    for (_, docs) in parsed.jsdoc.iter() {
++        for doc in docs {
++            if let Some(id) = doc.node_id {
++                parsed.nodes.add_flags(id, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++            }
++        }
++    }
++    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.js", text: source },
++        &jsdoc,
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.set_jsdoc(parsed.jsdoc.iter());
++    checker.set_no_implicit_any(true);
++    let mut types = Vec::new();
++    for index in 0..parsed.nodes.len() {
++        let id = NodeId::new(u32::try_from(index).unwrap());
++        if parsed.nodes.kind(id) != kind
++            || parsed
++                .nodes
++                .parent(id)
++                .is_some_and(|parent| matches!(parsed.nodes.kind(parent), SyntaxKind::FunctionType))
++        {
++            continue;
++        }
++        let named = match parsed.node_map.get(id) {
++            Some(Node::ParameterDeclaration(node)) => {
++                matches!(node.name, Some(tsr_ast::BindingName::Identifier(n)) if n.text == name)
++            }
++            Some(Node::FunctionDeclaration(node)) => node.name.is_some_and(|n| n.text == name),
++            _ => false,
++        };
++        if named {
++            let symbol = bound.symbol_of(id).expect("bound declaration");
++            let ty = checker.get_type_of_symbol(symbol);
++            types.push(checker.type_to_string(ty));
++        }
++    }
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    let diagnostics = checker
++        .diagnostics()
++        .iter()
++        .map(|(_, d)| {
++            (d.message.code(), source[d.span.start as usize..d.span.end as usize].to_string())
++        })
++        .collect();
++    Checked { types, diagnostics }
++}
++
++const OVERLOADED: &str = "/**
++ * @overload
++ * @param {number} a
++ * @returns {number}
++ *
++ * @overload
++ * @param {string} a
++ * @returns {string}
++ *
++ * @param {string | number} a
++ * @returns {string | number}
++ */
++export function f(a) { return a; }
++";
++
++/// `overloadTag1`: the overloads are the function's signatures, and the
++/// implementation's parameter reads the comment's own `@param`.
++#[test]
++fn overload_tags_are_the_signatures_and_the_host_is_the_implementation() {
++    assert_eq!(
++        check(OVERLOADED, SyntaxKind::FunctionDeclaration, "f").types,
++        ["{ (a: number): number; (a: string): string; }"]
++    );
++    assert_eq!(check(OVERLOADED, SyntaxKind::Parameter, "a").types, ["string | number"]);
++}
++
++/// `jsFileMethodOverloads3`: a signature without `@returns` is TS7012 at
++/// the tag's name under `noImplicitAny`.
++#[test]
++fn an_overload_without_a_return_is_ts7012_at_the_tag_name() {
++    let source = "/**\n * @overload\n * @param {number} x\n */\n/**\n * @param {number} x\n * @returns {number}\n */\nfunction id(x) { return x; }\n";
++    let checked = check(source, SyntaxKind::FunctionDeclaration, "id");
++    assert_eq!(checked.types, ["(x: number) => any"]);
++    assert!(checked.diagnostics.contains(&(7012, "overload".to_string())));
++}
++
++/// `overloadTag1`: TS2394 lands on the incompatible overload's tag name.
++#[test]
++fn an_incompatible_overload_is_ts2394_at_its_tag_name() {
++    let source = "/**
++ * @overload
++ * @param {number} a
++ * @returns {number}
++ *
++ * @overload
++ * @param {boolean} a
++ * @returns {string}
++ *
++ * @param {string | number} a
++ * @returns {string | number}
++ */
++export function g(a) { return a; }
++";
++    let checked = check(source, SyntaxKind::FunctionDeclaration, "g");
++    assert_eq!(
++        checked.diagnostics.iter().filter(|(code, _)| *code == 2394).collect::<Vec<_>>(),
++        [&(2394, "overload".to_string())]
++    );
++}
+diff --git a/crates/tsr-parser/src/jsdoc.rs b/crates/tsr-parser/src/jsdoc.rs
+index 510e6cf..7f78c0b 100644
+--- a/crates/tsr-parser/src/jsdoc.rs
++++ b/crates/tsr-parser/src/jsdoc.rs
+@@ -452,13 +452,32 @@ impl<'a> Parser<'a> {
+             "import" => self.parse_import_tag(start, tag_name, margin, indent_text),
+             "typedef" => self.parse_typedef_tag(start, tag_name, margin, indent_text),
+             "callback" => self.parse_callback_tag(start, tag_name, margin, indent_text),
++            // `parseOverloadTag` (`parser/jsdoc.go:1157`): the tag's own
++            // comment, then the `@param`/`@this`/`@return` run as one
++            // signature, stored as the parameters and return type
++            // `reparseJSDocSignature` (`parser/reparser.go:142`) gives the
++            // overload declaration it emits.
+             "overload" => {
+-                let type_expression = self.try_parse_type_expression();
+-                let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
+-                tsr_ast::JSDocTag::JSDocOverloadTag(self.finish_jsdoc_node(
+-                    JSDocOverloadTag::new(tag_name, type_expression, comment),
++                self.skip_whitespace();
++                let mut comment = self.parse_tag_comments(margin);
++                let signature = self.parse_jsdoc_signature(start, margin, false);
++                if comment.is_empty() {
++                    comment = self.parse_trailing_tag_comments(start, margin, indent_text);
++                }
++                let end = if comment.is_empty() {
++                    self.span_of(signature.node_id).end
++                } else {
++                    self.pos()
++                };
++                tsr_ast::JSDocTag::JSDocOverloadTag(self.finish_node_with_end(
++                    JSDocOverloadTag::new(
++                        tag_name,
++                        Some(TypeNode::FunctionTypeNode(signature)),
++                        comment,
++                    ),
+                     SyntaxKind::JSDocOverloadTag,
+                     start,
++                    end,
+                 ))
+             }
+             "see" => {
+@@ -875,7 +894,7 @@ impl<'a> Parser<'a> {
+         self.skip_whitespace();
+         let mut comment = self.parse_tag_comments(margin);
+         let signature_start = self.pos();
+-        let signature = self.parse_jsdoc_signature(signature_start, margin);
++        let signature = self.parse_jsdoc_signature(signature_start, margin, true);
+         if comment.is_empty() {
+             comment = self.parse_trailing_tag_comments(start, margin, indent_text);
+         }
+@@ -898,13 +917,17 @@ impl<'a> Parser<'a> {
+     /// (`parser/reparser.go:142`): the callback parameters, then one
+     /// optional `@return`, as a function type.
+     ///
+-    /// `@overload` still parses flat: its reparse is an overload declaration
+-    /// of the host function, which needs the checker's overload-signature arm
+-    /// before the children can move.
++    /// An `@overload`'s signature (`callback: false`) is the same function
++    /// type, except that a missing `@return` leaves the return type unset:
++    /// its reparse is a body-less declaration, not `NewFunctionTypeNode(…,
++    /// any)`. The checker answers the declaration's other parts — its kind,
++    /// name, modifiers and `gatherTypeParameters` list — from the host
++    /// (`jsdoc_overloads.rs`).
+     fn parse_jsdoc_signature(
+         &mut self,
+         start: u32,
+         indent: u32,
++        callback: bool,
+     ) -> &'a tsr_ast::FunctionTypeNode<'a> {
+         // parseCallbackTagParameters (`parser/jsdoc.go:1101`).
+         let mut parameters: Vec<tsr_ast::JSDocTag<'a>> = Vec::new();
+@@ -1001,16 +1024,18 @@ impl<'a> Parser<'a> {
+             .and_then(|expression| jsdoc_type_expression_type(Node::from(expression)));
+         // A callback's reparse starts from `NewFunctionTypeNode(nil, nil,
+         // NewKeywordTypeNode(AnyKeyword))`.
+-        let return_type = return_type.unwrap_or_else(|| {
+-            TypeNode::KeywordTypeNode(self.finish_node_with_end(
+-                tsr_ast::KeywordTypeNode::new(SyntaxKind::AnyKeyword),
+-                SyntaxKind::AnyKeyword,
+-                end,
+-                end,
+-            ))
++        let return_type = return_type.or_else(|| {
++            callback.then(|| {
++                TypeNode::KeywordTypeNode(self.finish_node_with_end(
++                    tsr_ast::KeywordTypeNode::new(SyntaxKind::AnyKeyword),
++                    SyntaxKind::AnyKeyword,
++                    end,
++                    end,
++                ))
++            })
+         });
+         self.finish_node_with_end(
+-            tsr_ast::FunctionTypeNode::new(&[], parameters, Some(return_type), &[], None),
++            tsr_ast::FunctionTypeNode::new(&[], parameters, return_type, &[], None),
+             SyntaxKind::FunctionType,
+             start,
+             end,

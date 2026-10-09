@@ -177,7 +177,7 @@ impl<'a> Checker<'a, '_> {
         // type its alias carries (`parse_callback_tag`), so
         // `checkTypeAliasDeclaration` → `checkSourceElement(type)` reaches
         // its parameters and return type.
-        let overloads = self.jsdoc_hosts_overload_signatures(node);
+        let overloads = self.jsdoc_hosts_overloads(node);
         for doc in *docs {
             let tags = doc.tags;
             for (index, tag) in tags.iter().enumerate() {
@@ -191,9 +191,19 @@ impl<'a> Checker<'a, '_> {
                     JSDocTag::JSDocCallbackTag(callback) => push(callback.type_expression),
                     // `reparseJSDocSignature` (`parser/reparser.go:150`):
                     // `checkFunctionDeclaration` → `checkSignatureDeclaration`
-                    // reaches each signature's `this` and parameter types and
-                    // its return type. The run still parses flat
-                    // (`top_level_tags`).
+                    // reaches each reparsed parameter's type and the return
+                    // type — the tag's function type (`jsdoc_overloads.rs`).
+                    JSDocTag::JSDocOverloadTag(tsr_ast::JSDocOverloadTag {
+                        type_expression: Some(TypeNode::FunctionTypeNode(signature)),
+                        ..
+                    }) if overloads => {
+                        for parameter in signature.parameters {
+                            push(parameter.r#type);
+                        }
+                        push(signature.r#type);
+                    }
+                    // A flat-parsed run (no signature folded into the tag):
+                    // the same nodes, read off the tags that follow it.
                     JSDocTag::JSDocOverloadTag(_) if overloads => {
                         for child in overload_signature(&tags[index + 1..]) {
                             match child {
@@ -221,27 +231,8 @@ impl<'a> Checker<'a, '_> {
     }
 }
 
-impl Checker<'_, '_> {
-    /// Whether `reparseUnhosted`'s `KindJSDocOverloadTag` arm
-    /// (`parser/reparser.go:134`) makes signatures from `host`'s comments:
-    /// a function, method or constructor declaration parsed outside every
-    /// object literal's member list (`parsingContexts` keeps the
-    /// `PCObjectLiteralMembers` bit through every list nested in one).
-    fn jsdoc_hosts_overload_signatures(&self, host: NodeId) -> bool {
-        matches!(
-            self.nodes.kind(host),
-            SyntaxKind::FunctionDeclaration
-                | SyntaxKind::MethodDeclaration
-                | SyntaxKind::Constructor
-        ) && !self
-            .nodes
-            .ancestors(host)
-            .any(|ancestor| self.nodes.kind(ancestor) == SyntaxKind::ObjectLiteralExpression)
-    }
-}
-
 /// The tags `parseJSDocSignature` (`parser/jsdoc.go:1121`) folds into an
-/// `@overload`, which still parses flat here: the run of `@template`,
+/// `@overload` when the parse leaves them flat: the run of `@template`,
 /// `@this` and `@param` tags after it, then one `@return` (the run
 /// [`top_level_tags`] skips).
 fn overload_signature<'t, 'a>(after: &'t [JSDocTag<'a>]) -> &'t [JSDocTag<'a>] {
