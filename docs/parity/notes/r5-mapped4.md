@@ -215,3 +215,92 @@ truncates in the node builder's way (`checkTruncationLength`). That is a
 printing-architecture change, beyond this lane. The Ir increase on
 domain-model (+0.54%) has the same cause: non-generic mapped nodes are now
 resolved eagerly.
+
+## 5. A mapped instance iterates its own parameter clone (`tsr-2zk.1053`, committed)
+
+instantiateAnonymousType's mapped arm (`checker.go:22461`) gives every
+instance a fresh clone of the declared iteration parameter
+(`cloneTypeParameter(getTypeParameterFromMappedType(t))`). The clone's
+mapper is `P -> P'` combined with the instance's mapper, so
+getConstraintOfTypeParameter(P') is the declared constraint instantiated:
+for `MyMap<U>` over `type MyMap<T> = { [P in keyof T]: T[keyof T] }`, that is
+`keyof U`, not `keyof T`. The port shared the declared `P` across every
+instance. That is why r5-relater5 had to decline an indexed-access relation
+through one (`is_mapped_iteration_parameter`, r5-relater5.md "Three
+declines"): `U[P] -> U[keyof U]` read `keyof T -> keyof U`.
+
+The port has two roads to an instance, and both now clone:
+
+- **`instantiate_mapped_type_worker`** (a mapper over a captured mapped
+  type). The clone is registered in `instantiated_type_parameters` with the
+  combined mapper. The template and `as` clause are instantiated under that
+  mapper.
+- **`mapped_type_info` under alias-evaluation frames.** This road
+  re-resolves an alias body under its arguments where native instantiates
+  one type, and it is the road `MyMap<U>` takes. The frames are the clone's
+  mapper (`alias_evaluation_map`). The template and `as` clause are resolved
+  **once**, with `P` bound to the clone in a frame of its own.
+
+**Rejected: renaming afterwards.** The first version resolved the template
+under the frames and then instantiated it with `P -> P'`. On
+`mappedTypeAsClauseRecursiveNoCrash1` that ran out of memory: 6.5 GiB, then
+the watchdog. Its `as` clause names `FlattenType<Source[Key], Target>`, so
+the rename re-resolved that alias reference, whose own evaluation renamed
+again: two evaluations per level, exponential in the recursion depth.
+Binding the clone in a frame resolves each reference once.
+
+**Rejected: a fresh clone per evaluation.** With the frame but no cache, the
+same case took 1,854 ms (base 101 ms), over the slow-case ratio. Every
+evaluation of the same node under the same frames minted a new `P'`, so
+every downstream instantiation missed its cache. Native clones inside an
+instantiation that getObjectTypeInstantiation caches by the outer type
+arguments, so it makes one clone per instantiation. The clone is therefore
+published in `instantiated_objects` under `(P, map)`: `P` stands for its
+mapped declaration, and that table's other keys are object types. With the
+cache the case takes 158 ms.
+
+**Measured** against `07fadbd`, both dumps unfiltered: types **+4 RIGHT**
+(`mappedTypeAsClauseRecursiveNoCrash1:13/15`, `recursiveMappedTypes:11`,
+`excessPropertyChecksWithNestedIntersections:106`), diagnostics unchanged,
+zero losses, no slow cases. `mappedTypeParameterConstraint` stays EMPTY_RIGHT.
+
+**The relater half (r5-relater6's file).** With this change, the decline is
+no longer needed.
+[`r5-mapped4-relater-mapped-iteration.diff`](r5-mapped4-relater-mapped-iteration.diff)
+removes the decline and `is_mapped_iteration_parameter`. Measured on top of
+this commit, both dumps unfiltered: zero change and zero losses, including
+`mappedTypeParameterConstraint`, which now relates `U[P'] -> U[keyof U]`
+through `P'`'s `keyof U`. Sent to r5-relater6.
+
+### Ownership and work boundaries (checker port convention)
+
+- **Native operations:** instantiateAnonymousType's mapped arm
+  (`cloneTypeParameter`, `combineTypeMappers`, the clone's `mapper`);
+  getConstraintOfTypeParameter of an instantiated parameter;
+  getObjectTypeInstantiation's per-arguments cache.
+- **Key identity and owner:** the clone is keyed by
+  `(declared P, mapper pairs)` in `instantiated_objects`. For the alias road,
+  the pairs are the frames sorted by symbol (`alias_evaluation_map`). Its
+  mapper is in `instantiated_type_parameters`, and its symbol is the declared
+  `P`'s (`type_parameter_symbols`), as signature clones do.
+- **Publication states:** the clone is published the first time an
+  instantiation is built, before its template is resolved, so a recursive
+  reference inside the template that reaches the same instantiation sees the
+  same clone.
+- **Receiver/alias context:** the clone's constraint is resolved at query
+  time from the declaration's constraint (cached per active frames by
+  `type_parameter_constraint`), then instantiated by the clone's mapper.
+- **Expensive work boundary:** the instance road adds one map entry. The
+  alias road adds one frame push per mapped-node evaluation. Bench Ir is in
+  the commit message.
+
+**Falsifier.** Two instantiations that native distinguishes but that share
+`(P, map)` here, such as two mapped declarations sharing one parameter
+symbol, would share a clone. Each mapped node declares its own parameter,
+so this cannot happen for written nodes.
+
+Perf (vs `07fadbd`'s binary): median CPU new/old domain-model 1.001
+(21 samples); generic-imports 1.033 at 21 samples and 1.018 at 41;
+`diagnostics_match: true`. Callgrind Ir: domain-model 1,195,758,647 →
+1,196,776,671 (+0.085%), generic-imports 342,882,571 → 342,931,413
+(+0.014%).
