@@ -1,0 +1,106 @@
+diff --git a/crates/tsr-checker/src/instantiation_expressions.rs b/crates/tsr-checker/src/instantiation_expressions.rs
+--- a/crates/tsr-checker/src/instantiation_expressions.rs
++++ b/crates/tsr-checker/src/instantiation_expressions.rs
+@@ -150,6 +150,7 @@
+         self.instantiation_expressions.types.insert(key.clone(), None);
+         let reported_before = self.diagnostics.len();
+         let mut state = InstantiationState::default();
++        let minted_from = self.store.len();
+         let mut result =
+             self.get_instantiated_type(expression_type, node, type_arguments, &mut state);
+         let mut reports = self.diagnostics.split_off(reported_before);
+@@ -180,6 +181,16 @@
+                 ));
+             }
+         }
++        // createAnonymousTypeNodeEx's typeof-node reuse
++        // (`crate::instantiation_type_query_reuse`): frame-free results only.
++        if !under_alias_frame && !self.is_gap(result) {
++            result = self.reuse_instantiation_type_query_node(
++                node,
++                expression_type,
++                result,
++                minted_from,
++            );
++        }
+         self.instantiation_expressions.types.insert(key, Some(result));
+         if !reports.is_empty() && !under_alias_frame {
+             self.instantiation_expressions.reports.entry(node).or_default().extend(reports);
+diff --git a/crates/tsr-checker/tests/type_query.rs b/crates/tsr-checker/tests/type_query.rs
+--- a/crates/tsr-checker/tests/type_query.rs
++++ b/crates/tsr-checker/tests/type_query.rs
+@@ -212,6 +212,10 @@
+     // `getInstantiationExpressionType` (`checker.go:10660`): the one
+     // applicable signature, instantiated (`docs/parity/notes/r5-instexpr.md`).
+     let source = "declare function identity<V>(y: V): V;\nvar a: typeof identity<string>;\nvar b: typeof identity;";
+-    assert_eq!(type_of_declaration(source, "a"), "(y: string) => string");
++    // The node builder then reuses the written `typeof` node for the result
++    // (`nodebuilderimpl.go:2816`; `>FnAlias : typeof fn<T>` in
++    // `aliasInstantiationExpressionGenericIntersectionNoCrash2`,
++    // r6-typesroots §4).
++    assert_eq!(type_of_declaration(source, "a"), "typeof identity<string>");
+     assert_eq!(type_of_declaration(source, "b"), "<V>(y: V) => V");
+ }
+diff --git a/crates/tsr-checker/src/instantiation_type_query_reuse.rs b/crates/tsr-checker/src/instantiation_type_query_reuse.rs
+--- a/crates/tsr-checker/src/instantiation_type_query_reuse.rs
++++ b/crates/tsr-checker/src/instantiation_type_query_reuse.rs
+@@ -37,10 +37,6 @@
+     /// `minted_from` is the type store's length before the computation, so a
+     /// result minted by it is told from a pre-existing one (the expression
+     /// type itself, a constraint).
+-    #[expect(
+-        dead_code,
+-        reason = "consumer: r6-typesroots-typeof-reuse.diff (instantiation_expressions.rs)"
+-    )]
+     pub(crate) fn reuse_instantiation_type_query_node(
+         &mut self,
+         node: NodeId,
+diff --git a/crates/tsr-checker/tests/instantiation_type_query_reuse.rs b/crates/tsr-checker/tests/instantiation_type_query_reuse.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-checker/tests/instantiation_type_query_reuse.rs
+@@ -0,0 +1,44 @@
++//! The node builder reuses an instantiation expression's own `typeof` node
++//! for the type computed from it (`createAnonymousTypeNodeEx`,
++//! `nodebuilderimpl.go:2816`): `var xs3: typeof Array<number>` records
++//! `>xs3 : typeof Array<number>` (`arrayTypeOfTypeOf`).
++//! `docs/parity/notes/r6-typesroots.md` §4.
++
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++fn type_of_declaration(source: &str, name: &str) -> String {
++    let arena = Arena::new();
++    let parsed = tsr_parser::parse(&arena, source);
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "test.ts", text: source },
++    );
++    let root = tsr_ast::Node::SourceFile(parsed.source_file).node_id().expect("registered");
++    let symbol = bound.lookup_local(root, name).unwrap_or_else(|| panic!("`{name}` is declared"));
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    let id = checker.get_type_of_symbol(symbol);
++    let site = bound.symbols().get(symbol).declarations[0];
++    checker.type_to_string_at(id, site).expect("nameable type")
++}
++
++#[test]
++fn a_type_query_with_arguments_prints_as_written() {
++    let source = "declare function f<T>(x: T): T;\nvar v: typeof f<number>;";
++    assert_eq!(type_of_declaration(source, "v"), "typeof f<number>");
++}
++
++#[test]
++fn a_nested_type_query_argument_prints_as_written() {
++    let source = "declare function f<T>(x: T): T;\nvar x = 1;\nvar v: typeof f<typeof x>;";
++    assert_eq!(type_of_declaration(source, "v"), "typeof f<typeof x>");
++}
++
++/// The control: the expression form has no `typeof` node to reuse.
++#[test]
++fn an_instantiation_expression_prints_its_signatures() {
++    let source = "declare function f<T>(x: T): T;\nvar v = f<number>;";
++    assert_eq!(type_of_declaration(source, "v"), "(x: number) => number");
++}

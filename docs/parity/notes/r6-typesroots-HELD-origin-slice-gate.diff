@@ -1,0 +1,13 @@
+diff --git a/crates/tsr-checker/src/unions.rs b/crates/tsr-checker/src/unions.rs
+index c20ef3f..0feb9c6 100644
+--- a/crates/tsr-checker/src/unions.rs
++++ b/crates/tsr-checker/src/unions.rs
+@@ -1100,7 +1100,7 @@ impl Checker<'_, '_> {
+                     TypeData::Union { symbol: Some(symbol), .. }
+                         if self.binder.symbols().get(*symbol).flags
+                             .contains(tsr_binder::SymbolFlags::TYPE_ALIAS));
+-            let plain = !flags.intersects(TypeFlags::OBJECT | TypeFlags::UNION);
++            let plain = !flags.intersects(TypeFlags::UNION);
+             if !(enum_union || alias_union || plain || intersection_origin) {
+                 // §58.1 (`checker-notes-narrow.md`): before declining, a set
+                 // that IS a named union's member set answers the named type —
