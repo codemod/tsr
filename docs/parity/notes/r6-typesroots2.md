@@ -123,6 +123,37 @@ reaches a parameter type through a homomorphic mapped member without that
 step. Owner: main (`contextual.rs` / `calls.rs`). The diff applies as is
 once that lands, and that loss check is its falsifier.
 
+**Diagnosed further (on `e6eadf4`).** The minimal repro's `V` is not a
+mapper miss. The contextual parameter's `V` is interface `FC`'s OWN
+declared `V` (`TypeId` traced), not the call's: the literal member read in
+`contextual.rs` takes `getTypeOfSymbol(prop)` of the mapped instance's
+property, and this port's homomorphic member carries the SOURCE property's
+symbol, whose type is `FC`'s declared member. Native's mapped symbol has its
+own type (`getTypeOfMappedSymbol`, the template instantiated for the key).
+For a reference contextual, SS141's `instantiate_for_reference` repairs the
+same read; for a mapped instance nothing did. Both print `V`, which is why
+the print looked like an uninstantiated mapper.
+
+`r6-typesroots2-mapped-contextual-property.diff` (`contextual.rs`, main)
+reads a mapped instance's property through the instance
+(`get_type_of_property_of_type`). Measured alone on `e6eadf4`:
+**byte-identical** on both dumps (no corpus line reaches it while this gate
+is closed), slowcases clean, Ir ×1.00078 / ×1.00010. With it, `p4`, and the
+same call through `{ readonly [P in keyof T]: T[P] }`, `{ [P in keyof T]:
+T[P] }`, or with `V` fixed by a second argument, all give native's
+`{ foo: string }`; the test
+`tests/r6_typesroots2_mapped_contextual_property.rs` (in the diff) fails
+without it.
+
+**The loss remains with it**, because the corpus case's shape is
+`Readonly<FormikConfig<Values> & ExtraProps>`: inference never infers
+`Values` there (`G1`'s `q1 : object`, against `Pick<Readonly<FC<V>>, …>`'s
+right `q3`). Native's `inferToMappedType` reverse-maps the source into the
+intersection `FC<V> & E` (`inferFromMappedTypeConstraint`, `keyof` of an
+intersection). That is the INFERENCE-REVERSE-MAPPED-INTERSECTION cluster
+(`inference.rs`, main), already named by r6-typesroots §1. The held diff
+waits on it, with the contextual diff as its other prerequisite.
+
 The 15 GAP→WRONG lines are other clusters' causes, now reachable:
 contextualParamTypeVsNestedReturnTypeInference2/3 (`a: any` where native
 infers `a: string`, MERGED-FUNCTION-INTERFACE),
@@ -365,7 +396,12 @@ dumps, slowcases clean, `cargo test --workspace --release` passes. Ir
 checker_types_configured 1,722 → 1,724; diagnostics 4,689 → **4,691** of
 5,502. Neither diff shares context lines with batch BL's landed hooks.
 
+3. `r6-typesroots2-mapped-contextual-property.diff` (§2): `contextual.rs`
+   (main), test. Byte-identical on both dumps; a correctness prerequisite of
+   the held diff, not a speed or count win. Independent of 1-2.
+
 Held, not for application:
 `r6-typesroots2-HELD-conditional-node-consumers.diff` (§2, `declared.rs`):
-+35 types, 1 diagnostics loss. It waits on the contextual signature's
-inference-mapper instantiation through a homomorphic mapped member (main).
++35 types, 1 diagnostics loss, measured on both bases. It waits on
+INFERENCE-REVERSE-MAPPED-INTERSECTION (inference to a homomorphic mapped
+type over an intersection, `inference.rs`, main), after diff 3.
