@@ -118,6 +118,13 @@ pub(crate) struct PerfLinks {
     /// computed and read outside every contextual, inference and flow-loop
     /// frame (`r5-checkperf3.md` §3).
     pub(crate) call_const_type_parameters: FxHashMap<NodeId, bool>,
+    /// `union or intersection -> its property names, or the enumeration's
+    /// decline`: native `getPropertiesOfUnionOrIntersectionType` publishing
+    /// the composite's `resolvedProperties` once per type (`checker.go`).
+    /// Holds only answers computed outside every alias-evaluation and
+    /// mapped-template frame and published under
+    /// [`Checker::publishable_since`] (`r5-checkperf3.md` §4).
+    pub(crate) composite_property_names: FxHashMap<TypeId, Option<std::rc::Rc<[String]>>>,
 }
 
 /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
@@ -452,6 +459,14 @@ impl Checker<'_, '_> {
 }
 
 // ---- r5-checkperf3 (`tsr-2zk.1091`). ----
+/// [`Checker::composite_property_names`]' answer.
+pub(crate) enum CompositeNames {
+    /// Not a union or intersection, or an open frame keeps the memo out.
+    NotAdmitted,
+    /// The composite's names, or the enumeration's decline.
+    Answer(Option<std::rc::Rc<[String]>>),
+}
+
 impl Checker<'_, '_> {
     /// Whether `call`'s resolved signature declares a const type parameter,
     /// asked outside the call's own inference: native reads
@@ -503,6 +518,38 @@ impl Checker<'_, '_> {
             && self.mapped_template_depth == 0
             && !self.identity_unmapped_type_parameters
             && self.alias_evaluation_bindings.iter().all(FxHashMap::is_empty)
+    }
+
+    /// The property names of a union or intersection `id`, through
+    /// [`PerfLinks::composite_property_names`]: `NotAdmitted` when `id` is not
+    /// a composite or an open frame keeps the memo out (the caller enumerates
+    /// as before), else the published answer or `compute`'s, published when
+    /// [`Self::publishable_since`] holds. `compute` is the composite
+    /// enumeration itself, so a miss does exactly the work it did before
+    /// (`r5-checkperf3.md` §4).
+    pub(crate) fn composite_property_names(
+        &mut self,
+        id: TypeId,
+        compute: impl FnOnce(&mut Self) -> Option<std::rc::Rc<[String]>>,
+    ) -> CompositeNames {
+        if !matches!(
+            self.store.get(id).data,
+            TypeData::Union { .. } | TypeData::Intersection { .. }
+        ) || self.mapped_template_depth > 0
+            || self.identity_unmapped_type_parameters
+            || !self.alias_evaluation_bindings.iter().all(FxHashMap::is_empty)
+        {
+            return CompositeNames::NotAdmitted;
+        }
+        if let Some(names) = self.perf_links.composite_property_names.get(&id) {
+            return CompositeNames::Answer(names.clone());
+        }
+        let mark = self.publication_mark();
+        let names = compute(self);
+        if self.publishable_since(mark) {
+            self.perf_links.composite_property_names.insert(id, names.clone());
+        }
+        CompositeNames::Answer(names)
     }
 }
 

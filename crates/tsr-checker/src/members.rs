@@ -3189,8 +3189,20 @@ impl Checker<'_, '_> {
     }
 
     /// [`Self::get_property_names_of_type`]'s enumeration, answering a
-    /// memoised list without copying it.
+    /// memoised list without copying it. A union's or intersection's answer
+    /// is published once per type (`r5-checkperf3.md` §4).
     fn property_names_of_type(&mut self, id: TypeId) -> Option<PropertyNames> {
+        if let crate::perf_links::CompositeNames::Answer(names) = self
+            .composite_property_names(id, |checker| {
+                checker.property_names_of_type_worker(id).map(PropertyNames::into_shared)
+            })
+        {
+            return names.map(PropertyNames::Shared);
+        }
+        self.property_names_of_type_worker(id)
+    }
+
+    fn property_names_of_type_worker(&mut self, id: TypeId) -> Option<PropertyNames> {
         // Pinned 5b1047d checker.go:18846/18861: composite enumeration reads
         // completed constituent own tables, then certifies combined properties.
         // Checker-local TypeIds retain alias/receiver identity; temporary name
