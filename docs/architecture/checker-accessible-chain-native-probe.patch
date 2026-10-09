@@ -1,0 +1,193 @@
+--- a/cmd/tsgo/main.go
++++ b/cmd/tsgo/main.go
+@@ -8,0 +9 @@
++	"github.com/microsoft/typescript-go/internal/checker"
+@@ -17,0 +19 @@
++	defer checker.ReportAccessibleChainProbe()
+--- a/internal/checker/checker.go
++++ b/internal/checker/checker.go
+@@ -2199,0 +2200 @@
++		chainProbeChecked(c, sourceFile)
+--- a/internal/checker/symbolaccessibility.go
++++ b/internal/checker/symbolaccessibility.go
+@@ -441,0 +442 @@
++	chainProbeRequest(c, ctx)
+@@ -459,0 +461 @@
++	chainProbeLookup(c, ctx, firstRelevantLocation, existing, ok)
+@@ -463,0 +466 @@
++	chainProbeBegin(c, ctx, firstRelevantLocation)
+@@ -474,0 +478 @@
++	chainProbeFinish(c, ctx, firstRelevantLocation, result)
+@@ -489,0 +494 @@
++	chainProbeTable(c, present)
+--- /dev/null
++++ b/internal/checker/accessible_chain_probe.go
+@@ -0,0 +1,168 @@
++package checker
++
++import (
++	"encoding/json"
++	"fmt"
++	"github.com/microsoft/typescript-go/internal/ast"
++	"os"
++	"sync"
++)
++
++var chainProbeEnabled = os.Getenv("TSR_NATIVE_CHAIN_PROBE") == "1"
++
++type chainProbeKey struct {
++	owner    *ast.Symbol
++	scope    *ast.Node
++	meaning  ast.SymbolFlags
++	external bool
++}
++type chainProbeCounters struct {
++	Requests               uint64                   `json:"requests"`
++	NilSymbolRefusals      uint64                   `json:"nil_symbol_refusals"`
++	PropertyMethodRefusals uint64                   `json:"property_method_refusals"`
++	Lookups                uint64                   `json:"lookups"`
++	SuccessHits            uint64                   `json:"completed_success_hits"`
++	NilHits                uint64                   `json:"completed_nil_hits"`
++	Workers                uint64                   `json:"chain_workers"`
++	ActiveRepeats          uint64                   `json:"active_full_key_repeats"`
++	SuccessPublications    uint64                   `json:"success_publications"`
++	NilPublications        uint64                   `json:"nil_publications"`
++	TableRequests          uint64                   `json:"table_requests"`
++	TableActiveDeclines    uint64                   `json:"table_active_declines"`
++	GlobalsKeys            uint64                   `json:"globals_scope_distinct_keys"`
++	DistinctKeys           uint64                   `json:"distinct_full_keys"`
++	Keys                   map[chainProbeKey]uint64 `json:"-"`
++	Active                 map[chainProbeKey]uint64 `json:"-"`
++}
++
++var chainProbeData = struct {
++	sync.Mutex
++	Checkers map[*Checker]*chainProbeCounters
++	Files    map[string]uint64
++}{}
++
++func chainProbeCountersFor(c *Checker) *chainProbeCounters {
++	if chainProbeData.Checkers == nil {
++		chainProbeData.Checkers = make(map[*Checker]*chainProbeCounters)
++	}
++	data := chainProbeData.Checkers[c]
++	if data == nil {
++		data = &chainProbeCounters{Keys: make(map[chainProbeKey]uint64), Active: make(map[chainProbeKey]uint64)}
++		chainProbeData.Checkers[c] = data
++	}
++	return data
++}
++func chainProbeChecked(c *Checker, file *ast.SourceFile) {
++	if !chainProbeEnabled {
++		return
++	}
++	chainProbeData.Lock()
++	defer chainProbeData.Unlock()
++	chainProbeCountersFor(c)
++	if chainProbeData.Files == nil {
++		chainProbeData.Files = make(map[string]uint64)
++	}
++	chainProbeData.Files[file.FileName()]++
++}
++func chainProbeRequest(c *Checker, ctx accessibleSymbolChainContext) {
++	if !chainProbeEnabled {
++		return
++	}
++	chainProbeData.Lock()
++	defer chainProbeData.Unlock()
++	d := chainProbeCountersFor(c)
++	d.Requests++
++	if ctx.symbol == nil {
++		d.NilSymbolRefusals++
++	} else if isPropertyOrMethodDeclarationSymbol(ctx.symbol) {
++		d.PropertyMethodRefusals++
++	}
++}
++func chainProbeLookup(c *Checker, ctx accessibleSymbolChainContext, scope *ast.Node, result []*ast.Symbol, present bool) {
++	if !chainProbeEnabled {
++		return
++	}
++	chainProbeData.Lock()
++	defer chainProbeData.Unlock()
++	d := chainProbeCountersFor(c)
++	d.Lookups++
++	key := chainProbeKey{ctx.symbol, scope, ctx.meaning, ctx.useOnlyExternalAliasing}
++	if d.Keys[key] == 0 {
++		d.DistinctKeys++
++		if scope == nil {
++			d.GlobalsKeys++
++		}
++	}
++	d.Keys[key]++
++	if present {
++		if len(result) == 0 {
++			d.NilHits++
++		} else {
++			d.SuccessHits++
++		}
++	}
++}
++func chainProbeBegin(c *Checker, ctx accessibleSymbolChainContext, scope *ast.Node) {
++	if !chainProbeEnabled {
++		return
++	}
++	chainProbeData.Lock()
++	defer chainProbeData.Unlock()
++	d := chainProbeCountersFor(c)
++	key := chainProbeKey{ctx.symbol, scope, ctx.meaning, ctx.useOnlyExternalAliasing}
++	d.Workers++
++	if d.Active[key] > 0 {
++		d.ActiveRepeats++
++	}
++	d.Active[key]++
++}
++func chainProbeFinish(c *Checker, ctx accessibleSymbolChainContext, scope *ast.Node, result []*ast.Symbol) {
++	if !chainProbeEnabled {
++		return
++	}
++	chainProbeData.Lock()
++	defer chainProbeData.Unlock()
++	d := chainProbeCountersFor(c)
++	key := chainProbeKey{ctx.symbol, scope, ctx.meaning, ctx.useOnlyExternalAliasing}
++	d.Active[key]--
++	if len(result) == 0 {
++		d.NilPublications++
++	} else {
++		d.SuccessPublications++
++	}
++}
++func chainProbeTable(c *Checker, active bool) {
++	if !chainProbeEnabled {
++		return
++	}
++	chainProbeData.Lock()
++	defer chainProbeData.Unlock()
++	d := chainProbeCountersFor(c)
++	d.TableRequests++
++	if active {
++		d.TableActiveDeclines++
++	}
++}
++
++// Only runs after CommandLine joins ordinary checking workers. No semantic cache is added.
++func ReportAccessibleChainProbe() {
++	if !chainProbeEnabled {
++		return
++	}
++	chainProbeData.Lock()
++	defer chainProbeData.Unlock()
++	rows := make([]*chainProbeCounters, 0, len(chainProbeData.Checkers))
++	for _, d := range chainProbeData.Checkers {
++		for _, depth := range d.Active {
++			if depth != 0 {
++				panic("unfinished chain worker")
++			}
++		}
++		rows = append(rows, d)
++	}
++	payload, err := json.Marshal(map[string]any{"checkers": rows, "checked_files": chainProbeData.Files})
++	if err != nil {
++		panic(err)
++	}
++	fmt.Fprintf(os.Stderr, "TSR_NATIVE_CHAIN_PROBE\t%s\n", payload)
++}

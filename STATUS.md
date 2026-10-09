@@ -51,6 +51,13 @@ on this fixture. Borrowed preparation passes workspace **3287/0/19** and strict
 Clippy/fmt/work-trace, but remains **6.647% default/5.855% single** slower than
 main in its own paired batch. Native accessible-chain completion keys and reuse
 are now `tsr-1yb.11.5.1`; alias table caching remains `tsr-1yb.11.5`.
+Fresh native/TSR probes now show generated400 **0 native chain requests versus
+2,000 private TSR best-name workers**, with2,000 distinct legacy first-scope keys.
+Native API has42requests/1walk/41completed-nil hits; declaration control9/2/7success hits.
+Real API refuses the private candidate at **120.293s/11.89GB RSS**, versus one
+frozen-main5.816s observation; sampled CPU471.655s is not a speed ratio.
+`tsr-1yb.11.7` owns actual type-literal frame/key preparation and native mapper
+continuation. [Attribution and refusal](docs/architecture/checker-accessible-chain-attribution.md).
 Full runtime review, attribution,
 canonical integration and verified equivalent-work TSR/native ratio<=0.50 remain
 unfinished. [Exact replay and measured gates](docs/architecture/checker-owner-performance-qualification.md).
@@ -3948,8 +3955,12 @@ The earlier local-Arc-only comparison remains **+20.997%/+16.244%**.
 attribution/controls, and existing `tsr-1yb.11.5` owns native alias-only naming
 table scans. Native direct lookup and borrowed Program alias names under
 `tsr-1yb.33.1.2` pass full preservation but do not finish the main keep gate.
-Next qualify actual native accessible-chain completion keys and saved workers
-under `tsr-1yb.11.5.1`, preserving meaning/scope/owner and publication state.
+Native accessible-chain attribution under `tsr-1yb.11.5.1` now supports eager
+presentation separation `tsr-1yb.16.3.10` on generated400: no native requests and
+no repeated private TSR first-scope keys. Real API source158 exceeds120s with
+11.89GB RSS. First qualify actual type-literal binding-frame key preparation and
+native node/mapper instantiation under `tsr-1yb.11.7`/`tsr-1yb.4.1.2`; preserve
+meaning/scope/owner, alias stack and publication state. No cache is retained.
 Do not retry the
 rejected `Rc` representation.
 All six original goal tickets remain in progress for their full acceptance,
@@ -7805,6 +7816,11 @@ refuses integration: borrowed/main **0.645021/0.604817s default** and
 zero primary snapshot name bytes, while 516,704 alias handles and their
 resolutions remain. These improvements do not certify the full six-ticket goal
 or native equivalent-work ratio. The source patches remain passive experiments.
+A fresh API check additionally refuses source158: capped sampled run120.293s,
+471.655s userCPU,11,888,148,480bytes peakRSS and -9 termination; main frozen runtime
+finishes5.816s in one locating run. The generated naming-key counts do not repeat,
+and native there makeszero accessible-chain calls. Do not substitute synthetic
+full-corpus preservation for real-project qualification. [Evidence](docs/architecture/checker-accessible-chain-attribution.md).
 
 The following `18d77c9e` 2/2-loss refusal is historical; the current private
 continuation restores those losses but remains refused by the performance gate.
@@ -16215,3 +16231,5 @@ that were true of a different population than the one they were quoted about.
 
 | 2026-10-08 | `2e47ffaa` plus exact private92-file owner replay / native `5b1047d` | — | — | **Full owner preservation and refcount/naming attribution.** Actual full native8275→8303 EXACT,28gains/0losses/0missing; full legacy552533type/12238diag keys,124/9gains/0RIGHTlosses. Workspace3286/0/19,strictClippy/fmt/work-trace pass. Safe localArc230library/strictcheckeralltargets and actual full native8303 with0non-timing payload changes; originalport default+56.88%/single+17.16%main regression reduced by22.43%defaultwall/36.26%CPU, yet directmain comparison remains+20.997%/+16.244%. Rc rejected1.001725default/0.993764single. Corrected21.55M/21.32M ownership counts; naming globals400queries/891600copies/15.2MB/zeroaliases selects newP1 tsr-1yb.33.1.2 native direct/alias-only preparation. Four exact1056-input replays; no canonical Rust retention or verified equivalent-work <=0.50. Six goals remain in progress. [Qualified source and gates](docs/architecture/checker-owner-performance-qualification.md). |
 | 2026-10-08 | `2e47ffaa` runtime plus exact private154/158 naming variants / native `5b1047d` | — | — | **Native direct/borrowed naming preparation verified privately.** Both actual full native14960 rows retain8303EXACT and all non-timing payloads; legacy552533types/12238diag byte-identical to owner111. Borrowed workspace3287/0/19,strictalltargetsClippy/fmt/work-trace pass. Primary copied entries1758304→516704, name payload26759920→7993920→0; exact repeats/default+single and402checkedfiles. Ordinary direct batch0.746497→0.673110s vs localArc; separate borrowed batch0.672601→0.645021s vs direct, but main0.604817s remains faster. Borrowed/main ratios1.066474default/1.058547single; observednative2.058696default is not a verified equivalent-work ratio. Four more1056-input source/probe replays; no runtime retention/full92-file review or six-goal completion. Next tsr-1yb.11.5.1 native accessible-chain owner/scope/meaning completion. [Source, counters and full gates](docs/architecture/checker-owner-performance-qualification.md). |
+
+| 2026-10-08 | `a6b8a68f` canonical / private158 and185 probes / native `5b1047d` | — | — | **Accessible-chain attribution changes priority; API refuses private integration.** Native generated0requests; private TSR2000best-name workers/2000distinct first-legacy-scope keys,1200TYPE-helper declines. Exact two repeats/default+single,402checked,465loaded; native declaration9requests/2walks/7success hits and API42/1/41nil hits with615checked/9861loaded. Source185 feature build/ordinary releasecheck pass; exact private probe replays, all canonical1056 inputs stable. Private API sampled repeat120.293s,471.655suserCPU,11.888GB RSS,-9; frozenmain5.816s locating observation. No timed ratio/cache/runtime retention or goal completion. New P1 tsr-1yb.11.7 attributes type_literal_key frame flatten/sort versus native node/mapper preparation; eager presentation16.3.10 remains. [Counters, source and failures](docs/architecture/checker-accessible-chain-attribution.md). |
