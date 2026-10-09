@@ -888,3 +888,19 @@ slowcases check: hugeDeclarationOutputGetsTruncatedWithError goes from 172 ms
 to 2,060 ms, because non-generic mapped members resolve and print eagerly.
 r5-mapped5 takes native's lazy members and print truncation (an ADR), then
 `.1089` and reducible indexed access.
+
+### r5-ts2322 finished; r5-printer2 dispatched (`tsr-2zk.1094`)
+
+r5-ts2322 triaged the 121 plain cases whose only wrong code is TS2322, then:
+- ported checkReferenceAssignment's relation for destructuring assignments
+  (new destructuring_assignment.rs), +9 cases;
+- fixed eight check-site target causes in assignreport.rs, +10 cases.
+
+That is +19 cases with no losses. It refused checkMappedType's key relation on
+its number: 15 cases lost, 0 gained, because the relater answers NotRelated on
+generic keys. Its remainder is the relater's 36 cases (`.1088`, r5-relater7),
+write types (`.1095`), getFlowTypeOfDestructuring (`.1096`, main's flow.rs),
+and items in main's calls/inference.
+
+The freed slot went to r5-printer2: optional-parameter `| undefined`
+(`.16.60`), names as written (`.16.125`), and the small printer families.
