@@ -119,7 +119,7 @@
 //! this arm safe without a links table (`bd` follow-up: signature links).
 
 use tsr_ast::{
-    BindingName, CallExpression, Expression, Node, NodeId, ParameterDeclaration,
+    BindingName, BindingPattern, CallExpression, Expression, Node, NodeId, ParameterDeclaration,
     PropertyAssignment, PropertyName,
 };
 
@@ -461,7 +461,15 @@ impl<'a> Checker<'a, '_> {
     }
 
     pub(crate) fn get_contextual_type_of_call(&mut self, call: NodeId) -> Option<TypeId> {
-        self.get_contextual_type(call)
+        // `inferTypeArguments` reads the call's contextual type with
+        // `ContextFlagsSkipBindingPatterns` unless some type parameter lacks a
+        // default; the pattern-implied context is its separate
+        // `isFromBindingPattern` road (`binding_pattern_return_context`).
+        let saved = self.contextual_skip_binding_patterns;
+        self.contextual_skip_binding_patterns = true;
+        let contextual = self.get_contextual_type(call);
+        self.contextual_skip_binding_patterns = saved;
+        contextual
     }
 
     /// `compareSignaturesIdentical` (`relater.go:3103`) reduced to the question
@@ -1233,9 +1241,28 @@ impl<'a> Checker<'a, '_> {
             Node::VariableDeclaration(declaration) => {
                 // In a JS file the reparsed `@type` tag is the declaration's
                 // type node (`reparseHosted`'s `KindJSDocTypeTag` arm).
-                let annotation =
-                    declaration.r#type.or_else(|| self.jsdoc_type_annotation(parent))?;
-                Some(self.get_type_from_type_node(annotation))
+                if let Some(annotation) =
+                    declaration.r#type.or_else(|| self.jsdoc_type_annotation(parent))
+                {
+                    return Some(self.get_type_from_type_node(annotation));
+                }
+                // getContextualTypeForInitializerExpression's fallback
+                // (`checker.go:29431`): an unannotated non-empty binding
+                // pattern supplies `getTypeFromBindingPattern(name, true,
+                // false)`, unless the caller skips binding patterns.
+                if self.contextual_skip_binding_patterns {
+                    return None;
+                }
+                let Some(BindingName::BindingPattern(pattern)) = declaration.name else {
+                    return None;
+                };
+                if pattern.elements.is_empty()
+                    || self.pattern_initializer_references_own_element(pattern)
+                    || self.rest_pattern_reads_reference_initializer(pattern, node)
+                {
+                    return None;
+                }
+                self.binding_pattern_implied_type(pattern)
             }
             Node::ParameterDeclaration(declaration) => {
                 if declaration.initializer.and_then(|initializer| initializer.node_id())
@@ -2745,6 +2772,86 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         Some(member)
+    }
+
+    /// Whether `pattern` has a top-level rest element and `initializer` is
+    /// (inside parentheses) a reference. Native reads a rest element's parent
+    /// with `CheckModeRestBindingElement` (`getTypeForBindingElement`), which
+    /// rechecks the initializer uncached and makes
+    /// `hasContextualTypeWithNoGenericTypes` skip binding patterns, so a
+    /// generic reference keeps its type parameter for the rest while the other
+    /// elements read its constraint (`const { kind, ...r1 } = t` gives
+    /// `Omit<T, "kind">`). This port checks the initializer once, so it keeps
+    /// the reference unsubstituted for every element: no implied context.
+    fn rest_pattern_reads_reference_initializer(
+        &self,
+        pattern: &BindingPattern<'a>,
+        initializer: NodeId,
+    ) -> bool {
+        if !pattern.elements.iter().any(|element| element.dot_dot_dot_token.is_some()) {
+            return false;
+        }
+        let mut node = initializer;
+        while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(node) {
+            let Some(expression) = inner.expression.and_then(|e| e.node_id()) else { return true };
+            node = expression;
+        }
+        matches!(
+            self.nodes.kind(node),
+            tsr_ast::SyntaxKind::Identifier
+                | tsr_ast::SyntaxKind::PropertyAccessExpression
+                | tsr_ast::SyntaxKind::ElementAccessExpression
+        )
+    }
+
+    /// Whether an element initializer inside `pattern` reads a name bound by
+    /// that same pattern (`const [a, b = a] = [1]`). While native computes the
+    /// implied type for the initializer's context it pushes the pattern on
+    /// `contextualBindingPatterns`, and `checkIdentifier` answers such a read
+    /// with `nonInferrableAnyType` (`checker.go:11070`) instead of resolving
+    /// the element's own type, which would cycle through this very
+    /// initializer. That `checkIdentifier` arm is not ported (it would also
+    /// need this port's per-node expression cache to skip the read), so the
+    /// contextual read declines to the previous answer: no implied context.
+    /// Syntax and name resolution only; no state.
+    fn pattern_initializer_references_own_element(&self, pattern: &BindingPattern<'a>) -> bool {
+        let Some(root) = pattern.node_id else { return true };
+        let mut patterns = vec![pattern];
+        let mut expressions: Vec<Node<'a>> = Vec::new();
+        while let Some(pattern) = patterns.pop() {
+            for element in pattern.elements {
+                if let Some(initializer) = element.initializer {
+                    expressions.push(Node::from(initializer));
+                }
+                if let Some(BindingName::BindingPattern(nested)) = element.name {
+                    patterns.push(nested);
+                }
+            }
+        }
+        while let Some(node) = expressions.pop() {
+            if let Node::Identifier(identifier) = node
+                && let Some(id) = identifier.node_id
+                // The element's own initializer slot, or any value read
+                // below it (declaration and member names are not reads).
+                && (self.nodes.parent(id).is_some_and(|parent| {
+                    self.nodes.kind(parent) == tsr_ast::SyntaxKind::BindingElement
+                }) || self.is_value_reference(id))
+                && let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    id,
+                    identifier.text,
+                    tsr_binder::SymbolFlags::VALUE,
+                )
+                && let Some(declaration) = self.binder.symbols().get(symbol).value_declaration
+                && self.nodes.kind(declaration) == tsr_ast::SyntaxKind::BindingElement
+                && self.nodes.ancestors(declaration).any(|ancestor| ancestor == root)
+            {
+                return true;
+            }
+            tsr_ast::push_children(node, &mut expressions);
+        }
+        false
     }
 
     /// `getAnnotatedAccessorType(getDeclarationOfKind(symbol, SetAccessor))`
