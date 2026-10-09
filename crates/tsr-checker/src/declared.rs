@@ -2619,6 +2619,13 @@ impl<'a> Checker<'a, '_> {
                         overloads.len() == 1,
                     );
                     self.signature_types.insert(method_type, overloads);
+                    // The binder ORs `SymbolFlagsOptional` across a merged
+                    // symbol's declarations, and `addPropertyToElementList`
+                    // reads the symbol's flag for every overload
+                    // (`nodebuilderimpl.go:2524`): one `?` overload makes
+                    // them all print `func4?(…)`.
+                    let optional =
+                        optional || existing.is_some_and(|index| typed_properties[index].optional);
                     let property = crate::objects::AnonymousProperty {
                         accessor_write: None,
                         method: true,
