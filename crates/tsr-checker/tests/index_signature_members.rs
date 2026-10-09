@@ -136,5 +136,12 @@ fn an_unrenderable_index_signature_gaps_the_whole_literal() {
     // A value type that is itself a gap KEEPS ITS WRITTEN SPELLING since §949
     // (+1 `WRONG->RIGHT` on `returnTypeTypeArguments`, zero adverse). The
     // distinction from the union key above is spellability, not resolvability.
-    assert_eq!(type_of_annotation("var x: { [k: string]: keyof T };"), "{ [k: string]: keyof T; }");
+    // `keyof T` over an unresolved `T` is not a gap: getIndexTypeEx
+    // (checker.go:26701) answers stringNumberSymbolType for `keyof errorType`,
+    // and native's TS2322 prints `{ [k: string]: string | number | symbol; }`
+    // (r5-mapped6.md §1).
+    assert_eq!(
+        type_of_annotation("var x: { [k: string]: keyof T };"),
+        "{ [k: string]: string | number | symbol; }"
+    );
 }

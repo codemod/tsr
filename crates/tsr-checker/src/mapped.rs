@@ -10,9 +10,6 @@ pub(crate) enum MappedNodeType {
     Built(TypeId),
     /// No type was built; the evaluated parts, when there are any, are for
     /// the caller's own image of the node.
-    // Read by r5-mapped6-declared-route.diff's mapped arm, which removes
-    // this allowance.
-    #[allow(dead_code)]
     Declined(Option<MappedTypeInfo>),
 }
 

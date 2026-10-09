@@ -616,8 +616,15 @@ impl<'a> Checker<'a, '_> {
             {
                 let Some(inner) = node.r#type else { return self.intrinsics.error };
                 let target = self.get_type_from_type_node(inner);
+                // getIndexTypeEx (checker.go:26701): any, never and unknown
+                // answer stringNumberSymbolType/never directly.
                 if self.mapped_types.contains_key(&target)
-                    || self.store.get(target).flags.contains(TypeFlags::TYPE_PARAMETER)
+                    || self.store.get(target).flags.intersects(
+                        TypeFlags::TYPE_PARAMETER
+                            | TypeFlags::ANY
+                            | TypeFlags::NEVER
+                            | TypeFlags::UNKNOWN,
+                    )
                 {
                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
                 }
@@ -758,6 +765,23 @@ impl<'a> Checker<'a, '_> {
                     // MUTUAL recursion (`Recurse1` through `Recurse2`), which no
                     // same-name test can see. Taking the three is the better
                     // trade at 208:1, and the guard is recorded rather than kept.
+                    // createMappedTypeNodeFromType (nodebuilderimpl.go:1458)
+                    // prints a mapped type from its typed parts. The node is
+                    // evaluated once: a declined build's parts go on the
+                    // written-text image, as `capture_mapped_type` would
+                    // have evaluated them again (r5-mapped6.md §1).
+                    Some(text) if let TypeNode::MappedTypeNode(mapped) = node => {
+                        match self.evaluate_mapped_type_node(mapped) {
+                            crate::mapped::MappedNodeType::Built(id) => id,
+                            crate::mapped::MappedNodeType::Declined(info) => {
+                                let id = self.store.new_named(TypeFlags::OBJECT, text, None);
+                                if let Some(info) = info {
+                                    self.publish_mapped_type_info(id, info);
+                                }
+                                id
+                            }
+                        }
+                    }
                     Some(text) => {
                         // getConditionalType's deferred result carries
                         // TypeFlagsConditional inside a mapped template or
