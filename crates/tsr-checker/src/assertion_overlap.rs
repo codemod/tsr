@@ -24,7 +24,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::{checker::Checker, relater::Relation, relater::Ternary};
 
-impl Checker<'_, '_> {
+impl<'a> Checker<'a, '_> {
     /// The overlap check for one `as` or `<T>` assertion.
     pub(crate) fn check_assertion_overlap(&mut self, node: NodeId, ambient: bool) {
         if ambient || self.in_js_file(node) {
@@ -36,6 +36,34 @@ impl Checker<'_, '_> {
             _ => return,
         };
         let (Some(expression), Some(annotation)) = (expression, annotation) else { return };
+        self.check_assertion_overlap_parts(node, expression, annotation, node);
+    }
+
+    /// The overlap check for a JS `@type` cast, `/** @type {T} */ (e)`:
+    /// `reparseHosted` makes it an `AsExpression` (`makeNewCast`,
+    /// `parser/reparser.go:378`) whose type node is `Reparsed`, so
+    /// `checkAssertionDeferred` reports at the type node
+    /// (`checker.go:12323`). `docs/parity/notes/r5-js.md` §3.8.
+    pub(crate) fn check_jsdoc_cast_overlap(&mut self, node: NodeId, ambient: bool) {
+        if ambient || !self.in_js_file(node) {
+            return;
+        }
+        let Some(Node::ParenthesizedExpression(paren)) = self.node_map.get(node) else { return };
+        let Some(expression) = paren.expression else { return };
+        let Some(annotation) = self.jsdoc_cast_annotation(node) else { return };
+        let Some(error_node) = annotation.node_id() else { return };
+        self.check_assertion_overlap_parts(node, expression, annotation, error_node);
+    }
+
+    /// `checkAssertionDeferred`'s comparison, shared by the written and the
+    /// reparsed assertion; `error_node` is where the diagnostic goes.
+    fn check_assertion_overlap_parts(
+        &mut self,
+        node: NodeId,
+        expression: tsr_ast::Expression<'a>,
+        annotation: tsr_ast::TypeNode<'a>,
+        error_node: NodeId,
+    ) {
         // `as const` is `isConstTypeReference` and is not a conversion at all.
         let Some(annotation_id) = annotation.node_id() else { return };
         if self.nodes.kind(annotation_id) == tsr_ast::SyntaxKind::TypeReference
@@ -78,7 +106,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.error_span(node);
+        let span = self.error_span(error_node);
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
         self.report(

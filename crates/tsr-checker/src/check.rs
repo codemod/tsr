@@ -659,6 +659,10 @@ impl Checker<'_, '_> {
                 self.check_private_setter_read(node, ambient);
                 ambient
             }
+            Node::ParenthesizedExpression(_) if self.in_js_file(node) => {
+                self.check_jsdoc_cast_overlap(node, ambient);
+                ambient
+            }
             Node::AsExpression(_) | Node::TypeAssertion(_) => {
                 self.check_assertion_overlap(node, ambient);
                 self.check_const_assertion_argument(node);
