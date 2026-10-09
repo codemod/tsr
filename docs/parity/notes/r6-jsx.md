@@ -283,9 +283,11 @@ row anywhere; slowcases clean on both dumps at every commit. Median child
 CPU against the frozen binary: domain-model 0.976–1.002, generic-imports
 0.964–0.997 (21 samples; neither project has JSX).
 
-With the diffs (§9): D1 +17 rows / 4 more cases RIGHT
+With the diffs (§9), both applied on the lane tip `5378ede` and measured
+together: diagnostics +17 rows and five more cases RIGHT
 (`jsxAttributeWithoutExpressionReact`, `jsxSpreadTag` ×2,
-`parseJsxExtends2`); D2 +5 type lines.
+`parseJsxExtends2`, and `jsxUnclosedParserRecovery`, whose last row 95:5
+is D1's once §3's 13 rows are in); type lines +5 (D2); no loss.
 
 ## 7. Remaining, with the blocker each was traced to
 
