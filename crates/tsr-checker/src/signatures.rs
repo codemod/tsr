@@ -6845,8 +6845,31 @@ impl<'a> Checker<'a, '_> {
         {
             return error;
         }
+        self.infer_from_context_free_annotations(node, &parts);
         let Some(symbol) = self.binder.symbol_of(node) else { return error };
         self.get_type_of_symbol(symbol)
+    }
+
+    /// contextuallyCheckFunctionExpressionOrObjectLiteralMethod's arm for a
+    /// function that is not context sensitive (`checker.go:10186`): under an
+    /// inferential check, a contextual signature with more parameters than
+    /// the function still receives inferences from the written parameter
+    /// and return annotations (`inferFromAnnotatedParametersAndReturn`).
+    /// The parameter-count test lives in
+    /// [`Self::contextual_annotation_inferences`]; the context-sensitive arm
+    /// is reached through [`Self::contextual_signature_result`].
+    fn infer_from_context_free_annotations(&mut self, node: NodeId, parts: &SignatureParts<'a>) {
+        if !parts.type_parameters.is_empty() || self.is_context_sensitive_function_like(node) {
+            return;
+        }
+        let Some(call) = self.enclosing_inference_context(node) else { return };
+        let previous = self.contextual_prefers_uninstantiated;
+        self.contextual_prefers_uninstantiated = true;
+        let contextual = self.contextual_signature_result(node);
+        self.contextual_prefers_uninstantiated = previous;
+        if let Some(crate::contextual::ContextualSignature::Present(signature)) = contextual {
+            self.infer_annotations_into(call, node, &signature);
+        }
     }
 
     /// GROUNDED's question, asked of the type parameters native could still

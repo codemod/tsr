@@ -698,6 +698,7 @@ impl<'a> Checker<'a, '_> {
         // positional spread calls still check their argument nodes first.
         let mut argument_types: Vec<TypeId> = Vec::with_capacity(arguments.len());
         let mut skipped_generic_arguments = vec![false; arguments.len()];
+        let mut annotation_inferences: Vec<Vec<InferenceInfo>> = vec![Vec::new(); arguments.len()];
         let mut spread = false;
         let mut preceding_inferences = infos.clone();
         let infer_preceding = self.written_type_arguments(call).is_none()
@@ -728,20 +729,32 @@ impl<'a> Checker<'a, '_> {
                             | Expression::ArrowFunction(_)
                             | Expression::FunctionExpression(_)
                     );
-                let previous_inferential = if use_active_context
-                    && let Some(call) = call
+                let previous = if let Some(call) = call
                     && let Some(context) = self.active_inference_contexts.get_mut(&call)
                 {
-                    Some(std::mem::replace(&mut context.inferential, true))
+                    let inferential = if use_active_context {
+                        std::mem::replace(&mut context.inferential, true)
+                    } else {
+                        context.inferential
+                    };
+                    Some((inferential, context.inferences.clone()))
                 } else {
                     None
                 };
                 let source = self.check_expression(argument);
-                if let Some(previous_inferential) = previous_inferential
+                if let Some((previous_inferential, before)) = previous
                     && let Some(call) = call
                     && let Some(context) = self.active_inference_contexts.get_mut(&call)
                 {
                     context.inferential = previous_inferential;
+                    // inferFromAnnotatedParametersAndReturn (checker.go:10239)
+                    // infers into the shared context while the argument is
+                    // checked, before inferTypes(argument, parameter).
+                    annotation_inferences[index] =
+                        new_inference_candidates(&before, &context.inferences);
+                    for info in &annotation_inferences[index] {
+                        merge_info(&mut preceding_inferences, info);
+                    }
                 }
                 // inferSignatureInstantiationForOverloadFailure adds both
                 // SkipContextSensitive and SkipGenericFunctions (checker.go:
@@ -1162,6 +1175,11 @@ impl<'a> Checker<'a, '_> {
                     is_fixed: false,
                     top_level: true,
                 });
+            }
+        }
+        for (bucket, annotations) in buckets.iter_mut().zip(&annotation_inferences) {
+            for info in annotations {
+                merge_info(bucket, info);
             }
         }
         let mut inferred_type_parameters = Vec::new();
@@ -2083,6 +2101,32 @@ impl<'a> Checker<'a, '_> {
 
     pub(crate) fn infer_contextual_annotations(&mut self, node: NodeId, signature: &Signature) {
         let Some(call) = self.live_inference_context(node) else { return };
+        self.infer_annotations_into(call, node, signature);
+    }
+
+    /// getInferenceContext (`checker.go`) for an argument checked by
+    /// inferTypeArguments: every argument is checked with `Inferential`, while
+    /// this port marks a context live only around the arguments whose
+    /// contextual reads it instantiates.
+    pub(crate) fn enclosing_inference_context(&self, node: NodeId) -> Option<NodeId> {
+        let mut parent = self.nodes.parent(node);
+        while let Some(node) = parent {
+            if self.active_inference_contexts.contains_key(&node) {
+                return Some(node);
+            }
+            parent = self.nodes.parent(node);
+        }
+        None
+    }
+
+    /// inferFromAnnotatedParametersAndReturn (`checker.go:10239`) into the
+    /// inference context of `call`.
+    pub(crate) fn infer_annotations_into(
+        &mut self,
+        call: NodeId,
+        node: NodeId,
+        signature: &Signature,
+    ) {
         let pairs = self.contextual_annotation_inferences(node, signature);
         if pairs.is_empty() {
             return;
@@ -7486,6 +7530,36 @@ fn add_directional_candidate(
 /// Fold one collection's infos into another, preserving the two fields the
 /// flat pair merge used to drop: `top_level` ANDs (one nested source marks the
 /// parameter nested for good, `inference.go:208`) and `is_fixed` ORs.
+/// The candidates `after` holds that `before` did not: inferences made into a
+/// shared context while one argument was checked.
+fn new_inference_candidates(
+    before: &[InferenceInfo],
+    after: &[InferenceInfo],
+) -> Vec<InferenceInfo> {
+    let mut delta = Vec::new();
+    for info in after {
+        let previous = before.iter().find(|old| old.type_parameter == info.type_parameter);
+        let fresh = |list: &[TypeId], old: Option<&[TypeId]>| -> Vec<TypeId> {
+            list.iter().copied().filter(|t| !old.is_some_and(|old| old.contains(t))).collect()
+        };
+        let candidates = fresh(&info.candidates, previous.map(|old| old.candidates.as_slice()));
+        let contra_candidates =
+            fresh(&info.contra_candidates, previous.map(|old| old.contra_candidates.as_slice()));
+        if candidates.is_empty() && contra_candidates.is_empty() {
+            continue;
+        }
+        delta.push(InferenceInfo {
+            candidates,
+            contra_candidates,
+            fixed_type: None,
+            is_fixed: false,
+            implied_arity: None,
+            ..info.clone()
+        });
+    }
+    delta
+}
+
 pub(crate) fn merge_info(infos: &mut Vec<InferenceInfo>, from: &InferenceInfo) {
     if !from.has_candidates()
         && !infos.iter().any(|info| info.type_parameter == from.type_parameter)
