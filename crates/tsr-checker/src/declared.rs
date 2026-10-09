@@ -2905,8 +2905,34 @@ impl<'a> Checker<'a, '_> {
                 // (via getMembersOfSymbol, checker.go:16124) yields one
                 // property typed from its first (value) declaration:
                 // `{ a: string; a: string; }` prints `{ a: string; }`.
-                if typed_properties.iter().any(|existing| existing.origin == Some(symbol)) {
+                if let Some(existing) =
+                    typed_properties.iter().position(|existing| existing.origin == Some(symbol))
+                {
                     merged_duplicate = true;
+                    // getPropertyNameNodeForSymbol (nodebuilderimpl.go:2434)
+                    // quotes the merged member's name only when EVERY
+                    // declaration is string-named; a later numeric-named
+                    // declaration (`"1": number; 1.0: string`) makes it the
+                    // numeric literal `1`, the symbol's own name
+                    // (createPropertyNameNodeForIdentifierOrLiteral). An
+                    // identifier-named one changes nothing: a quoted first
+                    // declaration already printed bare when its text is an
+                    // identifier.
+                    if let tsr_ast::PropertyName::NumericLiteral(_) = property.name
+                        && let Some(numeric) = crate::objects::written_property_name(&property.name)
+                    {
+                        let old = std::mem::replace(
+                            &mut typed_properties[existing].printed_name,
+                            numeric.clone(),
+                        );
+                        if let Some(crate::objects::Member::Property { name, .. }) =
+                            properties.iter_mut().find(|member| {
+                                matches!(member, crate::objects::Member::Property { name, .. } if *name == old)
+                            })
+                        {
+                            *name = numeric;
+                        }
+                    }
                     continue;
                 }
                 typed_properties.push(crate::objects::AnonymousProperty {
