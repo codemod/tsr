@@ -1632,6 +1632,14 @@ impl Checker<'_, '_> {
         };
         // A type parameter is read through its constraint; an unconstrained
         // or primitive one is no class (`ObjectFlagsClassOrInterface` unset).
+        // `getEnclosingClassFromThisParameter` reads
+        // `getConstraintOfTypeParameter`, which is nil for an unconstrained
+        // one, not the apparent `{}` (5b1047d checker.go:11987).
+        if self.type_of(this_type).flags.intersects(TypeFlags::TYPE_PARAMETER)
+            && self.base_constraint_of_type(this_type).is_none()
+        {
+            return ThisParameterClass::None;
+        }
         let this_type = self.apparent_type(this_type);
         if !self.type_of(this_type).flags.intersects(TypeFlags::OBJECT) {
             return ThisParameterClass::None;

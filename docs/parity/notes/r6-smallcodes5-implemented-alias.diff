@@ -1,0 +1,102 @@
+diff --git a/crates/tsr-checker/src/heritage_conformance.rs b/crates/tsr-checker/src/heritage_conformance.rs
+index 412553c..687305c 100644
+--- a/crates/tsr-checker/src/heritage_conformance.rs
++++ b/crates/tsr-checker/src/heritage_conformance.rs
+@@ -155,6 +155,19 @@ impl Checker<'_, '_> {
+             // (`classWithMultipleBaseClasses`); only the class-extends arm
+             // keeps the lib-merged base decline.
+             if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
++                // `getTypeFromTypeNode` answers any declaration's type; a
++                // type alias's is related like an interface
++                // (`implemented_alias.rs`).
++                if let Some((target, is_class)) =
++                    self.implemented_alias_type(implemented, entry.type_arguments)
++                {
++                    let message = if is_class {
++                        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS
++                    } else {
++                        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1
++                    };
++                    self.check_class_heritage_entry(node, source, target, message);
++                }
+                 continue;
+             }
+             let Some(target) =
+diff --git a/crates/tsr-checker/src/implemented_alias.rs b/crates/tsr-checker/src/implemented_alias.rs
+index cdb91de..8f7c4b6 100644
+--- a/crates/tsr-checker/src/implemented_alias.rs
++++ b/crates/tsr-checker/src/implemented_alias.rs
+@@ -33,7 +33,6 @@ use crate::{
+     types::{TypeData, TypeId},
+ };
+ 
+-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
+ impl Checker<'_, '_> {
+     /// The implemented type of an `implements` entry that names the type
+     /// alias `alias`, and whether `t.symbol` is a class (which picks the
+diff --git a/crates/tsr-checker/tests/implemented_alias.rs b/crates/tsr-checker/tests/implemented_alias.rs
+new file mode 100644
+index 0000000..d102d15
+--- /dev/null
++++ b/crates/tsr-checker/tests/implemented_alias.rs
+@@ -0,0 +1,60 @@
++//! `class C implements Alias` where `Alias` is a type alias
++//! (`checkClassLikeDeclaration`'s implemented-type loop, `checker.go:4365`).
++//! Expectations were checked against a native `tsgo` built from the pinned
++//! submodule.
++
++use tsr_ast::NodeId;
++use tsr_checker::Checker;
++use tsr_checker::check::FileContext;
++use tsr_core::Arena;
++
++fn codes(source: &str) -> Vec<String> {
++    let arena = Arena::new();
++    let mut nodes = tsr_ast::NodeTable::default();
++    let mut node_map = tsr_ast::NodeMap::default();
++    let file = tsr_parser::parse_into(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("a.ts"),
++        &mut nodes,
++        &mut node_map,
++    );
++    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
++    let bound = tsr_binder::bind_into(
++        tsr_binder::BindResult::empty(),
++        &arena,
++        file.source_file,
++        &nodes,
++        tsr_binder::FileInfo { name: "a.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &nodes, &node_map);
++    checker.set_strict_null_checks(true);
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    let mut codes: Vec<String> = checker
++        .diagnostics()
++        .iter()
++        .map(|(_, d)| d.code().to_string())
++        .filter(|code| matches!(code.as_str(), "TS2416" | "TS2420" | "TS2559" | "TS2720"))
++        .collect();
++    codes.sort();
++    codes
++}
++
++#[test]
++fn an_intersection_alias_is_related_like_an_interface() {
++    let source = "declare class Foo { x: string; }\ndeclare class Bar { y: string; }\ntype Wrapper = Foo & Bar;\nclass Baz implements Wrapper {\n    x!: number;\n    y!: string;\n}";
++    assert_eq!(codes(source), ["TS2416"]);
++}
++
++#[test]
++fn an_object_alias_missing_a_member_is_ts2420() {
++    let source =
++        "type Shape = { x: string; y: string };\nclass C implements Shape {\n    x = \"\";\n}";
++    assert_eq!(codes(source), ["TS2420"]);
++}
++
++#[test]
++fn a_satisfied_alias_does_not_report() {
++    let source = "type Shape = { x: string };\nclass C implements Shape {\n    x = \"\";\n}";
++    assert!(codes(source).is_empty());
++}

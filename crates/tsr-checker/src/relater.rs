@@ -90,7 +90,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use tsr_binder::{SymbolFlags, SymbolId};
 
-use crate::relation_cache::{CachedRelation, RelationKey};
+use crate::relation_cache::{CachedRelation, RelationKey, Reliability};
 use crate::{checker::Checker, flags::TypeFlags, types::TypeData, types::TypeId};
 
 /// How deep the structural walk goes before giving up.
@@ -450,7 +450,7 @@ struct Relater<'c, 'a, 'n> {
     relation: Relation,
     /// Completed results of a walk that may not read or publish the
     /// checker-lifetime store; `None` for an ordinary walk.
-    local_results: Option<FxHashMap<RelationKey, CachedRelation>>,
+    local_results: Option<FxHashMap<RelationKey, (CachedRelation, Reliability)>>,
     /// Native maybeKeys/maybeKeysSet: active and assumption-dependent proofs.
     maybe_keys: Vec<RelationKey>,
     maybe_keys_set: FxHashSet<RelationKey>,
@@ -670,6 +670,16 @@ impl Checker<'_, '_> {
         {
             return RecursionIdentity::Symbol(*symbol);
         }
+        // An instantiation of an alias written as a type literal is an
+        // anonymous type whose symbol is the literal's (`__type`), shared by
+        // every instantiation, so getRecursionIdentity tracks them as one:
+        // `type Bar<T> = { x: Bar<T[]> }` is cut as expanding, not walked
+        // to the stack limit.
+        if let Some((symbol, _)) = self.type_reference_targets.get(&ty)
+            && let Some(literal) = self.type_alias_literal_node(*symbol)
+        {
+            return RecursionIdentity::Node(literal);
+        }
         if let Some(info) = self.mapped_conditionals.get(&ty) {
             return RecursionIdentity::Node(info.declaration);
         }
@@ -692,7 +702,61 @@ impl Checker<'_, '_> {
         RecursionIdentity::Type(ty)
     }
 
+    /// The type literal node an alias `symbol` is declared as, if any.
+    fn type_alias_literal_node(&self, symbol: SymbolId) -> Option<tsr_ast::NodeId> {
+        let declaration = self.type_alias_declaration_of(symbol)?;
+        let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
+        else {
+            return None;
+        };
+        match alias.r#type? {
+            tsr_ast::TypeNode::TypeLiteralNode(literal) => literal.node_id,
+            _ => None,
+        }
+    }
+
+    /// getMappedTargetWithSymbol (relater.go:804): an instantiated
+    /// homomorphic mapped type is tracked through its modifiers type while
+    /// that type has a symbol, so `Id<{ x: Id<{ y: … }> }>`'s applications
+    /// each take their own object literal's identity and do not look deeply
+    /// nested. A mapped type whose modifiers type is still its own declared
+    /// homomorphic parameter is the uninstantiated declaration, not
+    /// `ObjectFlagsInstantiatedMapped`, and keeps its node identity.
+    fn mapped_target_with_symbol(&self, mut ty: TypeId) -> TypeId {
+        let mut visited = Vec::new();
+        while let Some(info) = self.mapped_types.get(&ty)
+            && let Some(target) = info.modifiers_source
+            && !visited.contains(&target)
+        {
+            let declared = info.homomorphic_symbol.is_some()
+                && self.type_parameter_symbols.get(&target).copied() == info.homomorphic_symbol;
+            if declared || !self.type_has_symbol(target) {
+                break;
+            }
+            visited.push(ty);
+            ty = target;
+        }
+        ty
+    }
+
+    /// `t.symbol != nil`, or an intersection with such a constituent, for
+    /// [`Self::mapped_target_with_symbol`].
+    fn type_has_symbol(&self, ty: TypeId) -> bool {
+        match &self.store.get(ty).data {
+            TypeData::Intersection { types, .. } => types.iter().any(|&part| {
+                !matches!(self.store.get(part).data, TypeData::Intersection { .. })
+                    && self.type_has_symbol(part)
+            }),
+            TypeData::Named { members: Some(_), .. } | TypeData::Anonymous { .. } => true,
+            _ => {
+                self.type_parameter_symbols.contains_key(&ty)
+                    || self.type_reference_targets.contains_key(&ty)
+            }
+        }
+    }
+
     fn has_relation_recursion_identity(&self, ty: TypeId, identity: RecursionIdentity) -> bool {
+        let ty = self.mapped_target_with_symbol(ty);
         if let TypeData::Intersection { types, .. } = &self.store.get(ty).data {
             return types.iter().any(|&part| self.has_relation_recursion_identity(part, identity));
         }
@@ -710,6 +774,7 @@ impl Checker<'_, '_> {
         if stack.len() < threshold {
             return false;
         }
+        let ty = self.mapped_target_with_symbol(ty);
         if let TypeData::Intersection { types, .. } = &self.store.get(ty).data {
             return types.iter().any(|&part| self.is_deeply_nested_type(part, stack, threshold));
         }
@@ -847,7 +912,14 @@ impl Checker<'_, '_> {
                 relater.checker.get_regular_type_of_literal_type(target),
                 false,
             );
-            relater.publish_result(key, CachedRelation::ComplexityOverflow);
+            // `relationCount <= 0` tells the two overflows apart
+            // (relater.go:375).
+            let overflow = if relater.relation_count <= 0 {
+                CachedRelation::ComplexityOverflow
+            } else {
+                CachedRelation::StackDepthOverflow
+            };
+            relater.publish_result(key, overflow, Reliability::empty());
             answer = Ternary::Unknown;
         }
         reasons::finish(outer, answer == Ternary::Unknown);
@@ -898,18 +970,30 @@ impl Checker<'_, '_> {
         Some(match self.relation_results.get(relation, (source, target, false))? {
             CachedRelation::Succeeded => Ternary::Related,
             CachedRelation::Failed => Ternary::NotRelated,
-            CachedRelation::ComplexityOverflow => Ternary::Unknown,
+            CachedRelation::ComplexityOverflow | CachedRelation::StackDepthOverflow => {
+                Ternary::Unknown
+            }
         })
     }
 
-    /// Whether the assignable check of `source -> target` overflowed its
-    /// relation-count budget (`CachedRelation::ComplexityOverflow`, native's
-    /// `RelationComparisonResultComplexityOverflow`): its report is TS2859.
-    pub(crate) fn assignability_overflowed(&mut self, source: TypeId, target: TypeId) -> bool {
+    /// How the assignable check of `source -> target` overflowed, if it did:
+    /// its relation-count budget (`CachedRelation::ComplexityOverflow`,
+    /// reported as TS2859) or a 100-entry source or target stack
+    /// (`CachedRelation::StackDepthOverflow`, TS2321); `checkTypeRelatedToEx`,
+    /// relater.go:375-380.
+    pub(crate) fn assignability_overflow(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<CachedRelation> {
         let source = self.get_regular_type_of_literal_type(source);
         let target = self.get_regular_type_of_literal_type(target);
-        self.relation_results.get(Relation::Assignable, (source, target, false))
-            == Some(CachedRelation::ComplexityOverflow)
+        self.relation_results.get(Relation::Assignable, (source, target, false)).filter(|result| {
+            matches!(
+                result,
+                CachedRelation::ComplexityOverflow | CachedRelation::StackDepthOverflow
+            )
+        })
     }
 
     /// The options [`crate::relation_cache::RelationOptions`] names.
@@ -1240,24 +1324,31 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
         }
     }
 
-    /// `relation.get(id)` (`relater.go:3068`).
-    fn cached_result(&self, key: RelationKey) -> Option<CachedRelation> {
+    /// `relation.get(id)` (`relater.go:3068`), with the entry's
+    /// `ReportsUnmeasurable`/`ReportsUnreliable` bits.
+    fn cached_result(&self, key: RelationKey) -> Option<(CachedRelation, Reliability)> {
         match &self.local_results {
             Some(local) => local.get(&key).copied(),
-            None => self.checker.relation_results.get(self.relation, key),
+            None => self.checker.relation_results.get_with_reliability(self.relation, key),
         }
     }
 
-    /// `relation.set(id, ...)` (`relater.go:3162`, `:3173`).
-    fn publish_result(&mut self, key: RelationKey, result: CachedRelation) {
+    /// `relation.set(id, ...)` (`relater.go:3162`, `:3173`): the result and
+    /// the reliability reports its walk collected (`propagatingVarianceFlags`).
+    fn publish_result(
+        &mut self,
+        key: RelationKey,
+        result: CachedRelation,
+        reliability: Reliability,
+    ) {
         // Every published result spends one unit of the budget
         // (`r.relationCount--`, relater.go:3163, :3174).
         self.relation_count -= 1;
         match &mut self.local_results {
             Some(local) => {
-                local.insert(key, result);
+                local.insert(key, (result, reliability));
             }
-            None => self.checker.relation_results.set(self.relation, key, result),
+            None => self.checker.relation_results.set(self.relation, key, result, reliability),
         }
     }
 }
@@ -1399,18 +1490,11 @@ impl Relater<'_, '_, '_> {
             // it is acted on as if it were concrete: `Distributive<[T]
             // extends [never] ? X : never>` would evaluate to `X`. It stays
             // undecided until the mint carries CONDITIONAL
-            // (`docs/parity/notes/r5-relater4.md` §2).
-            //
-            // Likewise a mapped template's conditional (an `as` clause such as
-            // `P extends \`_${string}\` ? P : never`): deciding it makes
-            // `mapped_indexed_access_constraint` treat the mapped type as
-            // filtering, and the base constraint this port then computes for
-            // `keyof Mapped<K>` is the whole key domain instead of the
-            // filtered keys (`mappedTypeConstraints2`).
+            // (`docs/parity/notes/r5-relater4.md` §2). A mapped template's
+            // conditional (an `as` clause) is decided like any other
+            // (`docs/parity/notes/r6-relater.md` §3).
             if self.is_object_flagged_conditional(source)
                 || self.is_object_flagged_conditional(target)
-                || self.checker.mapped_conditionals.contains_key(&source)
-                || self.checker.mapped_conditionals.contains_key(&target)
             {
                 return RelationResult::Unknown;
             }
@@ -1586,6 +1670,22 @@ impl Relater<'_, '_, '_> {
             }) {
                 return RelationResult::NotRelated;
             }
+        }
+        // The rest of that arm (structuredTypeRelatedToWorker, relater.go:3762
+        // then :3864): the apparent `{}` meets an object target with members
+        // through the structural conjuncts, so `object -> { a?: string }`
+        // relates and `object -> { (): void }` does not. `sourceIsPrimitive`
+        // is false for `object`, so the index conjunct keeps its
+        // `[x: string]: any` shortcut. A generic mapped target keeps its own
+        // arm (relater.go:3593), and a qualified alias mint's flags are not
+        // evidence of an object.
+        if s.contains(TypeFlags::NON_PRIMITIVE)
+            && t.contains(TypeFlags::OBJECT)
+            && self.has_members(target)
+            && !self.is_generic_mapped_target(target)
+            && !self.is_qualified_alias_mint(target)
+        {
+            return self.non_primitive_source_related_to(target);
         }
         // Two object types with members reach the structural arm; upstream's
         // gate is `source.flags&TypeFlags::StructuredOrInstantiable != 0 &&
@@ -1841,6 +1941,30 @@ impl Relater<'_, '_, '_> {
         }
     }
 
+    /// structuredTypeRelatedToWorker's structural arm (relater.go:3864) for
+    /// the non-primitive `object`, whose apparent type is the empty object
+    /// type (getApparentType, checker.go): properties, then call and
+    /// construct signatures, then index infos, each a conjunct that stops
+    /// the walk on False.
+    fn non_primitive_source_related_to(&mut self, target: TypeId) -> RelationResult {
+        let empty = self.checker.intrinsics.empty_object;
+        let properties = self.properties_related_to(empty, target);
+        if properties == RelationResult::NotRelated {
+            return properties;
+        }
+        let signatures = if self.call_or_construct_bearing(target) {
+            self.related_signatures(empty, target).unwrap_or(RelationResult::Unknown)
+        } else {
+            RelationResult::Related
+        };
+        if signatures == RelationResult::NotRelated {
+            return signatures;
+        }
+        let indexes =
+            self.related_index_signatures(empty, target).unwrap_or(RelationResult::Unknown);
+        RelationResult::all([properties, signatures, indexes])
+    }
+
     /// `isValidOverrideOf` (`checker.go:11928`) for a non-synthetic source
     /// property against a protected target property: the source must be
     /// declared in a class that has the target's declaring class as a base
@@ -1925,6 +2049,105 @@ impl Relater<'_, '_, '_> {
     /// (`typeof Class<T>`, reasons row 3), which loses
     /// `aliasInstantiationExpressionGenericIntersectionNoCrash2`'s TS2352
     /// (`docs/parity/notes/r5-relater3.md` §2).
+    /// instantiateMappedType (checker.go:22535) for an alias reference
+    /// `id` whose body is a homomorphic mapped type (`{ [P in keyof T]: X
+    /// }`, getHomomorphicTypeVariable reading the written `keyof T`): an
+    /// argument for `T` that is not any/unknown, instantiable, an object or
+    /// an intersection (`instantiateConstituent`, :22551) is the
+    /// instantiation itself (`RequiredDeep<undefined>` is `undefined`). The
+    /// port's distribution mints such a constituent as a memberless alias
+    /// image, which `1` would relate to through `Number`. A union argument
+    /// is distributed before this test, so it is not answered here.
+    fn homomorphic_alias_unmapped_argument(&self, id: TypeId) -> Option<TypeId> {
+        let (symbol, arguments) = self.checker.type_reference_targets.get(&id)?;
+        let declaration = self.checker.type_alias_declaration_of(*symbol)?;
+        let Some(tsr_ast::Node::TypeAliasDeclaration(alias)) =
+            self.checker.node_map.get(declaration)
+        else {
+            return None;
+        };
+        let Some(tsr_ast::TypeNode::MappedTypeNode(mapped)) = alias.r#type else {
+            return None;
+        };
+        let Some(tsr_ast::TypeNode::TypeOperatorNode(operator)) = mapped.type_parameter?.constraint
+        else {
+            return None;
+        };
+        if operator.operator.kind != tsr_ast::SyntaxKind::KeyOfKeyword {
+            return None;
+        }
+        let Some(tsr_ast::TypeNode::TypeReferenceNode(reference)) = operator.r#type else {
+            return None;
+        };
+        let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name else {
+            return None;
+        };
+        let variable = self.checker.binder.resolve_name(
+            self.checker.nodes,
+            self.checker.node_map,
+            name.node_id?,
+            name.text,
+            SymbolFlags::TYPE_PARAMETER,
+        )?;
+        let slot = alias.type_parameters.iter().position(|p| {
+            p.node_id.and_then(|id| self.checker.binder.symbol_of(id)) == Some(variable)
+        })?;
+        let argument = *arguments.get(slot)?;
+        let flags = self.checker.type_of(argument).flags;
+        (!flags.intersects(
+            TypeFlags::ANY
+                | TypeFlags::UNKNOWN
+                | TypeFlags::INSTANTIABLE_NON_PRIMITIVE
+                | TypeFlags::OBJECT
+                | TypeFlags::INTERSECTION
+                | TypeFlags::UNION,
+        ) && argument != self.checker.intrinsics.error)
+            .then_some(argument)
+    }
+
+    /// The class or interface reference `symbol<arguments>` instantiates to
+    /// when the alias is written as a type reference, through any chain of
+    /// such aliases (`type L1<V> = L2<V>; type L2<V> = Shape<V>`). Such an
+    /// instantiation is the interned reference itself and carries no alias
+    /// (getTypeAliasInstantiation attaches one only to a type it creates).
+    /// `None` for any other alias.
+    fn alias_interned_reference(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        let (mut symbol, mut arguments) = (symbol, arguments.to_vec());
+        for _ in 0..MAX_DEPTH {
+            if !self.alias_body_is_type_reference(symbol) {
+                return None;
+            }
+            let body = self.checker.evaluate_alias_body(symbol, &arguments)?;
+            let (target, target_arguments) =
+                self.checker.type_reference_targets.get(&body)?.clone();
+            let flags = self.checker.binder.symbols().get(target).flags;
+            if flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
+                return Some(body);
+            }
+            if !flags.contains(SymbolFlags::TYPE_ALIAS) {
+                return None;
+            }
+            (symbol, arguments) = (target, target_arguments);
+        }
+        None
+    }
+
+    /// Whether `symbol` is a type alias declared as a bare type reference
+    /// (`type A<T> = B<T>`).
+    fn alias_body_is_type_reference(&self, symbol: SymbolId) -> bool {
+        self.checker.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+            matches!(
+                self.checker.node_map.get(declaration),
+                Some(tsr_ast::Node::TypeAliasDeclaration(alias))
+                    if matches!(alias.r#type, Some(tsr_ast::TypeNode::TypeReferenceNode(_)))
+            )
+        })
+    }
+
     fn non_object_alias_bodies(
         &mut self,
         symbol: SymbolId,
@@ -2534,10 +2757,10 @@ impl Relater<'_, '_, '_> {
     /// `{ [Q in T]: Y }` when the modifiers allow it, `T` relates to `S`, the
     /// `as` clauses agree under `P := Q`, and `X[P := Q]` relates to `Y`.
     ///
-    /// Stated divergence: native instantiates the source constraint with
-    /// `reportUnmeasurableMapper`/`reportUnreliableMapper`, which only marks
-    /// variance measurements; this port has no such markers
-    /// (`docs/parity/notes/r5-relater5.md` §1).
+    /// The source constraint is instantiated with `reportUnmeasurableMapper`
+    /// when the source removes optionality (`-?`), else with
+    /// `reportUnreliableMapper`: a variance marker in it marks the
+    /// measurement (`docs/parity/notes/r5-relater8.md` §2).
     fn mapped_type_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
         let (Some(source_info), Some(target_info)) = (
             self.checker.mapped_types.get(&source).cloned(),
@@ -2545,6 +2768,14 @@ impl Relater<'_, '_, '_> {
         ) else {
             return RelationResult::Unknown;
         };
+        if !self.checker.variance_in_progress.is_empty() {
+            let report = if self.combined_mapped_optionality(source, 0).is_some_and(|o| o < 0) {
+                Reliability::UNMEASURABLE
+            } else {
+                Reliability::UNRELIABLE
+            };
+            self.checker.report_variance_markers(source_info.constraint, report);
+        }
         if self.relation != Relation::Comparable {
             let (Some(source_optionality), Some(target_optionality)) = (
                 self.combined_mapped_optionality(source, 0),
@@ -2778,6 +3009,9 @@ impl Relater<'_, '_, '_> {
         if !self.checker.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE_ALIAS) {
             return None;
         }
+        if let Some(argument) = self.homomorphic_alias_unmapped_argument(id) {
+            return Some(argument);
+        }
         let (symbol, arguments) = self.checker.type_reference_targets.get(&id).cloned()?;
         let body = self.checker.evaluate_alias_body(symbol, &arguments)?;
         if body == id || body == self.checker.intrinsics.error {
@@ -2792,22 +3026,6 @@ impl Relater<'_, '_, '_> {
                 )
             })
             .then_some(body)
-    }
-
-    /// Whether `id` is an indexed access `{ [P in K]: E }[X]` with a generic
-    /// `X` whose object is a resolved instance of a mapped alias: native's
-    /// `isMappedTypeGenericIndexedAccess` holds and its constraint is the
-    /// substitution `E[P := X]` (getConstraintFromIndexedAccess,
-    /// checker.go:17227), which this port cannot build because the instance
-    /// lost its mapped identity. Its object is captured first if lazy.
-    fn mapped_substitution_out_of_reach(&mut self, id: TypeId) -> bool {
-        let Some(&(object, index, _)) = self.checker.deferred_indexed_access_types.get(&id) else {
-            return false;
-        };
-        self.checker.ensure_mapped_type_info(object);
-        !self.checker.mapped_types.contains_key(&object)
-            && self.checker.indexed_access_index_is_generic(index)
-            && self.is_resolved_mapped_alias_instance(object)
     }
 
     /// `isMappedTypeGenericIndexedAccess` (checker.go): an indexed access
@@ -2830,16 +3048,11 @@ impl Relater<'_, '_, '_> {
             .is_some_and(|(remapped, excludes_optional)| !remapped && !excludes_optional)
     }
 
-    /// Whether `id` is an instantiation of a type alias whose declared body
-    /// is a mapped type node (`Partial<Foo1>`), read from its reference
-    /// target, or the image of an argument-less such alias (`Funcs`).
-    fn is_resolved_mapped_alias_instance(&self, id: TypeId) -> bool {
-        self.resolved_mapped_alias_declaration(id).is_some()
-    }
-
     /// For the mapped type node declared as the body of the alias `id`
-    /// instantiates (see [`Self::is_resolved_mapped_alias_instance`]):
-    /// whether it has an `as` clause and whether it has a `-?` modifier.
+    /// instantiates (an instantiation such as `Partial<Foo1>`, read from its
+    /// reference target, or the image of an argument-less such alias,
+    /// `Funcs`): whether it has an `as` clause and whether it has a `-?`
+    /// modifier.
     fn resolved_mapped_alias_declaration(&self, id: TypeId) -> Option<(bool, bool)> {
         let symbol = match self.checker.type_reference_targets.get(&id) {
             Some(&(symbol, _)) => symbol,
@@ -3328,8 +3541,15 @@ impl Relater<'_, '_, '_> {
         let source_count = self.checker.signature_parameter_count(source_signature);
         let source_minimum = self.checker.signature_min_argument_count(source_signature);
         let target_minimum = self.checker.signature_min_argument_count(target_signature);
-        let non_array_rest = self.checker.signature_non_array_rest_type(source_signature).is_some()
-            || self.checker.signature_non_array_rest_type(target_signature).is_some();
+        let source_rest = self.checker.signature_non_array_rest_type(source_signature);
+        let target_rest = self.checker.signature_non_array_rest_type(target_signature);
+        let non_array_rest = source_rest.is_some() || target_rest.is_some();
+        // compareSignaturesRelated (relater.go:1492): a non-array rest type
+        // (the source's, else the target's) is instantiated with
+        // `reportUnreliableMarkers`.
+        if let Some(rest) = source_rest.or(target_rest) {
+            self.checker.report_variance_markers(rest, Reliability::UNRELIABLE);
+        }
         let parameter_count = if non_array_rest {
             source_count.min(target_count)
         } else {
@@ -4015,18 +4235,25 @@ impl Relater<'_, '_, '_> {
             return RelationResult::NotRelated;
         }
         let key = (source, target, self.intersection_target);
-        match self.cached_result(key) {
-            Some(CachedRelation::Succeeded) => return RelationResult::Related,
-            // A pair that overflowed before is not attempted again
-            // (relater.go:3068-3082).
-            Some(CachedRelation::ComplexityOverflow) => return RelationResult::NotRelated,
+        if let Some((cached, reliability)) = self.cached_result(key) {
             // Native re-runs a cached failure when it elaborates errors
             // (`relater.go:3069`). This port elaborates only the direct pair's
             // signature arity, so only that pair is re-run.
-            Some(CachedRelation::Failed) if self.diagnostic_pair != Some((source, target)) => {
-                return RelationResult::NotRelated;
+            let rerun =
+                cached == CachedRelation::Failed && self.diagnostic_pair == Some((source, target));
+            if !rerun {
+                // A reused result re-reports what its walk reported
+                // (relater.go:3073).
+                self.checker.relation_results.reliability |= reliability;
+                return match cached {
+                    CachedRelation::Succeeded => RelationResult::Related,
+                    // A pair that overflowed before is not attempted again
+                    // (relater.go:3068-3082).
+                    CachedRelation::ComplexityOverflow
+                    | CachedRelation::StackDepthOverflow
+                    | CachedRelation::Failed => RelationResult::NotRelated,
+                };
             }
-            _ => {}
         }
         // relater.go:3085: the budget is exhausted.
         if self.relation_count <= 0 {
@@ -4035,6 +4262,12 @@ impl Relater<'_, '_, '_> {
         }
         if self.maybe_keys_set.contains(&key) {
             return RelationResult::Maybe;
+        }
+        // relater.go:3103: runaway recursion on either side overflows the
+        // check (TS2321), before the port's raw depth cap below.
+        if self.source_stack.len() == 100 || self.target_stack.len() == 100 {
+            self.overflow = true;
+            return RelationResult::NotRelated;
         }
         if self.depth >= MAX_DEPTH {
             // Depth refusal is uncomputed in the port, not reusable success.
@@ -4054,11 +4287,17 @@ impl Relater<'_, '_, '_> {
             self.target_stack.push(target);
             self.expanding.1 |= self.checker.is_deeply_nested_type(target, &self.target_stack, 3);
         }
+        // The reports of this pair's own walk (relater.go:3123-3138): they
+        // are published with every result the walk completes, and also join
+        // the enclosing walk's.
+        let saved_reliability = std::mem::take(&mut self.checker.relation_results.reliability);
         let related = if self.expanding == (true, true) {
             RelationResult::Maybe
         } else {
             self.structured_type_related_to(source, target)
         };
+        let propagating = self.checker.relation_results.reliability;
+        self.checker.relation_results.reliability |= saved_reliability;
         self.expanding = previous;
         if flags.contains(RecursionFlags::SOURCE) {
             self.source_stack.pop();
@@ -4068,29 +4307,29 @@ impl Relater<'_, '_, '_> {
         }
         self.depth -= 1;
         match related {
-            RelationResult::Related => self.reset_maybe_stack(maybe_start, true),
+            RelationResult::Related => self.reset_maybe_stack(maybe_start, true, propagating),
             RelationResult::Maybe => {
                 if self.source_stack.is_empty() && self.target_stack.is_empty() {
-                    self.reset_maybe_stack(maybe_start, true);
+                    self.reset_maybe_stack(maybe_start, true, propagating);
                 }
                 // Otherwise retain assumptions for the enclosing proof.
             }
             RelationResult::CircularVariance => {
                 if self.source_stack.is_empty() && self.target_stack.is_empty() {
-                    self.reset_maybe_stack(maybe_start, false);
+                    self.reset_maybe_stack(maybe_start, false, propagating);
                 }
                 // Native retains nested circular keys for an enclosing proof,
                 // but never publishes a top-level circular result as true.
             }
             RelationResult::NotRelated => {
                 // Failure under assumptions also fails without them.
-                self.publish_result(key, CachedRelation::Failed);
-                self.reset_maybe_stack(maybe_start, false);
+                self.publish_result(key, CachedRelation::Failed, propagating);
+                self.reset_maybe_stack(maybe_start, false, propagating);
             }
             RelationResult::Unknown => {
                 // Unsupported work is not a circular proof: discard its scope
                 // even below depth zero. Another branch may supply a proof.
-                self.reset_maybe_stack(maybe_start, false);
+                self.reset_maybe_stack(maybe_start, false, propagating);
             }
         }
         related
@@ -4098,12 +4337,12 @@ impl Relater<'_, '_, '_> {
 
     /// resetMaybeStack (internal/checker/relater.go). Publish dependent keys
     /// only when the surrounding proof discharges their assumptions.
-    fn reset_maybe_stack(&mut self, start: usize, succeeded: bool) {
+    fn reset_maybe_stack(&mut self, start: usize, succeeded: bool, reliability: Reliability) {
         for index in start..self.maybe_keys.len() {
             let key = self.maybe_keys[index];
             self.maybe_keys_set.remove(&key);
             if succeeded {
-                self.publish_result(key, CachedRelation::Succeeded);
+                self.publish_result(key, CachedRelation::Succeeded, reliability);
             }
         }
         self.maybe_keys.truncate(start);
@@ -4227,15 +4466,6 @@ impl Relater<'_, '_, '_> {
                     && target_is_union))
         {
             let types = self.intersection_constituents(source).unwrap_or_else(|| vec![source]);
-            // getConstraintOfType of such a constituent is the mapped
-            // substitution this port cannot reach; the combined constraint
-            // would be built from a weaker one (`NonNullable<Partial<Config>[T]>`
-            // against `Config[T]`, `correlatedUnions`).
-            if result == RelationResult::NotRelated
-                && types.iter().any(|&part| self.mapped_substitution_out_of_reach(part))
-            {
-                return RelationResult::Unknown;
-            }
             if let Some(constraint) =
                 self.checker.effective_constraint_of_intersection(&types, target_is_union)
                 && constraint != source
@@ -4774,6 +5004,13 @@ impl Relater<'_, '_, '_> {
                     RelationResult::Related
                 };
             }
+            // Type variables in a template source's placeholders relate
+            // non-linearly (`foo-${number}` relates to `foo-${string}`
+            // though `number` does not relate to `string`): native reports
+            // them unreliable (relater.go:3582).
+            if self.checker.template_literal_parts.contains_key(&source) {
+                self.checker.report_variance_markers(source, Reliability::UNRELIABLE);
+            }
             let Some(matches) = self.checker.template_literal_inferences(source, &parts) else {
                 return RelationResult::NotRelated;
             };
@@ -4937,7 +5174,23 @@ impl Relater<'_, '_, '_> {
             {
                 return self.is_related_to(source_body, target_body);
             }
+            // getTypeAliasInstantiation (checker.go) attaches the alias only
+            // to a type its instantiation creates: an alias written as a
+            // class or interface reference (`type VarianceShape<in out V> =
+            // Shape<V>`) instantiates to the interned reference itself, which
+            // carries no alias, so native relates the references (with the
+            // interface's variances) and the alias's own variances, written
+            // `in`/`out` included, never apply.
+            if let Some(source_body) =
+                self.alias_interned_reference(source_symbol, &source_arguments)
+                && let Some(target_body) =
+                    self.alias_interned_reference(source_symbol, &target_arguments)
+                && (source_body, target_body) != (source, target)
+            {
+                return self.is_related_to(source_body, target_body);
+            }
             let measured = self.checker.inference_variances(source_symbol);
+            let unmeasured = measured.is_none();
             let variances = match measured {
                 Some(variances)
                     if variances.is_empty()
@@ -4954,23 +5207,74 @@ impl Relater<'_, '_, '_> {
                     return RelationResult::Unknown;
                 }
                 _ if self.checker.variance_in_progress.is_empty() => {
-                    // Until Unmeasurable/Unreliable flags are represented, keep
-                    // the existing default covariance for unmeasured targets.
+                    // An unmeasured target (a body `create_variance_marker_type`
+                    // cannot instantiate) tries covariance, and a failure
+                    // falls back to the structural comparison below, as an
+                    // `Unmeasurable`/`Unreliable` variance does natively: the
+                    // flags it might carry are unknown, so its negative is
+                    // not a variance digest's.
                     vec![crate::variances::Variance::Covariant; source_arguments.len()]
                 }
                 _ => Vec::new(),
             };
             if variances.len() == source_arguments.len() {
+                let reliability = self.checker.variance_reliability(source_symbol, variances.len());
+                // relateVariances (relater.go:3256): a failure under a
+                // variance whose measurement reported a construct its digest
+                // cannot describe is not final (`VarianceFlagsAllowsStructuralFallback`).
+                let allows_structural_fallback =
+                    unmeasured || reliability.iter().any(|flags| !flags.is_empty());
                 let allows_covariant_void =
                     target_arguments.iter().zip(&variances).any(|(&target, variance)| {
                         *variance == crate::variances::Variance::Covariant
                             && self.checker.type_of(target).flags.intersects(TypeFlags::VOID)
                     });
+                let alias_arguments = (allows_structural_fallback
+                    && self
+                        .checker
+                        .binder
+                        .symbols()
+                        .get(source_symbol)
+                        .flags
+                        .contains(SymbolFlags::TYPE_ALIAS))
+                .then(|| (source_arguments.clone(), target_arguments.clone()));
                 let mut parts = Vec::new();
-                for ((source, target), variance) in
-                    source_arguments.into_iter().zip(target_arguments).zip(variances)
+                let mut identity_undecided = false;
+                for (((source, target), variance), flags) in source_arguments
+                    .into_iter()
+                    .zip(target_arguments)
+                    .zip(variances)
+                    .zip(reliability)
                 {
                     use crate::variances::Variance;
+                    // typeArgumentsRelatedTo (relater.go:3903): an
+                    // independent parameter is never witnessed; an
+                    // `Unmeasurable` one relates only identical arguments
+                    // (a `-?` mapped type, say, relates no other pair
+                    // linearly); an `Unreliable` one inside a measurement
+                    // passes its report on to the enclosing measurement.
+                    if variance != Variance::Independent
+                        && flags.contains(Reliability::UNMEASURABLE)
+                    {
+                        // An identity this port cannot decide is not
+                        // native's answer either way; the structural
+                        // fallback below decides the pair instead, and a
+                        // path that keeps the variance answer keeps it
+                        // undecided (`kept`).
+                        parts.push(match self.checker.is_type_identical_to(source, target) {
+                            Ternary::Related => RelationResult::Related,
+                            Ternary::NotRelated => RelationResult::NotRelated,
+                            Ternary::Unknown => {
+                                identity_undecided = true;
+                                RelationResult::NotRelated
+                            }
+                        });
+                        continue;
+                    }
+                    if variance != Variance::Independent && flags.contains(Reliability::UNRELIABLE)
+                    {
+                        self.checker.report_variance_markers(source, Reliability::UNRELIABLE);
+                    }
                     parts.push(match variance {
                         Variance::Covariant => self.is_related_to(source, target),
                         Variance::Contravariant => self.is_related_to(target, source),
@@ -4988,8 +5292,64 @@ impl Relater<'_, '_, '_> {
                     });
                 }
                 let result = RelationResult::all(parts);
-                if result != RelationResult::NotRelated || !allows_covariant_void {
-                    return result;
+                let kept = if identity_undecided && result == RelationResult::NotRelated {
+                    RelationResult::Unknown
+                } else {
+                    result
+                };
+                if result != RelationResult::NotRelated
+                    || !(allows_covariant_void || allows_structural_fallback)
+                {
+                    return kept;
+                }
+                // An alias reference is native's instantiated alias body
+                // (getTypeAliasInstantiation) carrying the alias, so native's
+                // structural fallback compares the bodies. A measured alias
+                // (an object literal or mapped body) is walked structurally
+                // over its image once the image's members are resolved, as
+                // getPropertiesOfType resolves them; an image whose members
+                // cannot be enumerated keeps the variance answer. An
+                // unmeasured alias (a body `create_variance_marker_type`
+                // cannot instantiate) relates its evaluated bodies, when that
+                // body is written as a type reference: the evaluator
+                // instantiates such a body as the referenced class or
+                // interface, whose structural arm is the port's. Any other
+                // unmeasured body (an intersection of `typeof` query images,
+                // say) keeps the variance answer
+                // (`docs/parity/notes/r5-relater8.md` §2).
+                if let Some((source_arguments, target_arguments)) = alias_arguments {
+                    if unmeasured {
+                        if !self.alias_body_is_type_reference(source_symbol) {
+                            return kept;
+                        }
+                        let source_body =
+                            self.checker.evaluate_alias_body(source_symbol, &source_arguments);
+                        let target_body =
+                            self.checker.evaluate_alias_body(source_symbol, &target_arguments);
+                        // One body for two argument lists that failed to relate
+                        // is a body the evaluator did not instantiate (a type
+                        // query body keeps its `U`); it decides nothing.
+                        return match (source_body, target_body) {
+                            (Some(source_body), Some(target_body))
+                                if source_body != target_body
+                                    && (source_body, target_body) != (source, target) =>
+                            {
+                                self.is_related_to(source_body, target_body)
+                            }
+                            _ => kept,
+                        };
+                    }
+                    // resolveStructuredTypeMembers: a mapped image's
+                    // members are resolved before they are enumerated.
+                    for side in [source, target] {
+                        self.checker.ensure_mapped_type_info(side);
+                        self.checker.resolve_mapped_type_members(side);
+                    }
+                    if self.checker.get_property_names_of_type_shared(source).is_none()
+                        || self.checker.get_property_names_of_type_shared(target).is_none()
+                    {
+                        return kept;
+                    }
                 }
             }
         }
@@ -5126,6 +5486,16 @@ impl Relater<'_, '_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<RelationResult> {
+        // The variance markers are symbol-less type parameters
+        // (checker.go:1034-1037): `markerSubType`'s constraint is
+        // `markerSuperType`, and the other two have none, so they explore
+        // `unknown` (relater.go:3668).
+        if let Some([sup, sub, other]) = self.checker.variance_markers
+            && [sup, sub, other].contains(&source)
+        {
+            let constraint = if source == sub { sup } else { self.checker.intrinsics.unknown };
+            return Some(self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE));
+        }
         // The source-variable branch also explores an indexed access's
         // constraint, except when both operands are indexed accesses and the
         // object/index comparison above owns the relation (relater.go:3665).
@@ -5139,19 +5509,8 @@ impl Relater<'_, '_, '_> {
             // port's constraint is undecided. A lazily captured mapped
             // object is captured first, as getConstraintTypeFromMappedType
             // resolves on first use.
-            if let Some(&(object, index, _)) =
-                self.checker.deferred_indexed_access_types.get(&source)
-            {
+            if let Some(&(object, _, _)) = self.checker.deferred_indexed_access_types.get(&source) {
                 self.checker.ensure_mapped_type_info(object);
-                // isMappedTypeGenericIndexedAccess needs the object's mapped
-                // identity. A concrete instance of a mapped alias
-                // (`Partial<Foo1>`) is resolved to its members here, so the
-                // substitution is out of reach and no constraint this port
-                // computes is native's.
-                let _ = (object, index);
-                if self.mapped_substitution_out_of_reach(source) {
-                    return Some(RelationResult::Unknown);
-                }
             }
             match self.checker.constraint_of_type(source) {
                 crate::constraints::ConstraintOfType::Constraint(constraint)
@@ -5315,6 +5674,68 @@ impl Relater<'_, '_, '_> {
         Some((id, has_infer, distributive))
     }
 
+    /// isDistributionDependent (relater.go:4993) for the distributive
+    /// conditional type node `root`: is its check type parameter possibly
+    /// referenced in either branch (isTypeParameterPossiblyReferenced,
+    /// checker.go:22403)? `None` when the check parameter does not resolve.
+    fn is_distribution_dependent(&self, root: tsr_ast::NodeId) -> Option<bool> {
+        let Some(tsr_ast::Node::ConditionalTypeNode(node)) = self.checker.node_map.get(root) else {
+            return None;
+        };
+        let parameter = self.checker.distributive_conditional_parameter(node.check_type?)?;
+        // The walk from a branch up to the parameter's container passes the
+        // root itself, whose extends type referencing the parameter makes
+        // every branch a possible reference (checker.go:22449).
+        let extends = node.extends_type.and_then(|t| t.node_id());
+        if extends.is_some_and(|id| self.type_parameter_referenced_in(id, parameter, 0)) {
+            return Some(true);
+        }
+        Some([node.true_type, node.false_type].into_iter().flatten().any(|branch| {
+            branch.node_id().is_some_and(|id| self.type_parameter_referenced_in(id, parameter, 0))
+        }))
+    }
+
+    /// isTypeParameterPossiblyReferenced's `containsReference`
+    /// (checker.go:22405): an argument-less type reference resolving to
+    /// `parameter`; a type query, which this port does not prove free of the
+    /// parameter, counts as a reference.
+    fn type_parameter_referenced_in(
+        &self,
+        id: tsr_ast::NodeId,
+        parameter: SymbolId,
+        depth: usize,
+    ) -> bool {
+        if depth > 4 * MAX_DEPTH {
+            return true;
+        }
+        let Some(node) = self.checker.node_map.get(id) else {
+            return true;
+        };
+        match node {
+            tsr_ast::Node::TypeQueryNode(_) => return true,
+            tsr_ast::Node::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
+                if let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name
+                    && let Some(name_id) = name.node_id
+                    && self.checker.binder.resolve_name(
+                        self.checker.nodes,
+                        self.checker.node_map,
+                        name_id,
+                        name.text,
+                        SymbolFlags::TYPE_PARAMETER,
+                    ) == Some(parameter)
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        let mut found = false;
+        tsr_ast::for_each_child_id(node, |child| {
+            found = found || self.type_parameter_referenced_in(child, parameter, depth + 1);
+        });
+        found
+    }
+
     /// getSimplifiedConditionalType (checker.go:28006) for a deferred
     /// conditional `id`; any other type is returned unchanged. `None` when the
     /// restrictive-instantiation test it needs is not decidable here.
@@ -5358,7 +5779,14 @@ impl Relater<'_, '_, '_> {
         }
         let check_is_parameter =
             self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER);
-        if check_is_parameter && !self.checker.mentions_registered_type_parameter(extends) {
+        // getRestrictiveInstantiation maps every type parameter to its
+        // unconstrained twin, so an indexed access built only from type
+        // parameters (`T[K1]`, `T[K1][K2]`) has no constraint either: like a
+        // naked parameter it relates to a parameter-free type only when that
+        // type is a top type.
+        if (check_is_parameter || self.is_type_parameter_access(check, 0))
+            && !self.checker.mentions_registered_type_parameter(extends)
+        {
             return Some(self.checker.type_of(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN));
         }
         // Two distinct restrictive parameters have no constraints to relate.
@@ -5367,7 +5795,87 @@ impl Relater<'_, '_, '_> {
         {
             return Some(false);
         }
+        // `keyof` of such an unconstrained type has keyofConstraintType
+        // (`string | number | symbol`) as its constraint (getIndexType's
+        // base constraint, checker.go), so it relates to a parameter-free
+        // type exactly when that union does.
+        if let Some(&operand) = self.checker.deferred_keyof_operands.get(&check)
+            && (self.checker.type_of(operand).flags.contains(TypeFlags::TYPE_PARAMETER)
+                || self.is_type_parameter_access(operand, 0))
+            && !self.checker.mentions_registered_type_parameter(extends)
+        {
+            let intrinsics = &self.checker.intrinsics;
+            let keys = [intrinsics.string, intrinsics.number, intrinsics.es_symbol];
+            let keys = self.checker.get_union_type(&keys);
+            return match self.is_related_to(keys, extends) {
+                RelationResult::Related => Some(true),
+                RelationResult::NotRelated => Some(false),
+                _ => None,
+            };
+        }
         None
+    }
+
+    /// getInferredTrueTypeFromConditionalType (checker.go:24555) for a
+    /// deferred conditional `source` whose true branch is written as its
+    /// bare check type parameter (`Extract`'s `T extends U ? T : never`).
+    /// That reference is getConditionalFlowTypeOfType's substitution type
+    /// (the check type constrained by the extends type), and
+    /// instantiateTypeWorker's substitution arm (checker.go) resolves its
+    /// instantiation: to the check type when the extends type is a top type
+    /// or the check type is restrictively assignable to it, else to
+    /// `extends & check` for a check type that is not a type variable. A
+    /// type-variable check type against a generic extends type stays a
+    /// substitution type, which this port does not represent: `None`, as for
+    /// any step it cannot decide.
+    fn inferred_true_type_of_check_reference(
+        &mut self,
+        source: TypeId,
+        check: TypeId,
+        extends: TypeId,
+    ) -> Option<TypeId> {
+        let (root, has_infer, _) = self.conditional_root(source)?;
+        if has_infer {
+            return None;
+        }
+        let Some(tsr_ast::Node::ConditionalTypeNode(node)) = self.checker.node_map.get(root) else {
+            return None;
+        };
+        let parameter = self.checker.distributive_conditional_parameter(node.check_type?)?;
+        if self.checker.distributive_conditional_parameter(node.true_type?) != Some(parameter) {
+            return None;
+        }
+        let type_variable = self
+            .checker
+            .type_of(check)
+            .flags
+            .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS);
+        if type_variable && self.checker.mentions_registered_type_parameter(extends) {
+            return None;
+        }
+        if self.checker.type_of(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+            return Some(check);
+        }
+        match self.restrictive_assignable(check, extends)? {
+            true => Some(check),
+            false if type_variable => None,
+            false => Some(self.checker.get_intersection_type(&[extends, check], None)),
+        }
+    }
+
+    /// Whether `id` is an indexed access whose object and index are each a
+    /// type parameter or another such access.
+    fn is_type_parameter_access(&self, id: TypeId, depth: usize) -> bool {
+        if depth > MAX_DEPTH {
+            return false;
+        }
+        let Some(&(object, index, _)) = self.checker.deferred_indexed_access_types.get(&id) else {
+            return false;
+        };
+        [object, index].into_iter().all(|part| {
+            self.checker.type_of(part).flags.contains(TypeFlags::TYPE_PARAMETER)
+                || self.is_type_parameter_access(part, depth + 1)
+        })
     }
 
     /// isIntersectionEmpty (checker.go:28029).
@@ -5411,18 +5919,17 @@ impl Relater<'_, '_, '_> {
         else {
             return RelationResult::Unknown;
         };
-        // isDistributionDependent (checker.go): a distributive root whose
-        // branches reference the check type parameter.
+        // isDistributionDependent (relater.go:4993): a distributive root
+        // whose branches possibly reference the root's check type parameter.
+        // The test reads the root's declaration, so it holds for every
+        // instantiation (`Extract<T[K1], string>` is `Extract`'s root).
         let check_is_parameter =
             self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER);
         if distributive {
-            if !check_is_parameter {
-                return RelationResult::Unknown;
-            }
-            if self.checker.mentions_type_parameter(yes, &[check], &[])
-                || self.checker.mentions_type_parameter(no, &[check], &[])
-            {
-                return RelationResult::NotRelated;
+            match self.is_distribution_dependent(root) {
+                Some(true) => return RelationResult::NotRelated,
+                Some(false) => {}
+                None => return RelationResult::Unknown,
             }
         }
         if self.is_conditional(source)
@@ -5553,7 +6060,7 @@ impl Relater<'_, '_, '_> {
                 // where the true branch references it, and an element of a
                 // unary tuple check `[T] extends [U]`.
                 match operands {
-                    Some([check, _, yes, _]) => {
+                    Some([check, extends, yes, no]) => {
                         let unary_tuple = self
                             .checker
                             .tuple_element_lists
@@ -5562,7 +6069,34 @@ impl Relater<'_, '_, '_> {
                         if self.checker.mentions_type_parameter(yes, &[check], &[])
                             || (unary_tuple && self.checker.mentions_registered_type_parameter(yes))
                         {
-                            undecided = true;
+                            // The flow type of a bare check reference is
+                            // computable; relate native's default constraint
+                            // with it (getDefaultConstraintOfConditionalType).
+                            match self.inferred_true_type_of_check_reference(source, check, extends)
+                            {
+                                Some(inferred) if inferred != yes => {
+                                    let constraint = if self.checker.is_type_any(inferred) {
+                                        no
+                                    } else if self.checker.is_type_any(no) {
+                                        inferred
+                                    } else {
+                                        self.checker.get_union_type(&[inferred, no])
+                                    };
+                                    let result = self.is_related_to_with_flags(
+                                        constraint,
+                                        target,
+                                        RecursionFlags::SOURCE,
+                                    );
+                                    if result.is_success() {
+                                        return result;
+                                    }
+                                    undecided |= result == RelationResult::Unknown;
+                                }
+                                // The flow type is the written check type:
+                                // the constraint above was native's.
+                                Some(_) => {}
+                                None => undecided = true,
+                            }
                         }
                     }
                     None => undecided = true,
@@ -6239,6 +6773,15 @@ impl Relater<'_, '_, '_> {
             if excluded.contains(name) {
                 continue;
             }
+            // getUnmatchedPropertiesWorker (relater.go:988) skips a static
+            // private-identifier target, and the property loop finds no
+            // source member under its per-class name, so it never relates
+            // (`private_name_identity.rs`).
+            if name.starts_with('#')
+                && self.checker.is_static_private_identifier_property(target, name)
+            {
+                continue;
+            }
             let target_metadata = self.property_flags(target, name);
             if optionals_only && !target_metadata.is_some_and(|flags| flags.0) {
                 continue;
@@ -6366,6 +6909,21 @@ impl Relater<'_, '_, '_> {
                     self.checker.binder.symbols().get(source_property).value_declaration
                         != target_declaration
                 }) {
+                    // A derived class's own `#foo` shadows the inherited one
+                    // only here: upstream's source still carries the base's
+                    // symbol under the base's name, and it is the target's
+                    // own (`private_name_identity.rs`).
+                    match self.checker.source_inherits_private_member(source, target_property) {
+                        Some(true) => {
+                            parts.push(RelationResult::Related);
+                            continue;
+                        }
+                        None => {
+                            parts.push(RelationResult::Unknown);
+                            continue;
+                        }
+                        Some(false) => {}
+                    }
                     let optional_absent = target_metadata.is_some_and(|flags| flags.0)
                         && !matches!(self.relation, Relation::Subtype | Relation::StrictSubtype);
                     parts.push(if optional_absent {

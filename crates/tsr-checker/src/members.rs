@@ -1277,7 +1277,13 @@ impl Checker<'_, '_> {
         //
         // Recursive base constraints also expose indexed and template types;
         // polymorphic this reads through its declaring class/interface.
-        let id = self.base_constraint_of_type(id).unwrap_or(id);
+        let id = match self.base_constraint_of_type(id) {
+            Some(constraint) => constraint,
+            None if self.store.get(id).flags.intersects(TypeFlags::INSTANTIABLE) => {
+                self.intrinsics.unknown
+            }
+            None => id,
+        };
         let flags = self.store.get(id).flags;
         let global = if flags.intersects(TypeFlags::STRING_LIKE) {
             "String"
@@ -1532,7 +1538,18 @@ impl Checker<'_, '_> {
                         TypeData::StringLiteral(name.to_string()),
                         false,
                     );
-                    self.get_applicable_index_info(apparent, key)?.value
+                    if let Some(info) = self.get_applicable_index_info(apparent, key) {
+                        info.value
+                    } else if self.object_literal_spread_flags.get(&apparent) == Some(&false) {
+                        // createUnionOrIntersectionProperty's object-literal
+                        // arm (5b1047d checker.go:21545): a spread-free object
+                        // literal constituent without the name contributes
+                        // `undefined` (WritePartial), so `(options || {}).a`
+                        // reads `string | undefined`.
+                        self.intrinsics.undefined
+                    } else {
+                        return None;
+                    }
                 };
                 projected.push(member);
             }
@@ -2827,7 +2844,7 @@ impl Checker<'_, '_> {
         // through `export *`, so `z.string` found nothing.
         let found = match data.exports.get(name).copied() {
             Some(found) => Some(found),
-            None if is_class => self
+            None if is_class || data.flags.contains(SymbolFlags::FUNCTION) => self
                 .late_bound_static_members_of(symbol)
                 .into_iter()
                 .find_map(|(spelled, member)| (spelled == name).then_some(member))
@@ -3154,9 +3171,47 @@ impl Checker<'_, '_> {
                 }
             }
         }
+        // getResolvedMembersOrExportsOfSymbol's static arm (5b1047d
+        // checker.go:15962): the late-bound assignment declarations the binder
+        // filed under `__assignment` (`foo[k] = v`, binder.go:1000) bind like
+        // computed members, `lateBindMember` keying each by its element
+        // access argument's type.
+        if is_static
+            && let Some(&table) = self.binder.symbols().get(owner).exports.get("__assignment")
+        {
+            let assignments: Vec<tsr_ast::NodeId> =
+                self.binder.symbols().get(table).declarations.iter().copied().collect();
+            for assignment in assignments {
+                if let Some(name) = self.late_bound_assignment_name(assignment) {
+                    out.push((name, assignment));
+                }
+            }
+        }
         self.late_bound_member_names.insert(cache_key, out.clone());
         self.perf_links.late_bound_active.remove(&cache_key);
         out
+    }
+
+    /// `hasLateBindableName` / `lateBindMember` for an assignment declaration
+    /// `foo[k] = v` (5b1047d checker.go:19948, :16005): the argument must be
+    /// an entity name expression (`isLateBindableAST`) whose type is usable
+    /// as a property name. Literal keys name the member by value; a unique
+    /// symbol keeps this port's bracketed entity spelling, as
+    /// [`Self::late_bound_members_of`]'s computed members do.
+    fn late_bound_assignment_name(&mut self, assignment: tsr_ast::NodeId) -> Option<String> {
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(assignment) else {
+            return None;
+        };
+        let Some(tsr_ast::Expression::ElementAccessExpression(access)) = binary.left else {
+            return None;
+        };
+        let argument = access.argument_expression?;
+        let entity = crate::destructure::late_bound_entity_name(&argument)?;
+        let name_type = self.check_expression(argument);
+        if let Some(name) = self.property_name_from_index(name_type) {
+            return Some(name);
+        }
+        self.store.get(name_type).flags.intersects(TypeFlags::UNIQUE_ES_SYMBOL).then_some(entity)
     }
 
     /// resolveAnonymousTypeMembers (checker.go): class values own a static side.

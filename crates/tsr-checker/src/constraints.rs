@@ -891,7 +891,7 @@ impl<'a> Checker<'a, '_> {
     /// `checkTypeArgumentConstraints` (`checker.go:3016`) for `symbol`'s
     /// type parameters against the written `type_arguments`, after the
     /// caller has resolved the reference to a class, interface or alias.
-    fn check_type_argument_constraints_of(
+    pub(crate) fn check_type_argument_constraints_of(
         &mut self,
         symbol: SymbolId,
         type_arguments: &'a [tsr_ast::TypeNode<'a>],
