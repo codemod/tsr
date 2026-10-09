@@ -8732,7 +8732,9 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        // `grammarErrorOnNode` → `c.error(node)`: the declaration's error
+        // span, which is its name.
+        let span = self.error_span(node);
         self.report(
             file,
             Diagnostic::with_args(
@@ -14737,10 +14739,9 @@ impl Checker<'_, '_> {
     ///
     /// Four of upstream's arms need the file's **text** or a scanner —
     /// `KindSourceFile`, `KindArrowFunction`, the case/default clauses, and
-    /// `return`/`yield`/`constructor` — and this checker holds spans and no
-    /// text (ADR-0034). Those keep the node's own span; §48 records the
-    /// omission rather than hiding it, because a displaced `return` diagnostic
-    /// is the symptom it would produce.
+    /// `return`/`yield`/`constructor`. The `return`/`yield` arm scans the
+    /// keyword through the module host's text (`docs/parity/notes/decls.md`
+    /// §18); the others keep the node's own span (§48).
     /// [`Checker::error_span`], exposed for probes.
     ///
     /// A diagnostic's position is `error_span(anchor)`, so joining a baseline
@@ -14757,6 +14758,13 @@ impl Checker<'_, '_> {
             return self.error_span(name);
         }
         let span = self.nodes.span(node);
+        if matches!(
+            self.nodes.kind(node),
+            SyntaxKind::ReturnStatement | SyntaxKind::YieldExpression
+        ) && let Some(token) = self.first_token_span(node, span.start)
+        {
+            return token;
+        }
         // `GetErrorRangeForNode` (`scanner.go:2649`) skips trivia only for a
         // node that is not missing: a missing node (a missing declaration
         // name included) reports zero-width at its own `Pos()`, the end of the
@@ -14767,6 +14775,21 @@ impl Checker<'_, '_> {
             return tsr_core::Span::at(self.missing_node_full_start(node, span.start));
         }
         span
+    }
+
+    /// `GetErrorRangeForNode`'s `KindReturnStatement, KindYieldExpression`
+    /// arm (`scanner.go:2622`): `GetRangeOfTokenAtPosition` at the node's
+    /// trivia-free start, i.e. the `return`/`yield` keyword. Scans one token,
+    /// on the diagnostic path only; a host without source text keeps the
+    /// node's own span.
+    fn first_token_span(&self, node: NodeId, start: u32) -> Option<tsr_core::Span> {
+        let file = self.source_file_of_for_diagnostics(node)?;
+        let rest = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(start as usize..))?;
+        let token = tsr_scanner::Scanner::new(rest).scan().span;
+        Some(tsr_core::Span::new(start + token.start, start + token.end))
     }
 
     /// `node.Pos()` for a zero-width (missing) node whose span sits at the

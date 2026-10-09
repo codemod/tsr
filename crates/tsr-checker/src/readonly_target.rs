@@ -635,7 +635,21 @@ impl Checker<'_, '_> {
         // CheckFlagsReadonly), so its image alone decides; the constructor
         // permission below needs a declared property, which it is not.
         let Some(property) = self.get_property_of_type(receiver_type, &name) else {
-            return literal_member_readonly;
+            if literal_member_readonly {
+                return true;
+            }
+            // A member inherited through an `extends` expression is the
+            // base type's property (`resolveObjectTypeMembers`' base merge;
+            // `expression_heritage_member`): its readonly-ness is the base's.
+            for base in self.expression_heritage_bases(receiver_type) {
+                let base = self.apparent_type(base);
+                if self.get_property_of_type(base, &name).is_some()
+                    || self.mapped_identity_optionality.contains_key(&base)
+                {
+                    return self.is_assignment_to_readonly_property(node, base, &name);
+                }
+            }
+            return false;
         };
         if !literal_member_readonly
             && !self.is_readonly_symbol(property)

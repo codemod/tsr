@@ -1487,14 +1487,28 @@ impl Checker<'_, '_> {
         // `Choice.Yes` and the text comparison answered first, sorting `No`
         // before `Yes` by ASCII (`enumLiteralTypes1`/`2`,
         // `stringEnumLiteralTypes1`/`2` all want `Choice.Yes | Choice.No`).
-        if left.flags.intersects(TypeFlags::ENUM_LIKE)
-            || right.flags.intersects(TypeFlags::ENUM_LIKE)
+        // A union carrying a symbol is aliased natively: an enum's declared
+        // type is `getUnionTypeEx(members, .., &TypeAlias{symbol})`
+        // (`getDeclaredTypeOfEnum`, checker.go:23899), so `getTypeNameSymbol`
+        // answers the enum symbol and `E3 | E4` origins sort by name.
+        let union_alias = |ty: &crate::types::Type| match &ty.data {
+            TypeData::Union { symbol: Some(symbol), .. } => Some(*symbol),
+            _ => None,
+        };
+        let (union_a, union_b) = (union_alias(left), union_alias(right));
+        if alias_a.is_none() && alias_b.is_none() && union_a.is_some() && union_a == union_b {
+            return Ordering::Equal;
+        }
+        if left.flags.intersects(TypeFlags::ENUM_LIKE) && union_a.is_none()
+            || right.flags.intersects(TypeFlags::ENUM_LIKE) && union_b.is_none()
         {
             return Ordering::Equal;
         }
         let symbols = self.binder.symbols();
         let left_name = if let Some((alias, _)) = alias_a {
             Some(symbols.get(*alias).name)
+        } else if let Some(symbol) = union_a {
+            Some(symbols.get(symbol).name)
         } else if self.tuple_element_lists.contains_key(&a)
             || self.variadic_tuple_elements.contains_key(&a)
         {
@@ -1506,6 +1520,8 @@ impl Checker<'_, '_> {
         };
         let right_name = if let Some((alias, _)) = alias_b {
             Some(symbols.get(*alias).name)
+        } else if let Some(symbol) = union_b {
+            Some(symbols.get(symbol).name)
         } else if self.tuple_element_lists.contains_key(&b)
             || self.variadic_tuple_elements.contains_key(&b)
         {

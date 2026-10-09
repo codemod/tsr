@@ -94,3 +94,135 @@ which wraps only an `isNoInferTargetType` base: `NoInfer<string>` is
 now does too, in `create_type_reference_with_display` beside the
 `NonNullable` arm. Object and type-parameter bases keep the wrapper (native
 control `NoInfer<{ x: 1 }>` relation unchanged). No new cache.
+
+## Enum declared unions sort by their alias name (tsr-2zk.47.5)
+
+`CompareTypes`' `compareTypeNames` (`utilities.go:590`) reads
+`getTypeNameSymbol`, which answers `t.alias.symbol` first. An enum's declared
+union is created with `&TypeAlias{symbol}` (`getDeclaredTypeOfEnum`,
+checker.go:23899), so two enum unions in a union origin (`insertType`,
+checker.go:25724) order by enum name: `(E7 | E8 | E3 | E4)[]`. The port
+excluded every enum-like type from the name comparison, so `E4 | E3` fell
+to creation order. A union carrying a symbol (`TypeData::Union { symbol }`)
+now names itself by that symbol; non-union enum members still answer no
+name and order by declaration. No new cache.
+
+## Indexed-access declared types through alias chains (tsr-2zk.16.56)
+
+`getTypeAliasInstantiation` → `instantiateTypeWithAlias` over a declared
+type that is an indexed access maps it through `getIndexedAccessTypeEx(..,
+alias)` (checker.go:22176): a resolved access is the property type itself
+(no alias), a deferred one carries the outer alias. The port's
+indexed-access arm of `create_type_reference_with_display` admitted only a
+written `O[K]` body, so `type W<O, K> = Idx<O, K>` minted a nominal `W<..>`
+that related to nothing (`deferredLookupTypeResolution`'s
+`ObjectHasKey<{ a: string }, 'a'>` is `"true"`). The arm now admits a body
+that is a reference to a generic alias whose declared type is an indexed
+access (`alias_body_is_indexed_access`, bounded chain depth 8 like
+`alias_body_receives_new_alias`). Native controls: `W<{ a: 'x' }, 'a'>` is
+`"x"`, `W<I, 'm'>` is `string`, `W<T, K>` / `W2<T, K>` inside a generic keep
+their own alias heads. No new cache: the existing `instantiations` and
+`alias_body_evaluations` keys.
+
+## Generic alias declared as a reference that keeps its own alias (tsr-2zk.16.56)
+
+`getDeclaredTypeOfTypeAlias` is `getTypeFromTypeNode(body)`. For a body that
+references another generic alias, `getTypeFromTypeAliasReference` passes the
+declaring alias as `newAliasSymbol` (with its own parameters), and
+`instantiateTypeWithAlias` attaches it only where the instantiation creates an
+aliasable type. It never does when the target's declared type is a type
+parameter (the mapper's image), a literal/template/`keyof`/`typeof` type, or a
+homomorphic mapped type over a non-union variable (`instantiateMappedType` →
+`instantiateConstituent` with a nil alias), nor through a chain of such
+aliases. Those declarations now publish the resolved body instead of the
+`Name<Params>` mint: `type Gaps<T> = CleanedGaps<PartialGaps<T>>`,
+`type T2<U> = T1<Same<U>>` (`Same<U>`), `type Merge3<T> = Identity<{..}>`.
+Controls that must stay distinct (alias received): `Record`/`Pick`/
+conditional/indexed targets keep `GenericStructure<K>`, `Omit<T, K>`,
+`TestBit<A, B>`; a union answer keeps the mint (`mapTypeWithAlias`).
+Predicate `alias_instantiation_keeps_declared_alias` (bounded chain, depth 8);
+no new cache: `declared_types` stays the owner.
+
+## Indexed-access alias unions only over a union index (tsr-2zk.16.56)
+
+`getIndexedAccessTypeOrUndefined` (checker.go:26975) passes its alias to
+`getUnionTypeEx` only when the index type is a non-boolean union; a single
+key answers `getPropertyTypeForIndexType`'s property type unaliased. The
+port's indexed-access arm re-minted every union answer under the alias, so
+`type Res1 = Example<{ a: "x" } | { a: "y" }>` over `T['a']` printed
+`Example<..>` (native `"x" | "y"`). `alias_indexed_access_index_is_union`
+resolves the written index node in the alias's binding frame (or, through a
+reference chain, the next alias's arguments) and gates the union arm.
+Controls: `K2<{ a: 1; b: 2 }>` over `T[keyof T]` keeps its alias;
+`Example<{ a: MyU }>` prints `MyU`. No cache; evaluation reuses
+`alias_evaluation_bindings` frames under the depth guard.
+
+## New alias on indexed-access union instantiations (tsr-2zk.16.57)
+
+`getTypeFromTypeAliasReference`'s `newAliasSymbol` reaches
+`getIndexedAccessTypeEx` through `instantiateTypeWithAlias`, so a union built
+over a union index carries the declaring non-generic alias:
+`type P3Names = RequiredPropNames<P3>` prints `P3Names`. The reference road
+now re-mints such a union (one the indexed-access arm aliased by its target)
+under the declaring alias with `get_named_union_type`, as it already does
+for distributed mapped unions. A single-key answer (no alias) is untouched.
+No new cache.
+
+## Generic alias over a resolving indexed access declares the property type (tsr-2zk.16.56)
+
+`getDeclaredTypeOfTypeAlias` over a generic alias whose body is an indexed
+access (written, or a reference to an alias declaring one) hands its alias to
+`getIndexedAccessTypeOrUndefined`, which keeps it only on a deferred access
+(`shouldDeferIndexedAccessType`: generic index or object) or on a union built
+over a union index. Otherwise the answer is the property type as created:
+`type Cb<T> = { noAlias: () => T }["noAlias"]` records `>Cb : () => T`,
+`BivariantHack`'s `{ bivarianceHack(x: Input): Output }["bivarianceHack"]`
+records the method type. The declared-type arm publishes the resolved body
+only when the index is concrete and non-union, and the resolved type is not a
+deferred access sharing an operand with the body (conservative) nor the
+target's aliased mint. Controls kept: `Def<T, K> = T[K]`, `Def2<T> =
+T['a' & keyof T]`, `U<T> = {..}['a' | 'b']`, `Next<I> = IterationMap[I[1]]`
+print their alias. `alias_indexed_access_index_type` replaces the union-only
+helper's internals; no new cache.
+
+## New alias on intersection instantiations (tsr-2zk.16.57)
+
+`getTypeFromTypeAliasReference`'s `newAliasSymbol` arm over an alias whose
+body is an intersection: `instantiateTypeWorker` passes the new alias to
+`getIntersectionTypeEx` (checker.go:26056), which keeps it while the result
+is an intersection, so `type A = Nominal<'A', string>` over
+`type Nominal<K, T> = T & {..}` prints `A` (`intersectionTypeInference3`,
+`mappedTypeIndexedAccessConstraint`'s `PartMappings`). The target's aliased
+intersection (from `attach_intersection_alias`) is re-interned under the
+declaring alias's name with the same constituents
+(`new_alias_intersection_instantiation`): `type_reference_targets` keeps the
+canonical `(target, arguments)`, `alias_of` records the new alias, cache is the
+existing `deferred_alias_references[(alias, canonical)]`, published after both
+channels are installed. A reduced (non-intersection) result keeps no alias.
+Known gap (out of lane): the site-aware relation-report printer still spells
+the target alias (`Nominal<"A", string>` in TS2322 heads).
+
+## Cross-product unions of an intersection alias carry the alias (tsr-2zk.16.57)
+
+`getIntersectionTypeEx`'s cross-product arm (checker.go:26213) hands its
+alias to `getUnionTypeEx`, so `NonNullable<string | number | undefined>` (body
+`T & {}`) is a union aliased `NonNullable<..>`, and with a declaring
+non-generic alias (`newAliasSymbol`) `type T04 = NonNullable<..>` prints `T04`.
+`get_global_non_nullable_type_instantiation` now attaches the alias to a
+distributed union (through `attach_intersection_alias`), except for a
+`boolean` or enum-union operand: those carry DefinitelyNonNullable flags, so
+`{}` is removed before distribution and the operand returns unaliased
+(`PropTypes.Validator<boolean>` stays). The reference road's re-alias of an
+aliased union (previously indexed-access bodies only) also covers
+intersection bodies. No new cache: `instantiations[(NonNullable, [t])]`.
+Known gap (out of lane): relation-report heads print the expansion.
+
+## Intrinsic targets keep no alias (tsr-2zk.16.56)
+
+`getTypeAliasInstantiation`'s intrinsic arm builds `getNoInferType` /
+`getStringMappingType` results, which never take the new alias, so a generic
+alias whose body references an `intrinsic` alias declares that result:
+`type T20<T> = NoInfer<T>` records `>T20 : NoInfer<T>`,
+and `TX1<S> = Uppercase<...>` over a template prints the mapped template.
+`alias_instantiation_keeps_declared_alias` admits an `intrinsic` keyword body.
+No new cache.

@@ -5804,6 +5804,30 @@ impl<'a> Checker<'a, '_> {
             let types = types.clone();
             return self.get_named_union_type(&types,TypeFlags::empty(),alias);
         }
+        // The same new alias handed to getIndexedAccessTypeEx by an
+        // indexed-access declared type (instantiateTypeWithAlias): the union
+        // built over a union index (getIndexedAccessTypeOrUndefined,
+        // checker.go:26996) carries the declaring alias, not the target's
+        // (`type Res3 = K2<{ a: 1; b: 2 }>` prints `Res3`). A union carrying no
+        // alias was a single key's property type and keeps its own display.
+        if let crate::types::TypeData::Union { types, symbol: Some(owner), .. } =
+            self.store.get(result).data.clone()
+            && owner == symbol
+            && let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && self.local_type_parameters_of(alias).is_empty()
+            && (self.alias_body_is_indexed_access(symbol, 0)
+                || matches!(
+                    self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                    Some(TypeNode::IntersectionTypeNode(_))
+                ))
+        {
+            return self.get_named_union_type(&types, TypeFlags::empty(), alias);
+        }
+        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && let Some(image) = self.new_alias_intersection_instantiation(result, symbol, alias)
+        {
+            return image;
+        }
         if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             return self.new_alias_instantiation(result, symbol, alias);
         }
@@ -5881,6 +5905,55 @@ impl<'a> Checker<'a, '_> {
         image
     }
 
+    /// [`Self::new_alias_instantiation`] for an INTERSECTION body:
+    /// `instantiateTypeWorker` hands the new alias to `getIntersectionTypeEx`
+    /// (checker.go:26056), which keeps it when the result is still an
+    /// intersection (`type A = Nominal<'A', string>` over `Type & {..}` prints
+    /// `A`). The target's aliased intersection (built by
+    /// `attach_intersection_alias`) is re-interned under the declaring alias's
+    /// name with the same constituents; `type_reference_targets` keeps the
+    /// canonical `(target, arguments)` pair and `alias_of` records the new
+    /// alias, as for object images. Cache: the existing
+    /// `deferred_alias_references[(alias, canonical)]`. `None` for anything
+    /// else.
+    fn new_alias_intersection_instantiation(
+        &mut self,
+        result: TypeId,
+        symbol: SymbolId,
+        alias: SymbolId,
+    ) -> Option<TypeId> {
+        let crate::types::TypeData::Intersection { types, symbol: Some(owner), .. } =
+            self.store.get(result).data.clone()
+        else {
+            return None;
+        };
+        if owner != symbol
+            || !self.local_type_parameters_of(alias).is_empty()
+            || !matches!(
+                self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::IntersectionTypeNode(_))
+            )
+        {
+            return None;
+        }
+        let (target, arguments) = self.type_reference_targets.get(&result).cloned()?;
+        if target != symbol {
+            return None;
+        }
+        if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
+            return Some(cached);
+        }
+        let text = self.binder.symbols().get(alias).name.to_string();
+        let image = self.store.intern_intersection(
+            self.store.get(result).flags,
+            crate::types::TypeData::Intersection { types, text, symbol: Some(alias) },
+        );
+        self.type_reference_targets.insert(image, (target, arguments));
+        self.alias_of.insert(image, (alias, Vec::new()));
+        self.deferred_alias_references.insert((alias, result), image);
+        Some(image)
+    }
+
     /// `instantiateTypeWorker`'s union/intersection arm passes the new alias
     /// to `getUnionType`/`getIntersectionType`, which drop it when the
     /// constituents reduce to one type (`type U<T> = T | undefined` at
@@ -5904,6 +5977,240 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// Whether the declared type of alias `symbol` is an indexed access type:
+    /// its body (parentheses are transparent in getTypeFromTypeNodeWorker) is
+    /// an indexed access node, or a reference to a generic alias whose declared
+    /// type is one. `instantiateTypeWithAlias` maps such a declared type through
+    /// `getIndexedAccessTypeEx(objectType, indexType, .., alias)`
+    /// (checker.go:22176): a resolved access is the property type with no alias
+    /// (`type W<O, K> = Idx<O, K>` at `{ a: "x" }` is `"x"`), a deferred one
+    /// carries the outer alias. Same bounded chain as
+    /// [`Self::alias_body_receives_new_alias`].
+    fn alias_body_is_indexed_access(&mut self, symbol: SymbolId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        match self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) {
+            Some(TypeNode::IndexedAccessTypeNode(_)) => true,
+            Some(TypeNode::TypeReferenceNode(reference))
+                if !reference.type_arguments.is_empty() =>
+            {
+                reference
+                    .type_name
+                    .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                    .is_some_and(|inner| {
+                        inner != symbol
+                            && self
+                                .binder
+                                .symbols()
+                                .get(inner)
+                                .flags
+                                .contains(SymbolFlags::TYPE_ALIAS)
+                            && self.alias_body_is_indexed_access(inner, depth + 1)
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    /// `getHomomorphicTypeVariable`'s test on a written mapped type: its
+    /// constraint is `keyof T` over a type parameter `T`.
+    fn is_homomorphic_mapped_type_node(&self, mapped: &tsr_ast::MappedTypeNode<'a>) -> bool {
+        let Some(constraint) = mapped.type_parameter.and_then(|p| p.constraint) else {
+            return false;
+        };
+        matches!(constraint, TypeNode::TypeOperatorNode(operator)
+        if operator.operator.kind == SyntaxKind::KeyOfKeyword
+            && operator.r#type.and_then(Self::skip_type_parentheses).is_some_and(|operand| {
+                let TypeNode::TypeReferenceNode(reference) = operand else { return false };
+                reference
+                    .type_name
+                    .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                    .is_some_and(|symbol| {
+                        self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+                    })
+            }))
+    }
+
+    /// Whether `instantiateTypeWithAlias(declared(symbol), mapper, newAlias)`
+    /// never attaches `newAlias` to a non-union answer, so a generic alias whose
+    /// body references `symbol` declares the instantiation as built
+    /// (`getTypeFromTypeAliasReference`, checker.go:23580). Native: a type
+    /// parameter answers the mapper's image; literal, template, `keyof`,
+    /// `typeof` and intrinsic constructors take no alias; a homomorphic mapped type
+    /// (`instantiateMappedType`) maps a non-union variable through
+    /// `instantiateConstituent` with a nil alias and keeps its own. A chain of
+    /// alias references inherits the answer. Bounded like the other chains.
+    fn alias_instantiation_keeps_declared_alias(&mut self, symbol: SymbolId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        if self.type_parameter_body_index(symbol).is_some()
+            || self.alias_free_generic_alias_body(symbol).is_some()
+        {
+            return true;
+        }
+        match self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) {
+            Some(TypeNode::MappedTypeNode(mapped)) => self.is_homomorphic_mapped_type_node(mapped),
+            // getTypeAliasInstantiation's intrinsic arm (`NoInfer`, string
+            // mappings) builds getNoInferType/getStringMappingType results,
+            // which take no alias.
+            Some(TypeNode::KeywordTypeNode(keyword)) => {
+                keyword.kind == SyntaxKind::IntrinsicKeyword
+            }
+            Some(TypeNode::TypeReferenceNode(reference)) => {
+                self.alias_reference_target(reference).is_some_and(|inner| {
+                    inner != symbol
+                        && self.alias_instantiation_keeps_declared_alias(inner, depth + 1)
+                })
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether the index type of the indexed access that alias `symbol`
+    /// declares ([`Self::alias_body_is_indexed_access`]) is, under
+    /// `arguments`, a union other than `boolean`: the index node is resolved
+    /// in the alias's own binding frame, or the chain's next alias is asked
+    /// with the reference's arguments resolved in that frame. `false` when
+    /// anything does not resolve.
+    fn alias_indexed_access_index_is_union(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+        depth: usize,
+    ) -> bool {
+        self.alias_indexed_access_index_type(symbol, arguments, depth).is_some_and(|index| {
+            index != self.intrinsics.boolean
+                && matches!(self.store.get(index).data, crate::types::TypeData::Union { .. })
+        })
+    }
+
+    /// The index type of the indexed access alias `symbol` declares, under
+    /// `arguments` ([`Self::alias_indexed_access_index_is_union`]).
+    fn alias_indexed_access_index_type(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+        depth: usize,
+    ) -> Option<TypeId> {
+        if depth > 8 || self.instantiation_depth >= 100 {
+            return None;
+        }
+        let body = self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?;
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() {
+            return None;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let parameter = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            frame.insert(parameter, argument);
+        }
+        let next = match body {
+            TypeNode::IndexedAccessTypeNode(access) => match access.index_type {
+                Some(index) => IndexedAliasStep::Index(index),
+                None => return None,
+            },
+            TypeNode::TypeReferenceNode(reference) => {
+                match reference
+                    .type_name
+                    .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+                {
+                    Some(inner) if inner != symbol => {
+                        IndexedAliasStep::Alias(inner, reference.type_arguments)
+                    }
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let resolved: Vec<TypeId> = match next {
+            IndexedAliasStep::Index(index) => vec![self.get_type_from_type_node(index)],
+            IndexedAliasStep::Alias(_, nodes) => {
+                nodes.iter().map(|&node| self.get_type_from_type_node(node)).collect()
+            }
+        };
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        if resolved.contains(&self.intrinsics.error) {
+            return None;
+        }
+        match next {
+            IndexedAliasStep::Index(_) => Some(resolved[0]),
+            IndexedAliasStep::Alias(inner, _) => {
+                self.alias_indexed_access_index_type(inner, &resolved, depth + 1)
+            }
+        }
+    }
+
+    /// Whether the reference body `body` to indexed-access alias `target`,
+    /// resolved over the declaring alias's own parameters, has a concrete
+    /// (non-generic, non-union) index: only then does
+    /// getIndexedAccessTypeOrUndefined answer a property type that takes no
+    /// alias.
+    fn target_indexed_access_resolves(&mut self, body: TypeNode<'a>, target: SymbolId) -> bool {
+        let Some(TypeNode::TypeReferenceNode(reference)) = Self::skip_type_parentheses(body) else {
+            return false;
+        };
+        let arguments: Vec<TypeId> = reference
+            .type_arguments
+            .iter()
+            .map(|&node| self.get_type_from_type_node(node))
+            .collect();
+        if arguments.contains(&self.intrinsics.error) {
+            return false;
+        }
+        self.alias_indexed_access_index_type(target, &arguments, 0).is_some_and(|index| {
+            !self.indexed_access_index_is_generic(index)
+                && (index == self.intrinsics.boolean
+                    || !matches!(self.store.get(index).data, crate::types::TypeData::Union { .. }))
+        })
+    }
+
+    /// Whether generic alias `symbol`'s written indexed-access body, resolved
+    /// to `resolved` over its own parameters, is a property type rather than
+    /// a type that receives the alias: not the deferred access of the body's
+    /// own operands (`shouldDeferIndexedAccessType`, matched by either
+    /// operand) and not a union over a union index. Conservative: a nested
+    /// deferred access sharing an operand keeps the alias mint.
+    fn own_indexed_access_resolves(
+        &mut self,
+        symbol: SymbolId,
+        body: TypeNode<'a>,
+        resolved: TypeId,
+    ) -> bool {
+        let Some(TypeNode::IndexedAccessTypeNode(access)) = Self::skip_type_parentheses(body)
+        else {
+            return false;
+        };
+        let (Some(object_node), Some(index_node)) = (access.object_type, access.index_type) else {
+            return false;
+        };
+        let object = self.get_type_from_type_node(object_node);
+        let index = self.get_type_from_type_node(index_node);
+        if object == self.intrinsics.error || index == self.intrinsics.error {
+            return false;
+        }
+        // shouldDeferIndexedAccessType: a generic index always defers.
+        if self.indexed_access_index_is_generic(index) {
+            return false;
+        }
+        // getIndexedAccessTypeOrUndefined reduces the object operand first.
+        let object = self.get_reduced_type(object);
+        if self.deferred_indexed_access_types.get(&resolved).is_some_and(
+            |&(deferred_object, deferred_index, _)| {
+                deferred_object == object || deferred_index == index
+            },
+        ) {
+            return false;
+        }
+        let Some(own) = self.own_type_parameter_types(symbol) else { return false };
+        !self.alias_indexed_access_index_is_union(symbol, &own, 0)
+    }
+
     /// Whether `instantiateTypeWithAlias` hands a new alias to the type the
     /// declared body of `symbol` instantiates to: an anonymous object or
     /// function type, or a mapped type without a homomorphic type variable
@@ -5923,17 +6230,8 @@ impl<'a> Checker<'a, '_> {
             | TypeNode::FunctionTypeNode(_)
             | TypeNode::ConstructorTypeNode(_) => true,
             TypeNode::MappedTypeNode(mapped) => {
-                let Some(constraint) = mapped.type_parameter.and_then(|p| p.constraint) else {
-                    return false;
-                };
-                let homomorphic = matches!(constraint, TypeNode::TypeOperatorNode(operator)
-                if operator.operator.kind == SyntaxKind::KeyOfKeyword
-                    && operator.r#type.and_then(Self::skip_type_parentheses).is_some_and(|operand| {
-                        let TypeNode::TypeReferenceNode(reference) = operand else { return false };
-                        reference.type_name.and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
-                            .is_some_and(|symbol| self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER))
-                    }));
-                !homomorphic
+                mapped.type_parameter.and_then(|p| p.constraint).is_some()
+                    && !self.is_homomorphic_mapped_type_node(mapped)
             }
             TypeNode::TypeReferenceNode(reference) => {
                 if reference.type_arguments.is_empty() {
@@ -7293,15 +7591,9 @@ impl<'a> Checker<'a, '_> {
         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
             && let Some(declaration) = self.type_alias_declaration_of(symbol)
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
-            && (alias.r#type.is_some_and(|mut body| {
-                // getTypeFromTypeNodeWorker: parentheses are transparent before
-                // indexed-access resolution, including an alias's declared body.
-                while let TypeNode::ParenthesizedTypeNode(parenthesized) = body {
-                    let Some(inner) = parenthesized.r#type else { return false };
-                    body = inner;
-                }
-                matches!(body, TypeNode::IndexedAccessTypeNode(_))
-            }) || self.is_closed_literal_union_alias(symbol, &arguments))
+            && alias.r#type.is_some()
+            && let indexed = self.alias_body_is_indexed_access(symbol, 0)
+            && (indexed || self.is_closed_literal_union_alias(symbol, &arguments))
             && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
         {
             let text = self.type_reference_text(symbol, &arguments);
@@ -7315,6 +7607,11 @@ impl<'a> Checker<'a, '_> {
                 named
             } else if let crate::types::TypeData::Union { types, .. } =
                 self.store.get(evaluated).data.clone()
+                // getIndexedAccessTypeOrUndefined (checker.go:26975) hands the
+                // alias to getUnionTypeEx only over a non-boolean UNION index;
+                // a single key answers the property type as it is
+                // (`Example<{ a: "x" } | { a: "y" }>` is `"x" | "y"`).
+                && (!indexed || self.alias_indexed_access_index_is_union(symbol, &arguments, 0))
             {
                 let named = crate::unions::create_union(
                     &mut self.store,
@@ -7624,18 +7921,28 @@ impl<'a> Checker<'a, '_> {
         let Some(evaluated) = self.evaluate_alias_body(symbol, &[t]) else {
             return self.intrinsics.error;
         };
-        let result = if let crate::types::TypeData::Intersection { types, .. } =
-            self.store.get(evaluated).data.clone()
-        {
-            let text = self.type_reference_text(symbol, &[t]);
-            let named = self.store.intern_intersection(
-                TypeFlags::INTERSECTION,
-                crate::types::TypeData::Intersection { types, text, symbol: Some(symbol) },
-            );
-            self.type_reference_targets.insert(named, (symbol, vec![t]));
-            named
-        } else {
-            evaluated
+        let result = match self.store.get(evaluated).data.clone() {
+            crate::types::TypeData::Intersection { types, .. } => {
+                let text = self.type_reference_text(symbol, &[t]);
+                let named = self.store.intern_intersection(
+                    TypeFlags::INTERSECTION,
+                    crate::types::TypeData::Intersection { types, text, symbol: Some(symbol) },
+                );
+                self.type_reference_targets.insert(named, (symbol, vec![t]));
+                named
+            }
+            // getIntersectionTypeEx's cross-product arm (checker.go:26213)
+            // builds the distributed union with the alias:
+            // `NonNullable<string | number | undefined>` prints that way. A
+            // `boolean` or enum union operand carries DefinitelyNonNullable
+            // flags, so `{}` is removed first and the operand returns as is.
+            crate::types::TypeData::Union { symbol: None, .. }
+                if t != self.intrinsics.boolean
+                    && !self.store.get(t).flags.intersects(TypeFlags::ENUM_LIKE) =>
+            {
+                self.attach_intersection_alias(evaluated, symbol, vec![t], None)
+            }
+            _ => evaluated,
         };
         self.instantiations.insert((symbol, vec![t]), result);
         result
@@ -8342,13 +8649,84 @@ impl<'a> Checker<'a, '_> {
                     return self.attach_intersection_alias(resolved, symbol, own, None);
                 }
             }
+            // getDeclaredTypeOfTypeAlias (checker.go:23837) is
+            // getTypeFromTypeNode(body). A body referencing ANOTHER generic
+            // alias passes the declaring alias as newAliasSymbol
+            // (getTypeFromTypeAliasReference, lines 23609-23616), but some
+            // instantiations never attach it, so the declared type is the
+            // target's instantiation as built, carrying the target's alias or
+            // none: `type Gaps<T> = CleanedGaps<PartialGaps<T>>` records
+            // `>Gaps : CleanedGaps<PartialGaps<T>>`, `type Test1<K1, K2> =
+            // MustBeKey<K1 & K2>` over a parameter-bodied `MustBeKey` records
+            // `>Test1 : K1 & K2`. An indexed access (written, or the target's
+            // declared type) takes the alias only when it defers or builds a
+            // union over a union index (getIndexedAccessTypeOrUndefined,
+            // checker.go:26956/26996); a resolved access is the property type
+            // (`type Cb<T> = { noAlias: () => T }["noAlias"]` is `() => T`).
+            let declared_body = match self
+                .type_alias_body(symbol)
+                .and_then(Self::skip_type_parentheses)
+            {
+                Some(TypeNode::TypeReferenceNode(reference)) => self
+                    .alias_reference_target(reference)
+                    .filter(|&target| target != symbol)
+                    .and_then(|target| {
+                        if self.alias_instantiation_keeps_declared_alias(target, 0) {
+                            Some(DeclaredBody::Keeps {
+                                parameter_image: self.type_parameter_body_index(target).is_some(),
+                            })
+                        } else if self.alias_body_is_indexed_access(target, 0) {
+                            Some(DeclaredBody::Indexed(target))
+                        } else {
+                            None
+                        }
+                    }),
+                Some(TypeNode::IndexedAccessTypeNode(_)) => Some(DeclaredBody::OwnIndexed),
+                _ => None,
+            };
             if let Some(body) = self.type_alias_body(symbol) {
                 if !self.resolutions.push(symbol, PropertyName::DeclaredType) {
                     return error;
                 }
-                let _ = self.get_type_from_type_node(body);
+                let resolved = self.get_type_from_type_node(body);
                 if !self.resolutions.pop() {
                     return self.report_type_alias_circularity(symbol);
+                }
+                let structural = |checker: &Self| {
+                    !matches!(
+                        checker.store.get(resolved).data,
+                        crate::types::TypeData::Union { .. }
+                            | crate::types::TypeData::Intersection { .. }
+                    )
+                };
+                let publish = resolved != error
+                    && match declared_body {
+                        // A union answer (a homomorphic mapping over a union
+                        // variable, `mapTypeWithAlias`) does receive the new
+                        // alias: keep the mint.
+                        Some(DeclaredBody::Keeps { parameter_image }) => {
+                            parameter_image || structural(self)
+                        }
+                        // The target's arm aliased a deferred access or a
+                        // union-index union with the target; native hands the
+                        // declaring alias to that same type.
+                        Some(DeclaredBody::Indexed(target)) => {
+                            self.target_indexed_access_resolves(body, target)
+                                && self
+                                    .type_reference_targets
+                                    .get(&resolved)
+                                    .is_none_or(|(owner, _)| *owner != target)
+                                && !matches!(self.store.get(resolved).data,
+                                    crate::types::TypeData::Union { symbol: Some(owner), .. }
+                                        if owner == target)
+                        }
+                        Some(DeclaredBody::OwnIndexed) => {
+                            self.own_indexed_access_resolves(symbol, body, resolved)
+                        }
+                        None => false,
+                    };
+                if publish {
+                    return resolved;
                 }
             }
             return mint(self);
@@ -11975,4 +12353,22 @@ mod parameter_default_state_tests {
             },
         );
     }
+}
+
+/// One step of the indexed-access alias index walk: the alias
+/// body's written index, or the next alias in a reference chain with its
+/// written arguments.
+enum IndexedAliasStep<'n> {
+    Index(TypeNode<'n>),
+    Alias(SymbolId, &'n [TypeNode<'n>]),
+}
+
+/// How a generic alias's body decides whether its declared type is the body
+/// as built (`get_declared_type_of_type_alias`): a reference to an alias whose
+/// instantiation keeps its own alias, a reference to an indexed-access alias,
+/// or a written indexed access.
+enum DeclaredBody {
+    Keeps { parameter_image: bool },
+    Indexed(SymbolId),
+    OwnIndexed,
 }
