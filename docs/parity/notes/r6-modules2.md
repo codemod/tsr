@@ -316,3 +316,83 @@ Applied on the base:
   343,063,120.
 - `cargo test --workspace --release` with the diff applied: 3,509 passed, 0
   failed.
+
+## 5. TS1295 through `export = globalThis.console` (item 5, a held diff)
+
+### Classification against native
+
+`isolatedModulesShadowGlobalTypeNotValue`'s `(false,true)` and `(true,true)`
+rows miss TS1295 at `good.ts(2,10)`, on `import { Console } from
+'node:console'`, where the ambient module ends in `export =
+globalThis.console`. Native `tsgo` reports it in both rows. The rule is
+round 5's CommonJS arm of `checkAliasSymbol`. It never ran, because
+`check_alias_symbol` returns when the import's target is `None`. Probing
+each hop turned up three separate breaks, all in main's `symbols.rs`:
+
+1. `declaration_of_alias_symbol` admitted an `ExportAssignment` only for an
+   identifier or class expression. Upstream's `IsAliasSymbolDeclaration`
+   reads `ExpressionIsAlias` (`ast/utilities.go:1872`), which is any entity
+   name expression, so `export = a.b` is an alias with a declaration.
+2. `export_assignment_target` resolved only those two shapes.
+   `getTargetOfAliasLikeExpression` (`checker.go:14996`) sends an entity
+   name to `resolveEntityName(…, Value|Type|Namespace, …, dontResolveAlias)`.
+   That resolves the left side as a namespace with aliases resolved, then
+   reads `getSymbol(getExportsOfSymbol(left), right, meaning)` (`:15809`).
+   The binder has no `globalThis` symbol. Upstream's (`:962`) is a module
+   whose exports are `globals`.
+3. `get_external_module_member` reads `Console` off the `export =` target's
+   type and withholds it, because its type (`ConsoleConstructor`) is not
+   site-independent (the printer guard documented there).
+
+### The diff: `r6-modules2-export-equals-entity.diff`
+
+- `declaration_of_alias_symbol` admits a dotted entity name
+  (`IsPropertyAccessEntityNameExpression`) on an `export =`.
+- `export_assignment_property_access_target` is the property-access arm of
+  `resolveEntityName`. It resolves the left side through
+  `heritage_entity_symbol(left, Namespace)`, which resolves aliases as
+  upstream's left side does. An unbound `globalThis` reads `globals`. The
+  member is then accepted by `getSymbol`'s rule: its own meaning, or an
+  alias whose chain carries it.
+- `check_alias_symbol`'s fallback, which already takes
+  `qualified_alias_target` for flags only (§686), also takes
+  `export_equals_member_for_flags`. That is the value member
+  `getExternalModuleMember` reads off an `export =` target's type, without
+  the printer guard. The rule prints the local name and reads only flags,
+  so the guard's reason does not reach it. The type and naming paths keep
+  the guard.
+
+**Declined: `export default a.b`.** Upstream makes it the same alias. With
+it admitted, `exportDefaultProperty2` lost a RIGHT line (`x : B` →
+`error`): the default import now reaches `C.B`, a merged `Property|Interface`
+symbol, and its use as a type reference loses the interface. The `export =`
+twin, `exportEqualsProperty2`, goes from four gaps and one WRONG to all five
+RIGHT through the `import = require` path. So the missing piece is the
+default-import type path: the declared type of an alias whose target is a
+merged `Property|Interface` member. That is main's (or r6-declared's) code.
+The decline is commented at the predicate, and the integrator should file
+the blocker (listed in §9).
+
+The diff adds `crates/tsr-compiler/tests/r6_modules2_export_equals_entity.rs`.
+It covers TS1295 on the reduced `node.d.ts`/`good.ts` (and silence without
+the option), and TS2322 on `exportEqualsProperty2` plus a use, which native
+reports and the base did not.
+
+### Measured
+
+Applied on the base:
+
+- diagnostics **+2 rows**: both `verbatimmodulesyntax=true` rows of
+  `isolatedModulesShadowGlobalTypeNotValue`, WRONG → RIGHT.
+- types **+5 lines**, all `exportEqualsProperty2` (4 GAP → RIGHT, 1 WRONG →
+  RIGHT). No other line changes text.
+- Zero losses on both dumps, `slowcases` clean.
+- Native `tsgo` and TSR print the same lines on the case's four option
+  combinations.
+- Callgrind Ir: domain-model 1,091,982,033 → 1,091,372,630 (−0.06%),
+  generic-imports 343,058,775 → 343,073,177 (+0.004%).
+- `cargo test --workspace --release` with the diff applied: 3,510 passed, 0
+  failed.
+
+The first measurement admitted `export default a.b` too and lost
+`exportDefaultProperty2` 1:1, which is the decline above.
