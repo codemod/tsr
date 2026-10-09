@@ -1,0 +1,41 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 040a298..5486524 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -2095,17 +2095,11 @@ impl<'a> Checker<'a, '_> {
+                 }
+                 return error;
+             }
+-            return if self
+-                .declaration_of_alias_symbol(symbol)
+-                .and_then(|declaration| {
+-                    self.external_module_name(self.import_or_export_declaration_of(declaration)?)
+-                })
+-                .is_some_and(|specifier| self.module_specifier_unfindable(specifier))
+-            {
+-                error
+-            } else {
+-                self.unresolved_type_reference(node)
+-            };
++            // An unresolved target, an unfindable module's included, is the
++            // unknown symbol, which has no type meaning: resolveName rejects the
++            // alias and getUnresolvedSymbolForEntityName prints the written name
++            // (`r6-declared.md` §2.1).
++            return self.unresolved_type_reference(node);
+         }
+         self.get_type_reference_type(node, symbol)
+     }
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index 20aac2a..8fdddfd 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -3108,7 +3108,8 @@ impl Checker<'_, '_> {
+         let Some(annotation) = annotation else { return };
+         let Some(annotation_node) = annotation.node_id() else { return };
+         let return_type = self.get_type_from_type_node(annotation);
+-        if return_type == self.intrinsics.error {
++        // `isErrorType(returnType)`: an unresolved reference is errorType.
++        if self.is_error(return_type) {
+             return;
+         }
+         // `getGlobalPromiseTypeChecked() != emptyGenericType`.
