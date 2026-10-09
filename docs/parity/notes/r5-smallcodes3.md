@@ -184,6 +184,23 @@ so TS2308's work there is two table probes per module file. In that profile
 row above is within the base's own run-to-run spread. CLI output is
 byte-identical to the base on both projects.
 
+### 2.4 Re-measured on the integration head `26e3eab` (batch AS)
+
+The branch merged the integration head after batches AO, AP, AQ and AS
+landed. A new base was frozen there: diagnostics 11,080 right (5,484 RIGHT +
+5,596 EMPTY_RIGHT), types 549,126 RIGHT. Every diff here still applies
+cleanly to it.
+
+The five code diffs stacked (TS2308, TS2523, the flow arms, TS2721–2723,
+TS2702/TS2713), unfiltered:
+
+- diagnostics: 11,080 → 11,096 right. The same 17 cases converted, and the
+  rows matched per code are identical to §2.3.
+- the only loss is `callbackTagNamespace` (TS2702, §3.2). Without the TS2702
+  diff the stack is lossless.
+- type lines: +10, the flow arms' (§3.4), zero losses.
+- slowcases: only the KNOWN_SLOW cases, on both dumps.
+
 ## 3. Held diffs
 
 ### 3.1 Why these were held
