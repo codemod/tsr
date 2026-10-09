@@ -78,17 +78,46 @@ deterministic measure, and it is flat.
 
 ### 3.1 TS2686
 
-Analysis is in progress; this section records the hypothesis to test with
-native `tsgo`.
+Probed against native `tsgo` with the shapes reduced to one `.d.ts` in
+`node_modules/react` and an importing module:
 
-- `export = React` beside `declare namespace React {}` (4 cases). The
-  namespace is non-instantiated, so a `Value` lookup skips it and finds the
-  global UMD alias. Upstream nevertheless reports nothing.
-- `declare global { const React }` against `export as namespace React` (2
-  cases). Upstream reports TS2451 on both declarations, which means the merge
-  failed and the globals entry keeps the augmentation's variable. A variable
-  declaration is not a `NamespaceExportDeclaration`, so `Every` fails. TSR's
-  `global_exports` table answers the UMD alias instead.
+| `index.d.ts` | tsgo | TSR before |
+|---|---|---|
+| `export = React; export as namespace React; declare namespace React {}` | nothing | TS2686 at `export = React` |
+| the same plus `declare const y: typeof React;` | TS2708 at `typeof React` | TS2686 + TS2708 |
+| `declare namespace React { const q: number }` (instantiated) | nothing | nothing |
+
+The second row shows that upstream's `Value` lookup never returns the
+global UMD alias here. It fails and falls through to the namespace-meaning
+retry that reports TS2708. The reason is `getSymbol(symbols, name, meaning)`:
+an alias is admitted only when `getSymbolFlags(alias)&meaning != 0`. The UMD
+alias resolves to the module's `export =`, a non-instantiated namespace, which
+has no `Value` flag. The binder's `resolve_name` tests only the alias's own
+flags, so it returned the alias and the UMD check fired.
+
+**Fixed (commit 2).** `check_umd_global_reference` now declines when the
+resolved symbol is an alias whose `get_symbol_flags` lacks `VALUE`. This is
+the condition under which upstream's lookup does not return the symbol at
+all. The faithful home is `resolve_name`'s table lookup in the binder, which is
+main's and is shared by every caller. The decline is confined to this rule,
+where the extra symbol is the only effect. Measured: +4 cases
+(`jsxNamespaceImplicitImport…FromConfigPickedOverGlobalOne` ×2,
+`…FromPragmaPickedOverGlobalOne`, `reactTransitiveImportHasValidDeclaration`),
+zero losses on both dumps, types identical, Ir +0.003% / −0.003%.
+
+**Open (2 cases, binder).** `umdGlobalAugmentationNoCrash` and
+`umdNamespaceMergedWithGlobalAugmentationIsNotCircular` declare
+`declare global { const React }` against `export as namespace React`.
+`initializeChecker` puts the UMD alias in `globals` first-in-wins
+(`checker.go:1322`). Then `mergeModuleAugmentation` merges the augmentation's
+`const` into it. `mergeSymbol` resolves the non-transient alias target
+(`checker.go:14153`), finds the module symbol excluded by
+`BlockScopedVariableExcludes`, reports TS2451, and **returns `source`**.
+`mergeSymbolTable` stores that return value, so `globals["React"]` becomes
+the `const`, and `Every(NamespaceExportDeclaration)` fails. The binder's
+`merge_symbol` declines alias merges (`binder.rs`, `bd tsr-y4u.12`) and keeps
+the alias in `globals`. Fixing it means the conflict arm replaces the globals
+entry with the source, which is binder work (main's).
 
 ### 3.2 TS2688
 
@@ -97,16 +126,103 @@ The faithful port is a loader processing diagnostic for an unresolved
 diagnostics. Neither the loader's diagnostics channel nor the harness is
 owned here.
 
-### 3.3 TS2880
+### 3.3 TS2880 (measured diff for the parser)
 
-A parser diff. Upstream always reports it, even under `ignoreDeprecations`;
-the `…Ignored` baselines carry it.
+`r5-smallcodes-import-assertions.diff` ports the three parser reports.
+`tryParseImportAttributes` (`parser.go:2497`) accepts `assert` only without a
+preceding line break and reports at the keyword. The export-declaration form
+(`:2565`) and the import-type form (`:3039`) do the same. Upstream reports
+TS2880 regardless of `ignoreDeprecations`; the `…Ignored` baselines carry it.
+The dynamic `import(…, { assert: … })` form is checker-side and was already
+reported (`import_call.rs`).
 
-### 3.4 TS1238
+`parse_import_attributes` serves the import, export and JSDoc `@import`
+forms, as upstream's `tryParseImportAttributes` does. The export form in
+upstream also requires a module specifier. TSR parses attributes after
+`export { a }` with no `from`, as before; the diff does not change that.
 
-`resolveDecorator` is a `resolveCall` client (calls.rs, main's), so it is
-not portable from this lane.
+The diff updates the `import_types` parser test, which asserted that
+`assert` parses silently, and adds `import_assertions_parse_with_ts2880`.
 
-### 3.5–3.7
+Measured against `base3` (commit 3): +4 cases (`importAssertionsDeprecated`,
+`…Ignored`, `importTypeAssertionDeprecation`, `…Ignored`), zero losses on
+both dumps, types identical, slowcases clean. Ir: domain-model 1,200,108,041
+against 1,199,400,542 (+0.06%), generic-imports 342,895,757 against
+342,901,856 (−0.002%). The domain-model delta is within this session's
+binary-to-binary spread: the TS2652/TS2306 binary read −0.07% against its own
+base. Parser and workspace tests pass; clippy and fmt are clean on the
+diff.
 
-To be filled in as each cluster is probed.
+### 3.4 TS1238 (routed to main's calls lane)
+
+`checkDecorator` → `getResolvedSignature` → `resolveDecorator`
+(`checker.go:8743`). The decorator node is the call-like there:
+`getEffectiveDecoratorArguments` (`:30142`) synthesizes its arguments, and
+`getDecoratorCallSignature` builds the expected ES or legacy decorator
+signature. `getDecoratorArgumentCount` and `getLegacyDecoratorArgumentCount`
+(`:9183`) supply the arity message "The runtime will invoke the decorator
+with N arguments…". TSR's `resolveCall` port (`calls.rs`) takes only call
+expressions, and no decorator call resolution exists.
+`constructableDecoratorOnClass01` would need only the
+`len(callSignatures) == 0` arm (an `invocationErrorDetails` chain under the
+head message). The other three need `resolveCall` with decorator arguments.
+This is a `calls.rs` feature, not a diff-sized change.
+
+### 3.5 TS18060
+
+`checkGrammarImportCallExpression` (`grammarchecks.go:2162`) reports TS18060
+on an `import.defer(…)` call outside `esnext`/`preserve`. Its plain `import(…)`
+arm is TS1323 under `es2015`, which `check_dynamic_import_module_kind` already
+had. TSR only had the import-*clause* form (`check_deferred_import_clause`).
+`ast.IsImportCall` admits a `MetaProperty` callee only for `import.defer`, so
+`import.meta(…)` stays an ordinary call.
+
+**Fixed (commit 3).** The call form is now an arm of the same function.
+Measured: +4 cases (`dynamicImportDefer` commonjs, es2015, es2020,
+nodenext).
+
+### 3.6 TS2538 (routed to r5-relater6)
+
+Probe (`target es2017`, no annotations):
+
+```ts
+async function f1(x, { [z]: y }) { }        // tsgo: TS2304 + TS2538 'any'; TSR: TS2304 only
+const x = ({ [foo.bar]: c }) => undefined;  // same
+declare const o: { a: number };
+const { [q]: w } = o;                       // both: TS2304 + TS2538
+```
+
+The variable-declaration form already works. The **parameter** form does
+not. Its parent type is the implied type of the binding pattern (no
+annotation), and `getIndexedAccessType(parentType, errorType)` there finds no
+index info and takes `getPropertyTypeForIndexType`'s final arm
+(`checker.go:27206`). `report_missing_index_signature`
+(`index_access_reports.rs`, r5-relater6's) declines this parent: the
+object-type gates at the top of that function (`is_type_any(object_type)` /
+unenumerated `Named`) are the suspects. The cases are `errorElaboration`,
+`asyncFunctionDeclarationParameterEvaluation` ×2 and
+`asyncGeneratorParameterEvaluation` ×3. `identifierStartAfterNumericLiteral`
+(×4 TS2538 `null`) is `3in[null]` after a scanner error: an element access
+with a `null` key, the `:27206` arm with `TypeToString(null)`. It is
+unprobed, and the same file owns it.
+
+### 3.7 TS2307
+
+Probed with native `tsgo`:
+
+- `importInsideModule` / `privacyGloImportParseErrors`: `import foo =
+  require("m")` inside a non-ambient namespace. `checkImportEqualsDeclaration`
+  stops at TS1147 (`checkExternalImportOrExportDeclaration` returns false), so
+  **the check never resolves the module**. Upstream's TS2307 comes from the
+  *use* `foo.x`: `resolveAlias` → `getTargetOfImportEqualsDeclaration` →
+  `resolveExternalModuleName` with error reporting. With the use removed,
+  tsgo reports TS1147 alone. TSR's TS2307 is a check-time emitter gated by
+  `external_import_is_positioned_for_resolution`, so the lazy alias-resolution
+  report is missing. The faithful home is the alias-target path in
+  `symbols.rs` (main's).
+- `noCrashOnParameterNamedRequire`, `tslibInJs`, `emitModuleCommonJS` ×2: JS
+  `require(…)` calls. In the first, `require` is a parameter, and tsgo still
+  reports, because the JS reparser turns `const x = require("…")` into an
+  import syntactically. This is binder/reparser territory (main's), with
+  `module_specifiers`/`module_exports` adjacent (r5-modules2). Not probed
+  further.
