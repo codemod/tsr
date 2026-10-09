@@ -1,0 +1,128 @@
+diff --git a/crates/tsr-checker/src/private_name_identity.rs b/crates/tsr-checker/src/private_name_identity.rs
+index 05d60e9..7cb1b51 100644
+--- a/crates/tsr-checker/src/private_name_identity.rs
++++ b/crates/tsr-checker/src/private_name_identity.rs
+@@ -31,7 +31,6 @@ use crate::{
+     types::{TypeData, TypeId},
+ };
+ 
+-#[expect(dead_code, reason = "called from relater.rs once docs/parity/notes/r6-smallcodes5-private-name-identity.diff is applied")]
+ impl Checker<'_, '_> {
+     /// `isStaticPrivateIdentifierProperty(prop)` (`checker.go`) for the
+     /// property `name` of `target`: its value declaration is a class element
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index d392e56..14e2d0a 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -6239,6 +6239,15 @@ impl Relater<'_, '_, '_> {
+             if excluded.contains(name) {
+                 continue;
+             }
++            // getUnmatchedPropertiesWorker (relater.go:988) skips a static
++            // private-identifier target, and the property loop finds no
++            // source member under its per-class name, so it never relates
++            // (`private_name_identity.rs`).
++            if name.starts_with('#')
++                && self.checker.is_static_private_identifier_property(target, name)
++            {
++                continue;
++            }
+             let target_metadata = self.property_flags(target, name);
+             if optionals_only && !target_metadata.is_some_and(|flags| flags.0) {
+                 continue;
+@@ -6366,6 +6375,21 @@ impl Relater<'_, '_, '_> {
+                     self.checker.binder.symbols().get(source_property).value_declaration
+                         != target_declaration
+                 }) {
++                    // A derived class's own `#foo` shadows the inherited one
++                    // only here: upstream's source still carries the base's
++                    // symbol under the base's name, and it is the target's
++                    // own (`private_name_identity.rs`).
++                    match self.checker.source_inherits_private_member(source, target_property) {
++                        Some(true) => {
++                            parts.push(RelationResult::Related);
++                            continue;
++                        }
++                        None => {
++                            parts.push(RelationResult::Unknown);
++                            continue;
++                        }
++                        Some(false) => {}
++                    }
+                     let optional_absent = target_metadata.is_some_and(|flags| flags.0)
+                         && !matches!(self.relation, Relation::Subtype | Relation::StrictSubtype);
+                     parts.push(if optional_absent {
+diff --git a/crates/tsr-checker/tests/private_name_identity.rs b/crates/tsr-checker/tests/private_name_identity.rs
+new file mode 100644
+index 0000000..0e175f6
+--- /dev/null
++++ b/crates/tsr-checker/tests/private_name_identity.rs
+@@ -0,0 +1,68 @@
++//! A private name's per-class identity in the relation's property walk
++//! (`binder.GetSymbolNameForPrivateIdentifier`, `binder/binder.go:369`;
++//! `getUnmatchedPropertiesWorker`, `relater.go:984`). Expectations were
++//! checked against a native `tsgo` built from the pinned submodule.
++
++use tsr_ast::NodeId;
++use tsr_checker::Checker;
++use tsr_checker::check::FileContext;
++use tsr_core::Arena;
++
++fn codes(source: &str) -> Vec<String> {
++    let arena = Arena::new();
++    let mut nodes = tsr_ast::NodeTable::default();
++    let mut node_map = tsr_ast::NodeMap::default();
++    let file = tsr_parser::parse_into(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("a.ts"),
++        &mut nodes,
++        &mut node_map,
++    );
++    let root: NodeId = file.source_file.node_id.expect("a parsed file has an id");
++    let bound = tsr_binder::bind_into(
++        tsr_binder::BindResult::empty(),
++        &arena,
++        file.source_file,
++        &nodes,
++        tsr_binder::FileInfo { name: "a.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &nodes, &node_map);
++    checker.set_strict_null_checks(true);
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    let mut codes: Vec<String> = checker
++        .diagnostics()
++        .iter()
++        .map(|(_, d)| d.code().to_string())
++        .filter(|code| {
++            matches!(code.as_str(), "TS2322" | "TS2415" | "TS2416" | "TS2739" | "TS2741")
++        })
++        .collect();
++    codes.sort();
++    codes
++}
++
++#[test]
++fn a_redeclared_private_name_does_not_override_the_inherited_one() {
++    let source = "class A { #foo: number = 1; }\nclass B extends A { #foo: string = \"\"; }";
++    assert!(codes(source).is_empty());
++}
++
++#[test]
++fn a_redeclared_private_method_does_not_override_the_inherited_one() {
++    let source = "class A { #m(a: number) {} }\nclass B extends A { #m(a: string) {} }";
++    assert!(codes(source).is_empty());
++}
++
++#[test]
++fn an_unrelated_class_with_the_same_private_name_still_fails() {
++    let source = "class A { #foo = 1; }\nclass B { #foo = 1; }\nconst a: A = new B();";
++    assert_eq!(codes(source), ["TS2322"]);
++}
++
++#[test]
++fn a_static_private_name_is_not_an_unmatched_property() {
++    let source =
++        "class A { static #foo: number; static #bar: number; }\nconst c: typeof A = class {};";
++    assert!(codes(source).is_empty());
++}

@@ -186,6 +186,7 @@ pub mod optionality;
 mod parameter_self_reference;
 mod perf_links;
 pub mod printing;
+mod private_name_identity;
 mod private_setter_read;
 mod pseudochecker;
 pub mod readonly_target;
