@@ -127,3 +127,22 @@ fn a_reused_member_name_is_reclassified() {
         Some("{ cli: string; \"@ns/dep\": string; }")
     );
 }
+
+#[test]
+fn an_accessor_property_reuses_its_written_annotation_under_circularity() {
+    // `circularAccessorAnnotations` (`tsr-2zk.1129`): `serializeTypeForDeclaration`
+    // asks `GetTypeOfAccessor` for an accessor declaration. Circularity made
+    // the property `any`, which is also `getTypeFromTypeNode(typeof c1.foo)`,
+    // so the written query is reused. tsgo: `{ readonly foo: typeof c1.foo; }`.
+    assert_eq!(
+        reused_property("declare const c1: { get foo(): typeof c1.foo; };\nc1;", "foo").as_deref(),
+        Some("typeof c1.foo")
+    );
+    // A setter alone is typed by its parameter's annotation (`typeFromAccessor`
+    // falls back to the pair's other declarations). tsgo: `{ foo: typeof c2.foo; }`.
+    assert_eq!(
+        reused_property("declare const c2: { set foo(value: typeof c2.foo); };\nc2;", "foo")
+            .as_deref(),
+        Some("typeof c2.foo")
+    );
+}

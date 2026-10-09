@@ -124,3 +124,140 @@ lane touched.
 
 Median child CPU, new/old, 21 samples: domain-model 0.967, generic-imports
 0.949. `diagnostics_match: true` on both.
+
+## 2. `tsr-2zk.1129`: the property slot, and the accessor arm it lacked
+
+Batch AW refused r5-nodereuse's `r5-nodereuse-property-slot.diff`.
+`circularAccessorAnnotations` 0:0 and 0:3 went RIGHT → WRONG:
+
+```ts
+declare const c1: { get foo(): typeof c1.foo; };
+```
+
+The port printed `c1 : { readonly foo: any; }`, where native prints
+`{ readonly foo: typeof c1.foo; }`.
+
+**Cause.** The diff replaces r5-printer2's `reused_property_annotation_text_at`
+with `reused_property_type_text`. The old helper read a getter's annotation
+directly. `reused_property_type_text` asked only
+`pseudo_direct_declaration_node`, which answers nothing for an accessor, and
+the structural arm then refused. Native's `serializeTypeForDeclaration`
+(`nodebuilderimpl.go:2233`) has a separate accessor arm. It admits an
+accessor declaration without the `ObjectFlagsRequiresWidening` gate, asks
+`GetTypeOfAccessor` (`typeFromAccessor`, `lookup.go:146`), and passes
+`isOptionalAnnotated = false`. `typeFromAccessor` tries the accessor's own
+annotation first, then the pair's first accessor, then its second, then the
+getter's return.
+
+Circularity made the property `any`. `getTypeFromTypeNode(typeof c1.foo)` is
+that same `any`, so the identity arm holds and the written query is reused.
+The type's own print is `any`.
+
+**Fix.** `reused_property_type_text` routes a get or set accessor
+declaration to `reused_accessor_type_text`. A Direct answer goes through the
+same equivalence and visitor as a property annotation. A structural getter
+return goes through the structural arm. A keyword or literal leaf prints as
+the type does (`r5-nodereuse.md` §3), so it declines. `pseudo_type_of_accessor`
+already existed (r5-nodereuse2); only the slot did not ask it.
+
+The setter-only case, `declare const c2: { set foo(value: typeof c2.foo); }`,
+converts too (0:5, 0:9). tsgo prints `{ foo: typeof c2.foo; }`.
+
+Falsifier:
+`node_reuse_structural::an_accessor_property_reuses_its_written_annotation_under_circularity`.
+With the arm removed, the dump prints `{ readonly foo: any; }` at 0:0 and 0:3
+again, which is the gate's regression.
+
+**The call-site hunks.** `reused_property_type_text` has no production caller
+without them, so this commit alone changes no line. The hunks are r5-nodereuse's
+diff, split by owner, and unchanged:
+
+| diff | file (owner) | apply after |
+|---|---|---|
+| `r6-nodereuse-property-slot-printing.diff` | `printing.rs` (r6-printer) | `r5-nodereuse2-object-literal-slot.diff`, `r5-nodereuse2-predicate-at-site.diff` |
+| `r6-nodereuse-property-slot-spreads.diff` | `spreads.rs` (r6-errorsplit) | the printing hunk |
+
+`r5-nodereuse-property-slot.diff` is the two together.
+
+### Measured
+
+The base is the item-1 full stack (owned code plus both item-1 diffs). Both
+dumps are unfiltered, and `slowcases` ran on both.
+
+| tree | types | diagnostics | slowcases |
+|---|---|---|---|
+| + accessor arm (owned) alone | unchanged by construction (no caller without the hunks) | unchanged | n/a |
+| + accessor arm + printing hunk | +2 RIGHT (`circularAccessorAnnotations` 0:5, 0:9), 0 lost | unchanged, 0 lost | clean |
+| + spreads hunk | +19 RIGHT more, 0 lost | unchanged, 0 lost | clean |
+| total over the item-1 stack | **+21 RIGHT, 0 lost** | unchanged, 0 lost | clean |
+| total over the base `b18aec0` | **+47 RIGHT, 0 lost** (549,900 RIGHT / 5,560 WRONG) | unchanged, 0 lost | clean |
+
+The +19 are r5-nodereuse's spread targets: `spreadObjectPermutations` (both
+configurations) 4, `spreadObjectNoCircular1` 2, `spreadUnionPropOverride` 2,
+`thislessFunctionsNotContextSensitive3` 2, `unionExcessPropsWithPartialMember`
+2, `declarationEmitComputedPropertyName{Enum2,Symbol1,Symbol2}` 6, and
+`intersectionIncludingPropFromGlobalAugmentation` 1.
+
+The gate's own case, `circularAccessorAnnotations`, now has all 27 lines
+RIGHT. 0:0 and 0:3 stay RIGHT, and 0:5 and 0:9 convert.
+
+### Ir: what the spreads hunk costs, and the cuts
+
+Callgrind Ir (`--singleThreaded --pretty false --noEmit`). Every row is
+measured against the item-1 stack binary: domain-model 1,090,892,208, and
+1,090,876,378 on a re-run (±0.002%); generic-imports 343,068,922.
+
+| tree | domain-model | generic-imports |
+|---|---|---|
+| item-2 stack as first written | 1,094,985,260 (+0.38%) | +0.01% |
+| + site-free top-level shortcut, `T[]` without `format!` | 1,092,666,238 (+0.16%) | +0.00% |
+| + type-literal members without `format!` (this commit) | **1,092,220,478 (+0.12%)** | **+0.00%** (343,086,437) |
+
+Median child CPU against the item-1 stack: the first row (21 samples) gave
+domain-model 0.995 and generic-imports 1.016. The final row gave 1.035 and
+1.031 at 21 samples, then 1.048 and 0.989 at 41, all with
+`diagnostics_match: true`. Two controls show these numbers are harness
+noise, not cost:
+
+- the identical binary against itself, same harness, 41 samples: 1.028
+  (slot bias);
+- an interleaved A/B (alternating order, user+sys per run, 41 pairs): final
+  stack 1.027 on domain-model and 0.997 on generic-imports, against an
+  identical-binary control of 1.023.
+
+On this container, then, the CPU harness cannot resolve a difference below
+about 3%, and the deterministic Ir above is the measure.
+
+**Where it goes.** `spreads.rs` bakes a spread member's text when the spread
+type is created. Its own object print reads the slot at once
+(`spreads.rs:552`), so the reuse runs once per annotated spread member,
+whether or not anything prints it. On domain-model that is 1,248 calls of the
+site-free visitor: 452 array, 316 type-reference, 320 keyword and 160
+type-literal annotations. Native runs `serializeTypeForDeclaration` only when
+it prints. Of the first +4.09M Ir, 3.5M was `reused_property_type_text`. Most
+of that was `track_existing_leftmost_identifier`: two `resolve_name` walks per
+entity name, at about 890 Ir each, plus string reallocation.
+
+**Cuts kept.**
+
+- **Site-free top-level shortcut.** A symbol with a declaration directly in
+  the top-level scope of the annotation's file is what the name resolves to
+  from that top level, since the lookup starts with the file's locals. Its
+  `is_global_name` and `resolves_from_file_top_level` walks are skipped
+  (`declared_at_top_level_of_file_of`). That covers an import or a top-level
+  declaration. `resolve_name` calls fell from 3,044 to 1,675 on
+  domain-model. Falsifier: a name whose declaration's container is the file
+  but which the file's top level resolves to a different symbol. No binder
+  path makes one; a merged symbol is compared through `merged_symbol` in
+  any case.
+- **`T[]` and type-literal members built in place**, without `format!`.
+
+**Not cut: the remaining +0.12%.** It is about one `resolve_name` per entity
+name of an annotated spread member, the lookup native's
+`trackExistingEntityName` also makes, but only at print time. Removing it
+needs one of two things. Either `spreads.rs` stops baking the member's text
+at creation (`PrintedSlot::on_demand`, then printed through
+`property_printed_type`; r6-errorsplit's and r6-printer's files), or the
+checker keeps a node → resolved-symbol table, as native's
+`symbolNodeLinks.resolvedSymbol` does (`checker.rs`, main's). Neither is this
+lane's file. The CPU harness does not separate the cost from noise.

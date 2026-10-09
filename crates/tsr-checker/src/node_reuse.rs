@@ -692,6 +692,9 @@ impl<'a> Checker<'a, '_> {
     /// `ObjectFlagsRequiresWidening` gate cannot fail for a Direct node: the
     /// type must be the node's own, and no type node denotes a widening
     /// literal type.
+    ///
+    /// An accessor declaration asks `GetTypeOfAccessor` instead
+    /// ([`Checker::reused_accessor_type_text`]).
     pub fn reused_property_type_text(
         &mut self,
         symbol: tsr_binder::SymbolId,
@@ -701,6 +704,10 @@ impl<'a> Checker<'a, '_> {
         let record = self.binder.symbols().get(symbol);
         let declaration =
             record.value_declaration.or_else(|| record.declarations.first().copied())?;
+        if matches!(self.nodes.kind(declaration), SyntaxKind::GetAccessor | SyntaxKind::SetAccessor)
+        {
+            return self.reused_accessor_type_text(declaration, property_type, reference);
+        }
         let optional_annotated = match self.node_map.get(declaration)? {
             Node::PropertySignatureDeclaration(node) => {
                 node.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
@@ -746,6 +753,51 @@ impl<'a> Checker<'a, '_> {
         }
         // The equivalence holds, so the visitor's identity gate is asked of
         // the printed type itself.
+        let written = self.reuse_annotation(node, property_type)?;
+        match reference {
+            Some(reference) => self.written_annotation_text_at(written, property_type, reference),
+            None => self.site_free_annotation_text(written, property_type),
+        }
+    }
+
+    /// `serializeTypeForDeclaration`'s accessor arm (`nodebuilderimpl.go:2233`):
+    /// an accessor declaration is admitted without the
+    /// `ObjectFlagsRequiresWidening` gate, its pseudo type is
+    /// `GetTypeOfAccessor` (`typeFromAccessor`, `lookup.go:146`: the
+    /// accessor's own annotation, else the pair's first, else its second,
+    /// else the getter's return), and `isOptionalAnnotated` is false, as it
+    /// is asked only of parameters and property declarations and signatures.
+    ///
+    /// `get foo(): typeof c1.foo`, whose property type circularity made
+    /// `any`, reuses the written query: `getTypeFromTypeNode` of the node is
+    /// that same `any`. The type's own print is `any`
+    /// (`circularAccessorAnnotations`).
+    fn reused_accessor_type_text(
+        &mut self,
+        declaration: NodeId,
+        property_type: TypeId,
+        reference: Option<NodeId>,
+    ) -> Option<String> {
+        let pseudo = self.pseudo_type_of_accessor(declaration);
+        let crate::pseudochecker::PseudoType::Direct(node) = pseudo else {
+            // A keyword or literal leaf prints as the type does
+            // (`docs/parity/notes/r5-nodereuse.md` §3); only a structural
+            // getter return can differ.
+            if !pseudo.is_structural() {
+                return None;
+            }
+            return self.structural_pseudo_text(
+                &pseudo,
+                property_type,
+                false,
+                reference?,
+                declaration,
+            );
+        };
+        let from_node = self.get_type_from_type_node(node);
+        if !self.pseudo_type_equivalent(from_node, property_type, false) {
+            return None;
+        }
         let written = self.reuse_annotation(node, property_type)?;
         match reference {
             Some(reference) => self.written_annotation_text_at(written, property_type, reference),
@@ -1511,8 +1563,13 @@ impl<'a> Checker<'a, '_> {
         let Some(site) = cx.site else {
             // With no print site the annotation's own file answers: a name
             // only resolvable inside a narrower scope marks the text
-            // scope-local.
-            if !self.is_global_name(symbol, text, meaning) {
+            // scope-local. A symbol declared in that file's own top-level
+            // scope is what the name resolves to from there (the lookup
+            // starts with the file's locals), so the two walks below are
+            // not needed for it (`docs/parity/notes/r6-nodereuse.md` §2).
+            if !self.declared_at_top_level_of_file_of(symbol, id)
+                && !self.is_global_name(symbol, text, meaning)
+            {
                 cx.scope_local |= !self.resolves_from_file_top_level(id, symbol, text, meaning);
             }
             return true;
@@ -1923,6 +1980,19 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// Whether a declaration of `symbol` lies directly in the top-level
+    /// scope of the file holding `id` (its [`Checker::declaration_container`]
+    /// is that file): an import, or a top-level declaration.
+    fn declared_at_top_level_of_file_of(&self, symbol: tsr_binder::SymbolId, id: NodeId) -> bool {
+        let Some(file) = self.source_file_of(id) else { return false };
+        self.binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .any(|&declaration| self.declaration_container(declaration) == Some(file))
+    }
+
     /// Whether `text` names `symbol` from the top level of the file holding
     /// the annotation node `id`.
     fn resolves_from_file_top_level(
@@ -2150,9 +2220,10 @@ impl<'a> Checker<'a, '_> {
                 text
             }
             TypeNode::ArrayTypeNode(array) => {
-                let element =
+                let mut element =
                     self.emit_reused_type(array.element_type?, Precedence::Postfix, in_extends, cx);
-                format!("{element}[]")
+                element.push_str("[]");
+                element
             }
             TypeNode::IndexedAccessTypeNode(access) => {
                 let object =
@@ -2721,11 +2792,13 @@ impl<'a> Checker<'a, '_> {
         if members.is_empty() {
             return Some("{}".to_string());
         }
-        let mut parts = Vec::with_capacity(members.len());
+        let mut text = String::from("{ ");
         for member in members {
-            parts.push(self.reused_type_member(*member, cx)?);
+            text.push_str(&self.reused_type_member(*member, cx)?);
+            text.push(' ');
         }
-        Some(format!("{{ {} }}", parts.join(" ")))
+        text.push('}');
+        Some(text)
     }
 
     fn reused_type_member(
@@ -2753,7 +2826,10 @@ impl<'a> Checker<'a, '_> {
                         _ => return None,
                     });
                 }
-                format!("{text}: {};", annotation(self, property.r#type, cx))
+                text.push_str(": ");
+                text.push_str(&annotation(self, property.r#type, cx));
+                text.push(';');
+                text
             }
             TypeElement::MethodSignatureDeclaration(method) => {
                 let mut text = modifiers_prefix(method.modifiers)?;
