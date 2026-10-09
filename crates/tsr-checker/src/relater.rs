@@ -2314,21 +2314,6 @@ impl Relater<'_, '_, '_> {
         }
     }
 
-    /// Whether `id` is (or has a constituent that is) the iteration
-    /// parameter `P` of a mapped type node `{ [P in Q]: X }`.
-    fn is_mapped_iteration_parameter(&self, id: TypeId) -> bool {
-        if let Some(parts) = self.union_constituents(id) {
-            return parts.into_iter().any(|part| self.is_mapped_iteration_parameter(part));
-        }
-        self.checker.type_parameter_symbols.get(&id).is_some_and(|&symbol| {
-            self.checker.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
-                self.checker.nodes.parent(declaration).is_some_and(|parent| {
-                    self.checker.nodes.kind(parent) == tsr_ast::SyntaxKind::MappedType
-                })
-            })
-        })
-    }
-
     /// `isGenericMappedType` (`checker.go:24908`): a mapped type whose
     /// constraint is a generic index type, or whose `as` clause, with the
     /// constraint substituted for the iteration parameter, still is. `None`
@@ -4114,18 +4099,6 @@ impl Relater<'_, '_, '_> {
                 let result = RelationResult::all([objects, indexes]);
                 if result != RelationResult::NotRelated {
                     return result;
-                }
-                // A mapped type's iteration parameter carries its declared
-                // constraint here, not the instance's: native's
-                // getTypeParameterFromMappedType instantiates it per mapped
-                // instance, so `P` of `MyMap<U>` is `keyof U` there and
-                // `keyof T` here (`mappedTypeParameterConstraint`). An index
-                // relation through one is no proof.
-                if indexes == RelationResult::NotRelated
-                    && (self.is_mapped_iteration_parameter(source_index)
-                        || self.is_mapped_iteration_parameter(target_index))
-                {
-                    return RelationResult::Unknown;
                 }
             }
             // getNormalizedType's getSimplifiedIndexedAccessType
