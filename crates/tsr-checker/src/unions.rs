@@ -1481,6 +1481,28 @@ impl Checker<'_, '_> {
             return Ordering::Equal;
         }
         let (left, right) = (self.store.get(a), self.store.get(b));
+        // `NoInfer<T>` is native's substitution type (`getNoInferType`,
+        // checker.go:27394), which this port spells as an alias reference
+        // (`no_infer_base_type`). CompareTypes sees `TypeFlagsSubstitution`
+        // (`1 << 24`, after an object's `1 << 20`), no type-name symbol, and
+        // then the substitution arm: the base types, then the constraints,
+        // which are `unknown` for every NoInfer (utilities.go:558).
+        let no_infer = |id: TypeId, ty: &crate::types::Type| {
+            ty.flags.contains(TypeFlags::OBJECT).then(|| self.no_infer_base_type(id)).flatten()
+        };
+        let (no_infer_a, no_infer_b) = (no_infer(a, left), no_infer(b, right));
+        if no_infer_a.is_some() || no_infer_b.is_some() {
+            let flags = |base: Option<TypeId>, ty: &crate::types::Type| {
+                base.map_or(sort_order_flags(ty.flags), |_| TypeFlags::SUBSTITUTION.bits())
+            };
+            return flags(no_infer_a, left)
+                .cmp(&flags(no_infer_b, right))
+                .then_with(|| match (no_infer_a, no_infer_b) {
+                    (Some(x), Some(y)) => self.compare_types(x, y),
+                    _ => Ordering::Equal,
+                })
+                .then(a.cmp(&b));
+        }
         sort_order_flags(left.flags)
             .cmp(&sort_order_flags(right.flags))
             .then_with(|| self.compare_type_names(a, b, left, right))

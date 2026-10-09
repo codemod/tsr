@@ -1,0 +1,90 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 7829bec..db17820 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -828,6 +828,13 @@ pub struct Checker<'a, 'n> {
+     pub(crate) synthetic_default_types:
+         FxHashMap<(crate::module_exports::SyntheticDefaultKind, TypeId), TypeId>,
+     pub(crate) instantiated_objects: rustc_hash::FxHashMap<(TypeId, Vec<(TypeId, TypeId)>), TypeId>,
++    /// The inverse of [`Self::instantiated_objects`] for a freshly minted
++    /// object: its source and mapper. Native keeps `ObjectType.mapper` on the
++    /// instantiation, and `CompareTypes` orders two instantiations of one
++    /// anonymous symbol by it (`compareTypeMappers`, utilities.go:683).
++    /// Written once, by the producer that mints the result.
++    pub(crate) instantiated_object_mappers:
++        rustc_hash::FxHashMap<TypeId, (TypeId, Vec<(TypeId, TypeId)>)>,
+     /// `instantiationExpressionTypes` (checker.go:10667) and its parked reports.
+     pub(crate) instantiation_expressions:
+         crate::instantiation_expressions::InstantiationExpressionLinks,
+@@ -1545,6 +1552,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             module_value_clones: FxHashMap::default(),
+             synthetic_default_types: FxHashMap::default(),
+             instantiated_objects: rustc_hash::FxHashMap::default(),
++            instantiated_object_mappers: rustc_hash::FxHashMap::default(),
+             instantiation_expressions:
+                 crate::instantiation_expressions::InstantiationExpressionLinks::default(),
+             any_function_type: None,
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index d4edeeb..dd67306 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -2135,6 +2135,7 @@ impl<'a> Checker<'a, '_> {
+         let placeholder = self.type_to_string(id);
+         let reserved = self.store.new_named(TypeFlags::OBJECT, placeholder, Some(owner));
+         self.instantiated_objects.insert(cache_key.clone(), reserved);
++        self.instantiated_object_mappers.insert(reserved, cache_key.clone());
+         let mut failed = false;
+         for property in properties.iter_mut().flatten() {
+             let current = self.property_type(property);
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 045eed8..c763868 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5773,6 +5773,7 @@ impl<'a> Checker<'a, '_> {
+         let minted = self.store.new_named(crate::flags::TypeFlags::OBJECT, text, owner);
+         self.anonymous_properties.insert(minted, (properties, true));
+         self.object_literal_index_infos.insert(minted, indexes);
++        self.instantiated_object_mappers.insert(minted, key.clone());
+         self.instantiated_objects.insert(key, minted);
+         minted
+     }
+diff --git a/crates/tsr-checker/src/unions.rs b/crates/tsr-checker/src/unions.rs
+index 6d8a3d7..77ad804 100644
+--- a/crates/tsr-checker/src/unions.rs
++++ b/crates/tsr-checker/src/unions.rs
+@@ -1492,6 +1492,35 @@ impl Checker<'_, '_> {
+             // to the type-id tiebreak below, which is this port's creation
+             // order and not upstream's.
+             .then_with(|| self.compare_type_symbols(a, b, left, right))
++            // compareTypeMappers (utilities.go:683) for two instantiations of
++            // one anonymous literal: an object without a mapper sorts after
++            // one with a mapper; two flat mappers compare their sources, then
++            // their targets (`TypeMapperKindArray`, :706).
++            .then_with(|| {
++                if !left.flags.intersects(TypeFlags::OBJECT)
++                    || !right.flags.intersects(TypeFlags::OBJECT)
++                    || !matches!(left.data, TypeData::Named { .. })
++                    || !matches!(right.data, TypeData::Named { .. })
++                {
++                    return Ordering::Equal;
++                }
++                match (
++                    self.instantiated_object_mappers.get(&a),
++                    self.instantiated_object_mappers.get(&b),
++                ) {
++                    (None, None) => Ordering::Equal,
++                    (None, Some(_)) => Ordering::Greater,
++                    (Some(_), None) => Ordering::Less,
++                    (Some((_, left)), Some((_, right))) => {
++                        let sources =
++                            |m: &[(TypeId, TypeId)]| m.iter().map(|p| p.0).collect::<Vec<_>>();
++                        let targets =
++                            |m: &[(TypeId, TypeId)]| m.iter().map(|p| p.1).collect::<Vec<_>>();
++                        self.compare_type_lists(&sources(left), &sources(right))
++                            .then_with(|| self.compare_type_lists(&targets(left), &targets(right)))
++                    }
++                }
++            })
+             // compareTypeMappers orders instantiations of the same anonymous
+             // member by their mapped types. Equal source lists identify the
+             // flat mapper shape retained by instantiate_signature_type.

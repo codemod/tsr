@@ -58,9 +58,9 @@ than the triage counted at `ccb48e7`). Classes:
 | `declarationEmitMappedTypePropertyFromNumericStringKey:0:2-5` (4) | `{ [K in keyof T]: string \| T[K]; }` | (f) | mapped template text baked from the written `T[K] \| string` | mapped.rs (r5-mapped4) |
 | `wideningWithTopLevelTypeParameter:0:47` (1) | `T extends undefined ? never : string \| T` | (f) | conditional branch text baked from the written node | declared.rs |
 | `dependentDestructuredVariablesFromNestedPatterns:0:12,22,55` (3) | `[undefined, Error] \| [Awaited<T[K]>, undefined]` | (f) | mapped template text baked from the written tuple union | mapped.rs |
-| `noInferUnionExcessPropertyCheck1:0:3` (1) | `(() => NoInfer<T>) \| NoInfer<T>` | (d) | see §4.2 | open |
-| `mappedTypeIndexedAccess:0:13` (1) | `{ key: "bar"; … } \| { key: "foo"; … }` | (d) | see §4.3 | open |
-| `genericRestParameters3:0:149` (1) | `[x: string, number] \| [x: string, ...rest: A]` | (d) | see §4.4 | open |
+| `noInferUnionExcessPropertyCheck1:0:3` (1) | `(() => NoInfer<T>) \| NoInfer<T>` | (d) | `NoInfer<T>` is an alias reference here, a substitution type natively | **this lane, fixed §6** |
+| `mappedTypeIndexedAccess:0:13` (1) | `{ key: "bar"; … } \| { key: "foo"; … }` | (d) | no `compareTypeMappers` arm for instantiated type literals | shipped as a diff, §5 |
+| `genericRestParameters3:0:149` (1) | `[x: string, number] \| [x: string, ...rest: A]` | (d) | see §7 | open |
 | `returnTagTypeGuard:0:40` (1) | `(val: boolean \| number) => void` | (e) | JSDoc `@param` type reused | JSDoc lane |
 
 **Verdict on "diffuse vs systemic".** The triage was right that the class
@@ -145,6 +145,70 @@ symbol. The only producers of a symbol-named union are
 diagnostics unchanged; perf 0.982 (domain-model) and 0.981
 (generic-imports), 21 samples; `slowcases` clean.
 
-## 5. Open (d) items
+## 5. Shipped diff: `compareTypeMappers` for instantiated type literals
+
+`r5-unionorder-object-mapper.diff` (in this directory). Not applied: it
+writes in `declared.rs` (r5-declared3) and `inference.rs` (main).
+
+**Native.** Two instantiations of one anonymous object type have the same
+symbol, so `CompareTypes` reaches the non-reference object arm
+(`utilities.go:478`) and orders them by `compareTypeMappers(t1.mapper,
+t2.mapper)` (`:683`): a nil mapper after a non-nil one; two array mappers
+by their source lists, then their target lists. `Pairs<FooBar>[keyof FooBar]`
+distributes over `"bar" | "foo"`; the two member objects differ only in the
+mapper `TKey -> "bar"` / `TKey -> "foo"`, so `"bar"` prints first
+(`mappedTypeIndexedAccess.types:50`).
+
+**What TSR does.** Its instantiated type literals are `Named` images keyed in
+`instantiated_objects` by `(source, mapper)`, but nothing maps a result back
+to its mapper. Two images of one literal tie on symbol position and fall to
+the id, which is mint order (`foo` first, from `keyof FooBar`'s declaration
+order).
+
+**The diff.**
+- `checker.rs`: a new field `instantiated_object_mappers: TypeId ->
+  (source, mapper)`, the inverse of `instantiated_objects` for a freshly
+  minted object. Checker port convention: native operation
+  `compareTypeMappers` over `ObjectType.mapper`; key is the minted result
+  `TypeId`, owned by the producer that minted it; written once, at mint
+  (the reserved image in `declared.rs`, the minted image in
+  `inference.rs`), never updated; no receiver or alias context; no work
+  beyond a hash insert at mint and a lookup on a comparator tie.
+  `mapped.rs`'s `instantiated_objects` insert is deliberately not
+  recorded: its worker can answer an existing type, which must not gain a
+  mapper.
+- `unions.rs` `compare_types`: after the symbol arm, two `Named` objects
+  compare their recorded mappers as above.
+
+**Measured** (types and diagnostics unfiltered, against the base after
+§4): types +1 (`mappedTypeIndexedAccess:0:13`; the case flips, 19/19
+RIGHT), zero losses; diagnostics unchanged; perf 0.919 / 0.93, 0.978 (21,
+41, 41 samples; noise). A first experiment with a linear scan of
+`instantiated_objects` measured the same +1.
+
+## 6. Fix: `NoInfer<T>` sorts as a substitution type
+
+**Native.** `getNoInferType` (`checker.go:27394`) returns a substitution
+type. `CompareTypes` sorts it by `TypeFlagsSubstitution` (`1 << 24`), which
+is after an object's `1 << 20`; a substitution has no type-name symbol;
+two of them compare base types, then constraints (`utilities.go:558`).
+`NoInfer<T> | (() => NoInfer<T>)` therefore prints
+`(() => NoInfer<T>) | NoInfer<T>` (`noInferUnionExcessPropertyCheck1.types:12`).
+
+**What TSR did.** `NoInfer<T>` is an alias reference
+(`declared.rs` `no_infer_base_type`'s doc comment says why), which sorts
+under the name `NoInfer` ahead of an unnamed function type.
+
+**Change.** `compare_types` (`unions.rs`) treats a `NoInfer` reference as
+native's substitution: `SUBSTITUTION` sort bits, then the bases, then the
+id. The lookup is gated on `OBJECT` so a comparison of non-objects pays
+nothing.
+
+**Measured** (against the base after §4): types +1
+(`noInferUnionExcessPropertyCheck1:0:3`), zero losses; diagnostics
+unchanged; perf 0.986 (domain-model), 0.994 (generic-imports), 21 samples;
+`slowcases` clean.
+
+## 7. Open
 
 Filled in as investigated.
