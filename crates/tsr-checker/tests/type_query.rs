@@ -212,6 +212,10 @@ fn an_instantiation_expression_instantiates_while_plain_typeof_answers() {
     // `getInstantiationExpressionType` (`checker.go:10660`): the one
     // applicable signature, instantiated (`docs/parity/notes/r5-instexpr.md`).
     let source = "declare function identity<V>(y: V): V;\nvar a: typeof identity<string>;\nvar b: typeof identity;";
-    assert_eq!(type_of_declaration(source, "a"), "(y: string) => string");
+    // The node builder then reuses the written `typeof` node for the result
+    // (`nodebuilderimpl.go:2816`; `>FnAlias : typeof fn<T>` in
+    // `aliasInstantiationExpressionGenericIntersectionNoCrash2`,
+    // r6-typesroots §4).
+    assert_eq!(type_of_declaration(source, "a"), "typeof identity<string>");
     assert_eq!(type_of_declaration(source, "b"), "<V>(y: V) => V");
 }

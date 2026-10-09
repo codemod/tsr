@@ -1451,3 +1451,123 @@ Batch BI lands r6-smallcodes5's nine hook diffs, measured lossless as a stack
 
 19 cases remain, routed in r6-smallcodes5.md §4. r6-jsx takes the 55 still-WRONG
 JSX/TSX diagnostics cases (`tsr-2zk.1141`).
+
+### r6-names finished (batch BJ); r6-names2 dispatched
+
+Batch BJ lands r6-names' commits and six hook diffs:
+- value slots for `with` and JSX tags;
+- unchecked regions;
+- TS-only annotations in JS;
+- primitive spellings;
+- `typeof null`;
+- the export-specifier failure tail.
+
+Measured by the box: +17 diagnostics cases.
+
+The parameter-scope diff (resolveName's useOuterVariableScopeInParameter:
++5 diagnostics, +38 types) is held. Its BindResult options slot adds about
+1.5M Ir on dm through layout, and the stack read dm +0.19–0.25%.
+r6-names2 lands it without that cost (`tsr-2zk.1142`).
+
+### r6-accessible finished (batch BK); r6-specifiers dispatched
+
+Batch BK lands r6-accessible's ports of IsTypeSymbolAccessible/IsSymbolAccessible
+as the type printer asks them, and getPropertyNameFromType's unique-symbol key.
+It also lands three hook diffs:
+- the alias arm;
+- a mapped object printed at its site where it has no accessible alias;
+- unique-symbol mapped keys.
+
+Measured by the box: +12 types on the batch-BG tip, Ir within noise. The
+serialize-type-name diff was superseded by r6-printer's identical change.
+
+Remaining, routed:
+- the chain printer for `import("./x").T` spellings (`.39`);
+- opaque `Alias<Args>` mints with no structure to fall back to (`.16.2`,
+  ADR-0045 rule 4);
+- an inline mapped node in an intersection alias under strictNullChecks off
+  (r6-declared).
+
+r6-specifiers takes module specifiers into node_modules: `.999`, `.1098`,
+`.16.59` and `.16.77`, about 36 blocked cases.
+
+### r6-typesroots finished (batch BL); r6-typesroots2 dispatched
+
+Batch BL lands r6-typesroots' five query files and seven hook diffs, measured
+lossless as a stack (+78 type lines across 29 cases; Ir flat):
+- arity-window errorType: +31;
+- late-bindable index signatures of type literals: +7;
+- typeof reuse for instantiation expressions: +4;
+- dedupe of a signature's merged type parameters: +17;
+- the rest parameter binding pattern's implied type: +6;
+- late-bound destructuring through the apparent type: +2;
+- unqualified type-meaning import types: +11.
+
+Closed: `.16.28/.34/.35/.40/.41/.43/.47/.54`. Released with their causes:
+`.16.14/.16/.21/.32/.36/.46`.
+
+The origin-slice gate (+35/−2) is held. Its losses were right by accident: a
+type literal recursing through a union alias answers Unknown, and fixing that
+needs lazy type-literal members.
+
+r6-typesroots2 takes `.16.65/.69/.73/.74/.7/.6/.76/.79`.
+
+### r6-declared finished (batch BM); r6-declared2 dispatched
+
+Batch BM lands r6-declared's commits:
+- getObjectTypeInstantiation's referenced-parameter key
+  (isTypeParameterPossiblyReferenced);
+- an indexed type literal resolves only the selected member. That removes
+  the 54 MB `__Reverse` text with no count bound: native needs only 48,750
+  instantiations and reports no TS2589;
+- the import-equals written name;
+- memoized conditional extends instantiations (ramdaToolsNoInfinite2 31 s →
+  2.1 s once its imports resolve);
+- a namespace-rooted qualified enum reference answers the enum (+2 diagnostics);
+- an intersection alias's deferred conditional constituent;
+- r5-declared4's print arity at Ir within noise (+37 types). Its +0.22% cost
+  came from resolving the Iterable targets per print, not once per checker.
+
+It also lands the unresolved-alias written-name diff (+21 types).
+
+Held:
+- the binder declare-module imports diff: +3 diagnostics, but it still loses
+  ramdaToolsNoInfinite2 448/449/485/490–492;
+- the conditional-typed print: dm Ir +0.16%, waiting on `.1135`.
+
+r6-declared2 takes `tsr-2zk.1143`.
+
+### r6-names2 finished (batch BN); r6-triage dispatched
+
+Batch BN lands resolveName's useOuterVariableScopeInParameter at dm Ir
++0.03%, down from +0.15%. The options now travel as a walk parameter, not a
+BindResult field; a wrapper-only variant that lost optionalParamReferencingOtherParams2
+was refused.
+
+It also lands three more diffs:
+- value_reference_slot inlined (−0.255M Ir);
+- TS1003 through checkModuleExportName;
+- TS2303 through native's namespace export-specifier alias walk.
+
+Measured by the box: +5 diagnostics, +38 types, 0 lost.
+
+r6-triage re-clusters the remaining failures on the round-6 tip
+(`tsr-2zk.1144`), because the `.16.x` roots date from an older base.
+
+### r6-lazytext finished (batch BO); r6-printer4 dispatched
+
+ADR-0052: a print-time decision is a plan the site renderer reads. Batch BO
+lands two print-time slots, both at Ir within noise:
+- spread members (`.1120`), which lands the held property-slot spreads half:
+  +19 types, against the +0.12% dm the held diff cost;
+- deferred conditional typed parts (`.1135`): +4 types, against the +0.153%
+  dm the held diff cost.
+
+Lazy mapped member text (ADR-0050 alt 1) was measured and refused: dm
+−0.03%. The members are read anyway, and avoiding the string build needs an
+&mut printer chain across five owners.
+
+ADR numbering: 0051 is the lone-surrogate ADR and 0052 this one.
+r6-checkperf's held JSDoc-deferral ADR must take the next free number.
+
+r6-printer4 takes the printer lane (`tsr-2zk.1145`).

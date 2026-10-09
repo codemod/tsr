@@ -877,12 +877,20 @@ impl<'a> Checker<'a, '_> {
         let binder = self.binder;
         let nodes = self.nodes;
         let node_map = self.node_map;
-        binder.resolve_name_with_export_alias(
+        // `useOuterVariableScopeInParameter`'s two options, read from the
+        // checker's own fields at the call (`docs/parity/notes/r6-names2.md`
+        // §1): native's `NameResolver` holds `CompilerOptions`.
+        let scope_change = tsr_binder::ScopeChangeOptions {
+            target: self.language_version,
+            emit_standard_class_fields: self.standard_class_fields,
+        };
+        binder.resolve_name_with_export_alias_in_scope(
             nodes,
             node_map,
             start,
             name,
             meaning,
+            scope_change,
             |alias, mask| {
                 let target = self.resolve_alias(alias)?;
                 let flags = binder.symbols().get(binder.merged_symbol(target)).flags;
@@ -5521,7 +5529,11 @@ impl<'a> Checker<'a, '_> {
                 if let Some(Node::ParameterDeclaration(parameter)) =
                     self.node_map.get(declaration)
                     && parameter.r#type.is_none()
-                    && parameter.dot_dot_dot_token.is_none()
+                    // A REST pattern too: the binding-pattern arm of
+                    // `getTypeForVariableLikeDeclaration` (checker.go:16790)
+                    // answers before `getWidenedTypeForVariableLikeDeclaration`'s
+                    // rest `anyArrayType` fallback, so `function a(...{a, b})`
+                    // is `{ a: any; b: any; }` (r6-typesroots §6).
                     // A FUNCTION DECLARATION's parameter is provably
                     // uncontextual; expression/arrow parameters may be
                     // contextually typed upstream and the implied `any`

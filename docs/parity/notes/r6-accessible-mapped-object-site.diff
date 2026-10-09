@@ -1,0 +1,133 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 7eec834..252f6cc 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -2222,6 +2222,21 @@ impl<'a, 'n> Checker<'a, 'n> {
+             if let Some(text) = self.object_literal_text_at(id, reference, true) {
+                 return Some(text);
+             }
++            // A resolved mapped object prints its members at the site
++            // (createTypeNodeFromObjectType); one carrying an alias does so
++            // only where the alias cannot be named
++            // (`nodebuilderimpl.go:3362`, `crate::alias_accessibility`).
++            if !self.rendering_composites.contains(&id)
++                && self.mapped_types.contains_key(&id)
++                && !self.prints_accessible_alias(id, reference)
++            {
++                self.rendering_composites.insert(id);
++                let out = self.mapped_object_text_at(id, reference);
++                self.rendering_composites.remove(&id);
++                if out.is_some() {
++                    return out;
++                }
++            }
+             if self.signature_types.contains_key(&id)
+                 && self.anonymous_properties.contains_key(&id)
+                 && !self.rendering_composites.contains(&id)
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index b5ba3ff..b362d4b 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -779,13 +779,22 @@ impl<'a> Checker<'a, '_> {
+                 // instantiated per reference, and `mappedTypeRelationships`'s 63
+                 // gains are exactly those expanded forms.
+                 if matches!(node, TypeNode::MappedTypeNode(_))
+-                    && let Some(id) = tsr_ast::Node::from(node).node_id()
+-                    && let Some(name) = self.non_generic_alias_body_name(id)
++                    && let Some(body) = tsr_ast::Node::from(node).node_id()
++                    && let Some(name) = self.non_generic_alias_body_name(body)
+                 {
+                     let id = self.store.new_named(TypeFlags::OBJECT, name, None);
+                     if let TypeNode::MappedTypeNode(mapped) = node {
+                         self.capture_mapped_type(id, mapped);
+                     }
++                    // getTypeFromMappedTypeNode (checker.go:24255) gives the
++                    // type `getAliasForTypeNode` (`:23711`), ADR-0045 rule 2;
++                    // the printer names it where it is accessible
++                    // (`nodebuilderimpl.go:3362`, `crate::alias_accessibility`).
++                    if let Some(alias) =
++                        self.nodes.parent(body).and_then(|p| self.binder.symbol_of(p))
++                    {
++                        self.alias_of.insert(id, (alias, Vec::new()));
++                    }
+                     return id;
+                 }
+                 let mut single_quoted = false;
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index c2a6af2..686bc79 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -65,6 +65,10 @@ struct TruncationBudget {
+     /// The mapped objects whose members are being printed, outermost first:
+     /// one met again prints its fixed text instead of recursing.
+     visiting: Vec<TypeId>,
++    /// `ctx.enclosingDeclaration` of a print at a site
++    /// ([`Checker::mapped_object_text_at`]); `None` for the text baked at
++    /// creation.
++    site: Option<tsr_ast::NodeId>,
+ }
+ 
+ impl TruncationBudget {
+@@ -1344,8 +1348,8 @@ impl<'a> Checker<'a, '_> {
+                 let member = Member::Index {
+                     readonly,
+                     name: "x".to_string(),
+-                    key: self.type_to_string(index.key),
+-                    value: self.type_to_string(index.value),
++                    key: self.mapped_slot_text(index.key, budget.site),
++                    value: self.mapped_slot_text(index.value, budget.site),
+                 };
+                 if let Member::Index { key, value, .. } = &member {
+                     budget.approximate_length += key.len() + value.len() + 6;
+@@ -1382,7 +1386,10 @@ impl<'a> Checker<'a, '_> {
+             budget.visiting.pop();
+             printed
+         } else {
+-            let printed = self.property_printed_type(property).into_owned();
++            let printed = match budget.site {
++                Some(site) => self.mapped_slot_text(ty, Some(site)),
++                None => self.property_printed_type(property).into_owned(),
++            };
+             // typeToTypeNode's string-literal arm counts the value and its
+             // quotes; other kinds count their printed text.
+             budget.approximate_length += match &self.store.get(ty).data {
+@@ -1402,6 +1409,39 @@ impl<'a> Checker<'a, '_> {
+         }
+     }
+ 
++    /// A slot of a resolved mapped object's member print: at the site when
++    /// the print has one (`typeToTypeNodeHelper` under the print's
++    /// `enclosingDeclaration`), else the creation-time text.
++    fn mapped_slot_text(&mut self, ty: TypeId, site: Option<tsr_ast::NodeId>) -> String {
++        match site {
++            Some(site) => {
++                self.type_to_string_at(ty, site).unwrap_or_else(|| self.type_to_string(ty))
++            }
++            None => self.type_to_string(ty),
++        }
++    }
++
++    /// createTypeNodeFromObjectType (`nodebuilderimpl.go:2690`) for a
++    /// resolved mapped object printed at `reference`: the same member print
++    /// as the text baked at creation ([`Checker::mapped_object_text`]), with
++    /// every slot rendered under the site's `enclosingDeclaration`, so a
++    /// member's alias is named or expanded as the site allows
++    /// (`IsTypeSymbolAccessible`, `nodebuilderimpl.go:3362`;
++    /// `docs/parity/notes/r6-accessible.md` §2). `None` when the type is not
++    /// a member-printed mapped object.
++    pub(crate) fn mapped_object_text_at(
++        &mut self,
++        id: TypeId,
++        reference: tsr_ast::NodeId,
++    ) -> Option<String> {
++        if !self.is_member_printed_mapped_object(id) {
++            return None;
++        }
++        let mut budget =
++            TruncationBudget { visiting: vec![id], site: Some(reference), ..Default::default() };
++        Some(self.mapped_object_text(id, &mut budget))
++    }
++
+     /// Whether `ty` prints its resolved members (createTypeNodeFromObjectType
+     /// for a mapped type that is not `isGenericMappedType`).
+     fn is_member_printed_mapped_object(&mut self, ty: TypeId) -> bool {

@@ -2196,6 +2196,11 @@ impl<'a, 'n> Checker<'a, 'n> {
                 return None;
             }
         }
+        // The instance side of `export_equals_class_text_at`, after the
+        // module-clone guard (`crate::import_type_meaning`).
+        if let Some(text) = self.export_equals_class_instance_text_at(id, reference) {
+            return Some(text);
+        }
         let module = match &self.store.get(id).data {
             crate::types::TypeData::Anonymous { symbol, .. } => {
                 let symbol = *symbol;
@@ -2237,6 +2242,21 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             if let Some(text) = self.object_literal_text_at(id, reference, true) {
                 return Some(text);
+            }
+            // A resolved mapped object prints its members at the site
+            // (createTypeNodeFromObjectType); one carrying an alias does so
+            // only where the alias cannot be named
+            // (`nodebuilderimpl.go:3362`, `crate::alias_accessibility`).
+            if !self.rendering_composites.contains(&id)
+                && self.mapped_types.contains_key(&id)
+                && !self.prints_accessible_alias(id, reference)
+            {
+                self.rendering_composites.insert(id);
+                let out = self.mapped_object_text_at(id, reference);
+                self.rendering_composites.remove(&id);
+                if out.is_some() {
+                    return out;
+                }
             }
             if self.signature_types.contains_key(&id)
                 && self.anonymous_properties.contains_key(&id)
@@ -2383,6 +2403,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             // reference (`reference_text_at`'s chain / rename / qualifier).
             if let Some((alias, alias_arguments)) = self.alias_of.get(&id).cloned()
                 && !self.rendering_composites.contains(&id)
+                // ... only where `IsTypeSymbolAccessible` holds; otherwise
+                // the type prints its structure (`crate::alias_accessibility`).
+                && self.is_type_symbol_accessible_at(alias, reference)
             {
                 self.rendering_composites.insert(id);
                 let rebuilt = self.reference_text_at(alias, &alias_arguments, reference);
@@ -2405,7 +2428,10 @@ impl<'a, 'n> Checker<'a, 'n> {
                     return Some(out);
                 }
             }
-            let printed = self.type_to_string(id);
+            // A deferred conditional's typed print stands where its baked
+            // written text did (`docs/parity/notes/r6-lazytext.md` §2).
+            let printed =
+                self.deferred_conditional_text_at(id).unwrap_or_else(|| self.type_to_string(id));
             return self.qualified_name_at(id, printed, reference);
         };
         if let Some(name) = self.module_name_at(module, reference, SymbolFlags::VALUE) {

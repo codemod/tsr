@@ -68,6 +68,42 @@ pub(crate) struct InstantiationExpressionLinks {
     types: rustc_hash::FxHashMap<InstantiationExpressionKey, Option<TypeId>>,
     /// Reports parked by a computation, drained once by the walk's visit.
     reports: rustc_hash::FxHashMap<NodeId, Vec<(NodeId, Diagnostic)>>,
+    /// `Checker::indexed_type_literal_member`'s publication state
+    /// (declared.rs, `r6-declared.md` §2): the type-literal instantiation
+    /// keys whose selected member is resolving (inserted before, removed
+    /// after), and the literal nodes a re-entrant read sent back to the eager
+    /// road (inserted once, never removed).
+    pub(crate) lazy_member_reads: rustc_hash::FxHashSet<crate::declared::TypeLiteralKey>,
+    pub(crate) eager_indexed_literals: rustc_hash::FxHashSet<NodeId>,
+    /// getIndexType's `resolvedIndexType` for the deferred `keyof T` mint of
+    /// `get_type_from_type_node_worker` (declared.rs): `(operand type,
+    /// printed text) -> mint`, written once when the mint is made, never
+    /// invalidated (`r6-declared.md` §2).
+    pub(crate) deferred_keyof_mints: rustc_hash::FxHashMap<(TypeId, String), TypeId>,
+    /// getPermissiveInstantiation / getRestrictiveInstantiation's per-type
+    /// caches for a conditional's extends type, read by
+    /// `Checker::conditional_extends_instantiations` (declared.rs): `extends
+    /// -> (permissive, restrictive)`, or `None` when it mentions no type
+    /// parameter. Written once per type, never invalidated
+    /// (`r6-declared.md` §2.2).
+    pub(crate) conditional_extends: rustc_hash::FxHashMap<TypeId, Option<(TypeId, TypeId)>>,
+    /// The merged symbols of the global `Iterable`, `IterableIterator`,
+    /// `AsyncIterable` and `AsyncIterableIterator` at arity 3, whose printed
+    /// references elide default-identical trailing arguments
+    /// (`Checker::reference_print_arity`, declared.rs). Resolved once, on
+    /// first use, as native resolves them at checker creation
+    /// (checker.go:1088-1097); never invalidated.
+    pub(crate) iterable_elision_targets: Option<std::rc::Rc<[tsr_binder::SymbolId]>>,
+    /// `isTypeParameterPossiblyReferenced(tp, node)` (checker.go:22403),
+    /// keyed `(declaration node, type-parameter symbol)`: the filter
+    /// getObjectTypeInstantiation applies once per declaration and stores in
+    /// `typeNodeLinks.outerTypeParameters`. Held here, in a links struct the
+    /// declared lane owns, because `Checker`'s field list is main's; read by
+    /// `Checker::type_literal_key` (declared.rs), which takes `&self`, hence
+    /// the cell. Pure syntax plus name resolution: written once per key,
+    /// never invalidated (`r6-declared.md` §1).
+    pub(crate) possibly_referenced:
+        std::cell::RefCell<rustc_hash::FxHashMap<(NodeId, tsr_binder::SymbolId), bool>>,
 }
 
 /// `InstantiationExpressionKey{nodeId, typeId}` plus the open alias frames
@@ -150,6 +186,7 @@ impl<'a> Checker<'a, '_> {
         self.instantiation_expressions.types.insert(key.clone(), None);
         let reported_before = self.diagnostics.len();
         let mut state = InstantiationState::default();
+        let minted_from = self.store.len();
         let mut result =
             self.get_instantiated_type(expression_type, node, type_arguments, &mut state);
         let mut reports = self.diagnostics.split_off(reported_before);
@@ -179,6 +216,16 @@ impl<'a> Checker<'a, '_> {
                     ),
                 ));
             }
+        }
+        // createAnonymousTypeNodeEx's typeof-node reuse
+        // (`crate::instantiation_type_query_reuse`): frame-free results only.
+        if !under_alias_frame && !self.is_gap(result) {
+            result = self.reuse_instantiation_type_query_node(
+                node,
+                expression_type,
+                result,
+                minted_from,
+            );
         }
         self.instantiation_expressions.types.insert(key, Some(result));
         if !reports.is_empty() && !under_alias_frame {

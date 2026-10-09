@@ -1,0 +1,211 @@
+diff --git a/crates/tsr-checker/src/reference_arity.rs b/crates/tsr-checker/src/reference_arity.rs
+--- a/crates/tsr-checker/src/reference_arity.rs
++++ b/crates/tsr-checker/src/reference_arity.rs
+@@ -31,7 +31,6 @@
+     /// off it does not even report), so a class or interface referenced from
+     /// a JavaScript file is `false` here and keeps the fill road. An alias
+     /// reference has no JS exception (`checker.go:23596`).
+-    #[expect(dead_code, reason = "consumer: r6-typesroots-arity-error-type.diff (declared.rs)")]
+     pub(crate) fn reference_arity_answers_error_type(
+         &self,
+         node: &tsr_ast::TypeReferenceNode<'a>,
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index b5ba3ff..8f6e1b7 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -5026,6 +5026,13 @@ impl<'a> Checker<'a, '_> {
+                 self.nodes.flags(file).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
+             });
+         let fillable = partially_written || bare_and_fully_defaulted || js_fill;
++        // Outside native's arity window the reference is upstream's
++        // `errorType`, which composes (`C<I>` is `C<any>`); only a count
++        // inside it that this port cannot fill is the gap
++        // (`crate::reference_arity`).
++        if self.reference_arity_answers_error_type(node, symbol) {
++            return self.intrinsics.native_error;
++        }
+         if node.type_arguments.len() != parameters && !fillable {
+             return error;
+         }
+diff --git a/crates/tsr-checker/tests/reference_arity_error_type.rs b/crates/tsr-checker/tests/reference_arity_error_type.rs
+new file mode 100644
+index 0000000..fef2be0
+--- /dev/null
++++ b/crates/tsr-checker/tests/reference_arity_error_type.rs
+@@ -0,0 +1,81 @@
++//! A generic reference written outside its arity window answers upstream's
++//! `errorType`, which composes (`getTypeFromClassOrInterfaceReference`,
++//! `checker.go:23169`; `getTypeFromTypeAliasReference`, `checker.go:23596`).
++//! `docs/parity/notes/r6-typesroots.md` §2.
++
++use tsr_ast::Statement;
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The last variable statement's initializer: whether it is the native
++/// `errorType`, the port's gap, or what it prints.
++fn initializer(file: &str, source: &str) -> String {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(file));
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: file, text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    let last = *parsed.source_file.statements.last().expect("a statement");
++    let Statement::VariableStatement(statement) = last else { panic!("want a var statement") };
++    let initializer = statement
++        .declaration_list
++        .and_then(|list| list.declarations.first().copied())
++        .and_then(|declaration| declaration.initializer)
++        .expect("an initializer");
++    let id = checker.check_expression(initializer);
++    let intrinsics = checker.intrinsics();
++    if id == intrinsics.native_error {
++        "<native error>".to_owned()
++    } else if id == intrinsics.error {
++        "<gap>".to_owned()
++    } else {
++        checker.type_to_string(id)
++    }
++}
++
++const DECLS: &str =
++    "class C<T> { x: T }\ninterface I<T> { y: T }\ntype A<T, U = T> = { a: T; u: U };\n";
++
++/// `var c1: C;` — too few arguments: `errorType`, not the gap.
++#[test]
++fn a_bare_generic_class_reference_is_native_error() {
++    let source = format!("{DECLS}declare var c1: C;\nvar x = c1;");
++    assert_eq!(initializer("t.ts", &source), "<native error>");
++}
++
++/// `var c2: C<I>;` — the argument's `errorType` composes into the reference.
++#[test]
++fn an_arity_error_argument_composes() {
++    let source = format!("{DECLS}declare var c2: C<I>;\nvar x = c2;");
++    assert_eq!(initializer("t.ts", &source), "C<any>");
++}
++
++/// Too many arguments on an alias: `errorType` too (`checker.go:23596`).
++#[test]
++fn too_many_alias_arguments_is_native_error() {
++    let source = format!("{DECLS}declare var a: A<1, 2, 3>;\nvar x = a;");
++    assert_eq!(initializer("t.ts", &source), "<native error>");
++}
++
++/// The control: a count inside the window (the defaulted tail omitted) is
++/// not an arity error.
++#[test]
++fn a_defaulted_tail_is_not_an_arity_error() {
++    let source = format!("{DECLS}declare var a: A<1>;\nvar x = a;");
++    let printed = initializer("t.ts", &source);
++    assert_ne!(printed, "<native error>");
++    assert_ne!(printed, "<gap>");
++}
++
++/// The JS leg never answers `errorType` for a class reference
++/// (`if !isJs { return c.errorType }`).
++#[test]
++fn a_javascript_class_reference_is_not_native_error() {
++    let source = "/** @template T */\nclass C { }\n/** @type {C} */\nvar c;\nvar x = c;";
++    assert_ne!(initializer("t.js", source), "<native error>");
++}
+diff --git a/crates/tsr-checker/tests/types.rs b/crates/tsr-checker/tests/types.rs
+index cb4a261..9ac7594 100644
+--- a/crates/tsr-checker/tests/types.rs
++++ b/crates/tsr-checker/tests/types.rs
+@@ -694,7 +694,10 @@ fn a_generic_type_is_printed_with_its_type_parameters() {
+     assert_eq!(declared_type_of("class C {}", "C"), "C");
+     // A generic type referenced with *no* arguments is an error upstream, which
+     // answers `errorType` too.
+-    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C;", "x"), "error");
++    // r6-typesroots §2: outside the window the answer is native `errorType`
++    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
++    // the gap `error`.
++    assert_eq!(type_of_declaration("class C<T> {}\ndeclare const x: C;", "x"), "any");
+     // Type arguments on a *non*-generic type are `checkNoTypeArguments`, and
+     // they must not be ignored: without this line the arguments could be
+     // dropped silently and every assertion above would still pass.
+@@ -884,10 +887,13 @@ fn the_arity_of_a_generic_reference_is_checked() {
+     // Outside `[minTypeArgumentCount, len(parameters)]` upstream reports and
+     // answers `errorType`. Inside it — fewer arguments than parameters, filled
+     // from defaults — needs substitution and is a gap rather than a guess.
+-    assert_eq!(type_of_declaration("class C<T, U> {}\ndeclare const x: C<number>;", "x"), "error");
++    // r6-typesroots §2: outside the window the answer is native `errorType`
++    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
++    // the gap `error`.
++    assert_eq!(type_of_declaration("class C<T, U> {}\ndeclare const x: C<number>;", "x"), "any");
+     assert_eq!(
+         type_of_declaration("class C<T> {}\ndeclare const x: C<number, string>;", "x"),
+-        "error"
++        "any"
+     );
+     // **This assertion was `"error"` and is corrected.** A bare reference whose
+     // every parameter is defaulted is *inside* upstream's window —
+@@ -2451,7 +2457,10 @@ fn a_bare_reference_to_a_generic_without_defaults_is_still_an_arity_gap() {
+     // outside upstream's window and the reference is an error — this is the arm
+     // that must NOT be widened, and a fill that ignored the defaults would
+     // answer `I<something>` instead.
+-    assert_eq!(type_of_declaration("interface I<T> { a: T }\ndeclare const x: I;", "x"), "error");
++    // r6-typesroots §2: outside the window the answer is native `errorType`
++    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
++    // the gap `error`.
++    assert_eq!(type_of_declaration("interface I<T> { a: T }\ndeclare const x: I;", "x"), "any");
+ }
+ 
+ #[test]
+@@ -2460,9 +2469,12 @@ fn a_bare_reference_whose_defaults_only_partly_cover_is_still_a_gap() {
+     // bare is still outside the window. A predicate written as "any parameter
+     // has a default" rather than "every parameter has a default" passes the test
+     // above and fails this one.
++    // r6-typesroots §2: outside the window the answer is native `errorType`
++    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
++    // the gap `error`.
+     assert_eq!(
+         type_of_declaration("interface I<T, U = number> { a: T, b: U }\ndeclare const x: I;", "x"),
+-        "error"
++        "any"
+     );
+ }
+ 
+@@ -2470,12 +2482,15 @@ fn a_bare_reference_whose_defaults_only_partly_cover_is_still_a_gap() {
+ fn a_written_argument_list_still_has_to_match() {
+     // **True positive.** Nothing here loosens the ordinary arity rule: too many
+     // arguments is still an error, defaults or no defaults.
++    // r6-typesroots §2: outside the window the answer is native `errorType`
++    // (ADR-0048), printed `any`; a count inside it this port cannot fill stays
++    // the gap `error`.
+     assert_eq!(
+         type_of_declaration(
+             "interface I<T = number> { a: T }\ndeclare const x: I<string, string>;",
+             "x"
+         ),
+-        "error"
++        "any"
+     );
+     assert_eq!(
+         type_of_declaration("interface I<T = number> { a: T }\ndeclare const x: I<string>;", "x"),
+diff --git a/crates/tsr-checker/tests/yield_expression.rs b/crates/tsr-checker/tests/yield_expression.rs
+index 927d920..43c671b 100644
+--- a/crates/tsr-checker/tests/yield_expression.rs
++++ b/crates/tsr-checker/tests/yield_expression.rs
+@@ -172,11 +172,12 @@ fn the_next_slot_is_read_and_not_assumed() {
+         ),
+         "unknown"
+     );
+-    // And a third parameter with NO default is a slot this port cannot fill,
+-    // which is a gap rather than `any`.
++    // And a third parameter with NO default puts `G<number>` outside the
++    // arity window: the annotation is native `errorType` (r6-typesroots §2),
++    // so the yield reads `any` from it rather than a filled slot.
+     assert_eq!(
+         type_of_first_yield("interface G<T, R, N> {}\nfunction* g(): G<number> { yield 1; }"),
+-        "error"
++        "any"
+     );
+ }
+ 

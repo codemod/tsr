@@ -1648,7 +1648,8 @@ impl<'a> Checker<'a, '_> {
             }
         }
         let (modifiers, asterisk) = (parts.modifiers, parts.asterisk);
-        let type_parameter_nodes = parts.type_parameters;
+        // AppendIfUnique by merged symbol (`crate::signature_type_parameters`).
+        let type_parameter_nodes = self.unique_type_parameter_declarations(parts.type_parameters);
         let parameter_nodes = parts.parameters;
         let return_annotation = parts.return_annotation;
         let body = parts.body;

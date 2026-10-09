@@ -25,6 +25,23 @@ stdlib-only stand-in in the session scratchpad, not committed
 checked against it (`--declaration --emitDeclarationOnly` prints, or an
 assignment's diagnostic).
 
+### 0.1 Re-frozen after batch BM
+
+Batch BM (r6-declared), BN and BO landed while §1–§4 were in progress; the
+brief's freeze point is the tip once BM has landed: `f334de9` (batch BO's
+snapshot refresh), merged into this branch (one conflict: two new functions
+side by side in `declared.rs`). Unfiltered release build of `f334de9`:
+
+- `diagverdictdump`: RIGHT 5619, EMPTY_RIGHT 5606, WRONG 974, EMPTY_WRONG 39;
+- `verdictdump`: RIGHT 550,341, WRONG 5,205, GAP 757;
+- Ir: domain-model 1,090,962,389; generic-imports 343,085,896.
+
+The merged branch (§1 + §3(a/c)) against it: types **+70**, diagnostics
+**+1**, zero losses on both, slowcases clean; Ir domain-model 1,091,760,149
+(+0.07%), generic-imports 343,255,856 (+0.05%). §1's +0.28% on `0854d36`
+shrank because r6-lazytext's print-time conditional text (ADR-0052) no longer
+prints the deferred `DeepReadonly` branches at mint.
+
 ## 1. An unevaluable conditional alias reference in an alias body defers
 
 **Forcing constraint.** `get_instantiated_type_reference` answered `error`

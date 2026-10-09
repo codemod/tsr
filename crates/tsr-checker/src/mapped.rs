@@ -78,6 +78,10 @@ struct TruncationBudget {
     /// The mapped objects whose members are being printed, outermost first:
     /// one met again prints its fixed text instead of recursing.
     visiting: Vec<TypeId>,
+    /// `ctx.enclosingDeclaration` of a print at a site
+    /// ([`Checker::mapped_object_text_at`]); `None` for the text baked at
+    /// creation.
+    site: Option<tsr_ast::NodeId>,
 }
 
 impl TruncationBudget {
@@ -887,7 +891,13 @@ impl<'a> Checker<'a, '_> {
                 if let TypeData::Union { types, .. } = &self.store.get(key).data {
                     pending.extend(types.iter().rev().copied());
                 } else if info.name_type.is_some()
-                    || self.store.get(key).flags.intersects(TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL)
+                    // isTypeUsableAsPropertyName (utilities.go:879): string, number
+                    // and unique-symbol literals name a property.
+                    || self.store.get(key).flags.intersects(
+                        TypeFlags::STRING_LITERAL
+                            | TypeFlags::NUMBER_LITERAL
+                            | TypeFlags::UNIQUE_ES_SYMBOL,
+                    )
                     // Native 5b1047d resolveMappedTypeMembers (checker.go:20956)
                     // also admits concrete index keys, including string & {}.
                     // Reuse the existing validity worker; retain the original
@@ -956,7 +966,10 @@ impl<'a> Checker<'a, '_> {
                 value: EnumLiteralValue::String(name) | EnumLiteralValue::Number(name),
                 ..
             } => Some(name.clone()),
-            _ => None,
+            // getPropertyNameFromType's third arm (utilities.go:886): a
+            // unique symbol names its property by its escaped name
+            // (`crate::unique_symbol_keys`).
+            _ => self.unique_symbol_property_name(ty),
         }
     }
 
@@ -1106,7 +1119,11 @@ impl<'a> Checker<'a, '_> {
             let was_readonly = inherited.and_then(|modifiers| modifiers.1).unwrap_or(was_readonly);
             let optional = info.optionality.unwrap_or(was_optional);
             let readonly = info.readonly.unwrap_or(was_readonly);
-            let printed_name = if info.name_type.is_some() {
+            let printed_name = if let Some(symbol) = self.unique_symbol_type_symbol(name_type) {
+                // getPropertyNameNodeForSymbolFromNameType's UniqueESSymbol
+                // arm, printed with no site (`nodebuilderimpl.go:2482`).
+                format!("[{}]", self.binder.symbols().get(symbol).name)
+            } else if info.name_type.is_some() {
                 if crate::objects::is_identifier_text(&name)
                     || matches!(self.store.get(name_type).data, TypeData::NumberLiteral(_))
                 {
@@ -1413,8 +1430,8 @@ impl<'a> Checker<'a, '_> {
                 let member = Member::Index {
                     readonly,
                     name: "x".to_string(),
-                    key: self.type_to_string(index.key),
-                    value: self.type_to_string(index.value),
+                    key: self.mapped_slot_text(index.key, budget.site),
+                    value: self.mapped_slot_text(index.value, budget.site),
                 };
                 if let Member::Index { key, value, .. } = &member {
                     budget.approximate_length += key.len() + value.len() + 6;
@@ -1451,7 +1468,10 @@ impl<'a> Checker<'a, '_> {
             budget.visiting.pop();
             printed
         } else {
-            let printed = self.property_printed_type(property).into_owned();
+            let printed = match budget.site {
+                Some(site) => self.mapped_slot_text(ty, Some(site)),
+                None => self.property_printed_type(property).into_owned(),
+            };
             // typeToTypeNode's string-literal arm counts the value and its
             // quotes; other kinds count their printed text.
             budget.approximate_length += match &self.store.get(ty).data {
@@ -1463,12 +1483,53 @@ impl<'a> Checker<'a, '_> {
         if property.readonly {
             budget.approximate_length += 9;
         }
+        let name = match budget.site {
+            Some(site)
+                if let Some(symbol) = self.symbol_of_unique_property_name(&property.name) =>
+            {
+                self.unique_symbol_property_name_at(symbol, Some(site))
+            }
+            _ => property.printed_name.clone(),
+        };
         crate::objects::Member::Property {
-            name: property.printed_name.clone(),
+            name,
             optional: property.optional,
             readonly: property.readonly,
             printed,
         }
+    }
+
+    /// A slot of a resolved mapped object's member print: at the site when
+    /// the print has one (`typeToTypeNodeHelper` under the print's
+    /// `enclosingDeclaration`), else the creation-time text.
+    fn mapped_slot_text(&mut self, ty: TypeId, site: Option<tsr_ast::NodeId>) -> String {
+        match site {
+            Some(site) => {
+                self.type_to_string_at(ty, site).unwrap_or_else(|| self.type_to_string(ty))
+            }
+            None => self.type_to_string(ty),
+        }
+    }
+
+    /// createTypeNodeFromObjectType (`nodebuilderimpl.go:2690`) for a
+    /// resolved mapped object printed at `reference`: the same member print
+    /// as the text baked at creation ([`Checker::mapped_object_text`]), with
+    /// every slot rendered under the site's `enclosingDeclaration`, so a
+    /// member's alias is named or expanded as the site allows
+    /// (`IsTypeSymbolAccessible`, `nodebuilderimpl.go:3362`;
+    /// `docs/parity/notes/r6-accessible.md` §2). `None` when the type is not
+    /// a member-printed mapped object.
+    pub(crate) fn mapped_object_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        if !self.is_member_printed_mapped_object(id) {
+            return None;
+        }
+        let mut budget =
+            TruncationBudget { visiting: vec![id], site: Some(reference), ..Default::default() };
+        Some(self.mapped_object_text(id, &mut budget))
     }
 
     /// Whether `ty` prints its resolved members (createTypeNodeFromObjectType
