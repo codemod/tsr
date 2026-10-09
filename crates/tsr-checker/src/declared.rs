@@ -3681,6 +3681,22 @@ impl<'a> Checker<'a, '_> {
             if node.elements.iter().any(|&element| Self::is_variadic_tuple_element(element)) {
                 return structural;
             }
+            // A body whose structural answer is an ARRAY reference
+            // (`type AliasRest = [...p: number[]]`, getArrayElementTypeNode's
+            // one-rest arm) has no tuple side tables to copy: a member-less
+            // name over it relates to nothing, and `AliasRest extends
+            // [unknown]` deferred where native answers `false`. Native's
+            // deferred reference resolves to the body's own target, so the
+            // name carries that reference's identity (target, arguments,
+            // member owner) through `deferred_alias_reference`, as a class or
+            // interface reference written as an alias body does
+            // (`r5-declared4.md` §3.1).
+            if !self.tuple_element_lists.contains_key(&structural)
+                && !self.variadic_tuple_elements.contains_key(&structural)
+                && self.type_reference_targets.contains_key(&structural)
+            {
+                return self.deferred_alias_reference(node.node_id, structural);
+            }
             let name = self.binder.symbols().get(alias).name.to_string();
             let named = self.store.new_named(TypeFlags::OBJECT, name, None);
             if let Some(entry) = self.tuple_element_lists.get(&structural).cloned() {
