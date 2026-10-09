@@ -564,3 +564,7 @@ per-file flag must become per-node.
 - Element access without an argument (`parseElementAccessExpressionRest`):
   every member-access loop reports TS1011 at the `]`'s full start and keeps
   a missing identifier; the argument is parsed with `in` allowed.
+- `#` that does not start a private name (`Scan` `case '#'`): `#!` past the
+  first position is TS18026 over both characters and an `Unknown` token; any
+  other `#` is TS1127 and a nameless `PrivateIdentifier` (`HashToken` is only
+  ever a rescan, `ReScanHashToken`).

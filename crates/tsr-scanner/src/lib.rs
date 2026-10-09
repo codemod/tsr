@@ -668,6 +668,24 @@ impl<'a> Scanner<'a> {
                 self.scan_identifier_or_keyword(flags);
                 SyntaxKind::PrivateIdentifier
             }
+            // The rest of `case '#'` (`scanner.go:897`): a `#!` past the
+            // file's first position is TS18026 over both characters and an
+            // `Unknown` token of the `#` alone; any other `#` is an invalid
+            // character, still scanned as a (nameless) private identifier.
+            b'#' => {
+                let start = self.pos;
+                self.bump();
+                if self.peek() == Some('!') {
+                    self.error(
+                        &messages::CAN_ONLY_BE_USED_AT_THE_START_OF_A_FILE,
+                        Span::new(start, start + 2),
+                    );
+                    SyntaxKind::Unknown
+                } else {
+                    self.error(&messages::INVALID_CHARACTER, Span::new(start, start + 1));
+                    SyntaxKind::PrivateIdentifier
+                }
+            }
             b'\\' => self.scan_identifier_or_keyword(flags),
             b if ASCII_ID_START[b as usize] => self.scan_identifier_or_keyword(flags),
             b if b < 0x80 => self.scan_punctuation(),
