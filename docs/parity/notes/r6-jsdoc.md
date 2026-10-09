@@ -399,3 +399,36 @@ remaining lines print the alias name where native prints its target
 (`import("./interfaces").Bar`, `CantResolveThis`), and the second's TS2304
 waits on `check_type_reference_name`'s JS decline (r5-jsdoc4 §4.1).
 `callbackTag2`'s `Final` lines take this diff and §4's together.
+
+## 9. T2 leftovers: two producers, neither JSDoc-specific
+
+r5-jsdoc5 §6 left four T2 cases. `typeTagNoErasure` converted with §4;
+`typeTagOnFunctionReferencesGeneric` is already RIGHT at this base. The
+other two:
+
+- **`jsdocTemplateTag7`'s `f : <T>(x: T) => T` was `any`**: `@template
+  private T`. `type_parameter_of` (`signatures.rs`) declined the whole
+  signature for any modifier but `const`. Native's
+  `getTypeParameterModifiers` (`relater.go:1433`) keeps only `in`, `out` and
+  `const`; `private` is TS1273's grammar error (§6) and nothing more. Diff
+  [`r6-jsdoc-type-parameter-error-modifiers.diff`](r6-jsdoc-type-parameter-error-modifiers.diff):
+  any other modifier is ignored; `in`/`out` still decline, because the
+  printer has no slot for them (`jsdocTemplateTag8`'s `<in T>(x: T) =>
+  void`, printer lane). Measured alone: types **+1 line, +1 case**
+  (`jsdocTemplateTag7`), zero losses, `slowcases` clean, Ir
+  1,092,117,518 / 343,065,785 (noise). Test
+  `type_parameter_error_modifiers.rs`.
+- **`typeFromJSInitializer3`'s `const a = f1()` was `any`** where `f1`
+  returns a declared `undefined` under `strictNullChecks: false`; the
+  TypeScript twin fails the same way, and so does `declare const u:
+  undefined; const c = u` (`tsgo` prints `undefined` for all three).
+  `symbols.rs`' non-strict widening widened the plain `null`/`undefined` as
+  well as `createWideningType`'s twins; `getWidenedType` (`checker.go:16090`)
+  widens only types carrying `ObjectFlagsContainsWideningType`, which
+  `Intrinsics::is_widening_nullable` already answers. Diff
+  [`r6-jsdoc-nonstrict-declared-nullable.diff`](r6-jsdoc-nonstrict-declared-nullable.diff).
+  Measured alone: types **+6 lines, +2 cases** (`typeFromJSInitializer3`,
+  and T12's `jsDeclarationsFunctionJSDoc` — its `@param {null} b` under
+  `strict: false`), zero losses, `slowcases` clean, Ir 1,092,127,431 /
+  343,065,099 (noise). Test `nonstrict_declared_nullable.rs`, checked
+  against `tsgo`'s declaration output.
