@@ -27,6 +27,11 @@ print time.
   `tsr -p benches/projects/<p>/tsconfig.json --singleThreaded --pretty false --noEmit`.
   Base: domain-model 1,091,331,952; generic-imports 343,686,809.
 - Both dumps unfiltered, compared on `cut -f1,2`; `slowcases` on both.
+- **Re-frozen** after batch BF (r6-printer) landed: base `0854d36` (types
+  550,131 RIGHT / 5,404 WRONG / 768 GAP; diagnostics 5,595 RIGHT, 5,606
+  EMPTY_RIGHT, 998 WRONG, 39 EMPTY_WRONG). The lane's two commits merged
+  cleanly and both diffs apply unchanged; §4 is the stacked measurement on
+  it. §1 and §2's tables are on `8c52b48`.
 - Setup: PyPI is blocked, so the offline bootstrap ran with a stdlib-only
   stand-in for `assemble.py`'s three `tomlkit` calls, kept outside the
   repository (`r5-operators3.md` §4).
@@ -260,3 +265,123 @@ bakes the written `… : T | string` and prints `… : string | T` at the site.
   the parts print site-free.
 - *Work boundary:* four `get_type_from_type_node` reads and four prints,
   per print of the type, none at the mint.
+
+## 3. ADR-0050 alternative 1, lazy mapped member text: measured and refused
+
+### The claim
+
+r6-mapped.md §6 measured `mapped_object_text` at 5.1 M Ir inclusive on
+domain-model (0.47%), 4.8 M of it in `mapped_property_member`, mostly
+`get_type_of_mapped_symbol` instantiating each member's template for the
+print. ADR-0050 alternative 1 would print a resolved mapped object's
+members when the text is first read instead of at the mint.
+
+### The ceiling, measured
+
+An experiment build (not committed) replaced the member print in
+`resolved_mapped_object` with a placeholder text behind an environment
+switch, and counted every read of a text containing the placeholder in
+`printing::type_to_string` (every store-level and checker-level text read
+goes through it, composites included).
+
+On the base `0854d36` plus this lane's commits, profiling build, `--noEmit`:
+
+| domain-model, paired runs | eager print | placeholder | delta |
+|---|---|---|---|
+| run 1 | 1,095,504,048 | 1,095,212,428 | −291,620 (−0.027%) |
+| run 2 | 1,094,908,844 | 1,094,591,167 | −317,677 (−0.029%) |
+| run 3 (separate pair) | 1,094,926,920 | 1,094,578,176 | −348,744 (−0.032%) |
+
+generic-imports: 343,681,451 against 343,681,769, no change. Reads of the
+placeholder: **zero** on both projects. The same binary's own Ir spreads
+by about 0.05% between runs (1,094.9 M to 1,095.5 M above), so the ceiling
+sits inside it.
+
+**Why the 5.1 M does not go away.** With the placeholder,
+`get_type_of_mapped_symbol` still costs 5.78 M inclusive (5.85 M eager):
+the check reads those member types anyway, through `property_type` on the
+published slots, and each slot is instantiated once whoever reads it first
+(ADR-0050's lazy slots already deferred the instantiation to the first
+read). The member print only moved the first read earlier. What a lazy
+text would save is the string building, about 0.3 M (0.03%), and nothing
+reads the text on these projects.
+
+### What it would cost
+
+- Every reader of a baked text would have to be able to force it.
+  `Checker::type_to_string` reads through `&self` (main's `checker.rs`), as
+  do the store-level composite printers (`unions.rs`' `parenthesised`,
+  `intersections.rs`' `create_intersection`, `declared.rs`, `flow.rs`,
+  `inference.rs`): an `&mut` printer chain across files of five owners.
+- Two semantic tests read a type's text: `text == "{}"` in `unions.rs:1868`
+  and `relater.rs:1766`. A placeholder would answer them wrongly for an
+  empty mapped object until forced.
+- Widening and regularization clone a `Named` text into a new identity
+  (`widening.rs:45`, `objects.rs:615`); each clone would need its own
+  forcing plan.
+
+**Refused** for this round: a ≤0.03% ceiling (inside run-to-run spread)
+against a cross-owner `&mut` printer refactor with two text-keyed semantic
+tests to rework. What would change the decision: a project where resolved
+mapped objects are minted in bulk and their members are not read by the
+check (the `hugeDeclarationOutputGetsTruncatedWithError` shape, ADR-0050),
+measured as a whole-project cost, or the `&mut` printer chain landing for
+another reason, after which `mapped_object_text` becomes the forcing
+function unchanged.
+
+## 4. Stacked on `0854d36`, and landing order
+
+The decision record is [ADR-0052](../../adr/0052-print-time-decisions-are-plans-the-site-renderer-reads.md):
+what is planned, where, under what key; nothing cached, nothing
+invalidated.
+
+**Commits** (lane files only: `objects.rs`, `printing.rs`, notes, ADR):
+- `aff1374`: a spread member's declaration reuse is decided at print (§1);
+- `bbb918a`: a deferred conditional's typed parts are printed at print (§2);
+- the merge of `0854d36`, and the ADR with §3 and this section.
+
+Alone, the commits change no printed line: their producers and dispatch are
+the diffs.
+
+**Diffs, in apply order:**
+
+| diff | files (owner) | needs | effect |
+|---|---|---|---|
+| `r6-lazytext-spread-members.diff` | `spreads.rs` (r6-errorsplit), new test | the commits | +19 types; replaces `r6-nodereuse-property-slot-spreads.diff` |
+| r6-declared's `f9339d0` | `declared.rs` (r6-declared) | — | 0 lines alone; keeps `controlFlowGenericTypes` RIGHT under the next diff |
+| `r6-lazytext-conditional-text.diff` | `declared.rs` (r6-declared), `checker.rs` (main), new test | the commits; `f9339d0` | +4 types; replaces `r5-mapped6-conditional-typed-print.diff` |
+
+**Stacked** (commits + both diffs + `f9339d0`), against `0854d36`, both dumps
+unfiltered:
+- types 550,131 → 550,154 RIGHT (**+23**), 0 lost, no base-RIGHT key
+  missing; diagnostics unchanged, 0 lost; slowcases clean on both dumps;
+- CLI output (`--pretty false`) byte-identical on domain-model,
+  domain-model-large and generic-imports;
+- `cargo test --workspace --release` passes with and without the diffs;
+  clippy (stable 1.97) flags nothing in the lane's code beyond the
+  pre-existing `printing.rs` `impl<'a>`; `xtask anchors` has only the
+  pre-existing `tsr-conformance/src/full_oracle.rs:4`.
+
+Ir (profiling build, `--singleThreaded --pretty false --noEmit`):
+
+| | domain-model | generic-imports |
+|---|---|---|
+| base `0854d36` | 1,092,084,297 | 343,669,546 |
+| base + `f9339d0` | 1,090,597,212 | 343,672,093 |
+| full stack | 1,090,678,790 (+0.0075% over base + `f9339d0`; −0.129% over base) | 343,660,259 (−0.003%) |
+
+Per item, on `8c52b48`: item 1 −0.001% dm, +0.0004% gi; item 2 +0.007% dm,
+−0.001% gi (against base + `f9339d0`). The dm delta of the stack is in
+`type_to_string_at_worker` (+41 K inclusive): the site renderer runs during
+checking on domain-model (8.5 M Ir), so the conditional's print-time read
+runs there too. It is inside the same binary's run-to-run spread (about
+0.05%, §3). No item makes domain-model measurably cheaper than its base by
+itself (the −0.129% is `f9339d0`'s), so no wall ratio is claimed.
+
+**Remaining, with causes:**
+- `mappedTypeAsClauses` 0:106 (§2): needs a print-time generic mapped form
+  (createMappedTypeNodeFromType) and `keyof` origin, both baked at their
+  mint in `mapped.rs` and `declared.rs`.
+- Site-free readers of planned types (ADR-0052, consequences): none
+  measured in the corpus.
+- Lazy mapped member text (§3): refused at a ≤0.03% ceiling.

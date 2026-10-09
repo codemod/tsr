@@ -136,7 +136,7 @@ mod property_slot {
     /// ([`PropertySlot::of_accessor`]); it is printed from that type.
     ///
     /// The second field is the print-time reuse plan
-    /// ([`PrintedSlot::of_declaration`], `r6-lazytext.md` §1): the type the
+    /// ([`PrintedSlot::of_declaration`], ADR-0052): the type the
     /// slot displays, whose declaration reuse the site renderer asks when it
     /// prints. The text beside it is that type's site-free print, which every
     /// baked (site-free) reader keeps.
@@ -161,7 +161,7 @@ mod property_slot {
         /// ([`crate::checker::Checker::reused_property_type_text`]) only when
         /// it prints the member, as native's node builder does. Nothing is
         /// decided or resolved at the mint
-        /// (`docs/parity/notes/r6-lazytext.md` §1).
+        /// (ADR-0052, `docs/parity/notes/r6-lazytext.md` §1).
         // Its producers are spreads.rs's mint sites (r6-errorsplit's file),
         // which ship as `r6-lazytext-spread-members.diff`.
         #[allow(dead_code)]

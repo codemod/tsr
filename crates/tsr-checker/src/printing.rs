@@ -221,7 +221,7 @@ impl Checker<'_, '_> {
 
     /// An object image whose member plan the certified renderer declines
     /// can still hold slots whose print native decides only at print time
-    /// (`docs/parity/notes/r6-lazytext.md` §1). The baked plan is kept and
+    /// (ADR-0052, `r6-lazytext.md` §1). The baked plan is kept and
     /// only those slots are re-printed here, at the site:
     ///
     /// - an on-demand accessor slot baked a placeholder at the mint
@@ -1001,7 +1001,7 @@ impl<'a> Checker<'a, '_> {
 
 impl<'a> Checker<'a, '_> {
     /// A deferred conditional type printed from its typed parts, at print
-    /// time (`docs/parity/notes/r6-lazytext.md` §2): conditionalTypeToTypeNode
+    /// time (ADR-0052, `r6-lazytext.md` §2): conditionalTypeToTypeNode
     /// (`nodebuilderimpl.go:2916`) asks getTrueTypeFromConditionalType and
     /// getFalseTypeFromConditionalType when it prints, and those instantiate
     /// the written branches under the conditional's mapper then. `node`,
