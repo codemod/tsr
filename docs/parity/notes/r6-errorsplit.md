@@ -168,3 +168,38 @@ object-literal arm lives in `crate::members`.
 
 Tests: `tests/element_access_widening.rs` pins the write as `errorType` and a
 declared receiver's write as its member type.
+
+## §5 Diff O (`members.rs`, main's): the object-literal arm of a union property
+
+[`r6-errorsplit-objlit-union.diff`](r6-errorsplit-objlit-union.diff) applies on
+commit 2. `createUnionOrIntersectionProperty` (`checker.go:21545`) lets a
+union constituent that lacks the name still contribute: an applicable index
+signature contributes its value type, and a spread-free object-literal type
+(`isObjectLiteralType(t) && t.objectFlags&ObjectFlagsContainsSpread == 0`)
+contributes `undefined` and makes the property `WritePartial`. Anything else
+makes it `ReadPartial`, which `getPropertyOfUnionOrIntersectionType` drops.
+
+The port's union projection in `get_type_of_property_with_this_argument` had
+the index arm and not the object-literal one; the predicate exists one
+function away (`get_property_of_union_or_intersection_type` reads
+`object_literal_spread_flags` for the same arm). The diff adds the arm, and on
+top of it lifts the union exclusion of `element_access_receiver_is_complete`
+in `indexed.rs` (this lane's file; the lift is part of the diff because it is
+only sound with the arm).
+
+**Measured** on commit 2 (unfiltered, both dumps): zero losses;
+types **549,874 / 830 / 5,599** (13 GAP→RIGHT, 6 WRONG→RIGHT); diagnostics
+unchanged, zero transitions. The 19 lines are `destructuringAssignmentWithDefault`
+(13, `(options || {})[0]`, `.color`, `["color"]` and the bindings they
+initialize) and `propertyAccessWidening` (6: `x1`, `(options || {}).a`, `x2`,
+`(options || {})["a"]`). Credited gap unchanged (2,150): the moved lines were
+the uncredited gap or WRONG. The lift moves no line to `native_error`, so no
+false claim remains under the old exclusion. slowcases clean; perf against
+the base binary domain-model 1.029, generic-imports 1.027 (the same noise
+band commit 2 read before its 41-sample re-run).
+
+The property-access write `(options || {}).a = 1` still answers the gap: the
+property road's miss is `crate::members`', not this lane's.
+
+The diff carries `tests/union_object_literal_property.rs`, which fails without
+it.
