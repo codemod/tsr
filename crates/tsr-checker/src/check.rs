@@ -5635,7 +5635,9 @@ impl Checker<'_, '_> {
                 is(n.left.and_then(|left| left.node_id()))
                     && self.entity_name_root_is_a_type_query(parent)
             }
-            _ => false,
+            // r6-names: slots native `checkExpression`s that the arms above
+            // omit.
+            _ => crate::name_slots::value_reference_slot(node, typed),
         }
     }
 

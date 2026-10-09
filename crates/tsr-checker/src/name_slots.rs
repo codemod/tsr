@@ -28,7 +28,6 @@ use crate::jsx_intrinsic::is_intrinsic_jsx_name;
 ///   the opening tag and `checkJsxElementDeferred` (`jsx.go:84`) for the
 ///   closing one. A property-access tag already reaches the
 ///   `PropertyAccessExpression` arm through its receiver.
-#[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-value-slots.diff")]
 pub(crate) fn value_reference_slot(node: NodeId, parent: Node<'_>) -> bool {
     let value_tag = |tag: Option<JsxTagNameExpression<'_>>| {
         matches!(tag, Some(JsxTagNameExpression::Identifier(name))
