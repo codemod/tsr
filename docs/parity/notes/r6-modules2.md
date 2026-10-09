@@ -396,3 +396,62 @@ Applied on the base:
 
 The first measurement admitted `export default a.b` too and lost
 `exportDefaultProperty2` 1:1, which is the decline above.
+
+## 6. TS2475 on unannotated initializers (item 6): measured and refused
+
+### Classification against native
+
+`constEnumErrors` misses TS2475 at `(27,9)`/`(28,10)` (`var x = E2;
+var y = E2[...]`-shaped initializers) and three TS2476 lines.
+`constEnumPropertyAccess2` misses TS2475 at `(13,9)` and TS2476 at
+`(14,12)`. Native `tsgo` agrees with the baselines. So neither case can turn
+RIGHT on TS2475 alone:
+
+- **TS2476** ("A const enum member can only be accessed using a string
+  literal") is `checkElementAccessExpression`'s const-enum arm
+  (`checker.go:8157`). TSR has no port of it. Its home is
+  `indexed.rs::check_element_access_expression`, which is r6-errorsplit's
+  lane.
+- **TS2475** needs the initializer typed. Upstream's
+  `checkVariableLikeDeclaration` calls `checkExpressionCached(initializer)`
+  on every primary declaration (`:5894`–`5899`). TSR's
+  `check_variable_like_declaration` (`assignreport.rs`) types only an
+  annotated one.
+
+### What was measured
+
+The hook would add
+`check_unannotated_variable_initializer(node, declaration, ambient)` in
+main's `check.rs`. It is called after `check_variable_like_declaration`
+and calls `check_expression(initializer)` for a non-ambient, unannotated,
+identifier-named primary declaration (`symbol.value_declaration == node`)
+that is not in a `for…in`. With it, `constEnumErrors` gains its two TS2475
+lines and native agrees line for line apart from TS2476.
+
+Against the base, unfiltered:
+
+- diagnostics **+1 / −3**. `es2020IntlAPIs` goes WRONG → RIGHT. Lost:
+  - `checkingObjectWithThisInNamePositionNoCrash` (RIGHT → WRONG): its
+    expected TS2339 on `this.a` in a computed name inside a method of an
+    object-literal initializer disappears;
+  - `thisInObjectLiterals` (RIGHT → WRONG): the same `this` family;
+  - `declarationsWithRecursiveInternalTypesProduceUniqueTypeParams`
+    (EMPTY_RIGHT → EMPTY_WRONG): two TS7024 reports appear.
+- types identical, `slowcases` clean.
+
+Typing the initializer from the declaration moves work out of the frame
+where TSR does it today. TSR builds a function's return and parameter types
+eagerly as part of the expression's type. Checking an object literal's
+method from the declaration therefore computes and caches its body before
+the contextual `this` site that later reports TS2339. A recursive
+initializer meets its own resolution in progress and reports TS7024. This is
+the divergence `resolve_variable_like_symbol_type`'s second decline records
+(`r5-vardecl.md` §1), reached through `check_expression` rather than the
+symbol type. It is not fixable in this lane: it needs function-like
+expressions to resolve their signatures lazily, as upstream's
+`ResolvedReturnType` does (main's `expressions.rs`/`signatures.rs`).
+
+Nothing is committed for item 6 besides this record. **Falsifier for the
+refusal**: once function-like expression types are deferred, the same hook
+should measure zero losses. `constEnumErrors` and `constEnumPropertyAccess2`
+then also need TS2476 from `indexed.rs`.
