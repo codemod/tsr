@@ -105,3 +105,109 @@ EMPTY_WRONG → RIGHT; `importCallExpressionGrammarError` WRONG → RIGHT), zero
 losses, no key missing; types byte-identical in columns 1–2 (548,907 RIGHT);
 `slowcases` clean on both dumps. The change is harness-only: the `tsr`
 binary is not rebuilt by it, so there is no performance number to take.
+
+## 3. The checker's option reads, audited against `NewChecker`
+
+`Checker::apply_compiler_options` (`checker.rs`, main's) against
+`NewChecker` (`checker.go:905`–`960`) and the `core.CompilerOptions`
+getters (`internal/core/compileroptions.go:195`–`370`), which
+`tsr-core/src/options.rs` ports. The getters match native
+(`GetEmitScriptTarget`, `GetEmitModuleKind`'s ladder,
+`GetModuleResolutionKind`, `GetResolveJsonModule`, `GetStrictOptionValue`,
+`GetIsolatedModules`, `ShouldPreserveConstEnums`,
+`GetEmitModuleDetectionKind`, `GetEffectiveTypeRoots`). The reads:
+
+| Field | Native | TSR | Verdict |
+|---|---|---|---|
+| `module_kind` | `GetEmitModuleKind()` (`checker.go:915`) | hand-derived: `module`, else `target >= ES2015 ? ES2015 : CommonJS` on the **raw** `target` | **diverges** for every case with no `@module`: an unset target gives `CommonJS` where native gives `ES2022`; `es2020`+ give `ES2015` where native gives `ES2020`/`ES2022`/`ESNext` |
+| `standard_class_fields` | `GetUseDefineForClassFields()` | same; the ES2022 leg of `GetEmitStandardClassFields` is applied by `class_fields.rs::get_emit_standard_class_fields` | faithful (the field name says "emit standard" but holds the use-define value) |
+| `allow_synthetic_defaults` | not read by the pinned checker | computed, read by nothing | dead field |
+| `allow_importing_ts_extensions` | `GetAllowImportingTsExtensions()` = flag **or** `rewriteRelativeImportExtensions`; TS5097 uses `AllowImportingTsExtensionsFrom` (adds declaration files) | the flag alone | diverges, but only `module_specifiers.rs` reads it and no TS5097 producer exists (§1) |
+| strict family, `noImplicitOverride`, `noImplicitReturns`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, unused, unreachable, `isolatedModules`, JSX namespace/factory | as native | as native | faithful |
+
+**`module_kind`, measured.** `r5-config-module-kind.diff` replaces the
+hand derivation with `options.emit_module_kind()`. Against `771746f`:
+both dumps **byte-identical** (columns 1–4 of the diagnostics dump; the
+types dump with its guard columns stripped). 666 corpus files set neither
+`@module` nor `@target` and 536 more set only an ES2020+ target, so the
+divergence is reachable; none of the 32 `module_kind` reads produces a
+different diagnostic or type line on them. It is a faithful port with no
+measured gain and no loss, shipped as a diff because `checker.rs` is
+main's; it removes a trap for the next rule that reads `module_kind` on an
+unset-module case (`import_meta.rs`'s ES2020 test is one).
+
+## 4. `tsr-2zk.1087`: the producer compiles in `/.src` (held diff)
+
+### The constraint
+
+The native runner names every unit `GetNormalizedAbsolutePath(name,
+currentDirectory)` with `currentDirectory` defaulting to `srcFolder`, `/.src`
+(`compiler_runner.go:521`, `createHarnessTestFile`). `types_producer` (and so
+the `diagnostics` suite, which builds its program through
+`program_and_config_for_case`) compiled in `/`. That is invisible for a unit
+the case names absolutely and for every printed name (baselines strip
+`/.src/` through `removeTestPathPrefixes`), and visible wherever a path is
+*derived* from the current directory. The one measured case is
+`compiler/referenceTypesPreferedToPathIfPossible`: `@types: *` loads
+`/.src/node_modules/@types/node` only because `GetEffectiveTypeRoots` walks up
+from `/.src` (r5-align §2.4).
+
+### What the move costs on its own
+
+`CURRENT_DIRECTORY = "/.src"` in `types_producer.rs`, and the two places in
+`diagnostics_suite.rs` that re-derived the producer's directory read that
+constant, measured unfiltered against `771746f`:
+
+- diagnostics: byte-identical (columns 1–4);
+- types: +5 RIGHT and +3 newly aligned RIGHT lines in the target case, and
+  **356 RIGHT → WRONG lines in 26 cases**, every one the same shape: native
+  `import("./ConstEnum").MyConstEnum`, TSR the bare `MyConstEnum`. (Eleven
+  more lines turn RIGHT in `constEnumNoEmitReexport` and `exportNamespace1`
+  only because the same arm now declines where native happens to print the
+  bare name; they go back with the companion change and are not counted.)
+
+The losses come from one heuristic in `checker.rs`
+(`symbol_to_string`'s file-module arm, §106 of `checker-notes-narrow.md`):
+it spells `import("./name").` only when the module symbol's name is a single
+segment under `/` (`module_name.strip_prefix('/')` with no further `/`),
+because module names are absolute paths and every unit used to sit at `/`.
+Under `/.src` every unit's name is `/.src/name`, so every such module looked
+nested and the arm declined. The same root assumption sits in the no-host
+fallback of `module_specifier_for_symbol_in_mode` (`./name` when the name has
+one segment under `/`); it does not fire in the harness, which always has a
+host.
+
+### The companion change
+
+`r5-config-src-root.diff` makes the heuristic's stem relative to the
+reference file's directory when the module is under it, and relative to `/`
+otherwise. When the reference file's directory *is* `/` this is the old
+computation exactly, so at the old root the only reachable difference is a
+reference file in a subdirectory with the module beside it.
+`file_mentions_module_specifier` compares the stem with the written
+specifier minus `./`, so it reads the same stem unchanged.
+
+| Measured against `771746f` | diagnostics | types RIGHT | lost RIGHT lines | missing RIGHT keys |
+|---|---|---|---|---|
+| heuristic alone, root `/` | identical | 548,907 (=) | 0 | 0 |
+| `/.src` alone | identical | 548,570 (−337) | 356 | 0 |
+| **both (the diff)** | identical | **548,915 (+8)** | **0** | **0** |
+
+The heuristic alone changes one WRONG line's text
+(`caseInsensitiveFileSystemWithCapsImportTypeDeclarations:0:2`/`:3`, a
+reference under `/repo/src`: `import("./types").Merge<…>` for
+`Merge<…>`; native prints `TypeB` for both). With both, the only verdict
+changes are the eight `referenceTypesPreferedToPathIfPossible` lines: `0:0`–`0:2`
+WRONG → RIGHT, `0:3`–`0:4` GAP → RIGHT, `1:0`–`1:2` new and RIGHT.
+`slowcases` is clean on both dumps; `cargo test -p tsr-conformance` passes.
+
+### Why it is a diff, not a commit
+
+The losses are fixed in `checker.rs`, which this lane must not touch, and
+the harness half without it loses 356 lines. The two land together or not
+at all. `@currentDirectory` directives keep their meaning: they are resolved
+against the default (`printed_name` already resolved them against `/.src`).
+
+**Falsifier.** If a later case shows native resolving a *relative* path
+against `/` — a type root, a `paths` base, a relative `@currentDirectory` —
+the default is wrong for that suite and the move should be reverted there.
