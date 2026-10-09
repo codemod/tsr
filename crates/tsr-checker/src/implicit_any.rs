@@ -426,16 +426,14 @@ impl Checker<'_, '_> {
         if self.retained_return_position_report(function) {
             return true;
         }
-        if self.get_contextually_typed_parameter_type(parameter).is_some() {
-            return false;
-        }
-        // `ContextualSignature::Absent` is NOT trusted as upstream's nil: it
-        // lost twelve right cases when admitted (§3), so only the present,
-        // too-short signature is read.
-        let Some(ContextualSignature::Present(signature)) =
-            self.contextual_signature_result(function)
-        else {
-            return false;
+        // getContextuallyTypedParameterType's `getContextualSignature(func)`:
+        // nil (`Absent`) leaves the parameter implicitly `any`.
+        let signature = match self.contextual_signature_result(function) {
+            Some(ContextualSignature::Present(signature)) => signature,
+            Some(ContextualSignature::Absent) => {
+                return !self.within_generic_call_argument(function);
+            }
+            None => return false,
         };
         // `slices.Index(fn.Parameters(), parameter)`, less one for a `this`
         // parameter (`checker.go:29489`).
@@ -453,6 +451,45 @@ impl Checker<'_, '_> {
             Some(Node::ParameterDeclaration(declaration)) if declaration.dot_dot_dot_token.is_some()
         );
         !own_rest && self.signature_type_at_position(&signature, index).is_none()
+    }
+
+    /// Is `function` inside an argument of a call or `new` whose callee has a
+    /// generic signature?
+    ///
+    /// A decline of [`ContextualSignature::Absent`] there, not an upstream
+    /// branch: such a function's contextual type passes through
+    /// `instantiateContextualType` with the call's inference mapper
+    /// (`checker.go:30817`), which this port applies only in part (a
+    /// defaulted type parameter's conditional parameter type,
+    /// `contextualSignatureConditionalTypeInstantiationUsingDefault`, keeps
+    /// both branches), so its `Absent` is not upstream's nil. The walk stops
+    /// at the first enclosing call; syntax plus the callee's type.
+    fn within_generic_call_argument(&mut self, function: NodeId) -> bool {
+        let mut child = function;
+        for ancestor in self.nodes.ancestors(function).collect::<Vec<_>>() {
+            let (callee, arguments) = match self.node_map.get(ancestor) {
+                Some(Node::CallExpression(call)) => (call.expression, call.arguments),
+                Some(Node::NewExpression(call)) => (call.expression, call.arguments),
+                _ => {
+                    child = ancestor;
+                    continue;
+                }
+            };
+            if !arguments.iter().any(|argument| argument.node_id() == Some(child)) {
+                return false;
+            }
+            let Some(callee) = callee else { return false };
+            let callee_type = self.check_expression(callee);
+            let kind = if self.nodes.kind(ancestor) == SyntaxKind::NewExpression {
+                crate::signatures::SignatureKind::Construct
+            } else {
+                crate::signatures::SignatureKind::Call
+            };
+            return self.signatures_of_type_kind(callee_type, kind).is_some_and(|signatures| {
+                signatures.iter().any(|signature| !signature.type_parameters.is_empty())
+            });
+        }
+        false
     }
 
     /// Is `function` inside the return expression of an immediately invoked

@@ -640,3 +640,25 @@ untyped callees) keeps the `any` answer. A gap callee now answers `None`
 (unknown context): `import.defer("./a.js").then(ns => …)`, whose
 `import.defer` call this port does not type, no longer hands `ns` a
 fabricated `any` context (native types `then` from `Promise`). No state.
+
+## 32. TS7006 reads getContextualSignature's nil (tsr-2zk.16.95)
+
+`getContextuallyTypedParameterType` (`checker.go:29458`) answers nil, and
+`widenTypeForVariableLikeDeclaration` reports TS7006, when
+`getContextualSignature` is nil (no signature, `isAritySmaller` filtering, a
+union whose signatures differ) or the signature is too short.
+`contextual_parameter_type_is_absent` (implicit_any.rs) now reads
+`contextual_signature_result` directly: `Absent` reports, a present signature
+reports past its last parameter. It no longer asks
+`get_contextually_typed_parameter_type` first, whose read of the function's
+own checked signature answered `any` for exactly the implicit-any parameter
+(`<{ (): number }> function (a) {…}`, `contextualTyping38`).
+
+`implicit-any-widening.md` §3 distrusted `Absent` because it lost twelve RIGHT
+cases; §29 (discrimination), §31 (gap callees) and the context-free template
+discriminant remove all but one shape: inside an argument of a call whose
+callee has a generic signature, the contextual type passes through
+`instantiateContextualType`'s inference mapper, which this port applies in
+part (`contextualSignatureConditionalTypeInstantiationUsingDefault` keeps both
+conditional branches). `within_generic_call_argument` declines there (syntax
+up to the first enclosing call, plus the callee's signatures). No state.

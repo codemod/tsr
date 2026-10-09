@@ -75,7 +75,9 @@ sources, each asked of the data upstream reads:
    `getContextualType`'s nil-answering arms. Asked *before* the port's
    contextual parameter lookup, in upstream's order: with no contextual type
    there is no contextual signature, whatever `crate::contextual` answers.
-2. **No usable signature** (`ContextualSignature::Absent`) — **not trusted.**
+2. **No usable signature** (`ContextualSignature::Absent`) — trusted since
+   `contextual.md` §32, except inside a generic call's argument; before it,
+   **not trusted.**
    Admitting it lost twelve RIGHT/EMPTY_RIGHT cases
    (`contextualTypeCaching`, `contextuallyTypedByDiscriminableUnion`,
    `discriminantPropertyInference`, `discriminantUsingEvaluatableTemplateExpression`,
