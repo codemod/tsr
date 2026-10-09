@@ -20,6 +20,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
+#[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-export-specifier.diff")]
 impl Checker<'_, '_> {
     /// `resolveEntityName`'s failure arm for a local `ExportSpecifier`.
     ///

@@ -201,3 +201,11 @@ It ships as a diff although `name_slots.rs` is owned, because the lines it
 touches are next to the `allow(dead_code)` line that r6-names' diff 1
 removes; committing it now would make batch BJ's merge conflict. Apply it
 after diff 1. Codegen only: no dump can change, and none was re-run for it.
+
+**Correction.** The commit that landed this section (`04b961c`) also
+committed, by accident, the base's working-tree copy of r6-names' diffs 1–6
+in `check.rs` and `export_specifier_names.rs` and their six tests (the base
+is applied uncommitted, §0, and the commit staged everything). That made
+the branch carry main-file hooks unreviewed, and `name_slots.rs`'s half was
+missing, so diffs 1–6 no longer applied on it. The next commit restores those
+files to `7b0a4d8` exactly; nothing in §1–§2 depended on the slip.
