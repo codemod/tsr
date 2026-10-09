@@ -2636,8 +2636,10 @@ impl<'a, 'n> Checker<'a, 'n> {
                 out.push_str(&parameter.name);
                 if let Some(constraint) = parameter.constraint {
                     out.push_str(" extends ");
-                    if let Some(written) = &parameter.written_constraint {
-                        out.push_str(written);
+                    if let Some(text) =
+                        self.type_parameter_constraint_text(parameter, constraint, Some(reference))
+                    {
+                        out.push_str(&text);
                     } else {
                         let rendered = self
                             .type_to_string_at(constraint, reference)
