@@ -12,8 +12,9 @@
 //! No cache, side table or traversal state: every question is a bounded
 //! parent walk over the immutable node table.
 
-use tsr_ast::{JsxTagNameExpression, Node, NodeId};
+use tsr_ast::{ForInitializer, JsxTagNameExpression, Node, NodeId, SyntaxKind};
 
+use crate::checker::Checker;
 use crate::jsx_intrinsic::is_intrinsic_jsx_name;
 
 /// Value slots native checks that `is_value_reference` has no arm for.
@@ -39,5 +40,34 @@ pub(crate) fn value_reference_slot(node: NodeId, parent: Node<'_>) -> bool {
         Node::JsxSelfClosingElement(element) => value_tag(element.tag_name),
         Node::JsxClosingElement(element) => value_tag(element.tag_name),
         _ => false,
+    }
+}
+
+impl Checker<'_, '_> {
+    /// Is `node` inside the expression of a `for…of` whose declaration list is
+    /// empty?
+    ///
+    /// `checkForOfStatement` (`checker.go:4051`) checks a declaration-list
+    /// initializer **only** through `checkVariableDeclarationList`; the
+    /// right-hand side is reached from each declaration's type
+    /// (`getTypeForVariableLikeDeclaration`, `checker.go:16664`,
+    /// `checkRightHandSideOfForOf`). `for (var of X)` is TS1123 with no
+    /// declaration, so nothing ever checks `X` or anything inside it.
+    /// `checkForInStatement` (`checker.go:3988`) checks its expression
+    /// unconditionally and is not affected.
+    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-empty-for-of.diff")]
+    pub(crate) fn in_unchecked_for_of_expression(&self, node: NodeId) -> bool {
+        let mut current = node;
+        while let Some(parent) = self.nodes.parent(current) {
+            if let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(parent)
+                && statement.kind.kind == SyntaxKind::ForOfStatement
+                && statement.expression.and_then(|e| e.node_id()) == Some(current)
+            {
+                return matches!(statement.initializer,
+                    Some(ForInitializer::VariableDeclarationList(list)) if list.declarations.is_empty());
+            }
+            current = parent;
+        }
+        false
     }
 }

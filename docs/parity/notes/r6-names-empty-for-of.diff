@@ -1,0 +1,65 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..60ba99f 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -4442,6 +4442,11 @@ impl Checker<'_, '_> {
+         if !self.is_value_reference(node) || is_specially_diagnosed_name(text) {
+             return;
+         }
++        // r6-names: `checkForOfStatement` never checks the expression of an
++        // empty declaration list.
++        if self.in_unchecked_for_of_expression(node) {
++            return;
++        }
+         // **In a JavaScript file the CommonJS names are not unresolved.**
+         // `require`, `module` and friends are globals upstream supplies through
+         // machinery this port does not have, so §249's table would report on
+diff --git a/crates/tsr-checker/src/name_slots.rs b/crates/tsr-checker/src/name_slots.rs
+index 907f3be..eaa277a 100644
+--- a/crates/tsr-checker/src/name_slots.rs
++++ b/crates/tsr-checker/src/name_slots.rs
+@@ -55,7 +55,6 @@ impl Checker<'_, '_> {
+     /// declaration, so nothing ever checks `X` or anything inside it.
+     /// `checkForInStatement` (`checker.go:3988`) checks its expression
+     /// unconditionally and is not affected.
+-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-empty-for-of.diff")]
+     pub(crate) fn in_unchecked_for_of_expression(&self, node: NodeId) -> bool {
+         let mut current = node;
+         while let Some(parent) = self.nodes.parent(current) {
+diff --git a/crates/tsr-conformance/tests/r6_names_empty_for_of.rs b/crates/tsr-conformance/tests/r6_names_empty_for_of.rs
+new file mode 100644
+index 0000000..91ce65c
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names_empty_for_of.rs
+@@ -0,0 +1,31 @@
++//! r6-names: which identifiers native `checkExpression` reaches
++//! (`crates/tsr-checker/src/name_slots.rs`). Expectations are native tsgo
++//! output at the pinned 5b1047d, `--jsx react --target es2015 --strict false`.
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(file: &str, source: &str) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names", file, source);
++    case.options.insert("target".into(), "es2015".into());
++    case.options.insert("strict".into(), "false".into());
++    case.options.insert("jsx".into(), "react".into());
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++/// `checkForOfStatement` reaches the expression only through a declaration,
++/// so an empty list leaves it unchecked; a declared one and `for…in` do not.
++#[test]
++fn an_empty_for_of_declaration_list_leaves_its_expression_unchecked() {
++    let source = "for (var of missingOf) { }
++for (var x of missingDeclared) { }
++for (var in missingIn) { }";
++    assert_eq!(
++        diagnostics("for_of.ts", source),
++        [(1, 9, 1123), (2, 15, 2304), (3, 9, 1123), (3, 13, 2304)],
++    );
++}

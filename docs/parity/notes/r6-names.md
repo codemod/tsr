@@ -40,7 +40,7 @@ checks, not a resolution difference.
 | Cluster | Native operation | Cases | Status |
 |---|---|---|---|
 | A. value slots missing from the allow-list | `checkWithStatement` (`checker.go:4162`); JSX value tags, `resolveJsxOpeningLikeElement` (`jsx.go:562`), `checkJsxElementDeferred` (`jsx.go:84`) | parserStrictMode14, parserWithStatement1.d, jsxSpreadTag ×2, jsxAttributeWithoutExpressionReact, parseJsxExtends2 | §4, diff `r6-names-value-slots` |
-| B. `for…of` with an empty declaration list | `checkForOfStatement` (`checker.go:4051`) reaches the expression only through a declaration | parserForOfStatement2, parserForOfStatement21, parserES5ForOfStatement2, parserES5ForOfStatement21 | open |
+| B. `for…of` with an empty declaration list | `checkForOfStatement` (`checker.go:4051`) reaches the expression only through a declaration | parserForOfStatement2, parserForOfStatement21, parserES5ForOfStatement2, parserES5ForOfStatement21 | §5, diff `r6-names-empty-for-of` |
 | C. type positions in JavaScript files | `getTypeFromTypeReference` in a `.js` file; JSDoc type names | fillInMissingTypeArgsOnJSConstructCalls, parserArrowFunctionExpression10, parserArrowFunctionExpression17, jsdocResolveNameFailureInTypedef, typedefScope1, recursiveResolveDeclaredMembers | open |
 | D. parameter initialisers | `resolveName`'s `useOuterVariableScopeInParameter` (`binder/nameresolver.go:74`, `:346`) | functionLikeInParameterInitializer(es2015), parameterInitializersForwardReferencing(es2015) | open |
 | E. keyword-spelled identifiers | `onFailedToResolveSymbol`'s six-name `isPrimitiveTypeName`; `typeof null` | parserSymbolIndexer5 (TS2552), invalidTypeOfTarget | open |
@@ -57,6 +57,7 @@ function it wires in `name_slots.rs`, and adds its test under
 | # | Diff | Converts | Losses | Rows (miss/extra) |
 |---|---|---|---|---|
 | 1 | `r6-names-value-slots.diff` | +6 cases | 0 | 3,382/1,089 → 3,363/1,089 |
+| 2 | `r6-names-empty-for-of.diff` | +4 cases | 0 | 3,382/1,089 → 3,382/1,085 |
 
 ## §4 Cluster A: value slots the allow-list lacks
 
@@ -92,3 +93,34 @@ generic-imports (within the ±50k base noise).
 
 **Falsifier.** A JSX case whose expected baseline lacks TS2304 on an
 unresolved value tag. None in the corpus: no extra row was added.
+
+## §5 Cluster B: an empty `for…of` declaration list
+
+`checkForOfStatement` (`checker.go:4051`) checks a declaration-list
+initializer only through `checkVariableDeclarationList`. The right-hand side
+is reached from each declaration: `getTypeForVariableLikeDeclaration`'s
+for-of arm (`checker.go:16664`) calls `checkRightHandSideOfForOf`. With no
+declaration (`for (var of X)`, TS1123), nothing checks `X` or anything inside
+it. `checkForInStatement` (`checker.go:3988`) checks its expression before
+looking at the initializer, so `for (var in X)` still reports `X`.
+
+The port's walk visits every identifier, so the decline is
+`Checker::in_unchecked_for_of_expression`: a parent walk to the nearest
+`for…of` whose `expression` slot contains the node. The hook runs right after
+the allow-list test in `check_value_identifier`, so it covers every code that
+reporter emits (TS2304, TS2552, TS2583, TS2693…), as native's silence does.
+The walk is O(depth) per value identifier, beside the existing
+`is_inside_with_statement` walk; Ir with diffs 1 and 2 applied: +0.03%
+domain-model, −0.007% generic-imports, inside the base's ±50k noise.
+
+Native probe: `for (var of missingOf) { }` → TS1123 only; `for (var x of
+missingDeclared)` → TS2304; `for (var in missingIn)` → TS1123 and TS2304. The
+port with the diff matches.
+
+Measured alone: +4 cases, 0 losses, extra rows 1,089 → 1,085 and no new
+missing row; types dump unchanged (diffs 1 and 2 together); `slowcases`
+clean.
+
+**What it does not cover.** Other diagnostics inside such an expression
+(a type error in a call, say) come from other checks that do not consult this
+predicate. None appears in the corpus.
