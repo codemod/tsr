@@ -33,7 +33,7 @@ impl<'a> Checker<'a, '_> {
     /// the caller decided arity from the callee type's signatures
     /// ([`Checker::check_argument_arity_of_signatures`]).
     pub(crate) fn check_call_arity(&mut self, node: NodeId, syntactic_arity: bool) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::CallExpression(call)) = self.node_map.get(node) else { return };
@@ -190,7 +190,7 @@ impl<'a> Checker<'a, '_> {
     /// whole `new` expression rather than on `C`.
     /// `syntactic_arity` as for [`Checker::check_call_arity`].
     pub(crate) fn check_new_arity(&mut self, node: NodeId, syntactic_arity: bool) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::NewExpression(call)) = self.node_map.get(node) else { return };

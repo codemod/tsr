@@ -194,3 +194,29 @@ heads TSR declines (`newOperator`, `betterErrorForUnionCall`).
 Native control: `s()`, `u()` (`string | (() => void)`), `v()`
 (`string | number`), `p()` (`Promise<() => void>`, await note), `new s()`,
 and `s\n(1)` (semicolon note) print identically to tsgo; `s(3)` has no note.
+
+## Call reports run in files with parse errors; callIsIncomplete (tsr-2zk.16.58)
+
+`check_call_expression_diagnostics`, `check_new_expression_diagnostics`,
+`check_tagged_template_diagnostics`, `check_call_arity`, `check_new_arity`
+and `check_call_type_argument_arity` returned early in any file with a parse
+error; native's `checkSourceFile` has no such gate (triage M3). They now run,
+with `hasCorrectArity`'s `callIsIncomplete` (`checker.go:9107`) ported as
+`ArgumentList::Incomplete` (`argument_list`): a tagged template whose last
+literal is missing or unterminated, or a call/`new` whose node does not end
+in a `)` after its last argument (`ArgumentList().End() == node.End()`, read
+from the source text). An incomplete call skips the lower bound.
+`super<T>(...)` is declined: native's `parseSuperExpression` reports TS2754
+and moves the type arguments into an `ExpressionWithTypeArguments` callee.
+The written type-reference arity check (`check_type_argument_arity`) keeps
+its gate: removing it reports `Generic type 'error'` on trees this parser
+recovers differently. No cache. Converts 13 EXACT cases
+(`taggedTemplatesWithIncompleteTemplateExpressions3-6`,
+`templateStringInObjectLiteral(ES6)`, `templateStringInPropertyName*`,
+`objectCreationExpressionInFunctionParameter`, `newOperatorErrorCases`,
+`instantiationExpressionErrors`); `taggedTemplatesWithIncompleteNoSubstitutionTemplate1/2`
+and `…TemplateExpressions1` stay exact through `callIsIncomplete`. Native
+control: the pinned harness rows above (the tsgo CLI prints only syntactic
+diagnostics for such files). Known new extra in an already-wrong case:
+`decoratorOnArrowFunction` (the parser attaches `@dec ()` to a class
+expression native never builds).

@@ -424,6 +424,17 @@ struct EffectiveArgument {
     spread: bool,
 }
 
+/// The argument-list shape `hasCorrectArity` (`checker.go:9107`) reads.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ArgumentList {
+    /// A complete list.
+    Written,
+    /// `callIsIncomplete`: the lower bound is not checked.
+    Incomplete,
+    /// `new C` without a list: only `getMinArgumentCount == 0` applies.
+    Absent,
+}
+
 /// [`Checker::written_call_arguments`]: the written argument expressions and,
 /// for a tagged template, the template node that locates the synthetic
 /// `TemplateStringsArray` argument preceding them.
@@ -475,7 +486,15 @@ impl<'a> Checker<'a, '_> {
     /// `resolveCall` runs its arity and argument reports over them
     /// ([`Checker::check_candidates_arity`]). A JS file, a generic surviving
     /// candidate and an uninstantiable constructor report nothing.
+    ///
+    /// `super<T>(...)` is declined: native's `parseSuperExpression` reports
+    /// TS2754 and moves the type arguments into an `ExpressionWithTypeArguments`
+    /// callee, so the call it checks is not a `super` call with type
+    /// arguments, the tree this port's parser builds.
     fn check_super_call_diagnostics(&mut self, node: tsr_ast::NodeId, callee: Expression<'a>) {
+        if !self.call_type_arguments(node).is_empty() {
+            return;
+        }
         let super_type = self.check_expression(callee);
         if self.is_error(super_type)
             || self.store.get(super_type).flags.intersects(TypeFlags::ANY)
@@ -746,9 +765,6 @@ impl Checker<'_, '_> {
 
     /// Every diagnostic `resolveCallExpression` issues for one call node.
     pub(crate) fn check_call_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         if let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node)
             && let Some(Expression::KeywordExpression(keyword)) = call.expression
             && keyword.kind == tsr_ast::SyntaxKind::SuperKeyword
@@ -850,7 +866,8 @@ impl Checker<'_, '_> {
                 && signature.type_parameters.is_empty()
                 && signature.this_parameter.is_some()
                 && let Some(effective) = self.effective_written_arguments(&written)
-                && self.has_correct_arity(signature, &effective, false) == Some(true)
+                && self.has_correct_arity(signature, &effective, self.argument_list(node))
+                    == Some(true)
                 && self.check_this_argument(node, signature, true) == Ternary::NotRelated
             {
                 return CallArity::Reported;
@@ -935,11 +952,15 @@ impl Checker<'_, '_> {
         let Some(effective) = self.effective_written_arguments(&written) else {
             return CallArity::Undecided;
         };
-        let no_argument_list =
-            !is_call && !tagged && self.new_has_no_argument_list(node, callee, type_arguments);
+        let argument_list =
+            if !is_call && !tagged && self.new_has_no_argument_list(node, callee, type_arguments) {
+                ArgumentList::Absent
+            } else {
+                self.argument_list(node)
+            };
         let mut applicable = false;
         for candidate in &candidates {
-            match self.has_correct_arity(candidate, &effective, no_argument_list) {
+            match self.has_correct_arity(candidate, &effective, argument_list) {
                 Some(true) => {
                     applicable = true;
                     break;
@@ -978,7 +999,7 @@ impl Checker<'_, '_> {
                     &candidates,
                     &effective,
                     arguments.len() + usize::from(tagged),
-                    no_argument_list,
+                    argument_list,
                 )
             {
                 return CallArity::ApplicableOverloads(overloads);
@@ -1139,7 +1160,7 @@ impl Checker<'_, '_> {
         candidates: &[Signature],
         effective: &[EffectiveArgument],
         argument_count: usize,
-        no_argument_list: bool,
+        argument_list: ArgumentList,
     ) -> Option<Vec<Signature>> {
         if candidates.len() < 2
             || effective.len() != argument_count
@@ -1162,7 +1183,7 @@ impl Checker<'_, '_> {
         }
         let mut matched = Vec::new();
         for candidate in self.reorder_candidates(candidates.to_vec()) {
-            if self.has_correct_arity(&candidate, effective, no_argument_list)? {
+            if self.has_correct_arity(&candidate, effective, argument_list)? {
                 matched.push(candidate);
             }
         }
@@ -1510,7 +1531,7 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        if self.has_correct_arity(&candidate, &effective, false) != Some(true) {
+        if self.has_correct_arity(&candidate, &effective, self.argument_list(node)) != Some(true) {
             return None;
         }
         if self.check_this_argument(node, &candidate, false) != Ternary::Related {
@@ -1707,7 +1728,7 @@ impl Checker<'_, '_> {
             let Some(effective) = self.effective_call_arguments(call.arguments) else {
                 return false;
             };
-            match self.has_correct_arity(&instantiated, &effective, false) {
+            match self.has_correct_arity(&instantiated, &effective, self.argument_list(node)) {
                 Some(true) => {}
                 Some(false) => {
                     let error_node = call
@@ -2034,6 +2055,62 @@ impl Checker<'_, '_> {
         Some(effective)
     }
 
+    /// `hasCorrectArity`'s `callIsIncomplete` (`checker.go:9107`) for a call
+    /// node with a written argument list. A tagged template is incomplete
+    /// when its last template literal is missing or unterminated
+    /// (`ast.NodeIsMissing`, `ast.IsUnterminatedLiteral`). A call or `new` is
+    /// incomplete when `ArgumentList().End() == node.End()`: the node does
+    /// not end in a `)` past its last argument (or its `(`), read from the
+    /// source text; `Written` without text.
+    fn argument_list(&self, node: tsr_ast::NodeId) -> ArgumentList {
+        let unterminated =
+            |flags: tsr_ast::TokenFlags| flags.contains(tsr_ast::TokenFlags::UNTERMINATED);
+        let incomplete = match self.node_map.get(node) {
+            Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) => match tagged.template {
+                Some(tsr_ast::TemplateLiteral::NoSubstitutionTemplateLiteral(literal)) => {
+                    unterminated(literal.template_flags)
+                }
+                Some(tsr_ast::TemplateLiteral::TemplateExpression(template)) => {
+                    match template.template_spans.last().and_then(|span| span.literal) {
+                        Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(tail)) => {
+                            unterminated(tail.template_flags)
+                                || tail.node_id.is_none_or(|id| {
+                                    let span = self.nodes.span(id);
+                                    span.start == span.end
+                                })
+                        }
+                        Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(middle)) => {
+                            unterminated(middle.template_flags)
+                        }
+                        None => true,
+                    }
+                }
+                None => false,
+            },
+            Some(tsr_ast::Node::CallExpression(_) | tsr_ast::Node::NewExpression(_)) => {
+                let arguments = match self.node_map.get(node) {
+                    Some(tsr_ast::Node::CallExpression(call)) => call.arguments,
+                    Some(tsr_ast::Node::NewExpression(new)) => new.arguments,
+                    _ => &[],
+                };
+                let Some(text) = self
+                    .source_file_of_for_diagnostics(node)
+                    .and_then(|file| self.module_host?.source_text(file, self.nodes))
+                else {
+                    return ArgumentList::Written;
+                };
+                let end = self.nodes.span(node).end as usize;
+                let after_arguments = arguments
+                    .last()
+                    .and_then(tsr_ast::Expression::node_id)
+                    .map_or(0, |argument| self.nodes.span(argument).end as usize);
+                !(end > after_arguments && text.as_bytes().get(end.wrapping_sub(1)) == Some(&b')'))
+            }
+            _ => false,
+        };
+        if incomplete { ArgumentList::Incomplete } else { ArgumentList::Written }
+    }
+
     /// `new C` without an argument list (`node.ArgumentList() == nil`): the
     /// node ends where its callee, or its type-argument list's `>`, ends.
     fn new_has_no_argument_list(
@@ -2051,16 +2128,16 @@ impl Checker<'_, '_> {
             .is_some_and(|callee| end == self.nodes.span(callee).end)
     }
 
-    /// `hasCorrectArity` (`checker.go:9107`) for a call or `new` with a
-    /// complete argument list. `None` when a parameter type is unsupported.
+    /// `hasCorrectArity` (`checker.go:9107`) for a call, `new` or tagged
+    /// template. `None` when a parameter type is unsupported.
     fn has_correct_arity(
         &mut self,
         signature: &Signature,
         arguments: &[EffectiveArgument],
-        no_argument_list: bool,
+        argument_list: ArgumentList,
     ) -> Option<bool> {
         let minimum = self.signature_min_argument_count(signature);
-        if no_argument_list {
+        if argument_list == ArgumentList::Absent {
             return Some(minimum == 0);
         }
         let parameter_count = self.signature_parameter_count(signature);
@@ -2072,7 +2149,8 @@ impl Checker<'_, '_> {
         if !has_rest && count > parameter_count {
             return Some(false);
         }
-        if count >= minimum {
+        // `callIsIncomplete` skips the lower bound.
+        if argument_list == ArgumentList::Incomplete || count >= minimum {
             return Some(true);
         }
         for position in count..minimum {
@@ -2345,9 +2423,6 @@ impl Checker<'_, '_> {
     /// `noImplicitAny`, a non-`void` return is TS2350; else
     /// `invocationError(Construct)` is TS2351 on the callee.
     pub(crate) fn check_new_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         match self.check_new_expression_head(node) {
             CallHead::Done => {}
             CallHead::Resolve(apparent) => {
@@ -2389,9 +2464,6 @@ impl Checker<'_, '_> {
     /// `invocationError` (TS2349) on the tag, or TS2796 when the tagged
     /// template is an array element (a likely missing comma).
     pub(crate) fn check_tagged_template_diagnostics(&mut self, node: tsr_ast::NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
             return;
         };
@@ -2444,9 +2516,8 @@ impl Checker<'_, '_> {
     /// template), then the argument report of a sole non-generic candidate
     /// or of a non-generic overload set
     /// ([`Checker::check_overload_candidates_arguments`]). A generic tag
-    /// reports no argument error yet. `callIsIncomplete`
-    /// (a template without its tail) is not modelled: such a file has parse
-    /// errors, and no call diagnostic runs in it.
+    /// reports no argument error yet. `callIsIncomplete` (a template without
+    /// its tail) is [`Checker::argument_list`].
     fn check_tagged_template_resolution(&mut self, node: tsr_ast::NodeId, apparent: TypeId) {
         match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
             CallArity::Applicable(Some(signature)) => {
