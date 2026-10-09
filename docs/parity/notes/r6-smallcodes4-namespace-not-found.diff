@@ -50,7 +50,7 @@ index d1facaf..ab3ccde 100644
              return;
          };
 diff --git a/crates/tsr-checker/src/namespace_not_found.rs b/crates/tsr-checker/src/namespace_not_found.rs
-index a565dc4..e85570f 100644
+index 483b7f3..8c83cc4 100644
 --- a/crates/tsr-checker/src/namespace_not_found.rs
 +++ b/crates/tsr-checker/src/namespace_not_found.rs
 @@ -29,10 +29,6 @@ use tsr_diagnostics::{Diagnostic, messages};
@@ -66,10 +66,10 @@ index a565dc4..e85570f 100644
      /// it: a module, an enum, or an alias. An alias is accepted whatever its
 diff --git a/crates/tsr-checker/tests/namespace_not_found.rs b/crates/tsr-checker/tests/namespace_not_found.rs
 new file mode 100644
-index 0000000..f4e9f21
+index 0000000..4d95f3b
 --- /dev/null
 +++ b/crates/tsr-checker/tests/namespace_not_found.rs
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,91 @@
 +//! TS2503 / TS2833 — `onFailedToResolveSymbol` with `SymbolFlagsNamespace`
 +//! (`checker.go:1564`), from a qualified type name's left identifier and from
 +//! `import a = b` (`getSymbolOfPartOfRightHandSideOfImportEquals`'s case 1,
@@ -121,7 +121,10 @@ index 0000000..f4e9f21
 +
 +#[test]
 +fn an_import_equals_of_a_namespace_or_globalthis_does_not_report() {
-+    assert!(reports("namespace N { export var x = 1; }\nimport a = N;\nimport g = globalThis;").is_empty());
++    assert!(
++        reports("namespace N { export var x = 1; }\nimport a = N;\nimport g = globalThis;")
++            .is_empty()
++    );
 +}
 +
 +#[test]

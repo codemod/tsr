@@ -46,10 +46,13 @@ Apply order and status:
 | 2 | `r6-smallcodes4-pragma-diagnostics.diff` | `tsr-parser/src/pragma_diagnostics.rs` | lossless, §2.2 |
 | 3 | `r6-smallcodes4-import-call-trailing-comma.diff` | `import_call_grammar.rs` | lossless, §2.3 |
 | 4 | `r6-smallcodes4-top-level-context.diff` | `top_level_context.rs` | lossless, §2.4 |
-| 5 | `r6-smallcodes4-unknown-operand.diff` | `unknown_operand.rs` | **held**: four losses from inference producers, §3.1 |
-| 6 | `r6-smallcodes4-import-type-node.diff` | `import_type_node.rs` (in the diff) | **held**: +38/−8 type lines, all losses printer-side, §3.2 |
+| 5 | `r6-smallcodes4-umd-commonjs-module.diff` | none (one predicate) | lossless, §2.5 |
+| 6 | `r6-smallcodes4-type-only-alias-value.diff` | none (one loop condition) | lossless, §2.6 |
+| 7 | `r6-smallcodes4-unknown-operand.diff` | `unknown_operand.rs` | **held**: four losses from inference producers, §3.1 |
+| 8 | `r6-smallcodes4-import-type-node.diff` | `import_type_node.rs` (in the diff) | **held**: +38/−8 type lines, all losses printer-side, §3.2 |
+| 9 | `r6-smallcodes4-for-of-destructuring.diff` | `for_of_destructuring.rs` (in the diff) | prerequisite, +0 today, §3.3 |
 
-Diffs 1, 3 and 5 touch disjoint hunks of `check.rs`. Every diff applies to the
+Diffs 1, 3, 5, 6 and 7 touch disjoint hunks of `check.rs`. Every diff applies to the
 base alone, and each applies on top of the ones before it.
 
 ## 2. Lossless
@@ -311,6 +314,101 @@ native and TSR identical, TS1262 at (1,17) and (4,5) only.
 
 Unit test: `tests/top_level_await_name.rs`, which ships in the diff.
 
+### 2.5 TS2686 in a `CommonJS` file — one predicate in `check.rs`
+
+Case on the base: `jsdocReferenceGlobalTypeInCommonJs`. It is missing TS2686
+at `a.js(4,1)` (`Puppeteer.connect` in a file whose only module syntax is a
+`require`).
+
+Native: `onSuccessfullyResolvedSymbol` (`checker.go:1822`) computes
+`isInExternalModule` as `ast.IsExternalOrCommonJSModule(lastLocation)`. A
+`CommonJS` file is a module for the UMD rule. TSR's
+`check_umd_global_reference` asked `is_external_module_in`, which is the ES
+indicator only. The diff asks `is_external_or_common_js_module`
+(`module_format.rs`, which is the file-symbol test, ADR-0041) instead. No new
+file is needed, because the logic already exists.
+
+Probe (the case's three files): native and TSR both report TS2686 at
+`a.js(4,1)`.
+
+**Measured:** +1 case, zero losses, 1 row matched. Types are unchanged and
+slowcases is clean. Ir: domain-model 1,091,499,867 → 1,091,256,791,
+generic-imports 343,083,920 → 343,068,288, both noise.
+
+The other two TS2686 cases are extra rows and stay WRONG:
+`umdGlobalAugmentationNoCrash` and
+`umdNamespaceMergedWithGlobalAugmentationIsNotCircular`. In both, `React` is
+a UMD name and a `declare global { const React }`.
+
+- **Native.** `initializeChecker` inserts every file's UMD names into
+  `globals` first, then merges the global augmentations into them. `React`
+  then carries both declarations, and `core.Every(IsNamespaceExportDeclaration)`
+  fails.
+- **TSR.** `merge_globals` (`binder.rs`, main's) runs per file. Its own
+  comment records that interleaving. The symbol the checker resolves carries
+  only the `NamespaceExportDeclaration`.
+
+The fix is the binder's merge order.
+
+### 2.6 TS1362 on an alias merged with a value — one loop condition in `check.rs`
+
+Cases on the base, each with an extra TS1362:
+
+- `typeOnlyMerge1` (`c.ts(2,1)`);
+- `exportNamespace9` (`/d.ts(2,1)`);
+- `mergeSymbolRexportFunction` (`main.ts(2,1)`, not converted).
+
+In each, the name used as a value is an alias whose chain passes through a
+symbol that is **also** a value: `import { A } from "./a"` merged with
+`const A = 0`.
+
+Native: `onSuccessfullyResolvedSymbol` reports only for `Alias && !Value`
+(`checker.go:1860`). `getTypeOnlyAliasDeclarationEx` (`:2143`) walks the
+chain **while** the symbol is an alias with no value meaning, so a merged
+local value ends the walk with no type-only declaration.
+`type_only_alias_declaration` (`check.rs`) walked every alias link. The diff
+adds the loop's `Value` test.
+
+**Measured:** +5 cases, zero losses, 5 rows matched.
+
+- Converted: `typeOnlyMerge1`, `exportNamespace9`, and `mergedWithLocalValue`
+  (TS1361, the `import type` twin).
+- Also converted: `namespaceImportTypeQuery2` and `namespaceImportTypeQuery3`.
+  Each loses an extra TS2353, because `members.rs` reads the same function to
+  decide whether a type-query member is type-only.
+- Types unchanged, slowcases clean.
+- Ir: domain-model 1,090,797,442 → 1,090,935,840, generic-imports
+  343,069,932 → 343,069,332, both noise. CLI output is byte-identical.
+
+`isolated_alias.rs` (r6-isolated) has a copy of the same walk
+(`type_only_alias_declaration_node`). It is not touched here. That lane
+should take the same condition.
+
+`mergeSymbolRexportFunction` still reports. There, `declare module '.' {
+const Row }` in `a.d.ts` must merge into `index.d.ts`'s `export type { Row }`
+re-export. That is the module-augmentation merge (binder, main's), and TSR's
+`Row` carries no value.
+
+### 2.7 The six lossless diffs stacked
+
+Applied in the table's order against the frozen base, unfiltered:
+
+- Diagnostics: 21 WRONG → RIGHT and 4 EMPTY_WRONG → EMPTY_RIGHT, so **+25
+  cases** (11,126 → 11,151 right: 5,551 RIGHT, 5,600 EMPTY_RIGHT). Zero
+  RIGHT/EMPTY_RIGHT losses. 37 rows matched. The 12 unmatched rows are §2.4's
+  `topLevelAwaitErrors.1`.
+- Types dump: verdicts unchanged (549,853 RIGHT).
+- slowcases: clean on both dumps.
+- `coverage` (stack applied): `diagnostics` 4,649/5,502 (84.50%; the base
+  reads 84.26% in `STATUS.md` at `17265fac`), `diagnostics_configured`
+  902/1,091 (82.68%), `checker_types` 8,489/9,538 (89.00%, unchanged),
+  `checker_types_configured` 1,716/1,928 (89.00%).
+- `cargo test --workspace --release` passes. `cargo clippy` flags only
+  pre-existing code (`members.rs`, `signatures.rs`, `enum_initializer.rs`,
+  `index_signatures.rs`, `templates.rs`, `unique_symbols.rs`,
+  `tsr-dts/tests/accessibility.rs`). `cargo fmt --check` is clean for every
+  diff.
+
 ## 3. Held
 
 ### 3.1 TS18046 / TS2571 — `unknown_operand.rs`
@@ -415,6 +513,34 @@ and the same through an alias. TSR's TS2322 rows (`'string'`, `'Other'`,
   package specifier, the diff measures +38 with no loss. A loss outside those
   rows means the port is wrong.
 
+### 3.3 `for ([a, b] of xs)` as a destructuring target — `for_of_destructuring.rs`
+
+Found while classifying TS2488. `ES5For-of30(target=es2015)` wants TS2488 on
+the `[a = 1, b = ""]` of `for ([a = 1, b = ""] of tuple)`. Each element of
+`tuple: [number, string]` is `number | string`, which is not iterable.
+
+Native: `checkForInOrForOfStatement` hands a destructuring initializer to
+`checkDestructuringAssignment(varExpr, iteratedType)`. An array literal then
+reaches `checkArrayLiteralAssignment` (`checker.go:12648`). TSR's
+`destructuring_assignment_source` (`iteration.rs`) knew the `=` and
+nested-element positions only. The diff adds the `for…of` position, built on
+`for_of_iterated_type`.
+
+Probe: `for ([c] of [1])`, `for ([[c]] of [[1]])` and
+`for ([c] of (number | string)[])` report TS2488 as native does.
+
+**Measured:** diagnostics unchanged, zero rows changed.
+`ES5For-of30` still misses its row because `for_of_iterated_type` answers
+`None` for a **tuple**. The iteration engine's slow path asks
+`get_property_of_type([number, string], "__@iterator")`, which finds nothing.
+The tuple's apparent members lack `Array`'s symbol-keyed methods
+(`members.rs`, main's). A `for (const x of tuple)` declaration types
+correctly only because it takes another road. The diff is the second half of
+that case.
+
+- **Falsifier:** once a tuple answers `[Symbol.iterator]`, this diff
+  converts `ES5For-of30(target=es2015)`. A loss means the arm is wrong.
+
 ## 4. TS2883 — not converted
 
 The four cases. Each needs a print that TSR does not produce yet. The
@@ -430,3 +556,19 @@ r5-modules §6 sink reports what the printer generates.
 All four blockers are printer qualification inside composite types
 (`checker.rs`/`printing.rs`) or symlink specifiers. None of them is in this
 lane's files.
+
+## 5. Remaining, with causes
+
+| Code | Case(s) | Cause | Owner |
+|---|---|---|---|
+| TS18046 | `useUnknownInCatchVariables01`, `privateNameAndAny`, `es2016IntlAPIs`, `controlFlowAliasingCatchVariables` | ported, held on four inference losses (§3.1) | `inference.rs`/`calls.rs` (main) |
+| TS18046 | `reverseMappedPartiallyInferableTypes` | `k` inferred differently (reverse-mapped inference) | `inference.rs` (main) |
+| TS2883 | all four | printer qualification and symlink specifiers (§4) | `checker.rs`/`printing.rs`, `module_specifiers.rs` |
+| TS2488 | `ES5For-of30(target=es2015)` | tuple has no `[Symbol.iterator]` member (§3.3) | `members.rs` (main) |
+| TS2488 | `destructuringArrayBindingPatternAndAssignment2` | `var [[a2], [[a3]]] = undefined`: the binding parent's type is widened to `any`. Native keeps `undefined` (`getTypeForBindingElementParent` reads the unwidened initializer type). | the binding-parent road in `iteration.rs`/`destructure` (main) |
+| TS2488 | `genericCallAtYieldExpressionInGenericCall1` | `yield*` operand typed through a generic call's inference | `inference.rs` (main) |
+| TS2686 | `umdGlobalAugmentationNoCrash`, `umdNamespaceMergedWithGlobalAugmentationIsNotCircular` | binder global-merge order (§2.5) | `binder.rs` (main) |
+| TS1362 | `mergeSymbolRexportFunction` | module augmentation into a type-only re-export (§2.6) | binder (main) |
+| TS2503 | none left | — | — |
+| TS1239 | `sourceMapValidationDecorators`, `decoratorOnClassConstructor3`, `decoratorOnClassConstructorParameter1` (es2015) | `checkDecorator` → `resolveDecorator` → `resolveCall` with the decorator's synthetic arguments is not ported. TS1239 is that call's head message for a parameter decorator, the same blocker as TS1238. | `calls.rs` (main) |
+| TS2688 | none on the base | No case is WRONG on TS2688 alone at `b18aec06`. The four TS1453 cases (§2.2) were the tripleSlash/module-mode ones. | — |
