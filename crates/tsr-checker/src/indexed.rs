@@ -785,15 +785,15 @@ impl Checker<'_, '_> {
     ///   symbol is an unexpanded type alias (`constr<{}, …>`; 2). `typeof
     ///   globalThis` has no members table and is complete all the same: its
     ///   lookup is [`Checker::global_this_property_type`]'s globals table.
+    /// - index signatures the port could not decide (`None` from
+    ///   [`Checker::get_index_infos_of_type`], a cycle in the base graph):
+    ///   upstream empties the bases and still reads the receiver's own
+    ///   signatures (no corpus line; `tests/types.rs` pins it).
     ///
     /// A `unique symbol` index was excluded until its arm of
     /// `getPropertyNameFromType` was ported
     /// ([`Checker::unique_symbol_property_type`]); lifting it moved 6 lines,
     /// all `errorType` natively (`docs/parity/notes/r6-errorsplit.md` §2).
-    /// - index signatures the port could not decide (`None` from
-    ///   [`Checker::get_index_infos_of_type`], a cycle in the base graph):
-    ///   upstream empties the bases and still reads the receiver's own
-    ///   signatures (no corpus line; `tests/types.rs` pins it).
     fn element_access_receiver_is_complete(
         &mut self,
         object_type: TypeId,
