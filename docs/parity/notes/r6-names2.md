@@ -285,8 +285,11 @@ The diff:
   first symbol that walk meets with every alias accepted (`|_, _|
   Some(true)`), which is the alias `getSymbol` would recurse into.
 
-Owned and committed: `export_specifier_names.rs` declines only when that
-same walk finds something.
+- `export_specifier_names.rs` (owned) declines only when that same walk
+  finds something. It rides in the diff rather than on the branch: once
+  r6-names' diff 6 landed (batch BJ) the tail is live, and without the
+  binder half the walk would miss the own alias and report TS2304 where
+  native reports TS2303.
 
 Native probe (`--module commonjs --target es2022`), matched row for row
 and pinned in `r6_names2_namespace_alias.rs`:
@@ -323,8 +326,8 @@ unchanged call counts (codegen: the new arm sits on its hot loop), and
 −0.16 M, an inlining swap in unrelated code.
 
 Diff: [`r6-names2-namespace-alias.diff`](r6-names2-namespace-alias.diff)
-(binder `lib.rs`, `circular_alias.rs`, the test). Apply after r6-names'
-diff 6.
+(binder `lib.rs`, `circular_alias.rs`, `export_specifier_names.rs`, the
+test). Apply after r6-names' diff 6.
 
 ## §4 The whole stack
 
@@ -344,3 +347,26 @@ stops at the pre-existing stable-toolchain findings in `tsr-checker`
 `index_signatures.rs`, `printing.rs`, `templates.rs`, `unique_symbols.rs`),
 none in a file this lane touches, which also keeps it from reaching the
 `tsr-conformance` tests.
+
+## §5 Re-measured on the tip after batches BJ and BK
+
+Batch BJ (r6-names, diffs 1–6) and batch BK (r6-accessible) landed while
+this box worked. The branch was merged with that tip (`10fe6c6`, a clean
+merge) and the four r6-names2 diffs re-measured on it, the tip itself being
+the base. Base: diagnostics 5,612 RIGHT / 5,606 EMPTY_RIGHT / 981 WRONG / 39
+EMPTY_WRONG; types 550,143 RIGHT / 768 GAP / 5,392 WRONG; rows 3,235/1,059.
+
+All four stacked, in §4's order: diagnostics **5,617 RIGHT** (+5, §1's five
+cases), types **550,181 RIGHT** (+38); 0 lost on either dump; rows
+3,226/1,058; `slowcases` clean on both.
+
+Ir, three runs each. This tip's runs are bimodal for both binaries (about
+0.7 M apart, allocator state, as in §2):
+
+| Build | domain-model | generic-imports |
+|---|---|---|
+| tip `10fe6c6` | 1,091,927,986 / 1,092,620,697 / 1,092,620,310 | 343,056,186 / 343,050,966 / 343,072,527 |
+| tip + four diffs | 1,092,943,361 / 1,092,964,929 / 1,092,254,968 | 343,064,615 / 343,083,607 / 343,064,516 |
+
+Median to median and low to low alike, +0.32 M on domain-model (+0.03%);
+generic-imports flat. Inside the ±0.08% bar.
