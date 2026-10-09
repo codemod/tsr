@@ -25,3 +25,25 @@ Measured: EXACT +6 (`contextualTypingWithGenericSignature`,
 `genericFunctionHasFreshTypeArgs`, `genericTypeAssertions3`,
 `implicitAnyGenericTypeInference`, `maxConstraints`, `genericContextualTypes1`),
 0 lost; legacy types +17 right, 0 lost; diagnostics unchanged.
+
+## 2. A nil contextual signature under a generic callee (tsr-2zk.16.96)
+
+`getContextualCallSignature` (`checker.go:10305`) answers nil when the
+contextual type has no call signature, e.g. a bare type parameter
+`foo<T extends Function>(x: T)` called as `foo((x) => x)`; the function then
+gets `assignNonContextualParameterTypes` (`checker.go:10183`) and types
+`(x: any) => any`. The GROUNDED gate kept a decline for this nil context when
+the argument sat under a single generic callee, waiting on
+`inferSignatureInstantiationForOverloadFailure`'s SkipContextSensitive pass;
+that re-check now exists in `check_generic_call_worker` (it evicts and
+retypes context-sensitive arguments under the error candidate), so the
+decline is removed.
+
+Measured: EXACT +4 (`functionConstraintSatisfaction`,
+`typeParameterAsTypeParameterConstraintTransitively`, `...Transitively2`,
+`genericCallWithOverloadedFunctionTypedArguments`), 0 lost; legacy types +31,
+0 lost; diagnostics unchanged.
+
+Remaining nearby gap: an excess argument (`foo(1 as any, (z) => z)`) still
+types `error` where native has no contextual type and prints
+`(z: any) => any`.

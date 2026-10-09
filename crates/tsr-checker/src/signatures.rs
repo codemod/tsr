@@ -6828,13 +6828,13 @@ impl<'a> Checker<'a, '_> {
                             })
                         }
                         // A computed nil context licenses ordinary implicit
-                        // parameters. Generic call failures additionally need
-                        // inferSignatureInstantiationForOverloadFailure's
-                        // SkipContextSensitive pass (checker.go). Only its decisive
-                        // fixed callback-arity failure is currently ported.
-                        // Keep that caller's existing decline until its error
-                        // candidate can be instantiated without these arguments.
-                        crate::contextual::ContextualSignature::Absent => !self.single_generic_argument_context(node),
+                        // parameters (assignNonContextualParameterTypes,
+                        // checker.go:10183), also under a generic callee whose
+                        // parameter is a bare type parameter with no call
+                        // signature (getContextualCallSignature, :10305). The
+                        // overload-failure re-check evicts and retypes the
+                        // argument under its error candidate (inference.rs).
+                        crate::contextual::ContextualSignature::Absent => true,
                     }
                 });
                 let propagated = self.nodes.parent(node).is_some_and(|parent|
