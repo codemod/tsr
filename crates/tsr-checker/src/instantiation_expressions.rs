@@ -150,6 +150,7 @@ impl<'a> Checker<'a, '_> {
         self.instantiation_expressions.types.insert(key.clone(), None);
         let reported_before = self.diagnostics.len();
         let mut state = InstantiationState::default();
+        let minted_from = self.store.len();
         let mut result =
             self.get_instantiated_type(expression_type, node, type_arguments, &mut state);
         let mut reports = self.diagnostics.split_off(reported_before);
@@ -179,6 +180,16 @@ impl<'a> Checker<'a, '_> {
                     ),
                 ));
             }
+        }
+        // createAnonymousTypeNodeEx's typeof-node reuse
+        // (`crate::instantiation_type_query_reuse`): frame-free results only.
+        if !under_alias_frame && !self.is_gap(result) {
+            result = self.reuse_instantiation_type_query_node(
+                node,
+                expression_type,
+                result,
+                minted_from,
+            );
         }
         self.instantiation_expressions.types.insert(key, Some(result));
         if !reports.is_empty() && !under_alias_frame {
