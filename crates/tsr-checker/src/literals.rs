@@ -238,3 +238,63 @@ pub(crate) fn enum_value_has_key(value: &crate::types::EnumLiteralValue, key: &s
     };
     key.strip_prefix(prefix) == Some(text.as_str())
 }
+
+impl Checker<'_, '_> {
+    /// `checkGrammarRegularExpressionLiteral` (`grammarchecks.go:68`), which
+    /// `checkRegularExpressionLiteral` (`checker.go:8012`) runs once per
+    /// literal: in a file with no parse diagnostics, re-scan the literal with
+    /// `ReScanSlashToken(true)` (`tsr_scanner::scan_regular_expression_errors`)
+    /// and keep its errors through native's `onError` callback:
+    ///
+    /// - a `Message`-category report (the "Did you mean" suggestions) at the
+    ///   same start and length as the last kept error becomes that error's
+    ///   related information;
+    /// - otherwise a report is kept only when it starts somewhere other than
+    ///   the last kept error.
+    ///
+    /// The node walk visits each literal once, which is native's
+    /// `NodeCheckFlagsTypeChecked` guard. Nothing is cached: the re-scan is the
+    /// check, and only regular expression literals reach it, off the parse.
+    // Its caller is `check_node_worker`'s dispatch (check.rs, main's), which
+    // ships as `r6-printer5-regexp-check-hook.diff`.
+    #[allow(dead_code)]
+    pub(crate) fn check_grammar_regular_expression_literal(&mut self, node: tsr_ast::NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return;
+        };
+        let start = self.nodes.span(node).start;
+        if text.as_bytes().get(start as usize) != Some(&b'/') {
+            return;
+        }
+        let errors =
+            tsr_scanner::scan_regular_expression_errors(text, start, self.language_version);
+        let mut last: Option<tsr_diagnostics::Diagnostic> = None;
+        for error in errors {
+            let span = tsr_core::Span::new(error.start, error.start + error.length);
+            let diagnostic =
+                tsr_diagnostics::Diagnostic::with_args(error.message, span, error.args);
+            match last.as_mut() {
+                Some(previous)
+                    if error.message.category() == tsr_diagnostics::Category::Message
+                        && previous.span == span =>
+                {
+                    previous.add_related_information(Some(diagnostic));
+                }
+                Some(previous) if previous.span.start == span.start => {}
+                _ => {
+                    if let Some(previous) = last.replace(diagnostic) {
+                        self.report(file, previous);
+                    }
+                }
+            }
+        }
+        if let Some(previous) = last {
+            self.report(file, previous);
+        }
+    }
+}

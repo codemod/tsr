@@ -445,8 +445,10 @@ fn private_identifiers_are_one_token() {
     // every private class member unparseable.
     assert_eq!(kinds("#x"), vec![PrivateIdentifier]);
     assert_eq!(kinds("this.#count"), vec![ThisKeyword, DotToken, PrivateIdentifier]);
-    // A lone `#` is not one.
-    assert_eq!(kinds("# x"), vec![HashToken, Identifier]);
+    // A lone `#` is still a `PrivateIdentifier` token (value `#`) with an
+    // `Invalid character` diagnostic: `Scan`'s `#` arm, `scanner.go:921-925`
+    // (r6-printer5 §1; this test asserted a `HashToken` before).
+    assert_eq!(kinds("# x"), vec![PrivateIdentifier, Identifier]);
 }
 
 // ---- JSX ------------------------------------------------------------------

@@ -64,3 +64,103 @@ checked against tsgo's output for the same text).
   (`parseBigInt:0:113`, not aligned on the base). RIGHT 550,412 → 550,459.
 - slowcases clean on both dumps. The change is three dispatch arms; the only
   per-token cost is a one-byte look-ahead on a `.` token.
+
+## 2. The regular-expression validator (`tsr-2zk.1192`, and §1's regex part)
+
+### Forcing constraint
+
+Codes TS1499–TS1538 had no emitter: r6-triage row 41 (10 cases) and the
+regex rows of row 23 (8 cases). `regularExpressionWithNonBMPFlags` alone
+wants six TS1499; `unicodeExtendedEscapesInRegularExpressions07` wants
+TS1198 for `/\u{110000}/u`.
+
+### What native does
+
+The parser's `reScanSlashToken` (`parser.go:2998`) calls
+`ReScanSlashToken()` with no argument: it finds the body's end and the
+flags, reports only `Unterminated regular expression literal`, and validates
+nothing. Validation is a **checker** grammar check:
+`checkRegularExpressionLiteral` (`checker.go:8012`) runs, once per literal
+(`NodeCheckFlagsTypeChecked`), `checkGrammarRegularExpressionLiteral`
+(`grammarchecks.go:68`): in a file with no parse diagnostics, a scanner of
+the checker's own re-scans from the literal and calls
+`ReScanSlashToken(true)`. With `true` the flag loop reports unknown,
+duplicate, `u`+`v` and target-gated flags (`scanner.go:1180-1193`), and
+`regExpParser.run` (`regexp.go:1043`) walks the body with `s.end` narrowed
+to it. The checker's `onError` callback keeps one diagnostic per start
+position, and a `Message`-category report (`Did you mean …?`, TS1369) at the
+same span as the last kept error becomes its related information.
+
+### The port
+
+- `crates/tsr-scanner/src/regexp.rs`: `scan_regular_expression_errors(text,
+  token_start, language_version)` is `ReScanSlashToken(true)` (flag loop,
+  unterminated recovery span) and `regExpParser` function for function
+  (`scanDisjunction` … `run`), returning the callback's arguments in report
+  order. `unicode_properties.rs` is `unicodeproperties.go`, transcribed by a
+  script, source order kept.
+- **A scanner of its own, rejected alternative: reuse `Scanner`.**
+  `regExpParser` moves native's byte cursor, narrows `s.end`, reads
+  `s.char()` (one byte, `-1` past `end`), and calls `scanEscapeSequence`,
+  `scanUnicodeEscape`, `scanHexDigits` and `scanIdentifier` on it; every
+  reported column follows those byte moves. `Scanner` has a char-level
+  cursor, decoded values and a rewindable diagnostic list shaped for the
+  parser. Bending it to the validator would put regex-only branches in the
+  token scanner's hot path. The module carries the few routines it needs,
+  transliterated over bytes; `scanEscapeSequence` here is the regex use only
+  (`scan_escape_into` stays the string/template one). What would make reuse
+  win: a byte-cursor `Scanner`, which this port does not have.
+- Native's routines return Go strings that may hold lone surrogates or raw
+  bytes. The validator reads them only as empty / one code point / longer
+  (for `a-b` ranges), so `CharValue` keeps exactly that, with native's
+  surrogate splitting in non-unicode mode (`pendingLowSurrogate`).
+- Map iteration: native suggests from Go maps (`maps.Keys`), in no order.
+  `getSpellingSuggestion` keeps the minimum distance and breaks ties with
+  `strings.Compare`, so the answer does not depend on order; the port walks
+  the tables in source order.
+- `literals.rs` `check_grammar_regular_expression_literal`: the
+  `hasParseDiagnostics` gate, the re-scan from the literal's `/` at the
+  checker's `language_version`, and the `onError` fold. Its caller is the
+  node walk's dispatch in `check.rs` (main's), shipped as
+  [`r6-printer5-regexp-check-hook.diff`](r6-printer5-regexp-check-hook.diff);
+  the walk visits each literal once, which is native's once-per-literal
+  guard. Without the diff the function is unreached (`allow(dead_code)`, as
+  r6-printer4's plans were).
+
+### Checker port convention
+
+- *Native operation:* `checkGrammarRegularExpressionLiteral` →
+  `ReScanSlashToken(true)` → `regExpParser.run`.
+- *Key identity and owner:* none. No cache, no side table; per literal, the
+  validator's state (group names, references, decimal escapes) lives on the
+  stack for one call, as native's `regExpParser` does.
+- *Publication states:* none; diagnostics are reported, nothing is stored.
+- *Receiver/alias context:* the literal's source text and the checker's
+  target only.
+- *Expensive work boundary:* one re-scan of one literal's text, only for
+  regular expression literals, only in files without parse diagnostics. The
+  parse is unchanged (the validator is never called from the parser).
+
+**Falsifiers:** `crates/tsr-scanner/tests/regexp_validator.rs` (tsgo's
+output for each literal). Beyond the dumps, every single-file regex case in
+the corpus (55 files: `*regularExpression*`, `*regExp*`,
+`unicodeExtendedEscapesInRegularExpressions*`) was run through tsgo and the
+port at `--target es2015` and `esnext`: the regex codes match on all but
+`parserRegularExpressionDivideAmbiguity4`, whose extra TS1005 is the
+parser's (§3).
+
+### Measured (stacked on §1, against `7dba1e1`)
+
+- diagnostics **+18 / −0** over §1 (+21 / −0 with it): the ten row-41
+  cases, `unicodeExtendedEscapesInRegularExpressions07/12/14/17/19`,
+  `parser.numericSeparators.unicodeEscape`,
+  `parserRegularExpressionDivideAmbiguity3`, and `parser579071` (outside
+  both rows: TS1005 `']' expected` inside a pattern).
+- types +0 / −0. slowcases clean on both dumps.
+- Ir (`profiling` build, `--singleThreaded --noEmit`): domain-model
+  1,092,517,840 → 1,093,526,503 (+0.09%), generic-imports 343,703,462 →
+  342,864,605 (−0.24%). Neither project has a regular expression literal:
+  callgrind shows the validator never called. The domain-model delta sits
+  in `check_node_worker` (the new kind test runs once per node, about 1 M Ir
+  over the program) and code layout; CLI output is byte-identical on both
+  projects.

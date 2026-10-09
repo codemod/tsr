@@ -17,13 +17,16 @@
 mod comments;
 mod generated;
 mod jsdoc;
+mod regexp;
 mod token;
+mod unicode_properties;
 
 pub use comments::{
     CommentKind, TriviaComment, is_shebang_trivia, leading_comment_ranges, scan_shebang_trivia,
 };
 pub use generated::keywords::keyword_kind;
 pub use jsdoc::{CommentRange, is_jsdoc_like_text, jsdoc_ranges_in};
+pub use regexp::{RegExpError, scan_regular_expression_errors};
 pub use token::{Token, TokenFlags};
 
 use tsr_ast::SyntaxKind;
