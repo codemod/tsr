@@ -122,3 +122,93 @@ native `tsgo`.
 differs from the overload comment's: native gives each overload its own
 comment's type parameters; a case wanting the host's would show
 `gatherTypeParameters` read from the wrong comment.
+
+## 3. T11: `@return` predicates (`tsr-2zk.1110`)
+
+**Forcing fact.** `returnTagTypeGuard`'s `chunk.isInit(chunk) ? chunk.c :
+chunk.d` read `chunk.c` on `Entry | Group` (`error`), and
+`assertionsAndNonReturningFunctions`' `assert2(typeof x === "string");
+x.length` left `x : any`. `reparseHosted`'s `KindJSDocReturnTag` arm
+(`parser/reparser.go:514`) clones `tag.TypeExpression().Type()` — the
+braces' content — into the function's `Type`, so `{value is T}` and
+`{asserts x}` are the return type node and `getTypePredicateOfSignature`
+(`relater.go:2029`) builds the predicate from it. `signatures.rs`' older
+JSDoc road kept the `JSDocTypeExpression` wrapper, so its
+`TypePredicateNode` match never fired and the predicate was dropped.
+
+The `@type {AssertFunc}` arm of the same case is
+`isDeclarationWithExplicitTypeAnnotation` (`flow.go:2197`): in a JS file a
+variable's `node.Type()` is its reparsed `@type`, so `getTypeOfDottedName`
+types `assert` and its `asserts` signature narrows. `flow.rs`'
+`get_explicit_type_of_symbol` read written annotations only.
+
+**Diff** [`r6-jsdoc-return-predicates.diff`](r6-jsdoc-return-predicates.diff):
+`signatures.rs` unwraps the tag's `{…}` (`get_signature_from_declaration`'s
+`@returns` read); `flow.rs` asks ADR-0046's hosted-type queries
+(`jsdoc_type_annotation`, `jsdoc_self_hosted_type`,
+`jsdoc_reparsed_parameter_type`) when nothing is written.
+
+**Measured** (alone, on this lane's `6460af0`): types **549,853 → 549,870
+RIGHT (+17 lines)**, no case converts alone; diagnostics unchanged; zero
+losses; no other row changed text; `slowcases` clean. Ir domain-model
+1,091,827,831 (+0.03%), generic-imports 343,066,152 (−0.005%).
+`jsdoc_return_predicates.rs` (in the diff): two tests, each failing without
+it, each checked against `tsgo`.
+
+**Left.** `returnTagTypeGuard`'s `(val: boolean | number) => void` prints the
+union in id order where native reuses the written `@param` node (T9, node
+reuse). `assertionsAndNonReturningFunctions`' `f2 : (b: boolean) => 0 | 1`
+is `error`: `signatures.rs`' return inference declines two or more distinct
+return types in any JS file, a decline written for `@overload` before §2
+existed; removing it on top of the overload diff is this lane's next step.
+
+## 4. T5: generic `@callback` and function-type `@typedef` instantiations
+
+**Forcing fact.** `/** @type {Id<string>} */ var one_twenty = s => "120"`
+under `@template T @callback Id` typed `s : any`, and a call through any
+generic JS function-type alias (`@typedef {(t: T) => T} F`, `F<string>`)
+answered `error`; the non-generic forms and the TypeScript twin worked.
+Native's reparse makes both `JSTypeAliasDeclaration`s, instantiated by
+`getTypeAliasInstantiation` like a written alias. `declared.rs`' §947.2 arm,
+which gives a generic alias whose body is a function or constructor type its
+signatures, read only a written `TypeAliasDeclaration`.
+
+A second, smaller producer showed once the first was fixed:
+`/** @template V @callback One … */ /** @type {One<string>} */ var b = t =>
+t` printed `<V>(t: string) => string`. Both comments are hosted on the
+statement, and `signatures.rs`' older JSDoc road (and the module host's
+`jsdoc_template_parameters`, `tsr-compiler`) skipped a comment's
+`@template` for a typedef but not for a callback; `gatherTypeParameters`
+(`parser/reparser.go:293`) returns none for either.
+
+**Diff** [`r6-jsdoc-generic-callback.diff`](r6-jsdoc-generic-callback.diff):
+the §947.2 arm reads `type_alias_body` and `local_type_parameters_of` (both
+already JSDoc-aware, and equal to the written alias's fields for a
+TypeScript alias); both template gatherers skip a callback comment too.
+
+**Measured** (alone, on `6460af0`): types **549,853 → 549,864 RIGHT (+11
+lines)**, cases **+1** (`typeTagNoErasure`); diagnostics verdicts unchanged;
+zero losses; `slowcases` clean. The callback-comment hunk alone measures
+zero (it needs the first to give the alias a signature) and adds nothing on
+top of it in the corpus; it ships because the probe above, checked against
+`tsgo`, shows it. Ir domain-model 1,090,795,391 (−0.07%), generic-imports
+343,063,700 (−0.006%). `jsdoc_generic_callbacks.rs` (in the diff): three
+tests, each failing without it.
+
+Two diagnostics rows change text, both still WRONG:
+
+- `jsdocCallbackAndType` gains its expected TS2322 (6,5); its TS2554 waits on
+  `calls.rs`' JS decline (§2).
+- `typeTagNoErasure` now reports a TS2322 native does not: with the arrow
+  typed `<T1 extends number>(dibbity: T1) => T1` (its `.types` lines are now
+  all RIGHT), the relater refuses it against `Test<number>`. The same gap
+  shows in pure TypeScript — `declare const g: <T1 extends number>(d: T1) =>
+  T1; const t: Test<number> = g` with `type Test<T> = <T1 extends T>(data:
+  T1) => T1` reports TS2322 where `tsgo` reports nothing; the TypeScript twin
+  of the case hides it only because its arrow gaps to `error`. Routed to the
+  relater lane (generic signature against an instantiated generic alias's
+  signature).
+
+**Left.** `callbackTag2`'s four `Final<…>` lines: the `@callback Final`
+comment ends the file, so it waits on T8's EOF host (this lane's item 5).
+`callbackTagNamespace` waits on dotted `@callback` names (item 6).
