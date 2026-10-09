@@ -449,6 +449,62 @@ node`): native and TSR identical, texts included.
 
 Unit test: `tests/js_alias_types.rs`, in the diff.
 
+### 2.11 A module's top-level `@typedef` is an export — binder diff, no new file
+
+Case on the base: `jsDeclarationsDefaultsErr(target=es2015)`, missing TS2300
+at `index2.js(2,22)` and `(4,31)`: `export default class C {}` beside
+`@typedef {string | number} default`. **Not converted** (below), but the same
+change resolves the JSDoc twin of §2.5 when its comment has a host.
+
+Native: a `@typedef`/`@callback` is reparsed into a `JSTypeAliasDeclaration`.
+At a JS module's top level it is implicitly exported
+(`ast.IsImplicitlyExportedJSDocDeclaration`), and `bindContainer` binds it
+after the file's statements with `bindBlockScopedDeclaration`
+(`binder.go:1600`), which goes through `declareModuleMember` (`:375`) into
+the module symbol's **exports** with `SymbolFlagsTypeAliasExcludes`. A
+typedef named `default` then conflicts with `export default class C`
+(TS2300 on both), merges with `export default Cls` (an alias), and
+`import('./file1').Foo` finds `file1.js`'s typedef `Foo`.
+
+TSR filed every top-level typedef in the file's locals
+(`declare_jsdoc_symbol`, `binder.rs`, main's). The diff
+(`r6-smallcodes5-jsdoc-typedef-exports.diff`) adds
+`declare_jsdoc_type_alias`: when the alias's scope is the file and the file
+has a module symbol (ES or CommonJS, both decided before JSDoc binds), it
+declares the alias into the module's exports through `declare_into` with
+its name node, as the written `export type` does. Elsewhere (a script, a
+nested scope) it keeps the comment-scoped local.
+
+Why the case does not convert: its typedefs are the last thing in each file,
+so they hang on the end-of-file token, and the parser attaches no JSDoc there
+(`attach_jsdoc` is never called for `EndOfFile`; upstream's
+`parseSourceFile` parses the end-of-file token with JSDoc). With a statement
+after the comment, native and TSR report the same two positions. Two
+messages still differ: native names each declaration by its own name
+(`getDisplayName`, `binder.go:357`, `'C'` for the class), TSR's binder
+report uses the table key (`'default'`) for both. The suites compare codes
+and positions only, so that is recorded here, not ported (§4).
+
+Measured alone on §2.1–§2.8 (before §2.10 existed): diagnostics unchanged,
+types unchanged, zero losses, one row moved **away** from its baseline:
+`importingExportingTypes` gained an extra TS2484 on `export { JSDocType }`,
+because the export specifier and the typedef now share one export symbol and
+the unported JS arm of `checkAliasSymbol` fell through to the conflict test.
+§2.10 is that arm, so it lands first. Together (§2.10 then §2.11), against
+the frozen base:
+
+- Diagnostics: 5,545 RIGHT, 5,597 EMPTY_RIGHT (11,142 right, +16 on the
+  base), zero losses. The pair converts `elidedJSImport1` and
+  `importingExportingTypes`, and moves `jsDeclarationsInterfaces(target=es2015)`
+  (its four missing TS18043) and `jsxCheckJsxNoTypeArgumentsAllowed` (its
+  missing TS18042) toward their baselines.
+- Types dump: unchanged from the seven-diff stack (549,862 RIGHT).
+- slowcases: clean on both dumps.
+- Ir: domain-model 1,091,452,413, generic-imports 343,071,784, within the
+  base's spread. CLI output is byte-identical.
+
+Unit test: `tsr-binder/tests/jsdoc_typedef_exports.rs`, in the diff.
+
 ## 3. Apply order
 
 | # | Diff | New file | Cases |
@@ -461,6 +517,7 @@ Unit test: `tests/js_alias_types.rs`, in the diff.
 | 6 | `r6-smallcodes5-jsdoc-import-duplicates.diff` (`binder.rs`) | none | +1 |
 | 7 | `r6-smallcodes5-receiver-parse-errors.diff` (`check.rs`) | none | +2 |
 | 8 | `r6-smallcodes5-js-alias-types.diff` (`symbols.rs`, `isolated_alias.rs`) | `js_alias_types.rs` | +2 with #9 |
+| 9 | `r6-smallcodes5-jsdoc-typedef-exports.diff` (`binder.rs`) | none | with #8 |
 
 Each later diff is relative to the ones before it. Stacked, the diffs
 reproduce the measured tree byte for byte.
