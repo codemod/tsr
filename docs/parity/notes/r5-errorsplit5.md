@@ -180,18 +180,156 @@ Tests: `tests/errortype_producers.rs` pins `<div />` without a namespace as
 `native_error` and `<></>` as `any`, with a declared `JSX.Element` as the
 control.
 
+## §5 Commit 3: `checkSuperExpression`'s identities, and `GetSuperContainer`'s static-block and decorator arms
+
+This one function holds item 2's largest native-`anyType` population
+(`superInObjectLiterals_ES6`, 18 lines, plus `classExtendingAny`) and a row of
+native-`errorType` exits. All of them were spelled as the gap or as the `any`
+stand-in:
+
+- **object-literal container.** Upstream answers `anyType`: "for object
+  literal assume that type of 'super' is 'any'" (`checker.go:7917`). The port
+  kept the gap, under `checker-notes-rank.md` §6's ban on banking `any`. The
+  probe shows the line *is* upstream's `anyType`, so the ban no longer
+  applies: it guarded against a guessed `any`, and this one is measured.
+- **illegal usage** (`checker.go:7912`, after its diagnostic). These
+  cover a function container, a super call outside a constructor, a call
+  through an arrow, a computed name, and the walk finding no member. Native
+  answers `errorType` for all of them.
+- **the base arms.** No `extends` (TS2335, `:7925`), a call on an `extends
+  null` class (`:7929`), a class without base types (`:7939`), and a
+  constructor-argument initializer (`:7944`) all answer `errorType`.
+
+**The probe found the walk incomplete.** Switched alone, the "no member found"
+exit claimed `errorType` for 13 lines that natively have types:
+
+- `classFieldSuperAccessible`, `classFieldSuperAccessibleJs1`,
+  `javascriptThisAssignmentInStaticBlock`. `GetSuperContainer`
+  (`ast/utilities.go:1835`) returns a `ClassStaticBlockDeclaration` as a
+  container, and `ast.IsStatic` holds for it. The port's walk had no such
+  arm, so a static block's `super` walked to the class and found no member.
+- `esDecorators-preservesThis`. The `KindDecorator` arm (`:1837`) skips the
+  decorated class element, or the member that owns a decorated parameter,
+  and keeps walking past the class. The port stopped at the decorated
+  element's class.
+
+Both arms are ported, the decorator one with the same skip the computed-name
+arm uses. After that, the exit moves 4 lines, all `errorType`, and it switches
+too.
+
+**Probe join** (each arm alone, against commit 2):
+
+| arm | lines moved | native `errorType` | native `anyType` | other |
+|---|---:|---:|---:|---:|
+| object-literal container → `any` | 27 | 0 | **27** | 0 |
+| illegal usage and base arms → `native_error` | 131 | 131 | 0 | 0 |
+| the stand-in `any` exits → `native_error` | 35 | 29 | 0 | 6 |
+| "no member found", after the walk fix | 4 | 4 | 0 | 0 |
+
+The 6 "other" lines are not false claims. They are a parse-recovery
+misalignment in `derivedClassSuperCallsInNonConstructorMembers` (`a: super()`
+in a type position, §1). The probe tags that case's `super` lines `@@E`.
+
+**Measured** cumulatively with commits 1–2 (unfiltered, both dumps, against
+`22a5e1a`):
+
+| | commits 1+2 | commits 1–3 |
+|---|---:|---:|
+| types RIGHT / GAP / WRONG | 544,688 / 956 / 6,889 | **544,751 / 936 / 6,846** |
+| diagnostics | unchanged | unchanged, zero transitions |
+| type / diagnostics losses vs base | 0 / 0 | **0 / 0** |
+| credited gap | 3,184 | **3,058** |
+| wholesale narrowing RIGHT→GAP | 3,768 | **3,606** |
+
+**Gains (+63: 43 WRONG→RIGHT, 20 GAP→RIGHT)**, all from the two walk arms:
+
+- static blocks: `classStaticBlock5` ×18 (three targets),
+  `javascriptThisAssignmentInStaticBlock` 15, `classFieldSuperAccessible` 6,
+  `classFieldSuperAccessibleJs1` 6;
+- decorators: `esDecorators-preservesThis` 12, `decoratorOnClassMethod12` 4;
+- `errorSuperPropertyAccess(target=es2015)` 2.
+
+Tests: `tests/errortype_producers.rs` covers four cases:
+
+- object-literal `super` is `any`;
+- a function container is `native_error`;
+- a class without a base is `native_error`;
+- a static block's `super` is `typeof B`.
+
+## §7 Item 3: §32's twins, an unresolved type-reference receiver
+
+Upstream's unresolved type reference (`getTypeFromTypeAliasReference` for an
+unresolved symbol) is any-flagged *with an alias*. So `isErrorType` holds for
+it (`checker.go:26641`), and the two accesses through it answer:
+
+- **property access**: `errorType` (`checker.go:11314-11320`: `isAnyLike`,
+  then `isErrorType(apparentType)`);
+- **element access**: the receiver itself (`checker.go:8153`:
+  `if c.isErrorType(objectType) { return objectType }`), printed by its alias
+  name.
+
+The port's twins (`members.rs` `check_property_access_expression`,
+`indexed.rs` `element_access_lookup`) both answered `anyType`, behind the §31
+gate (`!file_has_import_machinery`). In an import-machinery file they fell
+through to the gap.
+
+**The gate stays.** With the property twin switched to `native_error`
+everywhere (gate removed), the probe join is:
+
+| population | lines moved | native `errorType` | other |
+|---|---:|---:|---:|
+| files without import machinery (the twin's `any`) | 3,205 | 3,196 | 9 |
+| import-machinery files (the gap fall-through) | 43 | 3 | **40** |
+
+In import-machinery files the unresolved mint is mostly the port's own
+resolution miss: `moduleAugmentation*`, `jsDeclarationEmitDoesNotRenameImport`.
+That is the §31 gate's reason, so the gate stays and only the non-import arm
+switches. The 9 "other" lines are JS `require` receivers
+(`varRequireFromJavascript`, `varRequireFromTypescript`,
+`commonJSImportExportedClassExpression`) that the port mints as unresolved
+references. They were WRONG before and stay WRONG; they are listed here, not
+counted.
+
+The OBJECT-flagged deferred mints in `unresolved_types` are the port's gap
+(`Checker::is_gap`), not upstream's type, and keep the twins' `any` stand-in.
+
+### §7.1 Commit 4: `indexed.rs`
+
+`element_access_lookup` answers the receiver for an any-flagged unresolved
+reference. Exactly one printed line in the corpus changes:
+`recursiveTypeRelations:0:47`, `obj[exportedClassName] : ClassNameObject`,
+WRONG→RIGHT. Native prints the alias name there, which is the identity
+`checker.go:8153` returns.
+
+**Measured** cumulatively with commits 1–3 (unfiltered, both dumps, against
+`22a5e1a`): zero losses; types **544,752 / 936 / 6,845** (+1 WRONG→RIGHT);
+diagnostics unchanged. Credited gap and narrowing are unchanged (3,058 and
+3,606), because the old `any` was not the gap.
+
+Tests:
+
+- `an_element_access_through_an_unresolved_reference_is_the_reference`
+  (`x[0]` with `x: Missing` is `Missing`);
+- `element_access_any.rs`'s `a_receiver_this_port_could_not_type_is_still_a_gap`
+  pinned the old `any`, and now pins `Unresolved`.
+
+Perf, median child CPU against the base binary: 21 samples read
+generic-imports 1.099 and domain-model 0.952. Re-run at 41 samples per the
+protocol, they read domain-model 1.025 and generic-imports 1.005. The change
+is one arm behind a set lookup that the old code already made.
+
 ## §9 Narrowing, re-measured after each switch
 
 ADR-0048's decision log narrows a rewrite only at zero RIGHT cost. The cost
 of each rewrite, as RIGHT→GAP lines:
 
-| rewrite | base (`22a5e1a`) | commit 1 | commit 2 |
-|---|---:|---:|---:|
-| `HadErrorBaseline` | 3,375 | 3,184 | 2,639 |
-| `AtLocation` | 732 | 732 | 732 |
-| `StatementName` | 312 | 312 | 312 |
-| `AccessOrQualifiedParent` | 62 | 62 | 62 |
-| `GlobalAugmentation` | 23 | 23 | 23 |
-| **total** | 4,504 | 4,313 | 3,768 |
+| rewrite | base (`22a5e1a`) | commit 1 | commit 2 | commit 3 |
+|---|---:|---:|---:|---:|
+| `HadErrorBaseline` | 3,375 | 3,184 | 2,639 | 2,513 |
+| `AtLocation` | 732 | 732 | 732 | 696 |
+| `StatementName` | 312 | 312 | 312 | 312 |
+| `AccessOrQualifiedParent` | 62 | 62 | 62 | 62 |
+| `GlobalAugmentation` | 23 | 23 | 23 | 23 |
+| **total** | 4,504 | 4,313 | 3,768 | 3,606 |
 
 No rewrite reaches zero, so none is narrowed.

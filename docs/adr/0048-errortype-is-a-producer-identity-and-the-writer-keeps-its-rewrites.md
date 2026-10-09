@@ -281,3 +281,36 @@ WRONG (notes §4).
 **Narrowing**, per rewrite: `HadErrorBaseline` 2,639, `AtLocation` 732,
 `StatementName` 312, `AccessOrQualifiedParent` 62, `GlobalAugmentation` 23.
 None costs zero, so none is narrowed. The residual fell 4,313 → 3,768.
+
+### 2026-10-08 — step 5, commit 3: `checkSuperExpression` by identity; no rewrite narrowed
+
+`super` in an object-literal member is upstream's `anyType` on every probed
+line (27 of 27, `checker.go:7917`). Its illegal-usage and base exits are
+`errorType`: 164 of 164 aligned lines. That retires the gap `checker-notes-rank.md`
+§6 had kept there, because the `any` is now measured, not guessed.
+
+The probe also showed the port's container walk lacked `GetSuperContainer`'s
+static-block and decorator arms. Both are ported, and they give +63 type lines
+(notes §5).
+
+**Measured** cumulatively with commits 1–2 (unfiltered, both dumps, against
+`22a5e1a`): zero losses; types 544,751 / 936 / 6,846; credited gap 3,184 →
+**3,058**.
+
+**Narrowing**, per rewrite: `HadErrorBaseline` 2,513, `AtLocation` 696,
+`StatementName` 312, `AccessOrQualifiedParent` 62, `GlobalAugmentation` 23.
+None costs zero, so none is narrowed. The residual fell 3,768 → 3,606.
+
+### 2026-10-08 — step 5, commit 4: §32's element-access twin answers the unresolved receiver
+
+An any-flagged unresolved reference is `isErrorType`, so upstream's element
+access answers the receiver itself (`checker.go:8153`). `indexed.rs`'s §32
+twin answered `anyType`, and now answers the receiver outside import-machinery
+files. Exactly one printed line changes, WRONG→RIGHT. The §31 gate stays: in
+import-machinery files, 40 of the property twin's 43 probed lines are the
+port's resolution misses (notes §7). The property twin (`members.rs`, main's)
+ships as a measured diff.
+
+**Measured** cumulatively (unfiltered, both dumps, against `22a5e1a`): zero
+losses; types 544,752 / 936 / 6,845. Credited gap (3,058) and narrowing
+(3,606) are unchanged, so no rewrite is narrowed.

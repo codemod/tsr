@@ -81,27 +81,34 @@ fn super_as_a_receiver_uses_the_instantiated_base() {
 /// extends something is still a class with no base — upstream reports on the
 /// `super()` and answers `any`, not the interface's base.
 /// `conformance/superCallFromClassThatHasNoBaseTypeButWithSameSymbolInterface`
-/// was the single loss on this arm's first measurement.
+/// was the single loss on this arm's first measurement. The answer is
+/// upstream's `errorType` (TS2335, `checker.go:7925`), printed `any`; it was
+/// the gap, printed `error`, until r5-errorsplit5 verified the identity
+/// against the native probe (`docs/parity/notes/r5-errorsplit5.md` §5).
 #[test]
 fn an_interface_merged_with_the_class_contributes_no_base_to_super() {
     assert_eq!(
         type_of_super(
             "interface Foo extends Array<number> {}\nclass Foo { constructor() { super(); } }"
         ),
-        "error"
+        "any"
     );
 }
 
 /// A heritage entry with MORE type arguments than the base declares is an
 /// upstream error and the base type becomes `errorType`, so `super` is not
-/// `typeof A`. Measured: without this, two cases lose a line.
+/// `typeof A`. Measured: without this, two cases lose a line. With no base
+/// type, `checkSuperExpression` answers upstream's `errorType`
+/// (`checker.go:7939`), printed `any`; the probe tags those lines `@@E`
+/// (`superCallFromClassThatDerivesFromGenericTypeButWithIncorrectNumberOfTypeArguments1`,
+/// `docs/parity/notes/r5-errorsplit5.md` §5).
 #[test]
-fn too_many_type_arguments_on_the_base_make_super_a_gap() {
+fn too_many_type_arguments_on_the_base_make_super_error_type() {
     assert_eq!(
         type_of_super(
             "class A { }\nclass B extends A<number, string> { constructor() { super(); } }"
         ),
-        "error"
+        "any"
     );
 }
 
