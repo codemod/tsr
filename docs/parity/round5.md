@@ -1536,3 +1536,20 @@ Held:
 - the conditional-typed print: dm Ir +0.16%, waiting on `.1135`.
 
 r6-declared2 takes `tsr-2zk.1143`.
+
+### r6-names2 finished (batch BN); r6-triage dispatched
+
+Batch BN lands resolveName's useOuterVariableScopeInParameter at dm Ir
++0.03%, down from +0.15%. The options now travel as a walk parameter, not a
+BindResult field; a wrapper-only variant that lost optionalParamReferencingOtherParams2
+was refused.
+
+It also lands three more diffs:
+- value_reference_slot inlined (−0.255M Ir);
+- TS1003 through checkModuleExportName;
+- TS2303 through native's namespace export-specifier alias walk.
+
+Measured by the box: +5 diagnostics, +38 types, 0 lost.
+
+r6-triage re-clusters the remaining failures on the round-6 tip
+(`tsr-2zk.1144`), because the `.16.x` roots date from an older base.
