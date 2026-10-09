@@ -323,3 +323,38 @@ resolves the conditional to the mapped object. `mappedArrayTupleIntersections:11
 maps an array-intersection's members where native keeps the tuple.
 `declarationAssertionNodeNotReusedWhenTypeNotEquivalent1:16/17` keeps the
 generic mapped form of an instance. These are not traced further.
+
+## 3. `mappedTypeNotMistakenlyHomomorphic:0:26`: `keyof` reduces the alias body, not the reference (diff)
+
+**The brief's premise, corrected.** r5-mapped5 §6 blamed an undistributed
+`{ v: A } & (X | Y)`. The port does distribute it. `Gen<ABC.A>` is the
+union `{ v: ABC.A } & { v: ABC.A; a: string } | { v: ABC.A } & { v: ABC.B; b: string }`.
+It prints its denormalized intersection origin, as native's does. A scratch
+trace of `is_generic_reducible_type` and `get_reduced_type` showed the
+actual order:
+- `resolved_keyof_type_worker` calls `get_reduced_type` on the operand. The
+  operand is the alias *reference*, which is not a union, so nothing
+  reduces.
+- `binding_type_alias_body` then unwraps the reference to the union.
+- The `reducible_union` test (r5-mapped5's reducible-keyof diff) finds the
+  second constituent reducible, because its `v` is `ABC.A & ABC.B`. It
+  defers the `keyof`.
+
+Native's getIndexTypeEx reduces the instantiation itself (`checker.go:26685`),
+which is the union, so that constituent is gone before shouldDeferIndexType
+runs. The keys are `"a" | "v"`.
+
+**Diff** ([`r5-mapped6-keyof-reduced-alias-body.diff`](r5-mapped6-keyof-reduced-alias-body.diff),
+`declared.rs` (r5-declared3), on top of §1's route diff):
+- `resolved_keyof_type_worker` also reduces the alias body when
+  `binding_type_alias_body` unwraps one;
+- a new unit test, `tests/keyof_reduced_alias_body.rs`. It fails without
+  the diff.
+
+**Measured** against §1 (commit + route diff), both dumps unfiltered:
+- types **+1 RIGHT** (`mappedTypeNotMistakenlyHomomorphic:0:26`, now
+  `"a" | "v"`; the case is fully RIGHT);
+- no other line's text changes; diagnostics unchanged;
+- zero losses; slowcases clean;
+- Ir: domain-model 1,159,835,827 → 1,160,117,901 (+0.024%), generic-imports
+  342,935,705 → 342,914,296 (−0.006%).
