@@ -612,10 +612,19 @@ impl Checker<'_, '_> {
                     TypeData::Union { symbol: Some(symbol), .. }
                         if self.binder.symbols().get(*symbol).flags
                             .contains(tsr_binder::SymbolFlags::TYPE_ALIAS));
-                    let contributed = if aliased {
-                        vec![id]
-                    } else {
-                        self.union_origin.get(&id).cloned().unwrap_or_else(|| vec![id])
+                    // addNamedUnions (checker.go:25824): a union with an
+                    // alias (an enum's declared type is one, checker.go:23899)
+                    // stays one entry; an origin-carrying union contributes
+                    // its origin's entries; an unnamed union is no entry at
+                    // all, and its members reach the origin as typeSet
+                    // members (`reducedTypes`, checker.go:25708).
+                    let contributed = match &self.store.get(id).data {
+                        TypeData::Union { symbol: Some(_), .. } => vec![id],
+                        _ if aliased => vec![id],
+                        TypeData::Union { types: members, .. } => {
+                            self.union_origin.get(&id).cloned().unwrap_or_else(|| members.clone())
+                        }
+                        _ => vec![id],
                     };
                     for entry in contributed {
                         if !entries.contains(&entry) {
@@ -623,25 +632,13 @@ impl Checker<'_, '_> {
                         }
                     }
                 }
-                // Entry order, from the baselines: nullable entries LAST
-                // (`MyEnum | undefined`), everything else by its first
-                // MEMBER's sort bits (`boolean | E` for the written
-                // `E | boolean`).
-                let key = |checker: &Self, id: TypeId| -> (bool, u32) {
-                    let flags = checker.store.get(id).flags;
-                    if flags.intersects(TypeFlags::NULLABLE) {
-                        return (true, 0);
-                    }
-                    let first = match &checker.store.get(id).data {
-                        TypeData::Union { types, .. } => types.first().copied().unwrap_or(id),
-                        _ => id,
-                    };
-                    (false, sort_order_flags(checker.store.get(first).flags))
-                };
-                entries.sort_by(|&a, &b| {
-                    let (ka, kb) = (key(self, a), key(self, b));
-                    ka.cmp(&kb).then_with(|| self.compare_types(a, b))
-                });
+                // The origin is `newUnionType(reducedTypes)` after each named
+                // union is placed by `insertType` (checker.go:25724), so its
+                // entries are in `CompareTypes` order and nothing else. The
+                // nullable tail (`MyEnum | undefined`) and the boolean
+                // collapse are the printer's (`formatUnionTypes`,
+                // printer.go:383), applied where the text is built.
+                entries.sort_by(|&a, &b| self.compare_types(a, b));
                 Some(entries)
             } else {
                 // §742: a NAMED constituent inside an ALIASED union
@@ -1067,14 +1064,15 @@ impl Checker<'_, '_> {
                 return self.intrinsics.error;
             }
         }
-        let mut parts = Vec::with_capacity(entries.len());
-        for &entry in &entries {
-            let printed = crate::printing::type_to_string(self.store.get(entry));
-            if printed == "error" {
-                return self.intrinsics.error;
-            }
-            parts.push(parenthesised(&self.store, entry));
+        if entries
+            .iter()
+            .any(|&entry| crate::printing::type_to_string(self.store.get(entry)) == "error")
+        {
+            return self.intrinsics.error;
         }
+        // The node builder prints the origin's entries through
+        // `formatUnionTypes` (printer.go:383): `null` then `undefined` last.
+        let parts = format_union_types(&self.store, &entries);
         if set.is_empty() {
             return self.intrinsics.never;
         }
@@ -1859,19 +1857,19 @@ impl crate::checker::Checker<'_, '_> {
 
     /// addNamedUnions (checker.go:25824): aliases are atomic entries; a union
     /// origin is traversed, while a non-union origin keeps its enclosing union.
+    /// An enum's declared type is aliased natively (`getDeclaredTypeOfEnum`,
+    /// checker.go:23899, `&TypeAlias{symbol: symbol}`), so any union this port
+    /// names by a symbol is `t.alias != nil`.
     fn add_named_unions(&self, named: &mut Vec<TypeId>, source: &[TypeId]) {
         for &id in source {
             let TypeData::Union { symbol, .. } = &self.store.get(id).data else { continue };
             let origin = self.union_origin.get(&id);
-            if symbol.is_some_and(|symbol| {
-                self.binder
-                    .symbols()
-                    .get(symbol)
-                    .flags
-                    .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
-            }) || origin.is_some_and(|entries| {
-                entries.len() == 1 && !self.store.get(entries[0]).flags.contains(TypeFlags::UNION)
-            }) {
+            if symbol.is_some()
+                || origin.is_some_and(|entries| {
+                    entries.len() == 1
+                        && !self.store.get(entries[0]).flags.contains(TypeFlags::UNION)
+                })
+            {
                 if !named.contains(&id) {
                     named.push(id);
                 }

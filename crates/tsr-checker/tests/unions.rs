@@ -274,15 +274,42 @@ fn a_union_containing_a_named_union_keeps_the_origin_spelling() {
     // narrowing filters project subsets.
     with_checker("enum E { A, B } var x: E | string;", |checker, _bound, statements| {
         let id = annotation_type(checker, statements, 1);
-        // Primitive-first, per the corpus census (`string | Color`,
-        // `boolean | E`); nullable entries sort last instead
-        // (`MyEnum | undefined`).
+        // The origin's entries are in `CompareTypes` order (`insertType`,
+        // `checker.go:25724`): `string`'s flag sorts below a union's.
         assert_eq!(checker.type_to_string(id), "string | E");
         let ty = checker.type_of(id);
         let TypeData::Union { types, .. } = &ty.data else {
             panic!("the origin union still IS a union of the flattened members");
         };
         assert_eq!(types.len(), 3, "E.A, E.B, string — members stay flattened");
+    });
+}
+
+#[test]
+fn origin_entries_follow_compare_types_and_print_through_format_union_types() {
+    // r5-unionorder: getUnionTypeWorker's origin is `reducedTypes` plus each
+    // named union placed by `insertType` (`checker.go:25724`) — a
+    // `CompareTypes` order, where a type parameter (1 << 19) and an object
+    // (1 << 20) sort before any union (1 << 27). An unnamed union is no
+    // entry: `boolean`'s two literals join as members and formatUnionTypes
+    // (`printer.go:383`) collapses them, and puts `null` then `undefined`
+    // last (`unknownControlFlow.types:62`, `typeInferenceLiteralUnion`'s
+    // `(T | Primitive)[]`).
+    let source = "type P = undefined | null | string; enum E { A, B } \
+                  function f<T>(a: P | T, b: E | null | undefined, c: boolean | E | undefined) {}";
+    with_checker(source, |checker, _bound, statements| {
+        let Statement::FunctionDeclaration(function) = statements[2] else {
+            panic!("statement 2 must be the function");
+        };
+        let printed: Vec<String> = function
+            .parameters
+            .iter()
+            .map(|parameter| {
+                let id = checker.get_type_from_type_node(parameter.r#type.expect("annotated"));
+                checker.type_to_string(id)
+            })
+            .collect();
+        assert_eq!(printed, ["T | P", "E | null | undefined", "boolean | E | undefined"]);
     });
 }
 
@@ -343,6 +370,23 @@ fn subtype_elimination_precedes_named_origin_construction() {
             assert_eq!(checker.type_to_string(result), "Choice");
         });
     }
+}
+
+#[test]
+fn an_enum_is_a_named_union_in_a_subtype_reduced_origin() {
+    // getDeclaredTypeOfEnum gives the enum's union an alias
+    // (checker.go:23899), so addNamedUnions keeps `E` as an origin entry and
+    // insertType places it after the object (`1 << 20` before `1 << 27`):
+    // `logicalOrOperatorWithEveryType.types:373` records `{ a: string; } | E`.
+    with_checker(
+        "enum E { a, b, c }
+         declare const o: { a: string } | undefined; declare const e: E;
+         const result = o || e;",
+        |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), "{ a: string; } | E");
+        },
+    );
 }
 
 #[test]
