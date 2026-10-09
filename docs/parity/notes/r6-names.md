@@ -43,7 +43,7 @@ checks, not a resolution difference.
 | B. `for…of` with an empty declaration list | `checkForOfStatement` (`checker.go:4051`) reaches the expression only through a declaration | parserForOfStatement2, parserForOfStatement21, parserES5ForOfStatement2, parserES5ForOfStatement21 | §5, diff `r6-names-empty-for-of` |
 | C1. TypeScript-only annotations in JavaScript files | `getTypeFromTypeReference` reached by `checkSourceElement` in a `.js` file | fillInMissingTypeArgsOnJSConstructCalls, parserArrowFunctionExpression10, parserArrowFunctionExpression17 | §6, diff `r6-names-js-type-annotations` |
 | C2. JSDoc type names | JSDoc arms of `resolveTypeReferenceName`; script-file typedefs in `globals` | jsdocResolveNameFailureInTypedef, typedefScope1, recursiveResolveDeclaredMembers | open |
-| D. parameter initialisers | `resolveName`'s `useOuterVariableScopeInParameter` (`binder/nameresolver.go:74`, `:346`) | functionLikeInParameterInitializer(es2015), parameterInitializersForwardReferencing(es2015) | open |
+| D. parameter initialisers | `resolveName`'s `useOuterVariableScopeInParameter` (`binder/nameresolver.go:74`, `:346`) | functionLikeInParameterInitializer(es2015), parameterInitializersForwardReferencing(es2015) | §11, diff `r6-names-parameter-scope` |
 | E1. non-primitive keyword spellings as values | `checkAndReportErrorForUsingTypeAsValue`'s six-name `isPrimitiveTypeName` (`checker.go:1637`) | parserSymbolIndexer5 (TS2552) | §7, diff `r6-names-primitive-spellings` |
 | E2. `typeof null` | `parseTypeQuery`'s reserved-word entity name (`parser.go:3114`) | invalidTypeOfTarget | §8, diff `r6-names-typeof-null` |
 | F1. decorators native never checks | `checkDecorators` (`checker.go:6022`) gated by `ast.NodeCanBeDecorated` (`ast/utilities.go:4254`) | classExpressionWithDecorator1 | §10, diff `r6-names-decorator-targets` |
@@ -66,6 +66,7 @@ function it wires in `name_slots.rs`, and adds its test under
 | 5 | `r6-names-typeof-null.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 | 6 | `r6-names-export-specifier.diff` | +1 case | 0 | 3,382/1,089 → 3,380/1,089 |
 | 7 | `r6-names-decorator-targets.diff` | +1 case | 0 | 3,382/1,089 → 3,382/1,086 |
+| 8 | `r6-names-parameter-scope.diff` | +5 cases, +38 type lines | 0 | 3,382/1,089 → 3,373/1,088 |
 
 Diffs 1–3 applied together in this order: +13 cases, 0 losses on both
 dumps, rows 3,382/1,089 → 3,359/1,085, types dump identical to the base
@@ -305,3 +306,81 @@ class F { @missingE.member() p = 1 } TS2304                   TS2304
 The port with the diff matches all ten rows. Measured alone: +1 case
 (`classExpressionWithDecorator1`), 0 losses, extra rows −3, no new missing
 row.
+
+## §11 Cluster D: parameter initialisers do not see the body
+
+`resolveNameHelper` (`binder/nameresolver.go:74`) passes over a variable
+found in a function's `locals` when the walk arrives from a parameter and
+the variable's declaration lies in the body, unless the parameter list
+*requires a scope change* (`requiresScopeChange`, `:371`): a static field
+of a class expression without standard class fields, `??` or `?.` below
+ES2020, an object rest binding below ES2017. The walk then continues
+outward. `function bar(func = () => foo) { let foo }` reports TS2304 on
+`foo`; `function f1(p = outer) { var outer }` resolves the outer `outer`.
+
+The port's binder walk lacked the arm, so a parameter initializer resolved
+the body's variable: no TS2304 where native has one, and TS2454 *used before
+assigned* against the wrong declaration. The binder's suggestion walk
+(`suggestion.rs`) and the checker's TS2373 side check (`class_fields.rs`)
+already ported the same arm; the resolver itself never had it.
+
+**Where it lives.** The faithful home is the resolver, which is main's
+(`tsr-binder/src/lib.rs`). The arm's logic is the new
+`tsr-binder/src/scope_change.rs`; the diff wires it into the `locals` arm of
+`resolve_name_excluding_with_export_alias`, beside
+`local_type_hidden_outside_body`, so every caller of the walk gets native's
+answer (111 direct `resolve_name` calls in the checker, plus the wrappers).
+`requiresScopeChange` reads two options the binder does not hold. Native's
+`NameResolver` carries `CompilerOptions`; here the checker publishes them
+once into a `OnceLock` on `BindResult` (`set_scope_change_options`, called
+where `Checker` sets `language_version`). Unset, the arm declines, so a
+caller with no options keeps the earlier answer. Rejected: a callback
+parameter on the walk (the alias-meaning callback already borrows the
+checker mutably, so a second closure over it does not borrow-check) and
+threading options through `bind`/`bind_into` (every program builder and
+test would change for one arm).
+
+**Convention record.** Pinned operation `useOuterVariableScopeInParameter`
+/ `requiresScopeChange`. Native caches the per-function answer in links
+(`declarationRequiresScopeChange`); this port computes it on demand. The
+expensive part (a walk over the parameters' subtrees) runs only after a
+variable declared in the body was found from a parameter, which on
+`domain-model` is never; 315 calls reach the out-of-line function, all
+returning early. No cache, side table or publication state beyond the
+options slot, which is written once with the program's options before any
+lookup.
+
+**Native probe** (`--strict`), one file:
+
+```text
+export function bar(func = () => foo) { let foo = "in"; }        TS2304 foo
+let outer = "";
+export function f1(p = outer) { var outer: number = 2; ... }     (nothing)
+export function nullish(a = c ?? 1) { var c ...; }               es2015: TS2373 c; es2022: TS2304 c
+export function plain(a = d) { var d = 1; ... }                  TS2304 d
+```
+
+The base port reported TS2454 on `outer` and `d` and nothing on `foo`; with
+the diff it matches native at both targets.
+
+**Measured alone:** +5 diagnostics cases
+(`functionLikeInParameterInitializer`, `parameterInitializersForwardReferencing`,
+`parameterInitializersForwardReferencing1`, `parameterInitializersForwardReferencing1_es6`,
+`optionalParamReferencingOtherParams2`), 0 losses; **+38 RIGHT type lines**
+(549,853 → 549,891), 0 lost; `slowcases` clean on both dumps.
+
+**Ir: +0.1% on domain-model, above the base's noise.** Base reads
+1,091,41x,xxx–1,091,51x,xxx over five runs (±50k). With the diff:
+1,092.5–1,093.1 M (+0.10–0.15%); generic-imports unchanged (343.06–343.09 M).
+Callgrind attributes it to `lookup_scoped` (+1.48 M) and `merged_symbol`
+(+0.33 M) at **identical call counts** (229,359 and 138,712 calls in both
+builds), i.e. codegen, not work. The same build with the `OnceLock` field
+present and the arm removed reads 1,092.2–1,092.7 M, so the field's layout
+change carries most of it. Two reductions were applied first: the
+arm's `IsParameterDeclaration(lastLocation)` test is inline at the call site
+and the rest is `#[cold]` (that took the first draft from +0.32% to +0.10%),
+and a redundant `merged_symbol` call was dropped (`lookup_scoped` already
+answers the merged symbol). The integrator decides whether +0.1% Ir for
++5 cases and +38 type lines is acceptable; the falsifier for "layout, not
+work" is a build that moves the options out of `BindResult` and still reads
++0.1%.
