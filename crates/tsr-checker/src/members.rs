@@ -1384,6 +1384,51 @@ impl Checker<'_, '_> {
         this_argument: TypeId,
         skip_object_function_augment: bool,
     ) -> Option<TypeId> {
+        let admitted = self.mapped_template_depth == 0
+            && !self.identity_unmapped_type_parameters
+            && self.alias_evaluation_bindings.iter().all(|frame| frame.is_empty());
+        if !admitted {
+            return self.get_type_of_property_with_this_argument_worker(
+                id,
+                name,
+                this_argument,
+                skip_object_function_augment,
+            );
+        }
+        let key = (id, this_argument, skip_object_function_augment);
+        if let Some(&answer) = self.property_types.get(&key).and_then(|names| names.get(name)) {
+            if std::env::var_os("TSR_VALIDATE").is_some() {
+                let fresh = self.get_type_of_property_with_this_argument_worker(
+                    id,
+                    name,
+                    this_argument,
+                    skip_object_function_augment,
+                );
+                eprintln!("VPT {:?} {} {}", id, name, fresh == answer);
+            }
+            return answer;
+        }
+        let mark = self.publication_mark();
+        let top_level = self.instantiation_depth == 0;
+        let answer = self.get_type_of_property_with_this_argument_worker(
+            id,
+            name,
+            this_argument,
+            skip_object_function_augment,
+        );
+        if top_level && self.publishable_since(mark) {
+            self.property_types.entry(key).or_default().insert(name.into(), answer);
+        }
+        answer
+    }
+
+    fn get_type_of_property_with_this_argument_worker(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        this_argument: TypeId,
+        skip_object_function_augment: bool,
+    ) -> Option<TypeId> {
         if name == "length"
             && let Some(body) = self.completed_array_placeholder_length_body(id)
         {

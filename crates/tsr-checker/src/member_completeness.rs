@@ -193,7 +193,41 @@ impl Checker<'_, '_> {
     /// missing `one` when assigned to `{ one: number }`. That is
     /// `assignmentCompat1`, and it is the case that would be silently lost if
     /// the two questions shared one predicate.
+    ///
+    /// Kept per type in [`Checker::declared_property_tables`]. Native op
+    /// (pinned `5b1047d`): `resolveStructuredTypeMembers` publishes a type's
+    /// properties once, and `isWeakType`/`hasCommonProperties`/the
+    /// missing-property reporters read that table; this walk re-collected the
+    /// table on every relation (jsTyping: 204,506 asks on 12,453 types). Key:
+    /// the `TypeId`, private to one `Checker`. Value: the table or the
+    /// walk's decline, both completed answers. A fresh object literal (its
+    /// own captured list) and any ask under an alias-evaluation,
+    /// mapped-template or identity-unmapped frame bypass the memo; an answer
+    /// publishes only when [`Self::publishable_since`] holds (no flow loop, no
+    /// active resolution observed). A validation build that recomputed every
+    /// hit found all 189,545 jsTyping hits and all 89,919 hits of the
+    /// diagnostics corpus dump identical (`docs/parity/notes/perf.md` §22).
     pub(crate) fn declared_property_table(&mut self, id: TypeId) -> Option<Vec<(String, bool)>> {
+        let admitted = !self.fresh_object_literal_types.contains(&id)
+            && self.mapped_template_depth == 0
+            && !self.identity_unmapped_type_parameters
+            && self.alias_evaluation_bindings.iter().all(|frame| frame.is_empty());
+        if !admitted {
+            return self.declared_property_table_uncached(id);
+        }
+        if let Some(table) = self.declared_property_tables.get(&id) {
+            return table.clone();
+        }
+        let mark = self.publication_mark();
+        let table = self.declared_property_table_uncached(id);
+        if self.publishable_since(mark) {
+            self.declared_property_tables.insert(id, table.clone());
+        }
+        table
+    }
+
+    /// [`Self::declared_property_table`]'s walk, without the memo.
+    fn declared_property_table_uncached(&mut self, id: TypeId) -> Option<Vec<(String, bool)>> {
         self.declared_property_table_worker(id, 0, false)
             .or_else(|| self.object_literal_property_table(id))
     }

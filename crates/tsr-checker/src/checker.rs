@@ -1242,6 +1242,13 @@ pub struct Checker<'a, 'n> {
     /// member contexts: native `signatureLinks.resolvedSignature` as
     /// `getContextualTypeForArgumentAtIndex` reads it. Owned by
     /// `Checker::argument_context_signature`; `docs/parity/notes/perf.md` §21.
+    /// `type -> its declared (name, optional) property table, or the walk's
+    /// decline`: native's resolved-members property list as the relation
+    /// reporters read it. Owned by `Checker::declared_property_table`;
+    /// `docs/parity/notes/perf.md` §22.
+    pub(crate) declared_property_tables: FxHashMap<TypeId, Option<Vec<(String, bool)>>>,
+    pub(crate) property_types:
+        FxHashMap<(TypeId, TypeId, bool), FxHashMap<Box<str>, Option<TypeId>>>,
     pub(crate) argument_context_signatures:
         FxHashMap<NodeId, (TypeId, Option<crate::signatures::Signature>)>,
     /// `(baked signature type, substitution map) -> the instantiated type`,
@@ -1705,6 +1712,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             narrowed_types: FxHashMap::default(),
             heritage_members: FxHashMap::default(),
             argument_context_signatures: FxHashMap::default(),
+            property_types: FxHashMap::default(),
+            declared_property_tables: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),
