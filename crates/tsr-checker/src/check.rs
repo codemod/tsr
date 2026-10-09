@@ -1249,8 +1249,9 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
-        if !tsr_binder::is_external_module_in(source, self.nodes) {
+        // `ast.IsExternalOrCommonJSModule(lastLocation)` (`checker.go:1822`):
+        // a `CommonJS` file is a module here too.
+        if !self.is_external_or_common_js_module(file) {
             return;
         }
         let Some(symbol) = self.resolve_identifier_memo(
