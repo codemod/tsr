@@ -4628,14 +4628,17 @@ impl Checker<'_, '_> {
             // `void`, `object`, `symbol` and `bigint`, which upstream's
             // `isPrimitiveTypeName` does not list and which stay declined here.
             // §948.
+            // **Corrected by r6-names:** they do not stay declined. Native's
+            // cascade treats them like any other unresolved name — the
+            // spelling-suggestion arm, then TS2304 — and `[s: symbol]` in an
+            // object literal is TS2552 *Did you mean 'Symbol'?*
+            // (`parserSymbolIndexer5`). Measured +1 case, 0 lost
+            // (`docs/parity/notes/r6-names.md` §7).
             // **No parse-error gate.** §949 added one to hide 48 extra lines in
             // files the parser recovered; upstream reports TS2693 in such
             // files (`autoLift2`, `createArray`, `parserUnterminatedGeneric2`
             // are parse-error fixtures whose baselines carry it). Re-measured
             // without it: +7 cases, 0 lost. `docs/parity/notes/r4-helpers.md` §2.
-            if !upstream_six {
-                return;
-            }
         }
         // `OnPropertyWithInvalidInitializer` (`nameresolver.go`, reached from
         // `resolveNameHelper`): an instance property's initialiser that names a
