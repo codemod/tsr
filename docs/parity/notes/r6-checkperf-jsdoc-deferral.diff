@@ -1,0 +1,389 @@
+diff --git a/crates/tsr-binder/benches/bind.rs b/crates/tsr-binder/benches/bind.rs
+index dc7b3d5..108fa5e 100644
+--- a/crates/tsr-binder/benches/bind.rs
++++ b/crates/tsr-binder/benches/bind.rs
+@@ -59,6 +59,7 @@ fn parse_and_bind(name: &str, source: &str) -> usize {
+         script_kind: tsr_parser::ScriptKind::from_file_name(name),
+         parents: true,
+         jsdoc: false,
++        defer_ts_jsdoc: false,
+     };
+     let parsed = tsr_parser::parse_with_options(&arena, source, options);
+     let bound = tsr_binder::bind(
+diff --git a/crates/tsr-checker/benches/check.rs b/crates/tsr-checker/benches/check.rs
+index fdf0bde..6a8c26d 100644
+--- a/crates/tsr-checker/benches/check.rs
++++ b/crates/tsr-checker/benches/check.rs
+@@ -80,6 +80,7 @@ fn parse_bind_check(name: &str, source: &str) -> usize {
+         script_kind: tsr_parser::ScriptKind::from_file_name(name),
+         parents: true,
+         jsdoc: false,
++        defer_ts_jsdoc: false,
+     };
+     let parsed = tsr_parser::parse_with_options(&arena, source, options);
+     let bound = tsr_binder::bind(
+diff --git a/crates/tsr-compiler/src/lib.rs b/crates/tsr-compiler/src/lib.rs
+index 07f82f1..42c7d80 100644
+--- a/crates/tsr-compiler/src/lib.rs
++++ b/crates/tsr-compiler/src/lib.rs
+@@ -318,7 +318,7 @@ impl<'a> Program<'a> {
+                 (workers > 1).then(|| {
+                     tsr_parser::ParsedFile::parse_with_options(
+                         text.clone(),
+-                        tsr_parser::ParseOptions::for_file(file_name),
++                        tsr_parser::ParseOptions::for_file(file_name).deferring_ts_jsdoc(file_name),
+                     )
+                 })
+             },
+@@ -333,7 +333,8 @@ impl<'a> Program<'a> {
+                 let parse_options = tsr_parser::ParseOptions {
+                     script_kind: tsr_parser::ScriptKind::from_file_name(file_name),
+                     ..Default::default()
+-                };
++                }
++                .deferring_ts_jsdoc(file_name);
+                 let into = match private {
+                     Some(private) => private.publish(arena, text, &mut nodes, &mut node_map),
+                     None => tsr_parser::parse_into(
+diff --git a/crates/tsr-compiler/src/loader.rs b/crates/tsr-compiler/src/loader.rs
+index 83191e5..9b33113 100644
+--- a/crates/tsr-compiler/src/loader.rs
++++ b/crates/tsr-compiler/src/loader.rs
+@@ -701,7 +701,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+         } else {
+             inferred
+         };
+-        tsr_parser::ParseOptions { script_kind, ..Default::default() }
++        tsr_parser::ParseOptions { script_kind, ..Default::default() }.deferring_ts_jsdoc(name)
+     }
+ 
+     fn prepare_root_parses(&mut self) {
+diff --git a/crates/tsr-parser/benches/parse.rs b/crates/tsr-parser/benches/parse.rs
+index de1eea9..b6fccc3 100644
+--- a/crates/tsr-parser/benches/parse.rs
++++ b/crates/tsr-parser/benches/parse.rs
+@@ -127,6 +127,7 @@ fn measure(name: &str, source: &str, target: Duration, jsdoc: bool) -> Measureme
+         // 9.6% of work upstream is doing and we are not.
+         parents: true,
+         jsdoc,
++        defer_ts_jsdoc: false,
+     };
+     // Warm the allocator and the instruction cache before anything is recorded;
+     // otherwise the first fixture pays for both and looks slower than it is.
+diff --git a/crates/tsr-parser/src/jsdoc.rs b/crates/tsr-parser/src/jsdoc.rs
+index 510e6cf..dd45754 100644
+--- a/crates/tsr-parser/src/jsdoc.rs
++++ b/crates/tsr-parser/src/jsdoc.rs
+@@ -76,7 +76,9 @@ impl<'a> Parser<'a> {
+     /// speculative parse that rewinds (an arrow function that turns out to be
+     /// a parenthesized expression) never parses a comment it does not keep.
+     pub(crate) fn leading_jsdoc_marker(&self) -> Option<(u32, u32)> {
+-        if !self.parse_jsdoc || !self.token.flags.contains(TokenFlags::PRECEDING_JSDOC_COMMENT) {
++        if self.jsdoc_mode == crate::parser::JSDocMode::Off
++            || !self.token.flags.contains(TokenFlags::PRECEDING_JSDOC_COMMENT)
++        {
+             return None;
+         }
+         Some((self.scanner.full_start(), self.pos()))
+@@ -90,6 +92,16 @@ impl<'a> Parser<'a> {
+         if ranges.is_empty() {
+             return &[];
+         }
++        // `withJSDoc` (`jsdoc.go:64`): a non-JavaScript file parses its
++        // comments here only when one carries `@see`/`@link`
++        // (`jsdocScannerInfoHasSeeOrLink`); ADR-0051.
++        if self.jsdoc_mode == crate::parser::JSDocMode::SeeOrLink
++            && !ranges.iter().any(|range| {
++                jsdoc_has_see_or_link(&self.source[range.start as usize..range.end as usize])
++            })
++        {
++            return &[];
++        }
+ 
+         let mut docs = Vec::with_capacity(ranges.len());
+         for range in ranges {
+@@ -2082,3 +2094,23 @@ fn remove_leading_newlines(comments: &mut Vec<&str>) {
+         .unwrap_or(comments.len());
+     comments.drain(..keep_from);
+ }
++
++/// `scanJSDocCommentForTags`' `@see`/`@link` half (`scanner.go:350`): some
++/// `@` in the comment starts one of the four tag names, followed by the end
++/// of the text or one of `hasJSDocTag`'s delimiters (`scanner.go:372`).
++fn jsdoc_has_see_or_link(comment: &str) -> bool {
++    let mut rest = comment;
++    while let Some(at) = rest.find('@') {
++        rest = &rest[at + 1..];
++        let tagged = ["see", "link", "linkcode", "linkplain"].iter().any(|tag| {
++            rest.strip_prefix(tag).is_some_and(|after| {
++                after.is_empty()
++                    || matches!(after.as_bytes()[0], b' ' | b'\t' | b'\n' | b'\r' | b'}' | b'*')
++            })
++        });
++        if tagged {
++            return true;
++        }
++    }
++    false
++}
+diff --git a/crates/tsr-parser/src/parser.rs b/crates/tsr-parser/src/parser.rs
+index dfa0de2..5f35f74 100644
+--- a/crates/tsr-parser/src/parser.rs
++++ b/crates/tsr-parser/src/parser.rs
+@@ -149,11 +149,38 @@ pub struct ParseOptions {
+     /// is the safe one: paying for JSDoc you did not need is a performance bug,
+     /// while silently losing documentation is a correctness one.
+     pub jsdoc: bool,
++    /// With [`Self::jsdoc`], parse only the comments typescript-go parses
++    /// while parsing a non-JavaScript file: `withJSDoc`
++    /// (`internal/parser/jsdoc.go:56`) flags every documented node of a
++    /// `.ts`/`.tsx`/`.d.ts` file and parses its comments eagerly only when
++    /// one carries `@see`/`@link`/`@linkcode`/`@linkplain`; the rest wait for
++    /// a lazy `Node.JSDoc` read, which only suggestion and editor paths make.
++    /// The compiler driver sets it for every non-JavaScript file
++    /// ([ADR-0051](../../../docs/adr/0051-jsdoc-deferred-in-checked-ts-files.md)).
++    pub defer_ts_jsdoc: bool,
++}
++
++/// Which `/** … */` comments the parser parses: [`ParseOptions::jsdoc`] and
++/// [`ParseOptions::defer_ts_jsdoc`] folded into one state.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub(crate) enum JSDocMode {
++    /// None.
++    Off,
++    /// Every comment.
++    All,
++    /// Only a construct's comments when one carries `@see`/`@link`
++    /// (typescript-go's eager set in a non-JavaScript file).
++    SeeOrLink,
+ }
+ 
+ impl Default for ParseOptions {
+     fn default() -> Self {
+-        Self { script_kind: ScriptKind::TypeScript, parents: true, jsdoc: true }
++        Self {
++            script_kind: ScriptKind::TypeScript,
++            parents: true,
++            jsdoc: true,
++            defer_ts_jsdoc: false,
++        }
+     }
+ }
+ 
+@@ -164,6 +191,18 @@ impl ParseOptions {
+         Self { script_kind: ScriptKind::from_file_name(name), ..Self::default() }
+     }
+ 
++    /// The same options with [`Self::defer_ts_jsdoc`] set for a program file
++    /// named `name`: on unless the file is JavaScript (`ast.IsSourceFileJS`,
++    /// by extension), whose JSDoc typescript-go always parses eagerly.
++    #[must_use]
++    pub fn deferring_ts_jsdoc(mut self, name: &str) -> Self {
++        self.defer_ts_jsdoc = !matches!(
++            name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase()),
++            Some(extension) if matches!(extension.as_str(), "js" | "jsx" | "mjs" | "cjs")
++        );
++        self
++    }
++
+     /// The same options with JSDoc parsing turned off.
+     #[must_use]
+     pub const fn without_jsdoc(mut self) -> Self {
+@@ -234,8 +273,9 @@ pub struct Parser<'a> {
+     /// Parse errors inside JSDoc comments — upstream's `Parser.jsdocDiagnostics`.
+     /// Like upstream's, not rewound by speculation; `finish` drops repeats.
+     pub(crate) jsdoc_diagnostics: Vec<Diagnostic>,
+-    /// Whether to parse JSDoc; see [`ParseOptions::jsdoc`].
+-    pub(crate) parse_jsdoc: bool,
++    /// Which JSDoc to parse; see [`ParseOptions::jsdoc`] and
++    /// [`ParseOptions::defer_ts_jsdoc`].
++    pub(crate) jsdoc_mode: JSDocMode,
+     /// Whether to record parents as nodes are finished.
+     assign_parents: bool,
+     /// `p.sourceFlags`, stamped on the `SourceFile`. Only
+@@ -348,7 +388,11 @@ impl<'a> Parser<'a> {
+             parsing_contexts: 0,
+             jsdoc: Vec::new(),
+             jsdoc_diagnostics: Vec::new(),
+-            parse_jsdoc: options.jsdoc,
++            jsdoc_mode: match (options.jsdoc, options.defer_ts_jsdoc) {
++                (false, _) => JSDocMode::Off,
++                (true, false) => JSDocMode::All,
++                (true, true) => JSDocMode::SeeOrLink,
++            },
+             assign_parents: options.parents,
+             depth: 0,
+             source_flags: tsr_ast::NodeFlags::empty(),
+diff --git a/crates/tsr-parser/tests/jsdoc_deferral.rs b/crates/tsr-parser/tests/jsdoc_deferral.rs
+new file mode 100644
+index 0000000..6536b1b
+--- /dev/null
++++ b/crates/tsr-parser/tests/jsdoc_deferral.rs
+@@ -0,0 +1,54 @@
++//! `ParseOptions::defer_ts_jsdoc` (ADR-0051): a non-JavaScript program file
++//! parses a construct's comments only when one carries `@see`/`@link`, as
++//! typescript-go's `withJSDoc` does (`internal/parser/jsdoc.go:56`).
++
++use tsr_core::Arena;
++use tsr_parser::{ParseOptions, parse_with_options};
++
++fn documented(name: &str, source: &str) -> usize {
++    let arena = Arena::new();
++    let source = arena.alloc_str(source);
++    let options = ParseOptions::for_file(name).deferring_ts_jsdoc(name);
++    parse_with_options(&arena, source, options).jsdoc.len()
++}
++
++#[test]
++fn plain_comments_in_a_ts_file_are_deferred() {
++    let source = "/** Adds. @param a first */\nfunction add(a: number) {}\n";
++    assert_eq!(documented("a.ts", source), 0);
++    assert_eq!(documented("a.d.ts", source), 0);
++    assert_eq!(documented("a.tsx", source), 0);
++}
++
++#[test]
++fn see_and_link_comments_in_a_ts_file_are_parsed() {
++    for tag in ["@see other", "{@link other}", "{@linkcode other}", "{@linkplain other}", "@see"] {
++        let source = format!("/** Adds. {tag} */\nfunction add(a: number) {{}}\n");
++        assert_eq!(documented("a.ts", &source), 1, "{tag}");
++    }
++    // `hasJSDocTag` needs a delimiter after the name.
++    assert_eq!(documented("a.ts", "/** @seeing @linked */\nfunction add() {}\n"), 0);
++}
++
++#[test]
++fn any_comment_of_the_construct_with_a_tag_parses_all_of_them() {
++    let source = "/** first */\n/** second @see x */\nfunction add() {}\n";
++    let arena = Arena::new();
++    let source = arena.alloc_str(source);
++    let options = ParseOptions::for_file("a.ts").deferring_ts_jsdoc("a.ts");
++    let parsed = parse_with_options(&arena, source, options);
++    let docs: Vec<_> = parsed.jsdoc.iter().map(|(_, docs)| docs.len()).collect();
++    assert_eq!(docs, [2]);
++}
++
++#[test]
++fn javascript_files_and_the_default_parse_every_comment() {
++    let source = "/** Adds. @param a first */\nfunction add(a) {}\n";
++    for name in ["a.js", "a.jsx", "a.mjs", "a.cjs", "A.JS"] {
++        assert_eq!(documented(name, source), 1, "{name}");
++    }
++    let arena = Arena::new();
++    let source = arena.alloc_str(source);
++    let parsed = parse_with_options(&arena, source, ParseOptions::for_file("a.ts"));
++    assert_eq!(parsed.jsdoc.len(), 1);
++}
+diff --git a/docs/adr/0010-jsdoc-is-a-parse-option.md b/docs/adr/0010-jsdoc-is-a-parse-option.md
+index d338a45..49ab8b5 100644
+--- a/docs/adr/0010-jsdoc-is-a-parse-option.md
++++ b/docs/adr/0010-jsdoc-is-a-parse-option.md
+@@ -1,6 +1,8 @@
+ # ADR-0010: JSDoc is a parse option
+ 
+-- **Status:** accepted
++- **Status:** accepted; the compiler driver's use of it is partly superseded by
++  [ADR-0051](0051-jsdoc-deferred-in-checked-ts-files.md), which defers JSDoc
++  in non-JavaScript program files as typescript-go does.
+ - **Date:** 2026-08-03
+ - **Supersedes:** [ADR-0008](0008-jsdoc-parsed-eagerly.md) in part — eager parsing
+   stands, but *whether* to parse is now the caller's, not always yes.
+diff --git a/docs/adr/0051-jsdoc-deferred-in-checked-ts-files.md b/docs/adr/0051-jsdoc-deferred-in-checked-ts-files.md
+new file mode 100644
+index 0000000..d1e1768
+--- /dev/null
++++ b/docs/adr/0051-jsdoc-deferred-in-checked-ts-files.md
+@@ -0,0 +1,93 @@
++# ADR-0051: The compiler driver defers JSDoc in non-JavaScript files, as typescript-go does
++
++- **Status:** proposed (round 6, `r6-checkperf`, `tsr-2zk.1131`)
++- **Date:** 2026-10-09
++- **Supersedes:** [ADR-0010](0010-jsdoc-is-a-parse-option.md) in part — the
++  option stays and its default stays on; the compiler driver no longer takes
++  the default for `.ts`/`.tsx`/`.d.ts` files.
++- **Related:** [ADR-0008](0008-jsdoc-parsed-eagerly.md) (why parsing is eager
++  when it happens), [ADR-0009](0009-performance-gate.md)
++
++## The forcing constraint
++
++A callgrind profile of the round-6 base (`docs/parity/notes/r6-checkperf.md`
++§4) puts `Parser::parse_jsdoc_at` at **148.7 M Ir inclusive on
++`domain-model` (13.6% of the whole process) and 148.9 M on
++`generic-imports` (43.3%)** — the same number on both, because it is the
++default lib `.d.ts` files' documentation, parsed on every compilation. The
++top four non-allocator self-cost functions of `generic-imports` are scanner
++functions doing that work (`Scanner::bump`, `peek`, `scan`,
++`jsdoc_ranges_in`, `scan_jsdoc_comment_text_token`).
++
++typescript-go does not do this work. `withJSDoc`
++(`internal/parser/jsdoc.go:56`, pinned `5b1047d`) only flags a documented
++node of a non-JavaScript file (`NodeFlagsHasJSDoc`, plus
++`PossiblyContainsDeprecatedTag` from a text scan) and returns, **unless one
++of the node's comments carries `@see`, `@link`, `@linkcode` or `@linkplain`**
++(`jsdocScannerInfoHasSeeOrLink`, set by the scanner's
++`scanJSDocCommentForTags`, `internal/scanner/scanner.go:350`). Those are
++parsed eagerly, because unused-identifier checking reads them. The rest is
++parsed on the first `Node.JSDoc()` read (`parseJSDocForNode`,
++`jsdoc.go:19`).
++
++What reads lazily? In the checker, `checkSourceElementWorker` reads
++`EagerJSDoc` only (`checker.go:2255`), as does the `@augments` grammar check
++(`grammarchecks.go:916`). The lazy `JSDoc(nil)` readers are
++`GetJSDocDeprecatedTag` (`ast/utilities.go:1220`, from
++`addDeprecatedSuggestionWorker`, `checker.go:14044`: a suggestion's related
++information) and `getAllJSDocTags` (`checker/jsdoc.go:89`, from
++`checkUnmatchedJSDocParameters`, which reports through `errorOrSuggestion`
++— a suggestion in a TS file). Neither reaches an error or the CLI's output.
++
++## The decision
++
++`ParseOptions` gains `defer_ts_jsdoc`. With it, `Parser::parse_jsdoc_at`
++parses a construct's comments only when one of them carries one of the four
++tags (the same test as `hasJSDocTag`); otherwise it returns the empty list,
++as `withJSDoc` does. `ParseOptions::deferring_ts_jsdoc(name)` sets it for
++every file that is not JavaScript by extension (`ast.IsSourceFileJS`), and
++the compiler driver (`tsr-compiler`'s loader and `Program::parse`, which the
++CLI and the conformance harness both use) applies it to every program file.
++The default stays off, so every other consumer — the parser's own tests,
++`jsdoc_probe`, a future language service — still gets every comment.
++
++## Alternatives
++
++**Lazy parsing, as upstream does.** Still blocked by ADR-0008's lifetime
++reason (no allocation into a `ParsedFile`'s arena after construction). It
++would also serve the deprecated-suggestion and hover readers this decision
++leaves without JSDoc in TS files. It wins as soon as that obstacle goes.
++
++**Skip JSDoc in declaration files only.** Measured as a first probe (dm wall
++ratio 0.761 → 0.672, gi 0.915 → 0.622 against tsgo, CLI identical). Rejected:
++an extension rule with no upstream counterpart, and it would keep parsing
++documentation upstream does not parse in `.ts` sources.
++
++**Keep ADR-0010's eager default in the driver.** Rejected by the measurement
++above: the work is upstream-absent, so the TSR/tsgo ratio compares different
++work, the thing ADR-0009 and ADR-0010 exist to prevent.
++
++## Consequences accepted
++
++- In a `.ts`/`.tsx`/`.d.ts` program file, a comment without
++  `@see`/`@link` is not in the `JSDocTable`. A checker reader that consulted
++  such a comment in a TS file now sees nothing. On the whole conformance
++  corpus both dumps (12,238 diagnostics rows, 556,303 type rows) were
++  byte-identical with and without the change, and the CLI output was
++  identical on `domain-model`, `domain-model-large`, `generic-imports` and
++  `src/jsTyping` — so no current reader depends on one in a way the corpus
++  sees.
++- `@deprecated` suggestions and hover, should this port grow them, will need
++  the lazy path (or a parse of the host's comments on demand) in TS files.
++- Two parse configurations exist in practice (driver and default), as
++  ADR-0010 already accepted for benchmarks.
++
++## How we would know this was wrong
++
++- A conformance case whose errors depend on a TS-file comment without
++  `@see`/`@link`: it would change verdict when this lands (it did not on the
++  round-6 corpus), or a later checker port that reads one (e.g. a JSDoc
++  `@param` error that upstream reports as an error in a TS file).
++- Upstream starting to read `JSDoc(nil)` on an error path in the checker.
++  `grep -n 'JSDoc(nil)\|JSDoc(file' internal/checker/*.go` at the pinned
++  commit finds the two readers named above; a third one is the falsifier.
