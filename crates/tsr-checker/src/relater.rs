@@ -3756,34 +3756,37 @@ impl Relater<'_, '_, '_> {
         }
         // Enum literals carry the primitive value and nominal owner. Keep
         // enum-to-enum identity ahead of ordinary primitive relations.
-        let source_member = self.checker.enum_member_value(source);
-        let target_member = self.checker.enum_member_value(target);
+        // Compared on the borrowed payloads: `enum_member_value`'s keys are
+        // equal exactly when the payloads are (`r5-checkperf2.md` §5).
+        let source_member = self.checker.enum_member_payload(source);
+        let target_member = self.checker.enum_member_payload(target);
         let plain =
             |flags: TypeFlags| !flags.intersects(TypeFlags::UNION | TypeFlags::INTERSECTION);
-        if let Some((source_owner, source_key)) = &source_member {
-            if let Some((target_owner, target_key)) = &target_member {
+        if let Some((source_owner, source_value)) = source_member {
+            if let Some((target_owner, target_value)) = target_member {
                 // `relater.go:236-243`: two members of ONE enum relate only
                 // by identity (caught above) — otherwise they are two
                 // literals and the structured walk finds nothing. Members of
                 // two enums relate through `isEnumTypeRelatedTo`, which
                 // requires the same NAME and member-by-member equal values;
                 // a different name is decided, the same name is not ported.
+                let equal = source_value == target_value;
                 if source_owner == target_owner {
-                    return Some(source_key == target_key);
+                    return Some(equal);
                 }
                 // `relater.go:238`: equal values of two enums related by
                 // isEnumTypeRelatedTo. Otherwise two distinct literals.
-                return Some(
-                    source_key == target_key
-                        && self.is_enum_type_related_to(*source_owner, *target_owner),
-                );
+                return Some(equal && self.is_enum_type_related_to(source_owner, target_owner));
             }
-            let numeric = source_key.starts_with("n:");
+            let numeric = matches!(source_value, crate::types::EnumLiteralValue::Number(_));
             // `relater.go:219`/`:225`: an enum literal relates to the PLAIN
             // literal of its value.
             if t.intersects(TypeFlags::LITERAL)
                 && plain(t)
-                && self.checker.plain_literal_key(target).as_deref() == Some(source_key.as_str())
+                && self
+                    .checker
+                    .plain_literal_key(target)
+                    .is_some_and(|key| crate::literals::enum_value_has_key(source_value, &key))
             {
                 return Some(true);
             }
@@ -3792,9 +3795,9 @@ impl Relater<'_, '_, '_> {
             if plain(t) && t.intersects(TypeFlags::NUMBER | TypeFlags::STRING) {
                 return Some(numeric == t.intersects(TypeFlags::NUMBER));
             }
-        } else if let Some((_, target_key)) = &target_member
+        } else if let Some((_, target_value)) = target_member
             && matches!(self.relation, Relation::Assignable | Relation::Comparable)
-            && target_key.starts_with("n:")
+            && matches!(target_value, crate::types::EnumLiteralValue::Number(_))
         {
             // `relater.go:266-270`, the bit-flag rules: `number` relates to a
             // numeric enum member (and so, through the union dispatch, to a
@@ -3804,7 +3807,10 @@ impl Relater<'_, '_, '_> {
                 return Some(true);
             }
             if s.intersects(TypeFlags::NUMBER_LITERAL)
-                && self.checker.plain_literal_key(source).as_deref() == Some(target_key.as_str())
+                && self
+                    .checker
+                    .plain_literal_key(source)
+                    .is_some_and(|key| crate::literals::enum_value_has_key(target_value, &key))
             {
                 return Some(true);
             }
