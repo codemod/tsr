@@ -1154,6 +1154,153 @@ impl Checker<'_, '_> {
         None
     }
 
+    /// TS1280, `checkModuleDeclaration`'s `GetIsolatedModules()` arm
+    /// (`checker.go:5168`–`5173`): a non-ambient instantiated namespace in a
+    /// file with no `ExternalModuleIndicator` may merge with a namespace in
+    /// another script, and single-file transpilation cannot see that.
+    ///
+    /// The guard is upstream's `symbol.Flags&ValueModule != 0 &&
+    /// !inAmbientContext && isInstantiatedModule(node,
+    /// ShouldPreserveConstEnums())` (`:5164`), on the merged symbol, as
+    /// `getSymbolOfDeclaration` answers. The caller is past
+    /// `checkGrammarModuleElementContext`'s bail-out (`:5146`).
+    ///
+    /// `ExternalModuleIndicator == nil` is read as "the binder made no file
+    /// symbol" in a TypeScript file. The binder makes one exactly for an
+    /// external module there, including one forced by `moduleDetection`
+    /// (`is_external_or_common_js_module`, ADR-0041). A JavaScript file can
+    /// also get one as a CommonJS module, so there the statement indicators
+    /// (`is_external_module_in`) answer instead.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules2-global-script.diff"
+    )]
+    pub(crate) fn check_global_script_namespace(&mut self, node: NodeId) {
+        if !self.isolated_modules {
+            return;
+        }
+        let Some(symbol) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::VALUE_MODULE)
+            || self.declaration_is_in_an_ambient_context(node)
+            || !self.is_instantiated_module_preserving_const_enums(node)
+        {
+            return;
+        }
+        let Some(file) = self.source_file_of(node) else { return };
+        let external = if self.in_js_file(node) {
+            matches!(self.node_map.get(file), Some(Node::SourceFile(source))
+                if tsr_binder::is_external_module_in(source, self.nodes))
+        } else {
+            self.binder.symbol_of(file).is_some()
+        };
+        if external {
+            return;
+        }
+        let Some(Node::ModuleDeclaration(declaration)) = self.node_map.get(node) else { return };
+        let Some(name) = declaration.name.and_then(|name| name.node_id()) else { return };
+        let span = self.error_span(name);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::NAMESPACES_ARE_NOT_ALLOWED_IN_GLOBAL_SCRIPT_FILES_WHEN_0_IS_ENABLED_IF_THIS_FILE_IS_NOT_INTENDED_TO_BE_A_GLOBAL_SCRIPT_SET_MODULEDETECTION_TO_FORCE_OR_ADD_AN_EMPTY_EXPORT_STATEMENT,
+                span,
+                [self.isolated_modules_like_flag_name().to_string()],
+            ),
+        );
+    }
+
+    /// `isInstantiatedModule(node, ShouldPreserveConstEnums())`
+    /// (`checker.go`): `ast.GetModuleInstanceState` is `Instantiated`, or
+    /// `ConstEnumOnly` while const enums are preserved. `check.rs` has the
+    /// same reading as a private helper.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules2-global-script.diff"
+    )]
+    fn is_instantiated_module_preserving_const_enums(&self, node: NodeId) -> bool {
+        let Some(typed) = self.node_map.get(node) else { return true };
+        let mut parents: Vec<_> =
+            self.nodes.ancestors(node).filter_map(|ancestor| self.node_map.get(ancestor)).collect();
+        parents.reverse();
+        match tsr_ast::module_instance_state(typed, &parents) {
+            tsr_ast::ModuleInstanceState::Instantiated => true,
+            tsr_ast::ModuleInstanceState::ConstEnumOnly => self.preserve_const_enums,
+            tsr_ast::ModuleInstanceState::NonInstantiated => false,
+        }
+    }
+
+    /// TS1281, `resolveNameHelper`'s `KindEnumDeclaration` arm
+    /// (`binder/nameresolver.go:147`–`158`), for an expression identifier
+    /// `node` named `text` that resolved to `result`.
+    ///
+    /// Upstream reports while it walks: at an enclosing enum declaration,
+    /// the name is looked up in the enum symbol's (merged) exports at
+    /// `meaning & EnumMember`. A hit ends the walk, and under
+    /// `GetIsolatedModules()` it is an error when the enum declaration is
+    /// not ambient and the member's `ValueDeclaration` is in another file
+    /// (a cross-file enum merge). The walk only reports when it has a
+    /// `nameNotFoundMessage`, which the expression-identifier resolution
+    /// does.
+    ///
+    /// `Binder::resolve_name` cannot report, so this runs on its result. The
+    /// enum arm found the name exactly when `result` is the member that the
+    /// first enclosing enum declaration exporting `text` holds: a scope
+    /// between the reference and that enum would have answered its own
+    /// symbol instead.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules2-global-script.diff"
+    )]
+    pub(crate) fn check_enum_member_from_another_file(
+        &mut self,
+        node: NodeId,
+        result: SymbolId,
+        text: &str,
+    ) {
+        if !self.isolated_modules {
+            return;
+        }
+        if !self.binder.symbols().get(result).flags.intersects(SymbolFlags::ENUM_MEMBER) {
+            return;
+        }
+        let enum_declaration = self.nodes.ancestors(node).find(|&ancestor| {
+            self.nodes.kind(ancestor) == SyntaxKind::EnumDeclaration
+                && self.binder.symbol_of(ancestor).is_some_and(|symbol| {
+                    let symbol = self.binder.merged_symbol(symbol);
+                    self.binder.symbols().get(symbol).exports.get(text).is_some_and(|&member| {
+                        self.binder.symbols().get(member).flags.intersects(SymbolFlags::ENUM_MEMBER)
+                    })
+                })
+        });
+        let Some(location) = enum_declaration else { return };
+        let Some(enum_symbol) = self.binder.symbol_of(location) else { return };
+        let enum_symbol = self.binder.merged_symbol(enum_symbol);
+        if self.binder.symbols().get(enum_symbol).exports.get(text) != Some(&result)
+            || self.declaration_is_in_an_ambient_context(location)
+        {
+            return;
+        }
+        let Some(value_declaration) = self.binder.symbols().get(result).value_declaration else {
+            return;
+        };
+        if self.source_file_of(location) == self.source_file_of(value_declaration) {
+            return;
+        }
+        let Some(file) = self.source_file_of(node) else { return };
+        let enum_name = self.binder.symbols().get(enum_symbol).name;
+        let qualified = format!("{enum_name}.{text}");
+        let span = self.error_span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::CANNOT_ACCESS_0_FROM_ANOTHER_FILE_WITHOUT_QUALIFICATION_WHEN_1_IS_ENABLED_USE_2_INSTEAD,
+                span,
+                [text.to_string(), self.isolated_modules_like_flag_name().to_string(), qualified],
+            ),
+        );
+    }
+
     /// `getIsolatedModulesLikeFlagName` (`checker.go`).
     fn isolated_modules_like_flag_name(&self) -> &'static str {
         if self.verbatim_module_syntax { "verbatimModuleSyntax" } else { "isolatedModules" }

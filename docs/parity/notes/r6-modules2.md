@@ -177,3 +177,88 @@ JSXInternal.HTMLAttributes;` (qualified through the import alias) gets TS1269
 from `tsgo` and nothing from TSR with or without the diff:
 `resolve_qualified_entity` does not cross an import alias at the root. Recorded
 in §9.
+
+## 2. TS1280 and TS1281: global-script namespaces and cross-file enum members (item 2)
+
+### Classification against native
+
+`compiler/isolatedModulesGlobalNamespacesAndEnums` was missing three lines,
+and native `tsgo` prints them on the reduced fixture:
+
+- TS1280 at `script-namespaces.ts(1,11)`;
+- TS1281 at `enum2.ts(3,9)` and `(4,9)`.
+
+Neither rule existed in TSR.
+
+- **TS1280** is `checkModuleDeclaration`'s `GetIsolatedModules()` arm
+  (`checker.go:5168`). The guard is the instantiated-module block (`:5164`):
+  `symbol.Flags&ValueModule`, not `inAmbientContext`, and
+  `isInstantiatedModule(node, ShouldPreserveConstEnums())`. The rule then
+  fires when the file has no `ExternalModuleIndicator`. The error goes on
+  the name.
+- **TS1281** is reported by the name resolver itself
+  (`binder/nameresolver.go:147`–`158`). At an enclosing `EnumDeclaration`,
+  the name is looked up in the merged enum's exports. On a hit under
+  `GetIsolatedModules()`, it is an error when the declaration is not ambient
+  and the member's `ValueDeclaration` is in another file. The walk reports
+  only with a `nameNotFoundMessage`, i.e. for an expression identifier.
+
+### The port
+
+Both rules are in `isolated_alias.rs`.
+
+`check_global_script_namespace(node)` carries all of upstream's guards. The
+file test is the binder's file symbol in a TypeScript file, which the binder
+creates exactly for an external module, `moduleDetection: force` included
+(ADR-0041). In a JavaScript file it is `is_external_module_in`, because there
+a CommonJS file also gets a symbol. `isInstantiatedModule` with
+`ShouldPreserveConstEnums()` is `check.rs`'s private reading, ported again
+(`is_instantiated_module_preserving_const_enums`). The fold-in that §8 does
+for `node_can_be_decorated` applies here once both are in one file.
+
+`check_enum_member_from_another_file(node, result, text)` runs on
+`Binder::resolve_name`'s result, which takes `&self` and cannot report.
+Upstream's enum arm found the name exactly when `result` is the member that
+the first enclosing enum exporting `text` holds. A scope between the
+reference and that enum would have answered its own symbol, and an enclosing
+enum that does not export the name is passed over, as the walk passes it.
+
+The hook (`r6-modules2-global-script.diff`, main's `check.rs`) has two
+calls:
+
+- `check_global_script_namespace` in the `ModuleDeclaration` arm of the
+  statement walk, right after `check_exports_on_merged_declarations` and
+  inside the same `checkGrammarModuleElementContext` guard. Upstream reaches
+  TS1280 right after `checkExportsOnMergedDeclarations` (`:5161`–`:5168`).
+- `check_enum_member_from_another_file` in `check_value_identifier`, before
+  `report_type_only_alias_used_as_value` (TS1361/TS1362) and r6-isolated's
+  TS2866. The resolver reports TS1281 inside its walk, ahead of both success
+  arms.
+
+Until the hook lands, both functions carry `#[allow(dead_code, reason = …)]`
+naming the diff. The diff adds
+`crates/tsr-compiler/tests/r6_modules2_global_script.rs`. It covers TS1280
+in a script but not in a module, without the option or under
+`moduleDetection: force`, and TS1281 on the two unqualified members but not
+the qualified one or the ambient declaration's.
+
+No cache, side table or traversal is added. TS1281's extra work is an
+ancestor walk, and only for an identifier that resolved to an enum member
+while `isolatedModules` is on. Both functions return on their first read
+without the option.
+
+### Measured
+
+Applied on the base:
+
+- diagnostics **+1 row**: `isolatedModulesGlobalNamespacesAndEnums` WRONG →
+  RIGHT. Zero losses, types identical, `slowcases` clean on both dumps.
+- Native `tsgo` and TSR print identical lines, text included, on the
+  fixture under `isolatedModules`, under `verbatimModuleSyntax` (the flag
+  name in both messages), and under `moduleDetection: force` (no TS1280 or
+  TS1281; the names no longer merge).
+- Callgrind Ir: domain-model 1,091,359,216 → 1,091,322,400, generic-imports
+  343,059,372 → 343,074,763 (both within ±0.005%). The hot hook is the
+  identifier site, which returns on `isolated_modules == false`.
+- `cargo test --workspace --release` with the diff applied: 3,510 passed, 0
+  failed.
