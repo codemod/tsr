@@ -680,6 +680,12 @@ impl Checker<'_, '_> {
         {
             return RecursionIdentity::Node(literal);
         }
+        // A deferred type reference is tracked through its node: the tuple or
+        // array node of the alias whose image the relater normalized to
+        // this body.
+        if let Some(&node) = self.relation_results.alias_reference_nodes.get(&ty) {
+            return RecursionIdentity::Node(node);
+        }
         if let Some(info) = self.mapped_conditionals.get(&ty) {
             return RecursionIdentity::Node(info.declaration);
         }
@@ -2136,6 +2142,21 @@ impl Relater<'_, '_, '_> {
         None
     }
 
+    /// The tuple or array type node `symbol` is declared as, if it is a type
+    /// alias written as one (`type A<T> = [number, T]`, `type B<T> = T[]`).
+    fn alias_tuple_or_array_node(&self, symbol: SymbolId) -> Option<tsr_ast::NodeId> {
+        self.checker.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
+            match self.checker.node_map.get(declaration) {
+                Some(tsr_ast::Node::TypeAliasDeclaration(alias)) => match alias.r#type? {
+                    tsr_ast::TypeNode::TupleTypeNode(node) => node.node_id,
+                    tsr_ast::TypeNode::ArrayTypeNode(node) => node.node_id,
+                    _ => None,
+                },
+                _ => None,
+            }
+        })
+    }
+
     /// Whether `symbol` is a type alias declared as a bare type reference
     /// (`type A<T> = B<T>`).
     fn alias_body_is_type_reference(&self, symbol: SymbolId) -> bool {
@@ -3052,6 +3073,14 @@ impl Relater<'_, '_, '_> {
         let body = self.checker.evaluate_alias_body(symbol, &arguments)?;
         if body == id || body == self.checker.intrinsics.error {
             return None;
+        }
+        // An alias written as a tuple or array type: its image carries the
+        // alias symbol's member table, which has no elements or `length`,
+        // so the structural walk would relate it vacuously. Native relates
+        // the tuple or array reference itself.
+        if let Some(node) = self.alias_tuple_or_array_node(symbol) {
+            self.checker.relation_results.alias_reference_nodes.entry(body).or_insert(node);
+            return Some(body);
         }
         let parts = self.union_constituents(body).unwrap_or_else(|| vec![body]);
         parts

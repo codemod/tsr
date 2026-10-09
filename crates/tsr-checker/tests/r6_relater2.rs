@@ -137,3 +137,27 @@ function bar(obj: Plain, k: keyof Plain) {
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn an_alias_written_as_a_tuple_relates_as_that_tuple() {
+    // `inferFromNestedSameShapeTuple` 46: the alias image used to carry the
+    // alias's empty member table and relate vacuously. The recursive pair
+    // `T1<U> -> T2<U>` is cut through the tuple node's recursion identity,
+    // not walked to TS2321.
+    let source = r#"type S1<T> = [number, T];
+type S2<T> = [42, T];
+declare let a: S1<string>, b: S2<string>;
+b = a; // error
+a = b;
+type A1<T> = T[];
+declare let c: A1<number>, d: A1<string>;
+c = d; // error
+type T1<T> = [number, T1<{ x: T }>];
+type T2<T> = [42, T2<{ x: T }>];
+function qq<U>(x: T1<U>, y: T2<U>) {
+    x = y;
+    y = x; // error
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}

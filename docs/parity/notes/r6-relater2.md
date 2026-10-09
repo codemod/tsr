@@ -121,3 +121,70 @@ over-reads), now False where native relates through the write constraint.
 
 Test: `tests/r6_relater2.rs`
 `a_write_to_a_generic_intersection_object_is_not_related_through_a_constraint`.
+
+## 3. An alias written as a tuple or array relates as that type (§8.1 R-variance, `inferFromNestedSameShapeTuple`)
+
+**Forcing constraint.** `inferFromNestedSameShapeTuple` 46 (`y = x`,
+`T1<U> -> T2<U>` with `type T1<T> = [number, T1<{ x: T }>]` and `type T2<T>
+= [42, T2<{ x: T }>]`) is TS2322 natively ("Type at position 0 in source is
+not compatible…", `number -> 42`). The port related every instantiation of
+an alias written as a tuple or array type *vacuously*: `declared.rs` mints
+an OBJECT-flagged image whose member table is the alias symbol's, which has
+no elements, no `length` and no index signature, so properties, signatures
+and indexes all relate. Even `S1<string> -> S2<string>` (`[number, string]
+-> [42, string]`) was Related. Native relates the instantiation itself, a
+tuple or array type reference.
+
+**Ported.**
+- `non_object_alias_image_body` (the gate's alias-image normalization)
+  answers such an image as its evaluated body, the tuple or array type, for
+  an alias declared as a `TupleType` or `ArrayType` node
+  (`alias_tuple_or_array_node`).
+- getRecursionIdentity's deferred-reference arm (relater.go): a deferred
+  type reference is tracked by its AST node, shared by every
+  instantiation. Relating the body alone, `T1<U> -> T2<U>` walked
+  `T1<{ x: U }>`, `T1<{ x: { x: U } }>`, … to the stack limit and reported
+  TS2321, because each body is a distinct interned tuple. The relater now
+  records the alias's tuple/array node for the body it normalizes to, and
+  `relation_recursion_identity` answers that node, so isDeeplyNestedType
+  cuts the walk as expanding (Maybe) at the third level, as natively.
+
+**Convention record** (the new side table
+`RelationResults::alias_reference_nodes`, `relation_cache.rs`): native
+operation getRecursionIdentity's `t.AsTypeReference().node` arm; key the
+body `TypeId` (an interned tuple or array type), value the alias
+declaration's tuple/array node; owned by `Checker::relation_results` for the
+checker's lifetime; published once per body (first writer wins) by the
+relater when it normalizes an alias image; read only by
+`relation_recursion_identity`; no receiver or alias context beyond the
+alias symbol the image names; the expensive work (`evaluate_alias_body`) is
+the normalization's own, already cached by `(symbol, arguments)`.
+
+**Stated divergence.** Natively only a *deferred* reference (an alias that
+recurses through the tuple, isDeferredTypeReferenceNode) carries a node; a
+non-deferred tuple's identity is its tuple target, shared by every tuple of
+the same element shape. The port gives every normalized tuple-alias body
+the alias node, which is finer than the target for non-recursive aliases
+(they do not nest, so it cuts nothing native would not). A plain tuple that
+interns to the same type as some alias body takes that alias's identity.
+
+**Alternative.** Giving the alias image a real member table (elements,
+`length`, the array members) in `declared.rs`: the image would still not be
+a tuple to the tuple arms (`tuple_element_lists`), and it is another lane's
+file. Normalizing to the body is what native's road is.
+
+**Measured** against §2's commit (and §0), both loss checks empty,
+slowcases clean:
+- diagnostics: `inferFromNestedSameShapeTuple` WRONG → RIGHT (RIGHT 5581,
+  WRONG 1012);
+- types unchanged;
+- `Ir`: generic-imports 343,038,224 → 343,039,275 (+0.0003%); domain-model
+  1,090,403,545 → 1,090,397,057 (−0.0006%). CLI output identical.
+
+**Falsifier.** A tuple-alias pair native relates through the image's alias
+(alias variance: `getAliasVariances` applies when both sides are
+instantiations of one alias), where the port, now relating the bodies
+structurally, differs; or a TS2321 on a recursive tuple alias that tsgo
+does not report.
+
+Test: `tests/r6_relater2.rs` `an_alias_written_as_a_tuple_relates_as_that_tuple`.
