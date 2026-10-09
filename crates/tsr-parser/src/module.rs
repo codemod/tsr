@@ -71,8 +71,10 @@ impl<'a> Parser<'a> {
         let default_name =
             if self.at_binding_identifier() { Some(self.parse_identifier()) } else { None };
         // A default import may be followed by named or namespace bindings.
-        let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
+        let named_bindings = if default_name.is_none() {
             self.parse_named_import_bindings()
+        } else if self.eat(SyntaxKind::CommaToken) {
+            self.parse_import_bindings_after_comma()
         } else {
             None
         };
@@ -93,6 +95,20 @@ impl<'a> Parser<'a> {
             start,
         );
         Statement::ImportDeclaration(node)
+    }
+
+    /// `parseImportClause` after `default,` (`parser.go:2355`): a namespace
+    /// import, else `parseNamedImports`, whose `parseBracketedList` reports a
+    /// missing `{` and keeps an empty `NamedImports`.
+    pub(crate) fn parse_import_bindings_after_comma(&mut self) -> Option<NamedImportBindings<'a>> {
+        if self.at(SyntaxKind::AsteriskToken) || self.at(SyntaxKind::OpenBraceToken) {
+            return self.parse_named_import_bindings();
+        }
+        // Nothing is consumed: the node is empty at the token's full start.
+        let start = self.node_end();
+        self.expect(SyntaxKind::OpenBraceToken);
+        let node = self.finish_node(NamedImports::new(&[]), SyntaxKind::NamedImports, start);
+        Some(NamedImportBindings::NamedImports(node))
     }
 
     /// `* as ns` or `{ a, b as c }`.

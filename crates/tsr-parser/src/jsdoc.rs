@@ -709,8 +709,10 @@ impl<'a> Parser<'a> {
         let clause = if default_name.is_some()
             || matches!(self.token.kind, SyntaxKind::AsteriskToken | SyntaxKind::OpenBraceToken)
         {
-            let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
+            let named_bindings = if default_name.is_none() {
                 self.parse_named_import_bindings()
+            } else if self.eat(SyntaxKind::CommaToken) {
+                self.parse_import_bindings_after_comma()
             } else {
                 None
             };

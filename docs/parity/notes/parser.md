@@ -588,3 +588,6 @@ per-file flag must become per-node.
   TS1194 (`check_export_declaration_in_namespace` now returns for a
   non-literal specifier). A token that starts no expression is TS1109 with
   nothing consumed, and a `,` after it continues the comma expression.
+- `import d, from "m"` (`parseImportClause`): after `default,` the bindings
+  are a namespace import or `parseNamedImports`, which reports a missing `{`
+  and keeps an empty list; the JSDoc `@import` clause shares it.
