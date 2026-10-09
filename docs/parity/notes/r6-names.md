@@ -41,7 +41,8 @@ checks, not a resolution difference.
 |---|---|---|---|
 | A. value slots missing from the allow-list | `checkWithStatement` (`checker.go:4162`); JSX value tags, `resolveJsxOpeningLikeElement` (`jsx.go:562`), `checkJsxElementDeferred` (`jsx.go:84`) | parserStrictMode14, parserWithStatement1.d, jsxSpreadTag ×2, jsxAttributeWithoutExpressionReact, parseJsxExtends2 | §4, diff `r6-names-value-slots` |
 | B. `for…of` with an empty declaration list | `checkForOfStatement` (`checker.go:4051`) reaches the expression only through a declaration | parserForOfStatement2, parserForOfStatement21, parserES5ForOfStatement2, parserES5ForOfStatement21 | §5, diff `r6-names-empty-for-of` |
-| C. type positions in JavaScript files | `getTypeFromTypeReference` in a `.js` file; JSDoc type names | fillInMissingTypeArgsOnJSConstructCalls, parserArrowFunctionExpression10, parserArrowFunctionExpression17, jsdocResolveNameFailureInTypedef, typedefScope1, recursiveResolveDeclaredMembers | open |
+| C1. TypeScript-only annotations in JavaScript files | `getTypeFromTypeReference` reached by `checkSourceElement` in a `.js` file | fillInMissingTypeArgsOnJSConstructCalls, parserArrowFunctionExpression10, parserArrowFunctionExpression17 | §6, diff `r6-names-js-type-annotations` |
+| C2. JSDoc type names | JSDoc arms of `resolveTypeReferenceName`; script-file typedefs in `globals` | jsdocResolveNameFailureInTypedef, typedefScope1, recursiveResolveDeclaredMembers | open |
 | D. parameter initialisers | `resolveName`'s `useOuterVariableScopeInParameter` (`binder/nameresolver.go:74`, `:346`) | functionLikeInParameterInitializer(es2015), parameterInitializersForwardReferencing(es2015) | open |
 | E. keyword-spelled identifiers | `onFailedToResolveSymbol`'s six-name `isPrimitiveTypeName`; `typeof null` | parserSymbolIndexer5 (TS2552), invalidTypeOfTarget | open |
 | F. parse recovery | parser trees that differ from native | arrowFunctionsMissingTokens, YieldStarExpression2_es6, bigintArbirtraryIdentifier, importDeferTypeConflict2, parserSuperExpression2, classExpressionWithDecorator1 | open |
@@ -58,6 +59,12 @@ function it wires in `name_slots.rs`, and adds its test under
 |---|---|---|---|---|
 | 1 | `r6-names-value-slots.diff` | +6 cases | 0 | 3,382/1,089 → 3,363/1,089 |
 | 2 | `r6-names-empty-for-of.diff` | +4 cases | 0 | 3,382/1,089 → 3,382/1,085 |
+| 3 | `r6-names-js-type-annotations.diff` | +3 cases | 0 | 3,382/1,089 → 3,378/1,089 |
+
+Diffs 1–3 applied together in this order: +13 cases, 0 losses on both
+dumps, rows 3,382/1,089 → 3,359/1,085, types dump identical to the base
+(549,853 RIGHT / 843 GAP / 5,607 WRONG). Each diff applies on the base alone
+as well as stacked.
 
 ## §4 Cluster A: value slots the allow-list lacks
 
@@ -124,3 +131,46 @@ clean.
 **What it does not cover.** Other diagnostics inside such an expression
 (a type error in a call, say) come from other checks that do not consult this
 predicate. None appears in the corpus.
+
+## §6 Cluster C1: TypeScript-only annotations in JavaScript files
+
+`check_type_reference_name` declined every name in a JavaScript file, on the
+reasoning (§779 of `checker-notes-diag2.md`) that `type a = b` in a `.js` file
+is TS8008 "and upstream stops there". That is not what native does. TS8004,
+TS8006, TS8008 and TS8010 come from `getJSSyntacticDiagnosticsForFile`, a
+syntactic pass; the checker still reaches the annotation through
+`checkSourceElement` and `getTypeFromTypeReference` resolves it as it would
+in TypeScript. Native harness probe (`allowJs`, `checkJs`), one `.js` file:
+
+```text
+type A = Missing1;                              TS8008, TS2304 Missing1
+function f(x: Missing2): Missing3 { … }         TS2304 + TS8010 on both
+let v: Missing4 = 1;                            TS2304 + TS8010
+class C<T extends Missing5> { p: Missing6; }    TS8004, TS2304 ×2, TS8010
+interface I { a: Missing7 }                     TS8006, TS2304
+var r = (): Missing12 => 1;                     TS2304 + TS8010
+```
+
+(The `tsgo` CLI cannot show this: it skips semantic diagnostics when a file
+has syntactic ones. The probe is tsgo's own compiler-test runner, built with
+`go test -c ./internal/testrunner` against the offline module file, run on a
+case written to `testdata/tests/cases/compiler/` and never committed.)
+
+The decline is narrowed to names inside a JSDoc comment
+(`Checker::names_in_jsdoc`, `ast.IsInJSDoc`). Lifting it for JSDoc too was
+measured first: +4 cases, **6 lost** (`importTypeResolutionJSDocEOF`,
+`callbackTag2`, `checkJsdocTypeTag8`, `commonJSImportClassTypeReference`,
+`commonJSImportExportedClassExpression`, `jsdocTypeDefAtStartOfFile`) and 13
+new extra rows. Those are JSDoc resolution gaps (typedef placement, `import()`
+types, CommonJS class references, the TS2583 lib arm in a JSDoc type) that
+belong to the jsdoc lane; the JSDoc half of the decline stays until they are
+ported (cluster C2).
+
+Measured alone: +3 cases (`fillInMissingTypeArgsOnJSConstructCalls`,
+`parserArrowFunctionExpression10`, `parserArrowFunctionExpression17`), 0
+losses, missing rows −4, no new extra row. The diff also corrects the §779
+comment in `check.rs` in place, noting the correction.
+
+**Falsifier.** A `.js` baseline that has TS8010 on an annotation with an
+unresolvable name and no TS2304 beside it. The probe above and the corpus
+have none.

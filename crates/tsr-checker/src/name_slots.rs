@@ -71,3 +71,39 @@ impl Checker<'_, '_> {
         false
     }
 }
+
+impl Checker<'_, '_> {
+    /// `ast.IsInJSDoc` (`ast/utilities.go`): is `node` part of a JSDoc
+    /// comment rather than of the file's own syntax?
+    ///
+    /// The type-reference reporter declined every name in a JavaScript file.
+    /// Native declines none: `checkSourceElement` reaches a TypeScript-only
+    /// annotation in a `.js` file (TS8010 is a separate, syntactic
+    /// diagnostic, `getJSSyntacticDiagnosticsForFile`), and
+    /// `getTypeFromTypeReference` resolves it as in TypeScript — the baselines
+    /// of `fillInMissingTypeArgsOnJSConstructCalls` and
+    /// `parserArrowFunctionExpression10`/`17` carry TS2304 beside TS8010.
+    /// JSDoc type names keep the decline: their resolution
+    /// (`resolveTypeReferenceName`'s JSDoc arms, typedef scopes) is the jsdoc
+    /// lane's, and lifting it measured 6 cases lost
+    /// (`docs/parity/notes/r6-names.md` §6).
+    ///
+    /// A reparsed JSDoc root has no parent edge here (the parser's
+    /// `attach_jsdoc`), so a walk that ends anywhere but a source file is in
+    /// a comment.
+    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-js-type-annotations.diff")]
+    pub(crate) fn names_in_jsdoc(&self, node: NodeId) -> bool {
+        let mut current = node;
+        loop {
+            let kind = self.nodes.kind(current);
+            if (SyntaxKind::JSDocTypeExpression..=SyntaxKind::JSDocImportTag).contains(&kind) {
+                return true;
+            }
+            if kind == SyntaxKind::SourceFile {
+                return false;
+            }
+            let Some(parent) = self.nodes.parent(current) else { return true };
+            current = parent;
+        }
+    }
+}
