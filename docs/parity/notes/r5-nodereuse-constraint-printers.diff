@@ -1,0 +1,66 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 90b58ee..b30cfd2 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -2618,8 +2618,10 @@ impl<'a, 'n> Checker<'a, 'n> {
+                 out.push_str(&parameter.name);
+                 if let Some(constraint) = parameter.constraint {
+                     out.push_str(" extends ");
+-                    if let Some(written) = &parameter.written_constraint {
+-                        out.push_str(written);
++                    if let Some(text) =
++                        self.type_parameter_constraint_text(parameter, constraint, Some(reference))
++                    {
++                        out.push_str(&text);
+                     } else {
+                         let rendered = self
+                             .type_to_string_at(constraint, reference)
+diff --git a/crates/tsr-checker/src/objects.rs b/crates/tsr-checker/src/objects.rs
+index b54258d..20cacfd 100644
+--- a/crates/tsr-checker/src/objects.rs
++++ b/crates/tsr-checker/src/objects.rs
+@@ -424,8 +424,8 @@ pub(crate) fn signature_member_text(
+             out.push_str(&parameter.name);
+             if let Some(constraint) = parameter.constraint {
+                 out.push_str(" extends ");
+-                match &parameter.written_constraint {
+-                    Some(written) => out.push_str(written),
++                match checker.type_parameter_constraint_text(parameter, constraint, None) {
++                    Some(text) => out.push_str(&text),
+                     None => out.push_str(&checker.type_to_string(constraint)),
+                 }
+             }
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index e107644..c972ee6 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -7620,11 +7620,9 @@ impl<'a> Checker<'a, '_> {
+                 out.push_str(&parameter.name);
+                 if let Some(constraint) = parameter.constraint {
+                     out.push_str(" extends ");
+-                    if let Some(written) = &parameter.written_constraint {
+-                        out.push_str(written);
+-                    } else if let Some(text) = parameter.resolved_type.and_then(|parameter| {
+-                        self.reused_constraint_text(parameter, constraint, Some(reference))
+-                    }) {
++                    if let Some(text) =
++                        self.type_parameter_constraint_text(parameter, constraint, Some(reference))
++                    {
+                         out.push_str(&text);
+                     } else {
+                         let text = render(self, constraint);
+@@ -7849,11 +7847,9 @@ impl<'a> Checker<'a, '_> {
+                 out.push_str(&parameter.name);
+                 if let Some(constraint) = parameter.constraint {
+                     out.push_str(" extends ");
+-                    if let Some(written) = &parameter.written_constraint {
+-                        out.push_str(written);
+-                    } else if let Some(text) = parameter.resolved_type.and_then(|parameter| {
+-                        self.reused_constraint_text(parameter, constraint, None)
+-                    }) {
++                    if let Some(text) =
++                        self.type_parameter_constraint_text(parameter, constraint, None)
++                    {
+                         out.push_str(&text);
+                     } else {
+                         out.push_str(&self.type_to_string(constraint));
