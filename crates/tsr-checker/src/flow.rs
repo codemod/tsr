@@ -2464,86 +2464,38 @@ impl Checker<'_, '_> {
     }
 
     /// The type an assignment flow node puts into the variable
-    /// (`getInitialOrAssignedType`, `flow.go:276`).
+    /// (`getInitialOrAssignedType`, `flow.go:276`): `getInitialType`
+    /// (`flow.go:2234`) for a variable declaration or binding element, else
+    /// `getAssignedType` (`flow.go:2288`).
     ///
-    /// The binder records an assignment's flow node against the variable
-    /// declaration when it has an initialiser, and against the *target
-    /// identifier* otherwise — so the two arms here are upstream's
-    /// `getInitialType` (`flow.go:2234`) and `getAssignedType` (`flow.go:2288`)
-    /// reduced to the forms that binder produces.
-    ///
-    /// `None` for the destructuring forms (binding elements, array/object
-    /// literal targets), whose element projection is not reproduced here.
-    /// (This said `for..in`, `for..of` and `delete` were `None` too; they are
-    /// ported since — a correction of the record.)
+    /// `None` stands for native's `errorType` (an unusable property name, a
+    /// projection this port cannot compute); callers fall back to the declared
+    /// type.
     fn get_initial_or_assigned_type(&mut self, node: NodeId) -> Option<TypeId> {
         if let Some(Node::BindingElement(element)) = self.node_map.get(node) {
-            // Native getInitialTypeOfBindingElement projects the parent's
-            // initial type recursively, then applies getTypeWithDefault.
+            // `getInitialTypeOfBindingElement` (`flow.go:2273`).
             let pattern_id = self.nodes.parent(node)?;
             let holder = self.nodes.parent(pattern_id)?;
             let parent = self.get_initial_or_assigned_type(holder)?;
             let projected = if self.nodes.kind(pattern_id) == SyntaxKind::ObjectBindingPattern {
                 let key = match element.property_name {
-                    Some(tsr_ast::PropertyName::ComputedPropertyName(name)) => {
-                        let key = self.check_expression(name.expression?);
-                        self.property_name_from_index(key)?
-                    }
-                    Some(name) => crate::objects::written_property_name(&name)?,
+                    Some(name) => self.destructured_property_key(name)?,
                     None => match element.name? {
                         tsr_ast::BindingName::Identifier(name) => name.text.to_string(),
                         tsr_ast::BindingName::BindingPattern(_) => return None,
                     },
                 };
-                if let Some(property) = self.get_type_of_property_of_type(parent, &key) {
-                    property
-                } else {
-                    let key_type = self.store.intern_literal(
-                        TypeFlags::STRING_LITERAL,
-                        TypeData::StringLiteral(key),
-                        false,
-                    );
-                    let info = self.get_applicable_index_info(parent, key_type)?;
-                    if self.no_unchecked_indexed_access {
-                        self.get_union_type(&[info.value, self.intrinsics.missing])
-                    } else {
-                        info.value
-                    }
-                }
+                self.get_type_of_destructured_property(parent, key)?
+            } else if element.dot_dot_dot_token.is_some() {
+                self.get_type_of_destructured_spread_expression(parent)?
             } else {
                 let Some(Node::BindingPattern(pattern)) = self.node_map.get(pattern_id) else {
                     return None;
                 };
                 let index = pattern.elements.iter().position(|item| item.node_id == Some(node))?;
-                let key = self.store.intern_literal(
-                    TypeFlags::NUMBER_LITERAL,
-                    TypeData::NumberLiteral(index.to_string()),
-                    false,
-                );
-                if element.dot_dot_dot_token.is_none()
-                    && let Some(element_type) =
-                        self.tuple_index_type(parent, key, self.no_unchecked_indexed_access)
-                {
-                    element_type
-                } else {
-                    let iterated = self.for_of_element_type(parent)?;
-                    if element.dot_dot_dot_token.is_some() {
-                        let array = self.global_type_symbol_with_arity("Array", 1)?;
-                        self.create_type_reference(array, vec![iterated])
-                    } else if self.no_unchecked_indexed_access {
-                        self.get_union_type(&[iterated, self.intrinsics.missing])
-                    } else {
-                        iterated
-                    }
-                }
+                self.get_type_of_destructured_array_element(parent, index)?
             };
-            return Some(if let Some(default) = element.initializer {
-                let non_undefined = self.get_type_with_facts(projected, TypeFacts::NE_UNDEFINED);
-                let default_type = self.check_expression(default);
-                self.get_union_type(&[non_undefined, default_type])
-            } else {
-                projected
-            });
+            return Some(self.get_type_with_default(projected, element.initializer));
         }
         if let Some(Node::VariableDeclaration(declaration)) = self.node_map.get(node) {
             // `getInitialTypeOfVariableDeclaration` (`flow.go:2244`).
@@ -2553,42 +2505,170 @@ impl Checker<'_, '_> {
             let statement = self.nodes.parent(node).and_then(|list| self.nodes.parent(list))?;
             return self.for_in_or_of_assigned_type(statement);
         }
+        self.get_assigned_type(node)
+    }
+
+    /// `getAssignedType` (`flow.go:2288`), recursive through the destructuring
+    /// assignment arms.
+    fn get_assigned_type(&mut self, node: NodeId) -> Option<TypeId> {
         let parent = self.nodes.parent(node)?;
-        // `getAssignedType` (`flow.go:2288`): the `for..in`, `for..of` and
-        // `delete` arms. The destructuring arms (array/object literal
-        // elements, spreads, property assignments) stay unported and answer
-        // `None` — the declared type, as upstream's `errorType` reduces to.
-        match self.nodes.kind(parent) {
-            SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement => {
-                return self.for_in_or_of_assigned_type(parent);
+        match self.node_map.get(parent)? {
+            Node::ForInOrOfStatement(_) => self.for_in_or_of_assigned_type(parent),
+            Node::DeleteExpression(_) => Some(self.intrinsics.undefined),
+            Node::BinaryExpression(binary) => {
+                // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`). The
+                // binder records assignment flow nodes on the left operand
+                // only; compound operators never reach here
+                // (`getTypeAtFlowAssignment` keeps the antecedent first).
+                if !matches!(
+                    binary.operator_token?.kind,
+                    SyntaxKind::EqualsToken
+                        | SyntaxKind::QuestionQuestionEqualsToken
+                        | SyntaxKind::BarBarEqualsToken
+                        | SyntaxKind::AmpersandAmpersandEqualsToken
+                ) || binary.left.and_then(|left| Node::from(left).node_id()) != Some(node)
+                {
+                    return None;
+                }
+                let right = binary.right?;
+                let holder = self.nodes.parent(parent);
+                let is_destructuring_default = holder.is_some_and(|holder| {
+                    match self.nodes.kind(holder) {
+                        SyntaxKind::ArrayLiteralExpression => {
+                            self.is_destructuring_assignment_target(holder)
+                        }
+                        SyntaxKind::PropertyAssignment => self
+                            .nodes
+                            .parent(holder)
+                            .is_some_and(|object| self.is_destructuring_assignment_target(object)),
+                        _ => false,
+                    }
+                });
+                if is_destructuring_default {
+                    let assigned = self.get_assigned_type(parent)?;
+                    return Some(self.get_type_with_default(assigned, Some(right)));
+                }
+                Some(self.check_expression(right))
             }
-            SyntaxKind::DeleteExpression => return Some(self.intrinsics.undefined),
-            _ => {}
+            Node::ArrayLiteralExpression(array) => {
+                // `getAssignedTypeOfArrayLiteralElement` (`flow.go:2323`).
+                let index = array
+                    .elements
+                    .iter()
+                    .position(|element| Node::from(*element).node_id() == Some(node))?;
+                let assigned = self.get_assigned_type(parent)?;
+                self.get_type_of_destructured_array_element(assigned, index)
+            }
+            Node::SpreadElement(_) => {
+                // `getAssignedTypeOfSpreadExpression` (`flow.go:2349`).
+                let array = self.nodes.parent(parent)?;
+                let assigned = self.get_assigned_type(array)?;
+                self.get_type_of_destructured_spread_expression(assigned)
+            }
+            Node::PropertyAssignment(property) => {
+                // `getAssignedTypeOfPropertyAssignment` (`flow.go:2361`).
+                let key = self.destructured_property_key(property.name)?;
+                let object = self.nodes.parent(parent)?;
+                let assigned = self.get_assigned_type(object)?;
+                self.get_type_of_destructured_property(assigned, key)
+            }
+            Node::ShorthandPropertyAssignment(property) => {
+                // `getAssignedTypeOfShorthandPropertyAssignment` (`flow.go:2381`).
+                let key = self.destructured_property_key(property.name)?;
+                let object = self.nodes.parent(parent)?;
+                let assigned = self.get_assigned_type(object)?;
+                let projected = self.get_type_of_destructured_property(assigned, key)?;
+                Some(self.get_type_with_default(projected, property.object_assignment_initializer))
+            }
+            _ => None,
         }
-        // `getAssignedTypeOfBinaryExpression` (`flow.go:2314`) for an
-        // assignment whose left operand is the target: `x = e` and the
-        // logical assignments `x ??= e`, `x ||= e`, `x &&= e`. The binder
-        // gives the logical forms an assignment flow node on the branch that
-        // evaluates `e` (`bindLogicalLikeExpression`), and upstream answers
-        // `getTypeOfExpression(right)` for every operator that reaches here.
-        // Compound operators (`+=`) never do: `getTypeAtFlowAssignment`
-        // returns the antecedent's type for them first. A destructuring
-        // default (`[x = 1] = y`) reaches the same upstream function by a
-        // different route and is not handled.
-        let Some(Node::BinaryExpression(binary)) = self.node_map.get(parent) else { return None };
-        if !matches!(
-            binary.operator_token?.kind,
-            SyntaxKind::EqualsToken
-                | SyntaxKind::QuestionQuestionEqualsToken
-                | SyntaxKind::BarBarEqualsToken
-                | SyntaxKind::AmpersandAmpersandEqualsToken
-        ) {
-            return None;
+    }
+
+    /// `isDestructuringAssignmentTarget` (`flow.go:2384`): the left operand of
+    /// a binary expression or the initializer of a `for..of`.
+    fn is_destructuring_assignment_target(&self, node: NodeId) -> bool {
+        match self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)) {
+            Some(Node::BinaryExpression(binary)) => {
+                binary.left.and_then(|left| Node::from(left).node_id()) == Some(node)
+            }
+            Some(Node::ForInOrOfStatement(statement)) => {
+                self.nodes.parent(node).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::ForOfStatement
+                }) && statement.initializer.and_then(|init| Node::from(init).node_id())
+                    == Some(node)
+            }
+            _ => false,
         }
-        if binary.left.and_then(|left| Node::from(left).node_id()) != Some(node) {
-            return None;
+    }
+
+    /// `getLiteralTypeFromPropertyName` + `getPropertyNameFromType` for a
+    /// destructured property name; `None` when the name is not usable.
+    fn destructured_property_key(&mut self, name: tsr_ast::PropertyName<'_>) -> Option<String> {
+        match name {
+            tsr_ast::PropertyName::ComputedPropertyName(name) => {
+                let key = self.check_expression(name.expression?);
+                self.property_name_from_index(key)
+            }
+            name => crate::objects::written_property_name(&name),
         }
-        Some(self.check_expression(binary.right?))
+    }
+
+    /// `getTypeOfDestructuredProperty` (`flow.go:2365`).
+    fn get_type_of_destructured_property(&mut self, t: TypeId, key: String) -> Option<TypeId> {
+        if let Some(property) = self.get_type_of_property_of_type(t, &key) {
+            return Some(property);
+        }
+        let key_type =
+            self.store.intern_literal(TypeFlags::STRING_LITERAL, TypeData::StringLiteral(key), false);
+        let info = self.get_applicable_index_info(t, key_type)?;
+        Some(self.include_undefined_in_index_signature(info.value))
+    }
+
+    /// `getTypeOfDestructuredArrayElement` (`flow.go:2327`).
+    fn get_type_of_destructured_array_element(
+        &mut self,
+        t: TypeId,
+        index: usize,
+    ) -> Option<TypeId> {
+        let key = self.store.intern_literal(
+            TypeFlags::NUMBER_LITERAL,
+            TypeData::NumberLiteral(index.to_string()),
+            false,
+        );
+        if let Some(element_type) = self.tuple_index_type(t, key, self.no_unchecked_indexed_access)
+        {
+            return Some(element_type);
+        }
+        let iterated = self.for_of_element_type(t)?;
+        Some(self.include_undefined_in_index_signature(iterated))
+    }
+
+    /// `getTypeOfDestructuredSpreadExpression` (`flow.go:2353`).
+    fn get_type_of_destructured_spread_expression(&mut self, t: TypeId) -> Option<TypeId> {
+        let iterated = self.for_of_element_type(t)?;
+        let array = self.global_type_symbol_with_arity("Array", 1)?;
+        Some(self.create_type_reference(array, vec![iterated]))
+    }
+
+    /// `includeUndefinedInIndexSignature` (`flow.go:2339`).
+    fn include_undefined_in_index_signature(&mut self, t: TypeId) -> TypeId {
+        if self.no_unchecked_indexed_access {
+            self.get_union_type(&[t, self.intrinsics.missing])
+        } else {
+            t
+        }
+    }
+
+    /// `getTypeWithDefault` (`flow.go:2389`).
+    fn get_type_with_default(
+        &mut self,
+        t: TypeId,
+        default: Option<tsr_ast::Expression<'_>>,
+    ) -> TypeId {
+        let Some(default) = default else { return t };
+        let non_undefined = self.get_type_with_facts(t, TypeFacts::NE_UNDEFINED);
+        let default_type = self.check_expression(default);
+        self.get_union_type(&[non_undefined, default_type])
     }
 
     /// The `for..in` / `for..of` arms of `getInitialTypeOfVariableDeclaration`
