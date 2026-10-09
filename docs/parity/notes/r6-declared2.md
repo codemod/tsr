@@ -321,3 +321,105 @@ never` too, but stay WRONG on the alias: native expands the non-exported
 `Id<…>` of another file at the declaration site (IsTypeSymbolAccessible),
 which is r6-accessible §3(b)/ADR-0045's cross-file accessibility, not this
 cause.
+
+**Re-measured on the merged tree** (§0.1, `190753b`), unfiltered: types
+**+4**, 0 lost (`:1:1`, `:1:2`, `:1:11`, `:1:12`: with r6-accessible's
+alias-accessibility print landed in batch BK, the expanded `{ status:
+"uninitialized"; originalArgs?: never; }` is now right too); diagnostics
+unchanged. §3(b)'s diff re-measured on the same tree: diagnostics +4, types
+−2, unchanged.
+
+## 5. The binder diff and `ONonNullable` (ramdaToolsNoInfinite2 448/449)
+
+**Cause, not in this lane.** Reduced:
+
+```ts
+declare module "O" { export type NN<O extends object, K extends string = string> = { 1: O; 0: O[] }[K extends string ? 1 : 0] & {}; }
+declare module "L" {
+    import { NN } from "O";
+    import { NN as RN } from "O";
+    export type A<L extends object[], K extends string = string> = { x: NN<L, K>; y: RN<L, K> };
+}
+```
+
+tsgo prints `x: NN<L, K>` and `y: RN<L, K>`; the port `NN<L, K>` and
+`error`. `get_type_from_type_reference` resolves a renamed ES import
+specifier only for argument-less primitive aliases; a generic renamed import
+answers `error` (§491's name-agreement gate). Before the binder diff these
+imports inside `declare module` did not bind, so the reference was
+unresolved and printed its written text — right by coincidence.
+
+Native resolves the alias and prints the **target's** type, spelled at the
+print site through getAccessibleSymbolChain, which finds the in-scope local
+alias `ONonNullable` for `Object/NonNullable`'s `NonNullable`. Resolving the
+renamed import here would turn the two lines from GAP into WRONG
+(`NonNullable<L, Key, depth>`); RIGHT needs the node builder's per-site chain
+spelling (r6-accessible §3(a), `tsr-2zk.39`, printer lane). Nothing in
+`declared.rs` changes for it.
+
+**The binder diff re-measured on §0.1's merged tree** (unfiltered):
+- diagnostics **+3** (`moduleAugmentationInAmbientModule1`/`5`,
+  `ramdaToolsNoInfinite2`), 0 lost;
+- types **+23**, **6 lost**: `ramdaToolsNoInfinite2:0:448/449` (above) and
+  `:0:485/490/491/492` (`_Drop<L2, Key<I>, "->">`, `Cast<G, List<any>>`:
+  a defaulted argument printed where native elides it). r6-declared §5
+  expected its print-arity port to cover 485/490–492; measured, it does not:
+  those are `Key`/`List` aliases, not the four global iterables
+  typeReferenceToTypeNode elides, so the elision is elsewhere in native's
+  printer (alias argument reuse from the written node). Printer lane.
+- slowcases **SLOWER** on the case: 7.7 s diagnostics / 6.3 s types (base
+  `f334de9` with the same diff: 2.4 s / 1.5 s; native 0.4 s).
+
+**§1 raises the binder diff's cost.** Callgrind on the case with the diff
+(66.3 G Ir): `collect_mentioned_type_parameters` (r6-declared §2.2's
+bisection under `conditional_extends_instantiations`) is 42% inclusive, and
+the `mentions_type_parameter` walk 48% self. Before §1 a deferred conditional
+reference in an alias body was `error`, which also cut the eager
+indexed-access alias road short (`create_type_reference` →
+`evaluate_alias_body`, 80+ frames deep in gdb samples); now each deferred
+reference is built, and each new extends type pays one bisection over the
+whole type-parameter registry. Native instead instantiates once with a
+permissive mapper that maps every type parameter (getPermissiveInstantiation),
+with no search. The case is reachable only with the held binder diff, so no
+dump moves; the binder diff stays held on 448/449, 485–492 and this time.
+Filed for the integrator: a single-walk collector of the mentioned type
+parameters (or a mapper-function instantiation) would remove the bisection's
+registry factor; the walker is `inference.rs`'s (MAIN).
+
+## 6. TS2589 at the alias guard: not attempted, falsifier still holds
+
+Item 6 depended on the alias road answering errorType at its depth guard.
+[`r5-spans-ts2589-report-sites.diff`](r5-spans-ts2589-report-sites.diff),
+re-applied on the merged tree (its `declared.rs` hunks moved; the other two
+files apply unchanged) and run filtered over r5-spans §2.3's cases:
+
+- still lost (EMPTY_RIGHT/RIGHT → WRONG): `contextualTypeSelfReferencing`,
+  `genericCallOnMemberReturningClosedOverObject`, `mappedTypeRecursiveInference2`,
+  `ramdaToolsNoInfinite`, `tailRecursiveConditionalTypes`,
+  `mappedTypeAsClauseRecursiveNoCrash1`, `recursiveTypesWithTypeof`;
+- no longer lost: `declarationEmitRecursiveConditionalAliasPreserved`.
+
+Seven of eight falsifier rows still fire, so the port still reaches depth 100
+where native does not (eager anonymous-type members, r5-spans §2.3). The
+alias guard keeps declining; §1 already keeps native's errorType for a
+decided check at the guard in alias-declared positions.
+
+## 7. Round summary
+
+Landed (on `claude/beautiful-shannon-ar5gh0-r6-declared2`):
+- `c06e47b` §1: deferred conditional alias references in alias bodies;
+  isExcludedMappedPropertyName on the conditional root;
+- `3cbe654` §2: getMappedTypeNameTypeKind is native's already (docs);
+- `9d6bd2c` §3(a)/(c): instantiateConstituent's unmapped constituents;
+- `04c2adc`, `b98ce9c`: §3(b) and §4 diffs (docs + diffs);
+- `190753b`: merge of `f334de9` (batch BM landed), base re-frozen.
+
+Against `f334de9`, unfiltered: types +70, diagnostics +1, zero losses on both,
+slowcases clean, Ir domain-model +0.07%, generic-imports +0.05%.
+
+Held diffs, in apply order on this branch:
+1. [`r6-declared2-nonstrict-optional-read.diff`](r6-declared2-nonstrict-optional-read.diff)
+   (`members.rs`): types +4, 0 lost;
+2. [`r6-declared2-mapped-source-members.diff`](r6-declared2-mapped-source-members.diff)
+   (`declared.rs` + `members.rs`): diagnostics +4, types −2; waits on
+   contextual destructuring's read of a mapped image (MAIN).
