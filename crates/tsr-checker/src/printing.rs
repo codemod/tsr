@@ -382,6 +382,17 @@ impl Checker<'_, '_> {
                 ) {
                     return Some(());
                 }
+                // `addPropertyToElementList` → `serializeTypeForDeclaration`
+                // (`nodebuilderimpl.go:2605`): the declaration's pseudo type
+                // is reused when equivalent, structural kinds included (an
+                // annotated get/set pair keeps its accessors).
+                if let Some(text) = property
+                    .origin
+                    .and_then(|symbol| self.reused_property_type_text(symbol, property_type, Some(reference)))
+                {
+                    *printed = text;
+                    return Some(());
+                }
                 // Native serializeTypeForDeclaration can reuse an original
                 // SingleCallSignature initializer. pseudoTypeToNode builds
                 // its signature directly, without visiting the callable
