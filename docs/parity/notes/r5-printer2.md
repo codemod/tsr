@@ -133,3 +133,49 @@ slowcases clean, CPU vs base 1.009 / 0.973.
 but which native refuses to reuse (`pseudoTypeEquivalentToType`'s other
 conditions, `RequiresWidening`) would print as written here. None showed
 in the dump.
+
+## 4. Small member-printing rules
+
+### 4.1 A type literal's divergent accessor pair prints as accessors
+
+`addPropertyToElementList` (`nodebuilderimpl.go:2524`) prints an accessor
+property whose read type differs from `getWriteTypeOfSymbol` as its getter
+and setter signatures, each built from the accessor's own declaration by
+`signatureToSignatureDeclarationHelper`, so their annotations are reused
+(`set foo(v: number | string)` keeps the written order). Either side an
+error type keeps the property form. The object-literal and spread printers
+already had this arm (`spreads.rs::anonymous_property_members`); the
+type-literal site printer did not. `type_literal_accessor_pair_at` adds it
+(a type literal has no class parent, so the class-only arms do not apply).
++`divergentAccessors1` (4 lines).
+
+`circularObjectLiteralAccessors` is not this rule: native prints the
+accessor form for a `string`/`string` pair there, which needs native's
+object-literal property symbols' read/write identity; not investigated.
+
+### 4.2 A merged property name is string-named only if every spelling is
+
+`getPropertyNameNodeForSymbol` (`nodebuilderimpl.go:2426`) classifies a
+symbol's name over **every** declaration: string-named only if all are
+string literals (`isStringNamed`, `:2405`), single-quoted only if all are
+(`:2421`). The object-literal duplicate merge (`objects.rs`) kept the first
+spelling instead, so `{ "0": '', 0: '' }` printed `{ "0": string; }` where
+native prints `{ 0: string; }`. `merged_written_name` folds the two
+spellings pairwise; each printed spelling already encodes its
+classification (unquoted, `"`, `'`), so the fold equals the whole-list
+rule. +2 lines; the case still fails on `0:7`, the same rule in the
+type-literal producer (`declared.rs`, `var a: { "1": number; 1.0: string }`
+prints `{ "1": number; }`): routed to r5-declared3.
+
+Measured together on top of §3: +8 lines, 0 lost, +1 case
+(`divergentAccessors1`); diagnostics unchanged, slowcases clean.
+
+### 4.3 Diff for declared.rs: an overloaded method is optional if any overload is
+
+`r5-printer2-declared-optional-method.diff`. The binder ORs
+`SymbolFlagsOptional` across a merged symbol's declarations and
+`addPropertyToElementList` reads the symbol's flag for every overload, so
+`{ func4?(x: number): number; func4(s: string): string; }` prints
+`func4?` twice. `get_type_from_type_literal` replaced the property on
+each overload, keeping the last declaration's `?`. Measured on top of §3:
++1 line, 0 lost, +1 case (`methodSignaturesWithOverloads`).

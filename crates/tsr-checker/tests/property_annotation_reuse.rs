@@ -9,7 +9,8 @@ use tsr_ast::Statement;
 use tsr_checker::Checker;
 use tsr_core::Arena;
 
-/// The type of the final expression statement, printed.
+/// The type of the final expression statement, printed at that statement
+/// (the conformance producer's site printer).
 fn type_of_last_expression(source: &str, strict_null_checks: bool) -> String {
     let arena = Arena::new();
     let parsed = tsr_parser::parse(&arena, source);
@@ -40,7 +41,8 @@ fn type_of_last_expression(source: &str, strict_null_checks: bool) -> String {
         })
         .expect("the fixture must end with an expression statement");
     let id = checker.check_expression(last);
-    checker.type_to_string(id)
+    let site = tsr_ast::Node::from(last).node_id().expect("registered");
+    checker.type_to_string_at(id, site).unwrap_or_else(|| checker.type_to_string(id))
 }
 
 /// `emitRestParametersFunctionPropertyES6`: the written function type, not
@@ -63,5 +65,24 @@ fn an_optional_property_reuses_its_annotation() {
     assert_eq!(
         type_of_last_expression("declare var obj: { f?: (a) => void; n: number; };\nobj;", true),
         "{ f?: (a: any) => void; n: number; }"
+    );
+}
+
+/// `getPropertyNameNodeForSymbol` (`nodebuilderimpl.go:2426`): a merged
+/// name is string-named only if every declaration is
+/// (`numericStringNamedPropertyEquivalence`).
+#[test]
+fn a_duplicate_numeric_name_prints_unquoted_unless_every_spelling_is_a_string() {
+    assert_eq!(
+        type_of_last_expression("var b = { \"0\": '', 0: '' };\nb;", true),
+        "{ 0: string; }"
+    );
+    assert_eq!(
+        type_of_last_expression("var b = { 0: '', \"0\": '' };\nb;", true),
+        "{ 0: string; }"
+    );
+    assert_eq!(
+        type_of_last_expression("var b = { '0': '', \"0\": '' };\nb;", true),
+        "{ \"0\": string; }"
     );
 }
