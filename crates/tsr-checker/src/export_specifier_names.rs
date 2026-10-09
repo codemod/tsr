@@ -62,12 +62,28 @@ impl Checker<'_, '_> {
         }
         // Only a source file's or an ambient module's exports skip a pure
         // export-specifier alias (`binder/nameresolver.go:121-133`). In a
-        // non-ambient namespace the walk finds the specifier's own alias
-        // (TS2303, a circular alias, not a failed lookup), so nothing here
-        // applies.
-        if let Some(namespace) = self.nodes.ancestors(node).find(|&ancestor| {
+        // non-ambient namespace the walk can find an alias in the namespace's
+        // exports, the specifier's own included, and `getSymbol` takes it
+        // (its cycle is TS2303, `circular_alias.rs`), so only a walk that
+        // finds nothing at all fails. **Corrected by r6-names2:** this
+        // declined every non-ambient namespace, which lost
+        // `namespace N { export { inner as x } }`'s TS2304
+        // (`docs/parity/notes/r6-names2.md` §3).
+        let in_namespace = self.nodes.ancestors(node).find(|&ancestor| {
             matches!(self.node_map.get(ancestor), Some(Node::ModuleDeclaration(_)))
-        }) && !self.is_in_ambient_context(namespace)
+        });
+        if in_namespace.is_some_and(|namespace| !self.is_in_ambient_context(namespace))
+            && self
+                .binder
+                .resolve_name_with_export_alias(
+                    self.nodes,
+                    self.node_map,
+                    named,
+                    identifier.text,
+                    SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+                    |_, _| Some(true),
+                )
+                .is_some()
         {
             return;
         }

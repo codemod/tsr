@@ -209,3 +209,138 @@ is applied uncommitted, §0, and the commit staged everything). That made
 the branch carry main-file hooks unreviewed, and `name_slots.rs`'s half was
 missing, so diffs 1–6 no longer applied on it. The next commit restores those
 files to `7b0a4d8` exactly; nothing in §1–§2 depended on the slip.
+
+## §3 TS2303 in a namespace, and TS1003 for a local string property name
+
+r6-names left both as pre-existing gaps it saw while probing (`r6-names.md`
+§9, §13). Classified against native first:
+
+### TS1003 is a checker grammar error, not a parser difference
+
+**Correction to `r6-names.md` §9/§13**, which called TS1003 for `export {
+"str" as s2 }` "a parser difference". It is `checkExportSpecifier`
+(`checker.go:5551-5555`): `checkModuleExportName(node.PropertyName(),
+hasModuleSpecifier)`, whose `allowStringLiteral = false` arm
+(`checker.go:5388-5393`) is `grammarErrorOnNode(name, Identifier_expected)`.
+`module_format.rs` ported only the `true` arm (TS18057) and skipped the
+property name without a module specifier.
+
+The diff adds `check_module_export_name_disallowed` beside it: a string
+literal property name, past `checkGrammarModuleElementContext` (the same
+`module_declaration_context_passes` the TS18057 arm uses), silent in a file
+with parse errors (`grammarErrorOnNode`); no module-kind or declaration-file
+test, which the native arm does not have. Native probe, matched row for
+row and pinned in `r6_names2_module_export_name.rs`:
+
+```text
+--module commonjs | es2015
+const s = 1; export { "s" as x };          TS1003 at "s" (both)
+export { "t" };  export { s as "y" };      nothing | TS18057 each
+namespace N { export { "u" as v } }        TS1194, TS1003 (both)
+c.d.ts: export { "s" as x };               TS1003 (both)
+… plus `var v = ;`                         TS1109 only (both)
+```
+
+**Measured alone** on §0's base: 0 cases either way, rows 3,257/1,072
+unchanged, 0 lost on both dumps, `slowcases` clean; Ir domain-model
+1,091,735,921 / 1,091,850,040, generic-imports 343,060,190 / 343,052,005
+(flat). The one corpus case with these rows,
+`arbitraryModuleNamespaceIdentifiers_syntax` (three `*-bad-export.ts`
+TS1003 rows), is not in the scored dump. It also has two module-member
+rows that this diff does not touch: an extra TS2305 for `import { "invalid
+1" } from …` and a missing one for `import { type as as "x" }`, both in
+`getExternalModuleMember` (r6-modules2's ground).
+
+Diff: [`r6-names2-module-export-name.diff`](r6-names2-module-export-name.diff)
+(`module_format.rs` has no owner this round).
+
+### TS2303: the binder skipped the alias in every namespace
+
+Native resolves a local `export { inner }` with `resolveEntityName`
+(`getTargetOfExportSpecifier`, `checker.go:14970`). The walk skips a
+*pure* export-specifier alias in a location's exports only when the
+location is a source file or an ambient, non-global module declaration
+(`nameresolver.go:105`, `:121-133`). In a non-ambient namespace it finds
+the specifier's own alias in the exports, `getSymbol`'s alias arm calls
+`resolveAlias` on it, the alias is already on the resolution stack, and
+`popTypeResolution` reports TS2303. With the name declared in the
+namespace's locals, the locals hit comes first and nothing is reported.
+
+The port's binder applied the skip to every `ModuleDeclaration`, so the walk
+never met the alias, and `circular_alias.rs` followed `resolve_alias`, whose
+lookup could not either. And `export_specifier_names.rs` (§9 of r6-names)
+declined every non-ambient namespace, which also lost native's TS2304 for
+`namespace N1 { export { inner as x } }` (the lookup is for `inner`; the
+exports hold `x`).
+
+The diff:
+- binder walk: the skip takes native's condition. Ambient is the binder's
+  `NodeFacts::AMBIENT_CONTEXT`, as the default-export arm above it already
+  reads it: this parser never sets `NodeFlags::AMBIENT`.
+- binder walk: an export-specifier alias the skip let through is offered to
+  the checker's alias-meaning callback, as `getSymbol`'s alias arm does for
+  any alias (the arm already did this for an external import-equals).
+  `resolve_name`'s constant `Some(false)` keeps every plain road's answer.
+- `circular_alias.rs`: a local export specifier's recursion target is the
+  first symbol that walk meets with every alias accepted (`|_, _|
+  Some(true)`), which is the alias `getSymbol` would recurse into.
+
+Owned and committed: `export_specifier_names.rs` declines only when that
+same walk finds something.
+
+Native probe (`--module commonjs --target es2022`), matched row for row
+and pinned in `r6_names2_namespace_alias.rs`:
+
+```text
+namespace N { export { inner } }                      TS1194, TS2303 inner
+namespace M { const inner2 = 1; export { inner2 } }   TS1194
+var o = 1; namespace O { export { o } }               TS1194, TS2303 o
+namespace N1 { export { inner as x } }                TS1194, TS2304 inner
+declare namespace D { export { amb } }                TS2304 amb
+namespace P { export { q as r }; export { r as q } }  TS1194 ×2, TS2303 r, q
+namespace R { var x = 1; export { x as y }; let z = y; }  TS1194
+namespace S { function f() {} export { f } }          TS1194
+```
+
+**Not matched, with its cause:** `namespace T { export { g as h }; export {
+h as g2 }; }`. Native reports TS2304 `g`, TS2303 `h` and TS2303 `g2`; the
+port reports TS2304 `g` only. Native's two TS2303 rows are a side effect of
+the spelling suggestion for `g`: scoring its candidates resolves `g2`'s
+alias, which walks into `h`, which is still on the resolution stack. The
+port's `resolve_alias` has no push/pop resolution frame
+(`circular_alias.rs` re-derives cycles by walking chains), so it cannot see
+a re-entry made from inside another resolution. That needs
+`pushTypeResolution(symbol, AliasTarget)` in `resolve_alias` (symbols.rs,
+main's); not attempted.
+
+**Measured alone** on §0's base (with r6-names' diff 6 applied, which the
+`export_specifier_names.rs` half needs): 0 cases either way, rows
+unchanged, 0 lost on both dumps, `slowcases` clean. Ir domain-model
+1,092,079,230 / 1,092,060,114 (+0.03%), generic-imports 343,053,096 /
+343,073,265. Per function: the wrapper road's walk instance +0.20 M at
+unchanged call counts (codegen: the new arm sits on its hot loop), and
+`intern_union_with_display_plan` +0.22 M against `create_union_with_text`
+−0.16 M, an inlining swap in unrelated code.
+
+Diff: [`r6-names2-namespace-alias.diff`](r6-names2-namespace-alias.diff)
+(binder `lib.rs`, `circular_alias.rs`, the test). Apply after r6-names'
+diff 6.
+
+## §4 The whole stack
+
+All on §0's base, in this order: r6-names diffs 1–6 (batch BJ), then
+`r6-names2-parameter-scope.diff`, `r6-names2-value-slot-inline.diff`,
+`r6-names2-module-export-name.diff`, `r6-names2-namespace-alias.diff`. Each
+applies on this branch's tip in that order (checked with `git apply`).
+
+Measured stacked: diagnostics 5,596 → **5,601 RIGHT** (+5, §1's cases),
+EMPTY_RIGHT 5,603 unchanged; types 549,976 → **550,014 RIGHT** (+38); 0 lost
+on either dump; rows 3,257/1,072 → 3,248/1,071; `slowcases` clean on both.
+Ir domain-model 1,092,343,183 / 1,092,324,512 (+0.05–0.056% against the
+base), generic-imports 343,080,879 / 343,062,693 (flat). `cargo test
+--workspace --release` 3,557 passed, 0 failed; `cargo fmt` clean. Clippy
+stops at the pre-existing stable-toolchain findings in `tsr-checker`
+(`signatures.rs`, `symbols.rs:4293`, `enum_initializer.rs`,
+`index_signatures.rs`, `printing.rs`, `templates.rs`, `unique_symbols.rs`),
+none in a file this lane touches, which also keeps it from reaching the
+`tsr-conformance` tests.
