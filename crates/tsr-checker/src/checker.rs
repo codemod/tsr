@@ -3168,11 +3168,24 @@ impl<'a, 'n> Checker<'a, 'n> {
             // (a wrong specifier is worse than the bare name).
             if self.is_module_symbol(parent) {
                 let module_name = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
-                // The port's module names are ROOT-relative virtual paths
-                // (`/file`); the same-directory slice is a single leading
-                // slash. Deeper structure keeps the decline — a wrong
-                // specifier is worse than the bare name.
-                let stem = module_name.strip_prefix('/').unwrap_or(module_name);
+                // The port's module names are absolute virtual paths
+                // (`/file`, `/.src/file`); the same-directory slice is the
+                // name relative to the reference file's directory when the
+                // module sits under it, else relative to `/` as before. The
+                // harness compiles in the runner's `/.src` (r5-config §4),
+                // where "root-relative" would make every unit look nested.
+                // Deeper structure keeps the decline — a wrong specifier is
+                // worse than the bare name.
+                let reference_directory = self
+                    .source_file_of(reference)
+                    .and_then(|file| self.module_host.and_then(|host| host.file_path(file)))
+                    .map(|path| tsr_path::get_directory_path(&path).to_string());
+                let stem = reference_directory
+                    .as_deref()
+                    .filter(|directory| *directory != "/")
+                    .and_then(|directory| module_name.strip_prefix(directory))
+                    .and_then(|rest| rest.strip_prefix('/'))
+                    .unwrap_or_else(|| module_name.strip_prefix('/').unwrap_or(module_name));
                 // NEVER for the reference's own file: a same-file name that
                 // failed to resolve is a synthetic/evaluated position, and
                 // the bare name is upstream's print there (chain1's 217 R→W

@@ -23,11 +23,18 @@ use tsr_binder::SymbolFlags;
 
 use crate::types_baseline::{FileTypes, TypeAssertion};
 
-/// The current directory every case is compiled in.
+/// The current directory every case is compiled in: the runner's `srcFolder`
+/// (`harnessutil.go`, `compiler_runner.go:521`'s `createHarnessTestFile`
+/// default), `/.src`.
 ///
-/// The same one [`crate::binder_suite`] uses, so a unit named `a.ts` and a unit
-/// named `/a.ts` land on the same path in both suites.
-const CURRENT_DIRECTORY: &str = "/";
+/// It was `/` until `tsr-2zk.1087`. The difference is observable wherever a
+/// path is derived from the current directory rather than written by the
+/// case: the automatic type roots (`GetEffectiveTypeRoots` walks up from it, so
+/// `/.src/node_modules/@types` is a root only from `/.src`), and a relative
+/// `@currentDirectory`. Unit names the case writes as absolute (`/a.ts`) are
+/// unaffected, and the printed names every baseline carries strip `/.src/`
+/// (`removeTestPathPrefixes`). `docs/parity/notes/r5-config.md` §4.
+pub(crate) const CURRENT_DIRECTORY: &str = "/.src";
 
 /// Where the bundled `lib.*.d.ts` are mounted on the case's file system.
 ///
@@ -1968,12 +1975,12 @@ pub fn program_and_config_for_case<'a>(
     case: &crate::TestCase,
 ) -> (tsr_compiler::Program<'a>, Option<tsr_tsoptions::ParsedCommandLine>) {
     // **`@currentDirectory` is a directive, not decoration** (50 corpus cases).
-    // The *default* stays `/` — `trace_case` defaults to `/.src` because the
-    // resolution traces are baselined against those paths and the diagnostics
-    // baselines against bare names, so the two suites' conventions genuinely
-    // differ and aligning them would break the one that is right. Only the
-    // directive is honoured, over this producer's own default, which is what
-    // upstream's harness does. §539.
+    // The default is the runner's `/.src`, as `trace_case`'s (§539 kept `/`
+    // here, on the reading that bare names in the diagnostics baselines meant
+    // a bare root; they are bare because `removeTestPathPrefixes` strips
+    // `/.src/`, and `r5-config.md` §4 measured the move). The directive is
+    // honoured over the default, resolved against it, which is what upstream's
+    // harness does.
     let current_directory = case.current_directory.as_deref().map_or_else(
         || CURRENT_DIRECTORY.to_string(),
         |dir| tsr_path::get_normalized_absolute_path(dir, CURRENT_DIRECTORY),

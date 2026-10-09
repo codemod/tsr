@@ -260,8 +260,8 @@ struct Unit<'p, 'a> {
 /// contain it.
 fn program_units<'p, 'a>(test: &crate::TestCase, program: &'p Program<'a>) -> Vec<Unit<'p, 'a>> {
     let current_directory = tsr_path::get_normalized_absolute_path(
-        test.current_directory.as_deref().unwrap_or("/"),
-        "/",
+        test.current_directory.as_deref().unwrap_or(""),
+        crate::types_producer::CURRENT_DIRECTORY,
     );
     let case_sensitive = test
         .options
@@ -599,8 +599,8 @@ fn config_file_parsing_diagnostics(
 ) -> Vec<(BaselineDiagnostic, Diagnostic)> {
     // The directory `program_and_config_for_case` named the config against.
     let current_directory = tsr_path::get_normalized_absolute_path(
-        test.current_directory.as_deref().unwrap_or("/"),
-        "/",
+        test.current_directory.as_deref().unwrap_or(""),
+        crate::types_producer::CURRENT_DIRECTORY,
     );
     let mut seen: HashSet<(&str, u32, u32, u32, &[String])> = HashSet::new();
     let mut out = Vec::new();
