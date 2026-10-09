@@ -47,7 +47,7 @@ checks, not a resolution difference.
 | E1. non-primitive keyword spellings as values | `checkAndReportErrorForUsingTypeAsValue`'s six-name `isPrimitiveTypeName` (`checker.go:1637`) | parserSymbolIndexer5 (TS2552) | §7, diff `r6-names-primitive-spellings` |
 | E2. `typeof null` | `parseTypeQuery`'s reserved-word entity name (`parser.go:3114`) | invalidTypeOfTarget | §8, diff `r6-names-typeof-null` |
 | F. parse recovery | parser trees that differ from native | arrowFunctionsMissingTokens, YieldStarExpression2_es6, bigintArbirtraryIdentifier, importDeferTypeConflict2, parserSuperExpression2, classExpressionWithDecorator1 | open |
-| G. spelling suggestions | `getSpellingSuggestionForName` at an export specifier | duplicateErrorNameNotFound (TS2552) | open |
+| G. local export specifiers | `getTargetOfExportSpecifier`'s `resolveEntityName` (`checker.go:14970`) and its `onFailedToResolveSymbol` tail | duplicateErrorNameNotFound (TS2552) | §9, diff `r6-names-export-specifier` |
 | H. module augmentation | augmentation merge (`tsr-2zk.38`, main's) | moduleAugmentationInAmbientModule1, moduleAugmentationInAmbientModule5 (TS2552) | routed |
 
 ## §3 Hook diffs, in apply order
@@ -63,6 +63,7 @@ function it wires in `name_slots.rs`, and adds its test under
 | 3 | `r6-names-js-type-annotations.diff` | +3 cases | 0 | 3,382/1,089 → 3,378/1,089 |
 | 4 | `r6-names-primitive-spellings.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 | 5 | `r6-names-typeof-null.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
+| 6 | `r6-names-export-specifier.diff` | +1 case | 0 | 3,382/1,089 → 3,380/1,089 |
 
 Diffs 1–3 applied together in this order: +13 cases, 0 losses on both
 dumps, rows 3,382/1,089 → 3,359/1,085, types dump identical to the base
@@ -216,3 +217,49 @@ leftmost name of a `typeof` entity name. `this` stays declined everywhere:
 
 Measured alone: +1 case (`invalidTypeOfTarget`), 0 losses, missing rows −1,
 no new extra row.
+
+## §9 Cluster G: a local export specifier that resolves nowhere
+
+`export { X }` with no module specifier resolves `X` through
+`resolveEntityName(name, Value|Type|Namespace, ignoreErrors=false)`
+(`getTargetOfExportSpecifier`, `checker.go:14970`), reached from
+`checkAliasSymbol`. Failure runs `onFailedToResolveSymbol`. The port ran one
+rung of it (`check_export_specifier_is_local` reports the exporting-primitive
+TS2661) and stopped; nothing reported TS2304 or TS2552 at a specifier.
+§841 of `checker-notes-diag2.md` had measured admitting the specifier to
+`is_value_reference` at −7 cases: that path resolves at value meaning and
+runs value-only rungs, which is the wrong meaning here.
+
+`export_specifier_names.rs` runs the tail at the specifier's own meaning:
+resolve from the parent scope (`resolve_name_excluding`, as
+`check_export_specifier_is_local` does), stay silent for native's six
+primitive names (TS2661 is already reported), then the missing-lib arm, the
+spelling suggestion at `Value|Type|Namespace`, and
+`getCannotFindNameDiagnosticForName`'s message. The rungs it skips cannot
+fire at this meaning: the missing-prefix and extending-interface rungs need
+a class or heritage position, and each mismatch rung looks the name up under
+a meaning `Value|Type|Namespace` already covers.
+
+**A non-ambient namespace is excluded.** Only a source file's or an ambient
+module's exports skip a pure export-specifier alias
+(`binder/nameresolver.go:121-133`); in `namespace N { export { inner } }`
+the walk finds the specifier's own alias and native reports TS2303 (circular
+alias), not a failed lookup. The first draft reported TS2304 there; the
+native probe caught it. The port does not report that TS2303 either; that is
+a pre-existing gap, not this diff's.
+
+Native probe (`--module commonjs`): `export type { RoomInterface }` beside
+`type RoomInterfae` → TS2552 *Did you mean 'RoomInterfae'?*; `export {
+Missing }` → TS2304; `export { value as renamed }` beside `valuu` → TS2552
+at `value`; `export { string }` → TS2661 only; `declare namespace D { export
+{ amb } }` → TS2304; `declare module "mm" { export { amb2 } }` → TS2664 and
+TS2304. The port with the diff matches every row except two pre-existing
+ones (the namespace TS2303, and TS1003 for `export { "str" as s2 }`, a parser
+difference).
+
+The diff also makes `check.rs`'s `cannot_find_name_message` `pub(crate)` so
+the tail shares the table rather than copying it. Measured alone: +1 case
+(`duplicateErrorNameNotFound`), 0 losses, missing rows −2
+(`bigintArbirtraryIdentifier`'s `badExport.ts` row converts too; that case
+stays WRONG on a parse-recovery row, §2 F), no new extra row, `slowcases`
+clean.
