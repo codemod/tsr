@@ -529,3 +529,13 @@ diagnostic from the first statement's token start to the **last** one's end.
 statement's own span; it now extends the end over the run with the same
 `is_unreachable_run_member` predicate. No new state; the forward scan is the
 sibling list the function already builds.
+
+## §26 TS2564's name argument is the name as written
+
+`checkPropertyInitialization` (`checker.go:4947`) passes
+`scanner.DeclarationNameToString(propName)`, i.e. `GetTextOfNode`: the source
+text of the name (`[x = 0]`, `[public ]`, `[Symbol()]`). The port
+re-spelled a computed name from its entity expression and wrote
+`[(Missing)]` for anything that is not one. `Checker::node_source_text` reads
+the name's span from the module host's text; the re-spelling remains only for
+a host without text.

@@ -4320,12 +4320,17 @@ impl Checker<'_, '_> {
             let Some(name_id) = property.name.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
             let span = self.error_span(name_id);
+            // `scanner.DeclarationNameToString` is `GetTextOfNode`: the name
+            // as written (`[x = 0]`, `[public ]`, `\u0078`), which the cooked
+            // `name` the constructor scan matches against cannot give.
+            // `docs/parity/notes/decls.md` §26.
+            let written = self.node_source_text(name_id).map_or(name, str::to_string);
             self.report(
                 file,
                 Diagnostic::with_args(
                     &messages::PROPERTY_0_HAS_NO_INITIALIZER_AND_IS_NOT_DEFINITELY_ASSIGNED_IN_THE_CONSTRUCTOR,
                     span,
-                    [name],
+                    [written],
                 ),
             );
         }
@@ -14752,6 +14757,20 @@ impl Checker<'_, '_> {
             last = scanner.scan();
         }
         Some(tsr_core::Span::new(start + first.span.start, start + last.span.end))
+    }
+
+    /// `scanner.GetTextOfNode`: the source text of a non-empty node in its
+    /// file, through the module host. `None` for a zero-width node or a host
+    /// without text.
+    pub(crate) fn node_source_text(&self, node: NodeId) -> Option<&str> {
+        let span = self.nodes.span(node);
+        if span.start == span.end {
+            return None;
+        }
+        let file = self.source_file_of_for_diagnostics(node)?;
+        self.module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(span.start as usize..span.end as usize))
     }
 
     /// `node.Pos()` for a zero-width (missing) node whose span sits at the
