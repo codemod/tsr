@@ -7,26 +7,27 @@ Vendor pinned at `5b1047d`.
 
 ## 0. Base and method
 
-- **Frozen base:** batch BO (r6-lazytext) had not landed on
-  `claude/beautiful-shannon-ar5gh0` when the box started (tip `e6eadf4`,
-  batch BL). The brief says to use the current tip until then; the lane's
-  predecessor's branch (`origin/…-r6-lazytext`, `e2dbd90`) was merged onto
-  it, so the lane's own code is under every measurement (`329d8ed`, the
-  merge; only `docs/parity/round5.md`, the snapshots and `.beads` conflicted,
-  and main's side was kept for each).
-  - Base dumps at `329d8ed`: types 550,221 RIGHT / 5,324 WRONG / 758 GAP;
-    diagnostics 5,612 RIGHT, 5,606 EMPTY_RIGHT, 981 WRONG, 39 EMPTY_WRONG.
-- **Stack base.** Item 1 prints through r6-lazytext's held conditional
-  dispatch, so it is measured on the stack batch BO will land: the base, plus
-  r6-declared's `f9339d0` (cherry-picked, not committed here), plus
-  `r6-lazytext-spread-members.diff` and `r6-lazytext-conditional-text.diff`.
-  Stack-base dumps: types 550,244 RIGHT (**+23**, r6-lazytext's number, 0
-  lost against the base), diagnostics unchanged, slowcases clean.
+- **Frozen base: `8e2f8dd`**, the merge of main `eee504b` (batch BP; batch BO,
+  r6-lazytext, landed at `8e88b8e`) into this branch. Its only difference
+  from main is this lane's committed code, which the dumps do not reach
+  without the diffs. Base dumps: types 550,355 RIGHT / 5,196 WRONG / 752 GAP;
+  diagnostics 5,630 RIGHT, 5,606 EMPTY_RIGHT, 963 WRONG, 39 EMPTY_WRONG.
+- **First freeze, superseded.** The box started before batch BO landed. Per
+  the brief it froze on the tip of the time (`e6eadf4`, batch BL) with
+  r6-lazytext's branch merged in (`329d8ed`; types 550,221 RIGHT), and
+  measured item 1 on the stack batch BO was to land (that, r6-declared's
+  `f9339d0`, both r6-lazytext diffs: 550,244 RIGHT, r6-lazytext's +23, 0
+  lost). Item 1 measured the same there as on `8e2f8dd` (+12 / −0). Every
+  number below is on `8e2f8dd` unless it says otherwise.
 - **Oracle.** `scripts/offline-cargo/build-tsgo.sh` and the pinned compiler
   test runner (`go test -c ./internal/testrunner`), a probe copied into
   `testdata/tests/cases/compiler` (r5-printer3 §1). Every native line quoted
   below was read that way.
 - Both dumps unfiltered, compared on `cut -f1,2`; `slowcases` on both.
+- **Ir** is callgrind's total for the `profiling` build,
+  `tsr -p benches/projects/<p>/tsconfig.json --singleThreaded --pretty false --noEmit`.
+  On this container the same binary repeats to within about 100 Ir on
+  domain-model (`8e2f8dd`: 1,091,954,038 and 1,091,953,954).
 - Setup: PyPI is blocked, so the offline bootstrap ran with a stdlib-only
   stand-in for `assemble.py`'s three `tomlkit` calls, kept outside the
   repository (`r5-operators3.md` §4).
@@ -62,10 +63,15 @@ The node builder prints all three from their parts, at the print site:
   enters a new scope with the iteration type parameter (`enterNewScope`,
   `:1511`), names it (`typeParameterToDeclarationWithConstraint` →
   `typeParameterToName`), and prints the name type and
-  `removeMissingType(template, isOptional)` (`:1517`). The baseline's
-  `typeToString` flags carry no `GenerateNamesForShadowedTypeParams`, so the
-  homomorphic wrapper (`:1483`, `:1533`) and the modifier-preserving
-  wrapper (`:1497`) do not apply.
+  `removeMissingType(template, isOptional)` (`:1517`). Two wrappers apply
+  under `GenerateNamesForShadowedTypeParams`, which the `.types` writer
+  sets (`testutil/tsbaseline/type_symbol_baseline.go:394`): a homomorphic
+  declaration instantiated over a non-type-variable prints
+  `M extends infer T_1 ? { [K in keyof T_1]: … } : never` (`:1483`,
+  `:1533`), and a non-`keyof` declaration whose modifiers type is known but
+  whose constraint is no longer a `keyof`-constrained type parameter prints
+  `C extends infer T_1 extends keyof M ? { [K in T_1]: … } : never`
+  (`:1475`, `:1497`, `:1557`). Neither is ported here (below).
 - `typeToTypeNode`'s `TypeFlagsIndex` arm prints `keyof` and the operand's
   own node (emitted at `TypePrecedenceTypeOperator`, `printer.go:2274`).
 - Its `TypeFlagsIndexedAccess` arm prints the object and index types' own
@@ -126,6 +132,19 @@ consistent (and equally wrong) `P`, even though no corpus line has the
 shape. The indexed-access plan makes the template take the same allocation,
 and the probe then matches native.
 
+**Not ported: the two wrappers.** The corpus lines that need them
+(`inlineMappedTypeModifierDeclarationEmit` ×14,
+`mappedTypeGenericInstantiationPreservesHomomorphism` ×5, r6-accessible §3
+(b)'s `PrivateMapped<T[any]>`) are minted today as an alias reference
+(`OmitReal<T, K>`), printed by the renderer's reference arm before any
+print-time plan is asked: an inaccessible alias with no structure behind it
+(ADR-0045 rule 4, `tsr-2zk.16.2`). A wrapper built now would print on no
+line, so it would be unmeasured code. Its inputs are also not all recorded:
+the homomorphic wrapper prints the target's template re-instantiated over a
+fresh `T_1`, and an alias-frame image of a mapped node (`mapped_type_info`)
+keeps no target, only the template already instantiated over the modifiers
+type. It is due when `.16.2` gives those mints their mapped structure.
+
 **Rejected: keep the iteration parameter's written name** (what
 `mapped_type_text` bakes). It is consistent without the indexed-access plan,
 but it is not native's rename, and the indexed-access plan converts three
@@ -135,12 +154,13 @@ name).
 
 ### Measured
 
-Against the stack base, both dumps unfiltered:
+Against the frozen base `8e2f8dd`, both dumps unfiltered (the first freeze's
+stack measured the same two rows):
 
 | | types | diagnostics | slowcases |
 |---|---|---|---|
 | mapped + `keyof` plans | +9 RIGHT, 0 lost | unchanged, 0 lost | clean (both dumps) |
-| + indexed-access plan (this item) | **+12 RIGHT, 0 lost** (550,256) | unchanged, 0 lost | clean (both dumps) |
+| + indexed-access plan (this item) | **+12 RIGHT, 0 lost** (550,367) | unchanged, 0 lost | clean (both dumps) |
 
 The +12:
 
@@ -159,7 +179,19 @@ The +12:
 No other line changed text. Without the dispatch diff the committed code is
 unreachable, so the commit alone moves no line.
 
-Ir: see §5.
+Ir (profiling build; two runs each):
+
+| | domain-model | generic-imports |
+|---|---|---|
+| base `8e2f8dd` | 1,091,954,038 / 1,091,953,954 | 343,695,029 / 343,703,366 |
+| + the diff | 1,092,053,423 / 1,092,081,729 (+0.010%) | 343,704,845 / 343,701,699 (+0.002%) |
+
+The domain-model delta is the dispatch's closure in
+`type_to_string_at_worker` (262 K Ir inclusive; the worker goes from
+8.60 M to 8.70 M): the site renderer runs during checking on domain-model,
+and the plans now print there what they print at any site. That is native's
+work at those prints, not new work at the mint. CLI output (`--pretty false`)
+is byte-identical on domain-model, domain-model-large and generic-imports.
 
 ### Checker port convention (`docs/conventions.md`)
 
