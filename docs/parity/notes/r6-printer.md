@@ -317,3 +317,41 @@ value reaching the node:
 **+14 / −0** beyond §3.1 (`octalLiteralAndEscapeSequence:0:94`–`0:100`,
 `0:119`–`0:131`; the case has no non-RIGHT line left), diagnostics
 unchanged, slowcases clean. Probe and whole case identical to the oracle.
+
+## 5. Lone surrogates keep their code unit (item 5, `tsr-2zk.1128`)
+
+Decision record:
+[ADR-0051](../../adr/0051-a-lone-surrogate-is-a-plane-16-sentinel-in-a-literal-value.md),
+written before the code. It lists r5-printer3 §6.2's options plus the two
+sentinels.
+
+**First build, refused by the measurement.** A one-character sentinel
+(U+D800 + n stored as U+10F800 + n) measured +4 / **−2** against the base:
+`unicodeExtendedEscapesIn{Strings,Templates}06(target=es6):0:1` write
+`"\u{10FFFF}"`, and the sentinel printed it as `"\uDFFF"`. My pre-build
+corpus check had grepped only for the raw UTF-8 bytes of plane-15/16
+characters, which cannot see an escaped one. The ADR records this as the
+refused option 4.
+
+**Built:** the two-character sentinel (ADR-0051 option 5). U+10FFFF then
+U+10F000 + n stands for lone surrogate U+D800 + n, and a real U+10FFFF is
+itself. `Scanner::push_code_point` appends it through
+`push_js_string_code_point` (`EncodeJSStringRune`), and `printing::quote`
+escapes it (`escapeStringWorker`'s surrogate arm, `printer/utilities.go:84`).
+A grep over both test trees finds no `\u{10FFFF}` followed by a plane-16
+escape or character. Tests: `crates/tsr-scanner/tests/lone_surrogates.rs`
+(round trip, `\u{10FFFF}` is not a sentinel, distinct values, pairs still
+combine) and `crates/tsr-conformance/tests/lone_surrogate_literals.rs`
+(native's lines for `"\uD800"`, `"\uDC00"`, a combined `\uD83D\uDE00` pair and a
+lone-surrogate property name).
+
+**Measured**, unfiltered against the base (with §3.1 and the §4 commit
+underneath): types **+4 / −0** beyond §3.1
+(`unicodeExtendedEscapesIn{Strings,Templates}1{0,1}(target=es6):0:1`; the
+`06` cases stay RIGHT), diagnostics unchanged, slowcases clean, CLI output
+identical. Ir: domain-model 1,091,023,913 and 1,092,245,024 on two runs
+(base 1,090,902,888 / 1,090,897,313), inside the ±1.2M run-to-run band
+§3.1 records; generic-imports 343,064,622 / 343,079,589 (base 343,079,364).
+`quote` runs when a literal type is minted, so its sentinel arm matches
+only the lead character U+10FFFF before decoding. A first cut that decoded
+at every character measured 1,093,128,080 once (1,091,890,780 on a rerun).

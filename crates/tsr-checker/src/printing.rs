@@ -1070,8 +1070,8 @@ pub(crate) fn prints_as_a_single_token(ty: &Type) -> bool {
 pub(crate) fn quote(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
-    let mut chars = value.chars().peekable();
-    while let Some(ch) = chars.next() {
+    let mut chars = value.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
         match ch {
             '\\' => out.push_str("\\\\"),
             '"' => out.push_str("\\\""),
@@ -1094,7 +1094,7 @@ pub(crate) fn quote(value: &str) -> String {
             '\u{0C}' => out.push_str("\\f"),
             '\u{08}' => out.push_str("\\b"),
             '\0' => {
-                if chars.peek().is_some_and(char::is_ascii_digit) {
+                if chars.peek().is_some_and(|(_, next)| next.is_ascii_digit()) {
                     out.push_str("\\x00");
                 } else {
                     out.push_str("\\0");
@@ -1103,6 +1103,17 @@ pub(crate) fn quote(value: &str) -> String {
             c if (c as u32) < 0x20 => {
                 use std::fmt::Write as _;
                 let _ = write!(out, "\\u{:04X}", c as u32);
+            }
+            // escapeStringWorker's surrogate arm (`printer/utilities.go:84`,
+            // `:148`): a lone surrogate is always escaped, uppercase. The
+            // value holds it as the ADR-0051 sentinel.
+            '\u{10FFFF}'
+                if let Some((surrogate, _)) =
+                    tsr_scanner::decode_lone_surrogate_sentinel(&value[index..]) =>
+            {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{surrogate:04X}");
+                chars.next();
             }
             c => out.push(c),
         }

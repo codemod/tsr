@@ -88,6 +88,42 @@ pub fn is_identifier_part(cp: char) -> bool {
     c == 0x200C || c == 0x200D || unicode::contains(unicode::ID_CONTINUE, c)
 }
 
+/// The lone-surrogate sentinel (ADR-0051): lone surrogate U+D800 + n is
+/// stored as the two characters U+10FFFF (a noncharacter) then
+/// U+10F000 + n. A real U+10FFFF is stored as itself; only that exact
+/// two-character sequence is read as a sentinel.
+const LONE_SURROGATE_SENTINEL_LEAD: char = '\u{10FFFF}';
+const LONE_SURROGATE_SENTINEL_BASE: u32 = 0x10_F000;
+
+/// `stringutil.EncodeJSStringRune` (`internal/stringutil/util.go:327`):
+/// append the JavaScript string value of UTF-16 code point `cp`. A lone
+/// surrogate cannot be a Rust `char`; native stores it as WTF-8 bytes, this
+/// port as a two-character sentinel (ADR-0051). A code point above
+/// U+10FFFF appends U+FFFD.
+pub fn push_js_string_code_point(cp: u32, out: &mut String) {
+    if (0xD800..0xE000).contains(&cp) {
+        out.push(LONE_SURROGATE_SENTINEL_LEAD);
+        out.push(char::from_u32(LONE_SURROGATE_SENTINEL_BASE + (cp - 0xD800)).unwrap());
+        return;
+    }
+    out.push(char::from_u32(cp).unwrap_or(char::REPLACEMENT_CHARACTER));
+}
+
+/// The surrogate arm of `stringutil.DecodeJSStringRune`
+/// (`internal/stringutil/util.go:339`): the lone surrogate a sentinel at
+/// the start of `s` stands for, with the sentinel's byte length, or `None`
+/// when `s` does not start with one (ADR-0051).
+#[must_use]
+pub fn decode_lone_surrogate_sentinel(s: &str) -> Option<(u32, usize)> {
+    let mut chars = s.chars();
+    if chars.next()? != LONE_SURROGATE_SENTINEL_LEAD {
+        return None;
+    }
+    let unit = chars.next()? as u32;
+    let offset = unit.checked_sub(LONE_SURROGATE_SENTINEL_BASE).filter(|&n| n < 0x800)?;
+    Some((0xD800 + offset, 2 * LONE_SURROGATE_SENTINEL_LEAD.len_utf8()))
+}
+
 /// Whether a code point terminates a line.
 ///
 /// ECMAScript counts LS (2028) and PS (2029) as line terminators; most languages
@@ -1345,7 +1381,10 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        out.push(char::from_u32(cp).unwrap_or(char::REPLACEMENT_CHARACTER));
+        // A lone surrogate keeps its code unit as a sentinel
+        // (`EncodeJSStringRune`, ADR-0051) rather than U+FFFD, so two lone
+        // surrogates stay two values and the printer can escape them.
+        push_js_string_code_point(cp, out);
     }
 
     /// Scan a template literal starting at a backtick.
