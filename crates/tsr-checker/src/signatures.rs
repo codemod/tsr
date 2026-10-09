@@ -4726,11 +4726,17 @@ impl<'a> Checker<'a, '_> {
                     let is_right = node.right.and_then(|e| e.node_id()) == Some(position);
                     match operator {
                         // Assignment forms contextually type their right
-                        // operand from the left; refuse to guess either side.
+                        // operand from the left; refuse to guess either side,
+                        // except where `getContextualTypeForAssignmentExpression`
+                        // answers nil from the shape alone (`module.exports =`,
+                        // an unannotated assignment declaration; r5-js §3.4).
                         EqualsToken
                         | AmpersandAmpersandEqualsToken
                         | BarBarEqualsToken
-                        | QuestionQuestionEqualsToken => return false,
+                        | QuestionQuestionEqualsToken => {
+                            return is_right
+                                && self.assignment_has_no_contextual_type(parent, node);
+                        }
                         // `||`/`??`: the right operand is typed by the left
                         // operand's TYPE — never a shown absence; the left
                         // climbs to the expression's own context.

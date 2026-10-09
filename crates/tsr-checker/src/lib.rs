@@ -101,6 +101,7 @@
 pub mod array_literals;
 pub mod assertion_overlap;
 pub mod assertions;
+mod assignment_context;
 mod assignment_declarations;
 pub mod assignreport;
 mod base_types;
