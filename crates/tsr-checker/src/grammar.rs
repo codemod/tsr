@@ -1202,7 +1202,7 @@ impl Checker<'_, '_> {
             return;
         };
         let mut redeclared: Vec<(NodeId, String)> = Vec::new();
-        for (&name, _) in caught.iter() {
+        for (&name, _) in caught {
             let Some(&local) = block_locals.get(name) else { continue };
             let entry = self.binder.symbols().get(local);
             if entry.flags.intersects(tsr_binder::SymbolFlags::BLOCK_SCOPED_VARIABLE)
