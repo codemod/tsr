@@ -1708,14 +1708,6 @@ impl Checker<'_, '_> {
     /// `isMutableLocalVariableDeclaration` (`utilities.go:1053`), faithfully:
     /// a `let` declaration that is neither exported nor declared at the top
     /// level of a **global** source file.
-    ///
-    /// Deliberately *not* shared with
-    /// [`Checker::is_parameter_or_mutable_local_variable`] above, which
-    /// approximates `IsGlobalSourceFile` by refusing every file-level `let`.
-    /// That approximation is the `.types` workstream's §13 reader and moving it
-    /// moves `checker_types`; a top-level `let` in a **module** file is a
-    /// mutable local upstream and this predicate says so.
-    /// `checker-notes-diag2.md` §42 records the divergence.
     pub(crate) fn is_mutable_local_variable_declaration(&self, declaration: NodeId) -> bool {
         let Some(list) = self.nodes.parent(declaration) else { return false };
         if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::LET) {
@@ -1746,64 +1738,9 @@ impl Checker<'_, '_> {
     }
 
     /// `isParameterOrMutableLocalVariable` (`utilities.go:1044`): a
-    /// parameter, catch-clause variable, or `let` local. Upstream's
-    /// exported/global exclusions are approximated by refusing file-level
-    /// `let`s outright — conservative: the §13 extension stops earlier.
+    /// parameter, catch-clause variable, or a `let` that is neither exported
+    /// nor declared at the top level of a global (script) source file.
     fn is_parameter_or_mutable_local_variable(&self, symbol: SymbolId) -> bool {
-        let Some(mut declaration) = self.binder.symbols().get(symbol).value_declaration else {
-            return false;
-        };
-        // `GetRootDeclaration`: climb out of binding patterns.
-        while let Some(parent) = self.nodes.parent(declaration) {
-            if matches!(
-                self.nodes.kind(parent),
-                tsr_ast::SyntaxKind::BindingElement
-                    | tsr_ast::SyntaxKind::ObjectBindingPattern
-                    | tsr_ast::SyntaxKind::ArrayBindingPattern
-                    | tsr_ast::SyntaxKind::Parameter
-            ) {
-                declaration = parent;
-            } else {
-                break;
-            }
-        }
-        match self.nodes.kind(declaration) {
-            tsr_ast::SyntaxKind::Parameter => true,
-            tsr_ast::SyntaxKind::VariableDeclaration => {
-                let Some(list) = self.nodes.parent(declaration) else { return false };
-                if self.nodes.kind(list) == tsr_ast::SyntaxKind::CatchClause {
-                    return true;
-                }
-                if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::LET) {
-                    return false;
-                }
-                // Upstream's exclusions: exported (`export let x` in a
-                // namespace stays wide — `narrowingPastLastAssignment`'s
-                // namespace block, the §13 measurement's last line) and
-                // global (file-level).
-                let Some(statement) = self.nodes.parent(list) else { return false };
-                if let Some(Node::VariableStatement(variable)) = self.node_map.get(statement)
-                    && variable.modifiers.iter().any(|modifier| {
-                        tsr_ast::Node::from(*modifier).node_id().is_some_and(|id| {
-                            self.nodes.kind(id) == tsr_ast::SyntaxKind::ExportKeyword
-                        })
-                    })
-                {
-                    return false;
-                }
-                self.nodes
-                    .parent(statement)
-                    .is_some_and(|scope| self.nodes.kind(scope) != tsr_ast::SyntaxKind::SourceFile)
-            }
-            _ => false,
-        }
-    }
-
-    /// `isParameterOrMutableLocalVariable` (`utilities.go:1044`) as written:
-    /// unlike [`Checker::is_parameter_or_mutable_local_variable`], a
-    /// module-level `let` is a mutable local. Gates `isSymbolAssignedDefinitely`'s
-    /// record only.
-    fn is_parameter_or_mutable_local_variable_faithful(&self, symbol: SymbolId) -> bool {
         let Some(mut declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return false;
         };
@@ -1935,11 +1872,8 @@ impl Checker<'_, '_> {
 
     /// `markNodeAssignments` (`flow.go:2698`): record the last assignment
     /// position for every parameter/mutable-local assigned under `root` —
-    /// `i64::MAX` when the assignment sits in a nested function. The export-
-    /// specifier arm is unported (value re-exports of mutable locals), which
-    /// under-reports `MAX` — conservative for §13's *reader*, which then
-    /// extends when upstream would not; the bar's falsifier (a) watches the
-    /// population where that could bite.
+    /// `i64::MAX` when the assignment sits in a nested function, or when a
+    /// local `export { x }` specifier exports the mutable local.
     fn mark_node_assignments(&mut self, root: NodeId) {
         let Some(root_node) = self.node_map.get(root) else { return };
         let mut stack = vec![root_node];
@@ -1961,7 +1895,7 @@ impl Checker<'_, '_> {
                 // (a module-level `let` is a mutable local); the position below
                 // keeps the `.types` reader's file-level refusal (§42).
                 if kind == crate::expressions::AssignmentTargetKind::Definite
-                    && self.is_parameter_or_mutable_local_variable_faithful(symbol)
+                    && self.is_parameter_or_mutable_local_variable(symbol)
                 {
                     self.definitely_assigned.insert(symbol);
                 }
@@ -1977,6 +1911,31 @@ impl Checker<'_, '_> {
                 {
                     self.record_assignment_position(id, symbol);
                 }
+            }
+            // `KindExportSpecifier` (`flow.go:2724`): a value export of a
+            // local name pins the symbol's last assignment at `MaxInt32`.
+            if let Node::ExportSpecifier(specifier) = node
+                && !specifier.is_type_only
+                && let Some(tsr_ast::ModuleExportName::Identifier(name)) =
+                    specifier.property_name.or(specifier.name)
+                && let Some(name_id) = name.node_id
+                && let Some(declaration) = specifier
+                    .node_id
+                    .and_then(|id| self.nodes.parent(id))
+                    .and_then(|named| self.nodes.parent(named))
+                && let Some(Node::ExportDeclaration(export)) = self.node_map.get(declaration)
+                && !export.is_type_only
+                && export.module_specifier.is_none()
+                && let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    name_id,
+                    name.text,
+                    SymbolFlags::VALUE,
+                )
+                && self.is_parameter_or_mutable_local_variable(symbol)
+            {
+                self.last_assignment_pos.insert(symbol, i64::MAX);
             }
             children.clear();
             tsr_ast::push_children(node, &mut children);

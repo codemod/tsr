@@ -582,3 +582,19 @@ never matched a guard on `value.inner` (or on itself, whose receiver unwraps
 through the target side). Native control: `(f(), value).inner` after
 `typeof value.inner === 'number'` → `number` in both; a guard written
 `typeof (f(), value).inner` narrows `value.inner` in both.
+
+## 28. `isParameterOrMutableLocalVariable` as written, and the export-specifier arm
+
+The flow lane kept two predicates: a faithful one (definite-assignment flag
+only) and an approximation that refused every file-level `let`, including a
+module's. Native (`utilities.go:1044`, `isMutableLocalVariableDeclaration`)
+refuses only exported `let`s and those at the top of a global script. The
+approximation is deleted; every caller (`getControlFlowContainer` extension
+past the last assignment, `isConstantReference`, element-access matching,
+`markNodeAssignments`) asks the native predicate. `markNodeAssignments`'s
+`KindExportSpecifier` arm (`flow.go:2724`) is ported with it: a local
+value `export { x }` pins `x`'s last assignment at `MaxInt32`, so a module
+`let` exported by specifier stays un-narrowed in closures. Native control
+(`narrowingPastLastAssignmentInModule`): `x4` (exported by `export default`)
+and `x5` narrow to `string` inside the arrow, `x1`–`x3` stay
+`string | number` in both.
