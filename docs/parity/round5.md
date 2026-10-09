@@ -1553,3 +1553,21 @@ Measured by the box: +5 diagnostics, +38 types, 0 lost.
 
 r6-triage re-clusters the remaining failures on the round-6 tip
 (`tsr-2zk.1144`), because the `.16.x` roots date from an older base.
+
+### r6-lazytext finished (batch BO); r6-printer4 dispatched
+
+ADR-0052: a print-time decision is a plan the site renderer reads. Batch BO
+lands two print-time slots, both at Ir within noise:
+- spread members (`.1120`), which lands the held property-slot spreads half:
+  +19 types, against the +0.12% dm the held diff cost;
+- deferred conditional typed parts (`.1135`): +4 types, against the +0.153%
+  dm the held diff cost.
+
+Lazy mapped member text (ADR-0050 alt 1) was measured and refused: dm
+−0.03%. The members are read anyway, and avoiding the string build needs an
+&mut printer chain across five owners.
+
+ADR numbering: 0051 is the lone-surrogate ADR and 0052 this one.
+r6-checkperf's held JSDoc-deferral ADR must take the next free number.
+
+r6-printer4 takes the printer lane (`tsr-2zk.1145`).
