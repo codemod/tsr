@@ -22,6 +22,20 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Tuple-label prerequisite (`tsr-1yb.35`), measured on `daee9552` plus the six-file
+overlay recorded in `step284-final-tuple-manifest.json` under
+`target/native-optimization-goal/module-owner-current-189`: native `5b1047d`
+keyword labels and named-rest AST ownership are ported with their checker
+consumers. Workspace **3255/0/19** passes. Complete legacy dumps retain all
+**552,533 type/12,238 diagnostic keys**, with **one type gain and zero previously
+RIGHT losses**; two diagnostic changes remain previously WRONG. The initial
+two-RIGHT-loss patch was rejected and repaired before retention. Scoped Clippy
+passes with five existing warnings; strict Clippy remains blocked by those
+warnings. The four ioredis parser errors are removed, exposing semantic checking
+gaps (the first candidate emitted 203 diagnostics, native zero). No speed win,
+full native corpus qualification or six-ticket completion is claimed.
+[AST and recovery boundary](docs/architecture/parser.md#tuple-labels-and-rest-ownership).
+
 Selected owner continuation at frozen `2e47ffaa`, pinned native `5b1047d`:
 the exact 92-file private replay preserves all 1,056 guarded inputs. The actual
 full native gate improves 8,275 to **8,303 EXACT cases**, with **28 gains, zero
@@ -3956,6 +3970,13 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+`tsr-1yb.35` now retains the keyword-label/named-rest parser and checker
+prerequisite on `daee9552` plus its owned overlay. Continue nearby grammar
+diagnostic fidelity and real API semantic parity before treating that workload
+as an equivalent complete-work speed comparison. The six optimization goal
+tickets remain in progress; this correctness change does not satisfy the
+TSR/native median ratio <=0.50 target.
+
 Continue from the full-corpus-preserving private owner replay at frozen
 `2e47ffaa`. All old selected-owner RIGHT losses are repaired, but ordinary
 runtime retention still fails the main comparison after direct/borrowed naming
@@ -7812,6 +7833,16 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The first tuple-label/parser-consumer patch on `daee9552`'s guarded baseline
+passed **3254 workspace tests** but lost **two previously RIGHT types** among
+552,533 keys: recovered `Opt` and `Trailing` aliases became `any`. It was refused.
+The retained patch adds native optional/named/rest semantic dispatch, restores
+both results, and passes **3255 tests** with **zero previously RIGHT losses** in
+the full type/diagnostic dumps. Workspace success alone did not qualify this AST
+change. Receipts: `step276-parser-gates/comparison.json` and
+`step281-recovered-tuple-gates/comparison.json` under
+`target/native-optimization-goal/module-owner-current-189`.
 
 Current mapped-template attribution at `f8f98157` (runtime `2e47ffaa`) refuses a
 sort-only explanation for the private API slowdown: complete main observes
@@ -16262,3 +16293,5 @@ that were true of a different population than the one they were quoted about.
 
 | 2026-10-08 | `a6b8a68f` canonical / private158 and185 probes / native `5b1047d` | — | — | **Accessible-chain attribution changes priority; API refuses private integration.** Native generated0requests; private TSR2000best-name workers/2000distinct first-legacy-scope keys,1200TYPE-helper declines. Exact two repeats/default+single,402checked,465loaded; native declaration9requests/2walks/7success hits and API42/1/41nil hits with615checked/9861loaded. Source185 feature build/ordinary releasecheck pass; exact private probe replays, all canonical1056 inputs stable. Private API sampled repeat120.293s,471.655suserCPU,11.888GB RSS,-9; frozenmain5.816s locating observation. No timed ratio/cache/runtime retention or goal completion. New P1 tsr-1yb.11.7 attributes type_literal_key frame flatten/sort versus native node/mapper preparation; eager presentation16.3.10 remains. [Counters, source and failures](docs/architecture/checker-accessible-chain-attribution.md). |
 | 2026-10-08 | `f8f98157` canonical/runtime `2e47ffaa`; source193/201/222/223 and native221 probes | — | — | **Mapped constructor demand is the next repair boundary.** API canonical408068conditional nodes/depth16 versus private>=34685736/depth100 at30scap; generated root/node workers match. PgSelect member reads and actual Drizzle fields over any reproduce; standalone recursive Simplify also times out in main. Native constructor-only controls complete with0template getter calls; private Drizzle>=52439template preparations at3scap. Three exact counter replays, Rust feature builds/ordinary checks and native Go1.26build pass;72complete ordinary/off/on runs preserve outputs/repeated semantic counts. Existing16.3.10.4 owns demand, linked11.7. No runtime fix/native ratio/six-goal completion. [Source, standalone red and limits](docs/architecture/checker-mapped-template-attribution.md). |
+
+| 2026-10-08 | `daee9552` plus six-source tuple-label overlay; native `5b1047d` | +1 legacy type assertion | 0 previously RIGHT losses | **Runtime tuple-label prerequisite retained.** Reserved labels and named-rest AST ownership now follow native; checker normalization, signature rendering and recovered optional/rest semantic dispatch consume that shape. Workspace3255/0/19; complete552533type/12238diagnostic keys retained. Initial two-RIGHT-loss candidate refused and repaired. ScopedClippy passes with five preexisting warnings; strict lint does not pass. Four ioredis parser errors removed; semantic parity, full native corpus qualification and speed target remain unfinished under tsr-1yb.35 and the six original goal tickets. [Reasoning](docs/architecture/parser.md#tuple-labels-and-rest-ownership). |

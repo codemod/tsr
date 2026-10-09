@@ -5799,29 +5799,19 @@ impl<'a> Checker<'a, '_> {
             TypeNode::TupleTypeNode(tuple) => {
                 let mut pieces = Vec::with_capacity(tuple.elements.len());
                 for element in tuple.elements {
-                    // The same four element spellings §956 composes on the
-                    // print-only road, and a labelled rest is
-                    // `RestTypeNode(NamedTupleMember(..))` for the reason recorded
-                    // there.
+                    // The same element flags and labels used by semantic tuple
+                    // construction, including a named member's own ellipsis.
                     let (prefix, suffix, inner) = match element {
-                        TypeNode::RestTypeNode(rest) => match rest.r#type {
-                            Some(TypeNode::NamedTupleMember(member)) => {
-                                let (Some(inner), Some(name)) = (member.r#type, member.name) else {
-                                    return None;
-                                };
-                                let question =
-                                    if member.question_token.is_some() { "?" } else { "" };
-                                (format!("...{}{question}: ", name.text), String::new(), inner)
-                            }
-                            Some(inner) => ("...".to_string(), String::new(), inner),
-                            None => return None,
-                        },
+                        TypeNode::RestTypeNode(rest) => {
+                            ("...".to_string(), String::new(), rest.r#type?)
+                        }
                         TypeNode::NamedTupleMember(member) => {
                             let (Some(inner), Some(name)) = (member.r#type, member.name) else {
                                 return None;
                             };
                             let question = if member.question_token.is_some() { "?" } else { "" };
-                            (format!("{}{question}: ", name.text), String::new(), inner)
+                            let rest = if member.dot_dot_dot_token.is_some() { "..." } else { "" };
+                            (format!("{rest}{}{question}: ", name.text), String::new(), inner)
                         }
                         TypeNode::OptionalTypeNode(optional) => {
                             let inner = optional.r#type?;
@@ -7403,7 +7393,8 @@ impl<'a> Checker<'a, '_> {
             if parameter.rest
                 && let Some(&tuple_node) = self.tuple_rest_tails.get(&parameter_type)
                 && let Some(tsr_ast::Node::TupleTypeNode(tuple)) = self.node_map.get(tuple_node)
-                && let [prefix @ .., tsr_ast::TypeNode::RestTypeNode(_)] = tuple.elements
+                && let [prefix @ .., rest] = tuple.elements
+                && Self::tuple_element_is_rest(rest)
                 && !prefix.is_empty()
             {
                 let prefix: Vec<tsr_ast::TypeNode> = prefix.to_vec();
@@ -7423,10 +7414,9 @@ impl<'a> Checker<'a, '_> {
                 }
                 if clean {
                     let tail = match self.node_map.get(tuple_node) {
-                        Some(tsr_ast::Node::TupleTypeNode(tuple)) => match tuple.elements.last() {
-                            Some(tsr_ast::TypeNode::RestTypeNode(rest)) => rest.r#type,
-                            _ => None,
-                        },
+                        Some(tsr_ast::Node::TupleTypeNode(tuple)) => {
+                            tuple.elements.last().and_then(Self::tuple_rest_operand)
+                        }
                         _ => None,
                     };
                     if let Some(tail) = tail {

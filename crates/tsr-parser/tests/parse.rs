@@ -890,6 +890,84 @@ fn optional_tuple_elements_versus_named_members() {
 }
 
 #[test]
+fn keyword_tuple_labels_keep_native_name_and_rest_ownership() {
+    // parseTupleElementNameOrTupleElementType admits IdentifierName, including
+    // reserved keywords; the named member itself owns the rest/optional token.
+    for label in ["function", "class", "return", "this", "type", "any"] {
+        for (prefix, suffix) in [("", ""), ("", "?"), ("...", "")] {
+            // Native isStartOfType rejects these plain labels before the
+            // element lookahead, but admits the ellipsis-led named form.
+            if prefix.is_empty() && matches!(label, "class" | "return") {
+                continue;
+            }
+            let element = format!("{prefix}{label}{suffix}: string[]");
+            let source = format!("type T = [{element}];");
+            let arena = Arena::new();
+            let parsed = parse(&arena, &source);
+            assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+            let Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0] else {
+                panic!("expected alias")
+            };
+            let Some(TypeNode::TupleTypeNode(tuple)) = alias.r#type else {
+                panic!("expected tuple")
+            };
+            let TypeNode::NamedTupleMember(member) = tuple.elements[0] else {
+                panic!("a named rest member must not be wrapped in RestType: {source}")
+            };
+            let name = member.name.unwrap();
+            assert_eq!(name.text, label);
+            assert_eq!(member.dot_dot_dot_token.is_some(), !prefix.is_empty());
+            assert_eq!(member.question_token.is_some(), !suffix.is_empty());
+            assert!(matches!(member.r#type, Some(TypeNode::ArrayTypeNode(_))));
+            assert_eq!(parsed.nodes.parent(name.node_id.unwrap()), member.node_id);
+            let span = parsed.nodes.span(member.node_id.unwrap());
+            assert_eq!(&source[span.start as usize..span.end as usize], element);
+        }
+    }
+}
+
+#[test]
+fn tuple_element_type_owns_optional_and_rest_operands() {
+    // Native parseTupleElementType is used for the named member's operand too.
+    let arena = Arena::new();
+    let aliases = statements(
+        &arena,
+        "type A = [string?, ...number[]]; type B = [label: string?]; type C = [label: ...number[]];",
+    );
+    for (index, expected) in [
+        (0, ["optional", "rest"].as_slice()),
+        (1, ["optional"].as_slice()),
+        (2, ["rest"].as_slice()),
+    ] {
+        let Statement::TypeAliasDeclaration(alias) = aliases[index] else { panic!() };
+        let Some(TypeNode::TupleTypeNode(tuple)) = alias.r#type else { panic!() };
+        for (element, kind) in tuple.elements.iter().zip(expected) {
+            let element = if let TypeNode::NamedTupleMember(member) = element {
+                assert!(member.dot_dot_dot_token.is_none());
+                member.r#type.unwrap()
+            } else {
+                *element
+            };
+            assert!(
+                matches!(
+                    (element, *kind),
+                    (TypeNode::OptionalTypeNode(_), "optional")
+                        | (TypeNode::RestTypeNode(_), "rest")
+                ),
+                "{element:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn keyword_tuple_labels_do_not_allow_reserved_parameter_bindings() {
+    let arena = Arena::new();
+    let parsed = parse(&arena, "declare function f(function: string): void;");
+    assert!(!parsed.diagnostics.is_empty());
+}
+
+#[test]
 fn a_shebang_is_trivia_on_the_first_line_only() {
     let arena = Arena::new();
     statements(&arena, "#!/usr/bin/env node\nclass A {}");

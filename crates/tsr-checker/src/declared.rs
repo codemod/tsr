@@ -519,6 +519,43 @@ impl<'a> Checker<'a, '_> {
             TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),
             TypeNode::ArrayTypeNode(node) => self.get_type_from_array_type_node(node),
             TypeNode::TupleTypeNode(node) => self.get_type_from_tuple_type_node(node),
+            // getTypeFromOptionalTypeNode/getTypeFromNamedTupleTypeNode
+            // (internal/checker/checker.go). The parser preserves these
+            // wrappers even for invalid written operands; grammar diagnostics
+            // do not replace their native recovered semantic type.
+            TypeNode::OptionalTypeNode(node) => {
+                let Some(inner) = node.r#type else { return self.intrinsics.error };
+                let inner = self.get_type_from_type_node(inner);
+                if inner == self.intrinsics.error || !self.strict_null_checks {
+                    inner
+                } else {
+                    self.get_optional_type(inner, true)
+                }
+            }
+            TypeNode::NamedTupleMember(node) => {
+                let Some(inner) = node.r#type else { return self.intrinsics.error };
+                if node.dot_dot_dot_token.is_some() {
+                    self.get_type_from_type_node(
+                        Self::tuple_array_element_node(inner).unwrap_or(inner),
+                    )
+                } else {
+                    let inner = self.get_type_from_type_node(inner);
+                    if node.question_token.is_some()
+                        && self.strict_null_checks
+                        && inner != self.intrinsics.error
+                    {
+                        self.get_optional_type(inner, true)
+                    } else {
+                        inner
+                    }
+                }
+            }
+            // getTypeFromRestTypeNode: arrays supply their element type, while
+            // generic variadic operands keep their own semantic identity.
+            TypeNode::RestTypeNode(node) => {
+                let Some(inner) = node.r#type else { return self.intrinsics.error };
+                self.get_type_from_type_node(Self::tuple_array_element_node(inner).unwrap_or(inner))
+            }
             TypeNode::FunctionTypeNode(node) => self.get_type_from_function_type_node(node),
             TypeNode::ConstructorTypeNode(node) => self.get_type_from_constructor_type_node(node),
             TypeNode::TypeQueryNode(node) => self.get_type_from_type_query_node(node),
@@ -3507,14 +3544,7 @@ impl<'a> Checker<'a, '_> {
             // (`MixedSpread`), while `[...[...string[]]]` splices to itself and
             // keeps the name.
             let rest_over_a_reference = node.elements.iter().any(|element| {
-                let TypeNode::RestTypeNode(rest) = element else { return false };
-                match rest.r#type {
-                    Some(TypeNode::TypeReferenceNode(_)) => true,
-                    Some(TypeNode::NamedTupleMember(member)) => {
-                        matches!(member.r#type, Some(TypeNode::TypeReferenceNode(_)))
-                    }
-                    _ => false,
-                }
+                matches!(Self::tuple_rest_operand(element), Some(TypeNode::TypeReferenceNode(_)))
             });
             // §959 corrects §956's proxy here. It read
             // `!variadic_tuple_nodes.contains_key(&structural)` — "the body did not
@@ -3527,7 +3557,7 @@ impl<'a> Checker<'a, '_> {
             // The question was always *"did normalisation produce a positional TUPLE
             // this name would hide"*, so ask that directly: a spliced tuple registers
             // in `tuple_element_lists` and neither a spelling nor an array does.
-            if node.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+            if node.elements.iter().any(Self::tuple_element_is_rest)
                 && (self.tuple_element_lists.contains_key(&structural) || rest_over_a_reference)
             {
                 return structural;
@@ -3570,14 +3600,9 @@ impl<'a> Checker<'a, '_> {
         // them because the road BELOW it — the real element-list mint — cannot
         // represent a rest, not because this one cannot print them.
         //
-        // A LABELLED rest is `RestTypeNode(NamedTupleMember(..))`, NOT a
-        // `NamedTupleMember` carrying `...`: `parse_tuple_element`
-        // (`tsr-parser/src/types.rs:713`) consumes the `...` first and RECURSES,
-        // and it constructs every member with `NamedTupleMember::new(None, ..)`
-        // — so **`dot_dot_dot_token` is never set by this parser at all**. A
-        // first draft tested that field and was dead code; the nesting is
-        // unwrapped in the loop instead.
-        if node.elements.iter().any(|element| matches!(element, TypeNode::RestTypeNode(_))) {
+        // Native named rest elements own their ellipsis. Every normalization
+        // and rendering consumer must read that flag alongside RestType nodes.
+        if node.elements.iter().any(Self::tuple_element_is_rest) {
             let mut pieces = Vec::with_capacity(node.elements.len());
             let mut resolved_elements = Vec::with_capacity(node.elements.len());
             let mut spliced: Option<Vec<(TypeId, bool, Option<String>)>> = Some(Vec::new());
@@ -3586,24 +3611,17 @@ impl<'a> Checker<'a, '_> {
                     // §956: `[a: string, b?: number, ...c: T]` — the label, the
                     // `?`, and a labelled REST all print as written. Upstream
                     // reuses the node, so the spelling is the answer.
-                    TypeNode::RestTypeNode(rest) => match rest.r#type {
-                        // The labelled rest, unwrapped one level.
-                        Some(TypeNode::NamedTupleMember(member)) => {
-                            let (Some(inner), Some(name)) = (member.r#type, member.name) else {
-                                return error;
-                            };
-                            let question = if member.question_token.is_some() { "?" } else { "" };
-                            (format!("...{}{question}: ", name.text), String::new(), inner)
-                        }
-                        Some(inner) => ("...".to_string(), String::new(), inner),
-                        None => return error,
-                    },
+                    TypeNode::RestTypeNode(rest) => {
+                        let Some(inner) = rest.r#type else { return error };
+                        ("...".to_string(), String::new(), inner)
+                    }
                     TypeNode::NamedTupleMember(member) => {
                         let (Some(inner), Some(name)) = (member.r#type, member.name) else {
                             return error;
                         };
                         let question = if member.question_token.is_some() { "?" } else { "" };
-                        (format!("{}{question}: ", name.text), String::new(), inner)
+                        let rest = if member.dot_dot_dot_token.is_some() { "..." } else { "" };
+                        (format!("{rest}{}{question}: ", name.text), String::new(), inner)
                     }
                     TypeNode::OptionalTypeNode(optional) => {
                         let Some(inner) = optional.r#type else { return error };
@@ -3617,15 +3635,11 @@ impl<'a> Checker<'a, '_> {
                 }
                 let member = match element {
                     TypeNode::NamedTupleMember(member) => Some(*member),
-                    TypeNode::RestTypeNode(rest) => match rest.r#type {
-                        Some(TypeNode::NamedTupleMember(member)) => Some(member),
-                        _ => None,
-                    },
                     _ => None,
                 };
                 resolved_elements.push(crate::tuples::TupleElement {
                     r#type: resolved,
-                    spread: matches!(element, TypeNode::RestTypeNode(_)),
+                    spread: Self::tuple_element_is_rest(element),
                     optional: matches!(element, TypeNode::OptionalTypeNode(_))
                         || member.is_some_and(|member| member.question_token.is_some()),
                     label: member.and_then(|member| member.name).map(|name| name.text.to_string()),
@@ -3634,7 +3648,7 @@ impl<'a> Checker<'a, '_> {
                 // flat (`excessivelyLargeTupleSpread`, the §40 falsifier's
                 // population); any other rest keeps the whole print-only.
                 if let Some(flat) = spliced.as_mut() {
-                    if !matches!(element, TypeNode::RestTypeNode(_)) {
+                    if !Self::tuple_element_is_rest(element) {
                         let (optional, label) = match element {
                             TypeNode::NamedTupleMember(member) => (
                                 member.question_token.is_some(),
@@ -3673,7 +3687,7 @@ impl<'a> Checker<'a, '_> {
                 // ELEMENT type and the node builder prints `...E[]` from it — a
                 // fresh array, so an alias the operand carried does not survive
                 // (`[...Numbers, boolean]` prints `[...number[], boolean]`).
-                let printed = if matches!(element, TypeNode::RestTypeNode(_)) {
+                let printed = if Self::tuple_element_is_rest(element) {
                     let unaliased = self.without_alias(resolved);
                     self.type_to_string(unaliased)
                 } else {
@@ -3758,7 +3772,7 @@ impl<'a> Checker<'a, '_> {
             // A rest over something that is NOT an array-like keeps the decline:
             // `[...string]` is upstream's `any[]` by way of an ERROR, and answering
             // it here would be inventing that error's recovery.
-            if node.elements.iter().all(|element| matches!(element, TypeNode::RestTypeNode(_))) {
+            if node.elements.iter().all(Self::tuple_element_is_rest) {
                 let mut element_types = Vec::with_capacity(node.elements.len());
                 let mut every_operand_is_an_array = true;
                 // Operand resolution already completed above in the same
@@ -3813,9 +3827,9 @@ impl<'a> Checker<'a, '_> {
             // resolving eagerly here perturbed an unrelated JSX case's whole
             // alignment (16 lines, `unicodeEscapesInJsxtags`); the print-only
             // road stays lazy.
-            if let [prefix @ .., TypeNode::RestTypeNode(rest)] = node.elements
-                && !prefix.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
-                && matches!(rest.r#type, Some(TypeNode::ArrayTypeNode(_)))
+            if let [prefix @ .., rest] = node.elements
+                && !prefix.iter().any(Self::tuple_element_is_rest)
+                && matches!(Self::tuple_rest_operand(rest), Some(TypeNode::ArrayTypeNode(_)))
                 && let Some(id) = node.node_id
             {
                 self.tuple_rest_tails.insert(minted, id);
@@ -4909,7 +4923,7 @@ impl<'a> Checker<'a, '_> {
             // can be a print-only variadic, and resolving every alias body
             // eagerly to find out re-enters this road on unrelated shapes.
             && let Some(body_node @ TypeNode::TupleTypeNode(body_tuple)) = alias.r#type.and_then(Self::skip_type_parentheses)
-            && body_tuple.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+            && body_tuple.elements.iter().any(Self::tuple_element_is_rest)
             && self.variadic_alias_in_progress.insert(symbol)
         {
             let body = self.get_type_from_type_node(body_node);
@@ -7085,7 +7099,7 @@ impl<'a> Checker<'a, '_> {
                 self.binder.symbols().get(symbol).declarations.first().copied()
                 && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
                 && let Some(TypeNode::TupleTypeNode(body)) = alias.r#type
-                && body.elements.iter().any(|e| matches!(e, TypeNode::RestTypeNode(_)))
+                && body.elements.iter().any(Self::tuple_element_is_rest)
             {
                 let structural = self.get_type_from_type_node(TypeNode::TupleTypeNode(body));
                 if structural != error {

@@ -6,7 +6,7 @@ use crate::{
     flags::TypeFlags,
     types::{TypeData, TypeId},
 };
-use tsr_ast::{Node, NodeId, SyntaxKind};
+use tsr_ast::{Node, NodeId, SyntaxKind, TypeNode};
 use tsr_diagnostics::{Diagnostic, messages};
 
 /// A resolved tuple argument with its written element information. Spread
@@ -20,6 +20,43 @@ pub(crate) struct TupleElement {
 }
 
 impl Checker<'_, '_> {
+    /// Recognize rest syntax used by typescript-go's `getTupleElementFlags`
+    /// (`internal/checker/checker.go`). Handle both unnamed `RestType` nodes and
+    /// `NamedTupleMember` nodes whose own ellipsis marks a rest element.
+    pub(crate) fn tuple_element_is_rest(element: &TypeNode<'_>) -> bool {
+        match element {
+            TypeNode::RestTypeNode(_) => true,
+            TypeNode::NamedTupleMember(member) => member.dot_dot_dot_token.is_some(),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn tuple_rest_operand<'a>(element: &TypeNode<'a>) -> Option<TypeNode<'a>> {
+        match element {
+            TypeNode::RestTypeNode(rest) => rest.r#type,
+            TypeNode::NamedTupleMember(member) if member.dot_dot_dot_token.is_some() => {
+                member.r#type
+            }
+            _ => None,
+        }
+    }
+
+    /// Ported from typescript-go's `getArrayElementTypeNode`
+    /// (`internal/checker/checker.go`), pinned at 5b1047d. This walks only the
+    /// borrowed parsed operand: no semantic resolution or cache publication.
+    pub(crate) fn tuple_array_element_node(node: TypeNode<'_>) -> Option<TypeNode<'_>> {
+        match node {
+            TypeNode::ArrayTypeNode(array) => array.element_type,
+            TypeNode::ParenthesizedTypeNode(parenthesized) => {
+                Self::tuple_array_element_node(parenthesized.r#type?)
+            }
+            TypeNode::TupleTypeNode(tuple) if tuple.elements.len() == 1 => {
+                Self::tuple_array_element_node(Self::tuple_rest_operand(&tuple.elements[0])?)
+            }
+            _ => None,
+        }
+    }
+
     /// `sliceTupleType` (internal/checker/relater.go). A destructured copy
     /// retains element flags and labels, and always becomes mutable. Slices
     /// beyond the fixed prefix use the remaining element union as an array.
