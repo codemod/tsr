@@ -1,0 +1,31 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index def59f6..e90d1fe 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3363,18 +3363,16 @@ impl<'a, 'n> Binder<'a, 'n> {
+         // module's exports, where the exports arm of name resolution declines
+         // an ambient alias — so `I` never resolved inside its own module
+         // (`docs/parity/notes/names-modules.md` §1).
++        //
++        // The two import arms were guarded on a source-file container, so in a
++        // namespace or ambient module body (an ExportContext) an unexported
++        // `import x = require("m")` or `import x = N.M` still entered the
++        // exports. Upstream's alias test does not read the container
++        // (`binder.go:376`–`380`); the guard is gone (r6-modules3 §3).
+         let exported = match node {
+             Node::ExportSpecifier(_) => true,
+-            Node::ImportEqualsDeclaration(_)
+-                if self.nodes.kind(self.container) == SyntaxKind::SourceFile =>
+-            {
+-                self.has_export_modifier(node)
+-            }
+-            Node::ImportClause(_) | Node::ImportSpecifier(_) | Node::NamespaceImport(_)
+-                if self.nodes.kind(self.container) == SyntaxKind::SourceFile =>
+-            {
+-                false
+-            }
++            Node::ImportEqualsDeclaration(_) => self.has_export_modifier(node),
++            Node::ImportClause(_) | Node::ImportSpecifier(_) | Node::NamespaceImport(_) => false,
+             _ => self.export_context || self.has_export_modifier(node),
+         };
+         match self.nodes.kind(self.container) {

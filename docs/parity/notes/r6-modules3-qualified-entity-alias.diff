@@ -1,0 +1,200 @@
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -1529,6 +1529,17 @@
+     /// §145's entity walk: root at NAMESPACE meaning, each right segment
+     /// through merged exports. Any miss answers `None` — §144 owns the
+     /// unresolvable-root error-answer; a resolving walk hands the leaf back.
++    ///
++    /// Each left side is `resolveQualifiedName`'s `resolveEntityName(left,
++    /// Namespace, …, dontResolveAlias=false)` (`checker.go:15829`): the
++    /// root's lookup accepts an alias whose target carries `Namespace`
++    /// (`getSymbol`, `:2176`), and a left side whose own flags lack
++    /// `Namespace` is answered through `resolveAlias`. An alias merged with a
++    /// namespace keeps its own exports first and falls back to its target's
++    /// (`:15853`). Only the leaf stays unresolved, as `import x = N.M`'s
++    /// `dontResolveAlias` asks. Without this an import-alias root (`import {
++    /// NS } from "./m"; export import J = NS.T`) read the alias symbol's own,
++    /// empty exports (r6-modules3 §3).
+     pub(crate) fn resolve_qualified_entity(
+         &mut self,
+         qualified: &tsr_ast::QualifiedName<'a>,
+@@ -1542,16 +1553,28 @@
+                 tsr_ast::EntityName::QualifiedName(inner) => current = inner,
+             }
+         };
+-        let mut symbol = self.binder.resolve_name(
+-            self.nodes,
+-            self.node_map,
+-            root.node_id?,
+-            root.text,
+-            SymbolFlags::NAMESPACE,
+-        )?;
++        let mut symbol =
++            self.resolve_name_with_export_alias(root.node_id?, root.text, SymbolFlags::NAMESPACE)?;
+         for segment in segments.iter().rev() {
+-            let merged = self.binder.merged_symbol(symbol);
+-            symbol = *self.binder.symbols().get(merged).exports.get(*segment)?;
++            let mut namespace = self.binder.merged_symbol(symbol);
++            let flags = self.binder.symbols().get(namespace).flags;
++            if flags.intersects(SymbolFlags::ALIAS) && !flags.intersects(SymbolFlags::NAMESPACE) {
++                namespace = self.binder.merged_symbol(self.resolve_alias_fully(namespace));
++            }
++            symbol = match self.binder.symbols().get(namespace).exports.get(*segment) {
++                Some(&found) => found,
++                None if self
++                    .binder
++                    .symbols()
++                    .get(namespace)
++                    .flags
++                    .intersects(SymbolFlags::ALIAS) =>
++                {
++                    let target = self.binder.merged_symbol(self.resolve_alias_fully(namespace));
++                    *self.binder.symbols().get(target).exports.get(*segment)?
++                }
++                None => return None,
++            };
+         }
+         Some(symbol)
+     }
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index 12ae0d9..906789a 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -14257,23 +14257,26 @@ impl Checker<'_, '_> {
+             return;
+         }
+         let Some(text) = self.identifier_text(first).map(str::to_string) else { return };
+-        let hidden = self
++        // `resolveEntityName(moduleName, Value|Namespace, …, dontResolveAlias
++        // = false)` (`checker.go:5483`) answers an alias whose own flags lack
++        // the meaning through `resolveAlias`: `import { NS } from "./m";
++        // import E = NS.E` is not hidden by its own import (r6-modules3 §3).
++        let meaning = SymbolFlags::VALUE | SymbolFlags::NAMESPACE;
++        let found = self
+             .binder
+-            .resolve_name(
+-                self.nodes,
+-                self.node_map,
+-                first,
+-                &text,
+-                SymbolFlags::VALUE | SymbolFlags::NAMESPACE,
+-            )
+-            .is_some_and(|found| {
+-                !self
+-                    .binder
+-                    .symbols()
+-                    .get(self.binder.merged_symbol(found))
+-                    .flags
+-                    .intersects(SymbolFlags::NAMESPACE)
++            .resolve_name(self.nodes, self.node_map, first, &text, meaning)
++            .map(|found| {
++                let found = self.binder.merged_symbol(found);
++                let flags = self.binder.symbols().get(found).flags;
++                if flags.intersects(SymbolFlags::ALIAS) && !flags.intersects(meaning) {
++                    self.binder.merged_symbol(self.resolve_alias_fully(found))
++                } else {
++                    found
++                }
+             });
++        let hidden = found.is_some_and(|found| {
++            !self.binder.symbols().get(found).flags.intersects(SymbolFlags::NAMESPACE)
++        });
+         if !hidden {
+             return;
+         }
+diff --git a/crates/tsr-compiler/tests/r6_modules3_import_equals_qualified.rs b/crates/tsr-compiler/tests/r6_modules3_import_equals_qualified.rs
+new file mode 100644
+index 0000000..350989e
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_modules3_import_equals_qualified.rs
+@@ -0,0 +1,90 @@
++//! r6-modules3's qualified import-equals diff (`docs/parity/notes/r6-modules3.md`
++//! §3): `resolveQualifiedName` resolves each left side through its alias, so
++//! `export import J = NS.T` reaches `NS`'s exports when `NS` is an import.
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ModuleKind, ScriptTarget, Tristate};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// The `(line, code)` pairs the checker reports in `file`, sorted.
++fn reported(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<(u32, u32)> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: options,
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let text = files.iter().find(|(name, _)| *name == file).expect("listed").1;
++    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    let mut reported: Vec<(u32, u32)> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(at, _)| *at == id)
++        .map(|(_, diagnostic)| {
++            let line = text[..diagnostic.span.start as usize].matches('\n').count() as u32 + 1;
++            (line, diagnostic.message.code())
++        })
++        .collect();
++    reported.sort_unstable();
++    reported
++}
++
++fn isolated() -> CompilerOptions {
++    CompilerOptions {
++        module: ModuleKind::ESNext,
++        target: ScriptTarget::ES2015,
++        isolated_modules: Tristate::True,
++        ..Default::default()
++    }
++}
++
++const FILES: [(&str, &str); 2] = [
++    (
++        "/jsx.ts",
++        "export namespace JSXInternal {\n    export interface HTMLAttributes { a: string }\n}\n",
++    ),
++    (
++        "/factory.ts",
++        "import { JSXInternal } from \"./jsx\";\nexport import J2 = JSXInternal.HTMLAttributes;\nexport import J = JSXInternal;\nlet x: J2 = { a: 1 };\n",
++    ),
++];
++
++#[test]
++fn a_qualified_import_equals_crosses_an_import_alias_at_its_root() {
++    // Native: TS1269 on both `export import`s, and TS2322 on line 4 (the
++    // alias resolves to the interface).
++    assert_eq!(reported(&FILES, isolated(), "/factory.ts"), [(2, 1269), (3, 1269), (4, 2322)]);
++}

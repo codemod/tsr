@@ -1,0 +1,122 @@
+diff --git a/crates/tsr-checker/src/index_access_reports.rs b/crates/tsr-checker/src/index_access_reports.rs
+index 4e4fc00..49ccf70 100644
+--- a/crates/tsr-checker/src/index_access_reports.rs
++++ b/crates/tsr-checker/src/index_access_reports.rs
+@@ -117,6 +117,11 @@ impl Checker<'_, '_> {
+     /// `checkElementAccessExpression` (`checker.go:8146`): the access node is
+     /// the element access, its index node the argument expression. An error
+     /// object type or a const enum object returns before indexing.
++    ///
++    /// The const enum exit reports first (`:8157`): TS2476 at the index
++    /// unless it is `IsStringLiteralLike` (r6-modules3 §2). It shares the
++    /// rule's JS-file gate, so a JS file's access to a TypeScript const enum
++    /// does not report it.
+     pub(crate) fn check_element_access_index_type(&mut self, node: NodeId) {
+         if self.file_has_parse_errors || self.in_js_file(node) {
+             return;
+@@ -130,6 +135,21 @@ impl Checker<'_, '_> {
+         let object_type = self.check_expression(expression);
+         let index_type = self.check_expression(argument);
+         if self.is_const_enum_object_type(object_type) {
++            if !matches!(
++                argument,
++                tsr_ast::Expression::StringLiteral(_)
++                    | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
++            ) && let Some(file) = self.source_file_of_for_diagnostics(argument_id)
++            {
++                let span = self.error_span(argument_id);
++                self.report(
++                    file,
++                    Diagnostic::new(
++                        &messages::A_CONST_ENUM_MEMBER_CAN_ONLY_BE_ACCESSED_USING_A_STRING_LITERAL,
++                        span,
++                    ),
++                );
++            }
+             return;
+         }
+         self.report_invalid_index_types(object_type, index_type, argument_id);
+diff --git a/crates/tsr-compiler/tests/r6_modules3_const_enum_index.rs b/crates/tsr-compiler/tests/r6_modules3_const_enum_index.rs
+new file mode 100644
+index 0000000..65d3d74
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_modules3_const_enum_index.rs
+@@ -0,0 +1,78 @@
++//! r6-modules3's const-enum index diff (`docs/parity/notes/r6-modules3.md`
++//! §2): `checkElementAccessExpression`'s const-enum arm (`checker.go:8157`)
++//! reports TS2476 at an index that is not string-literal-like.
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ScriptTarget};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// The `(line, code)` pairs the checker reports in `file`, sorted.
++fn reported(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<(u32, u32)> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: options,
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let text = files.iter().find(|(name, _)| *name == file).expect("listed").1;
++    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    let mut reported: Vec<(u32, u32)> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(at, _)| *at == id)
++        .map(|(_, diagnostic)| {
++            let line = text[..diagnostic.span.start as usize].matches('\n').count() as u32 + 1;
++            (line, diagnostic.message.code())
++        })
++        .collect();
++    reported.sort_unstable();
++    reported
++}
++
++fn es2015() -> CompilerOptions {
++    CompilerOptions { target: ScriptTarget::ES2015, ..Default::default() }
++}
++
++#[test]
++fn a_const_enum_index_must_be_a_string_literal() {
++    // Native reports TS2476 on lines 3, 4 and 6, wherever the access sits,
++    // and accepts both string-literal-like spellings on line 5.
++    let files = [(
++        "/a.ts",
++        "const enum E { A }\nlet key = \"A\";\nE[0];\nlet a: E = E[key];\nlet b = E[\"A\"] + E[`A`];\nfunction f() { return E[`${key}`]; }\n",
++    )];
++    assert_eq!(reported(&files, es2015(), "/a.ts"), [(3, 2476), (4, 2476), (6, 2476)]);
++}
