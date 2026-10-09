@@ -1,0 +1,189 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 063d321..f4c5f8b 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -881,6 +939,16 @@ impl Checker<'_, '_> {
+                 // JS positions excluded — unchecked-JS misses answer
+                 // differently upstream (spellingUncheckedJS's 7 R→W).
+                 self.intrinsics.any
++            } else if let Some(access) = node_id
++                && !self.in_js_file(access)
++                && self.property_access_receiver_is_complete(access, receiver_type, key)
++            {
++                // `checkPropertyAccessExpressionOrQualifiedName`'s `prop ==
++                // nil` exit (`checker.go:11353-11369`): the miss is reported
++                // and answers `errorType`. ADR-0048: only where the receiver
++                // is complete, which the native identity probe confirmed on
++                // every moved line (`docs/parity/notes/r6-errorsplit2.md` §3).
++                self.intrinsics.native_error
+             } else {
+                 error
+             }
+diff --git a/crates/tsr-checker/src/indexed.rs b/crates/tsr-checker/src/indexed.rs
+index c4b10d3..73bff35 100644
+--- a/crates/tsr-checker/src/indexed.rs
++++ b/crates/tsr-checker/src/indexed.rs
+@@ -829,6 +829,87 @@ impl Checker<'_, '_> {
+         }
+     }
+ 
++    /// Whether a failed property-access lookup at `access` over `receiver`
++    /// is upstream's `errorType` (`checker.go:11353-11369`) rather than a gap
++    /// in the port's view of the receiver. The property road's twin of
++    /// [`Checker::element_access_receiver_is_complete`], with two more
++    /// exclusions the native identity probe found false claims under
++    /// (`docs/parity/notes/r6-errorsplit2.md` §3):
++    ///
++    /// - a receiver that is a flow reference (`isMatchingReference`'s source
++    ///   kinds, `flow.go:1606`): its type is the port's narrowing at the
++    ///   access, and where that narrowing falls short of upstream's
++    ///   (`instanceof`, `in`, aliased conditions, truthiness) upstream's
++    ///   receiver has the member and the port's does not (40 false claims);
++    /// - a primitive receiver that `getApparentType` maps to a global
++    ///   interface (`String`, `Number`, `BigInt`, `Boolean`, `Symbol`): the
++    ///   caller passes the apparent type, and such a primitive is still
++    ///   itself only when its global interface is missing
++    ///   (`Checker::apparent_type`), the port's gap rather than upstream's
++    ///   empty global (`tests/members_apparent_type.rs`);
++    /// - a union or intersection with a mapped constituent: the port's
++    ///   mapped member image is short (`Pick<T, …> & Partial<Omit<T, …>>`,
++    ///   `complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound`). The
++    ///   element road keeps such receivers: its probed lines there are
++    ///   `errorType` (`narrowingMutualSubtypes`' `Record<string, any>`).
++    pub(crate) fn property_access_receiver_is_complete(
++        &mut self,
++        access: tsr_ast::NodeId,
++        receiver: TypeId,
++        key: TypeId,
++    ) -> bool {
++        if self.access_receiver_is_flow_reference(access)
++            || self.store.get(receiver).flags.intersects(
++                crate::flags::TypeFlags::STRING_LIKE
++                    | crate::flags::TypeFlags::NUMBER_LIKE
++                    | crate::flags::TypeFlags::BIG_INT_LIKE
++                    | crate::flags::TypeFlags::BOOLEAN_LIKE
++                    | crate::flags::TypeFlags::ES_SYMBOL_LIKE,
++            )
++        {
++            return false;
++        }
++        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
++            &self.store.get(receiver).data
++            && types.iter().any(|member| self.mapped_types.contains_key(member))
++        {
++            return false;
++        }
++        self.element_access_receiver_is_complete(receiver, key)
++    }
++
++    /// Whether the receiver of the access at `access` is a flow reference:
++    /// `isMatchingReference`'s source kinds (`flow.go:1606-1621`), through
++    /// its parenthesized, non-null and `satisfies` wrappers. A qualified
++    /// name's left is an entity name, also a reference.
++    fn access_receiver_is_flow_reference(&self, access: tsr_ast::NodeId) -> bool {
++        let mut receiver = match self.node_map.get(access) {
++            Some(tsr_ast::Node::PropertyAccessExpression(node)) => node.expression,
++            Some(tsr_ast::Node::ElementAccessExpression(node)) => node.expression,
++            _ => return true,
++        };
++        while let Some(expression) = receiver {
++            match expression {
++                tsr_ast::Expression::ParenthesizedExpression(node) => receiver = node.expression,
++                tsr_ast::Expression::NonNullExpression(node) => receiver = node.expression,
++                tsr_ast::Expression::SatisfiesExpression(node) => receiver = node.expression,
++                tsr_ast::Expression::Identifier(_)
++                | tsr_ast::Expression::PrivateIdentifier(_)
++                | tsr_ast::Expression::MetaProperty(_)
++                | tsr_ast::Expression::PropertyAccessExpression(_)
++                | tsr_ast::Expression::ElementAccessExpression(_) => return true,
++                tsr_ast::Expression::KeywordExpression(keyword) => {
++                    return matches!(
++                        keyword.kind,
++                        tsr_ast::SyntaxKind::ThisKeyword | tsr_ast::SyntaxKind::SuperKeyword
++                    );
++                }
++                _ => return false,
++            }
++        }
++        true
++    }
++
+     /// `getPropertyNameFromType`'s third arm (`utilities.go`): a `unique
+     /// symbol` index names the member whose late-bound key is that same
+     /// symbol, whatever expression spells the index (`o[N["s"]]` reads the
+diff --git a/crates/tsr-checker/tests/property_access_miss.rs b/crates/tsr-checker/tests/property_access_miss.rs
+new file mode 100644
+index 0000000..e7ac6f9
+--- /dev/null
++++ b/crates/tsr-checker/tests/property_access_miss.rs
+@@ -0,0 +1,70 @@
++//! `checkPropertyAccessExpressionOrQualifiedName`'s `prop == nil` exit
++//! (`checker.go:11353-11369`) answers `errorType` where the port's receiver
++//! is complete and is no flow reference
++//! (`docs/parity/notes/r6-errorsplit2.md` §3).
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The printed type of the file's last property access expression, or
++/// `gap`/`errorType` for the two error identities.
++fn last_property_access(source: &str) -> String {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    #[allow(clippy::cast_possible_truncation)]
++    let id = (0..parsed.nodes.len() as u32)
++        .map(tsr_ast::NodeId::new)
++        .filter(|&id| parsed.nodes.kind(id) == tsr_ast::SyntaxKind::PropertyAccessExpression)
++        .last()
++        .expect("a property access");
++    let node = parsed.node_map.get(id).expect("a mapped node");
++    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
++    let type_id = checker.check_expression(expression);
++    let intrinsics = checker.intrinsics();
++    if type_id == intrinsics.native_error {
++        "errorType".to_owned()
++    } else if type_id == intrinsics.error {
++        "gap".to_owned()
++    } else {
++        checker.type_to_string(type_id)
++    }
++}
++
++/// The widened write target `{}` names no `a`: `errorType`
++/// (`propertyAccessWidening`).
++#[test]
++fn a_written_union_with_an_empty_literal_misses_as_error_type() {
++    let source = "function foo(options?: { a: string, b: number }) {\n\
++                  (options || {}).a = 1;\n\
++                  }";
++    assert_eq!(last_property_access(source), "errorType");
++}
++
++/// A call result is no flow reference: its miss is `errorType`.
++#[test]
++fn a_call_result_miss_is_error_type() {
++    let source = "declare function f(): { a: string };\nf().b;";
++    assert_eq!(last_property_access(source), "errorType");
++}
++
++/// A flow reference keeps the gap: its type is the port's narrowing at the
++/// access, which can fall short of upstream's.
++#[test]
++fn a_reference_receiver_miss_stays_the_gap() {
++    let source = "declare const o: { a: string };\no.b;";
++    assert_eq!(last_property_access(source), "gap");
++}
++
++/// A found member is unchanged.
++#[test]
++fn a_found_member_is_its_type() {
++    let source = "declare function f(): { a: string };\nf().a;";
++    assert_eq!(last_property_access(source), "string");
++}
