@@ -33,7 +33,6 @@ use crate::{
     types::{TypeData, TypeId},
 };
 
-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
 impl Checker<'_, '_> {
     /// The implemented type of an `implements` entry that names the type
     /// alias `alias`, and whether `t.symbol` is a class (which picks the
