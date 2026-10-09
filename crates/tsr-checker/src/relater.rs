@@ -2169,6 +2169,34 @@ impl Relater<'_, '_, '_> {
         })
     }
 
+    /// Whether `ty` is a generic alias instantiation minted under a new,
+    /// non-generic alias (`type C = T<A>`, `new_alias_instantiation`):
+    /// natively its alias is `C` with no type arguments
+    /// (getTypeFromTypeAliasReference, checker.go:23609-23616), and
+    /// structuredTypeRelatedToWorker's alias-variance arm (relater.go:3392)
+    /// needs `source.alias.typeArguments` and the same alias symbol on both
+    /// sides, so such a pair relates structurally. The port keeps `T`'s
+    /// `(target, arguments)` on the image for members and inference only.
+    ///
+    /// Only a generic *alias* target qualifies: an alias written as a class or
+    /// interface reference (`type FooArray = FooBase[]`) is the interned
+    /// reference natively, with no alias, and keeps the reference variances.
+    fn carries_a_new_alias(&self, ty: TypeId) -> bool {
+        self.checker.alias_of.get(&ty).is_some_and(|(alias, arguments)| {
+            arguments.is_empty()
+                && self.checker.type_reference_targets.get(&ty).is_some_and(|(target, _)| {
+                    target != alias
+                        && self
+                            .checker
+                            .binder
+                            .symbols()
+                            .get(*target)
+                            .flags
+                            .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
+                })
+        })
+    }
+
     fn non_object_alias_bodies(
         &mut self,
         symbol: SymbolId,
@@ -5279,6 +5307,8 @@ impl Relater<'_, '_, '_> {
         // instances and an active recursive measurement compare structurally.
         if !self.checker.variance_marker_types.contains(&source)
             && !self.checker.variance_marker_types.contains(&target)
+            && !self.carries_a_new_alias(source)
+            && !self.carries_a_new_alias(target)
             && let Some(((source_symbol, source_arguments), (target_symbol, target_arguments))) =
                 self.checker.same_target_references(source, target)
             && source_symbol == target_symbol

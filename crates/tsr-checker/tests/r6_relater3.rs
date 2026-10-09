@@ -3,8 +3,81 @@
 //! silent. Every expectation was checked against a native tsgo built from
 //! the pinned submodule.
 
+use tsr_ast::{NodeMap, NodeTable};
 use tsr_checker::{Checker, check::FileContext};
 use tsr_core::{Arena, CompilerOptions, ScriptTarget, Tristate};
+
+/// The 1-based lines of every diagnostic with one of `codes` in `source`.
+fn lines_of(source: &str, codes: &[u32]) -> Vec<usize> {
+    let file = "a.ts";
+    let arena = Arena::new();
+    let mut nodes = NodeTable::new();
+    let mut map = NodeMap::new();
+    let globals = "interface Array<T> { [n: number]: T; length: number } \
+        interface ReadonlyArray<T> { readonly [n: number]: T; readonly length: number } \
+        interface String { length: number; [n: number]: string } \
+        interface Number { toFixed(): string } interface Boolean {} \
+        interface Object {} interface Function {} interface RegExp {} \
+        interface IArguments {} interface Symbol {} \
+        interface SymbolConstructor { (): symbol } declare var Symbol: SymbolConstructor; \
+        type Partial<T> = { [P in keyof T]?: T[P] }; \
+        type Required<T> = { [P in keyof T]-?: T[P] }; \
+        type Readonly<T> = { readonly [P in keyof T]: T[P] }; \
+        type Record<K extends keyof any, T> = { [P in K]: T }; \
+        type Pick<T, K extends keyof T> = { [P in K]: T[P] }; \
+        type Capitalize<S extends string> = intrinsic; \
+        type Uncapitalize<S extends string> = intrinsic;";
+    let global = tsr_parser::parse_into(
+        &arena,
+        globals,
+        tsr_parser::ParseOptions::for_file("global.d.ts"),
+        &mut nodes,
+        &mut map,
+    );
+    let bound = tsr_binder::bind_into(
+        tsr_binder::BindResult::empty(),
+        &arena,
+        global.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: "global.d.ts", text: globals },
+    );
+    let parsed = tsr_parser::parse_into(
+        &arena,
+        source,
+        tsr_parser::ParseOptions::for_file(file),
+        &mut nodes,
+        &mut map,
+    );
+    let root = parsed.source_file.node_id.expect("registered source file");
+    let bound = tsr_binder::bind_into(
+        bound,
+        &arena,
+        parsed.source_file,
+        &nodes,
+        tsr_binder::FileInfo { name: file, text: source },
+    );
+    let mut checker = Checker::new(&bound, &nodes, &map);
+    checker.apply_compiler_options(&CompilerOptions {
+        strict: Tristate::from_bool(true),
+        target: ScriptTarget::ES2015,
+        ..CompilerOptions::default()
+    });
+    checker.check_source_file(
+        root,
+        FileContext { ambient: false, has_parse_errors: !parsed.diagnostics.is_empty() },
+    );
+    let mut lines: Vec<usize> = checker
+        .diagnostics()
+        .iter()
+        .filter(|(file, diagnostic)| *file == root && codes.contains(&diagnostic.message.code()))
+        .map(|(_, diagnostic)| {
+            source[..usize::try_from(diagnostic.span.start).unwrap()].matches('\n').count() + 1
+        })
+        .collect();
+    lines.sort_unstable();
+    lines.dedup();
+    lines
+}
 
 /// The 1-based lines of every diagnostic with one of `codes` in the
 /// JavaScript file `source` (JSDoc collected, as the corpus checks a JS file),
@@ -77,4 +150,31 @@ function ok() { return "s"; }
 const cast = () => /** @type {string} */ ("s"); // error
 "#;
     assert_eq!(js_lines_of(source, &[2322]), marked(source));
+}
+
+#[test]
+fn a_new_non_generic_alias_relates_structurally_not_by_alias_variance() {
+    // `genericIndexedAccessVarianceComparisonResultCorrect`: `type C = T<A>`
+    // carries alias `C` with no type arguments, so `c = d` relates
+    // structurally (`{ x: string }` both ways); `b = a` keeps `T`'s
+    // variances. An alias written as an interface reference keeps the
+    // reference's variances.
+    let source = r#"class A { x: string = 'A'; y: number = 0; }
+class B { x: string = 'B'; z: boolean = true; }
+type T<X extends { x: any }> = Pick<X, 'x'>;
+type C = T<A>;
+type D = T<B>;
+declare let a: T<A>;
+declare let b: T<B>;
+declare let c: C;
+declare let d: D;
+b = a; // error
+c = d;
+type FooBase = string | false;
+type FooArray = FooBase[];
+declare let fa: FooArray;
+declare let ba: boolean[];
+ba = fa; // error
+"#;
+    assert_eq!(lines_of(source, &[2322]), marked(source));
 }

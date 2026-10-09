@@ -96,10 +96,14 @@ Tests (in the diff, `crates/tsr-checker/tests/r6_relater3_logical_or.rs`):
 `a_context_free_jsx_discriminant_meets_its_pushed_any_context` (overflows
 the stack without the push).
 
-## 3. Diff: the generic-call object-literal argument gates (`excessPropertyCheckWithEmptyObject`, `reverseMappedTypeLimitedConstraint`, `indexedAccessRelation`)
+## 3. Diff (routed to r6-callreport): the generic-call object-literal argument gates (`excessPropertyCheckWithEmptyObject`, `reverseMappedTypeLimitedConstraint`, `indexedAccessRelation`)
 
 [`r6-relater3-call-excess.diff`](r6-relater3-call-excess.diff), against
 `5e4d21b`; independent of §2's diff (no shared file).
+
+**Routed.** After this diff was measured, the integrator moved item 3 to
+r6-callreport (calls.rs's whole reporting pass, `tsr-2zk.1153` and
+siblings). The diff stays here, measured, for that lane.
 
 **Forcing constraint.** `check_instantiated_candidate_arguments`
 (`calls.rs`, MAIN) is the port's isSignatureApplicable with `reportErrors`
@@ -216,3 +220,53 @@ reporting where native relates or vice versa.
 
 Test: `tests/r6_relater3.rs`
 `a_js_function_returns_against_its_jsdoc_return_type`.
+
+## 0a. Re-frozen base
+
+Batch BR (r6-relater2) landed on main as `c3c42d0` (with its
+inline-conditional diff). The branch merged it (`4b01243`, clean), and every
+measurement from §5 on is against `c3c42d0` alone:
+- `diagverdictdump`: RIGHT 5642, EMPTY_RIGHT 5606, WRONG 951, EMPTY_WRONG 39;
+- `verdictdump`: RIGHT 550360, WRONG 5191, GAP 752;
+- `Ir`: generic-imports 343,093,181; domain-model 1,092,310,010.
+
+§2's and §3's diffs still apply cleanly on `4b01243`. §4's two conversions
+show as gains against this base too.
+
+## 5. A new non-generic alias relates structurally, not by alias variance (`genericIndexedAccessVarianceComparisonResultCorrect`)
+
+**Forcing constraint.** `c = d` with `type C = T<A>`, `type D = T<B>` and
+`type T<X extends { x: any }> = Pick<X, 'x'>` is silent natively.
+getTypeFromTypeAliasReference (checker.go:23609-23616) gives `T<A>` the new
+alias `C` with no type arguments, and structuredTypeRelatedToWorker's
+alias-variance arm (relater.go:3392) needs `source.alias.typeArguments` and
+one alias symbol on both sides, so the pair relates structurally (`{ x:
+string }` both ways). The port's image of `C` (`new_alias_instantiation`,
+`declared.rs`) keeps `T`'s `(target, arguments)` for members and
+inference, and the relater's variance arm read it as `T<A> -> T<B>`, where
+`T`'s measured variance fails (`b = a` does fail natively, through the
+alias variance).
+
+**Ported.** The variance arm is skipped when either side carries a new
+alias (`carries_a_new_alias`: an `alias_of` entry with no arguments over a
+reference whose target is a generic type alias). An alias written as a
+class or interface reference (`type FooArray = FooBase[]`) is excluded:
+natively that is the interned reference with no alias, and its reference
+variances still apply. The first draft did not exclude it and lost
+`spreadBooleanRespectsFreshness`'s 7 type lines (`Array.isArray`'s
+narrowing of a `FooArray` constituent went `any`).
+
+**Measured** against §0a, both loss checks empty, slowcases clean:
+- diagnostics: `genericIndexedAccessVarianceComparisonResultCorrect` WRONG →
+  RIGHT; types: its line 14 WRONG → RIGHT (+1) (the dump also shows §4's
+  two gains);
+- `Ir`: generic-imports 343,093,181 → 343,087,647 (−0.002%); domain-model
+  1,092,310,010 → 1,092,026,575 (−0.03%). CLI output identical.
+
+**Falsifier.** A pair of new-alias images that natively relate through some
+other variance road (the instantiation is itself a type reference with
+variances, e.g. a generic alias whose body is a union of references),
+now compared structurally and answered differently.
+
+Test: `tests/r6_relater3.rs`
+`a_new_non_generic_alias_relates_structurally_not_by_alias_variance`.
