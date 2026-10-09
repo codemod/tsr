@@ -92,7 +92,13 @@ queries reach a type, and 5 reach a target with no type meaning
 answer). The `Row2` hits now resolve, but their lines stay WRONG for another
 reason (§4.2).
 
-Owner: r6-declared2 (`declared.rs`). Independent of every other diff here.
+Owner: **routed to r6-modules4** (`tsr-2zk.1162`, RESOLVE-ALIAS-INDIRECTION).
+The integrator made r6-modules4 the single owner of `resolveAlias`'s
+pure-alias chains mid-round. This diff is a consumer-side port in
+`declared.rs`, not a `symbols.rs` change; if r6-modules4 makes
+`resolve_alias` itself follow `resolveIndirectionAlias`, the loop here
+becomes a no-op and should be deleted with it. Independent of every other
+diff here. §4.1's UMD diff stacks on it.
 
 ## 2. Default type arguments in `ObjectAssignedDefaultExport` — `r6-specifiers2-reused-module-member.diff`
 
@@ -232,3 +238,134 @@ then need their `index` directories as well. Falsifier: a symlinked
   343,096,589 → 343,142,635 (+0.013%). The base binary itself moved 0.06%
   on dm between two runs. An earlier build that normalized every file's path
   measured gi +0.1%, which is why the stem test runs first.
+
+## 4. The `.16.77` leftovers
+
+### 4.1 `umd8` — `r6-specifiers2-umd-global-type-reference.diff` (+3, routed with §1)
+
+`declare let y: Foo`, where `Foo` is the UMD global (`export as namespace
+Foo` of a module with `export = Thing`). Native's `resolveTypeReferenceName`
+calls `resolveAlias` for every alias kind:
+`getTargetOfNamespaceExportDeclaration` gives the module's `export =`
+symbol, a pure alias, and `resolveIndirectionAlias` reaches the class.
+`declared.rs`'s alias road admits only import specifiers and import
+clauses, so the UMD alias fell through to `get_type_reference_type` on the
+alias itself and answered `errorType`.
+
+The diff (applies on §1's) admits `NamespaceExportDeclaration` to the road.
+**Measured** against base + §1: **types +3, 0 lost** (`umd8` 0:2 `number`,
+0:3 and 0:5 `() => number`); diagnostics unchanged; `slowcases` clean. Its
+`y` lines (0:1, 0:4) still differ: native names the `export =` class
+`import("./foo")`, the module itself, and that is the chain printer
+(`tsr-2zk.39`). Owner: routed to r6-modules4 with §1.
+
+### 4.2 `mergeSymbolReexportInterface`, `mergeSymbolReexportedTypeAliasInstantiation`
+
+`index.d.ts` writes `export type { Row2 } from './common'`, and an
+augmentation `declare module '.' { type Row2 = … }` merges into that module.
+Native's `mergeSymbolTable` stores `mergeSymbol`'s return value. For the
+alias target, `mergeSymbol` resolves it (`checker.go:14153-14163`), finds
+the interface or type alias that the augmentation's `type` excludes, and
+reports the merge error. It then **returns the source**, so `index`'s
+export `Row2` becomes the augmentation's type alias, and `Row2<string>`
+prints that generic alias. TSR's `Binder::merge_symbol`
+(`crates/tsr-binder/src/binder.rs:1119-1137`) declines an alias target
+(`alias_merges`, `bd tsr-y4u.12`: the binder cannot resolve aliases), so the
+table keeps the re-export. Traced:
+`Row2#27417: ALIAS, 1 declaration` after merging, while `C` merged.
+§1 converts the diagnostics case of `mergeSymbolReexportInterface` (TS2300
+is the checker's `report_merge_conflicts`), not the types.
+
+Cause: `Binder::merge_symbol`'s alias-target arm and the table store. Owner:
+the binder (MAIN). It needs the alias resolution that `bd tsr-y4u.12`
+records as missing.
+
+### 4.3 `legacyNodeModulesExportsSpecifierGenerationConditions` (3 lines)
+
+`(await import("inner"))` types as
+`get_type_with_synthetic_default_import_type` (`module_exports.rs`):
+`get_spread_type(namespace, wrapper)`. The spread's members are
+`AnonymousProperty` slots that carry the text minted when the spread was
+built (`x: () => Thing`), with no declaration left to reuse at the site.
+Native's spread symbols keep their declarations, so the member prints
+through `serializeTypeForDeclaration` at the site, and `Thing` (not
+accessible there) becomes `import("./node_modules/inner/private").Thing`.
+Cause: `get_spread_type`'s property mint (`spreads.rs`, r6-errorsplit2)
+and the anonymous-property print (`objects.rs`/`printing.rs`, r6-printer4).
+§2's diff does not reach it, which was measured: no change in this case.
+
+### 4.4 `inlineJsxFactoryDeclarationsLocalTypes` (3 lines)
+
+Reduced and checked against tsgo: a parameter annotation
+`{ children?: predom.JSX.Element[] }`, written where `predom` is imported and
+printed in another file. Native prints
+`import("./renderer2").predom.JSX.Element`. Traced in TSR: the visitor
+correctly declines `predom` at the site (`track_existing_leftmost_identifier`:
+no binding there), so `serialize_type_name` runs. Its non-module-member arm
+then calls `reference_text_at`, which spells the namespace path
+`predom.JSX.Element` from the container chain without the module qualifier
+that native's `symbolToTypeNode` adds when no alias reaches the module. Cause:
+`reference_text_at` / `qualified_name_at` (`checker.rs`) for a namespace
+member of an unimported module, which is the chain printer (`tsr-2zk.39`,
+main).
+
+### 4.5 `inferrenceInfiniteLoopWithSubtyping` (2 lines)
+
+Native prints `ObjMapReadOnly<T>`'s declared type, and its instantiation, as
+`Readonly<{ [key: string]: Readonly<T>; }>`: the outer alias is lost.
+`getTypeFromTypeAliasReference` does pass `ObjMapReadOnly` as the new alias,
+but `Readonly` is a homomorphic mapped type. `instantiateMappedType`
+(`checker.go:22567-22570`) maps its type variable through
+`mapTypeWithAlias(…, alias)`, which applies the alias only to a **union**
+(`:25554`). For an object it calls `instantiateConstituent`, which calls
+`instantiateAnonymousType(t, …, nil)` (`:22565`) and inherits the target's
+own alias, `Readonly<…>`. TSR's `instantiate_mapped_type_worker`
+(`mapped.rs`) carries no alias, and TSR names the reference by the written
+alias. Cause: alias propagation through `instantiateMappedType`'s
+homomorphic arm (`mapped.rs` / `declared.rs`). Owner: r6-declared2.
+
+## 5. `duplicatePackage`: `GetRedirectTargets` (item 5)
+
+Of its 7 lines, §2's diff converts the three parameter slots. The other four
+print `X` where native prints `import("a/node_modules/x").default` /
+`import("c/node_modules/x").default`. Two pieces are missing:
+
+- the `.default` naming of a default-exported class (`tsr-2zk.39`, main);
+- `GetRedirectTargets` (`compiler/program.go:162`): native names `b`'s copy
+  through `c/node_modules/x`, a path that **redirects** to the first loaded
+  copy (`filesparser.go:433`, same package name and version). The loader
+  already records the inverse (`LoadedFiles::package_redirects`, duplicate
+  → target, `loader.rs:1897`), and `Program::from_root_files` aliases the
+  duplicate's path to the target's file. The specifier side consumes
+  redirects in `GetEachFileNameOfModule` (`specifiers.go:274`), which is
+  r6-specifiers' commit 1 and **has not landed on main** (batch BS pending
+  when this box stopped).
+
+Not built. The plan, for whoever lands it after BS:
+`ModuleHost::redirect_targets(path) -> Vec<String>` in `resolution.rs`.
+The program inverts `package_redirects` once, keeping load order as
+`redirectTargetsMap` appends in task order. `each_file_name_of_module`
+appends the targets after the imported file name, as native does. Alone it
+converts **no line**: every `duplicatePackage` line that needs the
+redirect path also needs the `.default` naming. Falsifier: with `.39`'s
+default naming in, `duplicatePackage:0:2/0:8` print `a/node_modules/x`
+until this lands.
+
+## 6. Routed, not touched
+
+- The container walk / alternative containers (`getWithAlternativeContainers`):
+  `tsr-2zk.39`, main's, assigned to a human. r6-specifiers §5's 44 lines stay
+  there.
+- `r6-specifiers-symlink-chain-gate.diff` (r6-specifiers §3.3): held on `.39`.
+- §1 and §4.1: routed to r6-modules4 (`tsr-2zk.1162`).
+
+## 7. Summary
+
+| § | What | Where | Measured (vs `5e4d21b`) |
+|---|---|---|---|
+| 1 | pure-alias chain on the import type road | `r6-specifiers2-pure-alias-type-reference.diff` (`declared.rs` + test) → r6-modules4 | types +28, diag +4, 0 lost |
+| 2 | out-of-scope module member through `symbol_chain` in reused annotations | `r6-specifiers2-reused-module-member.diff` (`node_reuse.rs` + test) | types +14, 0 lost |
+| 3 | `tryGetAnyFileFromPath` | commit `a59af55` (lane) + `r6-specifiers2-any-file-from-path.diff` (`tsr-compiler`) | alone 0; on composite-slots +4, 0 lost |
+| 4.1 | UMD global on the import type road | `r6-specifiers2-umd-global-type-reference.diff` (on §1) → r6-modules4 | types +3 on §1, 0 lost |
+
+Apply order: §1, §4.1, §2, §3's diff. §2 and §3 are independent of §1.
