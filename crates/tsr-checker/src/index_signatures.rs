@@ -98,7 +98,8 @@ impl<'a> Checker<'a, '_> {
         match &self.store.get(id).data {
             TypeData::Union { types, .. } => {
                 let types = types.clone();
-                return self.union_index_infos(&types);
+                // Published once per union (`r5-checkperf3.md` §5).
+                return self.composite_index_infos(id, |checker| checker.union_index_infos(&types));
             }
             // resolveIntersectionTypeMembers / appendIndexInfo (checker.go).
             // Native resolves the members of the intersection's apparent type,
