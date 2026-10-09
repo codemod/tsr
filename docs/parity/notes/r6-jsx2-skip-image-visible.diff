@@ -1,0 +1,13 @@
+diff --git a/crates/tsr-checker/src/jsx_intrinsic.rs b/crates/tsr-checker/src/jsx_intrinsic.rs
+index 8841c41..96df2c0 100644
+--- a/crates/tsr-checker/src/jsx_intrinsic.rs
++++ b/crates/tsr-checker/src/jsx_intrinsic.rs
+@@ -417,7 +417,7 @@ impl Checker<'_, '_> {
+         (ty != self.intrinsics.error).then_some(ty)
+     }
+ 
+-    fn jsx_attributes_inference_type(
++    pub(crate) fn jsx_attributes_inference_type(
+         &mut self,
+         opening: NodeId,
+         skip: bool,
