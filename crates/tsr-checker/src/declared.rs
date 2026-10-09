@@ -1930,6 +1930,32 @@ impl<'a> Checker<'a, '_> {
                     self.qualified_reference_types.insert(key, minted);
                     return minted;
                 }
+                // resolveName's alias test (`getSymbolFlags(resolveAlias(s)) &
+                // meaning`) rejects an alias whose target has no type
+                // meaning, so resolveTypeReferenceName fails and
+                // getUnresolvedSymbolForEntityName prints the written name.
+                return self.unresolved_type_reference(node);
+            }
+            // The same holds for the unknown symbol of an unresolved
+            // `require("m")` target: `var v: m` prints `m`
+            // (`privacyImportParseErrors`, `r6-declared.md` §2.1). An
+            // unresolved qualified target (`import a = x.c`) keeps `error`:
+            // its written print is native's too, but it moves the alias
+            // declaration's own line, where a var merged into the alias prints
+            // its type (`importDeclWithClassModifiers:0:3`).
+            if !require
+                && self.declaration_of_alias_symbol(symbol).is_some_and(|declaration| {
+                    matches!(
+                        self.node_map.get(declaration),
+                        Some(Node::ImportEqualsDeclaration(import))
+                            if matches!(
+                                import.module_reference,
+                                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                            )
+                    )
+                })
+            {
+                return self.unresolved_type_reference(node);
             }
             return error;
         }

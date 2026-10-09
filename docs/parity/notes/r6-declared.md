@@ -229,3 +229,68 @@ domain-model 1,090,253,218 -> 1,089,528,215 (-0.07%), generic-imports
 343,055,471 -> 343,061,332 (+0.002%). With the binder diff on top,
 ramdaToolsNoInfinite2 completes (5.8 s, 249 MiB) instead of aborting; §2.1
 has that diff's unfiltered numbers.
+
+### 2.1 The binder diff's `any` prints
+
+Re-measured on top of `91e85aa`, unfiltered: r5-relater7's binder diff now
+completes. Against §0:
+- diagnostics +3 cases: `moduleAugmentationInAmbientModule1`,
+  `moduleAugmentationInAmbientModule5`, `ramdaToolsNoInfinite2`;
+- types +23 lines;
+- 11 type lines lost.
+
+The losses fall in three groups:
+
+**`privacyImportParseErrors:0:564/569/594/599`: ported (this commit).**
+`var v: m`, where `m` is an unexported `import m = require("glo_M2_public")`,
+is now a local of its `declare module`. Native's resolveName tests an alias
+by `getSymbolFlags(resolveAlias(s)) & meaning`. A target with no type
+meaning fails that test, and so does the unknown symbol of an unresolved
+target. resolveTypeReferenceName then mints getUnresolvedSymbolForEntityName,
+which prints the written name. The ImportEquals arm of
+`get_type_from_type_reference` answered `error` (`any`) instead. It now
+answers `unresolved_type_reference` for a resolved target without a type
+meaning, and for an unresolved `require(…)` target.
+
+The unresolved qualified target (`import a = x.c`) keeps `error`. Its written
+print is native's too, and it gains `importDeclWithClassModifiers:0:9`, but
+it loses `:0:3`. On that line the alias declaration `b`, merged with `var b:
+a`, prints the var's type where native prints the alias's `any`, which is a
+merge print outside this lane.
+
+Measured without the binder diff: types +1 (`exportEqualsProperty2:0:1`),
+zero losses, slowcases clean. Ir domain-model 1,089,529,559, generic-imports
+343,057,790 (flat against `91e85aa`). With the binder diff, all four lines
+are RIGHT.
+
+**`moduleAugmentationImportsAndExports3:3:4`: diff, not landed.** `B` is an
+ES import inside `declare module "./f1"`. Native also fails to resolve it
+(TS2667, TS2307: the loader does not collect imports inside an augmentation,
+references.go:48-70, and the port's collector agrees). Native prints `B` from
+the unresolved symbol and types `b` as `any`. Native prints the written name
+for any unfindable import too: the tsgo probe prints `X` for `import { X }
+from "./missing"; let v: X`. The port's ES-import road answers `error` when
+the module is unfindable. Answering the written name there (the ES-import
+half of
+[`r6-declared-unresolved-alias-written-name.diff`](r6-declared-unresolved-alias-written-name.diff))
+gains 23 lines, but loses `asyncAwaitIsolatedModules_es2017`/`_es5`/`_es6`
+(diagnostics). The cause is the unresolved mint's typing, not its print:
+- native's unresolved reference is errorType, and
+  checkAsyncFunctionReturnType returns on `isErrorType(returnType)`;
+- the port's `check_async_function_return_type` (`expressions.rs`, not this
+  lane's) tests `== error`, so TS1064 fires on the mint.
+
+The diff's `expressions.rs` half asks `is_error`, which counts the unresolved
+mint, as native asks `isErrorType`.
+
+**`ramdaToolsNoInfinite2:0:448/449/485/490/491/492`: other lanes.**
+- 485 and 490-492 print a defaulted argument native elides (`_Drop<…, "->">`,
+  `List<any>`). That is `tsr-2zk.1115`'s print arity (§5).
+- 448 and 449 are `ONonNullable<…>`, a renamed import
+  (`NonNullable as ONonNullable`) that the reference road refuses to print
+  under its local name (the §158 per-site naming wall).
+
+**Slow.** `ramdaToolsNoInfinite2` is RIGHT and EMPTY_RIGHT with the binder
+diff, but it takes 25 s in the diagnostics dump and 5.8 s in the types dump.
+At the base it took 0.24 s and 0.17 s, and native takes 0.4 s. slowcases
+flags it SLOWER, so the binder diff stays held on time as well (§2.2).
