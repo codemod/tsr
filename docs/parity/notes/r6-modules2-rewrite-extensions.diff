@@ -1,0 +1,219 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -3886,6 +3886,22 @@
+                 ) {
+                     return;
+                 }
++                // The chain's last arm, `rewriteRelativeImportExtensions`
++                // (`checker.go:15261`), `isolated_alias.rs`.
++                if self.rewrite_relative_import_extensions
++                    && let Some(resolved) = resolved
++                {
++                    let compare = host.compare_paths_options();
++                    self.check_rewrite_relative_import_extensions(
++                        declaration,
++                        specifier,
++                        resolved,
++                        options,
++                        true,
++                        &compare,
++                        |file| host.source_file_may_be_emitted(file),
++                    );
++                }
+             }
+             self.check_untyped_module_import(declaration, specifier);
+             self.check_esm_import_from_commonjs(declaration, specifier);
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -647,6 +647,9 @@
+     /// import-specifier spellings; the relative-spelling arm declines when
+     /// set.
+     pub(crate) allow_importing_ts_extensions: bool,
++    /// `RewriteRelativeImportExtensions.IsTrue()`, read by
++    /// `resolveExternalModule`'s rewrite arm (`isolated_alias.rs`).
++    pub(crate) rewrite_relative_import_extensions: bool,
+     /// The options `GetResolutionDiagnostic` reads (`crate::isolated_alias`).
+     pub(crate) resolution_diagnostic_options: crate::isolated_alias::ResolutionDiagnosticOptions,
+     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
+@@ -1551,6 +1554,7 @@
+             standard_class_fields: false,
+             allow_synthetic_defaults: false,
+             allow_importing_ts_extensions: false,
++            rewrite_relative_import_extensions: false,
+             resolution_diagnostic_options:
+                 crate::isolated_alias::ResolutionDiagnosticOptions::default(),
+             no_unchecked_side_effect_imports: true,
+@@ -1785,6 +1789,8 @@
+         // `esModuleInterop` (explicit only — its own Node16+ default is the
+         // §131 Node16/NodeNext exclusion's business); else `module == System`.
+         self.allow_importing_ts_extensions = options.allow_importing_ts_extensions.is_true();
++        self.rewrite_relative_import_extensions =
++            options.rewrite_relative_import_extensions.is_true();
+         self.resolution_diagnostic_options = crate::isolated_alias::ResolutionDiagnosticOptions {
+             allow_js: options.get_allow_js(),
+             resolve_json_module: options.get_resolve_json_module(),
+diff --git a/crates/tsr-checker/src/resolution.rs b/crates/tsr-checker/src/resolution.rs
+--- a/crates/tsr-checker/src/resolution.rs
++++ b/crates/tsr-checker/src/resolution.rs
+@@ -205,6 +205,23 @@
+         None
+     }
+ 
++    /// `program.SourceFileMayBeEmitted(file, false)` (`compiler/emitter.go:452`),
++    /// read by `resolveExternalModule`'s `rewriteRelativeImportExtensions`
++    /// arm (`checker.go:15282`, `crate::isolated_alias`). `false` for a host
++    /// with no emit.
++    fn source_file_may_be_emitted(&self, _file: NodeId) -> bool {
++        false
++    }
++
++    /// The program's `ComparePathsOptions` (`UseCaseSensitiveFileNames`,
++    /// `GetCurrentDirectory`), read by that arm's `GetRelativePathFromFile`.
++    fn compare_paths_options(&self) -> tsr_path::ComparePathsOptions {
++        tsr_path::ComparePathsOptions {
++            use_case_sensitive_file_names: true,
++            current_directory: String::new(),
++        }
++    }
++
+     /// `Program.GetResolvedModule(file, moduleReference, mode)`
+     /// (`checker.go:558`) composed with `GetSourceFileForResolvedModule`: the
+     /// file the specifier resolved to **under the usage location's mode**.
+diff --git a/crates/tsr-compiler/src/lib.rs b/crates/tsr-compiler/src/lib.rs
+--- a/crates/tsr-compiler/src/lib.rs
++++ b/crates/tsr-compiler/src/lib.rs
+@@ -1317,6 +1317,19 @@
+             resolution.resolved_file.is_some(),
+         ))
+     }
++
++    fn source_file_may_be_emitted(&self, file: tsr_ast::NodeId) -> bool {
++        self.files_by_source_file
++            .get(&file)
++            .is_some_and(|&index| Program::source_file_may_be_emitted(self, index))
++    }
++
++    fn compare_paths_options(&self) -> tsr_path::ComparePathsOptions {
++        tsr_path::ComparePathsOptions {
++            use_case_sensitive_file_names: self.use_case_sensitive_file_names,
++            current_directory: self.current_directory.clone(),
++        }
++    }
+     fn jsdoc_template_parameters(&self, declaration: NodeId) -> Vec<NodeId> {
+         // §110: linear over files, then over each file's (host, docs) rows —
+         // the table is small and the call is bake-time-only.
+diff --git a/crates/tsr-compiler/tests/r6_modules2_rewrite_extensions.rs b/crates/tsr-compiler/tests/r6_modules2_rewrite_extensions.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_modules2_rewrite_extensions.rs
+@@ -0,0 +1,108 @@
++//! r6-modules2's rewrite-extensions diff (`docs/parity/notes/r6-modules2.md`
++//! §7): `resolveExternalModule`'s `rewriteRelativeImportExtensions` arm
++//! (TS2876, TS2877), over a real program so specifiers resolve.
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ModuleKind, ScriptTarget, Tristate};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// The `(line, code)` pairs the checker reports in `file`, sorted.
++fn reported(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<(u32, u32)> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: options,
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let text = files.iter().find(|(name, _)| *name == file).expect("listed").1;
++    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    let mut reported: Vec<(u32, u32)> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(at, _)| *at == id)
++        .map(|(_, diagnostic)| {
++            let line = text[..diagnostic.span.start as usize].matches('\n').count() as u32 + 1;
++            (line, diagnostic.message.code())
++        })
++        .collect();
++    reported.sort_unstable();
++    reported
++}
++
++fn options(rewrite: bool) -> CompilerOptions {
++    CompilerOptions {
++        module: ModuleKind::NodeNext,
++        target: ScriptTarget::ES2022,
++        rewrite_relative_import_extensions: Tristate::from_bool(rewrite),
++        verbatim_module_syntax: Tristate::True,
++        ..Default::default()
++    }
++}
++
++#[test]
++fn a_relative_ts_specifier_resolving_to_a_directory_is_ts2876() {
++    // `conformance/rewriteRelativeImportExtensions/cjsErrors`: the type-only
++    // import is exempt.
++    let files = [
++        ("/foo.ts/index.ts", "export = {};\n"),
++        (
++            "/index.ts",
++            "import foo = require(\"./foo.ts\");\nimport type _foo = require(\"./foo.ts\");\n",
++        ),
++    ];
++    assert_eq!(reported(&files, options(true), "/index.ts"), [(1, 2876)]);
++    assert_eq!(reported(&files, options(false), "/index.ts"), []);
++}
++
++#[test]
++fn a_non_relative_ts_specifier_to_an_emitted_file_is_ts2877() {
++    // `conformance/rewriteRelativeImportExtensions/packageJsonImportsErrors`.
++    let files = [
++        (
++            "/package.json",
++            "{ \"name\": \"pkg\", \"type\": \"module\", \"imports\": { \"#foo.ts\": \"./foo.ts\", \"#internal/*\": \"./internal/*\" }, \"exports\": { \"./*.ts\": { \"source\": \"./*.ts\", \"default\": \"./*.js\" } } }\n",
++        ),
++        ("/foo.ts", "export {};\n"),
++        ("/internal/foo.ts", "export {};\n"),
++        (
++            "/index.ts",
++            "import {} from \"#foo.ts\";\nimport {} from \"#internal/foo.ts\";\nimport {} from \"pkg/foo.ts\";\n",
++        ),
++    ];
++    assert_eq!(reported(&files, options(true), "/index.ts"), [(2, 2877)]);
++    // Without the option the same import is TS5097, as native reports.
++    assert_eq!(reported(&files, options(false), "/index.ts"), [(2, 5097)]);
++}
