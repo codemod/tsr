@@ -308,3 +308,65 @@ node-reuse diff did for `node_reuse.rs`. Measured: no row moves on either
 dump, zero losses, Ir flat (domain-model 1,199,737,599, generic-imports
 342,888,546). No corpus case prints an `@import`ed name through this
 printer path yet.
+
+## 5. jsdocImportType: `isCommonJSRequire`'s ambient arm (item 5; calls.rs diff)
+
+**Finding.** The ambient arm is already ported (`calls.rs`
+`is_commonjs_require`, main's) but can never pass: it tests
+`combined_node_flags(declaration).contains(NodeFlags::AMBIENT)`, and no
+producer in this port sets `NodeFlags::AMBIENT` (the parser does not; see
+`unused.rs` `is_in_ambient_context`, `bd tsr-o9tl`). jsdocImportType's
+`declare function require` in `types.d.ts` resolves as a global FUNCTION,
+fails the test, and `require("./mod1")` stays `any`. (The CLI hides this
+for single-file globals: there `require` resolves to nothing and takes the
+implicit-`requireSymbol` arm.)
+
+**Diff** `r5-jsdoc4-commonjs-require-ambient.diff` (`calls.rs`): the first
+declaration of the kind (`ast.GetDeclarationOfKind`), asked through the
+existing any-file stand-in `is_ambient_declaration`
+(`merged_export_spaces.rs`: a `.d.ts`, `declare`, or an ambient module).
+
+**Measured** (on §4's commit, unfiltered): types **+5**
+(ambientRequireFunction(module=commonjs/preserve), bundlerSyntaxRestrictions
+(module=esnext/preserve), jsdocImportType `require("./mod1") : typeof D`);
+diagnostics unchanged; zero losses; Ir flat (domain-model 1,199,733,854,
+generic-imports 342,899,521). `cargo test --workspace --release` passes
+with it applied.
+
+jsdocImportType stays WRONG: `@type {C}` for `C = import("./mod1")` is the
+unqualified module-object import type `get_type_from_import_type_node`
+declines (`tsr-e2u`), so `c` is `undefined` after flow and reports TS18048
+for native's TS2454; `d` (`@type {D}`, the require alias) narrows the same
+way.
+
+## 6. Landing order and totals
+
+Diffs, each measured alone on the commit that precedes its section, all
+independent of one another (the two binder diffs touch different hunks of
+`bind_jsdoc_declarations`; all three were applied together and build):
+
+1. `r5-jsdoc4-augments-binding.diff` (binder) — §2.1;
+2. `r5-jsdoc4-typedef-block-scope.diff` (binder) — §4;
+3. `r5-jsdoc4-commonjs-require-ambient.diff` (`calls.rs`) — §5.
+
+| Set (vs `f5d0291`) | diagnostics RIGHT | types RIGHT |
+|---|---|---|
+| base | 5,385 | 545,044 |
+| this lane's commits | **5,394 (+9)** | 545,044 |
+| + the three diffs (sum of their separate measurements) | 5,395 (+10) | 545,054 (+10) |
+
+EMPTY_RIGHT 5,584 throughout. Zero RIGHT→non-RIGHT and zero
+RIGHT/EMPTY_RIGHT verdict moves in every measured step.
+
+### Remaining in the lane
+
+| Case | Blocker | Site (owner) |
+|---|---|---|
+| unmetTypeConstraintInJSDocImportCall (+ TS twin) | import types with type arguments answer `error` | `declared.rs` (r5-declared2) — §2.3 |
+| jsdocCatchClauseWithTypeAnnotation (+ TS twin) | TS18046 on `unknown` declined; TS2339 on destructured `unknown` | `nullable_operand.rs`/`members.rs` (main), `destructure.rs` (r5-shapes) — §3.2 |
+| typedefScope1 TS2304, and every TS2304 inside JSDoc | `check_type_reference_name` declines all JS-file nodes; narrowing needs native's JS value-reference arms | `check.rs`, `declared.rs` — §4.1 |
+| jsdocImportType | unqualified module-object import type | `declared.rs` (`tsr-e2u`) — §5 |
+| jsdocResolveNameFailureInTypedef, reuseTypeAnnotationImportTypeInGlobalThisTypeArgument | end-of-file comment not attached | parser — §1 |
+| jsFileMethodOverloads3, overloadTag1/2 | overload signatures not built | `signatures.rs` (`.16.163`) — §1 |
+| typedefMultipleTypeParameters | arity rule ignores a typedef's `@template` count | `type_argument_arity.rs` — §1 |
+| jsdocTemplateTagDefault, jsdocTemplateTag7/8 | `@template` defaults/modifiers not walked | `jsdoc_checks.rs` + type-parameter checks — §1 |
