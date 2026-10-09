@@ -381,18 +381,31 @@ impl<'a> Checker<'a, '_> {
     /// in every constituent survive; their value types are unioned.
     pub(crate) fn union_index_infos(&mut self, types: &[TypeId]) -> Option<Vec<IndexInfo>> {
         let mut constituents = Vec::with_capacity(types.len());
+        // The settled answers of the primitive constituents' apparent types,
+        // asked once per call (`r5-checkperf2.md` §4).
+        let mut apparent_answers: Vec<(TypeId, Vec<IndexInfo>)> = Vec::new();
         for &ty in types {
             // `getIndexInfosOfType` reads each constituent through
             // `getReducedApparentType`: a `string` constituent contributes
             // `String`'s `readonly [index: number]: string`
             // (`classDoesNotDependOnBaseTypes`). An object constituent is its
             // own apparent type, so only primitives are mapped here.
-            let ty = if self.type_of(ty).flags.intersects(TypeFlags::PRIMITIVE) {
-                self.apparent_type(ty)
+            if self.type_of(ty).flags.intersects(TypeFlags::PRIMITIVE) {
+                let ty = self.apparent_type(ty);
+                if let Some((_, infos)) = apparent_answers.iter().find(|(seen, _)| *seen == ty) {
+                    constituents.push(infos.clone());
+                    continue;
+                }
+                let mark = self.publication_mark();
+                let infos = self.get_index_infos_of_type(ty)?;
+                if self.publishable_since(mark) && infos.iter().all(|info| !self.is_gap(info.value))
+                {
+                    apparent_answers.push((ty, infos.clone()));
+                }
+                constituents.push(infos);
             } else {
-                ty
-            };
-            constituents.push(self.get_index_infos_of_type(ty)?);
+                constituents.push(self.get_index_infos_of_type(ty)?);
+            }
         }
         let Some(first) = constituents.first() else { return Some(Vec::new()) };
         let mut result = Vec::new();

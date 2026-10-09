@@ -113,3 +113,54 @@ unchanged (19.92 s → 20.01 s, 5 rounds, noise).
 **How we would know it is wrong.** A non-`Pending` arm that writes the
 list (or anything `type_literal_key` reads): the borrowed prefix would then
 see a write the snapshot did not.
+
+## §4 `union_index_infos`: one query per primitive apparent type (committed)
+
+**Forcing measurement** (jsTyping): `union_index_infos` 5.83 G inclusive
+(117 k calls, 5.28 M constituents), of which `get_index_infos_of_type` on
+the constituents 3.80 G and `apparent_type` 1.77 G. 5.08 M of the
+constituents are primitives — enum members — whose apparent type is one of
+`String`/`Number`/`BigInt`/`Boolean`/`Symbol`, so the same query ran ~45
+times per union.
+
+**Change** (`index_signatures.rs`): within one `union_index_infos` call, a
+primitive constituent's apparent type is asked once; a later constituent
+with the same apparent type reuses that answer. Convention record:
+
+- **Native operation**: `getIndexInfosOfType(getReducedApparentType(t))`
+  per constituent in `getUnionIndexInfos` (`checker.go`); native reads each
+  apparent type's resolved members, computed once per type.
+- **Key and owner**: the apparent `TypeId`; a local `Vec` owned by one
+  call, dropped at its end. Not a cache across calls.
+- **Publication**: an answer is reused only if the query that produced it
+  was publishable — `publication_mark`/`publishable_since` (no flow loop
+  active, no resolution frame observed; the rule every perf memo in
+  `perf_links.rs` uses) — and holds no gap value. Unsettled answers are
+  asked again, as before.
+- **Context**: none enters; the apparent types are the global interfaces,
+  instantiated by nothing. Mapper frames are unchanged within the loop.
+- **Work boundary**: one `get_index_infos_of_type` per distinct apparent
+  type per union instead of one per constituent; `apparent_type` still runs
+  per constituent (its side effects stay where they were).
+
+Why a reused answer is the answer the repeated query would give: a settled
+answer reads only published state (binder tables, the published
+`symbol_index_infos` and base lists), which only gains entries, and the
+constituents between the two queries are other primitives whose own
+queries only publish into the same write-once tables.
+
+**Measured.** jsTyping: `union_index_infos` inclusive 5,825,672,311 →
+**2,483,090,988 Ir** (−3.34 G, −3.4% of the phase; 5,083,850 constituents
+reused, 93,635 settled first queries, 34,572 unsettled ones re-asked);
+`--singleThreaded` CPU 20.01 s → **19.28 s (−3.6%)** against §3, 5 rounds.
+Bench projects (on top of §3): dm 1,149,340,449 → 1,148,290,873 (−0.09%);
+dml 4,665,254,228 → 4,656,043,001 (−0.20%); gi 343,503,877 → 343,521,956
+(+0.005%, noise). Interleaved new/base (§3 + §4 against the base, 31
+rounds): dm 0.992 wall / 0.987 CPU, dml 0.970 / 0.990, gi 1.011 / 0.994;
+new/tsgo dm 0.746, dml 0.735, gi 0.895. Both dumps identical; CLI output
+identical.
+
+**How we would know it is wrong.** A writer that rewrites a published
+index-info list or base list of a global interface, or a primitive whose
+apparent type is not a global interface (a new arm in `apparent_type`): the
+reused answer could then go stale within one loop.
