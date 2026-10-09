@@ -21,6 +21,19 @@ on r6-relater's code, so the base is that tip with r6-relater's branch
 - Callgrind `Ir` of the base `tsr` (`-p <project> --singleThreaded --pretty
   false`): generic-imports 343,013,497; domain-model 1,090,808,216.
 
+**Re-frozen after §5.** Batch BG landed on main (`a9d4bdf`), and main moved
+on to batch BK (`10fe6c6`). The branch merged that tip (`fb29088`, clean),
+and every measurement from §6 on is against `10fe6c6` alone:
+- `diagverdictdump`: RIGHT 5612, EMPTY_RIGHT 5606, WRONG 981, EMPTY_WRONG 39;
+- `verdictdump`: RIGHT 550143, WRONG 5392, GAP 768;
+- `Ir`: generic-imports 343,055,585; domain-model 1,092,753,470.
+
+§1–§5 merged onto it (`fb29088`), against `10fe6c6`: both loss checks
+empty, slowcases clean; diagnostics +3 (`inferFromNestedSameShapeTuple`,
+`undefinedAssignableToGenericMappedIntersection`, `unionTypeInference`;
+RIGHT 5615, WRONG 978); types unchanged; `Ir` generic-imports 343,043,425
+(−0.004%), domain-model 1,091,945,383 (−0.07%). CLI output identical.
+
 Every `Ir` below uses that command, and each run's complete CLI output is
 compared with the base's (`cmp`). Loss checks are `box-protocol.md` §5's, on
 `cut -f1,2`, unfiltered; slowcases runs on both dumps.
@@ -273,3 +286,71 @@ now relating through the distributed type where the written one declined.
 
 Test: `tests/r6_relater2.rs`
 `an_intersection_object_distributes_a_concrete_write_index`.
+
+## 6. Diff: an inline conditional's root (`conditionalTypeAssignabilityWhenDeferred`, `conditionalTypesExcessProperties`)
+
+[`r6-relater2-inline-conditional-root.diff`](r6-relater2-inline-conditional-root.diff),
+against `fb29088`: `ConditionalInferenceNode::declaration` becomes
+`pub(crate)` (`declared.rs`, r6-declared's lane), and `conditional_root`
+reads an inline conditional's written node from
+`conditional_inference_nodes`, so the conditional target and source arms
+(relater.go:3540, :3721) apply to it instead of answering `Unknown`. This is
+r6-relater §6.3's request; the doc comment of `conditional_root` ("`None`
+for an inline conditional") should drop that clause when it lands.
+
+**Measured** against `10fe6c6` (with §1–§5), both loss checks empty,
+slowcases clean:
+- alone: diagnostics `conditionalTypeAssignabilityWhenDeferred` WRONG →
+  RIGHT (+1); types unchanged; `Ir` generic-imports 343,043,425 →
+  343,038,981 (−0.001%), domain-model 1,091,945,383 → 1,091,945,357 (0%);
+  CLI output identical;
+- with r6-declared's `55cbd3f` (an intersection alias instantiates its
+  deferred conditional constituent, on r6-declared's branch, not yet on
+  main) applied as well: also `conditionalTypesExcessProperties` WRONG →
+  RIGHT (+2 in all). Without `55cbd3f`, `Something<A>` is a memberless
+  OBJECT image whose evaluated body keeps the written `T`, and it relates
+  vacuously; with it, the alias is the intersection and its conditional
+  constituent `A extends object ? { arg: A } : { arg?: undefined }` relates
+  through both branches (`A -> undefined` fails), as natively.
+
+Apply order: `55cbd3f` (r6-declared), then this diff.
+
+## 7. Rows not converted, with causes
+
+Item 2, [`r6-relater-write-constraint.diff`](r6-relater-write-constraint.diff)
+(+23/−2): **not re-measured.** It waits on getMappedTypeNameTypeKind
+deciding Remapping for `{ [K in TEvent["type"] as K extends
+Uppercase<string> ? K : never]?: … }`; no such `mapped.rs` diff exists on
+r6-declared's branch (`2708012`) or on main (`10fe6c6`).
+
+r6-relater §8.1's unreached rows:
+
+| Row | Status | Cause and owner |
+|---|---|---|
+| `undefinedAssignableToGenericMappedIntersection` | **converted, §2** | |
+| `inferFromNestedSameShapeTuple` | **converted, §3** | |
+| `unionTypeInference` | **converted, §4** | |
+| `conditionalTypesExcessProperties` | converts with §6's diff and r6-declared's `55cbd3f` | §6 |
+| `flatArrayNoExcessiveStackDepth` | not converted | `FlatArray` is unmeasured, so `FlatArray<Arr, any> -> FlatArray<Arr, D>` takes the covariant guess and `any -> D` relates. Natively `Depth` measures Unmeasurable (identity only) and the structural fallback fails. Admitting the indexed-access body to `measurable_alias_body`/`create_variance_marker_type` measured nothing: `evaluate_alias_body` does not instantiate `{ done: Arr; recur: … }[Depth extends -1 ? "done" : "recur"]` under markers (`declared.rs`, r6-declared). |
+| `invariantGenericErrorElaboration` | not converted | `Num`'s inherited `constraint: Constraint<this>` reads as `Constraint<Runtype<number>>`: `this` is the base reference, not `Num`. resolveTypeReferenceMembers' `this` padding (`members.rs`, MAIN), the cause of `thisTypeInFunctions` too (r6-relater §8.4). |
+| `mappedTypeInferenceFromApparentType` | not converted | `instantiate_signature_in_context` (`inference.rs`, MAIN) answers `None`: it infers `T` by reverse-mapping `U`'s apparent `string[]` instead of inferFromObjectTypes' mapped-to-mapped arm (constraint `keyof U` to `keyof T`, inference.go:699), and the instantiation fails. |
+
+Item 4's assignreport rows:
+
+| Row | Cause and owner |
+|---|---|
+| `generatorReturnContextualType` 32, 37 | `return_type_from_annotation` declines async generators. Lifting it converts 32 and 37 but adds 23 and 27: `return Promise.resolve({ x: 'x' })` widens `'x'` because the async-generator return operand's contextual type (`TReturn \| PromiseLike<TReturn>`, getContextualTypeForReturnExpression) is not ported (`contextual.rs`, MAIN). |
+| `lastPropertyInLiteralWins` | A fresh literal's member read answers the *first* duplicate's type (`f({ a: "s", a: 1 })` against `{ a: number }` reports TS2322), though its printed type and a widened read (`o.a`) take the last. checkObjectLiteral's `propertiesTable[name] = member` (last wins) for the member type (`objects.rs`, r6-lazytext). |
+| `logicalOrOperatorWithTypeParameters` | `t \|\| u` is typed `any`: `check_logical_or_coalescing` (`binary.rs`, no owner) declines a type-parameter pair before getUnionType's subtype reduction. Lifting that decline matches tsgo on the case but overflows the stack in `diagverdictdump`. |
+| `objectRestNegative` 6 | The object-rest assignment `({ b, ...notAssignable } = o)` never relates the rest type `{ a: number }` to its target (`destructure.rs`, MAIN). |
+
+Item 5 (single-code TS2322/TS2741/TS2353 on `fb29088`: 84 TS2322, 18
+TS2741, 9 TS2353 cases). Triaged so far beyond the rows above:
+- `indexedAccessRelation`: the relation is native's after §5; the report
+  waits on `calls.rs` (MAIN), which returns before reporting an
+  object-literal argument whose source or target could contain type
+  variables.
+- `emptyObjectNotSubtypeOfIndexSignatureContainingObject1`/`2`: `result`
+  is `any` (`mapValues(foos, f => f.foo)` is not inferred; `inference.rs`).
+- `objectFreezeLiteralsDontWiden`: `Object.freeze`'s literal keeps widened
+  members (`const T` inference, `inference.rs`/`objects.rs`).
