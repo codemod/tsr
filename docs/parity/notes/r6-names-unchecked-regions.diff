@@ -1,0 +1,123 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..7de30de 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -4414,6 +4414,8 @@ impl Checker<'_, '_> {
+         // arguments` in an interface, `++arguments` in a script. §951.
+         if text == "arguments"
+             && self.is_value_reference(node)
++            // r6-names: see the cascade's region check below.
++            && !self.names_in_unchecked_region(node)
+             && !self.in_js_file(node)
+             && !self.file_has_parse_errors
+             && !self.reference_has_non_arrow_function_container(node)
+@@ -4564,6 +4566,10 @@ impl Checker<'_, '_> {
+                 .nodes
+                 .ancestors(node)
+                 .any(|a| self.nodes.kind(a) == SyntaxKind::HeritageClause);
++            // r6-names: see the cascade's region check below.
++            if upstream_six && self.names_in_unchecked_region(node) {
++                return;
++            }
+             if upstream_six && in_heritage {
+                 self.report_primitive_type_as_value_at(node, text);
+                 return;
+@@ -4594,6 +4600,10 @@ impl Checker<'_, '_> {
+         if let Some(property) =
+             self.property_initializer_referencing_a_constructor_parameter(node, text)
+         {
++            // r6-names: see the cascade's region check below.
++            if self.names_in_unchecked_region(node) {
++                return;
++            }
+             // `checkAndReportErrorForInvalidInitializer` (`checker.go:1514`)
+             // tries the missing prefix first when the name resolved nowhere
+             // else (`result == nil`).
+@@ -4702,6 +4712,13 @@ impl Checker<'_, '_> {
+         // across the pair. The second was unreachable — the first returns on
+         // every path that reports — so it cost nothing and read as though two
+         // different cascades were being run. §248.
++        // r6-names: native never checks an empty `for…of` declaration list's
++        // expression or a decorator `NodeCanBeDecorated` rejects, so nothing
++        // in them is reported. Asked only on the paths that report (here and
++        // in the three arms above), not of every identifier.
++        if self.names_in_unchecked_region(node) {
++            return;
++        }
+         // `onFailedToResolveSymbol` (`checker.go:1564`) asks for the missing
+         // `this.`/class prefix before any other arm.
+         if self.check_and_report_error_for_missing_prefix(node, text) {
+diff --git a/crates/tsr-checker/src/name_slots.rs b/crates/tsr-checker/src/name_slots.rs
+index e2e9b96..651132b 100644
+--- a/crates/tsr-checker/src/name_slots.rs
++++ b/crates/tsr-checker/src/name_slots.rs
+@@ -69,7 +69,6 @@ impl Checker<'_, '_> {
+     /// One walk answers both, testing the kind column before building a typed
+     /// node: it runs for every value identifier, and a typed node per ancestor
+     /// was most of its cost (`docs/parity/notes/r6-names.md` §12).
+-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-unchecked-regions.diff")]
+     pub(crate) fn names_in_unchecked_region(&self, node: NodeId) -> bool {
+         let mut current = node;
+         while let Some(parent) = self.nodes.parent(current) {
+diff --git a/crates/tsr-conformance/tests/r6_names_unchecked_regions.rs b/crates/tsr-conformance/tests/r6_names_unchecked_regions.rs
+new file mode 100644
+index 0000000..a4edfab
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names_unchecked_regions.rs
+@@ -0,0 +1,56 @@
++//! r6-names: regions native never checks (`crates/tsr-checker/src/name_slots.rs`,
++//! `names_in_unchecked_region`): the expression of an empty `for…of`
++//! declaration list, and a decorator on a node `NodeCanBeDecorated` rejects.
++//! Expectations are native tsgo output at the pinned 5b1047d.
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(file: &str, source: &str, legacy: bool) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names", file, source);
++    case.options.insert("target".into(), "es2015".into());
++    case.options.insert("strict".into(), "false".into());
++    if legacy {
++        case.options.insert("experimentaldecorators".into(), "true".into());
++    }
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++/// `checkForOfStatement` reaches the expression only through a declaration,
++/// so an empty list leaves it unchecked; a declared one and `for…in` do not.
++#[test]
++fn an_empty_for_of_declaration_list_leaves_its_expression_unchecked() {
++    let source = "for (var of missingOf) { }
++for (var x of missingDeclared) { }
++for (var in missingIn) { }";
++    assert_eq!(
++        diagnostics("for_of.ts", source, false),
++        [(1, 9, 1123), (2, 15, 2304), (3, 9, 1123), (3, 13, 2304)],
++    );
++}
++
++const SOURCE: &str = "var v = @missingA class C { static p = 1 };
++class D { @missingB m() {} }
++function f(@missingC x: number) {}
++class E { m(@missingD x: number) {} }
++class F { @missingE.member() p = 1; }";
++
++#[test]
++fn legacy_decorators_on_a_class_expression_are_not_resolved() {
++    assert_eq!(
++        diagnostics("d.ts", SOURCE, true),
++        [(1, 9, 1206), (2, 12, 2304), (3, 12, 1206), (4, 14, 2304), (5, 12, 2304)],
++    );
++}
++
++#[test]
++fn standard_decorators_on_a_parameter_are_not_resolved() {
++    assert_eq!(
++        diagnostics("d.ts", SOURCE, false),
++        [(1, 10, 2304), (2, 12, 2304), (3, 12, 1206), (4, 13, 1206), (5, 12, 2304)],
++    );
++}

@@ -1,0 +1,96 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..ad0405a 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -5076,6 +5076,12 @@ impl Checker<'_, '_> {
+         // annotation is a construct the file may not contain, so nothing inside
+         // it is resolved. The value-position rule has carried this decline
+         // since it was written; this one never got it. §779.
++        // **Corrected by r6-names:** upstream does resolve it. TS8008/TS8010
++        // are syntactic (`getJSSyntacticDiagnosticsForFile`) and the checker
++        // still reaches the annotation, so native reports TS2304 beside them
++        // (`fillInMissingTypeArgsOnJSConstructCalls`). Only names inside a
++        // JSDoc comment keep the decline (`name_slots.rs`,
++        // `docs/parity/notes/r6-names.md` §6).
+         // **No `file_has_parse_errors` here.** §254's −14 measurement was made
+         // on `check_value_identifier`, which has never carried the gate; this
+         // path always has and nobody had measured it. `interface I { a: Foo; b }`
+@@ -5102,7 +5108,8 @@ impl Checker<'_, '_> {
+             self.report_primitive_type_as_value_at(node, text);
+             return;
+         }
+-        if is_specially_diagnosed_name(text) || self.in_js_file(node) {
++        if is_specially_diagnosed_name(text) || (self.in_js_file(node) && self.names_in_jsdoc(node))
++        {
+             return;
+         }
+         // **A duplicate heritage clause is recovered syntax.** `class C
+diff --git a/crates/tsr-checker/src/name_slots.rs b/crates/tsr-checker/src/name_slots.rs
+index d21d1c5..a839a60 100644
+--- a/crates/tsr-checker/src/name_slots.rs
++++ b/crates/tsr-checker/src/name_slots.rs
+@@ -91,7 +91,6 @@ impl Checker<'_, '_> {
+     /// A reparsed JSDoc root has no parent edge here (the parser's
+     /// `attach_jsdoc`), so a walk that ends anywhere but a source file is in
+     /// a comment.
+-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-js-type-annotations.diff")]
+     pub(crate) fn names_in_jsdoc(&self, node: NodeId) -> bool {
+         let mut current = node;
+         loop {
+diff --git a/crates/tsr-conformance/tests/r6_names_js_type_annotations.rs b/crates/tsr-conformance/tests/r6_names_js_type_annotations.rs
+new file mode 100644
+index 0000000..ea54b80
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names_js_type_annotations.rs
+@@ -0,0 +1,51 @@
++//! r6-names: a TypeScript-only type annotation in a JavaScript file is still
++//! resolved (`crates/tsr-checker/src/name_slots.rs`, `names_in_jsdoc`).
++//! Expectations are native tsgo's compiler-test harness output at the pinned
++//! 5b1047d (`allowJs`, `checkJs`, `target es2015`).
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(file: &str, source: &str) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names", file, source);
++    case.options.insert("target".into(), "es2015".into());
++    case.options.insert("allowjs".into(), "true".into());
++    case.options.insert("checkjs".into(), "true".into());
++    case.options.insert("noemit".into(), "true".into());
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++#[test]
++fn typescript_annotations_in_javascript_resolve_their_names() {
++    let source = "type A = Missing1;
++function f(x: Missing2): Missing3 { return x; }
++let v: Missing4 = 1;
++class C<T extends Missing5> { p: Missing6; }
++interface I { a: Missing7 }
++var r = (): Missing12 => 1;";
++    assert_eq!(
++        diagnostics("a.js", source),
++        [
++            (1, 6, 8008),
++            (1, 10, 2304),
++            (2, 15, 2304),
++            (2, 15, 8010),
++            (2, 26, 2304),
++            (2, 26, 8010),
++            (3, 8, 2304),
++            (3, 8, 8010),
++            (4, 9, 8004),
++            (4, 19, 2304),
++            (4, 34, 2304),
++            (4, 34, 8010),
++            (5, 11, 8006),
++            (5, 18, 2304),
++            (6, 13, 2304),
++            (6, 13, 8010),
++        ],
++    );
++}

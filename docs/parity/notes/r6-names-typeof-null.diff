@@ -1,0 +1,57 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..ea5453e 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -4511,7 +4511,9 @@ impl Checker<'_, '_> {
+         // reports TS2339 on the `.z` instead. Like `null`, `this` is not a
+         // spellable binding in any scope, so declining it can hide no real
+         // diagnostic.
+-        if text == "null" || text == "this" {
++        // r6-names: `typeof null` is an identifier natively too
++        // (`parseTypeQuery` allows reserved words), and native reports it.
++        if (text == "null" && !self.names_in_type_query_entity_name(node)) || text == "this" {
+             return;
+         }
+         // `checkAndReportErrorForUsingTypeAsValue` (`checker.go:1681`) runs
+diff --git a/crates/tsr-checker/src/name_slots.rs b/crates/tsr-checker/src/name_slots.rs
+index f3ef713..7961f02 100644
+--- a/crates/tsr-checker/src/name_slots.rs
++++ b/crates/tsr-checker/src/name_slots.rs
+@@ -118,7 +118,6 @@ impl Checker<'_, '_> {
+     /// with `allowReservedWords`, so `typeof null` is an identifier natively
+     /// too, and `checkIdentifier` reports TS2304 *Cannot find name 'null'*
+     /// (`invalidTypeOfTarget`). The decline must not fire there.
+-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-typeof-null.diff")]
+     pub(crate) fn names_in_type_query_entity_name(&self, node: NodeId) -> bool {
+         let mut current = node;
+         while let Some(parent) = self.nodes.parent(current) {
+diff --git a/crates/tsr-conformance/tests/r6_names_typeof_null.rs b/crates/tsr-conformance/tests/r6_names_typeof_null.rs
+new file mode 100644
+index 0000000..5413061
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names_typeof_null.rs
+@@ -0,0 +1,24 @@
++//! r6-names: `typeof null` names an identifier natively too, so an unresolved
++//! one is TS2304; `class C extends null` stays silent. Expectations are native
++//! tsgo output at the pinned 5b1047d.
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(file: &str, source: &str) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names", file, source);
++    case.options.insert("target".into(), "es2015".into());
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++#[test]
++fn a_type_query_reports_an_unresolved_null() {
++    let source = "var x6: typeof null;
++class C extends null {}
++var x7: typeof null.a;";
++    assert_eq!(diagnostics("n.ts", source), [(1, 16, 2304), (3, 16, 2304)]);
++}
