@@ -518,7 +518,19 @@ impl Checker<'_, '_> {
             let value = self.resolved_indexed_access_type(object, index, include_undefined)?;
             return self.next_base_constraint(value);
         }
-        if self.deferred_keyof_operands.contains_key(&ty) {
+        if let Some(&operand) = self.deferred_keyof_operands.get(&ty) {
+            // computeBaseConstraint's Index arm (checker.go:27523): the keys
+            // of a generic mapped type with an `as` clause and no `keyof`
+            // constraint are its constraint mapped through the name type.
+            if self
+                .mapped_types
+                .get(&operand)
+                .is_some_and(|info| info.name_type.is_some() && !info.keyof_constraint)
+                && self.is_generic_index_type(self.mapped_types[&operand].constraint)
+                && let Some(keys) = self.index_type_for_generic_mapped_type(operand)
+            {
+                return self.next_base_constraint(keys);
+            }
             return Some(self.get_union_type(&[
                 self.intrinsics.string,
                 self.intrinsics.number,

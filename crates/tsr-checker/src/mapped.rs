@@ -664,9 +664,6 @@ impl<'a> Checker<'a, '_> {
     /// through the name type (forEachType). A homomorphic mapping answers
     /// `None`: its keys come from getIndexTypeForGenericType, a deferred
     /// `keyof` the caller already holds.
-    // Its caller is r5-mapped5-generic-mapped-keys-constraint.diff, which
-    // removes this allowance.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn index_type_for_generic_mapped_type(&mut self, id: TypeId) -> Option<TypeId> {
         self.ensure_mapped_type_info(id);
         let info = self.mapped_types.get(&id)?.clone();
