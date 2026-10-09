@@ -1679,6 +1679,9 @@ impl Checker<'_, '_> {
         if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
             return Some(member);
         }
+        if let Some(member) = self.expression_heritage_member(id, name, this_argument) {
+            return Some(member);
+        }
         // §770: a TUPLE's non-numeric members come from `Array<T>`.
         //
         // Upstream's tuple is a REFERENCE to a target synthesised by
@@ -1808,6 +1811,52 @@ impl Checker<'_, '_> {
         (property.postfix_token.is_none()
             && matches!(property.r#type, Some(tsr_ast::TypeNode::KeywordTypeNode(keyword)) if keyword.kind == tsr_ast::SyntaxKind::NumberKeyword))
         .then_some(body)
+    }
+
+    /// `resolveObjectTypeMembers`' base merge (pinned 5b1047d,
+    /// `checker.go:19127`) for a class whose `extends` expression names no
+    /// class or interface symbol (`extends class { a = 1 }`, `extends
+    /// (await import("./0")).B`, `extends mixin(B)`): the members of
+    /// `getTypeWithThisArgument(base, thisArgument)` for each base of
+    /// `getBaseTypes` (`base_types.rs`, which types the expression through
+    /// `getBaseConstructorTypeOfClass`). The symbol walk
+    /// (`base_symbols_of_ex`) gaps on such an entry, so the type answer was
+    /// `errorType`. Only the class's own declared type is read this way: a
+    /// generic class's reference would need the base instantiated with its
+    /// arguments, which this arm does not do. No cache: `getBaseTypes` is
+    /// published in `base_type_links`; one member read per base after the
+    /// own and symbol roads miss.
+    fn expression_heritage_member(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        this_argument: TypeId,
+    ) -> Option<TypeId> {
+        for base in self.expression_heritage_bases(id) {
+            if let Some(member) =
+                self.get_type_of_property_with_this_argument(base, name, this_argument, false)
+            {
+                return Some(member);
+            }
+        }
+        None
+    }
+
+    /// `getBaseTypes` of `id`'s class when [`Self::expression_heritage_member`]
+    /// applies: `id` is a non-generic class's own declared type whose symbol
+    /// walk gaps on an `extends` expression. Empty otherwise.
+    pub(crate) fn expression_heritage_bases(&mut self, id: TypeId) -> Vec<TypeId> {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return Vec::new();
+        };
+        if !self.binder.symbols().get(owner).flags.contains(SymbolFlags::CLASS)
+            || self.type_reference_targets.contains_key(&id)
+            || !self.local_type_parameters_of(owner).is_empty()
+            || self.base_symbols_of_ex(owner, false).is_some()
+        {
+            return Vec::new();
+        }
+        self.get_base_types(owner)
     }
 
     /// Resolve inherited members through each instantiated base, guarded by
