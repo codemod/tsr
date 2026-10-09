@@ -519,3 +519,29 @@ lines); `Ir`: generic-imports 342,889,305 → 342,908,758 (+0.006%); domain-mode
 extends Extract<keyof T, string>`, `J extends K`) still fails on `K -> J`,
 which ends `Unknown` in the conditional source arms (r5-relater4 §2's
 decline, as r5-relater6 §4 recorded). Not taken up this session.
+
+## 13. Held: a primitive source against an index-signature target
+
+[`r5-relater7-primitive-index.diff`](r5-relater7-primitive-index.diff). The
+gate's primitive-source branch answered `Unknown` whenever the target carried
+index infos ("indexed targets still need sourceIsPrimitive rules"). The diff
+ports those rules: the structural arm's conjuncts in native's order with
+`sourceIsPrimitive` (relater.go:3814, :3864), whose only effect in
+`indexSignaturesRelatedTo` (relater.go:4588) is to skip the `[x: string]: any`
+shortcut, so `"foo" -> { [x: string]: any }` asks String's index infos and
+fails (`isObjectTypeWithInferableIndex` is false for an interface).
+
+**Measured** against §0 (first run of this lane): `assignmentCompat1` and
+`indexTypeCheck` WRONG → RIGHT; types `deeplyNestedConstraints:0:6-8`,
+`typeGuardConstructorNarrowPrimitivesInUnion:0:14`,
+`typeGuardConstructorPrimitiveTypes:0:6` gained; **one loss**:
+`unionTypeWithIndexedLiteralType` (EMPTY_RIGHT → EMPTY_WRONG, TS2322 at 4:16).
+There `const u: U = { x: "lit" }` with `U = Idx | I | "lit"` and `interface
+Idx { [index: string]: U }`: the port types the literal `{ x: string }`
+(that types line is already WRONG at base; native: `{ x: "lit" }`, the
+literal kept because the contextual type of `x`, `U` through `Idx`'s index
+signature, contains `"lit"`). `string -> U` is now a correct NotRelated
+(`string -> Idx` fails on the index), where it used to be `Unknown`. The
+relation is right and the contextual literal is wrong (`contextual.rs`,
+main's: `isLiteralOfContextualType` through a union's index signature).
+Lands once that literal is kept; re-measure then.
