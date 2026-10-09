@@ -163,3 +163,56 @@ relation now decides NotRelated wrongly and the arm reports.
 
 Test (in the diff, `crates/tsr-checker/tests/r6_relater3_call_excess.rs`):
 `an_instantiated_parameter_reports_a_literal_excess_property_first`.
+
+## 4. A JS function's return checks read its JSDoc return type (`arrowExpressionBodyJSDoc`, `importTag24`)
+
+Item 1's triage rows in this lane (§1): three cases whose missing TS2322 is
+`check_return_statement` / `check_arrow_expression_body` (`assignreport.rs`)
+returning before anything in a JS file.
+
+**Forcing constraint.** checkReturnStatement (checker.go:4086) and
+checkFunctionExpressionOrObjectLiteralMethodDeferred's concise-body arm
+(:10206) relate against getReturnTypeFromAnnotation (:20058), which has no
+JS condition: `declaration.Type()` (in JS the `@returns` type reparseHosted
+stores there), an unannotated getter's setter annotation, then
+getReturnTypeOfFullSignature (:20091, a JS function's `@type` signature).
+The port read only the written annotation and declined JS files outright,
+so `/** @returns {number} */ function f() { return "s"; }` was silent.
+
+**Ported.**
+- `annotated_return_type`: getReturnTypeFromAnnotation's three arms, with
+  the reparsed `@returns` from `jsdoc_reparsed_function` and the full
+  signature from `jsdoc_full_signature_return_type` (which reads function
+  and method declarations, as that helper already does for parameters).
+  `return_type_from_annotation` and the concise-arrow check use it; both JS
+  declines are gone.
+- getEffectiveCheckNode's `OEKExcludeJSDocTypeAssertion` (checker.go:9381):
+  in JS the parentheses of a `@type` cast are the error node, not the
+  expression inside them (`arrowExpressionBodyJSDoc` reports at column 44,
+  the `(`). `skip_outer_parentheses` stops there too, as SkipParentheses
+  stops at the reparsed `AsExpression` natively.
+
+**Kept declined.** The constructor arm (TS2409) stays declined in JS:
+`extendsTag5`'s `return a` with `@template {Foo} T` and `@param {T} a`
+relates an unconstrained `T` to `A<T>`, because the class's JSDoc
+`@template` constraint is not read there (in a .ts file the same class
+matches tsgo). Lifting it lost `extendsTag5` (RIGHT → WRONG, a TS2322 and a
+TS2409 native does not report). Owner of the constraint: r6-jsdoc.
+
+**Measured** against §0, both loss checks empty, slowcases clean, no other
+case's output moved:
+- diagnostics: `arrowExpressionBodyJSDoc`, `importTag24` WRONG → RIGHT
+  (RIGHT 5616, WRONG 977); `jsdocBracelessTypeTag1` gains its 3:3 line (its
+  20:16 is a JS `@type` union context widening a literal: r6-jsdoc);
+- types unchanged;
+- `Ir`: generic-imports 343,049,980 (−0.02% against 343,068,763),
+  domain-model 1,090,346,740 (−0.05% against 1,090,870,214). CLI output
+  identical.
+
+**Falsifier.** A JS function whose `@returns` or `@type` the port reads
+differently from the reparser (a tag on an outer host, a function
+expression's full signature, which the helper does not read yet), now
+reporting where native relates or vice versa.
+
+Test: `tests/r6_relater3.rs`
+`a_js_function_returns_against_its_jsdoc_return_type`.
