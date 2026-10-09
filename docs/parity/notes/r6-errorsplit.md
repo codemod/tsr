@@ -172,7 +172,8 @@ declared receiver's write as its member type.
 ## §5 Diff O (`members.rs`, main's): the object-literal arm of a union property
 
 [`r6-errorsplit-objlit-union.diff`](r6-errorsplit-objlit-union.diff) applies on
-commit 2. `createUnionOrIntersectionProperty` (`checker.go:21545`) lets a
+commit 3 (`c0c143f`, a comment-only reorder of the exclusion doc; it was
+first cut on commit 2 and re-cut there with the pinned test below). `createUnionOrIntersectionProperty` (`checker.go:21545`) lets a
 union constituent that lacks the name still contribute: an applicable index
 signature contributes its value type, and a spread-free object-literal type
 (`isObjectLiteralType(t) && t.objectFlags&ObjectFlagsContainsSpread == 0`)
@@ -202,4 +203,99 @@ The property-access write `(options || {}).a = 1` still answers the gap: the
 property road's miss is `crate::members`', not this lane's.
 
 The diff carries `tests/union_object_literal_property.rs`, which fails without
-it.
+it, and flips `tests/element_access_miss.rs`' pin of the old exclusion
+(`(x || {})["a"]` was asserted to stay the gap; it now reads
+`string | undefined`). That pin is the exclusion's falsifier, and it fired as
+intended: the first cut of the diff missed it, and the workspace run caught
+it before the re-cut.
+
+## §6 Diff L (`binder.rs`, `members.rs`, `callable_expandos.rs`): late-bound assignment members
+
+[`r6-errorsplit-late-bound-assignments.diff`](r6-errorsplit-late-bound-assignments.diff)
+applies on diff O (apply order: O, then L). The binder is main's,
+`members.rs` is main's and `callable_expandos.rs` belongs to no lane, so the
+whole piece ships as a diff, with the lift of the function exclusion in this
+lane's `indexed.rs` on top.
+
+**The forcing constraint.** `foo[strMem] = "ok"` on an expando target names
+its member through a key the binder cannot evaluate. Upstream's binder
+(`bindDeferredExpandoAssignment`, `binder.go:1050`) binds such an assignment
+as an anonymous `__computed` property (`bindAnonymousDeclaration`) and files
+it under the target's `InternalSymbolNameAssignmentDeclaration` export
+(`addLateBoundAssignmentDeclarationToSymbol`, `binder.go:1000`).
+`getResolvedMembersOrExportsOfSymbol`'s static arm (`checker.go:15962`) then
+late-binds each with `lateBindMember`, keyed by the type of the element
+access argument. The port's binder dropped the assignment
+(`let name = name?;`), so the function's type had no such member: every read
+gapped, and its printed type lacked the members
+(`{ (): void; bar: number; }` for upstream's
+`{ (): void; bar: number; [_private]: string; strMemName: string; … }`).
+
+**The port.**
+
+- *Binder* (`bind_late_bound_assignment_declaration`): a dynamic-named
+  `foo[k] = v` (an element-access left whose key the binder could not name)
+  gets a `__computed` symbol (`PROPERTY | ASSIGNMENT`, parented to the
+  container's symbol as `bindAnonymousDeclaration` does for a class member,
+  value declaration the assignment), and the assignment is appended to the
+  declarations of the target's `__assignment` export, created flagless on
+  first use. Same key and shape as upstream's table.
+- *Checker* (`late_bound_members_of`): the static arm reads `__assignment`'s
+  declarations after the computed members, as upstream does. A declaration
+  binds when its argument is an entity name expression (`isLateBindableAST`)
+  whose type is usable as a property name; literals name the member by
+  value, a unique symbol by this port's bracketed entity spelling (§2's
+  convention). The table is `late_bound_member_names`' existing
+  `(symbol, is_static)` entry: same owner, same publication states (an empty
+  in-progress entry, then the completed list), no new cache.
+- *Lookup* (`get_property_of_anonymous_symbol`): a function, like a class,
+  falls back to its late-bound static members after its exports.
+- *Image* (`callable_export_properties`): the late members follow the early
+  exports in declaration order, an early name shadowing a late one
+  (`combineSymbolTables(early, late)`, `checker.go:15975`). A late member
+  prints by its name type, so `const numStr = "10"` prints `"10"` where a
+  numeric key prints `10` (`late_bound_assignment_printed_name`).
+
+**Limits accepted.** `lateBindMember` gathers every declaration of one late
+name into one symbol whose type is `getWidenedTypeForAssignmentDeclaration`
+over all of them. The port reads the first declaration's `__computed`
+symbol. No corpus line has two late assignments to one name with different
+types; a test that did would falsify this. The `this[k] = v` arm of
+`bindThisPropertyAssignment` (JS classes) also files into the table upstream
+and is not ported here. And `foo[k] = true` under a declared callable type
+widens to `boolean` where upstream reads the declared `true`
+(`expandoFunctionExpressionsWithDynamicNames2`, 2 lines that stay WRONG, now
+with the member present): that is `getWidenedTypeForAssignmentDeclaration`'s
+declared-type arm, the same gap a named expando has.
+
+**Measured** on commit 2 (unfiltered, both dumps) without the lift, then with
+it: zero losses either way. With the lift:
+
+- types **549,942 / 813 / 5,548**: 30 GAP→RIGHT, 57 WRONG→RIGHT, in
+  `declarationEmitLateBoundAssignments{,2}`,
+  `declarationEmitLateBoundJSAssignments`,
+  `expandoFunctionExpressionsWithDynamicNames{,2}`,
+  `expandoFunctionSymbolProperty{,Js}` and
+  `lateBoundAssignmentDeclarationSupport*`;
+- diagnostics **5,530 / 5,597 / 1,063 / 48**: `expandoFunctionSymbolProperty`
+  EMPTY_WRONG→EMPTY_RIGHT;
+- the lift moves **19 lines to `native_error`, all `errorType` natively**
+  (`augmentedTypeBracketAccessIndexSignature`' `(() => { })[0]` and the
+  variable it initializes, and 17 lines of `propertyAccess`, `noIndex[…]` on
+  a function receiver). The 30 former false claims now compute their
+  members. Credited gap 2,150 → **2,131**.
+
+O and L stacked, measured on commit 2: **+106** (43 GAP→RIGHT, 63
+WRONG→RIGHT), zero losses, the same diagnostics transition: the two diffs
+are additive. slowcases clean. Perf against the base binary read 1.032 /
+0.985 (21 samples) and 1.051 / 0.940 (41); an A/B against the commit-2 binary
+directly reads domain-model 0.999 and 0.986 on two 41-sample runs, so the
+base-binary ratio is drift between sessions of the bench, not this diff. The
+added work is one exports read per function-symbol member miss, plus the
+late-bound list, which `late_bound_member_names` computes once per symbol.
+
+Tests: the diff carries `tests/late_bound_assignment_members.rs` (a late
+string key reads back its member; the function's printed type carries the
+late members after the early one, named by key type; a key the function
+lacks is `errorType`), and flips `tests/element_access_miss.rs`' function
+pin from the gap to `native_error`.
