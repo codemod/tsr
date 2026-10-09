@@ -327,18 +327,182 @@ fixture prints the same three lines. The diff adds
 the options, silence without `emitDecoratorMetadata`, and silence under
 `module: commonjs`.
 
-## 4. The four diffs together
+## 4. The diffs together
 
 Apply order: `r6-isolated-export-assignment.diff`,
 `r6-isolated-global-value.diff`, `r6-isolated-const-enum-access.diff`,
-`r6-isolated-decorator-metadata.diff`. They touch disjoint hunks and
-apply cleanly in any order on top of this branch's `isolated_alias.rs`.
-Measured together against `b18aec06`:
+`r6-isolated-decorator-metadata.diff`, `r6-isolated-resolution-diagnostic.diff`
+(§5). They touch disjoint hunks and apply cleanly together on top of this
+branch's `isolated_alias.rs`.
+
+The first four measured together against `b18aec06`:
 
 - diagnostics **+8 rows**, the sum of §1–§3 (4 + 1 + 2 + 1);
 - zero losses, every added diagnostic in its baseline, types identical,
   slowcases clean;
 - `cargo test --workspace --release`: 3,494 passed, 0 failed.
 
+All five together:
+
+- **+21 rows** (8 + 13);
+- zero losses, every added diagnostic in its baseline, types identical,
+  slowcases clean;
+- 3,496 tests passed, 0 failed.
+
+`coverage` against the snapshots committed at the base:
+
+| Row | base | all five diffs |
+|---|---:|---:|
+| `checker_types` | 8,489 / 9,538 | 8,489 / 9,538 |
+| `diagnostics` | 4,636 / 5,502 | 4,644 / 5,502 |
+| `diagnostics_configured` | 894 / 1,091 | 907 / 1,091 |
+
 When the integrator applies a diff, the `#[allow(dead_code, reason = …)]`
 on its function should be dropped in the same commit.
+
+## 5. `GetResolutionDiagnostic` beyond JS/JSX/TSX, TS2846 and TS5097
+
+### Upstream
+
+`resolveExternalModule` (pinned `checker.go:15209`) computes
+`module.GetResolutionDiagnostic(options, resolvedModule, file)`
+(`module/util.go:123`) for every resolved specifier, from the resolver's
+`Extension`. The cases are:
+
+- `.ts`/`.d.ts`/`.mts`/`.d.mts`/`.cts`/`.d.cts`: none;
+- `.tsx`: TS6142 without `--jsx`;
+- `.jsx`: TS6142, then the `allowJs` arm;
+- `.js`/`.mjs`/`.cjs`: TS7016 under `noImplicitAny` without `allowJs`;
+- `.json`: TS7042 without `resolveJsonModule`;
+- anything else, i.e. an arbitrary extension's `.d.<ext>.ts`: TS6263 without
+  `allowArbitraryExtensions`, unless the importing file is a declaration
+  file.
+
+Any diagnostic but TS6142 keeps the file out (`sourceFile == nil`), and the
+not-found tail reports the diagnostic itself (`:15403`). With the file in,
+TS6142 is reported, and then the `ResolvedUsingTsExtension` arms run inside
+an emittable import (`ast.IsEmittableImport`):
+
+- TS2846 for a declaration-file specifier, with `getSuggestedImportSource`;
+- TS5097 when `!AllowImportingTsExtensionsFrom(importing file)`.
+
+### What TSR had
+
+`check.rs::check_untyped_module_import` ported only the JS/JSX/TSX arms.
+It runs only when no module symbol resolves, and it reads the extension off
+the resolved path. The program kept neither the resolver's `Extension` nor
+`ResolvedUsingTsExtension`. A `.d.html.ts` reached through `./x.html` looks
+like any `.ts` file by path; upstream's extension is `.d.html.ts`. So:
+
+- TS6263 and TS5097 were never reported;
+- TS2846 and a typed `.tsx`'s TS6142 were missing;
+- under the node modes, the `.d.node.ts` resolution fell to TS2306 instead
+  of TS6263.
+
+### The port
+
+`Checker::check_module_resolution_diagnostic` and the free function
+`resolution_diagnostic` (`GetResolutionDiagnostic`) in `isolated_alias.rs`,
+plus `is_emittable_import`, `allow_importing_ts_extensions_from` and
+`suggested_import_source`. The function reports TS6142 (typed case), TS2846
+and TS5097 when the file is in the program. Otherwise it reports the
+non-JS resolution diagnostic and returns `true`, so the caller skips its
+found-file reports, as upstream's nil `sourceFile` does. The JS arm (TS7016)
+stays with `check_untyped_module_import`, which already ports it.
+
+The hook (`r6-isolated-resolution-diagnostic.diff`) spans the loader, the
+program, the host trait and the checker:
+
+- `tsr-compiler/src/loader.rs`: `ResolutionRequest` carries the resolver's
+  `extension` (a `Cow<'static, str>`, borrowed for every fixed extension)
+  and `resolved_using_ts_extension`;
+- `tsr-compiler/src/lib.rs`: `ModeResolution` keeps them, and
+  `ModuleHost::resolved_module_extension` answers them;
+- `tsr-checker/src/resolution.rs`: that trait method, defaulting to `None`;
+- `checker.rs`: `resolution_diagnostic_options` (`GetAllowJS`,
+  `GetResolveJsonModule`, `allowArbitraryExtensions`,
+  `GetAllowImportingTsExtensions`);
+- `check.rs::check_module_specifier`: the call, before
+  `check_untyped_module_import`.
+
+**The work boundary, measured.** A straight port cost domain-model +0.14% Ir:
+
+- a second `module_resolution_mode` per import;
+- `is_declaration_file` per import;
+- a `String` per resolution request, cloned through the loader. This was
+  most of it: about 1M Ir in `malloc`/`free`.
+
+Three changes bring it to +0.01–0.02% (1,091,463,085 → 1,091,658,944;
+1,090,823,057 → 1,090,966,903):
+
+1. The host answers from the resolution every mode agrees on
+   (`agreed_resolution`). A disagreement is the same file asked in two
+   modes with two answers, and only then is the usage's mode computed.
+2. The declaration-file test is asked only by the arbitrary-extension arm.
+3. Fixed extensions are borrowed `'static`.
+
+The common import (a `.ts` target with no TS extension in the specifier)
+returns before any string work. No cache is added: each fact is read from
+the program's existing resolution table.
+
+Deliberately left out:
+
+- `rewriteRelativeImportExtensions`' three arms (`:15261`). They need
+  `SourceFileMayBeEmitted`, `GetRedirectForResolution` and the common
+  source directory, which the host does not expose; no row in the dumps
+  needs them.
+- The project-reference `Output_file_0_has_not_been_built` redirect
+  (`:15390`). There are no project references in this program.
+
+**Accepted difference.** Upstream's nil `sourceFile` also makes the import
+alias resolve to `unknownSymbol`. TSR's `resolve_external_module_name`
+(`symbols.rs`) still returns the module symbol for a TS6263 file, so uses of
+the import are type-checked against it. That can only add a diagnostic
+upstream lacks. None appears in the dumps (the three node-mode rows lose
+their wrong TS2306 and add nothing). Making `resolve_external_module_name`
+answer `None` for that case is main's file and is left for the integrator.
+
+### Measured
+
+Against `b18aec06`, unfiltered, with the final hook: diagnostics **+13
+rows**, WRONG → RIGHT:
+
+- `declarationFileForHtmlImport(allowarbitraryextensions=false)`;
+- `declarationFilesForNodeNativeModules(allowarbitraryextensions=false,…)`
+  ×3 (TS6263, and the wrong TS2306 gone);
+- `bundlerImportTsExtensions` ×4 (TS5097 ×5, TS2846 ×2, TS6142);
+- `bundlerRelative1` ×2;
+- `moduleResolutionNoTsCJS`, `moduleResolutionNoTsESM`;
+- `resolutionCandidateFromPackageJsonField2`.
+
+`checkJsxNotSetError`, `allowsImportingTsExtension` and
+`decoratorOnClassConstructor2(target=es2015)` gain expected lines and stay
+WRONG on others. Every added diagnostic is in its baseline. Zero losses,
+types identical, slowcases clean. CPU new/base: domain-model 1.007,
+generic-imports 0.917, 21 samples each, `diagnostics_match: true`. Native
+`tsgo` agrees on reduced fixtures, including TS5097 on a root `./c.tsx`
+next to its TS6142. The diff adds
+`crates/tsr-compiler/tests/r6_isolated_resolution_diagnostic.rs`.
+
+## 6. What remains in the lane, with causes
+
+- **TS1295 on `isolatedModulesShadowGlobalTypeNotValue`'s `good.ts`**
+  (`(false,true)` and `(true,true)` rows). The alias target is
+  `export = globalThis.console` inside `declare module 'node:console'`.
+  `symbols.rs::resolve_alias` does not resolve a property-access
+  `export =`, so `check_alias_symbol` returns before the round-5 arm.
+  Owner: main (`symbols.rs`).
+- **TS2475 for unannotated initializers** (`constEnumErrors` lines 27/28,
+  `constEnumPropertyAccess2`). The statement walk never types
+  `var x = E2`, so `checkExpressionEx`'s hook never sees it. Owner: main
+  (`check.rs`, `checkVariableLikeDeclaration`'s initializer check).
+- **`isolatedModulesExportImportUninstantiatedNamespace`** (TS1269 on
+  `export import` of an uninstantiated namespace),
+  **`isolatedModulesGlobalNamespacesAndEnums`** (TS1280, TS1281),
+  **`verbatimModuleSyntaxInternalImportEquals`** (TS2503) and the
+  **`blockScopedEnumVariablesUseBeforeDef_*`** TS2450 pair were not in this
+  round's items and were not classified.
+- **`resolve_external_module_name` answering a symbol for a TS6263 file**
+  (§5, accepted difference). Owner: main (`symbols.rs`).
+- **`rewriteRelativeImportExtensions`' arms** (§5). They need host facts
+  the program does not expose.

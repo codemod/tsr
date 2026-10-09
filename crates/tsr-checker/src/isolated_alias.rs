@@ -852,6 +852,211 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `resolveExternalModule`'s resolution-diagnostic branch (pinned
+    /// `checker.go:15209`–`15260`, `:15388`), for an import whose specifier
+    /// the program resolved to a file: `module.GetResolutionDiagnostic`
+    /// (`module/util.go:123`) over the resolver's extension, and the
+    /// `ResolvedUsingTsExtension` arms (TS2846, TS5097).
+    ///
+    /// Returns whether upstream's `sourceFile` is nil — a resolution
+    /// diagnostic other than the JSX one keeps the file out — in which case
+    /// this reported upstream's not-found answer and the caller's
+    /// found-file reports (TS7016, TS2306, the mode family) must not run.
+    /// The JavaScript arm (TS7016) is the caller's
+    /// (`check.rs::check_untyped_module_import`) and is left to it.
+    ///
+    /// `resolved` is what the host's `ResolvedModule` carries; `None` when
+    /// the program did not resolve the specifier or the host cannot say.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-isolated-resolution-diagnostic.diff"
+    )]
+    pub(crate) fn check_module_resolution_diagnostic(
+        &mut self,
+        declaration: NodeId,
+        specifier: NodeId,
+        resolved: Option<ResolvedModuleFacts<'_>>,
+        options: ResolutionDiagnosticOptions,
+    ) -> bool {
+        let Some(resolved) = resolved else { return false };
+        let Some(importing) = self.source_file_of_for_diagnostics(specifier) else { return false };
+        let Some(host) = self.module_host else { return false };
+        let diagnostic = resolution_diagnostic(
+            resolved.extension,
+            || host.is_declaration_file(importing),
+            self.jsx_emit == tsr_core::JsxEmit::None,
+            self.no_implicit_any,
+            options,
+        );
+        // Neither branch reports without a resolution diagnostic or a TS
+        // extension in the specifier: the common import stops here, before
+        // the string work below.
+        if diagnostic.is_none() && !resolved.resolved_using_ts_extension {
+            return false;
+        }
+        let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier) else { return false };
+        let module_reference = literal.text;
+        // `tryFindAmbientModule` (`checker.go:15154`) answers first.
+        if !tsr_path::is_external_module_name_relative(module_reference)
+            && self.binder.globals().get(format!("\"{module_reference}\"").as_str()).is_some()
+        {
+            return false;
+        }
+        // The usage location's mode, asked only now: the facts came from the
+        // resolution every mode of this file agrees on whenever there is one.
+        let mode = self.module_resolution_mode(host, importing, declaration);
+        let resolved_file_name = host
+            .resolved_module_path_in_mode(importing, module_reference, mode)
+            .unwrap_or_default();
+        let jsx = diagnostic.is_none_or(|message| {
+            message.code() == messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_JSX_IS_NOT_SET.code()
+        });
+        let span = self.error_span(specifier);
+        if resolved.in_program && jsx {
+            // `if sourceFile != nil`: the resolution diagnostic is reported even
+            // though the file is used. Without a module symbol the caller's
+            // untyped-module arm reports the same TS6142, so only the typed
+            // case is reported here.
+            if let Some(message) = diagnostic
+                && self.resolve_external_module_name(declaration, specifier).is_some()
+            {
+                self.report(
+                    importing,
+                    Diagnostic::with_args(
+                        message,
+                        span,
+                        [module_reference.to_string(), resolved_file_name.clone()],
+                    ),
+                );
+            }
+            let emittable = std::iter::once(specifier)
+                .chain(self.nodes.ancestors(specifier))
+                .any(|at| self.is_emittable_import(at));
+            if resolved.resolved_using_ts_extension
+                && tsr_path::is_declaration_file_name(module_reference)
+            {
+                if emittable {
+                    let ts_extension = tsr_path::try_extract_ts_extension(module_reference);
+                    let suggestion =
+                        self.suggested_import_source(module_reference, ts_extension, mode, options);
+                    self.report(importing, Diagnostic::with_args(
+                        &messages::A_DECLARATION_FILE_CANNOT_BE_IMPORTED_WITHOUT_IMPORT_TYPE_DID_YOU_MEAN_TO_IMPORT_AN_IMPLEMENTATION_FILE_0_INSTEAD,
+                        span,
+                        [suggestion],
+                    ));
+                }
+            } else if resolved.resolved_using_ts_extension
+                && !self.allow_importing_ts_extensions_from(importing, options)
+                && emittable
+            {
+                let mut ts_extension = tsr_path::try_extract_ts_extension(module_reference);
+                if ts_extension.is_empty() {
+                    ts_extension = tsr_path::extension::SUPPORTED_TS_EXTENSIONS_FLAT
+                        .iter()
+                        .copied()
+                        .find(|extension| module_reference.contains(extension))
+                        .unwrap_or_default();
+                }
+                self.report(importing, Diagnostic::with_args(
+                    &messages::AN_IMPORT_PATH_CAN_ONLY_END_WITH_A_0_EXTENSION_WHEN_ALLOWIMPORTINGTSEXTENSIONS_IS_ENABLED,
+                    span,
+                    [ts_extension.to_string()],
+                ));
+            }
+            return false;
+        }
+        // `sourceFile == nil`. TS7016's arm (`:15376`) is the caller's.
+        let Some(message) = diagnostic else { return false };
+        if message.code()
+            == messages::COULD_NOT_FIND_A_DECLARATION_FILE_FOR_MODULE_0_1_IMPLICITLY_HAS_AN_ANY_TYPE
+                .code()
+        {
+            return false;
+        }
+        // `moduleNotFoundError != nil` → `c.error(errorNode, resolutionDiagnostic, …)`
+        // (`:15403`). Every caller here passes the not-found message.
+        self.report(
+            importing,
+            Diagnostic::with_args(
+                message,
+                span,
+                [module_reference.to_string(), resolved_file_name.clone()],
+            ),
+        );
+        true
+    }
+
+    /// `ast.IsEmittableImport` (`ast/utilities.go:3190`).
+    fn is_emittable_import(&self, node: NodeId) -> bool {
+        match self.node_map.get(node) {
+            Some(Node::ImportDeclaration(import)) => matches!(import.import_clause,
+                Some(clause) if clause.phase_modifier.is_none_or(|token| token.kind != SyntaxKind::TypeKeyword)),
+            Some(Node::ExportDeclaration(export)) => !export.is_type_only,
+            Some(Node::ImportEqualsDeclaration(import)) => !import.is_type_only,
+            Some(Node::CallExpression(call)) => {
+                matches!(call.expression, Some(tsr_ast::Expression::KeywordExpression(keyword))
+                    if keyword.kind == SyntaxKind::ImportKeyword)
+            }
+            _ => false,
+        }
+    }
+
+    /// `compilerOptions.AllowImportingTsExtensionsFrom(fileName)`
+    /// (`core/compileroptions.go:262`).
+    fn allow_importing_ts_extensions_from(
+        &self,
+        file: NodeId,
+        options: ResolutionDiagnosticOptions,
+    ) -> bool {
+        options.allow_importing_ts_extensions
+            || self
+                .module_host
+                .and_then(|host| host.file_path(file))
+                .is_some_and(|path| tsr_path::is_declaration_file_name(&path))
+    }
+
+    /// `getSuggestedImportSource` (`checker.go:15438`).
+    fn suggested_import_source(
+        &self,
+        module_reference: &str,
+        ts_extension: &str,
+        mode: tsr_core::ResolutionMode,
+        options: ResolutionDiagnosticOptions,
+    ) -> String {
+        let without = tsr_path::remove_extension(module_reference, ts_extension);
+        let non_node_esm = self.module_kind >= tsr_core::ModuleKind::ES2015
+            && self.module_kind <= tsr_core::ModuleKind::ESNext;
+        if !(non_node_esm || mode == tsr_core::ModuleKind::ESNext) {
+            return without.to_string();
+        }
+        let prefer_ts = tsr_path::is_declaration_file_name(module_reference)
+            && options.allow_importing_ts_extensions;
+        let extension = match ts_extension {
+            ".mts" | ".d.mts" => {
+                if prefer_ts {
+                    ".mts"
+                } else {
+                    ".mjs"
+                }
+            }
+            ".cts" | ".d.cts" => {
+                if prefer_ts {
+                    ".cts"
+                } else {
+                    ".cjs"
+                }
+            }
+            _ => {
+                if prefer_ts {
+                    ".ts"
+                } else {
+                    ".js"
+                }
+            }
+        };
+        format!("{without}{extension}")
+    }
+
     /// `getVerbatimModuleSyntaxErrorMessage` (`checker.go:5681`).
     fn verbatim_module_syntax_error_message(
         &self,
@@ -1069,5 +1274,80 @@ fn annotated_accessor_type_node(accessor: Node<'_>) -> Option<TypeNode<'_>> {
             parameters.get(usize::from(has_this)).and_then(|parameter| parameter.r#type)
         }
         _ => None,
+    }
+}
+
+/// What `resolveExternalModule` reads off the program's `ResolvedModule`
+/// for [`Checker::check_module_resolution_diagnostic`]. `ResolvedFileName`
+/// is asked of the host only when a report needs it.
+#[allow(
+    dead_code,
+    reason = "built by the held hook docs/parity/notes/r6-isolated-resolution-diagnostic.diff"
+)]
+pub(crate) struct ResolvedModuleFacts<'s> {
+    /// `Extension`: the resolver's, e.g. `.d.html.ts` for an arbitrary
+    /// extension's declaration file, which the path alone cannot tell from
+    /// a `.ts` file.
+    pub(crate) extension: &'s str,
+    /// `ResolvedUsingTsExtension`.
+    pub(crate) resolved_using_ts_extension: bool,
+    /// `GetSourceFileForResolvedModule(ResolvedFileName) != nil`.
+    pub(crate) in_program: bool,
+}
+
+/// The options `GetResolutionDiagnostic` and `AllowImportingTsExtensionsFrom`
+/// read beyond the ones `Checker` already keeps (`jsx`, `noImplicitAny`).
+#[allow(
+    dead_code,
+    reason = "built by the held hook docs/parity/notes/r6-isolated-resolution-diagnostic.diff"
+)]
+#[derive(Clone, Copy, Debug, Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "four independent compiler options, as upstream reads them"
+)]
+pub(crate) struct ResolutionDiagnosticOptions {
+    /// `GetAllowJS()`.
+    pub(crate) allow_js: bool,
+    /// `GetResolveJsonModule()`.
+    pub(crate) resolve_json_module: bool,
+    /// `AllowArbitraryExtensions.IsTrue()`.
+    pub(crate) allow_arbitrary_extensions: bool,
+    /// `GetAllowImportingTsExtensions()`: the option or
+    /// `rewriteRelativeImportExtensions`.
+    pub(crate) allow_importing_ts_extensions: bool,
+}
+
+/// `module.GetResolutionDiagnostic` (`module/util.go:123`).
+/// `importing_is_declaration` is `file.IsDeclarationFile`, asked only by the
+/// arbitrary-extension arm; `jsx_none` is `options.Jsx == JsxEmitNone`;
+/// `no_implicit_any` is `NoImplicitAny.DefaultIfUnknown(Strict)`.
+#[allow(
+    dead_code,
+    reason = "called through the held hook docs/parity/notes/r6-isolated-resolution-diagnostic.diff"
+)]
+fn resolution_diagnostic(
+    extension: &str,
+    importing_is_declaration: impl FnOnce() -> bool,
+    jsx_none: bool,
+    no_implicit_any: bool,
+    options: ResolutionDiagnosticOptions,
+) -> Option<&'static tsr_diagnostics::Message> {
+    let need_jsx = || jsx_none.then_some(&messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_JSX_IS_NOT_SET);
+    let need_allow_js = || {
+        (!options.allow_js && no_implicit_any).then_some(
+            &messages::COULD_NOT_FIND_A_DECLARATION_FILE_FOR_MODULE_0_1_IMPLICITLY_HAS_AN_ANY_TYPE,
+        )
+    };
+    match extension {
+        ".ts" | ".d.ts" | ".mts" | ".d.mts" | ".cts" | ".d.cts" => None,
+        ".tsx" => need_jsx(),
+        ".jsx" => need_jsx().or_else(need_allow_js),
+        ".js" | ".mjs" | ".cjs" => need_allow_js(),
+        ".json" => (!options.resolve_json_module)
+            .then_some(&messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_RESOLVEJSONMODULE_IS_NOT_USED),
+        _ => (!options.allow_arbitrary_extensions && !importing_is_declaration()).then_some(
+            &messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_ALLOWARBITRARYEXTENSIONS_IS_NOT_SET,
+        ),
     }
 }

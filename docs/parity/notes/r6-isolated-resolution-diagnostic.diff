@@ -1,0 +1,337 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..1b3f282 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -3852,6 +3852,36 @@ impl Checker<'_, '_> {
+             // TS2307's; it is TS7016's when that file is JavaScript and
+             // `noImplicitAny` is on. The rule's own table above has named this
+             // arm since it was written; only the resolved path was missing. §357.
++            // `resolveExternalModule`'s resolution-diagnostic branch
++            // (`checker.go:15209`), `isolated_alias.rs`. The resolution every
++            // mode agrees on answers without computing the usage's mode.
++            if let Some(host) = self.module_host
++                && let Some(importing) = self.source_file_of_for_diagnostics(specifier)
++                && let Some(Node::StringLiteral(literal)) = self.node_map.get(specifier)
++            {
++                let resolved = host
++                    .resolved_module_extension(importing, literal.text, None)
++                    .or_else(|| {
++                        let mode = self.module_resolution_mode(host, importing, declaration);
++                        host.resolved_module_extension(importing, literal.text, Some(mode))
++                    })
++                    .map(|(extension, resolved_using_ts_extension, in_program)| {
++                        crate::isolated_alias::ResolvedModuleFacts {
++                            extension,
++                            resolved_using_ts_extension,
++                            in_program,
++                        }
++                    });
++                let options = self.resolution_diagnostic_options;
++                if self.check_module_resolution_diagnostic(
++                    declaration,
++                    specifier,
++                    resolved,
++                    options,
++                ) {
++                    return;
++                }
++            }
+             self.check_untyped_module_import(declaration, specifier);
+             self.check_esm_import_from_commonjs(declaration, specifier);
+             return;
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 7eec834..bde20ef 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -644,6 +644,8 @@ pub struct Checker<'a, 'n> {
+     /// import-specifier spellings; the relative-spelling arm declines when
+     /// set.
+     pub(crate) allow_importing_ts_extensions: bool,
++    /// The options `GetResolutionDiagnostic` reads (`crate::isolated_alias`).
++    pub(crate) resolution_diagnostic_options: crate::isolated_alias::ResolutionDiagnosticOptions,
+     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
+     /// `IsTrueOrUnknown` (`checker.go:5321`) — so the default here is `true`,
+     /// matching an *unset* option rather than a `false` one.
+@@ -1545,6 +1547,8 @@ impl<'a, 'n> Checker<'a, 'n> {
+             standard_class_fields: false,
+             allow_synthetic_defaults: false,
+             allow_importing_ts_extensions: false,
++            resolution_diagnostic_options:
++                crate::isolated_alias::ResolutionDiagnosticOptions::default(),
+             no_unchecked_side_effect_imports: true,
+             no_unchecked_indexed_access: false,
+             use_unknown_in_catch_variables: false,
+@@ -1776,6 +1780,13 @@ impl<'a, 'n> Checker<'a, 'n> {
+         // `esModuleInterop` (explicit only — its own Node16+ default is the
+         // §131 Node16/NodeNext exclusion's business); else `module == System`.
+         self.allow_importing_ts_extensions = options.allow_importing_ts_extensions.is_true();
++        self.resolution_diagnostic_options = crate::isolated_alias::ResolutionDiagnosticOptions {
++            allow_js: options.get_allow_js(),
++            resolve_json_module: options.get_resolve_json_module(),
++            allow_arbitrary_extensions: options.allow_arbitrary_extensions.is_true(),
++            allow_importing_ts_extensions: options.allow_importing_ts_extensions.is_true()
++                || options.rewrite_relative_import_extensions.is_true(),
++        };
+         self.allow_synthetic_defaults = match options.allow_synthetic_default_imports {
+             tsr_core::Tristate::True => true,
+             tsr_core::Tristate::False => false,
+diff --git a/crates/tsr-checker/src/resolution.rs b/crates/tsr-checker/src/resolution.rs
+index 36cd22a..01b3a55 100644
+--- a/crates/tsr-checker/src/resolution.rs
++++ b/crates/tsr-checker/src/resolution.rs
+@@ -190,6 +190,21 @@ pub trait ModuleHost {
+         None
+     }
+ 
++    /// The resolved module's `Extension` and `ResolvedUsingTsExtension`, and
++    /// whether `GetSourceFileForResolvedModule` holds its file; `None` when
++    /// it did not resolve. Read by `GetResolutionDiagnostic`
++    /// (`checker.go:15209`, `crate::isolated_alias`). `mode: None` asks for
++    /// the resolution every mode the file asked in agrees on (`None` when
++    /// they disagree), so the caller computes the usage's mode only then.
++    fn resolved_module_extension(
++        &self,
++        _importing_file: NodeId,
++        _specifier: &str,
++        _mode: Option<ResolutionMode>,
++    ) -> Option<(&str, bool, bool)> {
++        None
++    }
++
+     /// `Program.GetResolvedModule(file, moduleReference, mode)`
+     /// (`checker.go:558`) composed with `GetSourceFileForResolvedModule`: the
+     /// file the specifier resolved to **under the usage location's mode**.
+diff --git a/crates/tsr-compiler/src/lib.rs b/crates/tsr-compiler/src/lib.rs
+index 07f82f1..223a5f9 100644
+--- a/crates/tsr-compiler/src/lib.rs
++++ b/crates/tsr-compiler/src/lib.rs
+@@ -145,6 +145,10 @@ struct ModeResolution {
+     /// sides were canonicalised by `to_path` under the program's directory and
+     /// case sensitivity, so a case-differing pair cannot alias (`bd tsr-q89`).
+     resolved_file: Option<usize>,
++    /// See [`loader::ResolutionRequest::extension`].
++    extension: std::borrow::Cow<'static, str>,
++    /// See [`loader::ResolutionRequest::resolved_using_ts_extension`].
++    resolved_using_ts_extension: bool,
+ }
+ 
+ /// A set of files compiled together.
+@@ -1295,6 +1299,24 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
+     ) -> Option<String> {
+         self.resolution(importing_file, specifier, mode)?.resolved.as_ref().map(ToString::to_string)
+     }
++
++    fn resolved_module_extension(
++        &self,
++        importing_file: NodeId,
++        specifier: &str,
++        mode: Option<ResolutionMode>,
++    ) -> Option<(&str, bool, bool)> {
++        let resolution = match mode {
++            Some(mode) => self.resolution(importing_file, specifier, mode)?,
++            None => self.agreed_resolution(importing_file, specifier)?,
++        };
++        resolution.resolved.as_ref()?;
++        Some((
++            resolution.extension.as_ref(),
++            resolution.resolved_using_ts_extension,
++            resolution.resolved_file.is_some(),
++        ))
++    }
+     fn jsdoc_template_parameters(&self, declaration: NodeId) -> Vec<NodeId> {
+         // §110: linear over files, then over each file's (host, docs) rows —
+         // the table is small and the call is bake-time-only.
+@@ -1442,6 +1464,8 @@ fn resolved_modules(
+                 resolved: answer,
+                 extensionless_relative_import: request.extensionless_relative_import,
+                 resolved_file,
++                extension: request.extension.clone(),
++                resolved_using_ts_extension: request.resolved_using_ts_extension,
+             });
+         }
+     }
+diff --git a/crates/tsr-compiler/src/loader.rs b/crates/tsr-compiler/src/loader.rs
+index 83191e5..546796a 100644
+--- a/crates/tsr-compiler/src/loader.rs
++++ b/crates/tsr-compiler/src/loader.rs
+@@ -158,6 +158,14 @@ pub struct ResolutionRequest {
+     /// loader, which holds the host, makes the same probes here — only for the
+     /// requests that can reach that report. `None` everywhere else.
+     pub extensionless_relative_import: Option<tsr_checker::resolution::ExtensionlessImport>,
++    /// The resolver's `Extension` and `ResolvedUsingTsExtension` for a
++    /// resolved module request (`GetResolutionDiagnostic`, `checker.go:15209`);
++    /// empty and `false` otherwise. Borrowed for every extension the resolver
++    /// names from its fixed list, so a request allocates only for an
++    /// arbitrary extension's declaration file (`.d.html.ts`).
++    pub extension: std::borrow::Cow<'static, str>,
++    /// See [`ResolutionRequest::extension`].
++    pub resolved_using_ts_extension: bool,
+ }
+ 
+ /// What a load is asked for.
+@@ -1270,6 +1278,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+                 mode,
+                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
+                 extensionless_relative_import: None,
++                extension: std::borrow::Cow::Borrowed(""),
++                resolved_using_ts_extension: false,
+             });
+             self.tasks[index].type_resolutions_trace.extend(traces);
+             if resolved.is_resolved() {
+@@ -1328,6 +1338,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+                 mode,
+                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
+                 extensionless_relative_import: None,
++                extension: std::borrow::Cow::Borrowed(""),
++                resolved_using_ts_extension: false,
+             });
+             self.tasks[index].type_resolutions_trace.extend(traces);
+             if resolved.is_resolved() {
+@@ -1429,6 +1441,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
+                 mode,
+                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
+                 extensionless_relative_import,
++                extension: static_extension(&resolved.extension),
++                resolved_using_ts_extension: resolved.resolved_using_ts_extension,
+             });
+             self.tasks[index].resolutions_trace.extend(traces);
+ 
+@@ -2667,3 +2681,16 @@ mod tests {
+         );
+     }
+ }
++
++/// [`ResolutionRequest::extension`]: one of `tspath`'s extension constants
++/// as a `'static` string, else an owned copy.
++fn static_extension(extension: &str) -> std::borrow::Cow<'static, str> {
++    const KNOWN: [&str; 13] = [
++        "", ".ts", ".tsx", ".d.ts", ".js", ".jsx", ".json", ".mts", ".mjs", ".d.mts", ".cts",
++        ".cjs", ".d.cts",
++    ];
++    match KNOWN.iter().find(|known| **known == extension) {
++        Some(known) => std::borrow::Cow::Borrowed(known),
++        None => std::borrow::Cow::Owned(extension.to_string()),
++    }
++}
+diff --git a/crates/tsr-compiler/tests/r6_isolated_resolution_diagnostic.rs b/crates/tsr-compiler/tests/r6_isolated_resolution_diagnostic.rs
+new file mode 100644
+index 0000000..59ce3c3
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_isolated_resolution_diagnostic.rs
+@@ -0,0 +1,116 @@
++//! `resolveExternalModule`'s resolution-diagnostic branch
++//! (`checker.go:15209`–`15260`): `GetResolutionDiagnostic`, TS2846 and
++//! TS5097. `docs/parity/notes/r6-isolated.md` §5.
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ModuleKind, ModuleResolutionKind, ScriptTarget, Tristate};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// The codes the checker reports in `file`, sorted.
++fn codes(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<u32> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: options,
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    let mut codes: Vec<u32> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(at, _)| *at == id)
++        .map(|(_, diagnostic)| diagnostic.message.code())
++        .collect();
++    codes.sort_unstable();
++    codes
++}
++
++fn options(isolated_modules: bool, verbatim_module_syntax: bool) -> CompilerOptions {
++    CompilerOptions {
++        module: ModuleKind::CommonJS,
++        target: ScriptTarget::ES2015,
++        isolated_modules: Tristate::from_bool(isolated_modules),
++        verbatim_module_syntax: Tristate::from_bool(verbatim_module_syntax),
++        ..Default::default()
++    }
++}
++
++fn bundler(
++    allow_importing_ts_extensions: bool,
++    allow_arbitrary_extensions: bool,
++) -> CompilerOptions {
++    CompilerOptions {
++        module: ModuleKind::ESNext,
++        module_resolution: ModuleResolutionKind::Bundler,
++        allow_importing_ts_extensions: Tristate::from_bool(allow_importing_ts_extensions),
++        allow_arbitrary_extensions: Tristate::from_bool(allow_arbitrary_extensions),
++        no_emit: Tristate::True,
++        ..options(false, false)
++    }
++}
++
++/// `conformance/bundlerImportTsExtensions`, reduced.
++const TS_EXTENSIONS: [(&str, &str); 4] = [
++    ("/a.ts", "export {};\n"),
++    ("/b.d.ts", "export {};\n"),
++    ("/c.tsx", "export {};\n"),
++    (
++        "/main.ts",
++        "import {} from './a';\nimport {} from './a.ts';\nimport {} from './b.d.ts';\n\
++         import type {} from './b.d.ts';\nimport {} from './c.tsx';\n",
++    ),
++];
++
++#[test]
++fn a_ts_extension_needs_allow_importing_ts_extensions() {
++    // TS5097 on `./a.ts` and `./c.tsx`, TS2846 on the non-type `./b.d.ts`,
++    // TS6142 on the `.tsx` without `--jsx` even though it resolves to a
++    // module. Native `tsgo` prints the same four on this program.
++    assert_eq!(codes(&TS_EXTENSIONS, bundler(false, false), "/main.ts"), [2846, 5097, 5097, 6142]);
++    assert_eq!(codes(&TS_EXTENSIONS, bundler(true, false), "/main.ts"), [2846, 6142]);
++}
++
++/// `conformance/declarationFileForHtmlImport`, reduced.
++const HTML: [(&str, &str); 2] = [
++    ("/component.d.html.ts", "export declare const blogPost: string;\n"),
++    ("/file.ts", "import * as mod from './component.html';\nexport const x = mod;\n"),
++];
++
++#[test]
++fn an_arbitrary_extension_needs_allow_arbitrary_extensions() {
++    assert_eq!(codes(&HTML, bundler(false, false), "/file.ts"), [6263]);
++    assert_eq!(codes(&HTML, bundler(false, true), "/file.ts"), [] as [u32; 0]);
++}
