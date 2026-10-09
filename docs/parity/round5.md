@@ -1192,3 +1192,51 @@ Its triage found the checker's option reads faithful apart from module kind.
 The 25 option-gated rules it found are routed: the isolatedModules export and
 reference arms to `tsr-2zk.1125` (r5-isolated), the exactOptionalPropertyTypes
 arms to `tsr-2zk.1126`. `.1108` and `.1087` are closed.
+
+### Round-5 wrap-up: final box reports (batch AZ)
+
+At the user's request (2026-10-09 06:35 UTC), every box was told to push its
+green work and stop. Batch AZ lands the final commits and diffs. Every claim
+that `claude-cloud-r*` boxes still held was released, so main's sessions see
+the work as unclaimed.
+
+Measured and held, each with its blocker:
+- r5-nodereuse's property-slot diff, backed out after batch AW's first gate:
+  circularAccessorAnnotations went RIGHT -> WRONG (`tsr-2zk.1129`). It
+  stays held together with r5-nodereuse2's object-literal-slot diff.
+- r5-mapped6's conditional-typed-print diff (+5/-4): waits on
+  getObjectTypeInstantiation's referenced-parameter keying in declared.rs.
+- r5-declared4's print-arity WIP (+37/-3): waits on signature return reuse
+  of `Iterator<X>`.
+- r5-smallcodes3's type-as-namespace diff (+3/-1, waits on JSDoc dotted
+  `@callback` names) and missing-brace-body diff (needs NodeIsMissing(body)
+  readers).
+- r5-relater8's variance and conditional WIP: built on r5-relater7's tip,
+  never gated.
+- r5-errorsplit6's import-equals-alias and script-alias-merge diffs (main's
+  symbols.rs and binder.rs).
+
+Duplicates resolved: r5-js's cast-context, return-param-host and
+full-signature-generic diffs are superseded by r5-jsdoc5's, whose lane owns
+those files. r5-printer2's member-constraint-reuse diff is superseded by
+r5-nodereuse's constraint printers.
+
+r5-isolated (`tsr-2zk.1125`) did not start. Its native anchors:
+- checkExportAssignment: checker.go:5583-5680;
+- checkAliasSymbol's export-specifier arm: :6806-6822;
+- TS2866: resolveName's success path, :1869-1885;
+- TS2748: checkConstEnumAccess, :7589;
+- markDecoratorAliasReferenced: :28686;
+- GetResolutionDiagnostic: module/util.go:123;
+- TS5097: checker.go:15238.
+
+TSR/tsgo wall time, from r5-checkperf3's container with its stack applied:
+
+| Project | Ratio |
+|---|---|
+| domain-model | 0.708 |
+| domain-model (large) | 0.666 |
+| generic-imports | 0.817 |
+| jsTyping | 3.203 |
+
+The 0.50 target is not met.
