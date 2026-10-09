@@ -643,3 +643,23 @@ nothing; likewise `o2?.f(x)` and `o6?.f()` (`this is Derived`). Native control
 `Derived` after `if (o6?.f())`, in both. Six type lines converge; the case
 stays non-exact on `f(x)` with a possibly-undefined callee (calls lane:
 TS2722's non-null result type).
+
+## 32. `isConstantReference`'s access arm reads `isReadonlySymbol` in full
+
+Pinned `flow.go:1823`: an access reference is constant when its receiver is
+constant and the accessed symbol is readonly (`isReadonlySymbol`,
+`checker.go:13849`). TSR's `is_readonly_property_of_type` misses the
+`getDeclarationModifierFlagsFromSymbol` arm for property signatures and
+parameter properties, and readonly tuple elements (`CheckFlagsReadonly` from
+`createTupleTargetType`), so aliased conditions over `obj.x` (`readonly x`
+in a type literal), `outer.obj.kind` and `obj[0]` (readonly tuple) never
+inlined. `is_readonly_property_reference` asks those arms, honours a
+homomorphic mapped type's `readonly`/`-readonly` override (the mapped
+property's own check flag), and the element arm accepts numeric literal
+keys. `is_readonly_symbol` itself is unchanged: widening it reaches the
+assignment-target road, where `Readwrite<Bar>`'s reused `Bar.b` member read
+readonly (`mappedTypes6`, measured). Native control: `obj.x`, `obj[0]`
+(readonly tuple) and a parameter property narrow through the alias to
+`string`; a mutable tuple and `Readwrite<{ readonly x }>` stay
+`string | number`, in both. `controlFlowAliasing`'s type half converges
+(13 lines); its remaining diagnostics are TS2339 and elaboration chains.

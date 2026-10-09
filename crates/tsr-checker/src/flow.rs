@@ -1594,6 +1594,45 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `isReadonlySymbol(getPropertyOfType(receiver, name))` for
+    /// `isConstantReference`'s access arm (`flow.go:1823`). The readonly
+    /// modifier of a property signature or parameter property
+    /// (`getDeclarationModifierFlagsFromSymbol`) counts, and a homomorphic
+    /// mapped type's `readonly`/`-readonly` modifier overrides the reused
+    /// source member (the `CheckFlagsReadonly` the mapped property carries
+    /// natively).
+    fn is_readonly_property_reference(&mut self, receiver: TypeId, name: &str) -> bool {
+        if let Some(&(_, Some(readonly))) = self.mapped_identity_optionality.get(&receiver) {
+            return readonly && self.get_property_of_type(receiver, name).is_some();
+        }
+        // A readonly tuple's fixed elements carry `CheckFlagsReadonly`
+        // (`createTupleTargetType`), as does its `length`.
+        if self.tuple_is_readonly(receiver)
+            && (name == "length"
+                || name.parse::<usize>().is_ok_and(|index| {
+                    index.to_string() == name
+                        && self
+                            .tuple_fixed_element_count(receiver)
+                            .is_some_and(|fixed| index < fixed)
+                }))
+        {
+            return true;
+        }
+        self.is_readonly_property_of_type(receiver, name)
+            || self
+                .get_property_of_type(receiver, name)
+                .is_some_and(|property| self.property_signature_is_readonly(property))
+    }
+
+    /// `createTupleTargetType`'s `fixedLength` for a tuple this port minted.
+    fn tuple_fixed_element_count(&self, id: TypeId) -> Option<usize> {
+        if let Some((elements, _)) = self.tuple_element_lists.get(&id) {
+            return Some(elements.len());
+        }
+        let (elements, _) = self.variadic_tuple_elements.get(&id)?;
+        Some(elements.iter().position(|element| element.spread).unwrap_or(elements.len()))
+    }
+
     pub(crate) fn is_constant_reference(&mut self, reference: NodeId) -> bool {
         match self.node_map.get(reference) {
             Some(Node::Identifier(identifier)) => {
@@ -1651,7 +1690,7 @@ impl Checker<'_, '_> {
                 let Some(tsr_ast::MemberName::Identifier(name)) = access.name else {
                     return false;
                 };
-                let readonly = self.is_readonly_property_of_type(receiver_type, name.text);
+                let readonly = self.is_readonly_property_reference(receiver_type, name.text);
                 readonly && self.is_constant_reference(receiver)
             }
             // §904: `case ast.KindElementAccessExpression` shares upstream's
@@ -1663,13 +1702,14 @@ impl Checker<'_, '_> {
                 let Some(receiver) = access.expression.and_then(|e| e.node_id()) else {
                     return false;
                 };
-                let Some(tsr_ast::Expression::StringLiteral(key)) = access.argument_expression
-                else {
-                    return false;
+                let key = match access.argument_expression {
+                    Some(tsr_ast::Expression::StringLiteral(key)) => key.text,
+                    Some(tsr_ast::Expression::NumericLiteral(key)) => key.text,
+                    _ => return false,
                 };
                 let Some(expression) = access.expression else { return false };
                 let receiver_type = self.check_expression(expression);
-                let readonly = self.is_readonly_property_of_type(receiver_type, key.text);
+                let readonly = self.is_readonly_property_reference(receiver_type, key);
                 readonly && self.is_constant_reference(receiver)
             }
             _ => {
