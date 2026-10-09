@@ -662,3 +662,12 @@ callee has a generic signature, the contextual type passes through
 part (`contextualSignatureConditionalTypeInstantiationUsingDefault` keeps both
 conditional branches). `within_generic_call_argument` declines there (syntax
 up to the first enclosing call, plus the callee's signatures). No state.
+
+## 33. An array-literal hole is the widening undefined (tsr-2zk.16.288)
+
+`checkExpressionWorker` answers `undefinedWideningType` for an
+`OmittedExpression` (`checker.go:7815`). `check_array_literal_value` pushed
+the plain `undefined`, which prints alike but survives `getWidenedType`:
+without strictNullChecks `var a6 = [, , ]` declared `undefined[]` where tsgo
+declares `any[]` (`trailingCommasES5`); the literal's own row stays
+`undefined[]`. Both value-path arms now push `undefined_widening`. No state.

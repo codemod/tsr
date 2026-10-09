@@ -840,7 +840,7 @@ impl Checker<'_, '_> {
                         has_omitted = true;
                         (self.intrinsics.missing, false)
                     } else {
-                        (self.intrinsics.undefined, false)
+                        (self.intrinsics.undefined_widening, false)
                     }
                 } else {
                     let t = self.check_array_literal_element(node, *element);
@@ -1158,12 +1158,11 @@ impl Checker<'_, '_> {
             // (`compiler/commentOnArrayElement3`). This port refused, which
             // read as caution and was a refusal to transcribe a constant. §203.
             //
-            // The widening/non-widening distinction is the one this port does
-            // not carry (`undefinedWideningType` and `undefinedType` print the
-            // same string and differ only under `getWidenedType`), the same
-            // approximation the empty-array arm below already documents.
+            // It is the WIDENING `undefined`: the two print alike and differ
+            // under `getWidenedType`, which without strictNullChecks widens
+            // `var a6 = [, , ]` to `any[]`.
             if matches!(element, Expression::OmittedExpression(_)) {
-                elements.push(self.intrinsics.undefined);
+                elements.push(self.intrinsics.undefined_widening);
                 continue;
             }
             let element_type = self.check_array_literal_element(node, *element);
