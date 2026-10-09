@@ -18,7 +18,6 @@ use crate::checker::Checker;
 impl<'a> Checker<'a, '_> {
     /// `nodes` keeping the first declaration of each merged type-parameter
     /// symbol, in order. A node the binder did not bind is kept.
-    #[expect(dead_code, reason = "consumer: r6-typesroots-duplicate-type-parameters.diff")]
     pub(crate) fn unique_type_parameter_declarations(
         &self,
         nodes: Vec<&'a TypeParameterDeclaration<'a>>,
