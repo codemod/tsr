@@ -4108,8 +4108,7 @@ impl<'a> Checker<'a, '_> {
             // deferred reference resolves to the body's own target, so the
             // name carries that reference's identity (target, arguments,
             // member owner) through `deferred_alias_reference`, as a class or
-            // interface reference written as an alias body does
-            // (`r5-declared4.md` §3.1).
+            // interface reference written as an alias body does.
             if !self.tuple_element_lists.contains_key(&structural)
                 && !self.variadic_tuple_elements.contains_key(&structural)
                 && self.type_reference_targets.contains_key(&structural)
@@ -5713,28 +5712,14 @@ impl<'a> Checker<'a, '_> {
             }
             return mapped;
         }
-        // getTypeAliasInstantiation caches by target and type argument
-        // identities. Printed arguments can coincide across distinct scopes
-        // (two mapped aliases can both use `Tuple[Key]`), so use the shared
-        // reference factory rather than a spelling-keyed literal-alias mint.
-        if partially_written
-            && self
-                .binder
-                .symbols()
-                .get(symbol)
-                .declarations
-                .first()
-                .is_some_and(|&declaration| self.in_default_library(declaration))
-        {
-            let written = node.type_arguments.len();
-            return self.create_type_reference_with_display(symbol, arguments, Some(written));
-        }
-        // The bare arm prints **every** argument, which is what upstream does:
+        // Every fill prints **every** argument, which is what upstream does:
         // `interface i00<T = number>` referenced as `<i00>x` prints
-        // `i00<number>` (`genericDefaults.types:2538`). §136's display
-        // truncation belongs to the partially-written arm alone — it exists so
-        // a written `Map<string>` does not grow an argument nobody typed, a
-        // question a bare reference does not raise.
+        // `i00<number>` (`genericDefaults.types:2538`), and a written
+        // `Iterator<string, undefined>` prints `Iterator<string, undefined,
+        // any>`. §136's written-arity display for partially-written lib
+        // references is retired; the only elision is the node builder's own
+        // (`reference_print_arity`, `r5-declared4.md` §1). The written spelling
+        // survives where native reuses the written node (§933.2 above).
         // serializeTypeForDeclaration reuses the written annotation node in a
         // signature when its type is the annotation's own: a reference to a
         // type-parameter-bodied alias resolves to its argument (below), yet a
@@ -7040,6 +7025,90 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// [`Checker::create_type_reference`] for callers that still pass a
+    /// display arity. §136's written-arity display was an approximation of
+    /// the node builder's elision and is retired (`r5-declared4.md` §1): the
+    /// printed arity is decided by [`Checker::reference_print_arity`] from the
+    /// arguments alone, so `display` is no longer read. Its one remaining
+    /// caller (`inference.rs`'s reference rebuild) can call
+    /// `create_type_reference` directly.
+    pub(crate) fn create_type_reference_with_display(
+        &mut self,
+        symbol: SymbolId,
+        arguments: Vec<TypeId>,
+        _display: Option<usize>,
+    ) -> TypeId {
+        self.create_type_reference(symbol, arguments)
+    }
+
+    /// How many of a reference's type arguments it prints:
+    /// typeReferenceToTypeNode's elision (`nodebuilderimpl.go:3084`). A
+    /// reference prints every argument, after fillMissingTypeArguments filled
+    /// the defaults (`Iterator<string, undefined>` prints
+    /// `Iterator<string, undefined, any>`), except a reference to the global
+    /// `Iterable`, `IterableIterator`, `AsyncIterable` or
+    /// `AsyncIterableIterator` (each resolved at arity 3, `checker.go:1088`),
+    /// whose trailing arguments identical to their parameter's default are
+    /// dropped (`IterableIterator<number, any>` prints
+    /// `IterableIterator<number>`).
+    ///
+    /// Native skips the elision for a deferred reference whose own node
+    /// spells every argument (`t.node`); this port's deferred references
+    /// (`deferred_alias_reference`) are minted for alias bodies and never for
+    /// these four interfaces, so that leg has no population here.
+    pub(crate) fn reference_print_arity(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> usize {
+        // Native resolves the four targets once, at checker creation
+        // (checker.go:1088-1097); so does this port, on first use, rather than
+        // looking up four globals per reference (`r6-declared.md` §5). A
+        // target is named as its global is, so any other name answers first.
+        if !matches!(
+            self.binder.symbols().get(symbol).name,
+            "Iterable" | "IterableIterator" | "AsyncIterable" | "AsyncIterableIterator"
+        ) {
+            return arguments.len();
+        }
+        let targets =
+            if let Some(targets) = &self.instantiation_expressions.iterable_elision_targets {
+                targets.clone()
+            } else {
+                let targets: std::rc::Rc<[SymbolId]> =
+                    ["Iterable", "IterableIterator", "AsyncIterable", "AsyncIterableIterator"]
+                        .iter()
+                        .filter_map(|name| self.global_type_symbol_with_arity(name, 3))
+                        .map(|global| self.binder.merged_symbol(global))
+                        .collect();
+                self.instantiation_expressions.iterable_elision_targets = Some(targets.clone());
+                targets
+            };
+        if targets.is_empty() || !targets.contains(&self.binder.merged_symbol(symbol)) {
+            return arguments.len();
+        }
+        let Some(parameters) = self.local_type_parameter_types_of(symbol) else {
+            return arguments.len();
+        };
+        let mut count = parameters.len().min(arguments.len());
+        while count > 0 {
+            // A default is the parameter's own declared default, read outside
+            // any alias frame (as fillMissingTypeArguments reads it).
+            let frames = std::mem::take(&mut self.alias_evaluation_bindings);
+            let default = self.get_default_from_type_parameter(parameters[count - 1].0);
+            self.alias_evaluation_bindings = frames;
+            let Some(default) = default else { break };
+            if default == self.intrinsics.error
+                || self.is_type_identical_to(arguments[count - 1], default)
+                    != crate::relater::Ternary::Related
+            {
+                break;
+            }
+            count -= 1;
+        }
+        count
+    }
+
     /// `createTypeReference(target, typeArguments)` (`checker.go`).
     ///
     /// Interned on the `(target, arguments)` pair, which is what makes
@@ -7048,22 +7117,6 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         symbol: SymbolId,
         arguments: Vec<TypeId>,
-    ) -> TypeId {
-        self.create_type_reference_with_display(symbol, arguments, None)
-    }
-
-    /// §136 (printseam §6): a default-filled reference PRINTS its written
-    /// arity while carrying the full argument list — upstream's
-    /// written-annotation reuse (`Iterable<number>` written short prints
-    /// short; `Generator<Y, any, any>` written full prints full). `display`
-    /// is the written prefix; `None` prints everything. The arity is
-    /// registered in `reference_display_arity` so instantiation rebuilds and
-    /// the composite re-render keep the spelling.
-    pub(crate) fn create_type_reference_with_display(
-        &mut self,
-        symbol: SymbolId,
-        arguments: Vec<TypeId>,
-        display: Option<usize>,
     ) -> TypeId {
         if arguments.len() == 1
             && self.global_type_symbol_with_arity("NonNullable", 1) == Some(symbol)
@@ -7241,7 +7294,7 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;
         }
-        let shown = display.unwrap_or(arguments.len()).min(arguments.len());
+        let shown = self.reference_print_arity(symbol, &arguments);
         // getTypeAliasInstantiation over an INTERSECTION body
         // (instantiateTypeWithAlias → getIntersectionTypeEx(…, alias),
         // checker.go:26056): the body's constituents are instantiated and

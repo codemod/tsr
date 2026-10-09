@@ -426,3 +426,61 @@ verdict moves, zero losses, slowcases clean. Ir domain-model 1,089,283,795 ->
 falsifier is the case itself once the relater arm lands. Until then a
 `Something<A>` that still related as Related would show the old name mint
 again.
+
+## 5. `tsr-2zk.1115`(a): the printed arity of a type reference (r5-declared4's WIP, landed)
+
+The port is r5-declared4 §1.1's patch
+([`r5-declared4-print-arity-WIP.diff`](r5-declared4-print-arity-WIP.diff)).
+§136's written-arity display is retired. A reference prints every argument
+after fillMissingTypeArguments, except typeReferenceToTypeNode's one elision
+(`nodebuilderimpl.go:3084`): trailing default-identical arguments of the
+global `Iterable`, `IterableIterator`, `AsyncIterable` and
+`AsyncIterableIterator` are dropped.
+
+**Depends on r6-printer's `12d9d73`**
+(`r6-printer-global-augmentation-visible.diff`, `node_reuse.rs`).
+`is_declaration_visible` tested IsExternalModuleAugmentation only for
+string-named modules, so lib's `declare global { interface Iterator … }` was
+invisible, and the written `Iterator<X>` return was not reused. Without that
+diff this commit loses r5-declared4's three `Iterator<X>` lines; the
+integrator lands that diff first.
+
+**Ir.** The WIP cost domain-model +0.225% and generic-imports +0.058%
+(integrator: +0.22%/+0.06%) over the printer diff alone. Callgrind
+(inclusive, generic-imports) put the cost in `reference_print_arity`, which
+looked up the four globals (`global_type_symbol_with_arity` and
+`merged_symbol`) on every reference before knowing whether the target was one
+of them. Native resolves them once, at checker creation (checker.go:1088-1097).
+Ported:
+- the targets are resolved once per checker
+  (`InstantiationExpressionLinks::iterable_elision_targets`, written on first
+  use, never invalidated);
+- a target whose name is not one of the four answers first, since each
+  global's merged symbol carries its name. The global lookup itself costs
+  about 10k Ir per checker, and generic-imports runs one checker per file.
+
+A probe with the elision loop disabled moved nothing, so the loop is not the
+cost. Result, over the printer diff alone: domain-model 1,089,345,350 ->
+1,089,441,153 (+0.009%), generic-imports 343,069,605 -> 343,069,170
+(-0.0001%).
+
+**Measured** unfiltered, with the printer diff applied under this commit, on
+`55cbd3f`:
+- types **+37 RIGHT, zero losses**;
+  - `usingDeclarationsWithIteratorObject` 7,
+    `awaitUsingDeclarationsWithIteratorObject` 7,
+    `awaitUsingDeclarationsWithAsyncIteratorObject` 6;
+  - `destructuringAssignmentWithDefault2` 3;
+  - `builtinIteratorReturn` 2 per configuration, `builtinIterator`,
+    `innerTypeArgumentInference`, `recursiveGenericMethodCall`,
+    `dependentDestructuredVariables` and `parserMissingLambdaOpenBrace1`,
+    2 each;
+- diagnostics unchanged, slowcases clean.
+
+It also covers ramdaToolsNoInfinite2 485/490-492's defaulted-argument prints
+under the binder diff (§2.1), which r5-declared4 attributed to this arity.
+Those lines are not re-measured here.
+
+Left: `inference.rs` still passes `display` to
+`create_type_reference_with_display`, whose argument is now unread
+(r5-declared4 §5). The main lane can drop it; no behaviour change.

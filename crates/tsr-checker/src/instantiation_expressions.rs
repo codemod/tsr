@@ -87,6 +87,13 @@ pub(crate) struct InstantiationExpressionLinks {
     /// parameter. Written once per type, never invalidated
     /// (`r6-declared.md` §2.2).
     pub(crate) conditional_extends: rustc_hash::FxHashMap<TypeId, Option<(TypeId, TypeId)>>,
+    /// The merged symbols of the global `Iterable`, `IterableIterator`,
+    /// `AsyncIterable` and `AsyncIterableIterator` at arity 3, whose printed
+    /// references elide default-identical trailing arguments
+    /// (`Checker::reference_print_arity`, declared.rs). Resolved once, on
+    /// first use, as native resolves them at checker creation
+    /// (checker.go:1088-1097); never invalidated.
+    pub(crate) iterable_elision_targets: Option<std::rc::Rc<[tsr_binder::SymbolId]>>,
     /// `isTypeParameterPossiblyReferenced(tp, node)` (checker.go:22403),
     /// keyed `(declaration node, type-parameter symbol)`: the filter
     /// getObjectTypeInstantiation applies once per declaration and stores in
