@@ -9801,6 +9801,15 @@ impl<'a> Checker<'a, '_> {
                 names.push(name);
             }
         }
+        // getPropertiesOfType reads the late-bound members table
+        // (getMembersOfSymbol's lateBindMember, checker.go), so a computed
+        // symbol key such as `[Symbol.iterator]` is a property
+        // getLiteralTypeFromProperties (checker.go:26717) reads.
+        for (name, _) in self.late_bound_members_of(owner, false) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
         for base in self.base_symbols_of(owner)? {
             self.collect_keyof_property_names(base, names, visiting)?;
         }
