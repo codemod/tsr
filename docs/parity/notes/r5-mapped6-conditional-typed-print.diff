@@ -1,0 +1,115 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -773,6 +773,14 @@
+                         } else {
+                             TypeFlags::OBJECT
+                         };
++                        // conditionalTypeToTypeNode (nodebuilderimpl.go:2916)
++                        // prints a deferred conditional from its typed parts.
++                        let text = match node {
++                            TypeNode::ConditionalTypeNode(conditional) => {
++                                self.conditional_type_text(conditional).unwrap_or(text)
++                            }
++                            _ => text,
++                        };
+                         let id = self.store.new_named(flags, text, None);
+                         if let TypeNode::MappedTypeNode(mapped) = node {
+                             self.capture_mapped_type(id, mapped);
+@@ -7873,6 +7881,71 @@
+         result
+     }
+ 
++    /// conditionalTypeToTypeNode (nodebuilderimpl.go:2916) and
++    /// emitConditionalType (printer.go:2058): a deferred conditional printed
++    /// from its typed parts. The check type is emitted at
++    /// `TypePrecedenceUnion`, the extends type in the `extends` clause (where a
++    /// conditional is parenthesised, :2275), and both branches at the lowest
++    /// precedence. The branches are getTrueTypeFromConditionalType and
++    /// getFalseTypeFromConditionalType: the written branch under the current
++    /// mapper, which here is the alias-evaluation frames.
++    ///
++    /// An extends clause holding an `infer` declaration keeps its written
++    /// text: native prints those type parameters as `infer P` through
++    /// `ctx.inferTypeParameters`, a print context `type_to_string` does not
++    /// have (r5-mapped6.md §2). `None` when a part does not evaluate, so the
++    /// caller keeps the written text.
++    fn conditional_type_text(
++        &mut self,
++        node: &'a tsr_ast::ConditionalTypeNode<'a>,
++    ) -> Option<String> {
++        let (check, extends) = (node.check_type?, node.extends_type?);
++        let (true_type, false_type) = (node.true_type?, node.false_type?);
++        let error = self.intrinsics.error;
++        let check = self.get_type_from_type_node(check);
++        let check = (check != error).then(|| self.type_to_string(check))?;
++        let extends = if self.type_node_declares_infer(extends) {
++            let (mut single_quoted, mut array_headed) = (false, false);
++            Self::written_type_text(extends, &mut single_quoted, &mut array_headed)?
++        } else {
++            let extends = self.get_type_from_type_node(extends);
++            (extends != error).then(|| self.type_to_string(extends))?
++        };
++        let true_type = self.get_type_from_type_node(true_type);
++        let true_type = (true_type != error).then(|| self.type_to_string(true_type))?;
++        let false_type = self.get_type_from_type_node(false_type);
++        let false_type = (false_type != error).then(|| self.type_to_string(false_type))?;
++        let check = if crate::node_reuse::binds_below_union(&check) {
++            format!("({check})")
++        } else {
++            check
++        };
++        let extends = if crate::node_reuse::binds_below_function(&extends) {
++            format!("({extends})")
++        } else {
++            extends
++        };
++        Some(format!("{check} extends {extends} ? {true_type} : {false_type}"))
++    }
++
++    /// Whether `node` contains an `infer` declaration of its own (one not
++    /// inside a nested conditional's extends clause, whose `infer` belongs to
++    /// that conditional).
++    fn type_node_declares_infer(&self, node: TypeNode<'a>) -> bool {
++        let mut stack = Vec::new();
++        if let Some(id) = tsr_ast::Node::from(node).node_id() {
++            stack.push(id);
++        }
++        while let Some(id) = stack.pop() {
++            let Some(node) = self.node_map.get(id) else { continue };
++            if matches!(node, tsr_ast::Node::InferTypeNode(_)) {
++                return true;
++            }
++            tsr_ast::for_each_child_id(node, |child| stack.push(child));
++        }
++        false
++    }
++
+     /// getTrueTypeFromConditionalType/getFalseTypeFromConditionalType for
+     /// inference. Unlike a conditional's default constraint, these branches
+     /// retain the original check parameter rather than its base constraint.
+diff --git a/crates/tsr-checker/src/node_reuse.rs b/crates/tsr-checker/src/node_reuse.rs
+index 2384681..78ee347 100644
+--- a/crates/tsr-checker/src/node_reuse.rs
++++ b/crates/tsr-checker/src/node_reuse.rs
+@@ -258,6 +258,20 @@ pub(crate) fn binds_below_intersection(text: &str) -> bool {
+     text_precedence(text) < Precedence::Intersection
+ }
+ 
++/// emitConditionalType emits its check type at `TypePrecedenceUnion`
++/// (`printer.go:2060`), so a conditional or function check type keeps its
++/// parentheses. Same text reader as [`binds_below_intersection`].
++pub(crate) fn binds_below_union(text: &str) -> bool {
++    text_precedence(text) < Precedence::Union
++}
++
++/// In a conditional's `extends` clause `emitTypeNode` raises the precedence
++/// to `TypePrecedenceFunction` (`printer.go:2275`), so a conditional extends
++/// type is parenthesised. Same text reader as [`binds_below_intersection`].
++pub(crate) fn binds_below_function(text: &str) -> bool {
++    text_precedence(text) < Precedence::Function
++}
++
+ /// `emitTypeOperator` emits its operand at `TypePrecedenceTypeOperator`
+ /// (`printer.go:2274`), so `keyof (A | B)` and `keyof (T extends U ? X : Y)`
+ /// keep their parentheses. Same text reader as
