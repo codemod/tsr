@@ -561,3 +561,6 @@ per-file flag must become per-node.
   after a `|`/`&` (leading one included), a function or constructor type is
   parsed and reported (TS1385-TS1388) over its range from the token's full
   start, as `parseErrorAtRange(typeNode.Loc)` does.
+- Element access without an argument (`parseElementAccessExpressionRest`):
+  every member-access loop reports TS1011 at the `]`'s full start and keeps
+  a missing identifier; the argument is parsed with `in` allowed.

@@ -627,7 +627,7 @@ impl<'a> Parser<'a> {
                         expression = Expression::CallExpression(node);
                     } else if self.at(SyntaxKind::OpenBracketToken) {
                         self.next_token();
-                        let argument = self.parse_expression();
+                        let argument = self.parse_element_access_argument();
                         self.expect(SyntaxKind::CloseBracketToken);
                         let node = self.finish_node(
                             ElementAccessExpression::new(
@@ -657,7 +657,7 @@ impl<'a> Parser<'a> {
                 }
                 SyntaxKind::OpenBracketToken => {
                     self.next_token();
-                    let argument = self.parse_expression();
+                    let argument = self.parse_element_access_argument();
                     self.expect(SyntaxKind::CloseBracketToken);
                     let is_chain = self.try_reparse_optional_chain(expression);
                     let node = self.finish_node(
@@ -962,18 +962,7 @@ impl<'a> Parser<'a> {
                 }
                 SyntaxKind::OpenBracketToken => {
                     self.next_token();
-                    let argument = if self.at(SyntaxKind::CloseBracketToken) {
-                        self.error_at(
-                            &messages::AN_ELEMENT_ACCESS_EXPRESSION_SHOULD_TAKE_AN_ARGUMENT,
-                            Span::at(self.node_end()),
-                        );
-                        Expression::Identifier(self.missing_identifier())
-                    } else {
-                        let saved_no_in = std::mem::take(&mut self.no_in);
-                        let argument = self.parse_expression();
-                        self.no_in = saved_no_in;
-                        argument
-                    };
+                    let argument = self.parse_element_access_argument();
                     self.expect(SyntaxKind::CloseBracketToken);
                     callee = Expression::ElementAccessExpression(self.finish_node(
                         ElementAccessExpression::new(Some(callee), None, Some(argument)),
@@ -1321,6 +1310,23 @@ impl<'a> Parser<'a> {
                 Expression::Identifier(self.missing_identifier())
             }
         }
+    }
+
+    /// The argument of `parseElementAccessExpressionRest` (`parser.go:5436`):
+    /// `a[]` reports TS1011 at the `]`'s full start and keeps a missing
+    /// identifier; anything else is `parseExpressionAllowIn`.
+    fn parse_element_access_argument(&mut self) -> Expression<'a> {
+        if self.at(SyntaxKind::CloseBracketToken) {
+            self.error_at(
+                &messages::AN_ELEMENT_ACCESS_EXPRESSION_SHOULD_TAKE_AN_ARGUMENT,
+                Span::at(self.node_end()),
+            );
+            return Expression::Identifier(self.missing_identifier());
+        }
+        let saved_no_in = std::mem::take(&mut self.no_in);
+        let argument = self.parse_expression();
+        self.no_in = saved_no_in;
+        argument
     }
 
     /// typescript-go's `Parser.parseArrayLiteralExpression` (`parser.go`):
