@@ -264,6 +264,260 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// TS2866 — `resolveNameHelper`'s success tail (pinned
+    /// `checker.go:1872`–`1885`): a value reference in a module that resolved
+    /// to a **global** while the file's own top level holds a non-value
+    /// meaning of the same name through a non-type-only import. A transpiler
+    /// that sees only this file would bind the reference to the import.
+    ///
+    /// `node` is the reference (upstream's `errorLocation`), `result` the
+    /// symbol `resolveName` returned for `text` at a meaning that holds every
+    /// `Value` bit. Reads `compilerOptions.IsolatedModules` itself, not
+    /// `GetIsolatedModules()`: `verbatimModuleSyntax` already reports the
+    /// import as TS1484. `lastLocation` is the reference's source file
+    /// whenever the result is a global: the walk reaches `c.globals` only
+    /// after leaving the file.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-isolated-global-value.diff"
+    )]
+    pub(crate) fn check_import_conflicts_with_global_value(
+        &mut self,
+        node: NodeId,
+        result: SymbolId,
+        text: &str,
+    ) {
+        if !self.isolated_modules_option {
+            return;
+        }
+        let Some(file) = self.source_file_of(node) else { return };
+        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return };
+        if !tsr_binder::is_external_module_in(source, self.nodes) {
+            return;
+        }
+        let meaning = SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE;
+        let global = self.binder.globals().get(text).copied();
+        if global.and_then(|global| self.get_symbol_in(global, meaning))
+            != Some(self.binder.merged_symbol(result))
+        {
+            return;
+        }
+        let Some(local) = self.binder.locals(file).and_then(|locals| locals.get(text)).copied()
+        else {
+            return;
+        };
+        if self.get_symbol_in(local, !SymbolFlags::VALUE).is_none() {
+            return;
+        }
+        let local = self.binder.merged_symbol(local);
+        let import =
+            self.binder.symbols().get(local).declarations.iter().copied().find(|&declaration| {
+                matches!(
+                    self.nodes.kind(declaration),
+                    SyntaxKind::ImportSpecifier
+                        | SyntaxKind::ImportClause
+                        | SyntaxKind::NamespaceImport
+                        | SyntaxKind::ImportEqualsDeclaration
+                )
+            });
+        let Some(import) = import else { return };
+        if self.is_type_only_import_or_export_declaration(import) {
+            return;
+        }
+        let Some(report_file) = self.source_file_of_for_diagnostics(import) else { return };
+        let span = self.error_span(import);
+        self.report(report_file, Diagnostic::with_args(
+            &messages::IMPORT_0_CONFLICTS_WITH_GLOBAL_VALUE_USED_IN_THIS_FILE_SO_MUST_BE_DECLARED_WITH_A_TYPE_ONLY_IMPORT_WHEN_ISOLATEDMODULES_IS_ENABLED,
+            span,
+            [text.to_string()],
+        ));
+    }
+
+    /// `getSymbol(symbols, name, meaning)` (`checker.go:2176`) for the entry
+    /// `symbol` already looked up by name: the merged symbol when it carries
+    /// `meaning`, or is an alias whose chain does.
+    fn get_symbol_in(&mut self, symbol: SymbolId, meaning: SymbolFlags) -> Option<SymbolId> {
+        let symbol = self.binder.merged_symbol(symbol);
+        let flags = self.binder.symbols().get(symbol).flags;
+        if flags.intersects(meaning) {
+            return Some(symbol);
+        }
+        (flags.intersects(SymbolFlags::ALIAS) && self.get_symbol_flags(symbol).intersects(meaning))
+            .then_some(symbol)
+    }
+
+    /// `checkConstEnumAccess` (pinned `checker.go:7573`–`7597`), which
+    /// `checkExpressionEx` runs on every expression whose type is a const
+    /// enum's object type: TS2475 when the expression is not a property or
+    /// element access receiver, an import/export-assignment entity name, a
+    /// type query or an export specifier; TS2748 when the enum is ambient and
+    /// `isolatedModules` is set, or `verbatimModuleSyntax` is set and the
+    /// name does not reach the enum through an import (an import of it is
+    /// `checkAliasSymbol`'s TS2748 instead).
+    ///
+    /// `t` must be a const enum object type
+    /// ([`Checker::is_const_enum_object_type`]). `GetProjectReferenceFromOutputDts`
+    /// has no counterpart (no project references in a checker's program), so
+    /// `redirect` is nil, as in [`Checker::check_alias_symbol_isolated`].
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-isolated-const-enum-access.diff"
+    )]
+    pub(crate) fn check_const_enum_access(&mut self, node: NodeId, t: crate::types::TypeId) {
+        let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(t).data else {
+            return;
+        };
+        let Some(parent) = self.nodes.parent(node) else { return };
+        let is_child = |expression: Option<tsr_ast::Expression<'_>>| {
+            expression.and_then(|expression| expression.node_id()) == Some(node)
+        };
+        let kind = self.nodes.kind(node);
+        let ok = match self.node_map.get(parent) {
+            Some(Node::PropertyAccessExpression(access)) if is_child(access.expression) => true,
+            Some(Node::ElementAccessExpression(access)) if is_child(access.expression) => true,
+            Some(Node::ExportSpecifier(_)) => true,
+            _ => {
+                matches!(kind, SyntaxKind::Identifier | SyntaxKind::QualifiedName)
+                    && (self.is_in_right_side_of_import_or_export_assignment(node)
+                        || self.nodes.kind(parent) == SyntaxKind::TypeQuery)
+            }
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        if !ok {
+            let span = self.error_span(node);
+            self.report(file, Diagnostic::new(
+                &messages::CONST_ENUMS_CAN_ONLY_BE_USED_IN_PROPERTY_OR_INDEX_ACCESS_EXPRESSIONS_OR_THE_RIGHT_HAND_SIDE_OF_AN_IMPORT_DECLARATION_OR_EXPORT_ASSIGNMENT_OR_TYPE_QUERY,
+                span,
+            ));
+        }
+        let checks = self.isolated_modules_option
+            || (self.verbatim_module_syntax
+                && ok
+                && self.first_identifier_of(node).is_none_or(|(identifier, text)| {
+                    self.binder
+                        .resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            identifier,
+                            text,
+                            SymbolFlags::ALIAS,
+                        )
+                        .is_none()
+                }));
+        if !checks {
+            return;
+        }
+        let ambient = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .value_declaration
+            .is_some_and(|declaration| self.declaration_is_in_an_ambient_context(declaration));
+        if ambient && !self.is_valid_type_only_alias_use_site_native(node) {
+            let span = self.error_span(node);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::CANNOT_ACCESS_AMBIENT_CONST_ENUMS_WHEN_0_IS_ENABLED,
+                    span,
+                    [self.isolated_modules_like_flag_name().to_string()],
+                ),
+            );
+        }
+    }
+
+    /// `isInRightSideOfImportOrExportAssignment` (`utilities.go:1107`).
+    fn is_in_right_side_of_import_or_export_assignment(&self, mut node: NodeId) -> bool {
+        while let Some(parent) = self.nodes.parent(node)
+            && self.nodes.kind(parent) == SyntaxKind::QualifiedName
+        {
+            node = parent;
+        }
+        match self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)) {
+            Some(Node::ImportEqualsDeclaration(declaration)) => {
+                declaration.module_reference.and_then(|reference| reference.node_id()) == Some(node)
+            }
+            Some(Node::ExportAssignment(assignment)) => {
+                assignment.expression.and_then(|expression| expression.node_id()) == Some(node)
+            }
+            _ => false,
+        }
+    }
+
+    /// `ast.GetFirstIdentifier` over an entity name or entity-name
+    /// expression, with its text.
+    fn first_identifier_of(&self, mut node: NodeId) -> Option<(NodeId, &str)> {
+        loop {
+            match self.node_map.get(node)? {
+                Node::Identifier(identifier) => return Some((node, identifier.text)),
+                Node::QualifiedName(name) => node = name.left?.node_id()?,
+                Node::PropertyAccessExpression(access) => node = access.expression?.node_id()?,
+                _ => return None,
+            }
+        }
+    }
+
+    /// `ast.IsValidTypeOnlyAliasUseSite` (`ast/utilities.go:3124`) as
+    /// upstream writes it. `check.rs`'s `is_valid_type_only_alias_use_site`
+    /// is TS1361's tuned copy (it also admits an `export =` operand, which
+    /// upstream's `!IsExpressionNode` disjunct does not), so the TS2748 use
+    /// site asks this one. `NodeFlagsAmbient` is the ancestor walk this parser
+    /// needs (it never sets the flag); `NodeFlagsJSDoc` is read as set.
+    fn is_valid_type_only_alias_use_site_native(&self, node: NodeId) -> bool {
+        if self.nodes.flags(node).contains(tsr_ast::NodeFlags::JSDOC)
+            || self.declaration_is_in_an_ambient_context(node)
+        {
+            return true;
+        }
+        // `IsPartOfTypeQuery`.
+        let mut at = node;
+        while matches!(self.nodes.kind(at), SyntaxKind::QualifiedName | SyntaxKind::Identifier) {
+            let Some(parent) = self.nodes.parent(at) else { break };
+            at = parent;
+        }
+        if self.nodes.kind(at) == SyntaxKind::TypeQuery
+            || self.identifier_in_non_emitting_heritage_clause(node)
+        {
+            return true;
+        }
+        // `isPartOfPossiblyValidTypeOrAbstractComputedPropertyName`.
+        let mut at = node;
+        while matches!(
+            self.nodes.kind(at),
+            SyntaxKind::Identifier | SyntaxKind::PropertyAccessExpression
+        ) {
+            let Some(parent) = self.nodes.parent(at) else { break };
+            at = parent;
+        }
+        if self.nodes.kind(at) == SyntaxKind::ComputedPropertyName
+            && let Some(member) = self.nodes.parent(at)
+        {
+            let abstract_member =
+                self.node_map.get(member).and_then(crate::check::modifiers_of).is_some_and(
+                    |modifiers| {
+                        tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AbstractKeyword)
+                    },
+                );
+            if abstract_member
+                || self.nodes.parent(member).is_some_and(|owner| {
+                    matches!(
+                        self.nodes.kind(owner),
+                        SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeLiteral
+                    )
+                })
+            {
+                return true;
+            }
+        }
+        let tree = tsr_ast::Tree { nodes: self.nodes, map: self.node_map };
+        let shorthand_name = matches!(
+            self.nodes.parent(node).and_then(|parent| self.node_map.get(parent)),
+            Some(Node::ShorthandPropertyAssignment(assignment))
+                if assignment.name.node_id() == Some(node)
+        );
+        !(tsr_ast::predicates::is_expression_node(node, tree) || shorthand_name)
+    }
+
     /// `getVerbatimModuleSyntaxErrorMessage` (`checker.go:5681`).
     fn verbatim_module_syntax_error_message(
         &self,
