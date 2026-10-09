@@ -3206,7 +3206,12 @@ impl<'a, 'n> Checker<'a, 'n> {
                         .resolve_name(self.nodes, self.node_map, reference, name, meaning)
                         .is_none();
                 if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
-                    return Some(format!("import(\"./{stem}\")."));
+                    // `getSpecifierForModuleSymbol`'s spelling
+                    // (`crate::module_specifiers`, r5-modules2 §3): the
+                    // module symbol's name keeps declaration suffixes
+                    // (`./foo.d`) that `processEnding` removes.
+                    let specifier = self.module_specifier_for_symbol(parent, reference)?;
+                    return Some(format!("import({specifier})."));
                 }
                 // A module under `node_modules` takes `getSpecifierForModuleSymbol`'s
                 // whole answer — an existing import, the package name
