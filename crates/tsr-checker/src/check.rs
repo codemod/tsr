@@ -2364,7 +2364,7 @@ impl Checker<'_, '_> {
     /// `GetThisContainer(node, includeArrowFunctions=false,
     /// includeClassComputedPropertyName=false)` (`ast/utilities.go:1790`).
     /// `None` only where upstream would panic (a detached node).
-    fn new_target_this_container(&self, node: NodeId) -> Option<NodeId> {
+    pub(crate) fn new_target_this_container(&self, node: NodeId) -> Option<NodeId> {
         let mut current = node;
         loop {
             current = self.nodes.parent(current)?;
