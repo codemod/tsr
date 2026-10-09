@@ -126,15 +126,47 @@ The faithful port is a loader processing diagnostic for an unresolved
 diagnostics. Neither the loader's diagnostics channel nor the harness is
 owned here.
 
-### 3.3 TS2880
+### 3.3 TS2880 (measured diff for the parser)
 
-A parser diff. Upstream always reports it, even under `ignoreDeprecations`;
-the `…Ignored` baselines carry it.
+`r5-smallcodes-import-assertions.diff` ports the three parser reports.
+`tryParseImportAttributes` (`parser.go:2497`) accepts `assert` only without a
+preceding line break and reports at the keyword. The export-declaration form
+(`:2565`) and the import-type form (`:3039`) do the same. Upstream reports
+TS2880 regardless of `ignoreDeprecations`; the `…Ignored` baselines carry it.
+The dynamic `import(…, { assert: … })` form is checker-side and was already
+reported (`import_call.rs`).
 
-### 3.4 TS1238
+`parse_import_attributes` serves the import, export and JSDoc `@import`
+forms, as upstream's `tryParseImportAttributes` does. The export form in
+upstream also requires a module specifier. TSR parses attributes after
+`export { a }` with no `from`, as before; the diff does not change that.
 
-`resolveDecorator` is a `resolveCall` client (calls.rs, main's), so it is
-not portable from this lane.
+The diff updates the `import_types` parser test, which asserted that
+`assert` parses silently, and adds `import_assertions_parse_with_ts2880`.
+
+Measured against `base3` (commit 3): +4 cases (`importAssertionsDeprecated`,
+`…Ignored`, `importTypeAssertionDeprecation`, `…Ignored`), zero losses on
+both dumps, types identical, slowcases clean. Ir: domain-model 1,200,108,041
+against 1,199,400,542 (+0.06%), generic-imports 342,895,757 against
+342,901,856 (−0.002%). The domain-model delta is within this session's
+binary-to-binary spread: the TS2652/TS2306 binary read −0.07% against its own
+base. Parser and workspace tests pass; clippy and fmt are clean on the
+diff.
+
+### 3.4 TS1238 (routed to main's calls lane)
+
+`checkDecorator` → `getResolvedSignature` → `resolveDecorator`
+(`checker.go:8743`). The decorator node is the call-like there:
+`getEffectiveDecoratorArguments` (`:30142`) synthesizes its arguments, and
+`getDecoratorCallSignature` builds the expected ES or legacy decorator
+signature. `getDecoratorArgumentCount` and `getLegacyDecoratorArgumentCount`
+(`:9183`) supply the arity message "The runtime will invoke the decorator
+with N arguments…". TSR's `resolveCall` port (`calls.rs`) takes only call
+expressions, and no decorator call resolution exists.
+`constructableDecoratorOnClass01` would need only the
+`len(callSignatures) == 0` arm (an `invocationErrorDetails` chain under the
+head message). The other three need `resolveCall` with decorator arguments.
+This is a `calls.rs` feature, not a diff-sized change.
 
 ### 3.5 TS18060
 
