@@ -156,3 +156,39 @@ their own:
 Ir for +86 lines and +1 case at CPU 1.02, or the route lands after the
 `KeysOfType` evaluation path is profiled to the native operation it stands
 for. The second is `declared.rs`' alias body evaluation (r5-declared3).
+
+## 3. `tsr-2zk.1089` (b): getIndexTypeForMappedType over a generic key domain (committed + diff)
+
+**Forcing constraint.** r5-relater6 §3 cause 2: `keyof Mapped5<K>` (`{ [P in
+K as P extends `_${string}` ? P : never]: P }`) has the base constraint
+`string | number | symbol` in the port. Native's is the filtered keys. Native
+reaches them through `computeBaseConstraint`'s Index arm (`checker.go:27523`):
+a generic mapped type with a name type and no `keyof` constraint
+declaration answers `getIndexTypeForMappedType`. Over a generic constraint,
+that maps each constituent of the constraint through the name type
+(`forEachType(constraintType, addMemberForKeyType)`, `:26892`). `getIndexType`
+itself defers this `keyof` (`shouldDeferIndexType`), and the port's
+`resolved_keyof_type` already does.
+
+**Ported.** `index_type_for_generic_mapped_type` (`mapped.rs`):
+- the constituents of the constraint, mapped through the name type;
+- a concrete string name also contributes `number`;
+- a homomorphic mapping answers `None`, where native goes to
+  getIndexTypeForGenericType, the deferred `keyof` the caller already holds.
+
+Its caller is `compute_base_constraint`'s deferred-`keyof` arm in
+`constraints.rs` (not this lane's):
+[`r5-mapped5-generic-mapped-keys-constraint.diff`](r5-mapped5-generic-mapped-keys-constraint.diff).
+That diff also removes the function's `cfg_attr(not(test), allow(dead_code))`.
+
+**Measured** with the diff applied, on top of §1, both dumps unfiltered:
+byte-identical to §1 (key, verdict, want, got). Zero losses; slowcases clean;
+Ir domain-model 1,154,370,415 → 1,154,386,735 and generic-imports
+342,937,447 → 342,942,434 (both +0.001%). Nothing converts yet. The relater
+still declines these pairs (the `mapped_conditionals` gate, r5-relater6 §3),
+and lifting it is r5-relater7's step.
+
+The unit test reads a conditional key by its operands. The key's print for
+`Mapped5<K>` is `P extends …` where native prints `K extends …`: the
+conditional's written-text mint under bindings is `declared.rs`' (`.16.71`).
+The operands are right (`K`), and they are what relating reads.

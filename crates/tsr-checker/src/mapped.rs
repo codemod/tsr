@@ -621,6 +621,48 @@ impl<'a> Checker<'a, '_> {
         Some(self.get_union_type(&names))
     }
 
+    /// getIndexTypeForMappedType (checker.go:26871) over a generic key
+    /// domain, the branch `computeBaseConstraint`'s Index arm (`:27523`)
+    /// and checkIndexedAccessIndexType reach for a generic mapped type with
+    /// an `as` clause. getIndexType itself defers that `keyof`
+    /// (shouldDeferIndexType), so [`Checker::mapped_index_type`] declines.
+    /// Each constituent of the constraint, generic ones included, is mapped
+    /// through the name type (forEachType). A homomorphic mapping answers
+    /// `None`: its keys come from getIndexTypeForGenericType, a deferred
+    /// `keyof` the caller already holds.
+    // Its caller is r5-mapped5-generic-mapped-keys-constraint.diff, which
+    // removes this allowance.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn index_type_for_generic_mapped_type(&mut self, id: TypeId) -> Option<TypeId> {
+        self.ensure_mapped_type_info(id);
+        let info = self.mapped_types.get(&id)?.clone();
+        let Some(name_type) = info.name_type else { return Some(info.constraint) };
+        if !self.is_generic_index_type(info.constraint) {
+            return self.mapped_index_type(id);
+        }
+        if info.keyof_constraint {
+            return None;
+        }
+        let keys = match self.store.get(info.constraint).data.clone() {
+            crate::types::TypeData::Union { types, .. } => types,
+            _ => vec![info.constraint],
+        };
+        let mut names = Vec::with_capacity(keys.len());
+        for key in keys {
+            let name =
+                self.instantiate_type(name_type, &[(info.parameter, key)], &[info.parameter], &[]);
+            if name == self.intrinsics.error {
+                return None;
+            }
+            // `keyof` of a concrete string index is `string | number`.
+            if name == self.intrinsics.string {
+                names.push(self.intrinsics.number);
+            }
+            names.push(name);
+        }
+        Some(self.get_union_type(&names))
+    }
+
     fn mapped_member_keys(
         &mut self,
         info: &MappedTypeInfo,
@@ -1730,6 +1772,41 @@ function foo<U>(m: MyMap<U>, n: MyMap<U>) {}";
             clones.push(clone);
         }
         assert_eq!(clones[0], clones[1]);
+    }
+
+    /// getIndexTypeForMappedType over a generic key domain (checker.go:26892):
+    /// `Mapped5<K>`'s keys are `K` mapped through its filtering `as` clause,
+    /// and `Mapped6<K>`'s through its remapping one. getIndexType itself
+    /// defers both (shouldDeferIndexType), so `mapped_index_type` declines.
+    #[test]
+    fn a_generic_key_domain_maps_each_constituent_through_the_name_type() {
+        let source = "type Mapped5<K extends string> = { [P in K as P extends `_${string}` ? P : never]: P };
+type Mapped6<K extends string> = { [P in K as `_${P}`]: P };
+function f<K extends string>(a: Mapped5<K>, b: Mapped6<K>) {}";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "mapped-generic-keys.ts", text: source },
+        );
+        let Statement::FunctionDeclaration(function) = parsed.source_file.statements[2] else {
+            panic!("function");
+        };
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let mut keys = Vec::new();
+        for parameter in function.parameters {
+            let mapped = checker.get_type_from_type_node(parameter.r#type.unwrap());
+            assert_eq!(checker.mapped_index_type(mapped), None);
+            let key = checker.index_type_for_generic_mapped_type(mapped).unwrap();
+            // A deferred conditional key is read by its operands: its written
+            // print is declared.rs' mint (`tsr-2zk.16.71`).
+            let key = checker.mapped_conditionals.get(&key).map_or(key, |info| info.operands[0]);
+            keys.push(checker.type_to_string(key));
+        }
+        assert_eq!(keys, ["K", "`_${K}`"]);
     }
 
     #[test]
