@@ -900,6 +900,13 @@ pub struct Checker<'a, 'n> {
     /// shape property road may search (a WRITTEN intersection answering
     /// confidently was 134 G→W in the discriminated-union family).
     pub(crate) alias_evaluated_types: rustc_hash::FxHashSet<TypeId>,
+    /// getConditionalTypeInstantiation's `root.instantiations`
+    /// (checker.go:22485) for conditional alias roots: (alias symbol, ordered
+    /// type arguments, result alias, inside a mapped template) → the
+    /// evaluated type. Completed evaluations only; see `declared.rs`'
+    /// `evaluate_conditional_alias`.
+    pub(crate) conditional_alias_instantiations:
+        FxHashMap<(tsr_binder::SymbolId, Vec<TypeId>, Option<tsr_binder::SymbolId>, bool), TypeId>,
     /// §107: while true, `instantiate_type` answers an UNMAPPED type
     /// parameter with ITSELF instead of refusing — the print-clone's
     /// substitution runs over signatures that legitimately mention ENCLOSING
@@ -1576,6 +1583,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             type_literal_origins: FxHashMap::default(),
             key_names_in_progress: rustc_hash::FxHashSet::default(),
             alias_evaluated_types: rustc_hash::FxHashSet::default(),
+            conditional_alias_instantiations: FxHashMap::default(),
             alias_evaluation_bindings: Vec::new(),
             alias_named_signature_types: rustc_hash::FxHashSet::default(),
             no_unused_locals: false,

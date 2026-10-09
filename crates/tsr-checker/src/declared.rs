@@ -76,13 +76,7 @@ impl<'a> Checker<'a, '_> {
         if !self.store.get(parameter).flags.contains(TypeFlags::TYPE_PARAMETER) {
             return TypeParameterDefaultState::Resolved(None);
         }
-        let bindings: rustc_hash::FxHashMap<_, _> = self
-            .alias_evaluation_bindings
-            .iter()
-            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
-            .collect();
-        let mut bindings: Vec<_> = bindings.into_iter().collect();
-        bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
+        let bindings = self.flattened_alias_bindings();
         let key = TypeParameterDefaultKey {
             parameter,
             bindings,
@@ -778,13 +772,8 @@ impl<'a> Checker<'a, '_> {
                             ) {
                                 let check = self.get_type_from_type_node(check);
                                 let extends = self.get_type_from_type_node(extends);
-                                let bindings = self
-                                    .alias_evaluation_bindings
-                                    .iter()
-                                    .flat_map(|frame| {
-                                        frame.iter().map(|(&symbol, &ty)| (symbol, ty))
-                                    })
-                                    .collect();
+                                let bindings =
+                                    self.flattened_alias_bindings().into_iter().collect();
                                 self.mapped_conditionals.insert(
                                     id,
                                     crate::mapped::MappedConditionalInfo {
@@ -797,11 +786,7 @@ impl<'a> Checker<'a, '_> {
                         } else if let TypeNode::ConditionalTypeNode(conditional) = node
                             && let Some(declaration) = conditional.node_id
                         {
-                            let bindings = self
-                                .alias_evaluation_bindings
-                                .iter()
-                                .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
-                                .collect();
+                            let bindings = self.flattened_alias_bindings().into_iter().collect();
                             self.conditional_inference_nodes
                                 .insert(id, ConditionalInferenceNode { declaration, bindings });
                             self.capture_inline_conditional_constraint(id, conditional);
@@ -2093,14 +2078,38 @@ impl<'a> Checker<'a, '_> {
     /// signatures. That is why the grouping happens here, where the member kind
     /// is known, and not in the shared renderer.
     pub(crate) fn type_literal_key(&self, node: tsr_ast::NodeId) -> TypeLiteralKey {
-        let bindings: rustc_hash::FxHashMap<_, _> = self
-            .alias_evaluation_bindings
-            .iter()
-            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
-            .collect();
-        let mut bindings: Vec<_> = bindings.into_iter().collect();
-        bindings.sort_unstable_by_key(|&(symbol, _)| symbol);
-        TypeLiteralKey { node, bindings, mapped_template: self.mapped_template_depth > 0 }
+        TypeLiteralKey {
+            node,
+            bindings: self.flattened_alias_bindings(),
+            mapped_template: self.mapped_template_depth > 0,
+        }
+    }
+
+    /// The open alias-evaluation frames as one environment, sorted by symbol:
+    /// each bound symbol once, with its innermost frame's binding (the frame
+    /// pushed last shadows the ones below it, as a later `FxHashMap` insert
+    /// overwrote an earlier one in the collect this replaces).
+    ///
+    /// It is the identity half of [`Self::type_literal_key`],
+    /// `get_resolved_type_parameter_default`'s key and the two conditional
+    /// mint captures, so it must answer exactly what the old per-call
+    /// `FxHashMap` flattening answered (`r5-declared3.md` §1.3). It builds no
+    /// hash table: one vector of every entry, innermost frame first, a stable
+    /// sort by symbol and a dedup that keeps each symbol's first (innermost)
+    /// entry. No open frame, or only empty ones, allocates nothing.
+    pub(crate) fn flattened_alias_bindings(&self) -> Vec<(SymbolId, TypeId)> {
+        let total: usize =
+            self.alias_evaluation_bindings.iter().map(rustc_hash::FxHashMap::len).sum();
+        if total == 0 {
+            return Vec::new();
+        }
+        let mut bindings = Vec::with_capacity(total);
+        for frame in self.alias_evaluation_bindings.iter().rev() {
+            bindings.extend(frame.iter().map(|(&symbol, &ty)| (symbol, ty)));
+        }
+        bindings.sort_by_key(|&(symbol, _)| symbol);
+        bindings.dedup_by_key(|&mut (symbol, _)| symbol);
+        bindings
     }
 
     pub(crate) fn cached_type_literal(&self, node: tsr_ast::NodeId) -> Option<TypeId> {
@@ -8242,9 +8251,14 @@ impl<'a> Checker<'a, '_> {
             let parameter = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
             frame.insert(parameter, argument);
         }
-        // The same guard as `instantiate_type`: a self-recursive conditional
-        // alias re-enters here through the branch's own references.
-        if self.instantiation_depth == 100 {
+        // instantiateTypeWithAlias' guard (checker.go:22111), the same one
+        // `instantiate_type` carries: a self-recursive conditional alias
+        // re-enters here through the branch's own references, and an
+        // expansion that keeps minting new argument lists stops at the
+        // per-check instantiation budget. Native reports TS2589 at
+        // `currentNode` and answers errorType; this road declines, which the
+        // callers already treat as "not computable" (`r5-declared3.md` §1.1).
+        if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
             return None;
         }
         // getTypeFromTypeNodeWorker resolves parenthesized bodies transparently;
@@ -8256,6 +8270,17 @@ impl<'a> Checker<'a, '_> {
             }
             _ => return None,
         };
+        // getConditionalTypeInstantiation's `root.instantiations`
+        // (checker.go:22485): one result per root, ordered type arguments and
+        // alias (`r5-declared3.md` §1.2). Print mode is never admitted
+        // (`docs/architecture/mapper-mode.md`); a mapped-template frame is
+        // part of the key, as it is of `type_literal_key`.
+        let memoizable = !self.identity_unmapped_type_parameters;
+        let key = (symbol, arguments.to_vec(), result_alias, self.mapped_template_depth > 0);
+        if memoizable && let Some(&cached) = self.conditional_alias_instantiations.get(&key) {
+            return Some(cached);
+        }
+        self.instantiation_count += 1;
         self.instantiation_depth += 1;
         self.alias_evaluation_bindings.push(frame);
         let result = self.evaluate_conditional_node(conditional, result_alias);
@@ -8263,6 +8288,9 @@ impl<'a> Checker<'a, '_> {
         self.instantiation_depth -= 1;
         if let Some(evaluated) = result {
             self.alias_evaluated_types.insert(evaluated);
+            if memoizable {
+                self.conditional_alias_instantiations.insert(key, evaluated);
+            }
         }
         result
     }
@@ -10233,6 +10261,97 @@ mod conditional_error_tests {
         let genuine_any = checker.intrinsics.any;
         let result = checker.evaluate_conditional_alias(symbol, &[genuine_any], None).unwrap();
         assert_eq!(checker.type_to_string(result), "1 | 2");
+    }
+
+    /// `r5-declared3.md` §1: getConditionalTypeInstantiation's
+    /// `root.instantiations` (checker.go:22485) answers the same alias with
+    /// the same arguments once; different arguments stay distinct; and
+    /// instantiateTypeWithAlias' count guard (checker.go:22111) declines.
+    #[test]
+    fn conditional_alias_instantiations_are_shared_per_arguments_and_bounded() {
+        let arena = tsr_core::Arena::new();
+        let source = "type Box<T> = T extends string ? { a: T } : { b: T };";
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0]
+        else {
+            panic!("Box alias")
+        };
+        let symbol = bound.symbol_of(alias.node_id.unwrap()).unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let (string, number) = (checker.intrinsics.string, checker.intrinsics.number);
+        let first = checker.evaluate_conditional_alias(symbol, &[string], None).unwrap();
+        let count = checker.instantiation_count;
+        let again = checker.evaluate_conditional_alias(symbol, &[string], None).unwrap();
+        assert_eq!(first, again);
+        assert_eq!(checker.instantiation_count, count, "a memo hit is no new instantiation");
+        let other = checker.evaluate_conditional_alias(symbol, &[number], None).unwrap();
+        assert_ne!(first, other);
+        assert_eq!(checker.type_to_string(first), "{ a: string; }");
+        assert_eq!(checker.type_to_string(other), "{ b: number; }");
+        checker.instantiation_count = 5_000_000;
+        let boolean = checker.intrinsics.boolean;
+        assert_eq!(checker.evaluate_conditional_alias(symbol, &[boolean], None), None);
+        // The guard sits before the memo, as instantiateTypeWithAlias' guard
+        // sits before getConditionalTypeInstantiation's lookup.
+        assert_eq!(checker.evaluate_conditional_alias(symbol, &[string], None), None);
+    }
+
+    /// `flattened_alias_bindings` answers exactly what the `FxHashMap`
+    /// collect it replaced answered: one entry per symbol, the innermost
+    /// frame's binding, sorted by symbol (`r5-declared3.md` §1.3).
+    #[test]
+    fn flattened_alias_bindings_match_the_hash_map_flattening() {
+        let arena = tsr_core::Arena::new();
+        let source = "type A<T, U, V> = T;";
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let tsr_ast::Statement::TypeAliasDeclaration(alias) = parsed.source_file.statements[0]
+        else {
+            panic!("A alias")
+        };
+        let symbols: Vec<SymbolId> = alias
+            .type_parameters
+            .iter()
+            .map(|parameter| bound.symbol_of(parameter.node_id.unwrap()).unwrap())
+            .collect();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        assert!(checker.flattened_alias_bindings().is_empty());
+        let i = checker.intrinsics;
+        let frames: [&[(usize, TypeId)]; 4] = [
+            &[(0, i.string), (1, i.number)],
+            &[],
+            &[(1, i.boolean), (2, i.any)],
+            &[(0, i.unknown)],
+        ];
+        for frame in frames {
+            checker
+                .alias_evaluation_bindings
+                .push(frame.iter().map(|&(index, ty)| (symbols[index], ty)).collect());
+        }
+        let old: rustc_hash::FxHashMap<_, _> = checker
+            .alias_evaluation_bindings
+            .iter()
+            .flat_map(|frame| frame.iter().map(|(&symbol, &ty)| (symbol, ty)))
+            .collect();
+        let mut old: Vec<_> = old.into_iter().collect();
+        old.sort_unstable_by_key(|&(symbol, _)| symbol);
+        assert_eq!(checker.flattened_alias_bindings(), old);
+        assert_eq!(
+            checker.flattened_alias_bindings(),
+            vec![(symbols[0], i.unknown), (symbols[1], i.boolean), (symbols[2], i.any)]
+        );
     }
 }
 
