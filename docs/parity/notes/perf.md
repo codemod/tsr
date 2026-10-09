@@ -713,3 +713,39 @@ all five sites (`flow.rs`), so every flow-node visit of a guard such as
 
 jsTyping Ir 65,114,781,507 → 62,964,317,814 (−3.3%); bench projects within
 ±0.01%. CLI output `cmp`-identical; dumps byte-identical.
+
+## §20 Generic-heritage members per receiver and name
+
+Native op (pinned `5b1047d`): `resolveObjectTypeMembers` publishes a
+reference's members once per type, inherited members instantiated through
+`getBaseTypes`/`addInheritedMembers`, and `getPropertyOfType` reads that
+table. This port's `get_type_of_property_with_this_argument` (`members.rs`)
+falls back to `generic_heritage_member` when the declared-symbol road misses,
+and that walk instantiates every base of the heritage graph
+(`instantiated_heritage_base`, `get_property_of_type`, `instantiate_for_reference`)
+on every ask. jsTyping (a temporary probe, not committed): 1,823,887 asks on
+44,679 distinct (receiver, name) pairs; every pair answered the same each
+time. The relater's property walks and discriminant checks were the askers
+(8% of the check).
+
+`generic_heritage_member_fresh` keeps the top-level walk's answer:
+
+- **Key and owner**: receiver `TypeId`, then the property name;
+  `Checker::heritage_members`, private to one `Checker`. The walk reads only
+  the receiver and the name (`this_argument` is applied by callers, not the
+  walk).
+- **Publication**: a member and a miss are both completed answers. Read and
+  published only with no alias-evaluation, mapped-template or
+  identity-unmapped frame open; published only when the walk started outside
+  any instantiation (`instantiation_depth == 0`, so the depth guard cannot
+  have cut it short) and `publishable_since` holds (no flow loop, no active
+  resolution observed). Otherwise the walk runs as before.
+- **Context**: the receiver is the concrete reference, so its own arguments
+  and `this` are part of the key; recursion inside the walk keeps its path
+  guard and is not memoised.
+- **Work boundary**: one heritage walk per (receiver, name) instead of one
+  per ask.
+
+jsTyping Ir 62,964,317,814 → 55,993,815,304 (−11.1%); domain-model −0.07%,
+domain-model-large −0.03%, generic-imports +0.006%. CLI output
+`cmp`-identical; dumps byte-identical.

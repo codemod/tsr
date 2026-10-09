@@ -1676,7 +1676,7 @@ impl Checker<'_, '_> {
         // instantiation goes through §226's `base_type_of_heritage_entry`
         // plus the reference road's own member typing instead. Cycles are
         // guarded by the walk's visited set.
-        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
+        if let Some(member) = self.generic_heritage_member_fresh(id, name) {
             return Some(member);
         }
         // §770: a TUPLE's non-numeric members come from `Array<T>`.
@@ -1808,6 +1808,40 @@ impl Checker<'_, '_> {
         (property.postfix_token.is_none()
             && matches!(property.r#type, Some(tsr_ast::TypeNode::KeywordTypeNode(keyword)) if keyword.kind == tsr_ast::SyntaxKind::NumberKeyword))
         .then_some(body)
+    }
+
+    /// [`Self::generic_heritage_member`] from an empty path, kept per
+    /// `(receiver, name)` in [`Checker::heritage_members`].
+    ///
+    /// Native op (pinned `5b1047d`): `resolveObjectTypeMembers` publishes a
+    /// reference's members, inherited ones instantiated through
+    /// `getBaseTypes`, once per type, and `getPropertyOfType` reads that table.
+    /// This walk instantiated every base of the heritage graph on every ask
+    /// (jsTyping: 1.82 M asks on 44.7 k receiver/name pairs, every pair's
+    /// answer the same each time). Key: the receiver `TypeId` and the name,
+    /// private to one `Checker`. Value: the member or the walk's miss, both
+    /// completed answers. Read and published only with no alias-evaluation,
+    /// mapped-template or identity-unmapped frame open; published only from
+    /// outside any instantiation (the depth guard cannot cut the walk short)
+    /// and when [`Self::publishable_since`] holds (no flow loop, no active
+    /// resolution observed). `docs/parity/notes/perf.md` §20.
+    fn generic_heritage_member_fresh(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
+        let admitted = self.mapped_template_depth == 0
+            && !self.identity_unmapped_type_parameters
+            && self.alias_evaluation_bindings.iter().all(|frame| frame.is_empty());
+        if !admitted {
+            return self.generic_heritage_member(id, name, &mut Vec::new());
+        }
+        if let Some(&member) = self.heritage_members.get(&id).and_then(|names| names.get(name)) {
+            return member;
+        }
+        let mark = self.publication_mark();
+        let top_level = self.instantiation_depth == 0;
+        let member = self.generic_heritage_member(id, name, &mut Vec::new());
+        if top_level && self.publishable_since(mark) {
+            self.heritage_members.entry(id).or_default().insert(name.into(), member);
+        }
+        member
     }
 
     /// Resolve inherited members through each instantiated base, guarded by

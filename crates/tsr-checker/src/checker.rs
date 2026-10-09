@@ -1233,6 +1233,11 @@ pub struct Checker<'a, 'n> {
     /// native `c.narrowedTypes` (`getNarrowedType`, `flow.go:846`). Owned by
     /// `Checker::get_narrowed_type`; `docs/parity/notes/perf.md` §19.
     pub(crate) narrowed_types: FxHashMap<(TypeId, TypeId, bool, bool), TypeId>,
+    /// `receiver -> name -> inherited member through generic heritage`: the
+    /// inherited half of a reference's resolved members
+    /// (`resolveObjectTypeMembers`). Owned by
+    /// `Checker::generic_heritage_member_fresh`; `docs/parity/notes/perf.md` §20.
+    pub(crate) heritage_members: FxHashMap<TypeId, FxHashMap<Box<str>, Option<TypeId>>>,
     /// `(baked signature type, substitution map) -> the instantiated type`,
     /// upstream's per-mapper instantiation cache (`checker.go:22125`) reduced
     /// to the one key this port can build.
@@ -1692,6 +1697,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             perf_links: crate::perf_links::PerfLinks::default(),
             type_only_export_stars: FxHashMap::default(),
             narrowed_types: FxHashMap::default(),
+            heritage_members: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),
