@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8364/9538 (87.69%)
-Assertion lines: 472077/478853 (98.58%)  — a gradient, not a pass rate
-Failed         : 1174
+Passed         : 8374/9538 (87.80%)
+Assertion lines: 472132/478853 (98.60%)  — a gradient, not a pass rate
+Failed         : 1164
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1174 failures:
+First 100 of 1164 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -195,8 +195,6 @@ compiler/conflictingDeclarationsImportFromNamespace2
   node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
 compiler/constEnumNoEmitReexport
   ReExportDefault.ts: >MyConstEnum : typeof MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
-compiler/constEnumNoPreserveDeclarationReexport
-  ReExport.d.ts: >MyConstEnum : typeof import("./ConstEnum.d").MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
 compiler/constEnumPreserveEmitReexport
   ReExport.ts: >MyConstEnum : typeof MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
 compiler/constEnums
@@ -213,3 +211,5 @@ compiler/contextualParamTypeVsNestedReturnTypeInference3
   contextualParamTypeVsNestedReturnTypeInference3.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
 compiler/contextualParamTypeVsNestedReturnTypeInference4
   contextualParamTypeVsNestedReturnTypeInference4.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
+compiler/contextualPropertyOfGenericFilteringMappedType
+  contextualPropertyOfGenericFilteringMappedType.ts: >{    foo: (value, key) => {      // implicit `any`s    },  } : any — expected >{    foo: (value, key) => {      // implicit `any`s    },  } : { foo: (value: any, key: any) => void; }
