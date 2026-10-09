@@ -1,0 +1,125 @@
+diff --git a/crates/tsr-checker/src/assertion_overlap.rs b/crates/tsr-checker/src/assertion_overlap.rs
+index b23ee73..f7b2473 100644
+--- a/crates/tsr-checker/src/assertion_overlap.rs
++++ b/crates/tsr-checker/src/assertion_overlap.rs
+@@ -24,7 +24,7 @@ use tsr_diagnostics::{Diagnostic, messages};
+ 
+ use crate::{checker::Checker, relater::Relation, relater::Ternary};
+ 
+-impl Checker<'_, '_> {
++impl<'a> Checker<'a, '_> {
+     /// The overlap check for one `as` or `<T>` assertion.
+     pub(crate) fn check_assertion_overlap(&mut self, node: NodeId, ambient: bool) {
+         if ambient || self.in_js_file(node) {
+@@ -36,6 +36,34 @@ impl Checker<'_, '_> {
+             _ => return,
+         };
+         let (Some(expression), Some(annotation)) = (expression, annotation) else { return };
++        self.check_assertion_overlap_parts(node, expression, annotation, node);
++    }
++
++    /// The overlap check for a JS `@type` cast, `/** @type {T} */ (e)`:
++    /// `reparseHosted` makes it an `AsExpression` (`makeNewCast`,
++    /// `parser/reparser.go:378`) whose type node is `Reparsed`, so
++    /// `checkAssertionDeferred` reports at the type node
++    /// (`checker.go:12323`). `docs/parity/notes/r5-js.md` §3.8.
++    pub(crate) fn check_jsdoc_cast_overlap(&mut self, node: NodeId, ambient: bool) {
++        if ambient || !self.in_js_file(node) {
++            return;
++        }
++        let Some(Node::ParenthesizedExpression(paren)) = self.node_map.get(node) else { return };
++        let Some(expression) = paren.expression else { return };
++        let Some(annotation) = self.jsdoc_cast_annotation(node) else { return };
++        let Some(error_node) = annotation.node_id() else { return };
++        self.check_assertion_overlap_parts(node, expression, annotation, error_node);
++    }
++
++    /// `checkAssertionDeferred`'s comparison, shared by the written and the
++    /// reparsed assertion; `error_node` is where the diagnostic goes.
++    fn check_assertion_overlap_parts(
++        &mut self,
++        node: NodeId,
++        expression: tsr_ast::Expression<'a>,
++        annotation: tsr_ast::TypeNode<'a>,
++        error_node: NodeId,
++    ) {
+         // `as const` is `isConstTypeReference` and is not a conversion at all.
+         let Some(annotation_id) = annotation.node_id() else { return };
+         if self.nodes.kind(annotation_id) == tsr_ast::SyntaxKind::TypeReference
+@@ -78,7 +106,7 @@ impl Checker<'_, '_> {
+             return;
+         }
+         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+-        let span = self.error_span(node);
++        let span = self.error_span(error_node);
+         let source_text = self.type_to_string(source);
+         let target_text = self.type_to_string(target);
+         self.report(
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index 1d22ea0..17bc121 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -649,6 +649,10 @@ impl Checker<'_, '_> {
+                 self.check_private_setter_read(node, ambient);
+                 ambient
+             }
++            Node::ParenthesizedExpression(_) if self.in_js_file(node) => {
++                self.check_jsdoc_cast_overlap(node, ambient);
++                ambient
++            }
+             Node::AsExpression(_) | Node::TypeAssertion(_) => {
+                 self.check_assertion_overlap(node, ambient);
+                 self.check_const_assertion_argument(node);
+diff --git a/crates/tsr-checker/tests/jsdoc_cast_overlap.rs b/crates/tsr-checker/tests/jsdoc_cast_overlap.rs
+new file mode 100644
+index 0000000..3229906
+--- /dev/null
++++ b/crates/tsr-checker/tests/jsdoc_cast_overlap.rs
+@@ -0,0 +1,47 @@
++//! TS2352 on a JS `@type` cast: `reparseHosted` makes `/** @type {T} */ (e)`
++//! an `AsExpression` with a `Reparsed` type node, and
++//! `checkAssertionDeferred` reports at that type node (`checker.go:12323`).
++//! `docs/parity/notes/r5-js.md` §3.8.
++use tsr_ast::Node;
++use tsr_binder::BindResult;
++use tsr_checker::{Checker, check::FileContext};
++use tsr_core::Arena;
++
++/// Every TS2352 of a checked JS file, as the text at its span.
++fn reports_2352(source: &str) -> Vec<String> {
++    let name = "t.js";
++    let arena = Arena::new();
++    let mut parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
++    parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name, text: source },
++        &jsdoc,
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.set_jsdoc(parsed.jsdoc.iter());
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    checker
++        .diagnostics()
++        .iter()
++        .filter(|(_, d)| d.message.code() == 2352)
++        .map(|(_, d)| source[d.span.start as usize..d.span.end as usize].to_string())
++        .collect()
++}
++
++#[test]
++fn a_non_overlapping_jsdoc_cast_is_ts2352_at_its_type_node() {
++    assert_eq!(reports_2352("const x = /** @type {string} */ (1);\n"), ["string"]);
++}
++
++#[test]
++fn an_overlapping_jsdoc_cast_is_silent() {
++    assert!(reports_2352("const x = /** @type {number} */ (1);\n").is_empty());
++}
