@@ -616,6 +616,73 @@ impl Checker<'_, '_> {
         result
     }
 
+    /// `typeToTypeNodeHelper`'s intersection arm (`nodebuilderimpl.go`,
+    /// `formatIntersectionTypes` then `NewIntersectionTypeNode`): an
+    /// intersection no alias names prints each constituent at the site, so a
+    /// constituent from another module takes its qualifier
+    /// (`import("react-select").Whatever`), with the precedence parentheses
+    /// the minted text uses (`intersections.rs`). Any constituent that
+    /// declines keeps the minted text.
+    pub(crate) fn intersection_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let TypeData::Intersection { types, symbol: None, .. } = &self.store.get(id).data else {
+            return None;
+        };
+        let types = types.clone();
+        if !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let result = types
+            .iter()
+            .map(|&member| {
+                let text = self.type_to_string_at(member, reference)?;
+                let minted = type_to_string(self.store.get(member));
+                let needs = crate::node_reuse::binds_below_intersection(&minted);
+                Some(if needs { format!("({text})") } else { text })
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|parts| parts.join(" & "));
+        self.rendering_composites.remove(&id);
+        result
+    }
+
+    /// `typeToTypeNodeHelper`'s tuple arm (`nodebuilderimpl.go`,
+    /// `NewTupleTypeNode` over `mapToTypeNodes`) for a tuple with no
+    /// labels, optional, rest or variadic elements: each element printed at
+    /// the site. The other shapes keep their minted text.
+    pub(crate) fn tuple_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let (elements, readonly) = self.tuple_element_lists.get(&id)?.clone();
+        if self.tuple_optional_masks.contains_key(&id)
+            || self.tuple_labels.contains_key(&id)
+            || self.tuple_rest_tails.contains_key(&id)
+            || self.variadic_tuple_nodes.contains_key(&id)
+            || self.variadic_tuple_elements.contains_key(&id)
+            || self.tuple_types.get(&(elements.clone(), readonly)) != Some(&id)
+        {
+            return None;
+        }
+        if !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let result = elements
+            .iter()
+            .map(|&element| self.type_to_string_at(element, reference))
+            .collect::<Option<Vec<_>>>()
+            .map(|parts| {
+                let printed = parts.join(", ");
+                if readonly { format!("readonly [{printed}]") } else { format!("[{printed}]") }
+            });
+        self.rendering_composites.remove(&id);
+        result
+    }
+
     /// Pinned tsgo 5b1047d: createTypeNodesFromResolvedType /
     /// addPropertyToElementList. Consume the already-completed type-literal
     /// image, keyed by `TypeId` in this Checker, without resolving members again

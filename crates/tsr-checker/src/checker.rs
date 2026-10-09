@@ -2388,6 +2388,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(out) = self.union_text_at(id, reference) {
                 return Some(out);
             }
+            // The same at-site rendering for the other composites the node
+            // builder walks slot by slot: intersections and plain tuples.
+            if let Some(out) = self.intersection_text_at(id, reference) {
+                return Some(out);
+            }
+            if let Some(out) = self.tuple_text_at(id, reference) {
+                return Some(out);
+            }
             // §95 (`checker-notes-narrow.md`): a GENERIC reference re-renders
             // its ARGUMENT slots at the site — the baked argument text was
             // minted at creation (inside-view), and `split_around_name`'s
