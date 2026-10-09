@@ -256,6 +256,31 @@ renamingDestructuredPropertyInFunctionType's line
 (`({ a: string }: { a: any; }) => any`) is a call-signature parameter of a
 type literal, and its own blocker is CLONE-BINDING-NAME. It is unchanged.
 
+## 7. `.16.43`: a late-bound destructuring key reads the apparent type (diff)
+
+**Re-measured.** destructuredMaappedTypeIsNotImplicitlyAny and
+controlFlowBindingElement are already RIGHT. genericObjectRest's
+`let { [sa]: a1, [sb]: b1, ...r1 } = obj` with
+`T extends { [sa]: string, [sb]: number }` left `a1` and `b1` as gaps.
+
+**Forcing constraint.** `getBindingElementTypeFromParentType`
+(`checker.go:17740`) indexes the parent with `getIndexedAccessTypeEx(parent,
+getLiteralTypeFromPropertyName(name), …, name)`. With an access node that is
+not an `IndexedAccessType` node, `getIndexedAccessTypeOrUndefined` defers
+only for a generic index or a generic tuple. A unique-symbol key on a type
+parameter is therefore resolved at once, through
+`getPropertyTypeForIndexType` on the reduced apparent type (`T`'s
+constraint). TSR's `late_bound_destructuring_member` (`destructure.rs`,
+main) read the property on `T` itself, found none, and fell through to the
+gap.
+
+**Port.** The diff reads the late-bound property on `apparent_type(parent)`.
+The generic-key arm above it (`T[K]`) is unchanged.
+
+**Measured** (on top of §2-§6): types +2 GAP→RIGHT (genericObjectRest),
+zero losses, diagnostics unchanged. slowcases clean. Ir ×1.00037 / ×0.99998
+cumulative. The cluster's two blocked cases wait on CLONE-BINDING-NAME.
+
 ## Diffs, in apply order
 
 Every diff applies to `b18aec06` plus this branch's commits and the diffs
@@ -273,3 +298,5 @@ above it.
    losses. Independent of 1-3.
 5. `r6-typesroots-rest-binding-pattern.diff` (§6): `symbols.rs` (main),
    tests. +6 types, zero losses. Independent of 1-4.
+6. `r6-typesroots-late-bound-destructuring-apparent.diff` (§7):
+   `destructure.rs` (main). +2 types, zero losses. Independent of 1-5.
