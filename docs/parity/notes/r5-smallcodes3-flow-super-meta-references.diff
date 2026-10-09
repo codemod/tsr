@@ -1,0 +1,35 @@
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index 6572d3a..595abc3 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -4546,8 +4546,8 @@ impl Checker<'_, '_> {
+     /// arguments resolve to one symbol that is a constant or an unassigned
+     /// parameter/mutable local (`flow.go:1629`; the unassigned half landed with
+     /// `checker-99-union-key-access.md`). Assignment/comma targets are unwrapped
+-    /// before source matching. Not ported: `super` and `MetaProperty`; both
+-    /// answer `false`, which costs a narrowing and never invents one.
++    /// before source matching. `super` and `MetaProperty` match their own
++    /// kind (`flow.go:1607`, `:1617`).
+     ///
+     /// # Why `false` is the safe default here, unlike everywhere else
+     ///
+@@ -4615,9 +4615,17 @@ impl Checker<'_, '_> {
+         }
+ 
+         match (self.node_map.get(source), self.node_map.get(target)) {
+-            // `this` matches `this` and nothing else.
++            // `this` matches `this` and `super` matches `super`, nothing else
++            // (`flow.go:1615`, `:1617`).
+             (Some(Node::KeywordExpression(left)), Some(Node::KeywordExpression(right))) => {
+-                left.kind == SyntaxKind::ThisKeyword && right.kind == SyntaxKind::ThisKeyword
++                left.kind == right.kind
++                    && matches!(left.kind, SyntaxKind::ThisKeyword | SyntaxKind::SuperKeyword)
++            }
++            // `import.meta` matches `import.meta` (`flow.go:1607`): the same
++            // keyword and the same name.
++            (Some(Node::MetaProperty(left)), Some(Node::MetaProperty(right))) => {
++                left.keyword_token.kind == right.keyword_token.kind
++                    && left.name.map(|name| name.text) == right.name.map(|name| name.text)
+             }
+             // §840: a QUALIFIED NAME matches the property-access spelling of
+             // the same dotted path. `isMatchingReference`

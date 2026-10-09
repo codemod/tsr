@@ -148,7 +148,7 @@ attributed to its diff by code, and no row of any other code changed.
 | TS2308 | `doubleUnderscoreExportStarConflict`, `exportNamespace8`, `exportStar(target=es2015)` | 5 | 0 |
 | TS2523 | `expressionsForbiddenInParameterInitializers`, `parser.asyncGenerators.functionDeclarations.es2018(alwaysstrict=true)`, `…functionExpressions.es2018(alwaysstrict=true)` | 8 | 0 |
 | TS2702/TS2713 (§3.2) | `decoratorMetadataWithImportDeclarationNameCollision7(target=es2015)`, `invalidUseOfTypeAsNamespace`, `errorForUsingPropertyOfTypeAsType02` | 8 | 1 |
-| TS2721–2723 (§3.3) | `interfaceClassMerging`, `nullableFunctionError`, `controlFlowOptionalChain`, `logicalAssignment5` ×4, `parserAmbiguityWithBinaryOperator4` | 17 | 3 |
+| TS2721–2723 (§3.3), without §3.4 | `interfaceClassMerging`, `nullableFunctionError`, `controlFlowOptionalChain`, `logicalAssignment5` ×4, `parserAmbiguityWithBinaryOperator4` | 17 | 3 (0 with §3.4) |
 
 Together:
 
@@ -186,12 +186,14 @@ byte-identical to the base on both projects.
 
 ## 3. Held diffs
 
-### 3.1 Why these are held
+### 3.1 Why these were held
 
-Each diff below is a faithful port, and each loses cases. In every loss the
-diff makes a correct report on an input that TSR builds wrongly, in a file
-this lane does not own. Muting the report for those shapes would be the
-§3a heuristic, so the diffs wait on the producers.
+Each reporter diff below is a faithful port that loses cases on its own. In
+every loss the diff makes a correct report on an input that TSR builds
+wrongly, in a file this lane does not own. Muting the report for those
+shapes would be the §3a heuristic. TS2722's producer turned out to be two
+unported `isMatchingReference` arms, which §3.4 ports, so that pair is now
+lossless. TS2702's producer is still open.
 
 ### 3.2 TS2702 / TS2713 — `r5-smallcodes3-type-as-namespace.diff`
 
@@ -242,7 +244,7 @@ Unit test: `tests/type_used_as_namespace.rs`. Probe: every TS2702/TS2713 row
 of `invalidUseOfTypeAsNamespace` and of a reduced
 `errorForUsingPropertyOfTypeAsType01`/`02` matches native.
 
-### 3.3 TS2721–TS2723 — `r5-smallcodes3-cannot-invoke-nullish.diff`
+### 3.3 TS2721–TS2723 — `r5-smallcodes3-cannot-invoke-nullish.diff`, on §3.4
 
 `check_non_null_callee` (`calls.rs`) is the port of
 `checkNonNullTypeWithReporter` with
@@ -252,22 +254,52 @@ it did not report. Its own comment said why: the report trusts the callee's
 narrowed type. The diff reports, choosing the message from the
 `IsUndefined`/`IsNull` facts as upstream does.
 
-**Losses** (all EMPTY_RIGHT → EMPTY_WRONG). Each is an extra TS2722 on a
-callee that native narrows and TSR does not:
+**Alone it loses three cases** (all EMPTY_RIGHT → EMPTY_WRONG). Each is an
+extra TS2722 on a callee that native narrows and TSR did not:
 
-- `controlFlowSuperPropertyAccess`: `super.m && super.m()`. TSR does not
-  narrow a `super` property access as a reference.
+- `controlFlowSuperPropertyAccess`: `super.m && super.m()`;
 - `importMetaNarrowing(module=es2020)` and `(module=esnext)`:
-  `if (import.meta.foo) import.meta.foo()`. TSR does not narrow an
-  `import.meta` property access either.
+  `if (import.meta.foo) import.meta.foo()`.
 
-Both are `isMatchingReference` arms in the flow lane (`flow.rs`, main's).
+Both come from `isMatchingReference` arms that were never ported. §3.4
+ports them.
 
-- **Falsifier:** once those two references narrow, the diff measures +8 with
-  no loss.
+**Stacked on §3.4** (measured together against the frozen base):
+
+- diagnostics: +8 cases (`interfaceClassMerging`, `nullableFunctionError`,
+  `controlFlowOptionalChain`, `logicalAssignment5` ×4,
+  `parserAmbiguityWithBinaryOperator4`). 17 rows matched (15 TS2722, one
+  TS2721, one TS2723), no row of any other code changed, **zero losses**;
+- type lines: §3.4's +10, zero losses;
+- slowcases: only the KNOWN_SLOW cases.
+
+The integrator lands §3.4 first.
 
 Unit test: `tests/cannot_invoke_possibly_nullish.rs`. It covers TS2721,
-TS2722 and TS2723, and an `if (f) f()` that must stay silent.
+TS2722 and TS2723, an `if (f) f()` that must stay silent, and
+`super.m && super.m()`. The last assertion fails without §3.4.
+
+### 3.4 `isMatchingReference`'s `super` and `MetaProperty` arms — `r5-smallcodes3-flow-super-meta-references.diff`
+
+`isMatchingReference` (`flow.go:1597`) matches `super` against `super`
+(`:1617`), and a `MetaProperty` against one with the same keyword and name
+(`:1607`). `references_match` (`flow.rs`, main's) listed both as not ported
+and answered `false`, so `super.m` and `import.meta.foo` never narrowed. The
+diff adds the two arms beside the existing `this` arm.
+
+Measured alone against the frozen base:
+
+- diagnostics: unchanged;
+- type lines: +10 RIGHT, zero losses:
+  - `controlFlowSuperPropertyAccess` 0:5, 0:9, 0:10, 0:12;
+  - `importMetaNarrowing` (es2020, esnext) 0:6, 0:7, 0:10;
+- slowcases: only the KNOWN_SLOW cases;
+- Ir: domain-model 1,117,759,558 → 1,117,032,341 (−0.065%, within the
+  base's spread); generic-imports 342,931,033 → 342,932,389 (+0.0004%). CLI
+  output is identical.
+
+Native and TSR are both silent on the probe
+(`super.m && super.m()`, `if (import.meta.foo) import.meta.foo()`, strict).
 
 ## 4. Open clusters
 
@@ -336,7 +368,8 @@ baseline's TS2538 (`Type 'null' cannot be used as an index type`) is
 | TS2308 export-star collisions | diff, lossless | +3 |
 | TS2523 `yield` in a parameter initializer | diff, lossless | +3 |
 | TS2702/TS2713 type used as namespace | diff, held (`callbackTagNamespace`: JSDoc dotted names) | +3 / −1 |
-| TS2721–2723 cannot invoke possibly-nullish | diff, held (`super.m`, `import.meta.foo` narrowing) | +8 / −3 |
+| TS2721–2723 cannot invoke possibly-nullish | diff, lossless on the flow diff below | +8 |
+| `isMatchingReference` `super`/`MetaProperty` arms | diff, lossless (`flow.rs`) | +10 type lines |
 | TS2391, TS17006 | wait for batches AP/AU | 10 |
 | TS2307, TS2883, TS1238, TS2403, TS2538 | routed, owners above | 19 |
 | TS2540 | 2 on r5-smallcodes2's branch, 2 `mapped.rs` | 4 |

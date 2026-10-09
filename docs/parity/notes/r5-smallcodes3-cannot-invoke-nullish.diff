@@ -27,10 +27,10 @@ index 9590237..e5d1bb2 100644
  
 diff --git a/crates/tsr-checker/tests/cannot_invoke_possibly_nullish.rs b/crates/tsr-checker/tests/cannot_invoke_possibly_nullish.rs
 new file mode 100644
-index 0000000..9a12ae8
+index 0000000..cdc6718
 --- /dev/null
 +++ b/crates/tsr-checker/tests/cannot_invoke_possibly_nullish.rs
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,72 @@
 +//! TS2721–TS2723 — `reportCannotInvokePossiblyNullOrUndefinedError`
 +//! (`checker.go:9894`), the reporter `resolveCallExpression` hands to
 +//! `checkNonNullTypeWithReporter` (`checker.go:8511`). Expectations were
@@ -91,4 +91,15 @@ index 0000000..9a12ae8
 +#[test]
 +fn a_narrowed_callee_does_not_report() {
 +    assert!(codes("declare const f: (() => void) | undefined;\nif (f) f();").is_empty());
++}
++
++#[test]
++fn a_super_property_narrowed_by_its_guard_does_not_report() {
++    // `isMatchingReference`'s `super` arm (`flow.go:1617`): the guard and
++    // the call are the same reference (`controlFlowSuperPropertyAccess`).
++    // Needs `r5-smallcodes3-flow-super-meta-references.diff`.
++    assert!(
++        codes("class B { m?(): void }\nclass C extends B { f() { super.m && super.m(); } }")
++            .is_empty()
++    );
 +}
