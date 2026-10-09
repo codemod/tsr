@@ -305,3 +305,88 @@ port carries the fallthrough for an indexed-access source
 **Falsifier.** A pair whose type-variable or intersection constraint the
 port builds weaker than native's substitution, now decided False where the
 decline kept `Unknown`.
+
+## 6. Conditional source arms (`.1124` c)
+
+### 6.1 r5-relater8's conditional WIP
+
+Its diff applied cleanly to §5's commit:
+- isDistributionDependent (relater.go:4993) over the root's declaration
+  (symbol-based isTypeParameterPossiblyReferenced on the branches), in
+  place of the decline for an instantiated distributive root
+  (`Extract<T[K1], string>`);
+- `restrictive_assignable` extended to indexed accesses built only from type
+  parameters (getRestrictiveInstantiation leaves them unconstrained).
+
+Measured alone: **no verdict or line moves** in either dump. It lands with
+6.2, which uses the second piece.
+
+### 6.2 The inferred true type of a bare check reference
+
+**Forcing constraint.** `keyofAndIndexedAccessErrors` 115 (`tj = tk`, `T[K]
+-> T[J]` with `K extends Extract<keyof T, string>`, `J extends K`) fails
+natively on `K -> J`, that is `Extract<keyof T, string> -> J`. The
+conditional source arm (relater.go:3721) skips the branch comparison
+(Extract's root is distribution dependent) and relates the default
+constraint, getDefaultConstraintOfConditionalType: the union of
+getInferredTrueTypeFromConditionalType (checker.go:24555) and the false
+type. Extract's true branch is written `T`, which getConditionalFlowTypeOfType
+turns into a substitution type (`T` constrained by `U`). Its instantiation
+(instantiateTypeWorker's substitution arm) is the check type when the
+extends type is a top type or the check type is restrictively assignable to
+it; otherwise `extends & check` for a check type that is not a type
+variable. Here that is `string & keyof T`, and `string & keyof T -> J` is
+False. The port used the unflowed `keyof T`, and because native's true type
+is narrower it declined (`Unknown`).
+
+**Ported.**
+- `inferred_true_type_of_check_reference`: for a root (alias or mapped
+  template) without `infer` whose true branch is written as the bare check
+  parameter, the instantiated flow type as above. A type-variable check
+  against a generic extends type stays a substitution type natively, which
+  the port does not represent, so it gives `None`.
+- The default-constraint step relates `inferred | false` (with
+  getDefaultConstraintOfConditionalType's `any` rules) where it used to
+  decline. An inferred type equal to the written one means the first
+  comparison already was native's.
+- `restrictive_assignable`: `keyof` of an unconstrained type (a type
+  parameter or a parameter-only access) has keyofConstraintType `string |
+  number | symbol` as its constraint, so it relates to a parameter-free type
+  exactly when that union does.
+
+**Alternatives.** A general substitution type in the port: the faithful
+long-term road, but it is a new type kind across `declared.rs`,
+`instantiation` and every reader. The bare-reference case is exactly
+Extract's shape and needs none of it.
+
+**Measured** against §5's commit, both loss checks (against §0) empty,
+slowcases clean:
+- diagnostics: no verdict moves. `keyofAndIndexedAccessErrors` 104:9,
+  106:9 and 115:5 now report as native does. The case stays WRONG on
+  TS2537/TS2538 (`indexed.rs`), TS2345 65:33 and 68:24, TS2536 74-75 (the
+  held reporter), and 123-124 (r5-relater6 §3's mapped-parameter identity);
+- types: **+23** (`isomorphicMappedTypeInference` 13, `keyofAndIndexedAccessErrors`
+  3, `typeGuardsTypeParameters` 4, `keyofAndForIn` 2,
+  `extractInferenceImprovement` 1);
+- `Ir`: generic-imports 343,086,425 → 343,073,010 (−0.004%); domain-model
+  1,092,030,115 → 1,092,026,042 (−0.0004%). CLI output identical.
+
+**Falsifier.** A bare-reference true branch whose native instantiation is a
+substitution type the port reads as `extends & check` (a check type the
+port does not flag as a type variable but native does).
+
+Test: `tests/relater8_arms.rs` `an_extract_source_relates_through_its_inferred_true_type`.
+
+### 6.3 Not converted, with causes
+
+- **`deepComparisons` 5** (`T[K1][K2] -> Extract<T[K1][K2], string>`, an
+  error natively): the type-variable arm walks the constraint chain down to
+  `T[string | number | symbol][string | number | symbol]`, whose
+  `constraint_of_type` is undecided. Native's getConstraintOfType there is
+  nil (an unconstrained `T`), so it relates `{}`, False. Needs
+  `constraints.rs` (MAIN): that constraint should be nil.
+- **`flatArrayNoExcessiveStackDepth` 20**: `FlatArray`'s indexed-access
+  body is not measured (r5-relater8 §3). Not reached this round.
+- **`conditionalTypeAssignabilityWhenDeferred` 41, 65**: `conditional_root`
+  cannot read an inline conditional's node; `ConditionalInferenceNode::declaration`
+  is private in `declared.rs` (r6-declared) and needs to be `pub(crate)`.

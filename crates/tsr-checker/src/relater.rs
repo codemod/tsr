@@ -5626,6 +5626,68 @@ impl Relater<'_, '_, '_> {
         Some((id, has_infer, distributive))
     }
 
+    /// isDistributionDependent (relater.go:4993) for the distributive
+    /// conditional type node `root`: is its check type parameter possibly
+    /// referenced in either branch (isTypeParameterPossiblyReferenced,
+    /// checker.go:22403)? `None` when the check parameter does not resolve.
+    fn is_distribution_dependent(&self, root: tsr_ast::NodeId) -> Option<bool> {
+        let Some(tsr_ast::Node::ConditionalTypeNode(node)) = self.checker.node_map.get(root) else {
+            return None;
+        };
+        let parameter = self.checker.distributive_conditional_parameter(node.check_type?)?;
+        // The walk from a branch up to the parameter's container passes the
+        // root itself, whose extends type referencing the parameter makes
+        // every branch a possible reference (checker.go:22449).
+        let extends = node.extends_type.and_then(|t| t.node_id());
+        if extends.is_some_and(|id| self.type_parameter_referenced_in(id, parameter, 0)) {
+            return Some(true);
+        }
+        Some([node.true_type, node.false_type].into_iter().flatten().any(|branch| {
+            branch.node_id().is_some_and(|id| self.type_parameter_referenced_in(id, parameter, 0))
+        }))
+    }
+
+    /// isTypeParameterPossiblyReferenced's `containsReference`
+    /// (checker.go:22405): an argument-less type reference resolving to
+    /// `parameter`; a type query, which this port does not prove free of the
+    /// parameter, counts as a reference.
+    fn type_parameter_referenced_in(
+        &self,
+        id: tsr_ast::NodeId,
+        parameter: SymbolId,
+        depth: usize,
+    ) -> bool {
+        if depth > 4 * MAX_DEPTH {
+            return true;
+        }
+        let Some(node) = self.checker.node_map.get(id) else {
+            return true;
+        };
+        match node {
+            tsr_ast::Node::TypeQueryNode(_) => return true,
+            tsr_ast::Node::TypeReferenceNode(reference) if reference.type_arguments.is_empty() => {
+                if let Some(tsr_ast::EntityName::Identifier(name)) = reference.type_name
+                    && let Some(name_id) = name.node_id
+                    && self.checker.binder.resolve_name(
+                        self.checker.nodes,
+                        self.checker.node_map,
+                        name_id,
+                        name.text,
+                        SymbolFlags::TYPE_PARAMETER,
+                    ) == Some(parameter)
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        let mut found = false;
+        tsr_ast::for_each_child_id(node, |child| {
+            found = found || self.type_parameter_referenced_in(child, parameter, depth + 1);
+        });
+        found
+    }
+
     /// getSimplifiedConditionalType (checker.go:28006) for a deferred
     /// conditional `id`; any other type is returned unchanged. `None` when the
     /// restrictive-instantiation test it needs is not decidable here.
@@ -5669,7 +5731,14 @@ impl Relater<'_, '_, '_> {
         }
         let check_is_parameter =
             self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER);
-        if check_is_parameter && !self.checker.mentions_registered_type_parameter(extends) {
+        // getRestrictiveInstantiation maps every type parameter to its
+        // unconstrained twin, so an indexed access built only from type
+        // parameters (`T[K1]`, `T[K1][K2]`) has no constraint either: like a
+        // naked parameter it relates to a parameter-free type only when that
+        // type is a top type.
+        if (check_is_parameter || self.is_type_parameter_access(check, 0))
+            && !self.checker.mentions_registered_type_parameter(extends)
+        {
             return Some(self.checker.type_of(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN));
         }
         // Two distinct restrictive parameters have no constraints to relate.
@@ -5678,7 +5747,87 @@ impl Relater<'_, '_, '_> {
         {
             return Some(false);
         }
+        // `keyof` of such an unconstrained type has keyofConstraintType
+        // (`string | number | symbol`) as its constraint (getIndexType's
+        // base constraint, checker.go), so it relates to a parameter-free
+        // type exactly when that union does.
+        if let Some(&operand) = self.checker.deferred_keyof_operands.get(&check)
+            && (self.checker.type_of(operand).flags.contains(TypeFlags::TYPE_PARAMETER)
+                || self.is_type_parameter_access(operand, 0))
+            && !self.checker.mentions_registered_type_parameter(extends)
+        {
+            let intrinsics = &self.checker.intrinsics;
+            let keys = [intrinsics.string, intrinsics.number, intrinsics.es_symbol];
+            let keys = self.checker.get_union_type(&keys);
+            return match self.is_related_to(keys, extends) {
+                RelationResult::Related => Some(true),
+                RelationResult::NotRelated => Some(false),
+                _ => None,
+            };
+        }
         None
+    }
+
+    /// getInferredTrueTypeFromConditionalType (checker.go:24555) for a
+    /// deferred conditional `source` whose true branch is written as its
+    /// bare check type parameter (`Extract`'s `T extends U ? T : never`).
+    /// That reference is getConditionalFlowTypeOfType's substitution type
+    /// (the check type constrained by the extends type), and
+    /// instantiateTypeWorker's substitution arm (checker.go) resolves its
+    /// instantiation: to the check type when the extends type is a top type
+    /// or the check type is restrictively assignable to it, else to
+    /// `extends & check` for a check type that is not a type variable. A
+    /// type-variable check type against a generic extends type stays a
+    /// substitution type, which this port does not represent: `None`, as for
+    /// any step it cannot decide.
+    fn inferred_true_type_of_check_reference(
+        &mut self,
+        source: TypeId,
+        check: TypeId,
+        extends: TypeId,
+    ) -> Option<TypeId> {
+        let (root, has_infer, _) = self.conditional_root(source)?;
+        if has_infer {
+            return None;
+        }
+        let Some(tsr_ast::Node::ConditionalTypeNode(node)) = self.checker.node_map.get(root) else {
+            return None;
+        };
+        let parameter = self.checker.distributive_conditional_parameter(node.check_type?)?;
+        if self.checker.distributive_conditional_parameter(node.true_type?) != Some(parameter) {
+            return None;
+        }
+        let type_variable = self
+            .checker
+            .type_of(check)
+            .flags
+            .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS);
+        if type_variable && self.checker.mentions_registered_type_parameter(extends) {
+            return None;
+        }
+        if self.checker.type_of(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
+            return Some(check);
+        }
+        match self.restrictive_assignable(check, extends)? {
+            true => Some(check),
+            false if type_variable => None,
+            false => Some(self.checker.get_intersection_type(&[extends, check], None)),
+        }
+    }
+
+    /// Whether `id` is an indexed access whose object and index are each a
+    /// type parameter or another such access.
+    fn is_type_parameter_access(&self, id: TypeId, depth: usize) -> bool {
+        if depth > MAX_DEPTH {
+            return false;
+        }
+        let Some(&(object, index, _)) = self.checker.deferred_indexed_access_types.get(&id) else {
+            return false;
+        };
+        [object, index].into_iter().all(|part| {
+            self.checker.type_of(part).flags.contains(TypeFlags::TYPE_PARAMETER)
+                || self.is_type_parameter_access(part, depth + 1)
+        })
     }
 
     /// isIntersectionEmpty (checker.go:28029).
@@ -5722,18 +5871,17 @@ impl Relater<'_, '_, '_> {
         else {
             return RelationResult::Unknown;
         };
-        // isDistributionDependent (checker.go): a distributive root whose
-        // branches reference the check type parameter.
+        // isDistributionDependent (relater.go:4993): a distributive root
+        // whose branches possibly reference the root's check type parameter.
+        // The test reads the root's declaration, so it holds for every
+        // instantiation (`Extract<T[K1], string>` is `Extract`'s root).
         let check_is_parameter =
             self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER);
         if distributive {
-            if !check_is_parameter {
-                return RelationResult::Unknown;
-            }
-            if self.checker.mentions_type_parameter(yes, &[check], &[])
-                || self.checker.mentions_type_parameter(no, &[check], &[])
-            {
-                return RelationResult::NotRelated;
+            match self.is_distribution_dependent(root) {
+                Some(true) => return RelationResult::NotRelated,
+                Some(false) => {}
+                None => return RelationResult::Unknown,
             }
         }
         if self.is_conditional(source)
@@ -5864,7 +6012,7 @@ impl Relater<'_, '_, '_> {
                 // where the true branch references it, and an element of a
                 // unary tuple check `[T] extends [U]`.
                 match operands {
-                    Some([check, _, yes, _]) => {
+                    Some([check, extends, yes, no]) => {
                         let unary_tuple = self
                             .checker
                             .tuple_element_lists
@@ -5873,7 +6021,34 @@ impl Relater<'_, '_, '_> {
                         if self.checker.mentions_type_parameter(yes, &[check], &[])
                             || (unary_tuple && self.checker.mentions_registered_type_parameter(yes))
                         {
-                            undecided = true;
+                            // The flow type of a bare check reference is
+                            // computable; relate native's default constraint
+                            // with it (getDefaultConstraintOfConditionalType).
+                            match self.inferred_true_type_of_check_reference(source, check, extends)
+                            {
+                                Some(inferred) if inferred != yes => {
+                                    let constraint = if self.checker.is_type_any(inferred) {
+                                        no
+                                    } else if self.checker.is_type_any(no) {
+                                        inferred
+                                    } else {
+                                        self.checker.get_union_type(&[inferred, no])
+                                    };
+                                    let result = self.is_related_to_with_flags(
+                                        constraint,
+                                        target,
+                                        RecursionFlags::SOURCE,
+                                    );
+                                    if result.is_success() {
+                                        return result;
+                                    }
+                                    undecided |= result == RelationResult::Unknown;
+                                }
+                                // The flow type is the written check type:
+                                // the constraint above was native's.
+                                Some(_) => {}
+                                None => undecided = true,
+                            }
                         }
                     }
                     None => undecided = true,

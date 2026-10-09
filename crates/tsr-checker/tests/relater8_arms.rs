@@ -185,3 +185,18 @@ const ta: T<A> extends T<B> ? true : false = true; // error
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn an_extract_source_relates_through_its_inferred_true_type() {
+    let source = r#"type Extract<T, U> = T extends U ? T : never;
+function f3<T, K extends Extract<keyof T, string>, U extends T, J extends K>(tk: T[K], tj: T[J], uk: U[K], uj: U[J]): void {
+    tk = uk;
+    uk = tk; // error
+    tj = uj;
+    uj = tj; // error
+    tk = tj;
+    tj = tk; // error
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
