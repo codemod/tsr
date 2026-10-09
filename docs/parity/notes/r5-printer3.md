@@ -215,3 +215,53 @@ the declaration's initializer and only with annotated accessors
 top-level pair (`const k = { get foo(): string …, set … }`) and an unannotated
 pair print the property form natively. Why the top level differs was not
 established. Routed to r5-nodereuse (`node_reuse.rs`).
+
+## 6. Scanner and parser items, filed with witnesses (item 5; not this lane's files)
+
+`bd` cannot run in these containers; these are for the integrator to file.
+
+### 6.1 Octal escapes in an untagged template cook to their character
+
+Witness `compiler/octalLiteralAndEscapeSequence` (14 type lines at the
+base). Native, for untagged templates:
+
+```
+>`\5` : "\u0005"        >`\55` : "-"        >`\5${0}` : "\u00050"
+```
+
+the port: `"\\5"`, `"\\55"`, `"\\50"`. `scanEscapeSequence`
+(`scanner.go:1700-1730`) returns the character (`string(rune(code))`) when
+`ReportInvalidEscapeErrors` is set, and the raw text otherwise. The parser
+re-scans an untagged template with reporting on (`reScanTemplateToken(false)`,
+`parser.go:3692`, `:3728`), so the cooked value is the character. The port's
+`scan_escape_into` (`tsr-scanner`) already has both arms (§147 of
+`checker-notes-narrow.md`); the value the checker reads is the unreported
+one, so either the rescan does not reach these tokens or its value is not
+the one stored on the node. Owner: the parser/scanner (main).
+
+### 6.2 Lone surrogates need a string representation that can hold them
+
+Witnesses `conformance/unicodeExtendedEscapesIn{Strings,Templates}1{0,1}(target=es6)`
+(4 type lines): `"\u{D800}"` prints `"\uD800"` natively, `"�"` in the port.
+A JavaScript string is a sequence of UTF-16 code units and may hold an
+unpaired surrogate; native's Go `string` holds it as WTF-8 bytes, and the
+printer escapes it (`\uD800`). A Rust `String` must be valid UTF-8, so the
+scanner substitutes U+FFFD, which loses the value: two different lone
+surrogates become one literal type, and the printer cannot recover the code
+unit.
+
+Design options, for a decision record before anyone builds one:
+
+1. **Literal values as WTF-8** (`Vec<u8>` with a WTF-8 view, or a `JsString`
+   newtype) from the scanner's token value through the AST's literal text and
+   the checker's `StringLiteral` payload. Faithful (it is native's
+   representation), but touches every consumer of a literal's text.
+2. **Literal values as UTF-16** (`Vec<u16>`): the JS model exactly, but every
+   comparison with source text and every print converts.
+3. **A side flag**: keep U+FFFD in the `String` and record the original code
+   units in a side table keyed by node. Cheap, but type identity stays wrong
+   (`"\uD800"` and `"\uDC00"` intern to one type), so it only fixes printing.
+
+Option 1 is the one that matches native; the measured payoff today is 4 type
+lines, so it waits on a cause that needs literal identity. Owner: the
+scanner (main).
