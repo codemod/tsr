@@ -72,4 +72,43 @@ records the measured number for each port.
 
 ## 4. Ports
 
-Filled per commit below.
+Perf is Callgrind Ir of `tsr -p <project> --singleThreaded --pretty false
+--noEmit`; the frozen base binary reads domain-model **1,156,991,440** and
+generic-imports **342,951,514**. Every measurement is unfiltered against the
+frozen base, with `slowcases` run on both dumps.
+
+### 4.1 T1, half one: the contextual type of a reparsed `@type` cast (committed)
+
+**Forcing fact.** `function f() { /** @type {(a: number) => number} */
+return function (a) { … } }` typed `a` as `any`. Native's reparser turns
+that `@type` into `return <fn> as T` (`reparseHosted`, `KindReturnStatement`
+and `KindParenthesizedExpression`, `parser/reparser.go:378`), so the
+function's contextual type is `getContextualType`'s `KindAsExpression` arm:
+the asserted type, or none for `@type {const}`. The function never gets a
+`FullSignature` there: `getFunctionLikeHost` sees the cast, not a function.
+
+**Port.** `jsdoc_cast_contextual_type` (`jsdoc_annotations.rs`): an operand
+of a `return` or parenthesized expression whose last comment's first typed
+`@type`/`@satisfies` tag is a `@type` answers that type. It runs inside the
+existing `jsdoc_satisfies_contextual_type` hook at the head of
+`get_contextual_type` — the two are the two `makeNewCast` wrappers, and the
+innermost one (the first tag) is the operand's parent — so no file outside
+this lane changes. TypeScript files pay one parent probe and one
+`jsdoc_entries` probe, the same as the satisfies arm before.
+
+**Judgment call.** The cast arm reads the *last* comment's *first* typed
+tag (native's hosting); the typing road `jsdoc_cast_annotation`
+(`symbols.rs`) still reads the first typed `@type` of *any* comment. They
+disagree only for a paren or `return` with two comments that both type it,
+which no corpus case has.
+
+**Measured.** Types **548,914 → 548,928 RIGHT (+14 lines)**, no case
+converts alone (`jsdocSignatureOnReturnedFunction` also needs §4.2's diff);
+diagnostics unchanged; zero losses on both dumps; no non-RIGHT line changed
+text; `slowcases` clean. Ir domain-model 1,156,990,783 (−0.0001%),
+generic-imports 342,956,087 (+0.001%).
+`crates/tsr-checker/tests/jsdoc_reparsed_casts.rs`: four tests (return
+cast, paren cast, `const`, untyped comment).
+
+**Falsifier.** A case with `/** @type {A} */` and `/** @type {B} */` as
+two comments on one `return`, whose function wants `A`'s context.

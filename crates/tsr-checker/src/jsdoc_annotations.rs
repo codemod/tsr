@@ -16,7 +16,7 @@
 
 use tsr_ast::{Node, NodeId, SyntaxKind, TypeNode};
 
-use crate::{checker::Checker, types::TypeId};
+use crate::{checker::Checker, jsdoc_params::top_level_tags, types::TypeId};
 
 impl Checker<'_, '_> {
     /// `checkVariableLikeDeclaration`'s initializer check for a declaration
@@ -122,12 +122,79 @@ impl<'a> Checker<'a, '_> {
         self.in_js_file(host).then_some(tag)
     }
 
-    /// `getContextualType`'s `KindSatisfiesExpression` arm
-    /// (`checker.go:29384`) for a reparsed `@satisfies`: the tag's type.
+    /// `getContextualType`'s arms for the two wrappers `reparseHosted` puts
+    /// around an expression (`makeNewCast`, `parser/reparser.go:684`): a
+    /// reparsed `@satisfies` answers its tag's type (`KindSatisfiesExpression`,
+    /// `checker.go:29384`), and a reparsed `@type` cast its asserted type
+    /// ([`Checker::jsdoc_cast_contextual_type`]).
     pub(crate) fn jsdoc_satisfies_contextual_type(&mut self, expression: NodeId) -> Option<TypeId> {
+        match self.jsdoc_cast_contextual_type(expression) {
+            JSDocCastContext::Cast(context) => return context,
+            JSDocCastContext::Satisfies | JSDocCastContext::NotWrapped => {}
+        }
         let tag = self.jsdoc_satisfies_tag_of(expression)?;
         let annotation = jsdoc_type_expression_type(tag.type_expression?)?;
         Some(self.get_type_from_type_node(annotation))
+    }
+
+    /// `getContextualType`'s `KindAsExpression` arm (`checker.go:29384`) for
+    /// the cast `reparseHosted`'s `KindJSDocTypeTag` arm makes of a `return`'s
+    /// or a parenthesized expression's operand (`parser/reparser.go:378`):
+    /// the asserted type, or no context for `@type {const}`
+    /// (`isConstTypeReference`).
+    ///
+    /// Each typed `@type` and `@satisfies` tag of the host's last comment
+    /// wraps the operand again, in tag order, so the operand's parent is the
+    /// wrapper of the **first** such tag; a `@satisfies` there is
+    /// [`Checker::jsdoc_satisfies_tag_of`]'s. The typing road
+    /// ([`Checker::jsdoc_cast_annotation`]) reads the first typed `@type` of
+    /// any comment; they differ only where the walk in `jsdoc_checks.rs`
+    /// already records the same difference.
+    ///
+    /// No cache: one parent probe and one `jsdoc_entries` probe, which a
+    /// TypeScript file answers from lib comments only on a `return` or a
+    /// parenthesized expression; `in_js_file` is asked after a comment is
+    /// found.
+    fn jsdoc_cast_contextual_type(&mut self, expression: NodeId) -> JSDocCastContext {
+        let Some(parent) = self.nodes.parent(expression) else {
+            return JSDocCastContext::NotWrapped;
+        };
+        let operand = match self.node_map.get(parent) {
+            Some(Node::ParenthesizedExpression(node)) => node.expression,
+            Some(Node::ReturnStatement(node)) => node.expression,
+            _ => return JSDocCastContext::NotWrapped,
+        };
+        if operand.and_then(|operand| operand.node_id()) != Some(expression) {
+            return JSDocCastContext::NotWrapped;
+        }
+        let Some(doc) = self.jsdoc_entries.get(&parent).and_then(|docs| docs.last()) else {
+            return JSDocCastContext::NotWrapped;
+        };
+        let mut cast = None;
+        for tag in top_level_tags(doc.tags) {
+            match tag {
+                tsr_ast::JSDocTag::JSDocTypeTag(tag) => {
+                    if let Some(Node::JSDocTypeExpression(expression)) = tag.type_expression
+                        && let Some(annotation) = expression.r#type
+                    {
+                        cast = Some(annotation);
+                        break;
+                    }
+                }
+                tsr_ast::JSDocTag::JSDocSatisfiesTag(tag) if tag.type_expression.is_some() => {
+                    return JSDocCastContext::Satisfies;
+                }
+                _ => {}
+            }
+        }
+        let Some(annotation) = cast else { return JSDocCastContext::NotWrapped };
+        if !self.in_js_file(parent) {
+            return JSDocCastContext::NotWrapped;
+        }
+        if crate::assertions::is_const_type_reference(annotation) {
+            return JSDocCastContext::Cast(None);
+        }
+        JSDocCastContext::Cast(Some(self.get_type_from_type_node(annotation)))
     }
 
     /// The **first** `@satisfies` tag (with a type) of a host's last comment;
@@ -195,6 +262,17 @@ impl<'a> Checker<'a, '_> {
             _ => None,
         }
     }
+}
+
+/// What [`Checker::jsdoc_cast_contextual_type`] found as an operand's
+/// innermost reparsed wrapper.
+enum JSDocCastContext {
+    /// No reparsed cast or `@satisfies` wraps the operand.
+    NotWrapped,
+    /// A `@satisfies` wraps it first.
+    Satisfies,
+    /// A `@type` cast wraps it first: its context (`None` for `const`).
+    Cast(Option<TypeId>),
 }
 
 /// The type inside a tag's `{…}`.
