@@ -143,3 +143,28 @@ generic-imports 1.028 (diagnostics match).
 Tests: `tests/unique_symbol_index.rs` pins `o[N["s"]]` as `"b"`, a unique
 symbol the receiver lacks as `errorType`, and `globalThis['y']` for a `let`
 as `errorType` beside `globalThis['x']` for a `var` as `number`.
+
+## §4 Commit 2: the element-access receiver is widened for a write or a call
+
+`checkElementAccessExpression` (`checker.go:8148`) widens the receiver of an
+assignment target or a called method before the lookup
+(`getWidenedType(objectType)`). The property-access road already did
+(`crate::members`, `widen_object_literal_freshness`); the element road only
+passed a flag to its object-literal fallback. So `(options || {})["a"] = 1`
+looked the name up on the unwidened `{ a: string; b: number; } | {}`, where
+`getWidenedType` reduces the union to `{}` (an empty object constituent asks
+for subtype reduction) and the name misses.
+
+Measured on commit 1 (unfiltered, both dumps): zero transitions. One line
+moves from the gap to `native_error`, `propertyAccessWidening:0:63`, and it
+is `errorType` natively. Credited gap 2,151 → **2,150**. slowcases clean.
+Perf, median child CPU against the base binary: domain-model 1.030 over 21
+samples, re-run over 41 as 1.023; generic-imports 1.029, then 1.016. The
+added work is one `widen_object_literal_freshness` per written or called
+element access, which returns a non-fresh type unchanged.
+
+The read of the same union is §5's diff: `createUnionOrIntersectionProperty`'s
+object-literal arm lives in `crate::members`.
+
+Tests: `tests/element_access_widening.rs` pins the write as `errorType` and a
+declared receiver's write as its member type.

@@ -297,7 +297,20 @@ impl Checker<'_, '_> {
             return (error, false, false);
         }
         let was_optional = non_optional != object_type;
-        let object_type = stripped;
+        // checkElementAccessExpression (5b1047d checker.go:8148): the receiver
+        // of an assignment target or a called method is widened before the
+        // lookup, the same `getWidenedType` the property-access road applies
+        // (`crate::members`). A widened union of a declared object and `{}`
+        // reduces to `{}`, so `(options || {})["a"] = 1` misses where the
+        // read finds `string | undefined`.
+        let object_type = if node.node_id.is_some_and(|id| {
+            self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
+                || self.is_method_access_for_call(id)
+        }) {
+            self.widen_object_literal_freshness(stripped)
+        } else {
+            stripped
+        };
         (self.element_access_lookup(node, object_type, index), was_optional, false)
     }
 
