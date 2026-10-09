@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1717/1928 (89.06%)
-Assertion lines: 76917/78552 (97.92%)  — a gradient, not a pass rate
-Failed         : 211
+Passed         : 1721/1928 (89.26%)
+Assertion lines: 76923/78552 (97.93%)  — a gradient, not a pass rate
+Failed         : 207
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 211 failures:
+First 100 of 207 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -59,7 +59,7 @@ compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpro
 compiler/declarationEmitSymlinkPaths(target=es2015)
   /packages/search-prefix/src/Store/NotificationStore.ts: >getNotification : () => NotificationResponse — expected >getNotification : () => import("../API/NotificationAPIUtils").NotificationResponse
 compiler/declarationEmitUnnessesaryTypeReferenceNotAdded(target=es2015)
-  /index.ts: >minimist : (x: any) => thing.ParsedArgs — expected >minimist : (x: any) => minimist.ParsedArgs
+  /index.ts: >minimist(process.argv.slice(2)) : thing.ParsedArgs — expected >minimist(process.argv.slice(2)) : minimist.ParsedArgs
 compiler/declarationEmitWithDefaultAsComputedName(target=es2015)
   main.ts: >other : Experiment<"foo"> — expected >other : { name: "foo"; }
 compiler/declarationEmitWithDefaultAsComputedName2(target=es2015)

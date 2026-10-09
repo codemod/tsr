@@ -158,6 +158,14 @@ pub struct ResolutionRequest {
     /// loader, which holds the host, makes the same probes here — only for the
     /// requests that can reach that report. `None` everywhere else.
     pub extensionless_relative_import: Option<tsr_checker::resolution::ExtensionlessImport>,
+    /// The resolver's `Extension` and `ResolvedUsingTsExtension` for a
+    /// resolved module request (`GetResolutionDiagnostic`, `checker.go:15209`);
+    /// empty and `false` otherwise. Borrowed for every extension the resolver
+    /// names from its fixed list, so a request allocates only for an
+    /// arbitrary extension's declaration file (`.d.html.ts`).
+    pub extension: std::borrow::Cow<'static, str>,
+    /// See [`ResolutionRequest::extension`].
+    pub resolved_using_ts_extension: bool,
 }
 
 /// What a load is asked for.
@@ -1270,6 +1278,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 mode,
                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
                 extensionless_relative_import: None,
+                extension: std::borrow::Cow::Borrowed(""),
+                resolved_using_ts_extension: false,
             });
             self.tasks[index].type_resolutions_trace.extend(traces);
             if resolved.is_resolved() {
@@ -1328,6 +1338,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 mode,
                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
                 extensionless_relative_import: None,
+                extension: std::borrow::Cow::Borrowed(""),
+                resolved_using_ts_extension: false,
             });
             self.tasks[index].type_resolutions_trace.extend(traces);
             if resolved.is_resolved() {
@@ -1429,6 +1441,8 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                 mode,
                 resolved: resolved.is_resolved().then(|| resolved.resolved_file_name.clone()),
                 extensionless_relative_import,
+                extension: static_extension(&resolved.extension),
+                resolved_using_ts_extension: resolved.resolved_using_ts_extension,
             });
             self.tasks[index].resolutions_trace.extend(traces);
 
@@ -2665,5 +2679,18 @@ mod tests {
             [ResolutionMode::CommonJS],
             "a lib file resolves as CommonJS however its package.json reads"
         );
+    }
+}
+
+/// [`ResolutionRequest::extension`]: one of `tspath`'s extension constants
+/// as a `'static` string, else an owned copy.
+fn static_extension(extension: &str) -> std::borrow::Cow<'static, str> {
+    const KNOWN: [&str; 13] = [
+        "", ".ts", ".tsx", ".d.ts", ".js", ".jsx", ".json", ".mts", ".mjs", ".d.mts", ".cts",
+        ".cjs", ".d.cts",
+    ];
+    match KNOWN.iter().find(|known| **known == extension) {
+        Some(known) => std::borrow::Cow::Borrowed(known),
+        None => std::borrow::Cow::Owned(extension.to_string()),
     }
 }

@@ -2427,8 +2427,54 @@ impl<'a> Checker<'a, '_> {
         // the target narrows to one type, the missing-property report is the
         // plain one again (unless the excess check already failed).
         let missing_property_report = union_literal.is_none() || (narrowed && !excess_failed);
+        // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
+        // three-valued (`crate::relater::Ternary`) and its own doc comment names
+        // the caller this distinction exists for: *"one that acts on a
+        // negative"*. TS2322 is exactly that caller, and the binary projection —
+        // which collapses `Unknown` into `false` — is what produced this
+        // module's first measurement of **947 right against 988 wrong**. Every
+        // undecidable pair was being reported as an error.
+        let (relation, signature_error) = if excess_failed {
+            (crate::relater::Ternary::NotRelated, None)
+        } else {
+            self.relate_with_signature_diagnostic(
+                source,
+                target,
+                crate::relater::Relation::Assignable,
+                true,
+            )
+        };
+        // checkTypeRelatedToEx (relater.go:371-382): an overflowing check
+        // reports TS2859 (relation-count budget) or TS2321 (a 100-entry
+        // source or target stack) instead of its relation error. Native's
+        // preceding silent isTypeRelatedTo overflows too and reports at
+        // `c.currentNode` (the second TS2859 of `relationComplexityError`);
+        // the port has no currentNode, so that report needs the check
+        // site's node.
+        if relation == crate::relater::Ternary::Unknown
+            && let Some(overflow) = self.assignability_overflow(source, target)
+        {
+            let message = if overflow == crate::relation_cache::CachedRelation::ComplexityOverflow {
+                &tsr_diagnostics::messages::EXCESSIVE_COMPLEXITY_COMPARING_TYPES_0_AND_1
+            } else {
+                &tsr_diagnostics::messages::EXCESSIVE_STACK_DEPTH_COMPARING_TYPES_0_AND_1
+            };
+            let source_text = self.type_to_string(source);
+            let target_text = self.type_to_string(target);
+            self.report(
+                file,
+                tsr_diagnostics::Diagnostic::with_args(message, span, [source_text, target_text]),
+            );
+            return true;
+        }
+        // The missing-property report is checkTypeRelatedToEx's elaboration of
+        // a failed relation (propertiesRelatedTo's unmatched arm,
+        // relater.go:4233): a pair the relation relates reports nothing
+        // (`boolean -> NotBoolean` through an augmented `Boolean`,
+        // `assignFromBooleanInterface2`).
         if REPORT_MISSING_REQUIRED_PROPERTY
             && missing_property_report
+            && relation != crate::relater::Ternary::Related
             && let Some(properties) = self.missing_required_property(source, normalized)
         {
             probe!(PROBE_REPORTED);
@@ -2451,45 +2497,14 @@ impl<'a> Checker<'a, '_> {
             }
             return true;
         }
-        // **`relate_ternary`, not `is_type_assignable_to`.** The relater is
-        // three-valued (`crate::relater::Ternary`) and its own doc comment names
-        // the caller this distinction exists for: *"one that acts on a
-        // negative"*. TS2322 is exactly that caller, and the binary projection —
-        // which collapses `Unknown` into `false` — is what produced this
-        // module's first measurement of **947 right against 988 wrong**. Every
-        // undecidable pair was being reported as an error.
-        let (relation, signature_error) = if excess_failed {
-            (crate::relater::Ternary::NotRelated, None)
-        } else {
-            self.relate_with_signature_diagnostic(
-                source,
-                target,
-                crate::relater::Relation::Assignable,
-                true,
-            )
-        };
-        // checkTypeRelatedToEx (relater.go:371): an overflowing check reports
-        // TS2859 instead of its relation error. Native's preceding silent
-        // isTypeRelatedTo overflows too and reports at `c.currentNode`
-        // (the second TS2859 of `relationComplexityError`); the port has no
-        // currentNode, so that report needs the check site's node.
-        if relation == crate::relater::Ternary::Unknown
-            && self.assignability_overflowed(source, target)
-        {
-            let source_text = self.type_to_string(source);
-            let target_text = self.type_to_string(target);
-            self.report(
-                file,
-                tsr_diagnostics::Diagnostic::with_args(
-                    &tsr_diagnostics::messages::EXCESSIVE_COMPLEXITY_COMPARING_TYPES_0_AND_1,
-                    span,
-                    [source_text, target_text],
-                ),
-            );
-            return true;
-        }
         let not_related = relation == crate::relater::Ternary::NotRelated;
-        if !not_related && !self.object_against_primitive(source, target) {
+        // `object_against_primitive` stands in for a relation the relater
+        // could not decide; it never overrides a decided Related (native
+        // reports nothing for a related pair: `true -> NotBoolean` through
+        // an augmented `Boolean`, `assignFromBooleanInterface2`).
+        if relation == crate::relater::Ternary::Related
+            || (!not_related && !self.object_against_primitive(source, target))
+        {
             probe!(PROBE_RELATION_DECLINED);
             return false;
         }

@@ -616,14 +616,27 @@ impl Checker<'_, '_> {
                 }
             }
         }
-        let Some(property) = self.get_property_of_type(receiver_type, &name) else { return false };
         // `checkObjectLiteral` (`checker.go:13175`) gives every member of a
-        // const-context literal `CheckFlagsReadonly`; this port records it on
-        // the literal's captured member image, not the binder symbol.
-        let literal_member_readonly =
-            self.anonymous_properties.get(&receiver_type).is_some_and(|(properties, _)| {
+        // const-context literal `CheckFlagsReadonly`, and resolveMappedTypeMembers
+        // (`checker.go:20894`) gives a mapped member the `readonly` modifier's
+        // or its modifiers property's; this port records both on the member
+        // image, not the binder symbol. An alias instance (`Omit<A, "a">`)
+        // keeps its image on the alias body, the type native's reference is,
+        // and a mapped image is resolved on first read.
+        let image = self.binding_type_alias_body(receiver_type);
+        self.resolve_mapped_type_members(image);
+        let literal_member_readonly = [receiver_type, image].into_iter().any(|owner| {
+            self.anonymous_properties.get(&owner).is_some_and(|(properties, _)| {
                 properties.iter().any(|member| member.name == name && member.readonly)
-            });
+            })
+        });
+        // A mapped member has no symbol `get_property_of_type` answers
+        // (native's is the transient mapped symbol, isReadonlySymbol's
+        // CheckFlagsReadonly), so its image alone decides; the constructor
+        // permission below needs a declared property, which it is not.
+        let Some(property) = self.get_property_of_type(receiver_type, &name) else {
+            return literal_member_readonly;
+        };
         if !literal_member_readonly
             && !self.is_readonly_symbol(property)
             && !self.property_signature_is_readonly(property)
@@ -1619,6 +1632,14 @@ impl Checker<'_, '_> {
         };
         // A type parameter is read through its constraint; an unconstrained
         // or primitive one is no class (`ObjectFlagsClassOrInterface` unset).
+        // `getEnclosingClassFromThisParameter` reads
+        // `getConstraintOfTypeParameter`, which is nil for an unconstrained
+        // one, not the apparent `{}` (5b1047d checker.go:11987).
+        if self.type_of(this_type).flags.intersects(TypeFlags::TYPE_PARAMETER)
+            && self.base_constraint_of_type(this_type).is_none()
+        {
+            return ThisParameterClass::None;
+        }
         let this_type = self.apparent_type(this_type);
         if !self.type_of(this_type).flags.intersects(TypeFlags::OBJECT) {
             return ThisParameterClass::None;

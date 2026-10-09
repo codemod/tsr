@@ -2731,8 +2731,9 @@ impl Checker<'_, '_> {
     /// (`utilities.go:347`) — an `as` or angle-bracket assertion, reached
     /// through parentheses.
     ///
-    /// **`instantiateContextualType` is not ported**, so the raw contextual type
-    /// is passed. An undecidable `is_literal_of_contextual_type` (`None`) widens,
+    /// `instantiateContextualType` is [`Checker::instantiate_contextual_type_without_signature`]
+    /// (r6-printer §3): during inference the return mapper's inferences are
+    /// incorporated. An undecidable `is_literal_of_contextual_type` (`None`) widens,
     /// which is this function's previous behaviour: the tri-state's other callers
     /// keep a gap instead, but there is no gap to keep here and declining would
     /// print `error` where a widened literal is at worst a near miss.
@@ -2786,8 +2787,16 @@ impl Checker<'_, '_> {
         // reaches an in-flight `any` (removing it measured +69 type rows, 0
         // lost; tsr-2zk.16.150).
         let keeps_literal = if self.maybe_type_of_kind(id, literalish) {
+            // `instantiateContextualType(getContextualType(node, None), node,
+            // None)` (`checker.go:30817`): during inference only the return
+            // mapper's inferences are incorporated, so `new Map([[E.A, …]])`
+            // under a `Map<E, …>` annotation reads `K` as `E` and keeps the
+            // member literal.
             let first = node_id
-                .and_then(|node| self.get_contextual_type(node))
+                .and_then(|node| {
+                    let contextual = self.get_contextual_type(node)?;
+                    Some(self.instantiate_contextual_type_without_signature(contextual, node))
+                })
                 .and_then(|contextual| self.is_literal_of_contextual_type(id, contextual));
             // §946: upstream's two-pass argument check, for the FRESHNESS
             // question only. Pass one reads the parameter type as WRITTEN, where

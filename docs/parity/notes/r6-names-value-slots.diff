@@ -1,0 +1,68 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..aa29aa6 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -5579,7 +5579,9 @@ impl Checker<'_, '_> {
+                 is(n.left.and_then(|left| left.node_id()))
+                     && self.entity_name_root_is_a_type_query(parent)
+             }
+-            _ => false,
++            // r6-names: slots native `checkExpression`s that the arms above
++            // omit.
++            _ => crate::name_slots::value_reference_slot(node, typed),
+         }
+     }
+ 
+diff --git a/crates/tsr-checker/src/name_slots.rs b/crates/tsr-checker/src/name_slots.rs
+index 2b407d0..f819ab8 100644
+--- a/crates/tsr-checker/src/name_slots.rs
++++ b/crates/tsr-checker/src/name_slots.rs
+@@ -27,7 +27,6 @@ use crate::jsx_intrinsic::is_intrinsic_jsx_name;
+ ///   the opening tag and `checkJsxElementDeferred` (`jsx.go:84`) for the
+ ///   closing one. A property-access tag already reaches the
+ ///   `PropertyAccessExpression` arm through its receiver.
+-#[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-value-slots.diff")]
+ pub(crate) fn value_reference_slot(node: NodeId, parent: Node<'_>) -> bool {
+     let value_tag = |tag: Option<JsxTagNameExpression<'_>>| {
+         matches!(tag, Some(JsxTagNameExpression::Identifier(name))
+diff --git a/crates/tsr-conformance/tests/r6_names_value_slots.rs b/crates/tsr-conformance/tests/r6_names_value_slots.rs
+new file mode 100644
+index 0000000..e4ac69e
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names_value_slots.rs
+@@ -0,0 +1,35 @@
++//! r6-names: which identifiers native `checkExpression` reaches
++//! (`crates/tsr-checker/src/name_slots.rs`). Expectations are native tsgo
++//! output at the pinned 5b1047d, `--jsx react --target es2015 --strict false`.
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(file: &str, source: &str) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names", file, source);
++    case.options.insert("target".into(), "es2015".into());
++    case.options.insert("strict".into(), "false".into());
++    case.options.insert("jsx".into(), "react".into());
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++/// `checkWithStatement` checks the `with` expression, and a value JSX tag is
++/// `checkExpression`ed at both its opening and closing tag; an intrinsic tag
++/// is not.
++#[test]
++fn with_expressions_and_value_jsx_tags_are_value_references() {
++    let source = "declare const React: any;
++with (missingWith) { }
++const a = <Missing x={1} />;
++const b = <div />;
++const c = <Open>text</Open>;
++const d = <my-element />;";
++    assert_eq!(
++        diagnostics("slots.tsx", source),
++        [(2, 1, 1101), (2, 1, 2410), (2, 7, 2304), (3, 12, 2304), (5, 12, 2552), (5, 23, 2552)],
++    );
++}

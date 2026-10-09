@@ -121,6 +121,11 @@ impl ParsedFile {
             };
             let (parsed_diagnostics, parsed_nodes, jsdoc, node_map) = parser.finish();
             diagnostics = parsed_diagnostics;
+            // `processPragmasIntoFields`' reports (`crate::pragma_diagnostics`).
+            crate::pragma_diagnostics::append_pragma_diagnostics(
+                &crate::pragma::parse_file_references(&owner.source),
+                &mut diagnostics,
+            );
             nodes = parsed_nodes;
             Ast { source_file, jsdoc, node_map }
         });

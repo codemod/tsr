@@ -1,0 +1,65 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..916c534 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -850,6 +850,9 @@ impl Checker<'_, '_> {
+                 self.check_circular_import_alias(node);
+                 self.check_alias_symbol(node);
+                 self.check_export_specifier_is_local(node);
++                // r6-names: `resolveEntityName`'s failure tail for a local
++                // specifier (`export_specifier_names.rs`).
++                self.names_check_export_specifier_target(node, cannot_find_name_message);
+             }
+             // `checkImportBinding` (`checker.go:5287`-`:5303`, `:5473`) and
+             // `checkExportDeclaration`'s clause (`:5534`).
+diff --git a/crates/tsr-checker/src/export_specifier_names.rs b/crates/tsr-checker/src/export_specifier_names.rs
+index 492c57e..ed55647 100644
+--- a/crates/tsr-checker/src/export_specifier_names.rs
++++ b/crates/tsr-checker/src/export_specifier_names.rs
+@@ -20,7 +20,6 @@ use tsr_diagnostics::{Diagnostic, messages};
+ 
+ use crate::checker::Checker;
+ 
+-#[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-export-specifier.diff")]
+ impl Checker<'_, '_> {
+     /// `resolveEntityName`'s failure arm for a local `ExportSpecifier`.
+     ///
+diff --git a/crates/tsr-conformance/tests/r6_names_export_specifier.rs b/crates/tsr-conformance/tests/r6_names_export_specifier.rs
+new file mode 100644
+index 0000000..2078217
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names_export_specifier.rs
+@@ -0,0 +1,33 @@
++//! r6-names: a local `export { X }` that resolves nowhere runs
++//! `onFailedToResolveSymbol` at `Value|Type|Namespace`
++//! (`crates/tsr-checker/src/export_specifier_names.rs`). Expectations are
++//! native tsgo output at the pinned 5b1047d (`--module commonjs`).
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(file: &str, source: &str) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names", file, source);
++    case.options.insert("target".into(), "es2015".into());
++    case.options.insert("module".into(), "commonjs".into());
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++#[test]
++fn an_unresolved_local_export_specifier_is_reported_with_a_suggestion() {
++    let source = "type RoomInterfae = {};
++export type { RoomInterface };
++export { Missing };
++const valuu = 1;
++export { value as renamed };
++export { string };
++declare namespace D { export { amb }; }";
++    assert_eq!(
++        diagnostics("m.ts", source),
++        [(2, 15, 2552), (3, 10, 2304), (5, 10, 2552), (6, 10, 2661), (7, 32, 2304)],
++    );
++}
