@@ -236,6 +236,79 @@ pub(crate) struct SpecifierPreferences {
 }
 
 impl Checker<'_, '_> {
+    /// `symbolToTypeNode`'s import-type arm (`nodebuilderimpl.go:659`-`:707`):
+    /// the argument of the `import(…)` type that names `module` at
+    /// `reference` — the quoted specifier, followed by
+    /// `, { with: { "resolution-mode": "…" } }` when native writes the
+    /// attribute.
+    ///
+    /// Under `node16`/`nodenext` resolution, a target emitted as ESM from a
+    /// context file of another emit format is named in ESM mode with the
+    /// `import` attribute. A specifier still diving into `/node_modules/` is
+    /// generated again in the swapped mode and, if that one does not, written
+    /// with the swapped mode's attribute. The tracker report for a specifier
+    /// that stays unportable is `track_unsafe_import`'s (r5-modules §6).
+    /// `GetEmitModuleFormatOfFile` is `ModuleHost::implied_node_format_for_emit`,
+    /// as there.
+    pub(crate) fn import_type_argument(
+        &self,
+        module: tsr_binder::SymbolId,
+        reference: NodeId,
+    ) -> Option<String> {
+        let node_next = self.module_host.is_some_and(|host| {
+            host.specifier_options(ModuleKind::None).module_resolution_is_node_next
+        });
+        if !node_next {
+            return self.module_specifier_for_symbol_in_mode(module, reference, ModuleKind::None);
+        }
+        let host = self.module_host?;
+        let format = |file: NodeId| host.implied_node_format_for_emit(file);
+        // `ast.GetSourceFileOfModule(chain[0])` and the enclosing file.
+        let target_file = self
+            .binder
+            .symbols()
+            .get(module)
+            .declarations
+            .first()
+            .and_then(|&declaration| self.source_file_of(declaration));
+        let context_file = self.source_file_of(reference);
+        let mut attribute = None;
+        let mut specifier = None;
+        if let (Some(target), Some(context)) = (target_file, context_file)
+            && format(target) == ModuleKind::ESNext
+            && format(target) != format(context)
+        {
+            specifier =
+                self.module_specifier_for_symbol_in_mode(module, reference, ModuleKind::ESNext);
+            attribute = Some("import");
+        }
+        let mut specifier = match specifier {
+            Some(specifier) => specifier,
+            None => {
+                self.module_specifier_for_symbol_in_mode(module, reference, ModuleKind::None)?
+            }
+        };
+        if specifier.contains("/node_modules/") {
+            let swapped =
+                if context_file.is_some_and(|context| format(context) == ModuleKind::ESNext) {
+                    ModuleKind::CommonJS
+                } else {
+                    ModuleKind::ESNext
+                };
+            if let Some(retry) =
+                self.module_specifier_for_symbol_in_mode(module, reference, swapped)
+                && !retry.contains("/node_modules/")
+            {
+                specifier = retry;
+                attribute = Some(if swapped == ModuleKind::ESNext { "import" } else { "require" });
+            }
+        }
+        Some(match attribute {
+            Some(mode) => format!("{specifier}, {{ with: {{ \"resolution-mode\": \"{mode}\" }} }}"),
+            None => specifier,
+        })
+    }
+
     /// `getSpecifierForModuleSymbol` (`nodebuilderimpl.go:1249`) for a module
     /// that has a source file, over `GetModuleSpecifiers`
     /// (`modulespecifiers/specifiers.go:19`) and `computeModuleSpecifiers`
