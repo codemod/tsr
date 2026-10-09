@@ -219,10 +219,13 @@ Rejected: keeping the loader's file system or its resolver alive in
 `Program`. The program is shared across checker threads by reference, and
 r5-modules §5.1 refused the resolver for the same reason.
 
-When the symlink cache lands (BS §3.1), symlinked module paths reach
-`process_ending` too, and those are not program-file paths. The map would
-then need their `index` directories as well. Falsifier: a symlinked
-`…/index.d.ts` beside a same-named file printing without `/index`.
+**Re-based after BS landed** (merge `76ec84e`, main `7dba1e1`). BS
+brought the symlink cache, so symlinked module paths now reach
+`process_ending`, and those are not program-file paths. The diff in this
+directory is the re-based version. `index_directories_with_file` is a
+`Program` method run after `add_symlinked_package_jsons`, and with a
+non-empty symlink cache it probes every path `each_file_name_of_module`
+gives an `index.*` file, not only the file's own path.
 
 ### 3.4 Measured
 
@@ -234,7 +237,12 @@ then need their `index` directories as well. Falsifier: a symlinked
   That is all four of `declarationEmitCommonJsModuleReferencedType`'s
   remaining lines, so the case is fully RIGHT. Diagnostics unchanged;
   `slowcases` clean.
-- Ir (alone + diff): dm 1,090,331,932 → 1,090,781,890 (+0.04%), gi
+- **Re-measured on the new base** (`76ec84e` = main `7dba1e1` + this
+  lane's inert commits; BS's composite slots now on main), re-based diff
+  alone: **types +4, 0 lost** (all of
+  `declarationEmitCommonJsModuleReferencedType`), diagnostics unchanged,
+  `slowcases` clean. Ir not re-measured on this base (wrap-up).
+- Ir (pre-BS version, alone + diff): dm 1,090,331,932 → 1,090,781,890 (+0.04%), gi
   343,096,589 → 343,142,635 (+0.013%). The base binary itself moved 0.06%
   on dm between two runs. An earlier build that normalized every file's path
   measured gi +0.1%, which is why the stem test runs first.
@@ -341,7 +349,8 @@ print `X` where native prints `import("a/node_modules/x").default` /
   r6-specifiers' commit 1 and **has not landed on main** (batch BS pending
   when this box stopped).
 
-Not built. The plan, for whoever lands it after BS:
+Not built: BS landed only at the wrap-up checkpoint. The plan, for whoever
+takes it (BS's `each_file_name_of_module` is now on main):
 `ModuleHost::redirect_targets(path) -> Vec<String>` in `resolution.rs`.
 The program inverts `package_redirects` once, keeping load order as
 `redirectTargetsMap` appends in task order. `each_file_name_of_module`
@@ -365,7 +374,12 @@ until this lands.
 |---|---|---|---|
 | 1 | pure-alias chain on the import type road | `r6-specifiers2-pure-alias-type-reference.diff` (`declared.rs` + test) → r6-modules4 | types +28, diag +4, 0 lost |
 | 2 | out-of-scope module member through `symbol_chain` in reused annotations | `r6-specifiers2-reused-module-member.diff` (`node_reuse.rs` + test) | types +14, 0 lost |
-| 3 | `tryGetAnyFileFromPath` | commit `a59af55` (lane) + `r6-specifiers2-any-file-from-path.diff` (`tsr-compiler`) | alone 0; on composite-slots +4, 0 lost |
+| 3 | `tryGetAnyFileFromPath` | commit `a59af55` (lane) + `r6-specifiers2-any-file-from-path.diff` (`tsr-compiler`, re-based on BS) | on `76ec84e`: types +4, 0 lost |
 | 4.1 | UMD global on the import type road | `r6-specifiers2-umd-global-type-reference.diff` (on §1) → r6-modules4 | types +3 on §1, 0 lost |
 
-Apply order: §1, §4.1, §2, §3's diff. §2 and §3 are independent of §1.
+Apply order: §1, §4.1, §2, §3's diff. All four apply cleanly on `76ec84e`.
+§2 and §3 are independent of §1. §1, §4.1 and §2 were measured against
+`5e4d21b` (pre-BS). The full stack's re-measurement on `76ec84e` was cut
+off by the wrap-up, so their numbers on the new base are **UNMEASURED**.
+BS's pure-alias-scope change overlaps §1's area (alias accessibility, not
+the type road), so re-run both dumps before landing §1.
