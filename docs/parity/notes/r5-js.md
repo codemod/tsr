@@ -116,8 +116,9 @@ domain-model 1,155,945,043 and generic-imports 342,949,755.
 | [`r5-js-assignment-context.diff`](r5-js-assignment-context.diff) | +9 (548,760) | 1: `jsDeclarationsComputedNames` | unchanged | none; no non-RIGHT line changed text | 1,155,961,326 (+0.001%) | 342,926,441 (−0.007%) | clean |
 | [`r5-js-full-signature-generic.diff`](r5-js-full-signature-generic.diff) | +17 (548,768) | 2: `typeTagWithGenericSignature`, `checkJsdocTypeTag7` | unchanged | none; no non-RIGHT line changed text | 1,155,974,568 (+0.003%) | 342,910,431 (−0.012%) | clean |
 | [`r5-js-jsdoc-cast-context.diff`](r5-js-jsdoc-cast-context.diff) | +28 (548,779) | 1: `jsdocSignatureOnReturnedFunction` | unchanged | none; no non-RIGHT line changed text | 1,155,987,415 (+0.004%) | 342,914,191 (−0.010%) | clean |
+| [`r5-js-jsdoc-cast-overlap.diff`](r5-js-jsdoc-cast-overlap.diff) | unchanged | diagnostics 2: `checkJsTypeDefNoUnusedLocalMarked`, `jsDeclarationsDefault(target=es2015)` | 5,431 → 5,433 RIGHT | none | 1,155,974,041 (+0.003%) | 342,918,828 (−0.009%) | clean |
 
-The six touch disjoint functions and apply in any order. Stacked (all four applied, unfiltered against `e20cdd4`): types **548,751 → 548,857 RIGHT (+106)**, GAP 900 → 865, WRONG 6,640 → 6,569, **17 cases converted** — exactly the sum of the four rows — diagnostics unchanged (5,431 RIGHT / 5,590 EMPTY_RIGHT), zero losses on both dumps.
+The seven touch disjoint functions and apply in any order. Stacked (all four applied, unfiltered against `e20cdd4`): types **548,751 → 548,857 RIGHT (+106)**, GAP 900 → 865, WRONG 6,640 → 6,569, **17 cases converted** — exactly the sum of the four rows — diagnostics unchanged (5,431 RIGHT / 5,590 EMPTY_RIGHT), zero losses on both dumps.
 
 ### 3.1 S5: the JS setter parameter (`symbols.rs`)
 
@@ -276,6 +277,33 @@ nothing.
   host walk, as `jsdoc_function_host` already had it for signatures.
 
 **Measured.** +28 lines, +1 case.
+
+### 3.7 Refused: `Object.<K, V>` as `Record<K, V>` (`declared.rs`)
+
+`getIntendedTypeFromJSDocTypeReference`'s `Object` arm (`checker.go:23059`)
+answers `getTypeAliasInstantiation(Record, [K, V])` for a valid index key,
+else `any`; TSR declines it (`/** @type {Object.<string, number>} */ var o`
+prints `any`). Ported as a `Record` type reference (the way `flow.rs`'s `in`
+narrowing builds one) and measured against `e20cdd4`: **types +0, and one
+diagnostics loss** — `checkJsdocSatisfiesTag2` EMPTY_RIGHT → EMPTY_WRONG,
+a spurious TS2353 at `isEven`. The excess-property check reads a `Record`
+reference reached through the `@typedef` as having no string index. Refused
+on that number. It is worth re-measuring once the excess check resolves
+`Record`'s index signature through an alias.
+
+### 3.8 TS2352 on a JSDoc cast (`assertion_overlap.rs`, `check.rs`)
+
+Routed by r5-smallcodes2. **Native.** `/** @type {T} */ (e)` is a reparsed
+`AsExpression`, so `checkAssertionDeferred` runs on it and, because the type
+node is `Reparsed`, reports at the type node (`checker.go:12323`).
+**What TSR had.** `check_assertion_overlap` returned at `in_js_file`, and no
+check visited the cast paren. **Port.** The comparison moves into
+`check_assertion_overlap_parts(node, expression, annotation, error_node)`.
+`check_jsdoc_cast_overlap` feeds it the paren's expression and
+`jsdoc_cast_annotation`, with the type node as `error_node`. `check_node`
+gets one JS-guarded `ParenthesizedExpression` arm. The written-assertion
+path is unchanged. **Measured.** Diagnostics +2 cases, types unchanged, no
+losses.
 
 ## 4. Needed outside this lane's files
 
