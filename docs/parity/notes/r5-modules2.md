@@ -261,3 +261,37 @@ EMPTY_WRONG → EMPTY_RIGHT), zero losses. Converted:
 `importCallExpressionInExportEqualsCJS` 3, `errorForConflictingExportEqualsValue` 1.
 It applies independently of `r5-modules2-import-call-specifier.diff`
 (different hunks of the same function).
+
+## 6. Where the lane stands
+
+Committed (all zero-loss against the frozen `7472473`): `73fc0ce` (the
+`GetModuleSpecifiers` port, inert), `2fc214d` (the import-type arm, types
++21), `5efeaa6` (the printed-type swap removed, inert; producer diffs),
+`93493d4` (JSON stamp, inert; `export =` `import()` diff). Coverage at
+`93493d4`: `checker_types` 8,254 / 9,538, configured 1,647 / 1,928;
+`diagnostics` 4,538 / 5,502, configured 837 / 1,089.
+
+Diffs waiting on their owners, measured on the lane head, zero losses:
+symbol-chain specifier +26, `export =` class specifier +13, `import()`
+specifier +20 (main / r5-shapes / main), `export =` `import()` type +19
+types and +1 diagnostics case (main).
+
+Remaining `import-specifier-differs` rows, by cause:
+
+- **Written import-type text** (`declared.rs`, r5-declared2):
+  `nodeModulesImportTypeModeDeclarationEmit1`,
+  `nodeModulesImportAttributesTypeModeDeclarationEmit{,Errors}` (3 lines ×
+  4 configurations each), `declarationEmitUsingTypeAlias1` (10). Blocked on
+  `symbol_chain` qualifying nested-directory modules (main, `tsr-2zk.39`);
+  §4 records the one-line change and its measured loss.
+- **Symlinked packages** (`declarationEmitForGlobalishSpecifierSymlink{,2}`):
+  `GetEachFileNameOfModule`'s symlink cache; the program does not record
+  symlinks.
+- **Chain choice, not specifier text**: the `jsxNamespaceImplicitImport…`
+  family (native names `JSX` through `jsx-runtime`'s re-export, the port
+  `EmotionJSX` in `jsx-namespace`) and
+  `typesVersionsDeclarationEmit.multiFileBackReferenceToUnmapped`
+  (`import("ext").A2` through the package's main re-export): both are
+  `getSymbolChain`'s accessible-alias choice (main, `tsr-2zk.39`).
+- **`dynamicImportsDeclaration`**: a union of `import()` results reads
+  `error` before any specifier is printed (an errorType producer).
