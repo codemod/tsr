@@ -902,6 +902,16 @@ impl Checker<'_, '_> {
         })
     }
 
+    /// Whether the assignable check of `source -> target` overflowed its
+    /// relation-count budget (`CachedRelation::ComplexityOverflow`, native's
+    /// `RelationComparisonResultComplexityOverflow`): its report is TS2859.
+    pub(crate) fn assignability_overflowed(&mut self, source: TypeId, target: TypeId) -> bool {
+        let source = self.get_regular_type_of_literal_type(source);
+        let target = self.get_regular_type_of_literal_type(target);
+        self.relation_results.get(Relation::Assignable, (source, target, false))
+            == Some(CachedRelation::ComplexityOverflow)
+    }
+
     /// The options [`crate::relation_cache::RelationOptions`] names.
     fn relation_options(&self) -> crate::relation_cache::RelationOptions {
         [

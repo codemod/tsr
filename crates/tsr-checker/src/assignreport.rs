@@ -2468,6 +2468,26 @@ impl<'a> Checker<'a, '_> {
                 true,
             )
         };
+        // checkTypeRelatedToEx (relater.go:371): an overflowing check reports
+        // TS2859 instead of its relation error. Native's preceding silent
+        // isTypeRelatedTo overflows too and reports at `c.currentNode`
+        // (the second TS2859 of `relationComplexityError`); the port has no
+        // currentNode, so that report needs the check site's node.
+        if relation == crate::relater::Ternary::Unknown
+            && self.assignability_overflowed(source, target)
+        {
+            let source_text = self.type_to_string(source);
+            let target_text = self.type_to_string(target);
+            self.report(
+                file,
+                tsr_diagnostics::Diagnostic::with_args(
+                    &tsr_diagnostics::messages::EXCESSIVE_COMPLEXITY_COMPARING_TYPES_0_AND_1,
+                    span,
+                    [source_text, target_text],
+                ),
+            );
+            return true;
+        }
         let not_related = relation == crate::relater::Ternary::NotRelated;
         if !not_related && !self.object_against_primitive(source, target) {
             probe!(PROBE_RELATION_DECLINED);
