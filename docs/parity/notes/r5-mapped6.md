@@ -358,3 +358,93 @@ runs. The keys are `"a" | "v"`.
 - zero losses; slowcases clean;
 - Ir: domain-model 1,159,835,827 → 1,160,117,901 (+0.024%), generic-imports
   342,935,705 → 342,914,296 (−0.006%).
+
+## 4. `.16.253`: `keyof` of an interface or class reads its late-bound keys (diff)
+
+**Forcing constraint.** `keyofAndIndexedAccessErrors:9/11/13` (`keyof String`
+and two deeper forms) printed every key except `unique symbol`.
+getLiteralTypeFromProperties (`checker.go:26717`) walks getPropertiesOfType.
+That includes the members lateBindMember adds for computed names such as
+`[Symbol.iterator]()` in `lib.es2015.iterable.d.ts`. The port's enumeration
+for a declared type, `collect_keyof_property_names` (`declared.rs`), reads
+only the binder's member table, and the binder has no entry for a computed
+name. The keys loop below it already spells a computed declaration's key by
+checking its expression, so only the name list was missing.
+
+**Diff** ([`r5-mapped6-keyof-late-bound-keys.diff`](r5-mapped6-keyof-late-bound-keys.diff),
+`declared.rs`, on top of §3's diff):
+- the walk appends `late_bound_members_of(owner, false)` (`members.rs`,
+  which already resolves computed names for property lookup);
+- a unit test, `tests/keyof_late_bound_keys.rs`. It fails without the diff
+  (`never`).
+
+**Measured** against §3, both dumps unfiltered:
+- types **+3 RIGHT** (`keyofAndIndexedAccessErrors:9/11/13`);
+- diagnostics unchanged; zero losses; slowcases clean;
+- eight lines that stay WRONG change text:
+  - `partiallyNamedTuples:16–22` ×6: native prints the deferred
+    `keyof [boolean, number]`, and the port's expansion now also lists the
+    tuple's two symbol keys;
+  - `extractInferenceImprovement:35/37`: native `string`, port
+    `string | number` → `any`. An indexed access by the `[s]` key of
+    `StrNum` now meets a `unique symbol` key in `keyof StrNum`. Not traced.
+- Ir: domain-model 1,160,117,901 → 1,160,014,998 (−0.009%), generic-imports
+  342,914,296 → 342,910,358 (−0.001%).
+
+**Measured and refused: object literals.** `keyofObjectWithGlobalSymbolIncluded:7`
+(`keyof typeof { [Symbol.species]: Array }`, native `unique symbol`) needs
+two more changes:
+- the anonymous arm of `resolved_keyof_property_names` must read late-bound
+  names too;
+- `late_bound_members_of` (`members.rs`, main's) must accept a
+  `PropertyAssignment`.
+
+With both, that line converts (+4 in all). But
+`tsr-conformance/tests/computed_indexes.rs` then fails:
+`mixed[sym]` over `{ [sym]: 'x', [unique]: false, … }` drops from native's
+`string | boolean` to `string`. Making the unique-symbol member visible to
+property lookup changes the object literal's symbol index read. The
+anonymous arm also covers a class's static side, where
+`late_bound_members_of(symbol, false)` answers the *instance* members. So
+the object-literal half needs that function's static/instance and
+object-literal handling settled first. It is main's `members.rs`.
+
+## 5. Head summary and landing order
+
+**Commits** (on the provisional AR base, §0):
+- `d43ccd8`: `mapped.rs`'s single evaluation of a declined mapped node
+  (§1). No output change alone.
+- `9c05908`, `5c12d07`: notes and diffs only.
+- The §4 commit: notes and diff only.
+
+**Diffs, in landing order**, each measured on top of the ones before it.
+The baseline is batch AR's tree: `28648eb` plus r5-mapped5's head and its
+six non-route diffs.
+
+| diff | files (owner) | effect |
+|---|---|---|
+| `r5-mapped6-declared-route.diff` | `declared.rs` (r5-declared3), `mapped.rs` allowance, `tests/index_signature_members.rs` | +85 types, +1 case (`bigintIndex`); Ir dm +0.27% plain / −0.04% seeded, gi −0.012% (§1) |
+| `r5-mapped6-keyof-reduced-alias-body.diff` | `declared.rs`, new test | +1 type (`mappedTypeNotMistakenlyHomomorphic:26`); Ir +0.024% / −0.006% |
+| `r5-mapped6-keyof-late-bound-keys.diff` | `declared.rs`, new test | +3 types (`keyof String`); Ir −0.009% / −0.001% |
+| `r5-mapped6-conditional-typed-print.diff` | `declared.rs`, `node_reuse.rs` (r5-nodereuse) | **held**: +5 / −4 (§2) |
+
+The three landing diffs together, against the frozen provisional base:
+- types 548,933 → 549,022 RIGHT (**+89**); diagnostics +1 case;
+- zero losses on both dumps; slowcases clean;
+- `cargo test --workspace --release` passes;
+- clippy flags only pre-existing code on stable 1.97;
+- `xtask anchors` has one pre-existing unresolved anchor
+  (`tsr-conformance/src/full_oracle.rs:4`).
+
+**Remaining, with hypotheses:**
+- The **Ir gate on the route** is a decision for the integrator (§1). The
+  route's real cost is −0.04% seeded, but a single plain run reads +0.27%,
+  which is hash layout.
+- **`.16.71`** waits on `type_literal_key` keying only possibly-referenced
+  bindings (isTypeParameterPossiblyReferenced, §2).
+- **`.16.100`**: six of its eight cases are untouched. Leads are in §2.
+- **The object-literal half of `.16.253`** waits on `members.rs`'
+  late-bound object-literal and static-side handling (§4).
+- **The route's remaining eager work** (lib's `{ [K in keyof any[]]?: boolean }`
+  member print, 0.44 M Ir) needs lazy text, ADR-0050's alternative 1, in
+  `printing.rs`/`types.rs`.
