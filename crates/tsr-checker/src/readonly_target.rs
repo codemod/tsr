@@ -136,9 +136,18 @@ impl Checker<'_, '_> {
                 return;
             }
         }
+        // `globalThisSymbol` is minted with `CheckFlagsReadonly`
+        // (`checker.go:962`) and is the `globalThis` entry of its own exports,
+        // the globals table, so `globalThis.globalThis` finds a readonly
+        // symbol. This port has no such symbol (the `typeof globalThis` type is
+        // minted by name and its members read the globals table), so the one
+        // name is answered here. `r5-smallcodes2.md` §2.4.
+        let global_this_itself =
+            Some(receiver_type) == self.global_this_type && name == "globalThis";
         // isAssignmentToReadonlyEntity's last arm: a property found through a
         // namespace import is readonly whatever its own declaration says.
-        if !self.is_assignment_to_readonly_property(node, receiver_type, name)
+        if !global_this_itself
+            && !self.is_assignment_to_readonly_property(node, receiver_type, name)
             && (self.receiver_alias_is_namespace_import(receiver) != Some(true)
                 || self.get_property_of_type(receiver_type, name).is_none())
         {
@@ -664,6 +673,12 @@ impl Checker<'_, '_> {
             .and_then(|receiver| receiver.node_id())
             .is_none_or(|receiver| self.nodes.kind(receiver) != SyntaxKind::ThisKeyword)
         {
+            return false;
+        }
+        // `symbol.Flags&ast.SymbolFlagsProperty != 0` heads the exemption: a
+        // getter-only accessor is readonly in its own constructor too
+        // (`readonlyMembers`' `this.c = 1`). `r5-smallcodes2.md` §2.4.
+        if !self.binder.symbols().get(property).flags.intersects(SymbolFlags::PROPERTY) {
             return false;
         }
         let Some(constructor) = self.control_flow_container(access) else { return true };

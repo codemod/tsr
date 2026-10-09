@@ -160,6 +160,7 @@ mod jsx_attributes;
 mod jsx_component;
 mod jsx_factory;
 pub mod jsx_intrinsic;
+mod late_bound_members;
 pub mod literals;
 pub mod mapped;
 pub mod meaning_mismatch;
