@@ -271,3 +271,84 @@ resolution per `(identifier, meaning)`, native's own work. gi's check phase
 is 5 M Ir (1.5% of the process). Nothing here is a links field the port
 recomputes; the allocator share is `tsr-2zk.1092`'s (Signature copies,
 r5-checkperf2 §2).
+
+## §5 Release profile with whole-program LTO (measurement only)
+
+`[profile.release]` is `lto = false`, `codegen-units = 16` for rebuild speed
+(`Cargo.toml`'s comment; `[profile.dist]` keeps `lto = "thin"`,
+`codegen-units = 1`). Measured on §2 + §4's tree, without changing any
+profile: `rel` = `cargo build --release`; `lto` = the same with
+`CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1`
+(separate target directory); `dist` = `cargo build --profile dist`. CLI
+output identical for all three on the four projects. Rotated with tsgo, 31
+rounds (5 for jsTyping):
+
+| project | rel/tsgo | lto/tsgo | dist/tsgo | lto/rel wall · CPU |
+|---|---:|---:|---:|---:|
+| domain-model | 0.664 | 0.666 | 0.669 | 1.003 · 0.956 |
+| domain-model-large | 0.745 | **0.692** | 0.729 | 0.928 · 0.912 |
+| generic-imports | 0.686 | **0.628** | 0.687 | 0.914 · 0.940 |
+| jsTyping | 3.208 | **2.844** | 2.866 | 0.886 · 0.903 |
+
+Fat LTO with one codegen unit is worth 4–11% CPU (dm's wall did not move,
+the others 7–11%); thin LTO (`dist`) gets jsTyping's share but not gi's. A
+fat-LTO build of `tsr` took 3 m 31 s from scratch on this 4-core container,
+against `release`'s incremental relink in seconds. The profile is unchanged:
+switching what the ratio is measured with is a decision record's call
+(ADR-0009 names the measured build), and the rebuild cost the `Cargo.toml`
+comment weighs falls on every box's inner loop. The number is here for that
+decision: on this container it would move dml from 0.745 to 0.692 and gi
+from 0.686 to 0.628.
+
+## §6 The lane's numbers
+
+Commits on `claude/beautiful-shannon-ar5gh0-r6-checkperf`: `73d8e2a` (§2,
+§3), `991adcc` (§4), and this section's commit (§5–§7). Code ships as two
+diffs (top of this file), each applying on the base alone, and together.
+
+Ir (callgrind; bench projects whole process, jsTyping check phase):
+
+| | dm | dml | gi | jsTyping check |
+|---|---:|---:|---:|---:|
+| base `b18aec06` | 1,092,635,723 | 4,365,790,760 | 343,689,167 | 68,710,735,572 |
+| §2 | 1,092,791,384 | 4,366,533,878 | 343,673,020 | 67,672,682,180 |
+| §2 + §4 | **974,688,306 (−10.8%)** | **4,248,089,430 (−2.7%)** | **225,414,551 (−34.4%)** | **67,707,544,263 (−1.5%)** |
+
+TSR/tsgo wall ratio, before and after per diff (§4's rotated run: the four
+binaries in one run, so the rows compare):
+
+| project | base | §2 | §2 + §4 | + fat LTO (§5, not shipped) |
+|---|---:|---:|---:|---:|
+| domain-model | 0.793 | 0.789 | **0.729** | 0.666 (rel 0.664 in §5's run) |
+| domain-model-large | 0.774 | 0.781 | **0.751** | 0.692 (rel 0.745) |
+| generic-imports | 0.967 | 0.903 | **0.662** | 0.628 (rel 0.686) |
+| jsTyping | 2.783 | 2.902 | **2.899** | 2.844 (rel 3.208) |
+
+Run-to-run spread on this container is several percent on the bench
+projects and more on jsTyping's 5 rounds (the same §2+§4 binary read 0.729
+and 0.664 of tsgo on dm in two runs an hour apart); the Ir table is the
+stable comparison. The 0.50 target is not met on any project.
+
+## §7 What is left
+
+- **jsTyping (2.8–3.2× tsgo).** Its check phase is 67.7 G Ir, spread through
+  the relater (`is_related_to_with_flags`, 74% recursive-inclusive) and flow narrowing
+  (`map_narrowing_type` 52%, `narrow_type_by_type_predicate` 18%); the
+  allocator is 12% self. The call link still costs 1.58 G (asks outside the
+  call's own resolution). The wall is checker 0's share (r5-checkperf §8:
+  `checker.ts` alone), so per-file check speed is the lever, not the pool.
+- **The call-link park and the contextual readers (§2).** Parking
+  `resolving_signature_calls` itself — native's single link — loses
+  `correlatedUnions` and `intersectionSatisfiesConstraint` and 18 type
+  lines, because this port's argument checks reach `contextual.rs`' readers
+  during the call's own resolution where native reads the pushed contextual
+  type. Unifying them is a fidelity change in main's `contextual.rs`.
+- **The composite enumeration's decline (§3).** 431 declines on jsTyping,
+  0.06 G: a fidelity question for main's `members.rs`
+  (`collect_declared_properties` and the `types.ts` node interfaces), not a
+  speed lever.
+- **ADR-0051's open edge (§4).** `@deprecated` suggestions and hover in TS
+  files would need the lazy path ADR-0008 rules out; neither is ported.
+- **dm/dml.** With §4 the check phase is two thirds of dm's Ir and flat (§4's
+  last paragraph); the allocator (16% of dm's check phase, Signature copies)
+  is `tsr-2zk.1092`'s. §5's LTO number is the remaining build-level lever.
