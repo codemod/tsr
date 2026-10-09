@@ -114,8 +114,9 @@ domain-model 1,155,945,043 and generic-imports 342,949,755.
 | [`r5-js-setter-parameter.diff`](r5-js-setter-parameter.diff) | +4 (548,755) | 2: `accessorDeclarationEmitJs`, `privateNamesIncompatibleModifiersJs` | unchanged | none | 1,155,964,693 (+0.002%) | 342,922,580 (−0.008%) | clean |
 | [`r5-js-shorthand-dynamic-import.diff`](r5-js-shorthand-dynamic-import.diff) | +48 (548,799) | 8: `nodeModulesAllowJsDynamicImport` ×4, `nodeModulesDynamicImport` ×4 | unchanged | none | 1,155,878,692 (−0.006%) | 342,913,942 (−0.010%) | clean |
 | [`r5-js-assignment-context.diff`](r5-js-assignment-context.diff) | +9 (548,760) | 1: `jsDeclarationsComputedNames` | unchanged | none; no non-RIGHT line changed text | 1,155,961,326 (+0.001%) | 342,926,441 (−0.007%) | clean |
+| [`r5-js-full-signature-generic.diff`](r5-js-full-signature-generic.diff) | +17 (548,768) | 2: `typeTagWithGenericSignature`, `checkJsdocTypeTag7` | unchanged | none; no non-RIGHT line changed text | 1,155,974,568 (+0.003%) | 342,910,431 (−0.012%) | clean |
 
-The four touch disjoint functions and apply in any order. Stacked (all four applied, unfiltered against `e20cdd4`): types **548,751 → 548,857 RIGHT (+106)**, GAP 900 → 865, WRONG 6,640 → 6,569, **17 cases converted** — exactly the sum of the four rows — diagnostics unchanged (5,431 RIGHT / 5,590 EMPTY_RIGHT), zero losses on both dumps.
+The five touch disjoint functions and apply in any order. Stacked (all four applied, unfiltered against `e20cdd4`): types **548,751 → 548,857 RIGHT (+106)**, GAP 900 → 865, WRONG 6,640 → 6,569, **17 cases converted** — exactly the sum of the four rows — diagnostics unchanged (5,431 RIGHT / 5,590 EMPTY_RIGHT), zero losses on both dumps.
 
 ### 3.1 S5: the JS setter parameter (`symbols.rs`)
 
@@ -214,6 +215,42 @@ rebinding leaves the binary without a symbol in this binder.
 (`const o: T = …; o.f = (a) => …`) and the arrow still gaps: this arm
 leaves that shape to the contextual path, so the gap would be there, not
 here.
+
+### 3.5 S8: a generic full-signature `@type` (`signatures.rs`, `jsdoc_full_signature.rs`)
+
+Taken after the integrator released r5-jsdoc4's files to this lane.
+
+**Native.** `getSignaturesOfSymbol` (`checker.go:19827`) asks
+`getSignatureOfFullSignatureType(decl)` *first*, and uses the tag's
+`getSingleCallSignature` in place of the declaration's own signature; that
+signature keeps the tag's type parameters
+(`getTypeParametersFromDeclaration`, `:19913`, reads the same).
+`getParameterTypeOfFullSignature` and `getReturnTypeOfFullSignature` read
+the same signature.
+
+**What TSR had.** The parameter and return readers went through the
+contextual reader `single_call_signature` (`contextual.rs`), which declines
+any generic signature, so `/** @type {<T>(param?: T) => T | undefined} */
+function typed(param)` printed `(param: any) => any`. The symbol's
+signature was always built from the declaration, so even a non-generic
+`@type` lost its optional markers on the function line.
+
+**Port.** `jsdoc_full_signature.rs` gets its own `getSingleCallSignature`
+(`full_signature_call_signature`, generic signatures admitted) for all three
+readers, and `jsdoc_full_signature_of_declaration`, which
+`get_signatures_of_symbol_for_type` asks before
+`get_signature_from_declaration`. The contextual reader is unchanged.
+JS only: `jsdoc_full_signature_node` returns at its `in_js_file` test.
+
+**Measured.** +17 lines, +2 cases; `assertionsAndNonReturningFunctions`
+(+5) and `typeTagOnFunctionReferencesGeneric` (+5) gain lines but keep
+other causes (an `asserts` predicate from a `@typedef`; a contextual
+generic signature on an arrow, `contextual.rs`).
+
+**Falsifier.** A JS function with both a full-signature `@type` and a body
+whose return type disagrees: native reports against the tag's signature;
+a case printing the body's return type on the function line would mean the
+signature substitution is too early.
 
 ## 4. Needed outside this lane's files
 
