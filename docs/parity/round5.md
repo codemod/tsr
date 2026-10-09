@@ -904,3 +904,20 @@ and items in main's calls/inference.
 
 The freed slot went to r5-printer2: optional-parameter `| undefined`
 (`.16.60`), names as written (`.16.125`), and the small printer families.
+
+### r5-modules2 finished; r5-smallcodes2 dispatched (`tsr-2zk.1097`)
+
+r5-modules2 made three changes:
+- GetModuleSpecifiers' file arm, with endings, preferences and processEnding;
+- the import-type resolution-mode attribute: +21 type lines;
+- the JSON JavaScriptFile stamp.
+
+Its four diffs land in batch AJ for +78 type lines and +1 case:
+- the symbol-chain specifier (checker.rs);
+- the export= class specifier (printing.rs);
+- the import-call specifier (calls.rs);
+- the import-call type of an export= module (calls.rs plus module_exports.rs).
+
+The remainder is blocked on main's symbol-chain qualification (`.39`), a
+symlink cache, and ModuleHost exposure (`.1098`). The freed slot went to
+r5-smallcodes2, the second set of small diagnostic clusters.
