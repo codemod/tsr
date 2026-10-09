@@ -491,11 +491,15 @@ head again (`a05e5b1`, "base6"):
 - `Ir`: generic-imports 342,964,276; domain-model 1,197,122,112.
 
 **The cache** (checker port convention):
-- **Native operation.** `isDiscriminantProperty` (relater.go:1087) reads
-  `links.isDiscriminantProperty` on the synthetic union property.
-  `createUnionOrIntersectionProperty` interns that property per union and
-  name (`getUnionOrIntersectionProperty`'s `propertyCacheWithoutObjectFunctionPropertyAugment`),
-  so the answer is computed once per `(union, name)`. Consumers are
+- **Native operation** (corrected after the first push of this section,
+  which named a nonexistent `propertyCacheWithoutObjectFunctionPropertyAugment`
+  and a `links.isDiscriminantProperty` field). `isDiscriminantProperty` (relater.go:1087) sets
+  `CheckFlagsIsDiscriminantComputed` and `CheckFlagsIsDiscriminant` on the
+  synthetic union property. `getUnionOrIntersectionProperty`
+  (checker.go:21428) interns that property per union and name: this call
+  passes `skipObjectFunctionPropertyAugment = false`, so it uses the union's
+  `propertyCache`. The answer is therefore computed once per
+  `(union, name)`. Consumers are
   `flow.go`'s `getDiscriminantPropertyAccess`, `isDiscriminantWithNeverType`
   and the relater's discriminated-target arm.
 - **Identity and owner.** `Checker::discriminant_properties`: union

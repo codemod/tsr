@@ -497,8 +497,8 @@ impl Checker<'_, '_> {
     /// of the union `t`. A type that is not a union has none.
     ///
     /// Native computes the answer once per synthetic union property
-    /// (`createUnionOrIntersectionProperty` interns that symbol per union and
-    /// name, and `links.isDiscriminantProperty` holds the answer). This port
+    /// (`getUnionOrIntersectionProperty`, checker.go:21428, interns that symbol per union and
+    /// name, and its `CheckFlagsIsDiscriminant` holds the answer). This port
     /// has no such symbol, so the answer is kept per `(union, name)` in
     /// `discriminant_properties`, for the checker's lifetime:
     /// - only a completed answer is published; `None` (a gap member) is
@@ -536,7 +536,7 @@ impl Checker<'_, '_> {
     /// constituent's member cannot be typed.
     ///
     /// The one computation of the predicate in this port. Native caches the
-    /// answer on the synthetic union property (`links.isDiscriminantProperty`);
+    /// answer on the synthetic union property (`CheckFlagsIsDiscriminant`);
     /// [`Checker::is_discriminant_property`] keeps it per `(union, name)`.
     /// Callers holding a list of constituents rather than a union recompute.
     pub(crate) fn is_discriminant_property_of_types(

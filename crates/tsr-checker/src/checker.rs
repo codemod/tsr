@@ -574,7 +574,7 @@ pub struct Checker<'a, 'n> {
     /// lifetime (`tsr-2zk.902`); see [`crate::relation_cache`].
     pub(crate) relation_results: crate::relation_cache::RelationResults,
     /// `isDiscriminantProperty`'s answer per `(union, property name)`, the
-    /// port's stand-in for native's `links.isDiscriminantProperty` on the
+    /// port's stand-in for native's `CheckFlagsIsDiscriminant` on the
     /// synthetic union property; see `Checker::is_discriminant_property`.
     pub(crate) discriminant_properties: FxHashMap<TypeId, FxHashMap<Box<str>, bool>>,
     pub(crate) variance_markers: Option<[TypeId; 3]>,
