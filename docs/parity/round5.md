@@ -827,3 +827,23 @@ as `.1086`. It also:
 
 The freed slot went to r5-smallcodes: about 49 cases across ten small
 diagnostic codes that no lane owned.
+
+### r5-relater6 finished; r5-relater7 dispatched (`tsr-2zk.1088`)
+
+r5-relater6 ported:
+- IAM, getSimplifiedIndexedAccessType's generic-mapped arm;
+- `.1049`'s relater side: generic key vs keyof, alias-image bodies and the
+  template fallthrough;
+- IAW, the indexed-access write constraint. Ir fell 2.9% on domain-model,
+  because pairs that used to run to Unknown now end early;
+- B16;
+- r5-relater5's isDiscriminantProperty, with a (union, name) cache: Ir +0.03%,
+  against +0.41% without the cache.
+
+Every commit is zero-loss. The TS2536 reporter is held until a binder fix for
+imports inside `declare module "x"` blocks in scripts. The as-clause item is
+blocked on mapped.rs pieces (`.1089`).
+
+r5-relater7 is now relater.rs' single owner. It takes r5-ts2322's 36 relater
+cases (`.1088`), `.1055`, relationCount/TS2859 (`.1065`), the variance-probe
+cost (`.1068`), and the binder fix plus the TS2536 reporter.
