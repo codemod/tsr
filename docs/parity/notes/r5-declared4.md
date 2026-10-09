@@ -266,3 +266,27 @@ Checks:
   moduleAugmentationImportsAndExports3. Read r5-spans.md §2.3 first.
 - `inference.rs`: once §1.1 lands, drop the `display` argument at its one
   `create_type_reference_with_display` call. No behaviour change.
+
+## 6. Diffs received after wrap-up (not landed this round)
+
+r5-mapped6 sent its `declared.rs` diffs at 07:42 UTC, after the integrator's
+wrap-up ("do not start any new item"). They are on
+`claude/beautiful-shannon-ar5gh0-r5-mapped6` (head `89bc82d`), in
+`docs/parity/notes/`. Each assumes batch AR's tree (`28648eb` + r5-mapped5
+`0a31b0c` + its six non-route diffs). The route diff also needs `mapped.rs`
+from r5-mapped6 `d43ccd8` (`evaluate_mapped_type_node`), so none of them
+could be measured against this lane's base `c75e4af5` in time. The next
+`declared.rs` owner lands them measured, in this order (r5-mapped6's own
+numbers):
+
+1. `r5-mapped6-declared-route.diff`: types +85, diagnostics +1
+   (`bigintIndex`), zero losses. It updates one expectation in
+   `tests/index_signature_members.rs`.
+2. `r5-mapped6-keyof-reduced-alias-body.diff`: +1, zero losses.
+3. `r5-mapped6-keyof-late-bound-keys.diff`: +3, zero losses.
+4. `r5-mapped6-conditional-typed-print.diff` (`.16.71`): **held** at +5/−4
+   (`controlFlowGenericTypes` 298/300/301/303). It waits on native's narrower
+   instantiation key: getObjectTypeInstantiation keys on the possibly
+   referenced parameters (isTypeParameterPossiblyReferenced), while
+   `type_literal_key` keys every open binding. That is r5-declared3 §1.3's
+   refused-for-now item, and it is this file's to port.
