@@ -54,10 +54,10 @@ diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
                                              id,
                                          );
                                      }
-@@ -3672,6 +3679,34 @@
+@@ -3671,6 +3678,34 @@
+         root
      }
  
-     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
 +    /// One `@import` binding. Upstream reparses the tag into a
 +    /// `JSImportDeclaration` and binds each binding through
 +    /// `declareSymbolAndAddToSymbolTable(…, SymbolFlagsAlias,
@@ -86,9 +86,9 @@ diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
 +        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
 +    }
 +
+     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
      fn declare_jsdoc_symbol(
          &mut self,
-         root: NodeId,
 diff --git a/crates/tsr-binder/tests/jsdoc_import_duplicates.rs b/crates/tsr-binder/tests/jsdoc_import_duplicates.rs
 new file mode 100644
 --- /dev/null
