@@ -362,3 +362,40 @@ Every test fails without its diff; every expectation checked against `tsgo`.
 **Left.** `jsDeclarationsDefaultsErr`: its `@typedef … default` comment ends
 the file, so it waits on T8's EOF host (item 5); with that, the binder diff
 above reports it (the unit test shows the shape with a following statement).
+
+## 8. T8: comments before end of file document the EOF token
+
+**Forcing fact.** `jsdocTypeDefAtStartOfFile`'s `/** @type {Third} */ var c`
+typed `c : Third` (unresolved) because `@typedef {number} Third` follows
+the last statement. `parseSourceFileWorker` (`parser/parser.go:438`) runs
+`withJSDoc(eof, endJSDoc)`: the trailing comments document the end-of-file
+token, and `reparseTags` reparses their typedefs, callbacks and imports into
+the file's statements like any host's. `parse_source_file` parsed them for
+their diagnostics and dropped them; its comment held them back because "a
+bound end-of-file `@typedef` meets the checker's unfinished typedef alias
+bodies" (`js.md`), which no longer reproduces.
+
+**Diff** [`r6-jsdoc-eof-host.diff`](r6-jsdoc-eof-host.diff) (parser): attach
+them to the EOF token. **Applied after** §7's two diffs: an EOF typedef in a
+module is then implicitly exported, as native's is; without them
+`reuseTypeAnnotationImportTypeInGlobalThisTypeArgument` trades its false
+TS2305 for a false TS2459 ("declared locally, but not exported").
+
+**Measured** (on §7's alias + declarations diffs, unfiltered): diagnostics
+**+2 cases** (`jsDeclarationsDefaultsErr` — §7's binder diff now sees its
+EOF `@typedef … default`; `recursiveResolveDeclaredMembers`, EMPTY_WRONG →
+EMPTY_RIGHT), and `reuseTypeAnnotationImportTypeInGlobalThisTypeArgument`
+loses its false TS2305; types **+3 lines**, **+1 case**
+(`jsdocTypeDefAtStartOfFile`), and `jsDeclarationsUniqueSymbolUsage` moves
+toward (its remainder is the written import's quote style, T9). Zero losses
+against both that state and the frozen base; `slowcases` clean. Ir
+domain-model 1,092,146,397 (+0.002% on that state), generic-imports
+343,050,102 (−0.01%). `jsdoc_eof_host.rs` (in the diff): one test, failing
+without it.
+
+**Left.** `importTypeResolutionJSDocEOF` and
+`jsdocResolveNameFailureInTypedef` now resolve their EOF aliases; their
+remaining lines print the alias name where native prints its target
+(`import("./interfaces").Bar`, `CantResolveThis`), and the second's TS2304
+waits on `check_type_reference_name`'s JS decline (r5-jsdoc4 §4.1).
+`callbackTag2`'s `Final` lines take this diff and §4's together.
