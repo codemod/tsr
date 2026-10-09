@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8467/9538 (88.77%)
-Assertion lines: 472775/478853 (98.73%)  — a gradient, not a pass rate
-Failed         : 1071
+Passed         : 8489/9538 (89.00%)
+Assertion lines: 472939/478853 (98.76%)  — a gradient, not a pass rate
+Failed         : 1049
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 1071 failures:
+First 100 of 1049 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -30,7 +30,7 @@ compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash2
   aliasInstantiationExpressionGenericIntersectionNoCrash2.ts: >ClassAlias : { new (): Class<T>; prototype: Class<any>; } — expected >ClassAlias : typeof Class<T>
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
-  aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a : ExtendedMapper<any, any, [any]> — expected >a : a
+  aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >ExtendedMapper2 : ExtendedMapper2<HandledInputT, OutputT, ArgsT> — expected >ExtendedMapper2 : (name: string, mixed: HandledInputT, ...args: ArgsT) => OutputT
 compiler/aliasOnMergedModuleInterface
   aliasOnMergedModuleInterface_1.ts: >z.bar("hello") : B.A — expected >z.bar("hello") : foo.A
 compiler/allowImportClausesToMergeWithTypes
@@ -203,8 +203,6 @@ compiler/contextualSignatureConditionalTypeInstantiationUsingDefault
   contextualSignatureConditionalTypeInstantiationUsingDefault.ts: >(ev) => {  ev.type; // should be `string`} : error — expected >(ev) => {  ev.type; // should be `string`} : (ev: { type: string; }) => void
 compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix3
   contextualTypeBasedOnIntersectionWithAnyInTheMix3.ts: >[1] : [number] — expected >[1] : [1]
-compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix5
-  contextualTypeBasedOnIntersectionWithAnyInTheMix5.ts: >ComputedOptions : Record<string, ComputedGetter<any>> — expected >ComputedOptions : ComputedOptions
 compiler/contextualTypeCaching
   contextualTypeCaching.ts: >() => [    {      apply: (compiler) => {},    },  ] : () => any — expected >() => [    {      apply: (compiler) => {},    },  ] : () => { apply: (compiler: MyCompiler) => void; }[]
 compiler/contextualTypeFunctionObjectPropertyIntersection
@@ -213,3 +211,5 @@ compiler/contextualTypeIterableUnions
   contextualTypeIterableUnions.ts: >[{ b: false }] : { b: boolean; }[] — expected >[{ b: false }] : { b: false; }[]
 compiler/contextualTypeSelfReferencing
   contextualTypeSelfReferencing.ts: >result : { a: string; }[] — expected >result : [{ a: "foo"; }]
+compiler/contextualTypeShouldBeLiteral
+  contextualTypeShouldBeLiteral.ts: >{    type2: 'y',    value: 'done',    method() {        this;        this.value;    }} : { type2: "y"; value: string; method(): void; } — expected >{    type2: 'y',    value: 'done',    method() {        this;        this.value;    }} : { type2: "y"; value: "done"; method(): void; }
