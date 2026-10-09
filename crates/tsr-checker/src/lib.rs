@@ -143,6 +143,7 @@ pub mod heritage_conformance;
 mod identity;
 mod implemented_alias;
 pub mod implicit_any;
+mod import_attribute_checks;
 mod import_attributes;
 mod import_call;
 mod import_call_grammar;

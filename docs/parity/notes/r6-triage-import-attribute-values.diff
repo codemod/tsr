@@ -1,0 +1,251 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index e62fe57..37fb27c 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -236,6 +236,7 @@ impl Checker<'_, '_> {
+                         side_effect,
+                     );
+                 }
++                self.check_import_attribute_values(node);
+                 self.check_import_attributes(node);
+                 ambient
+             }
+@@ -245,6 +246,7 @@ impl Checker<'_, '_> {
+                     declaration.module_specifier.and_then(|s| s.node_id()),
+                     false,
+                 );
++                self.check_import_attribute_values(node);
+                 self.check_import_attributes(node);
+                 ambient
+             }
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index f668002..cd06614 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -759,6 +759,13 @@ pub struct Checker<'a, 'n> {
+     /// per ADR-0003 rather than widening `TypeData`. Read by the element
+     /// access lookup's failure path, which answers `any` for them.
+     pub(crate) js_literal_types: rustc_hash::FxHashSet<crate::types::TypeId>,
++    /// Anonymous object types whose symbol native mints in the checker with
++    /// `SymbolFlagsObjectLiteral` (`getTypeFromImportAttributes`,
++    /// `checker.go:5447`). This port's types name binder symbols only, so
++    /// the flag `isObjectTypeWithInferableIndex` (`relater.go:4624`) reads
++    /// off the symbol is carried here (ADR-0003). Written once at mint by
++    /// `import_attribute_checks.rs`; never removed.
++    pub(crate) minted_object_literal_symbol_types: rustc_hash::FxHashSet<crate::types::TypeId>,
+     /// Object-literal types as minted by `check_object_literal` — upstream's
+     /// `ObjectFlagsFreshLiteral`, carried in a side table per ADR-0003. Read
+     /// by the subtype reduction's excess-property gate (`hasExcessProperties`,
+@@ -1574,6 +1581,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             lib_includes_dom: false,
+             uses_wildcard_types: false,
+             js_literal_types: rustc_hash::FxHashSet::default(),
++            minted_object_literal_symbol_types: rustc_hash::FxHashSet::default(),
+             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
+             regular_object_literal_types: FxHashMap::default(),
+             object_literal_spread_flags: FxHashMap::default(),
+diff --git a/crates/tsr-checker/src/import_attribute_checks.rs b/crates/tsr-checker/src/import_attribute_checks.rs
+index b05c844..4dada38 100644
+--- a/crates/tsr-checker/src/import_attribute_checks.rs
++++ b/crates/tsr-checker/src/import_attribute_checks.rs
+@@ -37,11 +37,6 @@
+ //! callers in `check.rs` (MAIN). No corpus case reports a binding diagnostic
+ //! beside a TS2858 (`docs/parity/notes/r6-triage.md` §4).
+ 
+-#![expect(
+-    dead_code,
+-    reason = "the check.rs and import_attributes.rs hooks ship as r6-triage-import-attribute-values.diff"
+-)]
+-
+ use tsr_ast::{ImportAttributeName, ImportAttributes, Node, NodeId, SyntaxKind};
+ use tsr_diagnostics::{Diagnostic, messages};
+ 
+@@ -196,6 +191,7 @@ impl Checker<'_, '_> {
+         // `ObjectFlagsObjectLiteral` (no spread) and the symbol's
+         // `SymbolFlagsObjectLiteral`.
+         self.object_literal_spread_flags.insert(ty, false);
++        self.minted_object_literal_symbol_types.insert(ty);
+         self.non_inferrable_types.insert(ty);
+         Some(ty)
+     }
+diff --git a/crates/tsr-checker/src/import_attributes.rs b/crates/tsr-checker/src/import_attributes.rs
+index b4375eb..2c7555e 100644
+--- a/crates/tsr-checker/src/import_attributes.rs
++++ b/crates/tsr-checker/src/import_attributes.rs
+@@ -4,22 +4,18 @@
+ //!
+ //! Called once per declaration from the check walk's `ImportDeclaration` and
+ //! `ExportDeclaration` arms, which is where upstream's `checkImportDeclaration`
+-//! (`:5330`) and `checkExportDeclaration` (`:5548`) end. Each report is a
+-//! `grammarErrorOnNode`, so nothing is reported in a file with parse
++//! (`:5330`) and `checkExportDeclaration` (`:5548`) end. Each grammar report is a
++//! `grammarErrorOnNode`, so none is reported in a file with parse
+ //! diagnostics. No cache, side table or traversal: the reads are the
+ //! declaration's own syntax and the host's
+ //! `GetEmitSyntaxForUsageLocation` answer for its specifier.
+ //!
+-//! **Not ported:** the opening relation check,
+-//! `checkTypeAssignableTo(getTypeFromImportAttributes(node),
+-//! getNullableType(ImportAttributes, Undefined))`, the TS2322 on a non-string
+-//! attribute value. It needs the synthetic object-literal type
+-//! `getTypeFromImportAttributes` builds, which this port's type store has no
+-//! constructor for outside `check_object_literal`. Its absence costs only
+-//! the TS2322 rows (`importAttributes6`, `importAttributes9`,
+-//! `compiler/importAssertionNonstring`); every arm below runs after it
+-//! unconditionally upstream, so leaving it out changes no other report.
+-//! `docs/parity/notes/r5-modules.md` §3.
++//! The opening relation check, `checkTypeAssignableTo(getTypeFromImportAttributes(node),
++//! getNullableType(ImportAttributes, Undefined))`, is
++//! [`Checker::check_import_attributes_assignable`] in
++//! `import_attribute_checks.rs`, called here before the parse-error gate
++//! because it is a `c.error`, not a grammar report
++//! (`docs/parity/notes/r6-triage.md` §4; formerly r5-modules.md §3).
+ 
+ use tsr_ast::{ImportAttributeName, ImportAttributes, Node, NodeId, SyntaxKind};
+ use tsr_diagnostics::{Message, messages};
+@@ -33,9 +29,6 @@ impl Checker<'_, '_> {
+     /// the top of both callers, which never reach this check.
+     pub(crate) fn check_import_attributes(&mut self, node: NodeId) {
+         use tsr_core::ModuleKind;
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let (attributes, specifier, is_type_only) = match self.node_map.get(node) {
+             Some(Node::ImportDeclaration(declaration)) => (
+                 declaration.attributes,
+@@ -59,6 +52,12 @@ impl Checker<'_, '_> {
+         }) {
+             return;
+         }
++        // The relation opening `checkImportAttributes` is a `c.error`, so it
++        // stands in a file with parse errors; the grammar arms below do not.
++        self.check_import_attributes_assignable(node);
++        if self.file_has_parse_errors {
++            return;
++        }
+         let has_override = self.resolution_mode_override(attributes, is_type_only);
+         if is_type_only && has_override {
+             // "Other grammar checks do not apply to type-only imports with
+diff --git a/crates/tsr-checker/src/index_signatures.rs b/crates/tsr-checker/src/index_signatures.rs
+index d9d90d8..7bab18d 100644
+--- a/crates/tsr-checker/src/index_signatures.rs
++++ b/crates/tsr-checker/src/index_signatures.rs
+@@ -1466,7 +1466,9 @@ impl<'a> Checker<'a, '_> {
+         let (TypeData::Named { members: Some(symbol), .. } | TypeData::Anonymous { symbol, .. }) =
+             self.store.get(id).data
+         else {
+-            return false;
++            // A checker-minted ObjectLiteral symbol
++            // (`getTypeFromImportAttributes`), which declares no signatures.
++            return self.minted_object_literal_symbol_types.contains(&id);
+         };
+         let flags = self.binder.symbols().get(symbol).flags;
+         if !flags.intersects(
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 344c568..13f6854 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -3198,6 +3198,11 @@ impl Relater<'_, '_, '_> {
+                 TypeData::Anonymous { .. } => {
+                     self.checker.signatures_of_type(id).is_some_and(|list| !list.is_empty())
+                 }
++                // A checker-minted object literal (`getTypeFromImportAttributes`)
++                // resolves its members from its captured properties.
++                TypeData::Named { members: None, .. } => {
++                    self.checker.minted_object_literal_symbol_types.contains(&id)
++                }
+                 _ => false,
+             }
+     }
+@@ -3903,7 +3908,9 @@ impl Relater<'_, '_, '_> {
+         let (TypeData::Named { members: Some(symbol), .. } | TypeData::Anonymous { symbol, .. }) =
+             self.checker.type_of(id).data
+         else {
+-            return false;
++            // A checker-minted ObjectLiteral symbol
++            // (`getTypeFromImportAttributes`), which declares no signatures.
++            return self.checker.minted_object_literal_symbol_types.contains(&id);
+         };
+         let flags = self.checker.binder.symbols().get(symbol).flags;
+         flags.intersects(
+diff --git a/crates/tsr-conformance/tests/import_attribute_checks.rs b/crates/tsr-conformance/tests/import_attribute_checks.rs
+new file mode 100644
+index 0000000..dcf29ff
+--- /dev/null
++++ b/crates/tsr-conformance/tests/import_attribute_checks.rs
+@@ -0,0 +1,75 @@
++//! `checkImportAttributes`'s relation against `ImportAttributes` (TS2322) and
++//! `checkExternalImportOrExportDeclaration`'s attribute-value loop (TS2858),
++//! through the corpus pipeline with the bundled libs. Every expectation was
++//! read off the pinned native tsgo (`5b1047d`) on the same source.
++//! `docs/parity/notes/r6-triage.md` §4.
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn rendered(source: &str) -> Vec<(u32, u32, u32, String)> {
++    let case = TestCase::parse("probe/import-attribute-checks", "main.ts", source);
++    let mut out: Vec<_> = diagnostics_suite::rendered_for(&case)
++        .into_iter()
++        .filter(|((file, ..), _)| file.ends_with("main.ts"))
++        .map(|((_, line, column, code), text)| (line, column, code, text))
++        .collect();
++    out.sort();
++    out
++}
++
++const PRELUDE: &str =
++    "// @module: esnext\n// @filename: a.ts\nexport default {};\n// @filename: main.ts\n";
++
++#[test]
++fn non_string_values_report_the_relation_and_ts2858() {
++    let source = format!(
++        "{PRELUDE}import * as t1 from \"./a\" with {{ field: 0 }};\nimport * as t2 from \"./a\" with {{ type: \"json\", x: 1 }};\nimport * as t3 from \"./a\" with {{ type: \"json\" }};\nvoid t1; void t2; void t3;\n"
++    );
++    let got = rendered(&source);
++    assert_eq!(
++        got,
++        [
++            (
++                1,
++                27,
++                2322,
++                "Type '{ field: 0; }' is not assignable to type 'ImportAttributes'.".to_owned()
++            ),
++            (1, 41, 2858, "Import attribute values must be string literal expressions.".to_owned()),
++            (
++                2,
++                27,
++                2322,
++                "Type '{ type: \"json\"; x: 1; }' is not assignable to type 'ImportAttributes'."
++                    .to_owned()
++            ),
++            (2, 51, 2858, "Import attribute values must be string literal expressions.".to_owned()),
++        ]
++    );
++}
++
++#[test]
++fn a_global_augmentation_constrains_attribute_values() {
++    let source = format!(
++        "{PRELUDE}declare global {{ interface ImportAttributes {{ type: \"json\" }} }}\nimport * as ns from \"./a\" with {{ type: \"not-json\" }};\nexport * from \"./a\" with {{ type: \"json\" }};\nvoid ns;\n"
++    );
++    let got = rendered(&source);
++    assert_eq!(
++        got,
++        [(
++            2,
++            27,
++            2322,
++            "Type '{ type: \"not-json\"; }' is not assignable to type 'ImportAttributes'."
++                .to_owned()
++        )]
++    );
++}
++
++#[test]
++fn the_relation_stands_where_module_kind_rejects_attributes() {
++    // `--module commonjs`: the TS2823 grammar arm returns after the relation.
++    let source = "// @module: commonjs\n// @filename: a.ts\nexport default {};\n// @filename: main.ts\nimport * as t1 from \"./a\" with { field: 0 };\nvoid t1;\n";
++    let codes: Vec<u32> = rendered(source).into_iter().map(|(_, _, code, _)| code).collect();
++    assert_eq!(codes, [2322, 2823, 2858]);
++}
