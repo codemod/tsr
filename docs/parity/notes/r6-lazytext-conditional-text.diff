@@ -1,0 +1,98 @@
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -8970,6 +8970,26 @@
+         })
+     }
+ 
++    /// The typed print of a deferred conditional minted with its written
++    /// text: the root and mapper its mint captured (an inline root's
++    /// `conditional_inference_nodes` entry, or a mapped template's
++    /// `mapped_conditionals` one), printed at print time by
++    /// [`Checker::deferred_conditional_text`]
++    /// (`docs/parity/notes/r6-lazytext.md` §2). `None` for any other type.
++    pub(crate) fn deferred_conditional_text_at(&mut self, id: TypeId) -> Option<String> {
++        let (declaration, bindings, mapped_template) =
++            if let Some(info) = self.conditional_inference_nodes.get(&id) {
++                (info.declaration, info.bindings.clone(), false)
++            } else {
++                let info = self.mapped_conditionals.get(&id)?;
++                (info.declaration, info.bindings.clone(), true)
++            };
++        let Some(Node::ConditionalTypeNode(node)) = self.node_map.get(declaration) else {
++            return None;
++        };
++        self.deferred_conditional_text(id, node, bindings, mapped_template)
++    }
++
+     /// Read a conditional root under its original mapper without evaluating it.
+     /// Branch inference and conditional-source matching share this alias walk.
+     fn with_conditional_inference_node<R>(
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 7eec834..24dc64c 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -2389,7 +2389,10 @@ impl<'a, 'n> Checker<'a, 'n> {
+                     return Some(out);
+                 }
+             }
+-            let printed = self.type_to_string(id);
++            // A deferred conditional's typed print stands where its baked
++            // written text did (`docs/parity/notes/r6-lazytext.md` §2).
++            let printed =
++                self.deferred_conditional_text_at(id).unwrap_or_else(|| self.type_to_string(id));
+             return self.qualified_name_at(id, printed, reference);
+         };
+         if let Some(name) = self.module_name_at(module, reference, SymbolFlags::VALUE) {
+diff --git a/crates/tsr-checker/tests/print_time_conditional_text.rs b/crates/tsr-checker/tests/print_time_conditional_text.rs
+new file mode 100644
+index 0000000..1eea568
+--- /dev/null
++++ b/crates/tsr-checker/tests/print_time_conditional_text.rs
+@@ -0,0 +1,47 @@
++//! A deferred conditional type's typed print is made when it is printed
++//! (`docs/parity/notes/r6-lazytext.md` §2). Native's
++//! conditionalTypeToTypeNode (`nodebuilderimpl.go:2916`) reads
++//! getTrueTypeFromConditionalType and getFalseTypeFromConditionalType while it
++//! prints; the mint keeps the written text.
++
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The baked print and the print at its declaration of the symbol `name`.
++fn prints(source: &str, name: &str) -> (String, Option<String>) {
++    let arena = Arena::new();
++    let parsed = tsr_parser::parse(&arena, source);
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "test.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    let options = tsr_core::CompilerOptions {
++        strict_null_checks: tsr_core::Tristate::True,
++        ..Default::default()
++    };
++    checker.apply_compiler_options(&options);
++    for index in 0..parsed.nodes.len() {
++        #[allow(clippy::cast_possible_truncation)]
++        let id = tsr_ast::NodeId::new(index as u32);
++        if let Some(symbol) = bound.lookup_local(id, name) {
++            let site = bound.symbols().get(symbol).declarations[0];
++            let ty = checker.get_type_of_symbol(symbol);
++            return (checker.type_to_string(ty), checker.type_to_string_at(ty, site));
++        }
++    }
++    panic!("`{name}` is declared nowhere");
++}
++
++#[test]
++fn a_deferred_conditional_prints_its_typed_branches_when_printed() {
++    // wideningWithTopLevelTypeParameter: tsgo prints the false branch as the
++    // union type `string | T`, in union order, not as written.
++    let (baked, at_site) =
++        prints("function f<T>(t: T extends undefined ? never : T | string) {}", "t");
++    assert_eq!(baked, "T extends undefined ? never : T | string");
++    assert_eq!(at_site.as_deref(), Some("T extends undefined ? never : string | T"));
++}
