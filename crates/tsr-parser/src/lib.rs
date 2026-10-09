@@ -41,6 +41,7 @@ mod module;
 mod parsed_file;
 mod parser;
 pub mod pragma;
+mod pragma_diagnostics;
 pub mod references;
 mod statement;
 mod types;
@@ -161,16 +162,18 @@ pub fn parse_into<'a>(
     } else {
         parser.parse_source_file()
     };
-    let (diagnostics, node_table, jsdoc, map) = parser.finish();
+    let (mut diagnostics, node_table, jsdoc, map) = parser.finish();
     *nodes = node_table;
     *node_map = map;
     let end_node = u32::try_from(nodes.len()).expect("node count exceeds u32");
+    let file_references = pragma::parse_file_references(source);
+    pragma_diagnostics::append_pragma_diagnostics(&file_references, &mut diagnostics);
 
     ParsedInto {
         source_file,
         diagnostics,
         jsdoc,
-        file_references: pragma::parse_file_references(source),
+        file_references,
         node_range: first_node..end_node,
     }
 }
