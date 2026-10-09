@@ -661,7 +661,6 @@ impl Checker<'_, '_> {
             return RecursionIdentity::Symbol(*symbol);
         }
         if let Some((symbol, _)) = self.type_reference_targets.get(&ty)
-            && !self.reference_types_from_nodes.contains(&ty)
             && self
                 .binder
                 .symbols()

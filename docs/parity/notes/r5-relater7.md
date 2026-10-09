@@ -374,3 +374,62 @@ context; the expensive work it saves is the whole overflowing walk.
 publishes more results per pair than native in places (it caches identity
 and literal pairs native answers without `recursiveTypeRelatedTo`), so its
 budget can run out sooner. None is known in the corpus (no verdict moved).
+
+## 10. Item 4 (`tsr-2zk.1068`): the variance-probing blow-up was a recursion-identity gap
+
+**What the profile showed.** `varianceProblingAndZeroOrderIndexSignatureRelationsAlign`
+(and `…2`) took 37-41 s. An instrument counting nested relations per
+top-level check found the four variance-marker comparisons of `Left`/`Right`
+(`getVariancesWorker`'s `Left<L, sub> -> Left<L, super>` and the union
+probes) at 450k-800k nested relations and ~10 s each. A full trace of one
+showed a single walk descending to the port's `MAX_DEPTH` (100) again and
+again along
+
+    Left<L, X> -> <B>(fab: Either<L, (a: X) => B>) => … -> Either<L, (a: X) => any>
+      -> Left<L, (a: X) => any> | Right<…> -> Right<…> -> Left<L, (a: (a: X) => any) => B> -> …
+
+that is, `ap`'s parameter growing one function layer per step. Native cuts
+this at the third growing occurrence: `isDeeplyNestedType` (relater.go,
+called from `recursiveTypeRelatedTo`) counts stack entries with the same
+`getRecursionIdentity`, and both stacks expand, so the pair is `Maybe`.
+
+**Cause.** The hypothesis in the brief (a nested top-level relation in
+`inference_variances` hiding the stack) was not it: the trace shows one walk.
+The port's `relation_recursion_identity` gives a class or interface reference
+its target symbol, **except** a reference recorded in
+`reference_types_from_nodes` (every class/interface reference produced from a
+type node, including each re-walk of an alias body under a binding frame),
+which falls back to its unique `TypeId`. Every `Left<L, …>` in the chain is
+such a reference, so no two stack entries ever shared an identity and the
+cut never fired.
+
+Native's `getRecursionIdentity` has no such exclusion: an eager reference is
+tracked by its target's symbol, and a *deferred* reference (one created for a
+type node inside a type alias body, such as `Either`'s `Left<L, A>`) by its
+node.
+
+**Ported.** The exclusion is removed: written class and interface references
+are tracked by their target symbol like every other reference.
+
+**Stated divergence.** For a deferred reference native's identity is its node,
+which is finer than the symbol: `Left<L, A> | Left<A, L>` in one alias body
+are two identities natively and one here, so the port may count expansion
+sooner. The node is not recorded with the type (the insertion site is
+`declared.rs`, r5-declared3); recording `reference_types_from_nodes` as a map
+from type to reference node would let this read `RecursionIdentity::Node`.
+
+**Measured** against §9's commit, both loss checks (vs §0) empty; no verdict
+or line moves:
+- `varianceProblingAndZeroOrderIndexSignatureRelationsAlign`: 40.8 s → 0.37 s;
+  `…2`: 40.9 s → 0.39 s (CLI, `--strict`); both off the slowcases list;
+- `performanceComparisonOfStructurallyIdenticalInterfacesWithGenericSignatures`:
+  28.7 s → 6.9 s (CLI), 878 → 393 MiB in the dump. Its remaining cost is
+  heritage-conformance signature relations, 74% of `Ir` under
+  `instantiate_signature_in_context` → `infer_from_types_within` →
+  `infer_from_members` (`inference.rs`, main's);
+- `Ir`: generic-imports 342,948,787 → 342,945,931 (−0.0008%); domain-model
+  1,179,657,930 → 1,179,512,821 (−0.012%). CLI output identical.
+
+**Falsifier.** A relation native decides that now ends `Maybe` (Related) at the
+expansion cut because two distinct written references to one generic class
+count as one identity. None moved in either dump.
