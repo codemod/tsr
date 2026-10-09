@@ -1468,3 +1468,25 @@ The parameter-scope diff (resolveName's useOuterVariableScopeInParameter:
 +5 diagnostics, +38 types) is held. Its BindResult options slot adds about
 1.5M Ir on dm through layout, and the stack read dm +0.19–0.25%.
 r6-names2 lands it without that cost (`tsr-2zk.1142`).
+
+### r6-accessible finished (batch BK); r6-specifiers dispatched
+
+Batch BK lands r6-accessible's ports of IsTypeSymbolAccessible/IsSymbolAccessible
+as the type printer asks them, and getPropertyNameFromType's unique-symbol key.
+It also lands three hook diffs:
+- the alias arm;
+- a mapped object printed at its site where it has no accessible alias;
+- unique-symbol mapped keys.
+
+Measured by the box: +12 types on the batch-BG tip, Ir within noise. The
+serialize-type-name diff was superseded by r6-printer's identical change.
+
+Remaining, routed:
+- the chain printer for `import("./x").T` spellings (`.39`);
+- opaque `Alias<Args>` mints with no structure to fall back to (`.16.2`,
+  ADR-0045 rule 4);
+- an inline mapped node in an intersection alias under strictNullChecks off
+  (r6-declared).
+
+r6-specifiers takes module specifiers into node_modules: `.999`, `.1098`,
+`.16.59` and `.16.77`, about 36 blocked cases.
