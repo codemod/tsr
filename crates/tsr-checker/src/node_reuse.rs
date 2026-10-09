@@ -159,9 +159,6 @@ struct ReuseContext {
     /// against the names already allocated; this visitor emits them as
     /// written. See [`Checker::renamed_annotation_in_scope`].
     declares_type_parameters: bool,
-    /// The names those declarations write, for
-    /// [`Checker::renamed_declarations_collide`].
-    declared_type_parameter_names: Vec<String>,
     /// For a pseudochecker node taken from a function BODY
     /// ([`Checker::reused_return_text`]), the declaration whose signature is
     /// printed. Upstream's `enterNewScope` for that signature binds only its
@@ -182,7 +179,6 @@ impl ReuseContext {
             mapped: false,
             unnameable: false,
             declares_type_parameters: false,
-            declared_type_parameter_names: Vec::new(),
             pseudo_owner: None,
         }
     }
@@ -474,27 +470,6 @@ impl<'a> Checker<'a, '_> {
                     Some(WrittenAnnotation { node, r#type: image, renamed: true });
             }
         }
-        // typeParameterToDeclaration (`nodebuilderimpl.go:1611`) keeps the
-        // parameter's identity under typeParameterToName's rename, so its
-        // constraint is still the written node's type and is reused, naming
-        // the renamed parameters through this render's allocations.
-        for (source, target) in
-            original.type_parameters.iter().zip(renamed.type_parameters.iter_mut())
-        {
-            let (Some(parameter), Some(constraint)) = (source.resolved_type, source.constraint)
-            else {
-                continue;
-            };
-            // The source's baked text names the parameters as written; the
-            // clone re-reads the node under this render's names.
-            if let Some(text) = self.renamed_constraint_text(
-                parameter,
-                constraint,
-                source.written_constraint.is_some(),
-            ) {
-                target.written_constraint = Some(text);
-            }
-        }
         if renamed.written_return.is_none()
             && let Some(written) = original.written_return
             && self.get_return_type_of_signature(original).unwrap_or(original.r#type)
@@ -590,36 +565,6 @@ impl<'a> Checker<'a, '_> {
     /// serialized fresh. Printed at `reference` when the printer has a site,
     /// else from the annotation's own scope. `None` when the node is not the
     /// constraint's or the visitor refuses it.
-    /// [`Checker::reused_constraint_text`] for a rename clone: the written
-    /// constraint, when it is still the parameter's constraint, printed with
-    /// the renamed parameters named through this render's allocations.
-    /// `reused` is the original signature's own decision (its baked
-    /// `written_constraint`): that node is re-read without deciding again.
-    fn renamed_constraint_text(
-        &mut self,
-        parameter: TypeId,
-        constraint: TypeId,
-        reused: bool,
-    ) -> Option<String> {
-        let symbol = *self.type_parameter_symbols.get(&parameter)?;
-        let node =
-            self.binder.symbols().get(symbol).declarations.iter().find_map(|&id| {
-                match self.node_map.get(id)? {
-                    Node::TypeParameterDeclaration(declaration) => declaration.constraint,
-                    _ => None,
-                }
-            })?;
-        if !reused && self.get_type_from_type_node(node) != constraint {
-            return None;
-        }
-        let written = WrittenAnnotation {
-            node: Node::from(node).node_id()?,
-            r#type: constraint,
-            renamed: true,
-        };
-        self.site_free_annotation_text(written, constraint)
-    }
-
     pub(crate) fn reused_constraint_text(
         &mut self,
         parameter: TypeId,
@@ -1565,34 +1510,10 @@ impl<'a> Checker<'a, '_> {
         let mut cx = ReuseContext::new(Some(reference), written.node);
         cx.pseudo_owner = pseudo_owner;
         let text = self.try_reuse_type_node(node, false, &mut cx)?;
-        if written.renamed && self.renamed_declarations_collide(&cx, reference) {
+        if written.renamed && cx.declares_type_parameters {
             return None;
         }
         (!cx.unnameable).then_some(text)
-    }
-
-    /// Whether a renamed node's own type-parameter declarations would be
-    /// renamed by `typeParameterToName` (`nodebuilderimpl.go:1404`) inside
-    /// their `enterNewScope`: a written name already claimed in this render
-    /// (an allocation or an enclosing render's parameter), or one that
-    /// resolves at the print site to a type parameter. Such a declaration
-    /// needs an allocation of its own, which the visitor does not model, so
-    /// the node is refused; any other declaration keeps its written name, as
-    /// upstream's does.
-    fn renamed_declarations_collide(&self, cx: &ReuseContext, site: NodeId) -> bool {
-        // The node builder's enclosing declaration: the assertion's parent
-        // (`type_symbol_baseline.go:394`).
-        let enclosing = self.nodes.parent(site).unwrap_or(site);
-        cx.declared_type_parameter_names.iter().any(|name| {
-            self.render_type_parameter_names.allocations.iter().any(|(_, text)| text == name)
-                || self.render_type_parameter_scope.iter().any(|(text, _)| text == name)
-                || self
-                    .binder
-                    .resolve_name(self.nodes, self.node_map, enclosing, name, SymbolFlags::TYPE)
-                    .is_some_and(|found| {
-                        self.binder.symbols().get(found).flags.contains(SymbolFlags::TYPE_PARAMETER)
-                    })
-        })
     }
 
     /// A [`WrittenAnnotation::renamed`] node names its renamed parameters
@@ -2489,7 +2410,6 @@ impl<'a> Checker<'a, '_> {
                 }
                 let parameter = mapped.type_parameter?;
                 cx.declares_type_parameters = true;
-                cx.declared_type_parameter_names.push(parameter.name?.text.to_string());
                 let readonly = match mapped.readonly_token.map(|token| token.kind) {
                     None => "",
                     Some(SyntaxKind::ReadonlyKeyword) => "readonly ",
@@ -2529,7 +2449,6 @@ impl<'a> Checker<'a, '_> {
             TypeNode::InferTypeNode(infer) => {
                 let parameter = infer.type_parameter?;
                 cx.declares_type_parameters = true;
-                cx.declared_type_parameter_names.push(parameter.name?.text.to_string());
                 let mut text = format!("infer {}", parameter.name?.text);
                 if let Some(constraint) = parameter.constraint {
                     text.push_str(" extends ");
@@ -2719,9 +2638,6 @@ impl<'a> Checker<'a, '_> {
             return Some(String::new());
         }
         cx.declares_type_parameters = true;
-        for parameter in parameters {
-            cx.declared_type_parameter_names.push(parameter.name?.text.to_string());
-        }
         let mut parts = Vec::with_capacity(parameters.len());
         for parameter in parameters {
             parts.push(self.reused_type_parameter(parameter, cx)?);
@@ -2804,9 +2720,6 @@ impl<'a> Checker<'a, '_> {
             }
         }
         cx.declares_type_parameters = true;
-        for parameter in parameters {
-            cx.declared_type_parameter_names.push(parameter.name?.text.to_string());
-        }
         let mut parts = Vec::with_capacity(parameters.len());
         for parameter in parameters {
             let root = std::mem::replace(&mut cx.root, parameter.node_id?);

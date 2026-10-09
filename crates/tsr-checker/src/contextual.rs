@@ -2569,15 +2569,6 @@ impl<'a> Checker<'a, '_> {
                     // origins, but their semantic values are already substituted.
                     self.get_type_of_property_of_type(contextual, &name)?
                 }
-                // getTypeOfSymbol of a mapped instance's property is
-                // getTypeOfMappedSymbol (`checker.go`), the template
-                // instantiated for that key. This port's homomorphic
-                // member carries the SOURCE property's symbol, whose own
-                // type is the source's declared member, so the instance's
-                // property type is read through the instance.
-                Some(property) if self.mapped_types.contains_key(&contextual) => self
-                    .get_type_of_property_of_type(contextual, &name)
-                    .unwrap_or_else(|| self.get_type_of_symbol(property)),
                 Some(property) => self.get_type_of_symbol(property),
                 None => self.union_contextual_property_type(contextual, &name, object_literal)?,
             }

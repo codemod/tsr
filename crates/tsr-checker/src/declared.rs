@@ -531,10 +531,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 ty
             }
-            // The `typeof` arm (`crate::import_type_value_meaning`).
-            TypeNode::ImportTypeNode(node) => self
-                .import_type_value_meaning(node)
-                .unwrap_or_else(|| self.get_type_from_import_type_node(node)),
+            TypeNode::ImportTypeNode(node) => self.get_type_from_import_type_node(node),
             TypeNode::TypeLiteralNode(node) => self.get_type_from_type_literal(node),
             TypeNode::UnionTypeNode(node) => self.get_type_from_union_type_node(node),
             TypeNode::IntersectionTypeNode(node) => self.get_type_from_intersection_type_node(node),

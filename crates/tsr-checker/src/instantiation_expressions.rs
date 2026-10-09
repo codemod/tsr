@@ -149,8 +149,6 @@ impl<'a> Checker<'a, '_> {
                 Some(with_arguments.type_arguments)
             }
             Node::TypeQueryNode(query) => Some(query.type_arguments),
-            // resolveImportSymbolType's Value arm (`checker.go:24659`).
-            Node::ImportTypeNode(import) => Some(import.type_arguments),
             _ => None,
         }
     }
