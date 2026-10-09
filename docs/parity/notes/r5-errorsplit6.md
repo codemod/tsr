@@ -412,3 +412,35 @@ Commit 3 and diff S were each measured on commit 2; together they read
 2,678 / 2,162. Diff M changes no row. No rewrite reaches zero, so none is
 narrowed. The falsifier ("the residual stops falling") has not fired: the
 residual fell 3,032 → 2,680 in this step (2,678 with diff S).
+
+## §8 Re-verified on the integration head
+
+§1's base anticipated batch AO by applying r5-errorsplit5's diffs to `fafecee`.
+AO then landed byte-identical, together with batches AL–AN and AP–AU. So the
+branch was merged with the integration head (`77afe69`) and re-measured
+against a base frozen there. Unfiltered, both dumps:
+
+| | base `77afe69` | commits 1–3 merged |
+|---|---:|---:|
+| types RIGHT / GAP / WRONG | 549,360 / 853 / 6,087 | **549,365 / 853 / 6,082** |
+| diagnostics | 5,493 / 5,596 / 1,098 / 51 | unchanged, zero transitions |
+| type / diagnostics losses | — | **0 / 0** |
+| credited gap | 2,575 | **2,162** |
+| `native_error` lines (matched) | 30,803 (30,697) | 31,245 (31,139) |
+| wholesale narrowing RIGHT→GAP | 3,029 | **2,677** |
+
+The five gains are §2.7's. The 442 lines that move to `native_error` (§2's
+396 and §6's 46) are all `errorType` natively. slowcases is clean on both
+dumps. Per rewrite: `HadErrorBaseline` 2,011, `AtLocation` 575,
+`AccessOrQualifiedParent` 62, `StatementName` 29. None is at zero.
+
+With diffs S and M applied on top, against the same base: zero losses; types
+**549,371 / 851 / 6,078** (diff S's six JSX lines); diagnostics
+5,493 / **5,597 / 1,098 / 50**; credited gap **2,160**; `StatementName` 27.
+Workspace tests pass with and without the two diffs. Perf, median child CPU
+over 21 samples, merged branch against the base binary: domain-model 0.976,
+generic-imports 0.971 (diagnostics match).
+
+The integrator's bookkeeping assigned this lane `tsr-2zk.1106` after these
+commits were written. They cite `tsr-2zk.1038`, the error-split epic issue
+the predecessors used.
