@@ -505,3 +505,9 @@ per-file flag must become per-node.
   `<T> yield 0` in a generator is TS1109. `yield` takes an operand only when
   one starts on the same line. The checker's TS1163 declines that stood in
   for the missing context are removed.
+- JavaScript files parse in the JSX language variant (`getLanguageVariant`:
+  TSX, JSX, JS and JSON), whatever `--jsx` says: `ScriptKind::from_file_name`
+  maps `.js`/`.cjs`/`.mjs` to `Tsx`. The loader's `jsx != None` condition in
+  `tsr-compiler` `parse_options` is now dead for those names (out of lane).
+  The checker's TS17004 for JSX in a `.js` file without `--jsx`
+  (`checkJsxPreconditions`) is still missing (`parseUnaryExpressionNoTypeAssertionInJsx1/3`).

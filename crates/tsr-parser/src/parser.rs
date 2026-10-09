@@ -17,7 +17,9 @@ pub enum ScriptKind {
     /// `.ts`, `.mts`, `.cts`, `.d.ts` — `<T>expr` is a type assertion.
     #[default]
     TypeScript,
-    /// `.tsx`, `.jsx` — `<` opens JSX; type assertions must use `as`.
+    /// `.tsx`, `.jsx`, `.js`, `.cjs`, `.mjs` — `<` opens JSX; type assertions
+    /// must use `as`. `getLanguageVariant` (`parser/utilities.go:11`) answers
+    /// `LanguageVariantJSX` for every JavaScript kind, not only `.jsx`.
     Tsx,
     /// `.json`. A file is a single value, not a statement list.
     ///
@@ -36,7 +38,7 @@ impl ScriptKind {
             .unwrap_or_default()
             .to_ascii_lowercase();
         match extension.as_str() {
-            "tsx" | "jsx" => Self::Tsx,
+            "tsx" | "jsx" | "js" | "cjs" | "mjs" => Self::Tsx,
             "json" => Self::Json,
             _ => Self::TypeScript,
         }
