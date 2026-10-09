@@ -1,0 +1,74 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index 2e5c47b..50bdf3f 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -5438,6 +5438,18 @@ impl Checker<'_, '_> {
+                         self.publish_array_argument(is_new, id, &mut published);
+                         self.evict_subtree(id);
+                     }
++                    // An object literal's member literals keep or widen by the
++                    // candidate's contextual type
++                    // (`checkExpressionWithContextualType`, uncached upstream,
++                    // then `checkExpressionForMutableLocation`'s
++                    // `isLiteralOfContextualType`), so the context-free
++                    // answer the walk checked first must not stand in for
++                    // this candidate's inference.
++                    if matches!(argument, Expression::ObjectLiteralExpression(_))
++                        && let Some(id) = argument.node_id()
++                    {
++                        self.evict_subtree(id);
++                    }
+                 }
+                 let mut instantiated = None;
+                 let _ = self.check_generic_call_with(
+diff --git a/crates/tsr-conformance/tests/r6_typesroots3_overload_object_literal_context.rs b/crates/tsr-conformance/tests/r6_typesroots3_overload_object_literal_context.rs
+new file mode 100644
+index 0000000..fff7d56
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_typesroots3_overload_object_literal_context.rs
+@@ -0,0 +1,45 @@
++//! A generic overload candidate infers from an object-literal argument
++//! checked under ITS parameter's context (`chooseOverload` →
++//! `inferTypeArguments` → `checkExpressionWithContextualType`, uncached), so a
++//! member literal under a type parameter with a primitive constraint keeps its
++//! literal (`isLiteralOfContextualType`). `docs/parity/notes/r6-typesroots3.md`
++//! §3. Expectations from the pinned `tsgo` (5b1047d).
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Every assertion line the corpus pipeline produces for `source`.
++fn lines(name: &str, source: &str) -> Vec<String> {
++    let case = TestCase::parse(name, "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect()
++}
++
++fn assert_lines(name: &str, source: &str, wanted: &[&str]) {
++    let lines = lines(name, source);
++    for wanted in wanted {
++        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
++    }
++}
++
++#[test]
++fn a_generic_overload_rechecks_an_object_literal_under_its_context() {
++    let source = r#"// @strict: true
++// @target: es2020
++export const o = Object.freeze({ a: 1, b: "string", c: true });
++declare function f2(x: number): 1;
++declare function f2<T extends { [idx: string]: U }, U extends string | number>(o: T): T;
++export const o2 = f2({ a: 1, b: "s" });
++"#;
++    assert_lines(
++        "probe/overload-object-literal-context",
++        source,
++        &[r#"o : Readonly<{ a: 1; b: "string"; c: true; }>"#, r#"o2 : { a: 1; b: "s"; }"#],
++    );
++}

@@ -181,6 +181,67 @@ Remaining in the case, with causes:
   (3 lines): a call through `((o) => R) | undefined` (TS2722 natively, the
   call still resolves). `calls.rs`, main.
 
-## 3. objectFreeze* literal retention
+## 3. objectFreeze* literal retention: three producers, one ported
 
-(In progress.)
+40 failing lines on `f334de9` across objectFreeze (15), objectFreezeLiteralsDontWiden
+(14) and objectFromEntries (11). Classified against the pinned `tsgo`:
+
+### 3.1 A generic overload infers from a context-free object literal (`…-overload-object-literal-context.diff`)
+
+**Forcing constraint.** `Object.freeze` has three overloads; the object goes
+to the second, `<T extends { [idx: string]: U | null | undefined | object },
+U extends string | bigint | number | boolean | symbol>(o: T): Readonly<T>`.
+`chooseOverload` (`checker.go:9025`) runs `inferTypeArguments` per
+candidate, and that checks each argument with
+`checkExpressionWithContextualType(arg, paramType, context, checkMode)`,
+which is not cached. Under the second candidate each member's contextual type
+is the index signature's `U | null | undefined | object`, and
+`checkExpressionForMutableLocation`'s `isLiteralOfContextualType`
+(`checker.go:25522`) keeps the literal through `U`'s primitive constraint.
+
+TSR's `transcribed_generic_set_walk` checked every non-context-sensitive
+argument once, context-free, before the walk (`argument_types`), and a
+generic candidate's `check_generic_call_with` then read that cached node
+type. The single-declaration form of the same signature was already right
+(`o : Readonly<{ a: 1; …}>`), which isolated the cause: the cache, not the
+literal test. The walk already evicted an EMPTY array-literal argument for
+the same reason (its tuple-ness depends on the candidate).
+
+**Port.** A generic candidate evicts an object-literal argument's subtree
+before its inference, so the candidate's context decides. The candidate that
+is picked returns at once, so the published type is its check, as native's
+printed type is the check under the resolved signature.
+
+**Measured** (alone on `f334de9`): types **+29 WRONG→RIGHT**, diagnostics
+**+1** (objectFreezeLiteralsDontWiden WRONG→RIGHT), zero losses on both dumps,
+slowcases clean, Ir ×1.00011 / ×0.99991. objectFreezeLiteralsDontWiden 14
+(fully RIGHT), objectFreeze 9, generatorReturnContextualType 6. `calls.rs` is
+main's, so a diff.
+
+**Refused, with the number.** Evicting every array-literal argument the same
+way (`objectFromEntries`'s `[['a', 5], ['b', 6]]` needs the tuple context):
+**+38 / −16 types, −1 diagnostics** (tupleTypeInference 3 and its
+EMPTY_RIGHT diagnostics, strictBindCallApply1 10, variadicTuples1 3). That
+is the hazard the existing empty-literal comment names: re-checking elements
+under a rejected candidate's context re-enters their own calls' resolution,
+whose published answers the walk does not undo. objectFromEntries' 11 lines
+wait on that (speculative call resolution that can be rolled back; main's
+`calls.rs`).
+
+### 3.2 What remains: the function's own contextual signature (6 lines)
+
+`Object.freeze(function foo(a: number, b: string) { return false; })` prints
+`(a: number, b: string) => false` natively. `getReturnTypeFromBody`
+(`checker.go:20203-20212`) keeps the unit return when
+`getContextualSignatureForFunctionLikeDeclaration(fn) ==
+getSignatureFromDeclaration(fn)`: the return type is resolved lazily, after
+the call has fixed `T` to the function's own type, so the contextual
+signature IS the function's. Probed: `declare function id<T extends
+Function>(f: T): T; id((a: number) => false)` is `(a: number) => false`
+natively and `(a: number) => boolean` here, with no overload involved. This
+port infers the return type eagerly, inside the argument's inference check,
+when `T` is still unfixed and its constraint `Function` has no call
+signature. Emulating the identity ("the parameter is a naked type parameter
+inferred from this very argument") would re-derive native's decision outside
+its algorithm (`box-protocol.md` §3a), so it is not attempted. Owner: lazy
+signature returns (main; the same wall as r5-instexpr §2.5).
