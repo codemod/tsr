@@ -40,7 +40,6 @@ use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::checker::Checker;
 
-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
 impl<'a> Checker<'a, '_> {
     /// `checkTypeReferenceOrImport`'s constraint arm for one import type:
     /// the resolved class, interface or alias and the written arguments
