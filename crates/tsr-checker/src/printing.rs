@@ -999,6 +999,122 @@ impl<'a> Checker<'a, '_> {
     }
 }
 
+impl<'a> Checker<'a, '_> {
+    /// A deferred conditional type printed from its typed parts, at print
+    /// time (`docs/parity/notes/r6-lazytext.md` §2): conditionalTypeToTypeNode
+    /// (`nodebuilderimpl.go:2916`) asks getTrueTypeFromConditionalType and
+    /// getFalseTypeFromConditionalType when it prints, and those instantiate
+    /// the written branches under the conditional's mapper then. `node`,
+    /// `bindings` and `mapped_template` are the root and mapper the mint
+    /// captured (the alias-evaluation frames, flattened); they are installed
+    /// for the read and the print site's own frames are set aside, so the
+    /// parts are read exactly as at the mint. `None` keeps the baked written
+    /// text: a part that does not evaluate, re-entry into `id`, or the
+    /// instantiation depth limit.
+    // Its callers are the deferred-text dispatch of the site renderer
+    // (checker.rs) and the captured-root lookup (declared.rs), which ship as
+    // `r6-lazytext-conditional-text.diff`.
+    #[allow(dead_code)]
+    pub(crate) fn deferred_conditional_text(
+        &mut self,
+        id: TypeId,
+        node: &'a tsr_ast::ConditionalTypeNode<'a>,
+        bindings: rustc_hash::FxHashMap<tsr_binder::SymbolId, TypeId>,
+        mapped_template: bool,
+    ) -> Option<String> {
+        if self.instantiation_depth == 100 || !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let frames = std::mem::take(&mut self.alias_evaluation_bindings);
+        let mapped_template_depth =
+            std::mem::replace(&mut self.mapped_template_depth, usize::from(mapped_template));
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(bindings);
+        let text = self.conditional_type_text(node);
+        self.instantiation_depth -= 1;
+        self.alias_evaluation_bindings = frames;
+        self.mapped_template_depth = mapped_template_depth;
+        self.rendering_composites.remove(&id);
+        text
+    }
+
+    /// conditionalTypeToTypeNode (`nodebuilderimpl.go:2916`) and
+    /// emitConditionalType (`printer.go:2058`): a deferred conditional printed
+    /// from its typed parts under the current alias-evaluation frames. The
+    /// check type is emitted at `TypePrecedenceUnion` and the extends type at
+    /// `TypePrecedenceFunction` (`printer.go:2060`, `:2275`); both branches at
+    /// the lowest precedence. The parentheses follow the part's node kind as
+    /// `GetTypeNodePrecedence` (`ast/precedence.go:655`) reads it, recovered
+    /// from the type as the union printer does
+    /// (`crate::unions::union_constituent_needs_parentheses`): a conditional
+    /// or function check type, and a conditional extends type, are
+    /// parenthesised.
+    ///
+    /// An extends clause holding an `infer` declaration keeps its written
+    /// text: native prints those type parameters as `infer P` through
+    /// `ctx.inferTypeParameters`, a print context `type_to_string` does not
+    /// have (`r5-mapped6.md` §2). `None` when a part does not evaluate.
+    fn conditional_type_text(
+        &mut self,
+        node: &'a tsr_ast::ConditionalTypeNode<'a>,
+    ) -> Option<String> {
+        let (check, extends) = (node.check_type?, node.extends_type?);
+        let (true_type, false_type) = (node.true_type?, node.false_type?);
+        let error = self.intrinsics.error;
+        let check = self.get_type_from_type_node(check);
+        if check == error {
+            return None;
+        }
+        let check_text = self.type_to_string(check);
+        let check_text = if !matches!(self.store.get(check).data, TypeData::Intersection { .. })
+            && crate::unions::union_constituent_needs_parentheses(&self.store, check)
+        {
+            format!("({check_text})")
+        } else {
+            check_text
+        };
+        let extends_text = if self.type_node_declares_infer(extends) {
+            let (mut single_quoted, mut array_headed) = (false, false);
+            Self::written_type_text(extends, &mut single_quoted, &mut array_headed)?
+        } else {
+            let extends = self.get_type_from_type_node(extends);
+            if extends == error {
+                return None;
+            }
+            let text = self.type_to_string(extends);
+            if self.store.get(extends).flags.contains(TypeFlags::CONDITIONAL)
+                && crate::unions::union_constituent_needs_parentheses(&self.store, extends)
+            {
+                format!("({text})")
+            } else {
+                text
+            }
+        };
+        let true_type = self.get_type_from_type_node(true_type);
+        let true_text = (true_type != error).then(|| self.type_to_string(true_type))?;
+        let false_type = self.get_type_from_type_node(false_type);
+        let false_text = (false_type != error).then(|| self.type_to_string(false_type))?;
+        Some(format!("{check_text} extends {extends_text} ? {true_text} : {false_text}"))
+    }
+
+    /// Whether `node` contains an `infer` declaration anywhere, a nested
+    /// conditional's included (whose written text is then kept too).
+    fn type_node_declares_infer(&self, node: tsr_ast::TypeNode<'a>) -> bool {
+        let mut stack = Vec::new();
+        if let Some(id) = tsr_ast::Node::from(node).node_id() {
+            stack.push(id);
+        }
+        while let Some(id) = stack.pop() {
+            let Some(node) = self.node_map.get(id) else { continue };
+            if matches!(node, tsr_ast::Node::InferTypeNode(_)) {
+                return true;
+            }
+            tsr_ast::for_each_child_id(node, |child| stack.push(child));
+        }
+        false
+    }
+}
+
 /// Render a type.
 ///
 /// Ported from `Checker.typeToString`.
