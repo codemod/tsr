@@ -77,6 +77,10 @@
 //! `serializeTypeForDeclaration`). The pseudochecker's Direct answers live in
 //! `crate::pseudochecker`. `docs/parity/notes/r5-nodereuse.md` has the rule
 //! table and the measured printer call sites.
+//! A STRUCTURAL pseudo type (object literal, single call signature, `const`
+//! tuple) is asked by the return and property slots after the Direct answer,
+//! with a print site only ([`Checker::structural_pseudo_text`];
+//! `docs/parity/notes/r5-nodereuse2.md`).
 //!
 //! # The printer half
 //!
@@ -619,7 +623,9 @@ impl<'a> Checker<'a, '_> {
             // carriage on any other annotation is a refusal already made
             // (an alias-mapped node, an instantiation that moved the type) and
             // is not re-derived.
-            let node = self.pseudo_direct_return_node(signature.declaration)?;
+            let Some(node) = self.pseudo_direct_return_node(signature.declaration) else {
+                return self.structural_return_text(signature, reference?);
+            };
             match self.function_like_return_annotation(signature.declaration) {
                 Some(TypeNode::TypePredicateNode(_)) => {}
                 Some(_) => return None,
@@ -686,6 +692,9 @@ impl<'a> Checker<'a, '_> {
     /// `ObjectFlagsRequiresWidening` gate cannot fail for a Direct node: the
     /// type must be the node's own, and no type node denotes a widening
     /// literal type.
+    ///
+    /// An accessor declaration asks `GetTypeOfAccessor` instead
+    /// ([`Checker::reused_accessor_type_text`]).
     pub fn reused_property_type_text(
         &mut self,
         symbol: tsr_binder::SymbolId,
@@ -695,7 +704,10 @@ impl<'a> Checker<'a, '_> {
         let record = self.binder.symbols().get(symbol);
         let declaration =
             record.value_declaration.or_else(|| record.declarations.first().copied())?;
-        let node = self.pseudo_direct_declaration_node(declaration)?;
+        if matches!(self.nodes.kind(declaration), SyntaxKind::GetAccessor | SyntaxKind::SetAccessor)
+        {
+            return self.reused_accessor_type_text(declaration, property_type, reference);
+        }
         let optional_annotated = match self.node_map.get(declaration)? {
             Node::PropertySignatureDeclaration(node) => {
                 node.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken)
@@ -705,6 +717,14 @@ impl<'a> Checker<'a, '_> {
             }
             Node::ParameterDeclaration(node) => node.question_token.is_some(),
             _ => false,
+        };
+        let Some(node) = self.pseudo_direct_declaration_node(declaration) else {
+            return self.structural_property_text(
+                declaration,
+                property_type,
+                optional_annotated,
+                reference?,
+            );
         };
         // The symbol's own type IS `getTypeFromTypeNode` of its declaration's
         // annotation (with `undefined` added for an optional one, which the
@@ -738,6 +758,624 @@ impl<'a> Checker<'a, '_> {
             Some(reference) => self.written_annotation_text_at(written, property_type, reference),
             None => self.site_free_annotation_text(written, property_type),
         }
+    }
+
+    /// `serializeTypeForDeclaration`'s accessor arm (`nodebuilderimpl.go:2233`):
+    /// an accessor declaration is admitted without the
+    /// `ObjectFlagsRequiresWidening` gate, its pseudo type is
+    /// `GetTypeOfAccessor` (`typeFromAccessor`, `lookup.go:146`: the
+    /// accessor's own annotation, else the pair's first, else its second,
+    /// else the getter's return), and `isOptionalAnnotated` is false, as it
+    /// is asked only of parameters and property declarations and signatures.
+    ///
+    /// `get foo(): typeof c1.foo`, whose property type circularity made
+    /// `any`, reuses the written query: `getTypeFromTypeNode` of the node is
+    /// that same `any`. The type's own print is `any`
+    /// (`circularAccessorAnnotations`).
+    fn reused_accessor_type_text(
+        &mut self,
+        declaration: NodeId,
+        property_type: TypeId,
+        reference: Option<NodeId>,
+    ) -> Option<String> {
+        let pseudo = self.pseudo_type_of_accessor(declaration);
+        let crate::pseudochecker::PseudoType::Direct(node) = pseudo else {
+            // A keyword or literal leaf prints as the type does
+            // (`docs/parity/notes/r5-nodereuse.md` §3); only a structural
+            // getter return can differ.
+            if !pseudo.is_structural() {
+                return None;
+            }
+            return self.structural_pseudo_text(
+                &pseudo,
+                property_type,
+                false,
+                reference?,
+                declaration,
+            );
+        };
+        let from_node = self.get_type_from_type_node(node);
+        if !self.pseudo_type_equivalent(from_node, property_type, false) {
+            return None;
+        }
+        let written = self.reuse_annotation(node, property_type)?;
+        match reference {
+            Some(reference) => self.written_annotation_text_at(written, property_type, reference),
+            None => self.site_free_annotation_text(written, property_type),
+        }
+    }
+
+    /// `serializeReturnTypeForSignature`'s reuse arm for an unannotated
+    /// signature whose pseudo return is structural (`() => () => null! as
+    /// typeof v` returns a single call signature). A predicate on the
+    /// signature needs `pseudoReturnTypeMatchesPredicate`, which only a
+    /// Direct node satisfies, so it refuses.
+    fn structural_return_text(
+        &mut self,
+        signature: &crate::signatures::Signature,
+        reference: NodeId,
+    ) -> Option<String> {
+        if signature.predicate.is_some() {
+            return None;
+        }
+        let pseudo = self.pseudo_return_type(signature.declaration);
+        if !pseudo.is_structural() {
+            return None;
+        }
+        let current = self.get_return_type_of_signature(signature).unwrap_or(signature.r#type);
+        self.structural_pseudo_text(&pseudo, current, false, reference, signature.declaration)
+    }
+
+    /// `serializeTypeForDeclaration`'s reuse arm for a property whose
+    /// declaration's pseudo type is structural (an object-literal or
+    /// function initializer). Native admits the declaration only when the
+    /// type does not `ObjectFlagsRequiresWidening` (`nodebuilderimpl.go:2232`):
+    /// a fresh object literal's property keeps its serialized type, the
+    /// widened declaration's reuses the syntax.
+    fn structural_property_text(
+        &mut self,
+        declaration: NodeId,
+        property_type: TypeId,
+        optional_annotated: bool,
+        reference: NodeId,
+    ) -> Option<String> {
+        if self.requires_widening(property_type) {
+            return None;
+        }
+        let pseudo = self.pseudo_type_of_declaration(declaration);
+        if !pseudo.is_structural() {
+            return None;
+        }
+        self.structural_pseudo_text(
+            &pseudo,
+            property_type,
+            optional_annotated,
+            reference,
+            declaration,
+        )
+    }
+
+    /// `ObjectFlagsRequiresWidening` (`ContainsWideningType |
+    /// ContainsObjectOrArrayLiteral`), read from this port's identities: an
+    /// object literal that widening has not replaced
+    /// ([`Checker::is_object_literal_type`]), an array literal image, a
+    /// widening nullable, or a union or intersection holding one (the flags
+    /// propagate to the composite).
+    fn requires_widening(&self, r#type: TypeId) -> bool {
+        match &self.store.get(r#type).data {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => {
+                types.iter().any(|&member| self.requires_widening(member))
+            }
+            _ => {
+                self.is_object_literal_type(r#type)
+                    || self.array_literal_bases.contains_key(&r#type)
+                    || self.intrinsics.is_widening_nullable(r#type)
+            }
+        }
+    }
+
+    /// The STRUCTURAL arm of `serializeTypeForDeclaration` and
+    /// `serializeReturnTypeForSignature`: `pseudoTypeEquivalentToType`
+    /// (`pseudotypenodebuilder.go:362`) of a structural pseudo type (an
+    /// object literal, a single call signature, a `const` tuple) against
+    /// `r#type`, then `pseudoTypeToNode` (`:48`) printed at `site`. `owner` is
+    /// the node whose syntax the pseudo type was read from (the printed
+    /// signature's declaration, or the property's initializer): every
+    /// signature scope the walk enters lies below it
+    /// ([`ReuseContext::pseudo_owner`]).
+    ///
+    /// Native asks this only with a print site (`b.ctx.enclosingDeclaration
+    /// != nil`), so it is asked only by site-aware printers: no type's text
+    /// baked at creation walks a body here (`docs/parity/notes/r5-nodereuse2.md`
+    /// §3). `None` when the equivalence fails or the visitor refuses a node;
+    /// the slot is then serialized from its type.
+    pub(crate) fn structural_pseudo_text(
+        &mut self,
+        pseudo: &crate::pseudochecker::PseudoType<'a>,
+        r#type: TypeId,
+        optional_annotated: bool,
+        site: NodeId,
+        owner: NodeId,
+    ) -> Option<String> {
+        let mut cx = ReuseContext::new(Some(site), owner);
+        cx.pseudo_owner = Some(owner);
+        let text = self.pseudo_node_text(pseudo, r#type, optional_annotated, &mut cx)?;
+        (!cx.unnameable && !cx.mapped).then_some(text)
+    }
+
+    /// `pseudoTypeToType` (`pseudotypenodebuilder.go:689`) for the kinds
+    /// whose type this port can read without checking an expression.
+    ///
+    /// `Inferred` is `getWidenedType(getRegularTypeOfExpression(node))`, read
+    /// from the expression cache as the literal leaf is: an expression the
+    /// check never typed answers none rather than being checked at print
+    /// time. `getWidenedType` is the identity unless the type
+    /// `ObjectFlagsRequiresWidening` ([`Checker::requires_widening`]). A
+    /// widening nullable widens to `any`. Any other such type answers its
+    /// image in `getWidenedType`'s root cache, and none when the check never
+    /// widened it, because widening it here would mint a type whose id
+    /// reorders later unions. A signature return is the return type of the
+    /// declaration's signature. `NoResult` answers none, as native's does.
+    /// (`docs/parity/notes/r6-nodereuse.md` §3.)
+    fn pseudo_type_to_type(
+        &mut self,
+        pseudo: &crate::pseudochecker::PseudoType<'a>,
+    ) -> Option<TypeId> {
+        use crate::pseudochecker::PseudoType as P;
+        Some(match pseudo {
+            P::Direct(node) => self.get_type_from_type_node(*node),
+            P::Undefined => self.intrinsics.undefined_widening,
+            P::Null => self.intrinsics.null_widening,
+            P::String => self.intrinsics.string,
+            P::Number => self.intrinsics.number,
+            P::BigInt => self.intrinsics.bigint,
+            P::Boolean => self.intrinsics.boolean,
+            P::True => self.intrinsics.true_type,
+            P::False => self.intrinsics.false_type,
+            // `getRegularTypeOfExpression(source)`, from the expression cache
+            // only: a literal whose type was never computed is not minted at
+            // print time, where a new literal id would reorder later unions.
+            P::Literal(expression) => {
+                let id = Node::from(*expression).node_id()?;
+                let cached = *self.node_types.get(&id)?;
+                self.get_regular_type_of_literal_type(cached)
+            }
+            P::MaybeConst { node, constant, regular } => {
+                if self.is_const_context(*node) {
+                    return self.pseudo_type_to_type(constant);
+                }
+                return self.pseudo_type_to_type(regular);
+            }
+            P::Union(members) => {
+                let mut types = Vec::with_capacity(members.len());
+                let mut elided = false;
+                for member in members {
+                    if !self.strict_null_checks && matches!(member, P::Undefined | P::Null) {
+                        elided = true;
+                        continue;
+                    }
+                    types.push(self.pseudo_type_to_type(member)?);
+                }
+                match types.as_slice() {
+                    [] if elided => self.intrinsics.any,
+                    [] => self.intrinsics.never,
+                    [single] => *single,
+                    _ => self.get_union_type(&types),
+                }
+            }
+            P::Inferred(Some(source)) if source.signature_return => {
+                let signature = self.get_signature_from_declaration(source.node)?;
+                self.get_return_type_of_signature(&signature)?
+            }
+            P::Inferred(Some(source)) => {
+                let cached = *self.node_types.get(&source.node)?;
+                let regular = self.get_regular_type_of_literal_type(cached);
+                if !self.requires_widening(regular) {
+                    return Some(regular);
+                }
+                if self.intrinsics.is_widening_nullable(regular) {
+                    return Some(self.intrinsics.any);
+                }
+                // `getWidenedType`'s root cache: the image the check already
+                // made (a widened return or declaration type), else none.
+                [regular, cached]
+                    .into_iter()
+                    .find_map(|key| self.widened_object_types.get(&key).copied())?
+            }
+            P::Inferred(None)
+            | P::SingleCallSignature { .. }
+            | P::ObjectLiteral { .. }
+            | P::Tuple(_) => {
+                return None;
+            }
+        })
+    }
+
+    /// `pseudoTypeEquivalentToType` (`pseudotypenodebuilder.go:362`) and,
+    /// when it holds, `pseudoTypeToNode` (`:48`): one walk, because both
+    /// recurse over the same pseudo tree against the same checker types and
+    /// nothing is printed before the whole tree is found equivalent (a
+    /// `None` anywhere discards the partial text).
+    fn pseudo_node_text(
+        &mut self,
+        pseudo: &crate::pseudochecker::PseudoType<'a>,
+        r#type: TypeId,
+        optional_annotated: bool,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        use crate::pseudochecker::PseudoType as P;
+        let equivalent = self.is_error(r#type) || {
+            let from_pseudo = self.pseudo_type_to_type(pseudo);
+            let stripped = if optional_annotated {
+                self.get_type_with_facts(r#type, crate::flow::TypeFacts::NE_UNDEFINED)
+            } else {
+                r#type
+            };
+            match from_pseudo {
+                Some(from) => {
+                    from == r#type || self.pseudo_type_equivalent(from, r#type, optional_annotated)
+                }
+                None => match pseudo {
+                    P::ObjectLiteral { literal, elements } => {
+                        return self.pseudo_object_literal_text(*literal, elements, stripped, cx);
+                    }
+                    P::Tuple(elements) => {
+                        return self.pseudo_tuple_text(elements, stripped, cx);
+                    }
+                    P::SingleCallSignature { type_parameters, parameters, return_type } => {
+                        let signature = self.pseudo_single_call_signature(stripped)?;
+                        if signature.type_parameters.len() != type_parameters.len()
+                            || signature.predicate.is_some()
+                        {
+                            // A predicate needs `pseudoReturnTypeMatchesPredicate`,
+                            // which only a Direct return can satisfy.
+                            return None;
+                        }
+                        let parameters_text =
+                            self.pseudo_parameters_text(parameters, &signature, cx)?;
+                        let returned = self
+                            .get_return_type_of_signature(&signature)
+                            .unwrap_or(signature.r#type);
+                        let return_text =
+                            self.pseudo_node_text(return_type, returned, false, cx)?;
+                        let type_parameters_text =
+                            self.pseudo_type_parameters_text(type_parameters, cx)?;
+                        return Some(format!(
+                            "{type_parameters_text}{parameters_text} => {return_text}"
+                        ));
+                    }
+                    _ => false,
+                },
+            }
+        };
+        if !equivalent {
+            return None;
+        }
+        self.pseudo_equivalent_node_text(pseudo, r#type, cx)
+    }
+
+    /// `pseudoTypeToNode` (`pseudotypenodebuilder.go:48`) of a pseudo type
+    /// already found equivalent to `r#type` (a structural kind found
+    /// equivalent only through error charity is printed from the type).
+    fn pseudo_equivalent_node_text(
+        &mut self,
+        pseudo: &crate::pseudochecker::PseudoType<'a>,
+        r#type: TypeId,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        use crate::pseudochecker::PseudoType as P;
+        let nullable = |checker: &Self, keyword: &str| {
+            if checker.strict_null_checks { keyword.to_string() } else { "any".to_string() }
+        };
+        Some(match pseudo {
+            P::Direct(node) => {
+                let root = std::mem::replace(&mut cx.root, Node::from(*node).node_id()?);
+                let text = self.emit_reused_type(*node, Precedence::Conditional, false, cx);
+                cx.root = root;
+                text
+            }
+            // The Inferred arm serializes the declaration's own type
+            // (`serializeTypeForDeclaration` / `serializeReturnTypeForSignature`
+            // with no reuse), which is the slot's type here; so does a
+            // structural kind admitted by error charity.
+            P::Inferred(_)
+            | P::SingleCallSignature { .. }
+            | P::ObjectLiteral { .. }
+            | P::Tuple(_) => {
+                let site = cx.site?;
+                self.type_to_string_at(r#type, site)?
+            }
+            P::Undefined => nullable(self, "undefined"),
+            P::Null => nullable(self, "null"),
+            P::String => "string".to_string(),
+            P::Number => "number".to_string(),
+            P::BigInt => "bigint".to_string(),
+            P::Boolean => "boolean".to_string(),
+            P::True => "true".to_string(),
+            P::False => "false".to_string(),
+            P::Literal(expression) => Self::reused_literal_text(Node::from(*expression))?,
+            P::MaybeConst { node, constant, regular } => {
+                // `pseudotypenodebuilder.go:94`: a node the pseudochecker
+                // sees in a const context and the checker does not consults
+                // its contextual type, and is printed as the const form when
+                // that form is a literal of the (instantiated) contextual
+                // type. `ContextFlagsNone` is the instantiation without
+                // `ContextFlagsSignature`.
+                let mut in_const = self.is_const_context(*node);
+                if !in_const && self.pseudo_is_in_const_context(*node) {
+                    let contextual = self.get_contextual_type(*node);
+                    let candidate = self.pseudo_type_to_type(constant);
+                    if let (Some(contextual), Some(candidate)) = (contextual, candidate) {
+                        let instantiated =
+                            self.instantiate_contextual_type_without_signature(contextual, *node);
+                        in_const = self.is_literal_of_contextual_type(candidate, instantiated)
+                            == Some(true);
+                    }
+                }
+                let chosen = if in_const { constant } else { regular };
+                return self.pseudo_equivalent_node_text(chosen, r#type, cx);
+            }
+            P::Union(members) => {
+                let mut parts: Vec<String> = Vec::with_capacity(members.len());
+                let mut elided = false;
+                let mut has_undefined = false;
+                for member in members {
+                    if !self.strict_null_checks && matches!(member, P::Undefined | P::Null) {
+                        elided = true;
+                        continue;
+                    }
+                    let text = match member {
+                        P::Direct(TypeNode::UnionTypeNode(_)) => {
+                            self.pseudo_equivalent_node_text(member, r#type, cx)?
+                        }
+                        _ => self.pseudo_equivalent_node_text(member, r#type, cx)?,
+                    };
+                    if text == "undefined" {
+                        if has_undefined {
+                            continue;
+                        }
+                        has_undefined = true;
+                    }
+                    if text_precedence(&text) < Precedence::Intersection {
+                        parts.push(format!("({text})"));
+                    } else {
+                        parts.push(text);
+                    }
+                }
+                match parts.len() {
+                    0 if elided => "any".to_string(),
+                    0 => "never".to_string(),
+                    1 => parts.pop()?,
+                    _ => parts.join(" | "),
+                }
+            }
+        })
+    }
+
+    /// `getSingleCallSignature` (`checker.go:19341`): an object type with
+    /// exactly one call signature, no construct signature, and no
+    /// properties or index signatures.
+    fn pseudo_single_call_signature(
+        &mut self,
+        r#type: TypeId,
+    ) -> Option<crate::signatures::Signature> {
+        if !self.store.get(r#type).flags.contains(crate::flags::TypeFlags::OBJECT) {
+            return None;
+        }
+        if !self.get_property_names_of_type(r#type)?.is_empty()
+            || !self.get_index_infos_of_type(r#type).unwrap_or_default().is_empty()
+            || !self
+                .signatures_of_type_kind(r#type, crate::signatures::SignatureKind::Construct)?
+                .is_empty()
+        {
+            return None;
+        }
+        match <[_; 1]>::try_from(self.call_signatures_of_type(r#type)?) {
+            Ok([signature]) => Some(signature),
+            Err(_) => None,
+        }
+    }
+
+    /// `pseudoParametersEquivalentToParameters` (`pseudotypenodebuilder.go:585`)
+    /// and `pseudoParametersToNodeList` (`:327`): the printed list, or `None`
+    /// when a parameter is not equivalent.
+    fn pseudo_parameters_text(
+        &mut self,
+        parameters: &[crate::pseudochecker::PseudoParameter<'a>],
+        target: &crate::signatures::Signature,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        let mut pseudo = parameters;
+        let mut parts = Vec::with_capacity(parameters.len());
+        if let Some(this_parameter) = &target.this_parameter {
+            let (first, rest) = pseudo.split_first()?;
+            if !matches!(first.declaration.name,
+                Some(BindingName::Identifier(name)) if name.text == "this")
+            {
+                return None;
+            }
+            let this_type = self.parameter_type(this_parameter);
+            parts.push(self.pseudo_parameter_text(first, this_type, cx)?);
+            pseudo = rest;
+        }
+        if target.parameters.len() != pseudo.len() {
+            return None;
+        }
+        for (parameter, target_parameter) in pseudo.iter().zip(&target.parameters) {
+            if parameter.optional != target_parameter.optional {
+                return None;
+            }
+            let parameter_type = self.parameter_type(target_parameter);
+            parts.push(self.pseudo_parameter_text(parameter, parameter_type, cx)?);
+        }
+        Some(format!("({})", parts.join(", ")))
+    }
+
+    /// `pseudoParameterToNode` (`pseudotypenodebuilder.go:335`): the name
+    /// re-serialized from the declaration (`parameterToParameterDeclarationName`),
+    /// the type printed from the pseudo type once it is found equivalent.
+    fn pseudo_parameter_text(
+        &mut self,
+        parameter: &crate::pseudochecker::PseudoParameter<'a>,
+        parameter_type: TypeId,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        let type_text =
+            self.pseudo_node_text(&parameter.r#type, parameter_type, parameter.optional, cx)?;
+        let mut text = String::new();
+        if parameter.rest {
+            text.push_str("...");
+        }
+        match parameter.declaration.name? {
+            BindingName::Identifier(identifier) => text.push_str(identifier.text),
+            BindingName::BindingPattern(pattern) => {
+                text.push_str(&self.clone_binding_name_text(pattern)?);
+            }
+        }
+        if parameter.optional {
+            text.push('?');
+        }
+        text.push_str(": ");
+        text.push_str(&type_text);
+        Some(text)
+    }
+
+    /// The `PseudoTypeKindTuple` arms of `pseudoTypeEquivalentToType` and
+    /// `pseudoTypeToNode`: a tuple of required elements, printed
+    /// `readonly [..]`.
+    fn pseudo_tuple_text(
+        &mut self,
+        elements: &[crate::pseudochecker::PseudoType<'a>],
+        r#type: TypeId,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        let element_types = self.tuple_element_lists.get(&r#type)?.0.clone();
+        if self.tuple_optional_masks.get(&r#type).is_some_and(|mask| mask.iter().any(|&o| o))
+            || self.tuple_rest_tails.contains_key(&r#type)
+            || self.variadic_tuple_elements.contains_key(&r#type)
+            || element_types.len() != elements.len()
+        {
+            return None;
+        }
+        let mut parts = Vec::with_capacity(elements.len());
+        for (element, element_type) in elements.iter().zip(element_types) {
+            parts.push(self.pseudo_node_text(element, element_type, false, cx)?);
+        }
+        Some(format!("readonly [{}]", parts.join(", ")))
+    }
+
+    /// The `PseudoTypeKindObjectLiteral` arms of `pseudoTypeEquivalentToType`
+    /// (`pseudotypenodebuilder.go:422`) and `pseudoTypeToNode` (`:208`).
+    /// Each element must name a property of the type with the same
+    /// optionality; an annotated get/set pair is two elements for one
+    /// property, so the element count is matched against the properties'
+    /// declaration count. The pair prints as accessors
+    /// (`{ get foo(): string; set foo(value: string); }`).
+    fn pseudo_object_literal_text(
+        &mut self,
+        literal: NodeId,
+        elements: &[crate::pseudochecker::PseudoObjectElement<'a>],
+        r#type: TypeId,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        use crate::pseudochecker::PseudoObjectElementKind as K;
+        let names = self.get_property_names_of_type(r#type)?;
+        let mut declaration_count = 0;
+        for name in &names {
+            let property = self.get_property_of_type(r#type, name)?;
+            declaration_count += self.binder.symbols().get(property).declarations.len();
+        }
+        if elements.len() != declaration_count {
+            return None;
+        }
+        let is_const = self.is_const_context(literal);
+        let mut members = Vec::with_capacity(elements.len());
+        for element in elements {
+            let symbol = self.binder.symbol_of(element.declaration)?;
+            let name = self.binder.symbols().get(symbol).name;
+            let property = self.get_property_of_type(r#type, name)?;
+            let target_optional =
+                self.binder.symbols().get(property).flags.contains(SymbolFlags::OPTIONAL);
+            if element.optional != target_optional {
+                return None;
+            }
+            let mut property_type = self.get_type_of_property_of_type(r#type, name)?;
+            if target_optional {
+                property_type = self.remove_missing_type(property_type);
+            }
+            let readonly =
+                is_const || matches!(element.kind, K::PropertyAssignment { readonly: true, .. });
+            let prefix = if readonly { "readonly " } else { "" };
+            // `reuseName(e.Name)`: the name is its own `reuseNode`, so its
+            // own subtree is the visitor's root.
+            let root = std::mem::replace(&mut cx.root, Node::from(element.name).node_id()?);
+            let member_name = self.reused_name(
+                element.name,
+                matches!(element.kind, K::Method { .. }) && !is_const,
+                cx,
+            );
+            cx.root = root;
+            let member_name = member_name?;
+            let text = match &element.kind {
+                K::PropertyAssignment { r#type: pseudo, .. } => {
+                    let text =
+                        self.pseudo_node_text(pseudo, property_type, element.optional, cx)?;
+                    format!("{prefix}{member_name}: {text}")
+                }
+                K::Method { type_parameters, parameters, return_type } => {
+                    // No single call signature on the target: native skips
+                    // the method's validation (`continue`) and prints it from
+                    // syntax alone (`pseudotypenodebuilder.go:478`). There an
+                    // Inferred part serializes its declaration's own type
+                    // (`serializeTypeForDeclaration` of the parameter,
+                    // `serializeReturnTypeForSignature` of the method), so the
+                    // method declaration's own signature stands in for the
+                    // target. A Direct part is equivalent to it by
+                    // construction; a part that is not (an Inferred one whose
+                    // type requires widening) declines the literal instead of
+                    // printing what native prints.
+                    let signature = match self.pseudo_single_call_signature(property_type) {
+                        Some(signature) => signature,
+                        None => self.get_signature_from_declaration(element.declaration)?,
+                    };
+                    if signature.predicate.is_some() {
+                        return None;
+                    }
+                    let parameters_text =
+                        self.pseudo_parameters_text(parameters, &signature, cx)?;
+                    let returned =
+                        self.get_return_type_of_signature(&signature).unwrap_or(signature.r#type);
+                    let return_text = self.pseudo_node_text(return_type, returned, false, cx)?;
+                    let type_parameters_text =
+                        self.pseudo_type_parameters_text(type_parameters, cx)?;
+                    if is_const {
+                        format!(
+                            "{prefix}{member_name}: {type_parameters_text}{parameters_text} => {return_text}"
+                        )
+                    } else {
+                        format!(
+                            "{prefix}{member_name}{type_parameters_text}{parameters_text}: {return_text}"
+                        )
+                    }
+                }
+                K::GetAccessor(pseudo) => {
+                    let text = self.pseudo_node_text(pseudo, property_type, false, cx)?;
+                    format!("get {member_name}(): {text}")
+                }
+                K::SetAccessor(parameter) => {
+                    let write_type =
+                        self.write_type_of_property_of_type(r#type, name).unwrap_or(property_type);
+                    let text = self.pseudo_parameter_text(parameter, write_type, cx)?;
+                    format!("set {member_name}({text})")
+                }
+            };
+            members.push(text);
+        }
+        if members.is_empty() {
+            return Some("{}".to_string());
+        }
+        Some(format!("{{ {}; }}", members.join("; ")))
     }
 
     /// `pseudoTypeEquivalentToType`'s type arms (`pseudotypenodebuilder.go:362`)
@@ -980,8 +1618,13 @@ impl<'a> Checker<'a, '_> {
         let Some(site) = cx.site else {
             // With no print site the annotation's own file answers: a name
             // only resolvable inside a narrower scope marks the text
-            // scope-local.
-            if !self.is_global_name(symbol, text, meaning) {
+            // scope-local. A symbol declared in that file's own top-level
+            // scope is what the name resolves to from there (the lookup
+            // starts with the file's locals), so the two walks below are
+            // not needed for it (`docs/parity/notes/r6-nodereuse.md` §2).
+            if !self.declared_at_top_level_of_file_of(symbol, id)
+                && !self.is_global_name(symbol, text, meaning)
+            {
                 cx.scope_local |= !self.resolves_from_file_top_level(id, symbol, text, meaning);
             }
             return true;
@@ -1334,7 +1977,16 @@ impl<'a> Checker<'a, '_> {
         let Some(parameter) = self.parameter_of_binding(declaration) else { return false };
         let Some(owner) = self.nodes.parent(parameter) else { return false };
         match cx.pseudo_owner {
-            Some(printed) => owner == printed,
+            // The printed signature's scope, and each signature scope a
+            // structural pseudo type entered on the way down to this node
+            // (`pseudoTypeToNode`'s `enterNewScope`, `pseudotypenodebuilder.go:200`).
+            // Every function-like between the printed declaration and a
+            // pseudo node is such a scope: the pseudochecker reaches a node
+            // below a function only through `typeFromFunctionLikeExpression`
+            // or an object literal's method or accessor.
+            Some(printed) => {
+                self.is_ancestor_or_self(printed, owner) && self.is_ancestor_or_self(owner, cx.root)
+            }
             None => self.is_ancestor_or_self(owner, cx.root),
         }
     }
@@ -1381,6 +2033,19 @@ impl<'a> Checker<'a, '_> {
                 None => return false,
             }
         }
+    }
+
+    /// Whether a declaration of `symbol` lies directly in the top-level
+    /// scope of the file holding `id` (its [`Checker::declaration_container`]
+    /// is that file): an import, or a top-level declaration.
+    fn declared_at_top_level_of_file_of(&self, symbol: tsr_binder::SymbolId, id: NodeId) -> bool {
+        let Some(file) = self.source_file_of(id) else { return false };
+        self.binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .any(|&declaration| self.declaration_container(declaration) == Some(file))
     }
 
     /// Whether `text` names `symbol` from the top level of the file holding
@@ -1610,9 +2275,10 @@ impl<'a> Checker<'a, '_> {
                 text
             }
             TypeNode::ArrayTypeNode(array) => {
-                let element =
+                let mut element =
                     self.emit_reused_type(array.element_type?, Precedence::Postfix, in_extends, cx);
-                format!("{element}[]")
+                element.push_str("[]");
+                element
             }
             TypeNode::IndexedAccessTypeNode(access) => {
                 let object =
@@ -1947,22 +2613,92 @@ impl<'a> Checker<'a, '_> {
         cx.declares_type_parameters = true;
         let mut parts = Vec::with_capacity(parameters.len());
         for parameter in parameters {
-            let mut text = modifiers_prefix(parameter.modifiers)?;
-            text.push_str(parameter.name?.text);
-            if let Some(constraint) = parameter.constraint {
-                text.push_str(" extends ");
-                text.push_str(&self.emit_reused_type(
-                    constraint,
-                    Precedence::Conditional,
-                    false,
-                    cx,
-                ));
+            parts.push(self.reused_type_parameter(parameter, cx)?);
+        }
+        Some(format!("<{}>", parts.join(", ")))
+    }
+
+    /// One `TypeParameterDeclaration` through the visitor (`nodecopy.go:560`):
+    /// its name, then its constraint and default, each a type node with the
+    /// visitor's per-node recovery.
+    fn reused_type_parameter(
+        &mut self,
+        parameter: &TypeParameterDeclaration<'a>,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        let mut text = modifiers_prefix(parameter.modifiers)?;
+        text.push_str(parameter.name?.text);
+        if let Some(constraint) = parameter.constraint {
+            text.push_str(" extends ");
+            text.push_str(&self.emit_reused_type(constraint, Precedence::Conditional, false, cx));
+        }
+        if let Some(default) = parameter.default_type {
+            text.push_str(" = ");
+            text.push_str(&self.emit_reused_type(default, Precedence::Conditional, false, cx));
+        }
+        Some(text)
+    }
+
+    /// The type parameter list of a signature a structural pseudo type
+    /// enters (`pseudoTypeToNode`'s single call signature and object-literal
+    /// method arms, `pseudotypenodebuilder.go:183`, `:244`): each parameter
+    /// is its own `reuseNode(tp)`, so the visitor's root is that declaration
+    /// and not the printed one. A name declared in the printed function's
+    /// body (`type Outer = T`) is then tracked at the site like any other.
+    ///
+    /// `enterNewScope` names each entered type parameter through
+    /// `typeParameterToName`, which renames one whose written name is already
+    /// taken: by an enclosing render's parameter
+    /// ([`Checker::render_type_parameter_scope`]), by a name this render
+    /// allocated to another type (or a different name this render allocated
+    /// to this parameter), or by a different type parameter the name
+    /// resolves to at the site. The visitor emits declarations as written and does not model
+    /// that allocation inside a reused node (the refusal
+    /// [`Checker::renamed_annotation_in_scope`] documents), so such a list
+    /// declines and the slot is serialized from its type, which renames.
+    fn pseudo_type_parameters_text(
+        &mut self,
+        parameters: &[&TypeParameterDeclaration<'a>],
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        if parameters.is_empty() {
+            return Some(String::new());
+        }
+        for parameter in parameters {
+            let name = parameter.name?.text;
+            let symbol = self.binder.symbol_of(parameter.node_id?)?;
+            let shadowed = self
+                .render_type_parameter_scope
+                .iter()
+                .any(|(taken, owner)| taken == name && *owner != symbol)
+                || self.render_type_parameter_names.allocations.iter().any(|(owner, taken)| {
+                    let own = self.declared_types.get(&symbol) == Some(owner);
+                    (taken == name) != own
+                })
+                || cx.site.is_some_and(|site| {
+                    self.binder
+                        .resolve_name(self.nodes, self.node_map, site, name, SymbolFlags::TYPE)
+                        .is_some_and(|found| {
+                            found != symbol
+                                && self
+                                    .binder
+                                    .symbols()
+                                    .get(found)
+                                    .flags
+                                    .contains(SymbolFlags::TYPE_PARAMETER)
+                        })
+                });
+            if shadowed {
+                return None;
             }
-            if let Some(default) = parameter.default_type {
-                text.push_str(" = ");
-                text.push_str(&self.emit_reused_type(default, Precedence::Conditional, false, cx));
-            }
-            parts.push(text);
+        }
+        cx.declares_type_parameters = true;
+        let mut parts = Vec::with_capacity(parameters.len());
+        for parameter in parameters {
+            let root = std::mem::replace(&mut cx.root, parameter.node_id?);
+            let text = self.reused_type_parameter(parameter, cx);
+            cx.root = root;
+            parts.push(text?);
         }
         Some(format!("<{}>", parts.join(", ")))
     }
@@ -2061,6 +2797,46 @@ impl<'a> Checker<'a, '_> {
         Self::reused_property_name(name)
     }
 
+    /// `reuseName` (`nodecopy.go:24`): the written member name, re-classified
+    /// by `classifyPropertyName` (`nodebuilderimpl.go:2384`). A name whose
+    /// text is an identifier prints bare (`"cli"` and `["cli"]` print `cli`),
+    /// one that is not prints as a double-quoted string unless it was
+    /// already a string literal, and a numeric name keeps its node.
+    fn reused_name(
+        &mut self,
+        name: PropertyName<'a>,
+        is_method: bool,
+        cx: &mut ReuseContext,
+    ) -> Option<String> {
+        let reused = self.reused_member_name(name, cx)?;
+        // `TryGetTextOfPropertyName`.
+        let (text, is_identifier, is_string) = match name {
+            PropertyName::Identifier(identifier) => (identifier.text, true, false),
+            PropertyName::StringLiteral(string) => (string.text, false, true),
+            PropertyName::NumericLiteral(numeric) => (numeric.text, false, false),
+            PropertyName::ComputedPropertyName(computed) => match computed.expression {
+                Some(Expression::StringLiteral(string)) => (string.text, false, false),
+                Some(Expression::NumericLiteral(numeric)) => (numeric.text, false, false),
+                _ => return Some(reused),
+            },
+            _ => return Some(reused),
+        };
+        // `classifyPropertyName`.
+        let as_identifier =
+            !(is_method && text == "new") && crate::objects::is_identifier_text(text);
+        let as_numeric = !as_identifier
+            && !is_string
+            && crate::index_signatures::is_numeric_literal_name(text)
+            && text.parse::<f64>().is_ok_and(|value| value >= 0.0);
+        Some(if as_identifier && !is_identifier {
+            text.to_string()
+        } else if as_identifier || as_numeric || is_string {
+            reused
+        } else {
+            quoted_literal(text, false)
+        })
+    }
+
     /// A type literal's members, single-line (`Printer.emitTypeLiteral`
     /// with `LFSingleLineTypeLiteralMembers`).
     fn reused_type_members(
@@ -2071,11 +2847,13 @@ impl<'a> Checker<'a, '_> {
         if members.is_empty() {
             return Some("{}".to_string());
         }
-        let mut parts = Vec::with_capacity(members.len());
+        let mut text = String::from("{ ");
         for member in members {
-            parts.push(self.reused_type_member(*member, cx)?);
+            text.push_str(&self.reused_type_member(*member, cx)?);
+            text.push(' ');
         }
-        Some(format!("{{ {} }}", parts.join(" ")))
+        text.push('}');
+        Some(text)
     }
 
     fn reused_type_member(
@@ -2103,7 +2881,10 @@ impl<'a> Checker<'a, '_> {
                         _ => return None,
                     });
                 }
-                format!("{text}: {};", annotation(self, property.r#type, cx))
+                text.push_str(": ");
+                text.push_str(&annotation(self, property.r#type, cx));
+                text.push(';');
+                text
             }
             TypeElement::MethodSignatureDeclaration(method) => {
                 let mut text = modifiers_prefix(method.modifiers)?;
