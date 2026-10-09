@@ -19,7 +19,7 @@ use a native `tsgo` built from the pinned submodule
 | TS2652 (missing) | `defaultExportsCannotMerge01`–`04` (es2015) (4); `jsFileCompilationBindMultipleDefaultExports` (also a TS2528 column, not sole) | `checkExportsOnMergedDeclarations` (`checker.go:6909`), its `commonDeclarationSpacesForDefaultAndNonDefault` arm (`:6952`) | `merged_export_spaces.rs` computed the default-common set only to keep those declarations out of TS2395 and never reported TS2652. | **fixed, §2.1** |
 | TS2306 (extra) | `reactJsxReactResolvedNodeNext`, `…NodeNextEsm`, `sideEffectImports3` (auto/legacy, `noUncheckedSideEffectImports`) (4) | `resolveExternalModule`, `!isSideEffectImport(errorNode)` (`checker.go:15358`) | `check_untyped_module_import`'s not-a-module arm reported on `import "./script"`. | **fixed, §2.2** |
 | TS2686 (extra) | `jsxNamespaceImplicitImport…FromConfigPickedOverGlobalOne` ×2, `…FromPragmaPickedOverGlobalOne`, `reactTransitiveImportHasValidDeclaration`, `umdGlobalAugmentationNoCrash`, `umdNamespaceMergedWithGlobalAugmentationIsNotCircular` (6); `jsdocReferenceGlobalTypeInCommonJs` is a missing one (JSDoc, r5-jsdoc4) | `onSuccessfullyResolvedSymbol` (`checker.go:1840`) | Two shapes: `export = React` beside a non-instantiated `declare namespace React {}` (4), and a `declare global { const React }` that collides with the UMD name (2). §3.1. | §3.1 |
-| TS2688 (missing) | `tripleSlashTypesReferenceWithMissingExports` ×5 | `fileLoader` type-reference processing (`fileloader.go:512`) → `processingDiagnosticKindUnknownReference` (`processingDiagnostic.go:49`) | The loader has no processing diagnostics at all (`loader.rs` test `an_unknown_reference_lib_adds_nothing`), and the harness reads none. | loader + harness (integrator); §3.2 |
+| TS2688 (missing) | `tripleSlashTypesReferenceWithMissingExports` ×5 | `fileLoader` type-reference processing (`fileloader.go:512`) → `processingDiagnosticKindUnknownReference` (`processingDiagnostic.go:49`) | The unresolved-directive arm was never pushed into the loader's existing diagnostics channel. (First triaged as "no channel"; corrected in §3.2.) | **fixed, §3.2** |
 | TS2880 (missing) | `importAssertionsDeprecated`, `…Ignored`, `importTypeAssertionDeprecation`, `…Ignored` (4) | parser: `tryParseImportAttributes` (`parser.go:2497`), export declaration (`:2565`), import type (`:3039`) | The parser accepts `assert` silently in the import/export declaration forms; the import-type form already reports. | parser (main's); §3.3 |
 | TS2883 (missing) | `declarationEmitCommonJsModuleReferencedType`, `…ObjectAssignedDefaultExport`, `…ReexportedSymlinkReference3`, `declarationEmitUsingTypeAlias1` (4) | declaration emit, module specifier into a nested `node_modules` | Same cause as `tsr-2zk.999`. | r5-modules2 |
 | TS1238 (missing) | `constructableDecoratorOnClass01`, `decoratorCallGeneric`, `decoratorOnClass8`, `esDecorators-arguments` (4) | `checkDecorator` → `getResolvedSignature` → `resolveDecorator` (head `getDiagnosticHeadMessageForDecoratorResolution`) | No decorator call resolution exists in TSR; no TS1238/TS1240/TS1241 site at all. | `calls.rs` (main's); §3.4 |
@@ -121,10 +121,31 @@ entry with the source, which is binder work (main's).
 
 ### 3.2 TS2688
 
-The faithful port is a loader processing diagnostic for an unresolved
-`/// <reference types>`, plus harness plumbing that reports program
-diagnostics. Neither the loader's diagnostics channel nor the harness is
-owned here.
+The loader already had a diagnostics channel (`LoaderDiagnostic`, §240),
+and the harness already reads it through `include_processor_diagnostics`.
+The triage row above was wrong to say neither existed. What was missing was
+only the arm itself. `fileLoader`'s type-reference processing
+(`fileloader.go:512`) appends `processingDiagnosticKindUnknownReference` for
+an unresolved `/// <reference types>`. `toDiagnostic`
+(`processingDiagnostic.go:49`) renders it as
+`Cannot_find_type_definition_file_for_0` at the reference, with the name as
+written.
+
+**Fixed (commit 7).** `resolve_type_reference_directives` pushes that
+diagnostic in the else arm of its resolved test. The `pkg` resolution
+already failed correctly: `exports: "some-other-thing.js"` hides `types`
+under both bundler and node16+. Measured against commit 5 (the reporter
+diff not applied): +5 cases (`tripleSlashTypesReferenceWithMissingExports`
+×5), zero losses on both dumps, types identical, slowcases clean, Ir
++0.002% domain-model / +0.008% generic-imports. Loader unit test
+`an_unresolved_type_reference_directive_is_ts2688`.
+
+Not ported: the automatic-type-directive form (`fileloader.go:277`,
+`processingDiagnosticKindExplainingFileInclude`). It is a global diagnostic
+for an unresolvable `types` entry, and no target case needs it.
+
+`loader.rs` itself is not in another box's ownership. r5-modules2 owns its
+*file flags*, and this arm touches none.
 
 ### 3.3 TS2880 (measured diff for the parser)
 

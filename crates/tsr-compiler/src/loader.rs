@@ -1343,6 +1343,18 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                         },
                     },
                 );
+            } else {
+                // `processingDiagnosticKindUnknownReference` for a
+                // `fileIncludeKindTypeReferenceDirective` (`fileloader.go:512`),
+                // rendered by `processingDiagnostic.toDiagnostic`
+                // (`processingDiagnostic.go:49`) at the reference with its
+                // written name. `docs/parity/notes/r5-smallcodes.md` §3.2.
+                self.loader_diagnostics.push(LoaderDiagnostic {
+                    file_name: file_name.clone(),
+                    span: directive.span,
+                    message: &tsr_diagnostics::messages::CANNOT_FIND_TYPE_DEFINITION_FILE_FOR_0,
+                    args: vec![directive.file_name.clone()],
+                });
             }
         }
     }
@@ -2125,6 +2137,8 @@ mod tests {
         diagnostic_count: usize,
         requests: Vec<ResolutionRequest>,
         traces: Vec<Trace>,
+        /// `(file, code, arguments)` of each loader diagnostic, in order.
+        loader_diagnostics: Vec<(String, u32, Vec<String>)>,
     }
 
     fn load(files: &[(&str, &str)], roots: &[&str], options: CompilerOptions) -> Loaded {
@@ -2161,7 +2175,27 @@ mod tests {
             file_count: loaded.files.len(),
             requests: loaded.requests,
             traces: loaded.traces,
+            loader_diagnostics: loaded
+                .loader_diagnostics
+                .iter()
+                .map(|d| (d.file_name.clone(), d.message.code(), d.args.clone()))
+                .collect(),
         }
+    }
+
+    #[test]
+    fn an_unresolved_type_reference_directive_is_ts2688() {
+        // `processingDiagnosticKindUnknownReference` (`fileloader.go:512`):
+        // the written name, at the reference, in the referencing file.
+        let loaded = load(
+            &[("/a.ts", "/// <reference types=\"missing\" />\nconst x = 1;\n")],
+            &["/a.ts"],
+            CompilerOptions::default(),
+        );
+        assert_eq!(
+            loaded.loader_diagnostics,
+            [("/a.ts".to_string(), 2688, vec!["missing".to_string()])]
+        );
     }
 
     /// The base names of the lib files a load produced, in program order.
