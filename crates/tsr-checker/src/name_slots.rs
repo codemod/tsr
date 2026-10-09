@@ -68,7 +68,6 @@ impl Checker<'_, '_> {
     /// One walk answers both, testing the kind column before building a typed
     /// node: it runs for every value identifier, and a typed node per ancestor
     /// was most of its cost (`docs/parity/notes/r6-names.md` §12).
-    #[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-unchecked-regions.diff")]
     pub(crate) fn names_in_unchecked_region(&self, node: NodeId) -> bool {
         let mut current = node;
         while let Some(parent) = self.nodes.parent(current) {

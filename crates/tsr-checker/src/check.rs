@@ -4461,6 +4461,8 @@ impl Checker<'_, '_> {
         // arguments` in an interface, `++arguments` in a script. §951.
         if text == "arguments"
             && self.is_value_reference(node)
+            // r6-names: see the cascade's region check below.
+            && !self.names_in_unchecked_region(node)
             && !self.in_js_file(node)
             && !self.file_has_parse_errors
             && !self.reference_has_non_arrow_function_container(node)
@@ -4611,6 +4613,10 @@ impl Checker<'_, '_> {
                 .nodes
                 .ancestors(node)
                 .any(|a| self.nodes.kind(a) == SyntaxKind::HeritageClause);
+            // r6-names: see the cascade's region check below.
+            if upstream_six && self.names_in_unchecked_region(node) {
+                return;
+            }
             if upstream_six && in_heritage {
                 self.report_primitive_type_as_value_at(node, text);
                 return;
@@ -4641,6 +4647,10 @@ impl Checker<'_, '_> {
         if let Some(property) =
             self.property_initializer_referencing_a_constructor_parameter(node, text)
         {
+            // r6-names: see the cascade's region check below.
+            if self.names_in_unchecked_region(node) {
+                return;
+            }
             // `checkAndReportErrorForInvalidInitializer` (`checker.go:1514`)
             // tries the missing prefix first when the name resolved nowhere
             // else (`result == nil`).
@@ -4752,6 +4762,13 @@ impl Checker<'_, '_> {
         // across the pair. The second was unreachable — the first returns on
         // every path that reports — so it cost nothing and read as though two
         // different cascades were being run. §248.
+        // r6-names: native never checks an empty `for…of` declaration list's
+        // expression or a decorator `NodeCanBeDecorated` rejects, so nothing
+        // in them is reported. Asked only on the paths that report (here and
+        // in the three arms above), not of every identifier.
+        if self.names_in_unchecked_region(node) {
+            return;
+        }
         // `onFailedToResolveSymbol` (`checker.go:1564`) asks for the missing
         // `this.`/class prefix before any other arm.
         if self.check_and_report_error_for_missing_prefix(node, text) {
