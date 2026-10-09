@@ -72,3 +72,25 @@ fn context_sensitive_attributes_choose_among_overloads() {
     );
     assert_eq!(found, vec![(6, 14, "TS2769".to_string()), (8, 26, "TS2769".to_string())]);
 }
+
+#[test]
+fn a_tag_needing_more_arguments_than_the_factory_provides_is_ts6229() {
+    // `checkTagNameDoesNotExpectTooManyArguments`: the factory's first
+    // parameter is an alias reference (`SFC<P>`) whose body's call signature
+    // takes two parameters; `C4` needs four, `C2` fits and its attributes are
+    // then related as usual.
+    let found = codes(
+        "declare namespace React {\n\
+         \x20   interface StatelessComponent<P> { (props: P, context?: any): JSX.Element | null }\n\
+         \x20   type SFC<P> = StatelessComponent<P>;\n\
+         \x20   function createElement<P>(type: SFC<P> | { tag: string }, props?: P): JSX.Element;\n\
+         \x20   function createElement<P>(type: SFC<P>, props?: P): JSX.Element;\n\
+         }\n\
+         function C4(props: { x: number }, a: any, b: any, c: any) { return <div></div>; }\n\
+         function C2(props: { x: number }, a: any) { return <div></div>; }\n\
+         const a = <C4 x={2} />;\n\
+         const b = <C2 x={2} />;\n\
+         const c = <C2 x=\"no\" />;\n",
+    );
+    assert_eq!(found, vec![(9, 12, "TS6229".to_string()), (11, 15, "TS2322".to_string())]);
+}

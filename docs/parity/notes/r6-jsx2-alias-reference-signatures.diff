@@ -1,0 +1,25 @@
+diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
+index fc55671..ad5a797 100644
+--- a/crates/tsr-checker/src/signatures.rs
++++ b/crates/tsr-checker/src/signatures.rs
+@@ -1138,7 +1138,19 @@ impl<'a> Checker<'a, '_> {
+         // type-alias declaration, so an empty answer would not be
+         // `getSignaturesOfType`'s. Unresolved, not empty (r4-jsx.md §2).
+         if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE_ALIAS) {
+-            return None;
++            // A generic alias reference keeps its identity
++            // (`type_reference_targets`); native's reference *is* the
++            // instantiated body (`getTypeFromTypeAliasReference`), so its
++            // signatures are the body's (`r6-jsx2.md` §2).
++            let (alias, arguments) = self.type_reference_targets.get(&callee).cloned()?;
++            if alias != symbol {
++                return None;
++            }
++            let body = self.evaluate_alias_body(alias, &arguments)?;
++            if body == callee {
++                return None;
++            }
++            return self.signatures_of_type_kind(body, kind);
+         }
+         let signatures =
+             self.signature_candidates_of_interface_symbol(symbol, kind, &mut Vec::new())?;

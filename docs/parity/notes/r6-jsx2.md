@@ -4,7 +4,7 @@ Round-6 lane notes, continuing `r6-jsx.md` (§7 is this lane's board) and
 `r5-jsx3.md`. Native source is `vendor/typescript-go` @ `5b1047d`,
 `internal/checker/jsx.go` unless noted. The lane owns `jsx_attributes.rs`,
 `jsx_component.rs` and `jsx_factory.rs`; everything else is shipped as a
-measured diff (§9).
+measured diff (§9 lists them in apply order).
 
 ## 0. The frozen base
 
@@ -116,3 +116,84 @@ instead. Registering it changes no row of the cases above (both passes
 reach the same verdict there) and touches every reader of that table
 (widening, union property reads, discriminant reports), so it is not
 shipped with this item; it is a candidate for the builder's owner.
+
+## 2. TS6229: the tag needs more arguments than the factory provides
+
+**Forcing constraint.** `checkApplicableSignatureForJsxCallLikeElement`
+(`jsx.go:602-677`) runs `checkTagNameDoesNotExpectTooManyArguments` between
+building the attributes type and relating it: a tag whose call signatures
+all need more arguments than any call signature of the factory's first
+parameter accepts reports TS6229, `Tag '{0}' expects at least '{1}'
+arguments, but the JSX factory '{2}' provides at most '{3}'.`, on the tag
+name, and fails the candidate. `jsxIssuesErrorWhenTagExpectsTooManyArguments`
+missed both rows.
+
+**Why the old decline was right, and why a replacement lost 30 cases.**
+`check_jsx_attributes_assignable` skipped the attributes relation for any
+tag one of whose call signatures needs more than one argument. That gate is
+exactly where TS6229 can fire: the factory's first-parameter signatures
+take at least the props (`maxParamCount >= 1` whenever
+`hasFirstParamSignatures` holds), so a tag whose every minimum is at most
+one always fits. r6-jsx's draft replaced the gate with the full check and
+declined whenever a factory first parameter's signature list was unread —
+which, with `React.SFC<P>` unread, was every React element: 30 cases' rows
+lost. So the port keeps the gate and runs the check **only inside it**: a
+decided fit continues to the relation, a decided failure reports TS6229, and
+anything undecided declines as before. Nothing outside the old decline
+changes.
+
+**What is ported.**
+
+- `jsx_tag_argument_count_fits` (`jsx_component.rs`): the automatic
+  runtime fits; the factory entity is resolved as a value; each factory
+  call signature's `getTypeAtPosition(sig, 0)` is read for call
+  signatures; a rest parameter fits, else the largest parameter count is
+  compared with the smallest `getMinArgumentCount` among the tag's call
+  signatures. No factory symbol, no factory signature, no first parameter
+  with signatures all fit, as upstream answers `true`.
+- TS6229 is reported for a tag with **one** call signature (the
+  single-candidate road: `reportCallResolutionErrors` reports the
+  candidate's applicability error). With several, native's failure is
+  TS2769 with a chain; that stays declined.
+- The factory entity (`getJsxFactoryEntity`, `jsx.go:1406`):
+  `jsx_factory_entity_text` answers the option-derived entity and declines
+  for a file with an `@jsx` pragma, whose full text the host does not keep
+  (only its first identifier). `resolve_jsx_factory_entity`
+  (`jsx_factory.rs`) is `resolveEntityName(…, Value, ignoreErrors,
+  dontResolveAlias: false)` over that dotted text: the root at the tag, then
+  each member through `getExportsOfSymbol` (a module past its `export =`).
+  Its export lookup repeats `declared.rs`'s private `get_symbol_of_exports`
+  (that function takes an AST entity; this one has text).
+- The related information (`'{0}' is declared here.`) is not attached: no
+  checker report attaches related information yet, and it is not compared.
+
+**The two pieces outside this lane.**
+
+- *The entity text* (diff **J2**, `r6-jsx2-factory-entity-text.diff`,
+  `checker.rs`): `c._jsxFactoryEntity` as text — `jsxFactory` when it
+  parses as an entity name, else `{jsx_namespace}.createElement`
+  (`jsx.go:1373-1386`). The checker kept only the first identifier.
+- *`React.SFC<P>`'s signatures.* `SFC<P>` is a generic alias reference,
+  which this port mints with its own identity (`type_reference_targets`)
+  where native's reference is the instantiated body; its signature list is
+  `None` (`signature_candidates_of_named_type`, since `r4-jsx.md` §2). The
+  producer fix — read the body's signatures for an alias member table —
+  was measured as `r6-jsx2-alias-reference-signatures.diff` (`signatures.rs`):
+  it converts this case too, but `coAndContraVariantInferences6` gains a
+  false TS2345 (34:23) beside its missing TS2322 (34:42): with
+  `JSXElementConstructor<ExactProps>`'s signatures readable, the call road
+  reaches a report whose elaboration is not ported. **Held, not for
+  apply**, with that row as its blocker. The lane instead projects the body
+  where it reads the factory's parameter (`binding_type_alias_body`, the
+  idiom `destructure.rs` and the JSX resolver already use for generic alias
+  identities), and a union whose constituent has no call signatures answers
+  none (`getUnionSignatures`, `checker.go:21117`) — which decides `SFC<P> |
+  ComponentClass<P> | string` without the union's own list.
+
+**Measured** on top of §1 (both dumps unfiltered, row-level diff of every
+case): WRONG → RIGHT `jsxIssuesErrorWhenTagExpectsTooManyArguments`; no
+other case's rows changed; type lines byte-identical; slowcases clean.
+Message text checked against the oracle on the case's own source. Median
+child CPU against the frozen binary (21 samples): domain-model 0.966,
+generic-imports 0.989. Oracle-checked fixture:
+`a_tag_needing_more_arguments_than_the_factory_provides_is_ts6229`.

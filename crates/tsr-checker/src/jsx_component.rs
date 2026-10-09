@@ -316,8 +316,22 @@ impl Checker<'_, '_> {
             let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
             let tag_type = self.check_expression(expression);
             let Some(calls) = self.call_signatures_of_type(tag_type) else { return };
+            // `checkTagNameDoesNotExpectTooManyArguments` (`jsx.go:602`) can
+            // only fail for a tag one of whose call signatures needs more
+            // than the props argument; only those tags are asked.
             if calls.iter().any(|signature| self.signature_min_argument_count(signature) > 1) {
-                return;
+                match self.jsx_tag_argument_count_fits(node, &calls) {
+                    Some(JsxFactoryArity::Fits) => {}
+                    Some(JsxFactoryArity::TooMany { minimum, factory, maximum })
+                        if calls.len() == 1 =>
+                    {
+                        self.report_jsx_tag_expects_too_many_arguments(
+                            tag_id, minimum, &factory, maximum,
+                        );
+                        return;
+                    }
+                    _ => return,
+                }
             }
         }
         for attribute in attributes.properties {
@@ -355,6 +369,125 @@ impl Checker<'_, '_> {
             return;
         }
         self.report_jsx_attributes_failure(node, attributes_id, tag_id, target);
+    }
+
+    /// `checkTagNameDoesNotExpectTooManyArguments` (`jsx.go:602-677`) for a
+    /// value tag whose call signatures are `calls`: under the automatic
+    /// runtime it fits; otherwise every call signature of the JSX factory
+    /// (`getJsxFactoryEntity`, resolved as a value) is read for the call
+    /// signatures of its first parameter's type, and the tag fits when one
+    /// of those has a rest parameter or a parameter count at least the
+    /// smallest `getMinArgumentCount` among `calls`. No factory, no factory
+    /// symbol, no factory call signature, or no first parameter with call
+    /// signatures also fits (`hasFirstParamSignatures`). `None` where this
+    /// port cannot decide: a factory named by an `@jsx` pragma
+    /// ([`Checker::jsx_factory_entity_text`]), or a signature list it cannot
+    /// read.
+    fn jsx_tag_argument_count_fits(
+        &mut self,
+        node: NodeId,
+        calls: &[crate::signatures::Signature],
+    ) -> Option<JsxFactoryArity> {
+        use crate::signatures::SignatureKind;
+        if self.jsx_implicit_import_container(node).is_some() || calls.is_empty() {
+            return Some(JsxFactoryArity::Fits);
+        }
+        let factory = self.jsx_factory_entity_text(node)?;
+        let Some(symbol) = self.resolve_jsx_factory_entity(node, &factory) else {
+            return Some(JsxFactoryArity::Fits);
+        };
+        let factory_type = self.get_type_of_symbol(symbol);
+        if self.is_gap(factory_type) {
+            return None;
+        }
+        let factory_calls = self.signatures_of_type_kind(factory_type, SignatureKind::Call)?;
+        let mut has_first_parameter_signatures = false;
+        let mut maximum = 0;
+        for signature in &factory_calls {
+            let first = self.signature_type_at_position(signature, 0)?;
+            for parameter_signature in self.jsx_factory_parameter_call_signatures(first)? {
+                has_first_parameter_signatures = true;
+                if self.signature_has_effective_rest(&parameter_signature) {
+                    return Some(JsxFactoryArity::Fits);
+                }
+                maximum = maximum.max(self.signature_parameter_count(&parameter_signature));
+            }
+        }
+        if !has_first_parameter_signatures {
+            return Some(JsxFactoryArity::Fits);
+        }
+        let minimum = calls
+            .iter()
+            .map(|signature| self.signature_min_argument_count(signature))
+            .min()
+            .unwrap_or(usize::MAX);
+        if minimum <= maximum {
+            return Some(JsxFactoryArity::Fits);
+        }
+        Some(JsxFactoryArity::TooMany { minimum, factory, maximum })
+    }
+
+    /// `getSignaturesOfType(firstparam, SignatureKindCall)` for a JSX
+    /// factory's first parameter type. A generic alias reference (`SFC<P>`)
+    /// keeps its identity in this port, where native's reference is the
+    /// instantiated body; the body is read instead (`r6-jsx2.md` §2). A
+    /// union has no call signatures when one of its constituents has none
+    /// (`getUnionSignatures`, `checker.go:21117`), which decides
+    /// `SFC<P> | ComponentClass<P> | string` without the union's own list.
+    /// `None` where a list is not decided.
+    fn jsx_factory_parameter_call_signatures(
+        &mut self,
+        ty: TypeId,
+    ) -> Option<Vec<crate::signatures::Signature>> {
+        use crate::signatures::SignatureKind;
+        let ty = self.binding_type_alias_body(ty);
+        if self.is_gap(ty) {
+            return None;
+        }
+        if let crate::types::TypeData::Union { types, .. } = self.store.get(ty).data.clone() {
+            for part in types {
+                let part = self.binding_type_alias_body(part);
+                if self.is_gap(part) {
+                    continue;
+                }
+                if self
+                    .signatures_of_type_kind(part, SignatureKind::Call)
+                    .is_some_and(|signatures| signatures.is_empty())
+                {
+                    return Some(Vec::new());
+                }
+            }
+        }
+        self.signatures_of_type_kind(ty, SignatureKind::Call)
+    }
+
+    /// TS6229 on the tag name (`jsx.go:668`): `Tag '{0}' expects at least
+    /// '{1}' arguments, but the JSX factory '{2}' provides at most '{3}'.`
+    /// The related `'{0}' is declared here.` on the tag symbol's value
+    /// declaration is not attached (related information is not compared, and
+    /// no checker report carries it yet).
+    fn report_jsx_tag_expects_too_many_arguments(
+        &mut self,
+        tag_id: NodeId,
+        minimum: usize,
+        factory: &str,
+        maximum: usize,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(tag_id) else { return };
+        let span = self.error_span(tag_id);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TAG_0_EXPECTS_AT_LEAST_1_ARGUMENTS_BUT_THE_JSX_FACTORY_2_PROVIDES_AT_MOST_3,
+                span,
+                [
+                    self.jsx_tag_text(tag_id),
+                    minimum.to_string(),
+                    factory.to_string(),
+                    maximum.to_string(),
+                ],
+            ),
+        );
     }
 
     /// Whether the attributes type `source` relates to the effective first
@@ -1572,6 +1705,15 @@ enum JsxSkipCandidate {
     Failed(Box<crate::signatures::Signature>, TypeId),
     /// A written type argument outside its constraint.
     TypeArgumentError,
+}
+
+/// [`Checker::jsx_tag_argument_count_fits`]'s answer.
+enum JsxFactoryArity {
+    /// Some factory first-parameter signature accepts the tag's arguments.
+    Fits,
+    /// TS6229's arguments: the tag's smallest minimum argument count, the
+    /// factory's text, and the largest first-parameter parameter count.
+    TooMany { minimum: usize, factory: String, maximum: usize },
 }
 
 /// `getJsxElementPropertiesName` (`jsx.go:1075`).
