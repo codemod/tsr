@@ -210,6 +210,9 @@ impl Checker<'_, '_> {
         }
         let Some(typed) = self.node_map.get(node) else { return };
         self.check_construct_emit_helpers(node, typed);
+        // `checkDecorators`' `markLinkedReferences(node, ReferenceHintDecorator)`
+        // (`checker.go:6053`), `isolated_alias.rs`.
+        self.check_decorator_linked_references(node, typed, self.emit_decorator_metadata);
         let ambient = match typed {
             Node::ImportDeclaration(declaration) => {
                 self.check_import_in_namespace(

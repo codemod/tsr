@@ -624,6 +624,9 @@ pub struct Checker<'a, 'n> {
     pub(crate) unsafe_import_tracker: Option<Vec<crate::module_specifiers::UnsafeImport>>,
     /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
     pub(crate) legacy_decorators: bool,
+    /// `compilerOptions.EmitDecoratorMetadata.IsTrue()`, read by
+    /// `markDecoratorAliasReferenced` (`crate::isolated_alias`).
+    pub(crate) emit_decorator_metadata: bool,
     /// `compilerOptions.ImportHelpers.IsTrue()`, read by
     /// `checkExternalEmitHelpers` (`crate::emit_helpers`).
     pub(crate) import_helpers: bool,
@@ -1540,6 +1543,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             module_kind: tsr_core::ModuleKind::None,
             unsafe_import_tracker: None,
             legacy_decorators: false,
+            emit_decorator_metadata: false,
             import_helpers: false,
             external_helpers: FxHashMap::default(),
             standard_class_fields: false,
@@ -1758,6 +1762,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         self.strict_bind_call_apply = options.strict_option_value(options.strict_bind_call_apply);
         self.no_implicit_this = options.strict_option_value(options.no_implicit_this);
         self.legacy_decorators = options.experimental_decorators.is_true();
+        self.emit_decorator_metadata = options.emit_decorator_metadata.is_true();
         self.import_helpers = options.import_helpers.is_true();
         // `GetEmitStandardClassFields` — the flag, defaulting to
         // `target >= ES2022`. §751.
