@@ -269,7 +269,9 @@ at `value`; `export { string }` → TS2661 only; `declare namespace D { export
 { amb } }` → TS2304; `declare module "mm" { export { amb2 } }` → TS2664 and
 TS2304. The port with the diff matches every row except two pre-existing
 ones (the namespace TS2303, and TS1003 for `export { "str" as s2 }`, a parser
-difference).
+difference). **Corrected by r6-names2:** TS1003 is a checker grammar error
+(`checkModuleExportName`, `checker.go:5388`), not a parser difference; both
+rows are ported in `r6-names2.md` §3.
 
 The hook passes `check.rs`'s `cannot_find_name_message` in as a function
 pointer, so the tail shares the table rather than copying it.
