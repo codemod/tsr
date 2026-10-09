@@ -509,3 +509,11 @@ included (`public constructor`). `Checker::first_token_span` now takes that
 mode; TS2376/TS2377/TS2390/TS2392/TS2394 at a constructor all route through
 `error_span`. The native `NodeFlagsReparsed` exemption (JSDoc-reparsed
 constructors) has no TSR counterpart reaching this arm.
+
+## §24 TS1155 at the declaration's name
+
+`checkGrammarVariableDeclaration` (`grammarchecks.go:1582`) reports
+`grammarErrorOnNode(node)`; `NewDiagnosticForNode` maps a
+`VariableDeclaration` to its name, so `const c: number;` underlines `c`.
+`check_const_is_initialized` used the declaration's own span on the claim that
+`grammarErrorOnNode` does not narrow; it does, and it now uses `error_span`.

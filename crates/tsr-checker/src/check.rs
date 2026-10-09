@@ -8544,9 +8544,10 @@ impl Checker<'_, '_> {
     /// - **not a binding pattern** — `const {a} = …` without an initialiser is
     ///   TS1182, a different code on the same line.
     ///
-    /// The error node is the **declaration**, not its name:
-    /// `grammarErrorOnNode(node.AsNode(), …)`, so this is `nodes.span` and not
-    /// `error_span`, which would narrow to the name.
+    /// The error node is the declaration: `grammarErrorOnNode(node.AsNode(),
+    /// …)`, whose `NewDiagnosticForNode` narrows a variable declaration to its
+    /// name (`GetErrorRangeForNode`), so `const c: number;` underlines `c`
+    /// (`docs/parity/notes/decls.md` §24).
     ///
     /// `using` and `await using` share the arm upstream and are not ported —
     /// this parser has no `using` block-scope kind, so the two spellings cannot
@@ -8586,7 +8587,7 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        let span = self.error_span(node);
         self.report(
             file,
             Diagnostic::with_args(
