@@ -807,3 +807,23 @@ Three diffs land in batch AE for +12 more cases:
 Identical-member collapse is filed for main as `.1083`. The freed slot went to
 r5-ts2322: the largest diagnostic cluster without an owner, 136 cases whose
 only wrong code is TS2322.
+
+### r5-align finished; r5-smallcodes dispatched (`tsr-2zk.1084`)
+
+r5-align fixed three harness causes of unaligned type lines, each faithful to
+iterateBaseline:
+- JSON units are walked;
+- sections are matched to units by their removeTestPathPrefixes name;
+- echoed `>` code lines are skipped.
+
+This aligned 3,758 lines (3,542 RIGHT) and flipped 28 checker_types cases with
+none lost. The 49 cases still unaligned are parser divergences, filed for main
+as `.1086`. It also:
+- added `divergentcost`, a guarded timing pass over the 518 known-divergence
+  cases that are in neither dump. It found a new hang,
+  noCircularitySelfReferentialGetter2 (`.1085`);
+- made scorepair report RIGHT→UNALIGNED;
+- fixed any_audit's control by recording the producer's own return arm.
+
+The freed slot went to r5-smallcodes: about 49 cases across ten small
+diagnostic codes that no lane owned.
