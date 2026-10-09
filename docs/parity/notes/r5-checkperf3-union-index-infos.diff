@@ -1,0 +1,62 @@
+--- a/crates/tsr-checker/src/index_signatures.rs
++++ b/crates/tsr-checker/src/index_signatures.rs
+@@ -98,7 +98,8 @@
+         match &self.store.get(id).data {
+             TypeData::Union { types, .. } => {
+                 let types = types.clone();
+-                return self.union_index_infos(&types);
++                // Published once per union (`r5-checkperf3.md` §5).
++                return self.composite_index_infos(id, |checker| checker.union_index_infos(&types));
+             }
+             // resolveIntersectionTypeMembers / appendIndexInfo (checker.go).
+             // Native resolves the members of the intersection's apparent type,
+--- a/crates/tsr-checker/src/perf_links.rs
++++ b/crates/tsr-checker/src/perf_links.rs
+@@ -125,6 +125,13 @@
+     /// mapped-template frame and published under
+     /// [`Checker::publishable_since`] (`r5-checkperf3.md` §4).
+     pub(crate) composite_property_names: FxHashMap<TypeId, Option<std::rc::Rc<[String]>>>,
++    /// `union -> its index infos, or the computation's decline`: native
++    /// `resolveUnionTypeMembers` publishing the union's `indexInfos`
++    /// (`getUnionIndexInfos`, `checker.go`) once per type. Admitted and
++    /// published as [`PerfLinks::composite_property_names`]
++    /// (`r5-checkperf3.md` §5).
++    pub(crate) union_index_infos:
++        FxHashMap<TypeId, Option<Vec<crate::index_signatures::IndexInfo>>>,
+ }
+ 
+ /// [`PerfLinks::local_type_parameters`]' value, free of the arena lifetime:
+@@ -551,6 +558,33 @@
+         }
+         CompositeNames::Answer(names)
+     }
++
++    /// A union `id`'s index infos through [`PerfLinks::union_index_infos`]:
++    /// the published answer, or `compute`'s (the union arm of
++    /// `get_index_infos_of_type`), published when no alias-evaluation or
++    /// mapped-template frame was open and [`Self::publishable_since`] holds
++    /// (`r5-checkperf3.md` §5).
++    pub(crate) fn composite_index_infos(
++        &mut self,
++        id: TypeId,
++        compute: impl FnOnce(&mut Self) -> Option<Vec<crate::index_signatures::IndexInfo>>,
++    ) -> Option<Vec<crate::index_signatures::IndexInfo>> {
++        let admitted = self.mapped_template_depth == 0
++            && !self.identity_unmapped_type_parameters
++            && self.alias_evaluation_bindings.iter().all(FxHashMap::is_empty);
++        if !admitted {
++            return compute(self);
++        }
++        if let Some(infos) = self.perf_links.union_index_infos.get(&id) {
++            return infos.clone();
++        }
++        let mark = self.publication_mark();
++        let infos = compute(self);
++        if self.publishable_since(mark) {
++            self.perf_links.union_index_infos.insert(id, infos.clone());
++        }
++        infos
++    }
+ }
+ 
+ #[cfg(test)]
