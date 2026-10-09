@@ -487,6 +487,15 @@ impl<'a> Parser<'a> {
         self.token_value = capture_value(&self.scanner);
     }
 
+    /// `reScanTemplateToken(isTaggedTemplate)` (`parser.go:3692`) for a
+    /// template's head, refreshing the cached value: an untagged template is
+    /// re-scanned with invalid escapes reported, which cooks a legacy octal
+    /// escape to its character (`scanEscapeSequence`, `scanner.go:1700`).
+    pub(crate) fn rescan_template(&mut self, is_tagged: bool) {
+        self.token = self.scanner.rescan_template(is_tagged);
+        self.token_value = capture_value(&self.scanner);
+    }
+
     /// Re-scan a `}` as the continuation of a template literal.
     pub(crate) fn rescan_template_continuation(&mut self) {
         self.token = self.scanner.rescan_template_continuation();

@@ -777,6 +777,7 @@ impl Checker<'_, '_> {
             }
             Node::TypeQueryNode(_) => {
                 self.check_instantiation_expression_reports(node);
+                self.check_type_query_nullable_receivers(node);
                 ambient
             }
             Node::TypeLiteralNode(_) => {
@@ -862,6 +863,9 @@ impl Checker<'_, '_> {
                 self.check_circular_import_alias(node);
                 self.check_alias_symbol(node);
                 self.check_export_specifier_is_local(node);
+                // r6-names: `resolveEntityName`'s failure tail for a local
+                // specifier (`export_specifier_names.rs`).
+                self.names_check_export_specifier_target(node, cannot_find_name_message);
             }
             // `checkImportBinding` (`checker.go:5287`-`:5303`, `:5473`) and
             // `checkExportDeclaration`'s clause (`:5534`).
@@ -1073,6 +1077,10 @@ impl Checker<'_, '_> {
         if matches!(typed, Node::ImportTypeNode(_)) {
             self.check_import_type_argument(node);
             self.check_import_type_attributes(node);
+            // `checkImportType`'s `checkTypeReferenceOrImport` (`checker.go:3324`).
+            if let Some((symbol, arguments)) = self.import_type_constraint_target(node) {
+                self.check_type_argument_constraints_of(symbol, arguments);
+            }
         }
         if matches!(
             typed,
@@ -3644,9 +3652,6 @@ impl Checker<'_, '_> {
     /// directive and upstream reports anyway, because `null.foo` is wrong under
     /// every flag. §397.
     fn check_null_or_undefined_receiver(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let (receiver, is_chain_root) = match self.node_map.get(node) {
             Some(Node::PropertyAccessExpression(access)) => {
                 (access.expression, access.question_dot_token.is_some())
@@ -4459,6 +4464,8 @@ impl Checker<'_, '_> {
         // arguments` in an interface, `++arguments` in a script. §951.
         if text == "arguments"
             && self.is_value_reference(node)
+            // r6-names: see the cascade's region check below.
+            && !self.names_in_unchecked_region(node)
             && !self.in_js_file(node)
             && !self.file_has_parse_errors
             && !self.reference_has_non_arrow_function_container(node)
@@ -4556,7 +4563,9 @@ impl Checker<'_, '_> {
         // reports TS2339 on the `.z` instead. Like `null`, `this` is not a
         // spellable binding in any scope, so declining it can hide no real
         // diagnostic.
-        if text == "null" || text == "this" {
+        // r6-names: `typeof null` is an identifier natively too
+        // (`parseTypeQuery` allows reserved words), and native reports it.
+        if (text == "null" && !self.names_in_type_query_entity_name(node)) || text == "this" {
             return;
         }
         // `checkAndReportErrorForUsingTypeAsValue` (`checker.go:1681`) runs
@@ -4609,6 +4618,10 @@ impl Checker<'_, '_> {
                 .nodes
                 .ancestors(node)
                 .any(|a| self.nodes.kind(a) == SyntaxKind::HeritageClause);
+            // r6-names: see the cascade's region check below.
+            if upstream_six && self.names_in_unchecked_region(node) {
+                return;
+            }
             if upstream_six && in_heritage {
                 self.report_primitive_type_as_value_at(node, text);
                 return;
@@ -4620,14 +4633,17 @@ impl Checker<'_, '_> {
             // `void`, `object`, `symbol` and `bigint`, which upstream's
             // `isPrimitiveTypeName` does not list and which stay declined here.
             // §948.
+            // **Corrected by r6-names:** they do not stay declined. Native's
+            // cascade treats them like any other unresolved name — the
+            // spelling-suggestion arm, then TS2304 — and `[s: symbol]` in an
+            // object literal is TS2552 *Did you mean 'Symbol'?*
+            // (`parserSymbolIndexer5`). Measured +1 case, 0 lost
+            // (`docs/parity/notes/r6-names.md` §7).
             // **No parse-error gate.** §949 added one to hide 48 extra lines in
             // files the parser recovered; upstream reports TS2693 in such
             // files (`autoLift2`, `createArray`, `parserUnterminatedGeneric2`
             // are parse-error fixtures whose baselines carry it). Re-measured
             // without it: +7 cases, 0 lost. `docs/parity/notes/r4-helpers.md` §2.
-            if !upstream_six {
-                return;
-            }
         }
         // `OnPropertyWithInvalidInitializer` (`nameresolver.go`, reached from
         // `resolveNameHelper`): an instance property's initialiser that names a
@@ -4639,6 +4655,10 @@ impl Checker<'_, '_> {
         if let Some(property) =
             self.property_initializer_referencing_a_constructor_parameter(node, text)
         {
+            // r6-names: see the cascade's region check below.
+            if self.names_in_unchecked_region(node) {
+                return;
+            }
             // `checkAndReportErrorForInvalidInitializer` (`checker.go:1514`)
             // tries the missing prefix first when the name resolved nowhere
             // else (`result == nil`).
@@ -4750,6 +4770,13 @@ impl Checker<'_, '_> {
         // across the pair. The second was unreachable — the first returns on
         // every path that reports — so it cost nothing and read as though two
         // different cascades were being run. §248.
+        // r6-names: native never checks an empty `for…of` declaration list's
+        // expression or a decorator `NodeCanBeDecorated` rejects, so nothing
+        // in them is reported. Asked only on the paths that report (here and
+        // in the three arms above), not of every identifier.
+        if self.names_in_unchecked_region(node) {
+            return;
+        }
         // `onFailedToResolveSymbol` (`checker.go:1564`) asks for the missing
         // `this.`/class prefix before any other arm.
         if self.check_and_report_error_for_missing_prefix(node, text) {
@@ -5130,6 +5157,12 @@ impl Checker<'_, '_> {
         // annotation is a construct the file may not contain, so nothing inside
         // it is resolved. The value-position rule has carried this decline
         // since it was written; this one never got it. §779.
+        // **Corrected by r6-names:** upstream does resolve it. TS8008/TS8010
+        // are syntactic (`getJSSyntacticDiagnosticsForFile`) and the checker
+        // still reaches the annotation, so native reports TS2304 beside them
+        // (`fillInMissingTypeArgsOnJSConstructCalls`). Only names inside a
+        // JSDoc comment keep the decline (`name_slots.rs`,
+        // `docs/parity/notes/r6-names.md` §6).
         // **No `file_has_parse_errors` here.** §254's −14 measurement was made
         // on `check_value_identifier`, which has never carried the gate; this
         // path always has and nobody had measured it. `interface I { a: Foo; b }`
@@ -5156,7 +5189,8 @@ impl Checker<'_, '_> {
             self.report_primitive_type_as_value_at(node, text);
             return;
         }
-        if is_specially_diagnosed_name(text) || self.in_js_file(node) {
+        if is_specially_diagnosed_name(text) || (self.in_js_file(node) && self.names_in_jsdoc(node))
+        {
             return;
         }
         // **A duplicate heritage clause is recovered syntax.** `class C
@@ -5633,7 +5667,9 @@ impl Checker<'_, '_> {
                 is(n.left.and_then(|left| left.node_id()))
                     && self.entity_name_root_is_a_type_query(parent)
             }
-            _ => false,
+            // r6-names: slots native `checkExpression`s that the arms above
+            // omit.
+            _ => crate::name_slots::value_reference_slot(node, typed),
         }
     }
 

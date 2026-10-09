@@ -406,3 +406,31 @@ r5-errorsplit6 (notes [r5-errorsplit6](../parity/notes/r5-errorsplit6.md)
 costs zero, so none is narrowed. The residual fell 3,032 → 2,680 in this
 step (2,678 with diff S).
 
+### 2026-10-09 — round 6: four element-access exclusions lifted by their ports; no rewrite narrowed
+
+r6-errorsplit (notes [r6-errorsplit](../parity/notes/r6-errorsplit.md)) took
+r5-errorsplit6 §2.2's exclusions one by one: port the named piece, re-probe,
+lift the exclusion only if every moved line is `errorType` natively.
+
+- **Unique-symbol index** (commit 1): `getPropertyNameFromType`'s third arm.
+  6 lines move, all `errorType`.
+- **`typeof globalThis`** (commit 1): its lookup was ported in round 5; the
+  named-reference exclusion covered it only for want of a members table.
+  7 lines, all `errorType`.
+- **Widened receiver** (commit 2): `checkElementAccessExpression` widens a
+  write's receiver (`checker.go:8148`). 1 line, `errorType`.
+- **Union with an object literal** (diff O, `members.rs`): the
+  object-literal arm of `createUnionOrIntersectionProperty`. +19 RIGHT; the
+  lift moves no line.
+- **A function's type** (diff L, binder and checker): the
+  `InternalSymbolNameAssignmentDeclaration` table and its late binding. +87
+  RIGHT, +1 diagnostic case; the lift moves 19 lines, all `errorType`.
+- **Unconstrained type parameter** (diff G, `members.rs`): `getApparentType`'s
+  `unknownType` head, the cause of part of the generic exclusion's false
+  claims. +32 RIGHT.
+
+Zero losses at every step. Credited gap 2,164 → 2,150 on the branch, 2,131
+with the diffs. **Narrowing**, per rewrite with the diffs: `HadErrorBaseline`
+1,983, `AtLocation` 575, `AccessOrQualifiedParent` 62, `StatementName` 29
+(27 with diff S). None costs zero, so none is narrowed. The residual fell
+2,679 → 2,649 (2,647 with diff S).

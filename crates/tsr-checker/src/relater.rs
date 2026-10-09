@@ -6928,6 +6928,15 @@ impl Relater<'_, '_, '_> {
             if excluded.contains(name) {
                 continue;
             }
+            // getUnmatchedPropertiesWorker (relater.go:988) skips a static
+            // private-identifier target, and the property loop finds no
+            // source member under its per-class name, so it never relates
+            // (`private_name_identity.rs`).
+            if name.starts_with('#')
+                && self.checker.is_static_private_identifier_property(target, name)
+            {
+                continue;
+            }
             let target_metadata = self.property_flags(target, name);
             if optionals_only && !target_metadata.is_some_and(|flags| flags.0) {
                 continue;
@@ -7055,6 +7064,21 @@ impl Relater<'_, '_, '_> {
                     self.checker.binder.symbols().get(source_property).value_declaration
                         != target_declaration
                 }) {
+                    // A derived class's own `#foo` shadows the inherited one
+                    // only here: upstream's source still carries the base's
+                    // symbol under the base's name, and it is the target's
+                    // own (`private_name_identity.rs`).
+                    match self.checker.source_inherits_private_member(source, target_property) {
+                        Some(true) => {
+                            parts.push(RelationResult::Related);
+                            continue;
+                        }
+                        None => {
+                            parts.push(RelationResult::Unknown);
+                            continue;
+                        }
+                        Some(false) => {}
+                    }
                     let optional_absent = target_metadata.is_some_and(|flags| flags.0)
                         && !matches!(self.relation, Relation::Subtype | Relation::StrictSubtype);
                     parts.push(if optional_absent {
