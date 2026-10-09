@@ -137,16 +137,7 @@ impl Checker<'_, '_> {
             && !self.in_js_file(node)
             && commonjs_file
         {
-            // `getVerbatimModuleSyntaxErrorMessage` (`checker.go:5681`).
-            let commonjs_extension = self
-                .module_host
-                .and_then(|host| host.file_path(file))
-                .is_some_and(|path| tsr_path::file_extension_is_one_of(&path, &[".cts", ".cjs"]));
-            let message = if commonjs_extension {
-                &messages::ECMASCRIPT_IMPORTS_AND_EXPORTS_CANNOT_BE_WRITTEN_IN_A_COMMONJS_FILE_UNDER_VERBATIMMODULESYNTAX
-            } else {
-                &messages::ECMASCRIPT_IMPORTS_AND_EXPORTS_CANNOT_BE_WRITTEN_IN_A_COMMONJS_FILE_UNDER_VERBATIMMODULESYNTAX_ADJUST_THE_TYPE_FIELD_IN_THE_NEAREST_PACKAGE_JSON_TO_MAKE_THIS_FILE_AN_ECMASCRIPT_MODULE_OR_ADJUST_YOUR_VERBATIMMODULESYNTAX_MODULE_AND_MODULERESOLUTION_SETTINGS_IN_TYPESCRIPT
-            };
+            let message = self.verbatim_module_syntax_error_message(file);
             let span = self.error_span(node);
             self.report(file, Diagnostic::new(message, span));
         } else if self.module_kind == tsr_core::ModuleKind::Preserve
@@ -179,6 +170,169 @@ impl Checker<'_, '_> {
                 );
             }
         }
+    }
+
+    /// `checkExportAssignment`'s single-file-transpilation arms (pinned
+    /// `checker.go:5609`–`5650`): what an `export =` / `export default` of a
+    /// bare identifier may name under `verbatimModuleSyntax` (TS1282–TS1285)
+    /// and `isolatedModules` (TS1289–TS1292), and the `export default` of a
+    /// CommonJS-format file under `verbatimModuleSyntax` (TS1286/TS1295 via
+    /// `getVerbatimModuleSyntaxErrorMessage`).
+    ///
+    /// `ambient` is the walk's `NodeFlagsAmbient`. The caller
+    /// (`check.rs::check_export_assignment_alone`) runs this after the
+    /// TS1120 modifier report, which is where upstream reads it.
+    /// `markLinkedReferences(node, ReferenceHintExportAssignment)` is not
+    /// ported here: it only publishes the alias-referenced mark, which no
+    /// report in this arm reads.
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-isolated-export-assignment.diff"
+    )]
+    pub(crate) fn check_export_assignment_isolated(&mut self, node: NodeId, ambient: bool) {
+        let Some(Node::ExportAssignment(assignment)) = self.node_map.get(node) else { return };
+        let is_export_equals = assignment.is_export_equals;
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let illegal_export_default_in_cjs = !is_export_equals
+            && !ambient
+            && self.verbatim_module_syntax
+            && self.alias_emit_module_format_of_file(file) == tsr_core::ModuleKind::CommonJS;
+        if let Some(tsr_ast::Expression::Identifier(identifier)) = assignment.expression
+            && let Some(id) = identifier.node_id
+        {
+            let text = identifier.text.to_string();
+            // `getExportSymbolOfValueSymbolIfExported(resolveEntityName(id,
+            // All, ignoreErrors, dontResolveAlias, node))`.
+            let symbol = self
+                .resolve_name_with_export_alias(id, &text, SymbolFlags::all())
+                .map(|symbol| self.export_symbol_of_value_symbol_if_exported(symbol));
+            if let Some(symbol) = symbol {
+                let symbol_flags = self.binder.symbols().get(symbol).flags;
+                let type_only_declaration =
+                    self.type_only_alias_declaration_node_ex(symbol, SymbolFlags::VALUE);
+                let type_only_in_other_file = type_only_declaration.is_some_and(|declaration| {
+                    self.source_file_of(declaration) != self.source_file_of(node)
+                });
+                let checks = !illegal_export_default_in_cjs && !ambient;
+                let span = self.error_span(id);
+                if self.get_symbol_flags(symbol).intersects(SymbolFlags::VALUE) {
+                    if checks && self.verbatim_module_syntax && type_only_declaration.is_some() {
+                        let message = if is_export_equals {
+                            &messages::AN_EXPORT_DECLARATION_MUST_REFERENCE_A_REAL_VALUE_WHEN_VERBATIMMODULESYNTAX_IS_ENABLED_BUT_0_RESOLVES_TO_A_TYPE_ONLY_DECLARATION
+                        } else {
+                            &messages::AN_EXPORT_DEFAULT_MUST_REFERENCE_A_REAL_VALUE_WHEN_VERBATIMMODULESYNTAX_IS_ENABLED_BUT_0_RESOLVES_TO_A_TYPE_ONLY_DECLARATION
+                        };
+                        self.report(file, Diagnostic::with_args(message, span, [text.clone()]));
+                    }
+                } else if checks && self.verbatim_module_syntax {
+                    let message = if is_export_equals {
+                        &messages::AN_EXPORT_DECLARATION_MUST_REFERENCE_A_VALUE_WHEN_VERBATIMMODULESYNTAX_IS_ENABLED_BUT_0_ONLY_REFERS_TO_A_TYPE
+                    } else {
+                        &messages::AN_EXPORT_DEFAULT_MUST_REFERENCE_A_VALUE_WHEN_VERBATIMMODULESYNTAX_IS_ENABLED_BUT_0_ONLY_REFERS_TO_A_TYPE
+                    };
+                    self.report(file, Diagnostic::with_args(message, span, [text.clone()]));
+                }
+                if checks && self.isolated_modules && !symbol_flags.intersects(SymbolFlags::VALUE) {
+                    let non_local_meanings = self.non_local_symbol_flags(symbol);
+                    let flag = self.isolated_modules_like_flag_name().to_string();
+                    if symbol_flags.intersects(SymbolFlags::ALIAS)
+                        && non_local_meanings.intersects(SymbolFlags::TYPE)
+                        && !non_local_meanings.intersects(SymbolFlags::VALUE)
+                        && (type_only_declaration.is_none() || type_only_in_other_file)
+                    {
+                        let message = if is_export_equals {
+                            &messages::_0_RESOLVES_TO_A_TYPE_AND_MUST_BE_MARKED_TYPE_ONLY_IN_THIS_FILE_BEFORE_RE_EXPORTING_WHEN_1_IS_ENABLED_CONSIDER_USING_IMPORT_TYPE_WHERE_0_IS_IMPORTED
+                        } else {
+                            &messages::_0_RESOLVES_TO_A_TYPE_AND_MUST_BE_MARKED_TYPE_ONLY_IN_THIS_FILE_BEFORE_RE_EXPORTING_WHEN_1_IS_ENABLED_CONSIDER_USING_EXPORT_TYPE_0_AS_DEFAULT
+                        };
+                        self.report(file, Diagnostic::with_args(message, span, [text, flag]));
+                    } else if type_only_in_other_file {
+                        let message = if is_export_equals {
+                            &messages::_0_RESOLVES_TO_A_TYPE_ONLY_DECLARATION_AND_MUST_BE_MARKED_TYPE_ONLY_IN_THIS_FILE_BEFORE_RE_EXPORTING_WHEN_1_IS_ENABLED_CONSIDER_USING_IMPORT_TYPE_WHERE_0_IS_IMPORTED
+                        } else {
+                            &messages::_0_RESOLVES_TO_A_TYPE_ONLY_DECLARATION_AND_MUST_BE_MARKED_TYPE_ONLY_IN_THIS_FILE_BEFORE_RE_EXPORTING_WHEN_1_IS_ENABLED_CONSIDER_USING_EXPORT_TYPE_0_AS_DEFAULT
+                        };
+                        self.report(file, Diagnostic::with_args(message, span, [text, flag]));
+                    }
+                }
+            }
+        }
+        if illegal_export_default_in_cjs {
+            let message = self.verbatim_module_syntax_error_message(file);
+            let span = self.error_span(node);
+            self.report(file, Diagnostic::new(message, span));
+        }
+    }
+
+    /// `getVerbatimModuleSyntaxErrorMessage` (`checker.go:5681`).
+    fn verbatim_module_syntax_error_message(
+        &self,
+        file: NodeId,
+    ) -> &'static tsr_diagnostics::Message {
+        let commonjs_extension = self
+            .module_host
+            .and_then(|host| host.file_path(file))
+            .is_some_and(|path| tsr_path::file_extension_is_one_of(&path, &[".cts", ".cjs"]));
+        if commonjs_extension {
+            &messages::ECMASCRIPT_IMPORTS_AND_EXPORTS_CANNOT_BE_WRITTEN_IN_A_COMMONJS_FILE_UNDER_VERBATIMMODULESYNTAX
+        } else {
+            &messages::ECMASCRIPT_IMPORTS_AND_EXPORTS_CANNOT_BE_WRITTEN_IN_A_COMMONJS_FILE_UNDER_VERBATIMMODULESYNTAX_ADJUST_THE_TYPE_FIELD_IN_THE_NEAREST_PACKAGE_JSON_TO_MAKE_THIS_FILE_AN_ECMASCRIPT_MODULE_OR_ADJUST_YOUR_VERBATIMMODULESYNTAX_MODULE_AND_MODULERESOLUTION_SETTINGS_IN_TYPESCRIPT
+        }
+    }
+
+    /// `getExportSymbolOfValueSymbolIfExported` (`checker.go:14383`).
+    fn export_symbol_of_value_symbol_if_exported(&self, symbol: SymbolId) -> SymbolId {
+        let entry = self.binder.symbols().get(symbol);
+        let symbol = match entry.export_symbol {
+            Some(export) if entry.flags.intersects(SymbolFlags::EXPORT_VALUE) => export,
+            _ => symbol,
+        };
+        self.binder.merged_symbol(symbol)
+    }
+
+    /// `getSymbolFlagsEx(symbol, excludeTypeOnlyMeanings: false,
+    /// excludeLocalMeanings: true)` (`checker.go:16367`): the meanings the
+    /// alias chain contributes, without the symbol's own. The walk is
+    /// [`Checker::get_symbol_flags`]'s; an unresolvable hop ends it there as
+    /// it does in that port (upstream's `unknownSymbol` answers `All`).
+    fn non_local_symbol_flags(&mut self, symbol: SymbolId) -> SymbolFlags {
+        let mut seen: Vec<SymbolId> = Vec::new();
+        let mut current = symbol;
+        let mut flags = SymbolFlags::empty();
+        while self.binder.symbols().get(current).flags.intersects(SymbolFlags::ALIAS) {
+            let Some(target) = self.resolve_alias(current) else { break };
+            let target = self.export_symbol_of_value_symbol_if_exported(target);
+            let target_flags = self.binder.symbols().get(target).flags;
+            if target_flags.intersects(SymbolFlags::ALIAS) {
+                if target == current || seen.contains(&target) {
+                    break;
+                }
+                if seen.is_empty() {
+                    seen.push(current);
+                }
+                seen.push(target);
+            }
+            flags |= target_flags;
+            current = target;
+        }
+        flags
+    }
+
+    /// `getTypeOnlyAliasDeclarationEx(symbol, meaning)` (`checker.go:2143`).
+    /// Upstream reads each hop's `aliasSymbolLinks.typeOnlyDeclaration`, which
+    /// `resolveAlias` publishes as the first type-only declaration on that
+    /// hop's own chain; [`Checker::type_only_alias_declaration_node`] answers
+    /// that for the first hop, so only the entry test on `meaning` remains.
+    fn type_only_alias_declaration_node_ex(
+        &mut self,
+        symbol: SymbolId,
+        meaning: SymbolFlags,
+    ) -> Option<NodeId> {
+        let flags = self.binder.symbols().get(symbol).flags;
+        if !flags.intersects(SymbolFlags::ALIAS) || flags.intersects(meaning) {
+            return None;
+        }
+        self.type_only_alias_declaration_node(symbol)
     }
 
     /// `getIsolatedModulesLikeFlagName` (`checker.go`).
