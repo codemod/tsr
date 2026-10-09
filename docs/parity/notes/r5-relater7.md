@@ -545,3 +545,22 @@ signature, contains `"lit"`). `string -> U` is now a correct NotRelated
 relation is right and the contextual literal is wrong (`contextual.rs`,
 main's: `isLiteralOfContextualType` through a union's index signature).
 Lands once that literal is kept; re-measure then.
+
+### 7a. Correction: two `symbol_chain.rs` tests pinned the old `Unknown`
+
+§7's commit (`de9d4ca`) was pushed with `tests/relater7_arms.rs` passing but
+without a full `cargo test --workspace` run; two rows of
+`tests/symbol_chain.rs` asserted the previous answer, as two tests did for
+r5-relater3 §6:
+- `function_namespace_copies_preserve_default_and_runtime_member_identity`:
+  the `import * as Head` copy of a function merged with a *value* namespace is
+  now Related to an empty global `Function`, which is native's (it returns
+  `any` through that Function). A plain function's copy, and one merged with
+  a type-only namespace (not a value module), stay `Unknown`.
+- `module_copy_calls_require_a_certified_empty_global_function`: for a
+  function merged with a namespace and a `Function` an object relates to
+  (`[key: string]: any`, own or inherited, or empty through a generic base),
+  `Head(1)`, `Twin(2)`, `Tail(3)` and `Linked(4)` are untyped calls (`any`).
+  Checked against native tsgo with `--noLib` and the test's own three files:
+  all four are `any` there (`declare const h: any` … in the emitted
+  declarations), `Raw(5)` is `string`.
