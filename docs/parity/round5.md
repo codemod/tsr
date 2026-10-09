@@ -954,3 +954,21 @@ object-mapper diffs land later, for +7.
 node. node_reuse.rs therefore moves from r5-mapped5 to a new owner,
 r5-nodereuse, which takes those lines together with r5-shapes' pseudochecker
 group.
+
+### r5-declared3: batch AC re-landed zero-loss
+
+r5-declared3's branch reverts the revert (`58ead272` and `b52e2e5`), adding
+r5-declared2's work back. It then fixes the batch-AC loss at its root.
+r5-declared2's decline used "the alias body does not evaluate" as a proxy for
+"a `typeof Class<T>` alias reference is a member-less mint". Once
+instantiation expressions landed, the proxy never fired. The decline is now
+narrowed to the real missing piece.
+
+Measured unfiltered on the current integration head:
+- +15 diagnostics cases and +118 type lines, with no losses;
+- slowcases clean;
+- Ir −3.6% on domain-model, from `.1066`'s guard and cache;
+- recursiveConditionalCrash3 finishes in 81 s, down from more than 120 s.
+
+Filed: `.1102`, the instantiation-expression cache ignoring alias frames, and
+`.1103`, the per-statement instantiation_count reset and TS2589's currentNode.
