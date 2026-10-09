@@ -1,0 +1,67 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index bd62f11..061b8f3 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3465,7 +3465,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+                             };
+                             let Some(id) = typedef.node_id else { continue };
+                             let scope = self.jsdoc_alias_scope(*host, root);
+-                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
++                            self.declare_jsdoc_type_alias(scope, root, name, id);
+                             // The tag's type expression is parsed syntax — a
+                             // `{{a: string}}` object carries members upstream
+                             // binds like any written type literal.
+@@ -3532,7 +3532,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+                             };
+                             let Some(id) = callback.node_id else { continue };
+                             let scope = self.jsdoc_alias_scope(*host, root);
+-                            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, id);
++                            self.declare_jsdoc_type_alias(scope, root, name, id);
+                             if let Some(expression) = callback.type_expression {
+                                 self.bind(tsr_ast::Node::from(expression));
+                             }
+@@ -3671,6 +3671,44 @@ impl<'a, 'n> Binder<'a, 'n> {
+         root
+     }
+ 
++    /// A `@typedef`/`@callback` alias. Native reparses it into a
++    /// `JSTypeAliasDeclaration`; at the top level of a JS module (ES or
++    /// CommonJS) bindBlockScopedDeclaration reaches declareModuleMember, whose
++    /// `hasExportModifier` admits IsImplicitlyExportedJSDocDeclaration
++    /// (`ast/utilities.go:4184`, `binder.go:375`): the alias is an export of
++    /// the module, with a local export marker, exactly as a written exported
++    /// type alias is (`import("./a").Foo` resolves it). Anywhere else it is a
++    /// block-scoped local (`r6-declared.md` §6).
++    fn declare_jsdoc_type_alias(
++        &mut self,
++        scope: NodeId,
++        root: NodeId,
++        name: &'a str,
++        declaration: NodeId,
++    ) {
++        let module = (scope == root && (self.is_module || self.commonjs_module))
++            .then_some(self.module_symbol)
++            .flatten();
++        let Some(module) = module else {
++            self.declare_jsdoc_symbol(scope, name, SymbolFlags::TYPE_ALIAS, declaration);
++            return;
++        };
++        let flags = SymbolFlags::TYPE_ALIAS;
++        let local = self.declare_into_with_excludes(
++            Destination::Locals,
++            root,
++            Some(module),
++            name,
++            SymbolFlags::empty(),
++            flags.excludes(),
++            declaration,
++        );
++        let exported =
++            self.declare_into(Destination::Exports, root, Some(module), name, flags, declaration);
++        self.symbols.get_mut(local).export_symbol = Some(exported);
++        self.node_symbols[declaration.index() - self.node_base] = Some(exported);
++    }
++
+     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
+     fn declare_jsdoc_symbol(
+         &mut self,

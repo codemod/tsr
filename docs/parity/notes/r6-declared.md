@@ -484,3 +484,37 @@ Those lines are not re-measured here.
 Left: `inference.rs` still passes `display` to
 `create_type_reference_with_display`, whose argument is now unread
 (r5-declared4 §5). The main lane can drop it; no behaviour change.
+
+## 6. JS value references and import types (r5-jsdoc5 T6): triage and one diff
+
+The 13 cases of r5-jsdoc5 T6 were re-read against `ebac88b`. Six still have
+non-RIGHT lines on the `declared.rs` side of the question. Their causes are
+elsewhere:
+
+| Case | Line(s) | Cause | Owner |
+|---|---|---|---|
+| `checkJsdocTypeTagOnExportAssignment1`/`5` | `a : import("./a").Foo` printed `any` | `/** @type {Foo} */ export default {…}`: the `@type` on an export assignment does not type the default export. No import type is involved. | JSDoc lane (`jsdoc_*.rs`) |
+| `jsDeclarationsUniqueSymbolUsage` | `import('./a').WithSymbol` printed `any` | The typedef is the file's last comment; the parser does not host typedefs on the EOF token (`withJSDoc(eof, …)`, parser.go:438) | parser (main), r5-jsdoc5 T8 |
+| `jsDeclarationsImportNamespacedType` | `import('./mod1').Dotted.Name` printed `any` | `Dotted` is exported, but the dotted typedef's `Name` is not in its exports | binder (main) |
+| `commonJSImportClassTypeReference`, `commonJSImportExportedClassExpression` | `k.values()` is `error` | `const { K } = require("./mod1")`: native's reparser makes `K` an import alias of the class. tsgo does not port getTypeFromJSDocValueReference at this pin (checker.go:23162, "!!! Resolving values as types for JS"); the alias does the work. | binder/reparser (main) |
+
+**Diff, held:**
+[`r6-declared-binder-jsdoc-typedef-export.diff`](r6-declared-binder-jsdoc-typedef-export.diff)
+(`binder.rs`). A top-level `@typedef`/`@callback` of a JS module (ES or
+CommonJS) is an export of the module, with a local export marker.
+bindBlockScopedDeclaration -> declareModuleMember treats
+IsImplicitlyExportedJSDocDeclaration as an export modifier
+(`ast/utilities.go:4184`, `binder.go:375`). The port filed it in locals only,
+so `import("./a").Foo` could not resolve it through `exports`.
+
+Measured unfiltered on `ebac88b`, without r6-printer's diff:
+- zero losses beyond §5's three known `Iterator<X>` lines, which need that
+  diff;
+- no verdict moves; slowcases clean.
+
+None of the probed cases converts with this diff alone. Each also needs its
+row above, the EOF host first. It is recorded so that work does not
+rediscover it.
+
+Nothing in `declared.rs` was changed for T6: every probed line answers from
+one of the owners above.
