@@ -906,8 +906,18 @@ impl<'a> Checker<'a, '_> {
 
     /// `pseudoTypeToType` (`pseudotypenodebuilder.go:689`) for the kinds
     /// whose type this port can read without checking an expression.
-    /// `Inferred` answers none: native's `getWidenedType(getRegularTypeOfExpression)`
-    /// is not asked at print time here (§2 of the lane note).
+    ///
+    /// `Inferred` is `getWidenedType(getRegularTypeOfExpression(node))`, read
+    /// from the expression cache as the literal leaf is: an expression the
+    /// check never typed answers none rather than being checked at print
+    /// time. `getWidenedType` is the identity unless the type
+    /// `ObjectFlagsRequiresWidening` ([`Checker::requires_widening`]). A
+    /// widening nullable widens to `any`. Any other such type answers its
+    /// image in `getWidenedType`'s root cache, and none when the check never
+    /// widened it, because widening it here would mint a type whose id
+    /// reorders later unions. A signature return is the return type of the
+    /// declaration's signature. `NoResult` answers none, as native's does.
+    /// (`docs/parity/notes/r6-nodereuse.md` §3.)
     fn pseudo_type_to_type(
         &mut self,
         pseudo: &crate::pseudochecker::PseudoType<'a>,
@@ -954,7 +964,29 @@ impl<'a> Checker<'a, '_> {
                     _ => self.get_union_type(&types),
                 }
             }
-            P::Inferred | P::SingleCallSignature { .. } | P::ObjectLiteral { .. } | P::Tuple(_) => {
+            P::Inferred(Some(source)) if source.signature_return => {
+                let signature = self.get_signature_from_declaration(source.node)?;
+                self.get_return_type_of_signature(&signature)?
+            }
+            P::Inferred(Some(source)) => {
+                let cached = *self.node_types.get(&source.node)?;
+                let regular = self.get_regular_type_of_literal_type(cached);
+                if !self.requires_widening(regular) {
+                    return Some(regular);
+                }
+                if self.intrinsics.is_widening_nullable(regular) {
+                    return Some(self.intrinsics.any);
+                }
+                // `getWidenedType`'s root cache: the image the check already
+                // made (a widened return or declaration type), else none.
+                [regular, cached]
+                    .into_iter()
+                    .find_map(|key| self.widened_object_types.get(&key).copied())?
+            }
+            P::Inferred(None)
+            | P::SingleCallSignature { .. }
+            | P::ObjectLiteral { .. }
+            | P::Tuple(_) => {
                 return None;
             }
         })
@@ -1047,7 +1079,10 @@ impl<'a> Checker<'a, '_> {
             // (`serializeTypeForDeclaration` / `serializeReturnTypeForSignature`
             // with no reuse), which is the slot's type here; so does a
             // structural kind admitted by error charity.
-            P::Inferred | P::SingleCallSignature { .. } | P::ObjectLiteral { .. } | P::Tuple(_) => {
+            P::Inferred(_)
+            | P::SingleCallSignature { .. }
+            | P::ObjectLiteral { .. }
+            | P::Tuple(_) => {
                 let site = cx.site?;
                 self.type_to_string_at(r#type, site)?
             }
@@ -1061,12 +1096,22 @@ impl<'a> Checker<'a, '_> {
             P::False => "false".to_string(),
             P::Literal(expression) => Self::reused_literal_text(Node::from(*expression))?,
             P::MaybeConst { node, constant, regular } => {
-                // The contextual-type consultation for a node the
-                // pseudochecker sees in a const context but the checker does
-                // not (`pseudotypenodebuilder.go:94`) is not ported: decline.
-                let in_const = self.is_const_context(*node);
+                // `pseudotypenodebuilder.go:94`: a node the pseudochecker
+                // sees in a const context and the checker does not consults
+                // its contextual type, and is printed as the const form when
+                // that form is a literal of the (instantiated) contextual
+                // type. `ContextFlagsNone` is the instantiation without
+                // `ContextFlagsSignature`.
+                let mut in_const = self.is_const_context(*node);
                 if !in_const && self.pseudo_is_in_const_context(*node) {
-                    return None;
+                    let contextual = self.get_contextual_type(*node);
+                    let candidate = self.pseudo_type_to_type(constant);
+                    if let (Some(contextual), Some(candidate)) = (contextual, candidate) {
+                        let instantiated =
+                            self.instantiate_contextual_type_without_signature(contextual, *node);
+                        in_const = self.is_literal_of_contextual_type(candidate, instantiated)
+                            == Some(true);
+                    }
                 }
                 let chosen = if in_const { constant } else { regular };
                 return self.pseudo_equivalent_node_text(chosen, r#type, cx);
@@ -1281,9 +1326,19 @@ impl<'a> Checker<'a, '_> {
                 K::Method { type_parameters, parameters, return_type } => {
                     // No single call signature on the target: native skips
                     // the method's validation (`continue`) and prints it from
-                    // syntax alone, with no checker type for an Inferred
-                    // part. This port declines that print.
-                    let signature = self.pseudo_single_call_signature(property_type)?;
+                    // syntax alone (`pseudotypenodebuilder.go:478`). There an
+                    // Inferred part serializes its declaration's own type
+                    // (`serializeTypeForDeclaration` of the parameter,
+                    // `serializeReturnTypeForSignature` of the method), so the
+                    // method declaration's own signature stands in for the
+                    // target. A Direct part is equivalent to it by
+                    // construction; a part that is not (an Inferred one whose
+                    // type requires widening) declines the literal instead of
+                    // printing what native prints.
+                    let signature = match self.pseudo_single_call_signature(property_type) {
+                        Some(signature) => signature,
+                        None => self.get_signature_from_declaration(element.declaration)?,
+                    };
                     if signature.predicate.is_some() {
                         return None;
                     }

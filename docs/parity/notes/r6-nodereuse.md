@@ -261,3 +261,127 @@ at creation (`PrintedSlot::on_demand`, then printed through
 checker keeps a node → resolved-symbol table, as native's
 `symbolNodeLinks.resolvedSymbol` does (`checker.rs`, main's). Neither is this
 lane's file. The CPU harness does not separate the cost from noise.
+
+## 3. r5-nodereuse2 §7's remainder
+
+### 3a. `Inferred` equivalence
+
+The port's pseudo tree folded native's `PseudoTypeKindInferred` and
+`PseudoTypeKindNoResult` into one bare `Inferred`. Its equivalence then held
+only through error charity. So a structure with an Inferred part, such as
+`() => (y: A) => y`, was serialized from its type, and the written `A` was
+lost.
+
+`PseudoType::Inferred` now carries native's fields (`InferredSource`): the
+node, `IsSignatureReturn`, and whether native records error nodes.
+`Inferred(None)` is NoResult. Every producer in `pseudochecker.rs` is mapped
+to native's choice:
+
+- `typeFromSingleReturnExpression`'s fallbacks are `Inferred(fn, true)`:
+  an async generator, a missing body, no single candidate, or a contextually
+  typed non-assertion.
+- A non-value signature is NoResult.
+- `typeFromExpression`'s default arm is `Inferred(expr)`. A class expression,
+  and an object or array literal that `canGetTypeFrom…` refuses, are Inferred
+  with errors.
+- The declarations' "fallback to NoResult if Inferred without error nodes"
+  is `PseudoType::or_no_result`.
+- A parameter initializer's Inferred, and a getter return's Inferred, have
+  their error moved up to the parameter or accessor (`lookup.go:669`, `:159`).
+
+`pseudo_type_to_type` maps an Inferred as `pseudoTypeToType` does
+(`pseudotypenodebuilder.go:697`):
+
+- A signature return is the return type of the declaration's signature.
+- An expression is `getWidenedType(getRegularTypeOfExpression(node))`, read
+  from the expression cache only (`node_types`), as the literal leaf already
+  is. The check typed the node, so nothing is checked at print time.
+- `getWidenedType` is the identity unless the type requires widening. A
+  widening nullable widens to `any`. Any other such type answers its image in
+  `getWidenedType`'s root cache (`widened_object_types`), which is the type
+  the check widened the return or declaration to. If no image is cached, it
+  answers none instead of minting one.
+
+The print of an Inferred part is unchanged: the slot's type at the site,
+which the equivalence just proved equal to the declaration's type. That is
+what native's `serializeTypeForDeclaration` and
+`serializeReturnTypeForSignature` print for it.
+
+tsgo confirms the cases, and
+`node_reuse_structural::an_inferred_member_of_a_structural_pseudo_type_is_its_checked_type`
+and `::an_inferred_fresh_literal_reads_the_widening_cache` pin them:
+
+- `() => (y: number) => y` prints `(y: number) => number`;
+- `() => (y: A) => y` prints `(y: A) => number`;
+- `() => (y: A) => ({ a: 1, ...p })` prints `(y: A) => { b: number; a: number; }`.
+
+**Falsifier for the cache read:** a fresh literal whose widened image the
+check never cached, printed where native reuses it. The port then serializes
+the structure from its type, which differs only if a sibling part carries a
+written spelling.
+
+### 3b. The `MaybeConst` contextual consultation
+
+`pseudotypenodebuilder.go:94` covers a node the pseudochecker sees in a
+const context and the checker does not. It asks the contextual type, and
+prints the const form when that form `isLiteralOfContextualType` of the
+instantiated contextual type. The port declined that print. It now asks
+`get_contextual_type`, `instantiate_contextual_type_without_signature`
+(`ContextFlagsNone`) and `is_literal_of_contextual_type`. Equivalence still
+reads only the checker's const context, which is native's
+`pseudoTypeToType`, so the consultation changes only the print.
+
+### 3c. A method whose target has no single call signature
+
+Native skips that method's validation (`continue`, `:478`) and prints it from
+syntax. Each Inferred part then serializes its declaration's own type: the
+parameter's `serializeTypeForDeclaration` and the method's
+`serializeReturnTypeForSignature`. The port declined. It now uses the method
+declaration's own signature (`get_signature_from_declaration`) as the target.
+That is the type each such print reads. A Direct part is equivalent to it by
+construction. A part that is not, an Inferred one whose widening is
+uncached, declines the literal rather than printing what native prints.
+
+### Measured (3a–3c together)
+
+The base is the item-2 stack: owned code plus all four call-site diffs. Both
+dumps are unfiltered; `slowcases` ran on both.
+
+- types: 0 gained, 0 lost; diagnostics: unchanged, 0 lost; slowcases: clean.
+- Only three lines change their printed text, and all three are WRONG
+  before and after. They are `declarationEmitTypeParameterNameShadowedInternally`
+  0:3, 0:4 and 0:10:
+  - native: `<T_1>(y: T_1) => readonly [T, T_1]`;
+  - before: `<T>(y: T) => readonly [T, T]`;
+  - now: `<T>(y: T) => readonly [T_1, T]`.
+
+  The `[x, y] as const` tuple of Inferred parts is now reused, as native
+  reuses it. The rest of the error is the signature printer's: it does not
+  rename the inner `T` at a site where the outer `T` is visible, and the
+  Inferred parts are named against the render scope that printer pushed. That
+  is `signature_to_string_at`'s site renaming (`signatures.rs`, r6-printer),
+  and it was wrong at the base too.
+- `cargo test --workspace --release` passes (3,493).
+- Ir: domain-model 1,092,326,464 against the item-2 stack's 1,092,220,478,
+  which measured 1,093,053,314 on a re-run (±0.08%); generic-imports
+  343,064,755 (−0.01%). Within noise.
+
+No corpus line exercises 3b or 3c alone. They are ported because §7 named
+them and native's arms are plain. Each now asks what native asks where the
+port used to decline.
+
+## 4. Remaining in the lane, with causes
+
+- **`declarationEmitTypeParameterNameShadowedInternally` (3 lines):** the
+  site renaming of a printed signature's own type parameters, in
+  `signatures.rs` (§3, r6-printer).
+- **The spreads hunk's +0.12% Ir (§2):** it needs on-demand spread member
+  text (`spreads.rs`/`objects.rs`) or a node → resolved-symbol table
+  (`checker.rs`).
+- **The structural visitor's own `typeParameterToName` allocation (§1):**
+  declining is exact today. It needs modelling only if a renamed entered
+  signature prints differently from the type's serialization.
+- **Unchanged from `r5-nodereuse.md` §5, all in other lanes' printers:**
+  `builtinIteratorReturn` (4), `divergentAccessors1` (4),
+  `declarationEmitPartialNodeReuseTypeReferences` (6) and
+  `mappedTypeTupleConstraintAssignability` (2).

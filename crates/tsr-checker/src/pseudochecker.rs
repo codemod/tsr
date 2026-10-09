@@ -326,14 +326,15 @@ impl<'a> Checker<'a, '_> {
 /// kind on its own; this tree is built only where they answer none, for the
 /// structural kinds and the leaves those contain.
 ///
-/// `Inferred` stands for both `PseudoTypeKindInferred` and
-/// `PseudoTypeKindNoResult`: the node builder's equivalence of either holds
-/// only through error-type charity in this port (`docs/parity/notes/r5-nodereuse2.md`
-/// §2), so the two need not be told apart.
+/// `Inferred(Some(_))` is `PseudoTypeKindInferred` with the node native
+/// records ([`InferredSource`]); `Inferred(None)` is `PseudoTypeKindNoResult`.
+/// The node builder needs the difference only for `pseudoTypeToType`, which
+/// maps an Inferred to the checked type of its node and a `NoResult` to none
+/// (`docs/parity/notes/r6-nodereuse.md` §3).
 #[derive(Debug, Clone)]
 pub(crate) enum PseudoType<'a> {
     Direct(TypeNode<'a>),
-    Inferred,
+    Inferred(Option<InferredSource>),
     Undefined,
     Null,
     String,
@@ -364,6 +365,48 @@ pub(crate) enum PseudoType<'a> {
         elements: Vec<PseudoObjectElement<'a>>,
     },
     Tuple(Vec<PseudoType<'a>>),
+}
+
+/// `PseudoTypeInferred`'s fields (`pseudochecker/type.go`): the expression
+/// whose checked type the pseudo type denotes, or, for a signature return
+/// (`IsSignatureReturn`), the function-like declaration whose return type it
+/// denotes; and whether native records error nodes on it
+/// (`NewPseudoTypeInferredWithErrors`), which decides whether a declaration
+/// keeps it or falls back to `NoResult`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InferredSource {
+    pub(crate) node: NodeId,
+    pub(crate) signature_return: bool,
+    pub(crate) errors: bool,
+}
+
+impl PseudoType<'_> {
+    /// `NewPseudoTypeInferred(node, isSignatureReturn)`. A node the parser
+    /// gave no id cannot be read back, so it answers `NoResult`.
+    fn inferred(node: Option<NodeId>, signature_return: bool) -> Self {
+        Self::Inferred(node.map(|node| InferredSource { node, signature_return, errors: false }))
+    }
+
+    /// `NewPseudoTypeInferredWithErrors(node, false, ...)`.
+    fn inferred_with_errors(node: Option<NodeId>) -> Self {
+        Self::Inferred(node.map(|node| InferredSource {
+            node,
+            signature_return: false,
+            errors: true,
+        }))
+    }
+
+    /// `PseudoTypeKindNoResult`.
+    const NO_RESULT: Self = Self::Inferred(None);
+
+    /// The declarations' "fallback to `NoResult` if `PseudoTypeKindInferred`
+    /// without error nodes" (`lookup.go:79`, `:111`, `:139`).
+    fn or_no_result(self) -> Self {
+        match self {
+            Self::Inferred(Some(source)) if !source.errors => Self::NO_RESULT,
+            other => other,
+        }
+    }
 }
 
 /// `pseudochecker.PseudoParameter` (`type.go:170`).
@@ -415,7 +458,7 @@ impl PseudoType<'_> {
     /// `CouldAlreadyReferToUndefinedType` (`lookup.go:578`).
     fn could_already_refer_to_undefined(&self) -> bool {
         match self {
-            Self::Inferred | Self::Undefined => true,
+            Self::Inferred(_) | Self::Undefined => true,
             Self::MaybeConst { constant, regular, .. } => {
                 matches!(**constant, Self::Undefined) || regular.could_already_refer_to_undefined()
             }
@@ -517,22 +560,24 @@ impl<'a> Checker<'a, '_> {
                     node.body.map(|FunctionBody::Block(block)| ConciseBody::Block(block)),
                 ),
                 Some(Node::ArrowFunction(node)) => (node.modifiers, false, node.body),
-                _ => return PseudoType::Inferred,
+                _ => return PseudoType::NO_RESULT,
             };
-        let Some(body) = body else { return PseudoType::Inferred };
+        let Some(body) = body else { return PseudoType::inferred(Some(declaration), true) };
         let is_async = modifiers.iter().any(|modifier| {
             matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
         });
         if is_async && asterisk {
-            return PseudoType::Inferred;
+            return PseudoType::inferred(Some(declaration), true);
         }
         let candidate = match body {
             ConciseBody::Block(block) => self.single_direct_return_expression(block),
             expression => Expression::try_from(Node::from(expression)).ok(),
         };
-        let Some(candidate) = candidate else { return PseudoType::Inferred };
+        let Some(candidate) = candidate else {
+            return PseudoType::inferred(Some(declaration), true);
+        };
         let Some(candidate_id) = Node::from(candidate).node_id() else {
-            return PseudoType::Inferred;
+            return PseudoType::inferred(Some(declaration), true);
         };
         if self.pseudo_is_contextually_typed(candidate_id) {
             let annotation = match candidate {
@@ -544,7 +589,7 @@ impl<'a> Checker<'a, '_> {
                 Some(annotation) if !crate::assertions::is_const_type_reference(annotation) => {
                     PseudoType::Direct(annotation)
                 }
-                _ => PseudoType::Inferred,
+                _ => PseudoType::inferred(Some(declaration), true),
             };
         }
         self.pseudo_type_of_expression(candidate)
@@ -553,16 +598,11 @@ impl<'a> Checker<'a, '_> {
     /// `GetTypeOfDeclaration` (`lookup.go:34`) for the declarations a printed
     /// property symbol can have, every kind.
     pub(crate) fn pseudo_type_of_declaration(&self, declaration: NodeId) -> PseudoType<'a> {
-        let keep = |expression: PseudoType<'a>| match expression {
-            // "fallback to NoResult if PseudoTypeKindInferred without error
-            // nodes"; both are `Inferred` here.
-            PseudoType::Inferred => PseudoType::Inferred,
-            other => other,
-        };
+        let keep = PseudoType::or_no_result;
         match self.node_map.get(declaration) {
             Some(Node::ParameterDeclaration(node)) => {
                 let Some(parent) = self.nodes.parent(declaration) else {
-                    return PseudoType::Inferred;
+                    return PseudoType::NO_RESULT;
                 };
                 let parameters = self.signature_parts_parameters(parent);
                 let index = parameters
@@ -576,27 +616,29 @@ impl<'a> Checker<'a, '_> {
                 )
             }
             Some(Node::PropertySignatureDeclaration(node)) => {
-                node.r#type.map_or(PseudoType::Inferred, PseudoType::Direct)
+                node.r#type.map_or(PseudoType::NO_RESULT, PseudoType::Direct)
             }
             // `typeFromProperty` (`lookup.go:98`).
             Some(Node::PropertyDeclaration(node)) => {
                 if let Some(annotation) = node.r#type {
                     return PseudoType::Direct(annotation);
                 }
-                let Some(initializer) = node.initializer else { return PseudoType::Inferred };
+                let Some(initializer) = node.initializer else { return PseudoType::NO_RESULT };
                 if self.pseudo_is_contextually_typed(declaration) {
-                    return PseudoType::Inferred;
+                    return PseudoType::NO_RESULT;
                 }
                 let readonly = node.modifiers.iter().any(|modifier| {
                     matches!(modifier, ModifierLike::Token(token) if token.kind == SyntaxKind::ReadonlyKeyword)
                 });
                 if readonly && matches!(initializer, Expression::TemplateExpression(_)) {
-                    return PseudoType::Inferred;
+                    return PseudoType::NO_RESULT;
                 }
                 let expression = keep(self.pseudo_type_of_expression(initializer));
                 let optional =
                     node.postfix_token.is_some_and(|token| token.kind == SyntaxKind::QuestionToken);
-                if !matches!(expression, PseudoType::Inferred | PseudoType::Direct(_)) && optional {
+                if !matches!(expression, PseudoType::Inferred(_) | PseudoType::Direct(_))
+                    && optional
+                {
                     return add_undefined_if_definitely_required(expression);
                 }
                 expression
@@ -606,17 +648,18 @@ impl<'a> Checker<'a, '_> {
                 if let Some(annotation) = node.r#type {
                     return PseudoType::Direct(annotation);
                 }
-                node.initializer
-                    .map_or(PseudoType::Inferred, |init| keep(self.pseudo_type_of_expression(init)))
+                node.initializer.map_or(PseudoType::NO_RESULT, |init| {
+                    keep(self.pseudo_type_of_expression(init))
+                })
             }
             // `typeFromVariable` (`lookup.go:124`).
             Some(Node::VariableDeclaration(node)) => {
                 if let Some(annotation) = node.r#type {
                     return PseudoType::Direct(annotation);
                 }
-                let Some(initializer) = node.initializer else { return PseudoType::Inferred };
+                let Some(initializer) = node.initializer else { return PseudoType::NO_RESULT };
                 let Some(symbol) = self.binder.symbol_of(declaration) else {
-                    return PseudoType::Inferred;
+                    return PseudoType::NO_RESULT;
                 };
                 let declarations = &self.binder.symbols().get(symbol).declarations;
                 let single = declarations.len() == 1
@@ -626,18 +669,18 @@ impl<'a> Checker<'a, '_> {
                         .count()
                         == 1;
                 if !single || self.pseudo_is_contextually_typed(declaration) {
-                    return PseudoType::Inferred;
+                    return PseudoType::NO_RESULT;
                 }
                 if matches!(initializer, Expression::TemplateExpression(_))
                     && self.nodes.parent(declaration).is_some_and(|list| {
                         self.nodes.flags(list).contains(tsr_ast::NodeFlags::CONST)
                     })
                 {
-                    return PseudoType::Inferred;
+                    return PseudoType::NO_RESULT;
                 }
                 keep(self.pseudo_type_of_expression(initializer))
             }
-            _ => PseudoType::Inferred,
+            _ => PseudoType::NO_RESULT,
         }
     }
 
@@ -670,7 +713,7 @@ impl<'a> Checker<'a, '_> {
         index: usize,
         last_required: usize,
     ) -> PseudoType<'a> {
-        let Some(id) = parameter.node_id else { return PseudoType::Inferred };
+        let Some(id) = parameter.node_id else { return PseudoType::NO_RESULT };
         if let Some(parent) = self.nodes.parent(id)
             && self.nodes.kind(parent) == SyntaxKind::SetAccessor
         {
@@ -688,13 +731,17 @@ impl<'a> Checker<'a, '_> {
             && matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(_)))
             && !self.pseudo_is_contextually_typed(id)
         {
-            let expression = self.pseudo_type_of_expression(initializer);
+            let mut expression = self.pseudo_type_of_expression(initializer);
+            // "Move error up to the parameter".
+            if let PseudoType::Inferred(Some(source)) = &mut expression {
+                source.errors = true;
+            }
             if !self.strict_null_checks || !has_required_after {
                 return expression;
             }
             return add_undefined_if_definitely_required(expression);
         }
-        PseudoType::Inferred
+        PseudoType::NO_RESULT
     }
 
     /// `cloneParameters` (`lookup.go:687`).
@@ -739,10 +786,13 @@ impl<'a> Checker<'a, '_> {
         {
             return PseudoType::Direct(annotation);
         }
-        match getter {
-            Some(getter) => self.pseudo_return_type(getter),
-            None => PseudoType::Inferred,
+        let Some(getter) = getter else { return PseudoType::NO_RESULT };
+        let mut result = self.pseudo_return_type(getter);
+        // "Move error up to the accessor".
+        if let PseudoType::Inferred(Some(source)) = &mut result {
+            source.errors = true;
         }
+        result
     }
 
     /// `ast.GetAllAccessorDeclarationsForDeclaration`: the first and second
@@ -788,6 +838,7 @@ impl<'a> Checker<'a, '_> {
 
     /// `typeFromExpression` (`lookup.go:262`), every kind.
     pub(crate) fn pseudo_type_of_expression(&self, expression: Expression<'a>) -> PseudoType<'a> {
+        let inferred = || PseudoType::inferred(Node::from(expression).node_id(), false);
         let maybe_const =
             |constant: PseudoType<'a>, regular: PseudoType<'a>| match Node::from(expression)
                 .node_id()
@@ -797,12 +848,12 @@ impl<'a> Checker<'a, '_> {
                     constant: Box::new(constant),
                     regular: Box::new(regular),
                 },
-                None => PseudoType::Inferred,
+                None => PseudoType::NO_RESULT,
             };
         match expression {
             Expression::OmittedExpression(_) => PseudoType::Undefined,
             Expression::ParenthesizedExpression(node) => {
-                node.expression.map_or(PseudoType::Inferred, |e| self.pseudo_type_of_expression(e))
+                node.expression.map_or(inferred(), |e| self.pseudo_type_of_expression(e))
             }
             Expression::Identifier(identifier) if identifier.text == "undefined" => {
                 PseudoType::Undefined
@@ -811,7 +862,7 @@ impl<'a> Checker<'a, '_> {
                 SyntaxKind::NullKeyword => PseudoType::Null,
                 SyntaxKind::TrueKeyword => maybe_const(PseudoType::True, PseudoType::Boolean),
                 SyntaxKind::FalseKeyword => maybe_const(PseudoType::False, PseudoType::Boolean),
-                _ => PseudoType::Inferred,
+                _ => inferred(),
             },
             Expression::ArrowFunction(_) | Expression::FunctionExpression(_) => {
                 self.pseudo_type_of_function_like_expression(expression)
@@ -820,13 +871,13 @@ impl<'a> Checker<'a, '_> {
                 (Some(operand), Some(annotation)) => {
                     self.pseudo_type_of_assertion(operand, annotation)
                 }
-                _ => PseudoType::Inferred,
+                _ => inferred(),
             },
             Expression::TypeAssertion(node) => match (node.expression, node.r#type) {
                 (Some(operand), Some(annotation)) => {
                     self.pseudo_type_of_assertion(operand, annotation)
                 }
-                _ => PseudoType::Inferred,
+                _ => inferred(),
             },
             // `typeFromPrimitiveLiteralPrefix` (`lookup.go:494`), behind
             // `IsPrimitiveLiteralValue(node, true)`.
@@ -848,7 +899,7 @@ impl<'a> Checker<'a, '_> {
                     {
                         maybe_const(PseudoType::Literal(expression), PseudoType::BigInt)
                     }
-                    _ => PseudoType::Inferred,
+                    _ => inferred(),
                 }
             }
             Expression::ArrayLiteralExpression(array) => self.pseudo_type_of_array_literal(array),
@@ -859,11 +910,7 @@ impl<'a> Checker<'a, '_> {
                 let in_const = Node::from(expression)
                     .node_id()
                     .is_some_and(|node| self.pseudo_is_in_const_context(node));
-                if in_const {
-                    PseudoType::Inferred
-                } else {
-                    maybe_const(PseudoType::Inferred, PseudoType::String)
-                }
+                if in_const { inferred() } else { maybe_const(inferred(), PseudoType::String) }
             }
             Expression::NumericLiteral(_) => {
                 maybe_const(PseudoType::Literal(expression), PseudoType::Number)
@@ -874,7 +921,11 @@ impl<'a> Checker<'a, '_> {
             Expression::BigIntLiteral(_) => {
                 maybe_const(PseudoType::Literal(expression), PseudoType::BigInt)
             }
-            _ => PseudoType::Inferred,
+            // "No possible annotation/directly mappable syntax".
+            Expression::ClassExpression(_) => {
+                PseudoType::inferred_with_errors(Node::from(expression).node_id())
+            }
+            _ => inferred(),
         }
     }
 
@@ -902,13 +953,13 @@ impl<'a> Checker<'a, '_> {
             Expression::FunctionExpression(node) => {
                 (node.full_signature, node.type_parameters, node.parameters)
             }
-            _ => return PseudoType::Inferred,
+            _ => return PseudoType::inferred(Node::from(expression).node_id(), false),
         };
         if let Some(full_signature) = full_signature {
             return PseudoType::Direct(full_signature);
         }
         let Some(declaration) = Node::from(expression).node_id() else {
-            return PseudoType::Inferred;
+            return PseudoType::NO_RESULT;
         };
         PseudoType::SingleCallSignature {
             type_parameters,
@@ -922,15 +973,15 @@ impl<'a> Checker<'a, '_> {
         &self,
         array: &'a tsr_ast::ArrayLiteralExpression<'a>,
     ) -> PseudoType<'a> {
-        let Some(id) = array.node_id else { return PseudoType::Inferred };
+        let Some(id) = array.node_id else { return PseudoType::NO_RESULT };
         // `canGetTypeFromArrayLiteral`.
         if !self.pseudo_is_in_const_context(id)
             || array.elements.iter().any(|element| matches!(element, Expression::SpreadElement(_)))
         {
-            return PseudoType::Inferred;
+            return PseudoType::inferred_with_errors(Some(id));
         }
         if self.pseudo_is_contextually_typed(id) {
-            return PseudoType::Inferred;
+            return PseudoType::inferred(Some(id), false);
         }
         PseudoType::Tuple(
             array.elements.iter().map(|&element| self.pseudo_type_of_expression(element)).collect(),
@@ -942,13 +993,13 @@ impl<'a> Checker<'a, '_> {
         &self,
         object: &'a tsr_ast::ObjectLiteralExpression<'a>,
     ) -> PseudoType<'a> {
-        let Some(literal) = object.node_id else { return PseudoType::Inferred };
+        let Some(literal) = object.node_id else { return PseudoType::NO_RESULT };
         if !self.can_get_pseudo_type_of_object_literal(object) {
-            return PseudoType::Inferred;
+            return PseudoType::inferred_with_errors(Some(literal));
         }
         let mut elements = Vec::with_capacity(object.properties.len());
         for &element in object.properties {
-            let Some(declaration) = element.node_id() else { return PseudoType::Inferred };
+            let Some(declaration) = element.node_id() else { return PseudoType::NO_RESULT };
             match element {
                 tsr_ast::ObjectLiteralElementLike::MethodDeclaration(method) => {
                     let optional = method
@@ -982,7 +1033,7 @@ impl<'a> Checker<'a, '_> {
                             .is_some_and(|token| token.kind == SyntaxKind::QuestionToken),
                         kind: PseudoObjectElementKind::PropertyAssignment {
                             readonly: false,
-                            r#type: assignment.initializer.map_or(PseudoType::Inferred, |init| {
+                            r#type: assignment.initializer.map_or(PseudoType::NO_RESULT, |init| {
                                 self.pseudo_type_of_expression(init)
                             }),
                         },
@@ -1000,7 +1051,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 tsr_ast::ObjectLiteralElementLike::ShorthandPropertyAssignment(_)
                 | tsr_ast::ObjectLiteralElementLike::SpreadAssignment(_) => {
-                    return PseudoType::Inferred;
+                    return PseudoType::inferred_with_errors(Some(literal));
                 }
             }
         }

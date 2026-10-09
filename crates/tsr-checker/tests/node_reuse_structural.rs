@@ -79,11 +79,38 @@ fn a_returned_function_is_a_single_call_signature_scoped_by_the_printed_signatur
 }
 
 #[test]
-fn an_inferred_member_of_a_structural_pseudo_type_refuses_it() {
+fn an_inferred_member_of_a_structural_pseudo_type_is_its_checked_type() {
     // `(y: number) => y` returns an identifier, which the pseudochecker
-    // answers Inferred; this port does not ask its widened expression type
-    // (§2), so the structure is serialized from the type.
-    assert_eq!(reused_return("const f = () => (y: number) => y;\nf;").0, None);
+    // answers Inferred. `pseudoTypeToType` is the widened checked type of `y`,
+    // which is the signature's return type, so the structure is reused and
+    // its Inferred part prints that type (`docs/parity/notes/r6-nodereuse.md`
+    // §3). tsgo: `() => (y: number) => number`.
+    assert_eq!(
+        reused_return("const f = () => (y: number) => y;\nf;").0.as_deref(),
+        Some("(y: number) => number")
+    );
+    // The reuse keeps the written parameter alias that the type's own
+    // serialization loses. tsgo: `() => (y: A) => number`.
+    assert_eq!(
+        reused_return("type A = number;\nconst g = () => (y: A) => y;\ng;").0.as_deref(),
+        Some("(y: A) => number")
+    );
+}
+
+#[test]
+fn an_inferred_fresh_literal_reads_the_widening_cache() {
+    // `{ a: 1, ...p }` cannot be a pseudo object literal (a spread), so it is
+    // Inferred. Its `getWidenedType` is the image the arrow's return already
+    // widened to, read from the widening cache. tsgo:
+    // `() => (y: A) => { b: number; a: number; }`.
+    assert_eq!(
+        reused_return(
+            "declare const p: { b: number };\ntype A = number;\nconst h = () => (y: A) => ({ a: 1, ...p });\nh;"
+        )
+        .0
+        .as_deref(),
+        Some("(y: A) => { b: number; a: number; }")
+    );
 }
 
 #[test]
