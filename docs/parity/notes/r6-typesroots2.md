@@ -12,10 +12,15 @@ diff removes the allowance. Native source is `vendor/typescript-go` @
 
 ## 0. Baseline and setup
 
-Frozen base: `e2a7b73` (tip of `claude/beautiful-shannon-ar5gh0` at
-dispatch). Batch BL (r6-typesroots) had not landed there, so its seven
-diffs are **not** in this base; §6 says how this lane's diffs compose with
-them.
+Frozen base, first: `e2a7b73` (tip of `claude/beautiful-shannon-ar5gh0`
+at dispatch, before batch BL). Every measurement in §2, §3 and §5 was taken
+there first. Batch BL (r6-typesroots) then landed, and the brief freezes the
+base at the tip once it has: **re-frozen at `e6eadf4`** (types 550,221 RIGHT
+/ 5,324 WRONG / 758 GAP of 556,303; diagnostics 12,238 cases; Ir
+domain-model 1,092,128,580, generic-imports 343,045,098; coverage
+checker_types 8,542 of 9,538, diagnostics 4,689 of 5,502). The branch merges
+that tip, and both diffs were re-measured on it (§6): each gives the same
+transitions there as on `e2a7b73`.
 
 - types 550,122 RIGHT / 5,413 WRONG / 768 GAP of 556,303;
 - diagnostics: 12,238 cases;
@@ -338,9 +343,8 @@ print-context owner in the printer lane, not this anchor.
 
 ## 6. Diffs, in apply order
 
-Every diff applies to `e2a7b73` plus this branch's commits. Hooks are placed
-so that none shares context lines with r6-typesroots' seven diffs
-(`r6-typesroots.md`, "Diffs, in apply order"); they apply in either order.
+Every diff applies to this branch's tip (`e6eadf4` merged, plus this lane's
+commits). The held diff applies there too.
 
 1. `r6-typesroots2-import-type-value-meaning.diff` (§3): `declared.rs`
    (r6-declared), `instantiation_expressions.rs` (r6-declared),
@@ -351,6 +355,15 @@ so that none shares context lines with r6-typesroots' seven diffs
    (main), `node_reuse.rs` (no owner), `signatures.rs` (r6-lazytext),
    `render_scope_resolution.rs`, tests. +37 types, zero losses. Independent
    of 1.
+
+**Re-measured on `e6eadf4`** (batch BL landed). Each alone gives the same
+transitions as on `e2a7b73`. The stack 1+2: types **+67** (58 WRONG→RIGHT,
+9 GAP→RIGHT; 4 GAP→WRONG, §3), diagnostics **+2**, **zero losses** on both
+dumps, slowcases clean, `cargo test --workspace --release` passes. Ir
+×1.00073 domain-model, ×1.00011 generic-imports. Coverage: checker_types
+8,542 → **8,556** of 9,538 (89.56% → 89.70%), lines 473,297 → 473,358;
+checker_types_configured 1,722 → 1,724; diagnostics 4,689 → **4,691** of
+5,502. Neither diff shares context lines with batch BL's landed hooks.
 
 Held, not for application:
 `r6-typesroots2-HELD-conditional-node-consumers.diff` (§2, `declared.rs`):
