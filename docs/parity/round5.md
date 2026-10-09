@@ -1173,3 +1173,22 @@ each blocked on a file outside the lane:
 
 r5-relater8 takes the remaining relater arms (`tsr-2zk.1124`) and `.1065`'s
 TS2321.
+
+### r5-config finished (batch AY); r5-isolated dispatched
+
+r5-config fixed two pieces of plumbing:
+- the harness reads `message TS` baseline headers;
+- the loader ports the JSX module indicator.
+
+It also lands three measured diffs:
+- checkAliasSymbol's isolatedModules/verbatimModuleSyntax arms: +4 diagnostics
+  rows;
+- the `/.src` compile root together with relative `import("./x")` naming
+  (`.1087`): +8 type lines. The harness half alone loses 356 lines, so the two
+  halves land together;
+- `GetEmitModuleKind`, verdict-neutral.
+
+Its triage found the checker's option reads faithful apart from module kind.
+The 25 option-gated rules it found are routed: the isolatedModules export and
+reference arms to `tsr-2zk.1125` (r5-isolated), the exactOptionalPropertyTypes
+arms to `tsr-2zk.1126`. `.1108` and `.1087` are closed.
