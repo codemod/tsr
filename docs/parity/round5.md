@@ -1269,3 +1269,23 @@ from main `17265fac`, with ten boxes taking round 5's handoff:
 
 Main's own claims stay untouched: `.11.5`, `.16.2`, `.17`, `.17.1`, `.22`,
 `.38`, `.39`, `.4.12`, `.7.8` and `.9.7`.
+
+### r6-checkperf finished; r6-names dispatched
+
+- **main-park** (calls.rs, perf_links.rs) lands: getResolvedSignature's
+  resolving park, read only by the call link. jsTyping check Ir is −1.5%,
+  with both dumps byte-identical. Parking `resolving_signature_calls` itself
+  was refused: −2 diagnostics and −18 type lines, because contextual.rs's
+  readers answer `any` on that park.
+- **The JSDoc-deferral diff and ADR-0051 are held.** They port withJSDoc's
+  TS-file deferral: dm Ir −10.8%, gi −34.4%; TSR/tsgo gi 0.903 → 0.662,
+  dm 0.789 → 0.729; dumps byte-identical. This is `tsr-2zk.17.1`, which
+  main's owner has claimed, so it waits on that owner.
+- **Item 3 refused:** the composite-name decline is now 431 declines and 61 M
+  Ir on jsTyping, so it is not a byte-identical lever.
+- **Fat LTO, measured only:** dml 0.745 → 0.692, gi 0.686 → 0.628.
+- **0.50 is not met.** dm's check phase has no checker function above 2.1%
+  self, and the allocator is 16%: `tsr-2zk.1092`, a between-rounds single
+  owner.
+
+r6-names takes the slot with TS2304/TS2552 (`tsr-2zk.1133`).
