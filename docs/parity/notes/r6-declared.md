@@ -283,6 +283,21 @@ gains 23 lines, but loses `asyncAwaitIsolatedModules_es2017`/`_es5`/`_es6`
 The diff's `expressions.rs` half asks `is_error`, which counts the unresolved
 mint, as native asks `isErrorType`.
 
+The whole diff (`declared.rs` ES-import road plus `expressions.rs`), measured
+unfiltered on `861e945`:
+- without the binder diff: **types +21, zero losses**:
+  - `asyncAwaitIsolatedModules_es2017`/`_es5`/`_es6`, 5 lines each;
+  - `decoratorMetadataTypeOnlyImport:0:1`;
+  - `isolatedDeclarationErrorTypes1:0:9`;
+  - `unusedInvalidTypeArguments:2:1`;
+  - `defaultExportsCannotMerge01/02/03:1:3`.
+
+  Diagnostics unchanged and slowcases clean.
+- with the binder diff: `moduleAugmentationImportsAndExports3:3:4` is RIGHT,
+  so the binder diff's remaining losses are only ramda's six lines below.
+
+`expressions.rs` is not this lane's file, so the integrator lands it.
+
 **`ramdaToolsNoInfinite2:0:448/449/485/490/491/492`: other lanes.**
 - 485 and 490-492 print a defaulted argument native elides (`_Drop<…, "->">`,
   `List<any>`). That is `tsr-2zk.1115`'s print arity (§5).
