@@ -441,3 +441,27 @@ now scans one token through the module host's source text
 (`Checker::first_token_span`, the same scan `grammar_error_on_first_token`
 does), on the diagnostic path only. No cache, no traversal. A host without
 text keeps the statement span.
+
+## §19 Related information: `createDiagnosticForNode` with a file image; TS2403/TS2717's "also declared here"
+
+Native related records are `NewDiagnosticForNode` diagnostics carrying their
+own `*SourceFile`. The checker had no way to build one: `Diagnostic` locates a
+detail record through an `Arc<DiagnosticFile>` (name, text, line starts), and
+no checker site attached any. `Checker::diagnostic_for_node` is
+`createDiagnosticForNode` (`checker.go:14258`): `error_span(node)` in the
+node's file plus that file's image.
+
+Side table `Checker::diagnostic_files` (convention record):
+- native operation: `NewDiagnosticForNode`'s `ast.GetSourceFileOfNode(node)`
+  pointer; no native cache, the `SourceFile` already owns its text and line map.
+- identity/owner: `SourceFile` node id of this checker's `NodeTable` ->
+  image built from `ModuleHost::file_path` + `source_text`; private to the
+  Checker, lifetime of the Checker.
+- publication: absent (never asked) or complete; a host without name or text
+  publishes nothing and the caller attaches no record.
+- work boundary: one text copy and line-start scan per file that carries a
+  related record, on the diagnostic path only; never on a query path.
+
+First consumer: `errorNextVariableOrPropertyDeclarationMustHaveSameType`
+(`checker.go:5949`) adds `'{0}' was also declared here.` (TS6203) at
+`symbol.ValueDeclaration` under TS2403/TS2717.

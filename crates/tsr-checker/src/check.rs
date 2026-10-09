@@ -9285,10 +9285,16 @@ impl Checker<'_, '_> {
         } else {
             &messages::SUBSEQUENT_VARIABLE_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_VARIABLE_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
         };
-        self.report(
-            file,
-            Diagnostic::with_args(message, span, [text.to_string(), first_text, next_text]),
-        );
+        let mut diagnostic =
+            Diagnostic::with_args(message, span, [text.to_string(), first_text, next_text]);
+        // `errorNextVariableOrPropertyDeclarationMustHaveSameType`
+        // (`checker.go:5956`): the first declaration is related.
+        diagnostic.add_related_information(self.diagnostic_for_node(
+            primary,
+            &messages::_0_WAS_ALSO_DECLARED_HERE,
+            [text.to_string()],
+        ));
+        self.report(file, diagnostic);
     }
 
     /// `isGlobalSymbolConstructor`: the node is a declaration of the global
@@ -14640,6 +14646,34 @@ impl Checker<'_, '_> {
             return tsr_core::Span::at(self.missing_node_full_start(node, span.start));
         }
         span
+    }
+
+    /// `createDiagnosticForNode` (`checker.go:14258`) for an independently
+    /// located record (related information): `error_span(node)` in the
+    /// node's own file, with that file's image attached
+    /// ([`Checker::diagnostic_files`]). `None` when the host cannot name or
+    /// read the file; the caller then attaches nothing.
+    pub(crate) fn diagnostic_for_node(
+        &mut self,
+        node: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        args: impl IntoIterator<Item = String>,
+    ) -> Option<Diagnostic> {
+        let file = self.source_file_of_for_diagnostics(node)?;
+        let image = if let Some(image) = self.diagnostic_files.get(&file) {
+            image.clone()
+        } else {
+            let host = self.module_host?;
+            let name = host.file_path(file)?;
+            let text = host.source_text(file, self.nodes)?;
+            let image =
+                std::sync::Arc::new(tsr_diagnostics::format::DiagnosticFile::new(name, text));
+            self.diagnostic_files.insert(file, image.clone());
+            image
+        };
+        let mut diagnostic = Diagnostic::with_args(message, self.error_span(node), args);
+        diagnostic.set_file(image);
+        Some(diagnostic)
     }
 
     /// `GetErrorRangeForNode`'s `KindReturnStatement, KindYieldExpression`

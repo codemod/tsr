@@ -124,6 +124,17 @@ pub struct Checker<'a, 'n> {
     /// which is every call site the `checker_types` gradient runs through: the
     /// traversal is a second entry point, never a side effect of a query.
     pub(crate) diagnostics: Vec<(NodeId, tsr_diagnostics::Diagnostic)>,
+    /// Source images for independently located related information
+    /// (`Checker::diagnostic_for_node`): native `NewDiagnosticForNode` stores
+    /// the node's `*SourceFile`; this port's `Diagnostic` carries an
+    /// `Arc<DiagnosticFile>` (name, text, line starts). Key: `SourceFile`
+    /// node id of this checker's `NodeTable`; value built once from
+    /// `ModuleHost::file_path`/`source_text` on first use, on the diagnostic
+    /// path only, and shared by every related record in that file. Absent =
+    /// never asked; a host without a name or text publishes nothing and the
+    /// caller attaches no related record. `docs/parity/notes/decls.md` §19.
+    pub(crate) diagnostic_files:
+        FxHashMap<NodeId, std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>>,
     /// `symbol -> its type`, upstream's `valueSymbolLinks[symbol].resolvedType`.
     pub(crate) symbol_types: FxHashMap<SymbolId, TypeId>,
     /// Native `InitializerIsUndefinedComputed` / `InitializerIsUndefined`:
@@ -1438,6 +1449,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             regular_types: FxHashMap::default(),
             enum_member_owners: FxHashMap::default(),
             diagnostics: Vec::new(),
+            diagnostic_files: FxHashMap::default(),
             symbol_types,
             parameter_initializer_contains_undefined: FxHashMap::default(),
             this_expando_kinds: FxHashMap::default(),
