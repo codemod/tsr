@@ -53,7 +53,9 @@ impl TypeLiteralKey {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ConditionalInferenceNode {
-    declaration: NodeId,
+    /// The conditional type node; read by the relater (r6-relater,
+    /// `conditionalTypeAssignabilityWhenDeferred`).
+    pub(crate) declaration: NodeId,
     bindings: rustc_hash::FxHashMap<SymbolId, TypeId>,
 }
 
@@ -9634,14 +9636,27 @@ impl<'a> Checker<'a, '_> {
     /// wildcard's relation. A failed instantiation answers `error` for both,
     /// which [`Checker::definite_conditional_outcome`] defers.
     fn conditional_extends_instantiations(&mut self, extends: TypeId) -> Option<(TypeId, TypeId)> {
+        // `permissiveInstantiation` and `restrictiveInstantiation` are cached
+        // on the type (getPermissiveInstantiation, getRestrictiveInstantiation):
+        // one pair per extends type (`r6-declared.md` §2.2).
+        if let Some(&cached) = self.instantiation_expressions.conditional_extends.get(&extends) {
+            return cached;
+        }
+        let answer = self.conditional_extends_instantiations_worker(extends);
+        self.instantiation_expressions.conditional_extends.insert(extends, answer);
+        answer
+    }
+
+    fn conditional_extends_instantiations_worker(
+        &mut self,
+        extends: TypeId,
+    ) -> Option<(TypeId, TypeId)> {
         if !self.mentions_registered_type_parameter(extends) {
             return None;
         }
         let candidates: Vec<TypeId> = self.type_parameter_symbols.keys().copied().collect();
-        let mentioned: Vec<TypeId> = candidates
-            .into_iter()
-            .filter(|&parameter| self.mentions_type_parameter(extends, &[parameter], &[]))
-            .collect();
+        let mut mentioned = Vec::new();
+        self.collect_mentioned_type_parameters(extends, &candidates, &mut mentioned);
         let names: Vec<String> =
             mentioned.iter().map(|&parameter| self.type_to_string(parameter)).collect();
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
@@ -9665,6 +9680,32 @@ impl<'a> Checker<'a, '_> {
             return Some((error, error));
         }
         Some((permissive, restrictive))
+    }
+
+    /// The candidates `extends` mentions, in candidate order. One graph walk
+    /// per candidate made every conditional evaluation linear in the whole
+    /// type-parameter registry (`ramdaToolsNoInfinite2` spent its 25 s here,
+    /// `r6-declared.md` §2.2). Native's permissive and restrictive mappers are
+    /// built once over the type's parameters. A walk asks a whole slice at
+    /// once and a slice no node mentions is dropped whole, so the cost is
+    /// O(k log n) walks for k mentioned of n candidates. The answer is
+    /// exactly the per-candidate filter's.
+    fn collect_mentioned_type_parameters(
+        &self,
+        extends: TypeId,
+        candidates: &[TypeId],
+        mentioned: &mut Vec<TypeId>,
+    ) {
+        if candidates.is_empty() || !self.mentions_type_parameter(extends, candidates, &[]) {
+            return;
+        }
+        if let [single] = candidates {
+            mentioned.push(*single);
+            return;
+        }
+        let (left, right) = candidates.split_at(candidates.len() / 2);
+        self.collect_mentioned_type_parameters(extends, left, mentioned);
+        self.collect_mentioned_type_parameters(extends, right, mentioned);
     }
 
     /// FALSE when even the permissive extends type rejects the check, TRUE when

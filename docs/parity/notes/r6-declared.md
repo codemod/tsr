@@ -309,3 +309,42 @@ unfiltered on `861e945`:
 diff, but it takes 25 s in the diagnostics dump and 5.8 s in the types dump.
 At the base it took 0.24 s and 0.17 s, and native takes 0.4 s. slowcases
 flags it SLOWER, so the binder diff stays held on time as well (§2.2).
+
+### 2.2 The binder diff's time: one conditional, one registry walk
+
+With the binder diff, `ramdaToolsNoInfinite2` took 31 s through the CLI. gdb
+stack samples put every one of them in `mentions_type_parameter_inner`,
+called from `conditional_extends_instantiations`. That function found the
+type parameters a conditional's extends type mentions by running one full
+graph walk per registered type parameter, the whole registry, on every
+conditional evaluation. Native computes getPermissiveInstantiation and
+getRestrictiveInstantiation once per type and caches them on the type
+(`permissiveInstantiation`, `restrictiveInstantiation`).
+
+Ported:
+- `conditional_extends_instantiations` memoizes its `(permissive,
+  restrictive)` pair, or `None`, per extends `TypeId`.
+  `InstantiationExpressionLinks::conditional_extends` is written once per
+  type and never invalidated.
+- The mentioned set is found by order-preserving bisection over the
+  candidates (`collect_mentioned_type_parameters`). One walk asks a whole
+  slice, and a slice nobody mentions is dropped, so the cost is O(k log n)
+  walks for k mentioned parameters of n candidates. The answer is exactly the
+  per-candidate filter's, in the same order. `mentions_type_parameter`'s
+  walker is `inference.rs`'s, and asking a slice is its public form.
+
+CLI on the case with the binder diff: 31.4 s -> 2.5 s (bisection) -> 2.1 s
+(memo); native takes 0.4 s. Dumps with the binder diff: diagnostics 26 s ->
+1.7 s, types 5.4 s -> 1.2 s. slowcases still flags it SLOWER against the base
+(0.24 s / 0.17 s): the base never resolved the case's imports, so it did not
+evaluate the aliases at all. What is left is spread over the eager alias
+road, with no single hot spot.
+
+Without the binder diff, unfiltered: zero losses, slowcases clean, gains
+unchanged (`exportEqualsProperty2:0:1`, §2.1). Ir against §2.1's commit:
+domain-model 1,089,529,559 -> 1,089,344,728 (-0.02%), generic-imports
+343,057,790 -> 343,074,440 (+0.005%).
+
+Also in this commit, at r6-relater's request:
+`ConditionalInferenceNode::declaration` is `pub(crate)`, for
+`conditionalTypeAssignabilityWhenDeferred` 41/65. No behaviour change.

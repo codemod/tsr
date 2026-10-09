@@ -80,6 +80,13 @@ pub(crate) struct InstantiationExpressionLinks {
     /// printed text) -> mint`, written once when the mint is made, never
     /// invalidated (`r6-declared.md` §2).
     pub(crate) deferred_keyof_mints: rustc_hash::FxHashMap<(TypeId, String), TypeId>,
+    /// getPermissiveInstantiation / getRestrictiveInstantiation's per-type
+    /// caches for a conditional's extends type, read by
+    /// `Checker::conditional_extends_instantiations` (declared.rs): `extends
+    /// -> (permissive, restrictive)`, or `None` when it mentions no type
+    /// parameter. Written once per type, never invalidated
+    /// (`r6-declared.md` §2.2).
+    pub(crate) conditional_extends: rustc_hash::FxHashMap<TypeId, Option<(TypeId, TypeId)>>,
     /// `isTypeParameterPossiblyReferenced(tp, node)` (checker.go:22403),
     /// keyed `(declaration node, type-parameter symbol)`: the filter
     /// getObjectTypeInstantiation applies once per declaration and stores in
