@@ -5770,6 +5770,10 @@ impl<'a> Checker<'a, '_> {
     /// written type arguments (the instantiated print is its own row).
     fn get_type_from_import_type_node(&mut self, node: &tsr_ast::ImportTypeNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
+        // The unqualified type-meaning arm (`crate::import_type_meaning`).
+        if let Some(answer) = self.unqualified_import_type_meaning(node) {
+            return answer;
+        }
         if node.is_type_of || !node.type_arguments.is_empty() {
             return error;
         }

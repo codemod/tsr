@@ -2196,6 +2196,11 @@ impl<'a, 'n> Checker<'a, 'n> {
                 return None;
             }
         }
+        // The instance side of `export_equals_class_text_at`, after the
+        // module-clone guard (`crate::import_type_meaning`).
+        if let Some(text) = self.export_equals_class_instance_text_at(id, reference) {
+            return Some(text);
+        }
         let module = match &self.store.get(id).data {
             crate::types::TypeData::Anonymous { symbol, .. } => {
                 let symbol = *symbol;

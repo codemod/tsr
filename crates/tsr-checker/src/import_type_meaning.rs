@@ -25,7 +25,6 @@ use crate::types::TypeId;
 impl<'a> Checker<'a, '_> {
     /// The type of an unqualified, non-`typeof` import type node, or `None`
     /// where this port does not answer (the caller keeps its gap).
-    #[expect(dead_code, reason = "consumer: r6-typesroots-import-type-meaning.diff")]
     pub(crate) fn unqualified_import_type_meaning(
         &mut self,
         node: &tsr_ast::ImportTypeNode<'a>,
@@ -62,7 +61,6 @@ impl<'a> Checker<'a, '_> {
     ///
     /// Non-generic classes only: a reference's arguments would follow the
     /// specifier, and this port has no instance of that in reach.
-    #[expect(dead_code, reason = "consumer: r6-typesroots-import-type-meaning.diff")]
     pub(crate) fn export_equals_class_instance_text_at(
         &mut self,
         id: TypeId,
