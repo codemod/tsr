@@ -629,3 +629,14 @@ answer is the literal's contextual property type. `get_contextual_type` had no
 arm, so `const kind = "a"; invoke({ kind, method(a) {…} })` widened `kind` to
 `string` where tsgo keeps `"a"` (`contextuallyTypedByDiscriminableUnion`).
 No state.
+
+## 31. A gap callee gives its arguments no context (tsr-2zk.31)
+
+`contextual_type_for_argument`'s resolving road answered `any` for a callee
+typed `Intrinsics::error`, as if it were upstream's `errorType`
+(`resolveErrorCall`, `checker.go:9902`). `error` is this port's gap marker
+(ADR-0048); native's `errorType` is `Intrinsics::native_error`, which (with
+untyped callees) keeps the `any` answer. A gap callee now answers `None`
+(unknown context): `import.defer("./a.js").then(ns => …)`, whose
+`import.defer` call this port does not type, no longer hands `ns` a
+fabricated `any` context (native types `then` from `Promise`). No state.
