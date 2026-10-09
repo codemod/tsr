@@ -175,6 +175,7 @@ mod merged_export_spaces;
 mod module_exports;
 mod module_format;
 pub mod module_specifiers;
+mod name_slots;
 mod name_suggestion;
 pub mod node_reuse;
 pub mod nonexistent_property;
