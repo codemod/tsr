@@ -1764,15 +1764,10 @@ impl<'a, 'n> Checker<'a, 'n> {
                 options.emit_script_target() >= tsr_core::ScriptTarget::ES2022
             }
         };
-        self.module_kind = if options.module == tsr_core::ModuleKind::None {
-            if options.target >= tsr_core::ScriptTarget::ES2015 {
-                tsr_core::ModuleKind::ES2015
-            } else {
-                tsr_core::ModuleKind::CommonJS
-            }
-        } else {
-            options.module
-        };
+        // `c.moduleKind = c.compilerOptions.GetEmitModuleKind()`
+        // (`checker.go:915`): the ladder over the *emit* target, so an unset
+        // target (ES2025) gives ES2022, not CommonJS. `r5-config.md` §3.
+        self.module_kind = options.emit_module_kind();
         // `getAllowSyntheticDefaultImports`: explicit wins; else
         // `esModuleInterop` (explicit only — its own Node16+ default is the
         // §131 Node16/NodeNext exclusion's business); else `module == System`.
