@@ -189,6 +189,7 @@ pub mod printing;
 mod private_setter_read;
 mod pseudochecker;
 pub mod readonly_target;
+mod reference_arity;
 mod reference_target;
 pub mod relater;
 mod relation_cache;
