@@ -7415,7 +7415,13 @@ impl<'a> Checker<'a, '_> {
         let mapper: Vec<_> = parameters.iter().copied().zip(arguments.iter().copied()).collect();
         let mut instantiated = Vec::with_capacity(constituents.len());
         for constituent in constituents {
-            let image = self.instantiate_type(constituent, &mapper, &parameters, &names);
+            let mut image = self.instantiate_type(constituent, &mapper, &parameters, &names);
+            if self.is_error(image)
+                && let Some(conditional) =
+                    self.conditional_constituent_instantiation(constituent, symbol, arguments)
+            {
+                image = conditional;
+            }
             if self.is_error(image) {
                 return None;
             }
@@ -7423,6 +7429,44 @@ impl<'a> Checker<'a, '_> {
         }
         let result = self.get_intersection_type(&instantiated, None);
         (!self.is_error(result)).then_some(result)
+    }
+
+    /// getConditionalTypeInstantiation (checker.go:22485) for a deferred
+    /// conditional constituent of an intersection alias's body, where
+    /// `instantiate_type` declines. The constituent records its conditional
+    /// node and captured bindings (`ConditionalInferenceNode`). Instantiating
+    /// it with the alias's mapper is evaluating that node under those
+    /// bindings plus the alias's parameters bound to `arguments`. A check type
+    /// that stays generic gives the deferred conditional, as native defers it
+    /// (`conditionalTypesExcessProperties`, `r6-declared.md` §4).
+    fn conditional_constituent_instantiation(
+        &mut self,
+        constituent: TypeId,
+        alias: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if !self.store.get(constituent).flags.contains(TypeFlags::CONDITIONAL) {
+            return None;
+        }
+        let captured = self.conditional_inference_nodes.get(&constituent)?.clone();
+        let Some(Node::ConditionalTypeNode(conditional)) = self.node_map.get(captured.declaration)
+        else {
+            return None;
+        };
+        let mut frame = captured.bindings;
+        for (parameter, &argument) in self.local_type_parameters_of(alias).iter().zip(arguments) {
+            frame.insert(parameter.node_id.and_then(|id| self.binder.symbol_of(id))?, argument);
+        }
+        if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
+            return None;
+        }
+        self.instantiation_count += 1;
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let image = self.get_type_from_type_node(TypeNode::ConditionalTypeNode(conditional));
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        (!self.is_error(image)).then_some(image)
     }
 
     /// Whether the alias's written body contains a type reference that

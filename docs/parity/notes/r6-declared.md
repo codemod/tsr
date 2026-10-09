@@ -381,3 +381,48 @@ rows report now.
 
 The conformance cases are the falsifier. A unit test cannot show it, since
 the print is the same before and after.
+
+## 4. `conditionalTypesExcessProperties`: `Something<A>` is the intersection
+
+**Forcing constraint.** Native reports TS2322 at both assignments in
+
+```ts
+type Something<T> = { test: string } & (T extends object ? { arg: T } : { arg?: undefined });
+function testFunc2<A extends object>(a: A, sa: Something<A>) {
+    sa = { test: 'hi', arg: a };
+}
+```
+
+because `Something<A>` is `{ test: string } & (A extends object ? … : …)`.
+The conditional is deferred: its check type is a type parameter. Traced with
+a temporary relation print, the port's `Something<A>` was a member-less
+`Named` mint, related as Related with no walk. `instantiate_intersection_alias`
+gave up because `instantiate_type` (`inference.rs`) answers `error` for the
+deferred conditional constituent.
+
+**Port.** `conditional_constituent_instantiation`: when `instantiate_type`
+declines on a CONDITIONAL constituent that records its node
+(`ConditionalInferenceNode`), the constituent is instantiated as
+getConditionalTypeInstantiation does. Its node is evaluated under the
+captured bindings plus the alias's parameters bound to the arguments, with
+instantiateTypeWithAlias' depth and count guard. A check type that stays
+generic gives the deferred conditional. `Something<A>` is now an INTERSECTION
+of `{ test: string }` and that conditional.
+
+**Not converted yet; two pieces remain.**
+- The relation to a deferred conditional target answers `Unknown`. Even
+  `sa = { arg: a }` against an inline `A extends object ? { arg: A } :
+  { arg?: undefined }` is silent, where native's conditional-target arm
+  (isDistributionDependent, then both branches) answers False. That is
+  `relater.rs`, r6-relater's lane.
+- The constituent under frames keeps the written text (`T extends object ?
+  …`) rather than `A extends object ? …`. That is the conditional typed print,
+  r5-mapped6's held diff (§1.1), which waits on lazy branch text
+  (`tsr-2zk.1135`).
+
+**Measured** (unfiltered, against §0, this change alone on `b81a7f1`): no
+verdict moves, zero losses, slowcases clean. Ir domain-model 1,089,283,795 ->
+1,089,348,302, generic-imports 343,062,841 -> 343,061,841 (noise). The
+falsifier is the case itself once the relater arm lands. Until then a
+`Something<A>` that still related as Related would show the old name mint
+again.
