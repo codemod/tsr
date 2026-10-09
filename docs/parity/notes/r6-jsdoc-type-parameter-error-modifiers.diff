@@ -1,26 +1,17 @@
 diff --git a/crates/tsr-checker/src/signatures.rs b/crates/tsr-checker/src/signatures.rs
-index 26229ce..12a8b9c 100644
+index 26229ce..139d220 100644
 --- a/crates/tsr-checker/src/signatures.rs
 +++ b/crates/tsr-checker/src/signatures.rs
-@@ -6350,13 +6350,17 @@ impl<'a> Checker<'a, '_> {
-     /// One type parameter, or `None` for a form this port cannot print exactly.
-     fn type_parameter_of(&mut self, node: &TypeParameterDeclaration<'a>) -> Option<TypeParameter> {
-         // §33: exactly the `const` modifier is admitted (and printed);
--        // variance modifiers still decline the signature whole.
-+        // variance modifiers still decline the signature whole. Any other
-+        // modifier is a grammar error (TS1273) that `getTypeParameterModifiers`
-+        // masks away (`relater.go:1440`): it neither prints nor declines.
-         let mut is_const = false;
-         for modifier in node.modifiers {
-             match modifier {
-                 ModifierLike::Token(token) if token.kind == SyntaxKind::ConstKeyword => {
+@@ -6358,4 +6358,9 @@ impl<'a> Checker<'a, '_> {
                      is_const = true;
                  }
++                // Any other modifier is a grammar error (TS1273) that
++                // `getTypeParameterModifiers` masks away (`relater.go:1440`):
++                // it neither prints nor declines.
 +                ModifierLike::Token(token)
 +                    if !matches!(token.kind, SyntaxKind::InKeyword | SyntaxKind::OutKeyword) => {}
                  _ => return None,
              }
-         }
 diff --git a/crates/tsr-checker/tests/type_parameter_error_modifiers.rs b/crates/tsr-checker/tests/type_parameter_error_modifiers.rs
 new file mode 100644
 index 0000000..8f573e8

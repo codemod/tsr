@@ -1,0 +1,332 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index a6e9ee7..f2f7790 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3457,14 +3457,21 @@ impl<'a, 'n> Binder<'a, 'n> {
+                 for tag in doc.tags {
+                     match tag {
+                         JSDocTag::JSDocTypedefTag(typedef) => {
++                            let Some(id) = typedef.node_id else { continue };
++                            let scope = self.jsdoc_alias_scope(*host, root);
+                             let name = match typedef.name {
+                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
+                                     identifier.text
+                                 }
+-                                _ => continue,
++                                Some(tsr_ast::JSDocFullName::ModuleDeclaration(full_name)) => {
++                                    self.declare_jsdoc_namespaced_alias(root, scope, full_name, id);
++                                    if let Some(expression) = typedef.type_expression {
++                                        self.bind(expression);
++                                    }
++                                    continue;
++                                }
++                                None => continue,
+                             };
+-                            let Some(id) = typedef.node_id else { continue };
+-                            let scope = self.jsdoc_alias_scope(*host, root);
+                             let name_node = match typedef.name {
+                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
+                                     identifier.node_id
+@@ -3530,14 +3537,21 @@ impl<'a, 'n> Binder<'a, 'n> {
+                             }
+                         }
+                         JSDocTag::JSDocCallbackTag(callback) => {
++                            let Some(id) = callback.node_id else { continue };
++                            let scope = self.jsdoc_alias_scope(*host, root);
+                             let name = match callback.name {
+                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
+                                     identifier.text
+                                 }
+-                                _ => continue,
++                                Some(tsr_ast::JSDocFullName::ModuleDeclaration(full_name)) => {
++                                    self.declare_jsdoc_namespaced_alias(root, scope, full_name, id);
++                                    if let Some(expression) = callback.type_expression {
++                                        self.bind(tsr_ast::Node::from(expression));
++                                    }
++                                    continue;
++                                }
++                                None => continue,
+                             };
+-                            let Some(id) = callback.node_id else { continue };
+-                            let scope = self.jsdoc_alias_scope(*host, root);
+                             let name_node = match callback.name {
+                                 Some(tsr_ast::JSDocFullName::Identifier(identifier)) => {
+                                     identifier.node_id
+@@ -3702,16 +3716,44 @@ impl<'a, 'n> Binder<'a, 'n> {
+         if let Some(name_node) = name_node {
+             self.name_nodes.push((declaration, name_node));
+         }
++        let symbol = self.declare_jsdoc_module_member(
++            root,
++            scope,
++            name,
++            SymbolFlags::TYPE_ALIAS,
++            declaration,
++        );
++        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
++    }
++
++    /// `bindBlockScopedDeclaration` / `declareModuleMember` for a declaration
++    /// the reparser emits in `scope`: in a module's own scope it is
++    /// implicitly exported (a local carrying `ExportValue` for a value, no
++    /// flags otherwise, and the export symbol, which is returned); elsewhere
++    /// it is a local.
++    fn declare_jsdoc_module_member(
++        &mut self,
++        root: NodeId,
++        scope: NodeId,
++        name: &'a str,
++        flags: SymbolFlags,
++        declaration: NodeId,
++    ) -> SymbolId {
+         if scope == root
+             && let Some(module) = self.module_symbol
+         {
++            let export_value = if flags.intersects(SymbolFlags::VALUE) {
++                SymbolFlags::EXPORT_VALUE
++            } else {
++                SymbolFlags::empty()
++            };
+             let local = self.declare_into_with_excludes(
+                 Destination::Locals,
+                 root,
+                 Some(module),
+                 name,
+-                SymbolFlags::empty(),
+-                SymbolFlags::TYPE_ALIAS.excludes(),
++                export_value,
++                flags.excludes(),
+                 declaration,
+             );
+             let exported = self.declare_into(
+@@ -3719,22 +3761,82 @@ impl<'a, 'n> Binder<'a, 'n> {
+                 root,
+                 Some(module),
+                 name,
+-                SymbolFlags::TYPE_ALIAS,
++                flags,
+                 declaration,
+             );
+             self.symbols.get_mut(local).export_symbol = Some(exported);
+-            self.node_symbols[declaration.index() - self.node_base] = Some(exported);
+-            return;
++            return exported;
+         }
+-        let symbol = self.declare_into(
+-            Destination::Locals,
+-            scope,
+-            None,
+-            name,
++        self.declare_into(Destination::Locals, scope, None, name, flags, declaration)
++    }
++
++    /// A `@typedef`/`@callback` named `A.B.C`: the alias `C` the reparser
++    /// wraps in `namespace A { export namespace B { export type C = … } }`
++    /// (`wrapInJSDocNamespace`, `parser/reparser.go:729`; the alias itself
++    /// takes `createExportModifier`, `:81`), bound as written namespaces bind:
++    /// `A` in `scope` (implicitly exported from a module's own scope,
++    /// `IsImplicitlyExportedJSDocDeclaration`'s reparsed-namespace arm), each
++    /// inner namespace and the alias in its parent's exports. A namespace
++    /// holding only types is a `NamespaceModule`.
++    fn declare_jsdoc_namespaced_alias(
++        &mut self,
++        root: NodeId,
++        scope: NodeId,
++        full_name: &'a tsr_ast::ModuleDeclaration<'a>,
++        declaration: NodeId,
++    ) {
++        // `parse_jsdoc_type_name_with_namespace`: every declaration with a
++        // body is a namespace; the body-less last one names the alias.
++        let mut namespaces = Vec::new();
++        let mut current = full_name;
++        while let Some(tsr_ast::ModuleBody::ModuleDeclaration(inner)) = current.body {
++            namespaces.push(current);
++            current = inner;
++        }
++        let Some(tsr_ast::ModuleName::Identifier(leaf)) = current.name else { return };
++        let mut owner: Option<(SymbolId, NodeId)> = None;
++        for namespace in namespaces {
++            let (Some(tsr_ast::ModuleName::Identifier(name)), Some(id)) =
++                (namespace.name, namespace.node_id)
++            else {
++                return;
++            };
++            if let Some(name_node) = name.node_id {
++                self.name_nodes.push((id, name_node));
++            }
++            let symbol = match owner {
++                None => self.declare_jsdoc_module_member(
++                    root,
++                    scope,
++                    name.text,
++                    SymbolFlags::NAMESPACE_MODULE,
++                    id,
++                ),
++                Some((parent, parent_node)) => self.declare_into(
++                    Destination::Exports,
++                    parent_node,
++                    Some(parent),
++                    name.text,
++                    SymbolFlags::NAMESPACE_MODULE,
++                    id,
++                ),
++            };
++            self.node_symbols[id.index() - self.node_base] = Some(symbol);
++            owner = Some((symbol, id));
++        }
++        let Some((parent, parent_node)) = owner else { return };
++        if let Some(name_node) = leaf.node_id {
++            self.name_nodes.push((declaration, name_node));
++        }
++        let alias = self.declare_into(
++            Destination::Exports,
++            parent_node,
++            Some(parent),
++            leaf.text,
+             SymbolFlags::TYPE_ALIAS,
+             declaration,
+         );
+-        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
++        self.node_symbols[declaration.index() - self.node_base] = Some(alias);
+     }
+ 
+     /// A binding of the `JSImportDeclaration` an `@import` tag reparses into
+diff --git a/crates/tsr-binder/tests/jsdoc_namespaced_aliases.rs b/crates/tsr-binder/tests/jsdoc_namespaced_aliases.rs
+new file mode 100644
+index 0000000..779486e
+--- /dev/null
++++ b/crates/tsr-binder/tests/jsdoc_namespaced_aliases.rs
+@@ -0,0 +1,39 @@
++//! A dotted `@callback`/`@typedef` name binds as namespaces holding the
++//! alias, pinned to 5b1047d1: `parseJSDocTypeNameWithNamespace`
++//! (`parser/jsdoc.go:992`) and `wrapInJSDocNamespace`
++//! (`parser/reparser.go:729`). `docs/parity/notes/r6-jsdoc.md` §10.
++
++use tsr_ast::NodeFlags;
++use tsr_binder::{BindResult, FileInfo, SymbolFlags};
++use tsr_core::Arena;
++
++#[test]
++fn a_dotted_callback_name_is_namespaces_holding_the_alias() {
++    let source = "/**\n * @callback NS.Nested.Inner\n * @param {Object} space\n * @return {string}\n */\nvar x = 1;\n";
++    let arena = Arena::new();
++    let mut parsed = tsr_parser::parse_with_options(
++        &arena,
++        source,
++        tsr_parser::ParseOptions::for_file("namespaced.js"),
++    );
++    assert!(parsed.diagnostics.is_empty());
++    let root = parsed.source_file.node_id.expect("registered source file");
++    parsed.nodes.add_flags(root, NodeFlags::JAVASCRIPT_FILE);
++    let docs: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        FileInfo { name: "namespaced.js", text: source },
++        &docs,
++    );
++    assert!(bound.diagnostics().is_empty());
++    let ns = bound.lookup_local(root, "NS").expect("NS is a local");
++    assert!(bound.symbols().get(ns).flags.contains(SymbolFlags::NAMESPACE_MODULE));
++    let nested = *bound.symbols().get(ns).exports.get("Nested").expect("NS exports Nested");
++    assert!(bound.symbols().get(nested).flags.contains(SymbolFlags::NAMESPACE_MODULE));
++    let inner = *bound.symbols().get(nested).exports.get("Inner").expect("Nested exports Inner");
++    assert!(bound.symbols().get(inner).flags.contains(SymbolFlags::TYPE_ALIAS));
++    assert_eq!(bound.lookup_local(root, "Inner"), None);
++}
+diff --git a/crates/tsr-parser/src/jsdoc.rs b/crates/tsr-parser/src/jsdoc.rs
+index 510e6cf..de45d26 100644
+--- a/crates/tsr-parser/src/jsdoc.rs
++++ b/crates/tsr-parser/src/jsdoc.rs
+@@ -758,11 +758,7 @@ impl<'a> Parser<'a> {
+     ) -> tsr_ast::JSDocTag<'a> {
+         let mut type_expression = self.try_parse_type_expression().map(Node::from);
+         self.skip_whitespace_or_asterisk();
+-        let name = if self.at_jsdoc_identifier() {
+-            Some(tsr_ast::JSDocFullName::Identifier(self.parse_jsdoc_identifier_name()))
+-        } else {
+-            None
+-        };
++        let name = self.parse_jsdoc_type_name_with_namespace();
+         self.skip_whitespace();
+         let mut comment = self.parse_tag_comments(margin);
+ 
+@@ -866,12 +862,10 @@ impl<'a> Parser<'a> {
+         margin: u32,
+         indent_text: &'a str,
+     ) -> tsr_ast::JSDocTag<'a> {
+-        let name = if self.at_jsdoc_identifier() {
+-            Some(tsr_ast::JSDocFullName::Identifier(self.parse_jsdoc_identifier_name()))
+-        } else {
++        let name = self.parse_jsdoc_type_name_with_namespace();
++        if name.is_none() {
+             self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+-            None
+-        };
++        }
+         self.skip_whitespace();
+         let mut comment = self.parse_tag_comments(margin);
+         let signature_start = self.pos();
+@@ -893,6 +887,60 @@ impl<'a> Parser<'a> {
+         ))
+     }
+ 
++    /// `parseJSDocTypeNameWithNamespace` (`parser/jsdoc.go:992`): a
++    /// typedef's or callback's name, `A.B.C` read as namespace `A` holding
++    /// namespace `B` holding the alias `C`.
++    ///
++    /// Native's innermost `ModuleDeclaration` takes the last identifier as its
++    /// `Body`; this AST's `ModuleBody` holds only a block or a declaration,
++    /// so the last segment is a body-less `ModuleDeclaration` named `C` —
++    /// the shape `getInnermostNameOfJSDocNamespace` (`reparser.go:707`)
++    /// already reads as "the name is this declaration's name". The binder
++    /// declares namespaces for every segment but that last one.
++    fn parse_jsdoc_type_name_with_namespace(&mut self) -> Option<tsr_ast::JSDocFullName<'a>> {
++        if !self.at_jsdoc_identifier() {
++            return None;
++        }
++        let start = self.pos();
++        let name = self.parse_jsdoc_identifier_name();
++        if !self.eat_jsdoc(SyntaxKind::DotToken) {
++            return Some(tsr_ast::JSDocFullName::Identifier(name));
++        }
++        let body = self.parse_jsdoc_type_name_with_namespace().map(|body| match body {
++            tsr_ast::JSDocFullName::ModuleDeclaration(module) => module,
++            tsr_ast::JSDocFullName::Identifier(inner) => {
++                let span = self.span_of(inner.node_id);
++                let keyword = self.alloc_token(SyntaxKind::NamespaceKeyword, Span::at(span.start));
++                self.finish_node_with_end(
++                    tsr_ast::ModuleDeclaration::new(
++                        &[],
++                        keyword,
++                        Some(tsr_ast::ModuleName::Identifier(inner)),
++                        None,
++                        None,
++                    ),
++                    SyntaxKind::ModuleDeclaration,
++                    span.start,
++                    span.end,
++                )
++            }
++        });
++        let keyword = self.alloc_token(SyntaxKind::NamespaceKeyword, Span::at(start));
++        let end = self.pos();
++        Some(tsr_ast::JSDocFullName::ModuleDeclaration(self.finish_node_with_end(
++            tsr_ast::ModuleDeclaration::new(
++                &[],
++                keyword,
++                Some(tsr_ast::ModuleName::Identifier(name)),
++                body.map(tsr_ast::ModuleBody::ModuleDeclaration),
++                None,
++            ),
++            SyntaxKind::ModuleDeclaration,
++            start,
++            end,
++        )))
++    }
++
+     /// `parseJSDocSignature` (`parser/jsdoc.go:1121`) followed by
+     /// `reparseJSDocSignature`'s `KindJSDocCallbackTag` arm
+     /// (`parser/reparser.go:142`): the callback parameters, then one

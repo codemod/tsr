@@ -432,3 +432,81 @@ other two:
   `strict: false`), zero losses, `slowcases` clean, Ir 1,092,127,431 /
   343,065,099 (noise). Test `nonstrict_declared_nullable.rs`, checked
   against `tsgo`'s declaration output.
+
+## 10. Dotted `@callback`/`@typedef` names, and the held type-as-namespace diff
+
+**Forcing fact.** r5-smallcodes3's
+[`r5-smallcodes3-type-as-namespace.diff`](r5-smallcodes3-type-as-namespace.diff)
+(`checkAndReportErrorForUsingTypeAsNamespace`, `checker.go:1608`) measured
++3/−1: its loss was a false TS2702 at `callbackTagNamespace`'s `@type
+{NS.Nested.Inner}`, because `@callback NS.Nested.Inner` declared a type alias
+named `NS`. Native reads the name with `parseJSDocTypeNameWithNamespace`
+(`parser/jsdoc.go:992`) and the reparser wraps the alias `Inner` (exported,
+`createExportModifier`) in `namespace NS { export namespace Nested { … } }`
+(`wrapInJSDocNamespace`, `parser/reparser.go:729`); the outermost namespace
+is implicitly exported from a module's own scope
+(`IsImplicitlyExportedJSDocDeclaration`'s reparsed-namespace arm).
+
+**Diff** [`r6-jsdoc-namespaced-aliases.diff`](r6-jsdoc-namespaced-aliases.diff),
+**applied after** §7's and §8's diffs (it extends §7's
+`declare_jsdoc_alias`):
+
+- parser: `parse_jsdoc_type_name_with_namespace` for typedef and callback
+  names. **Judgment call:** native's innermost `ModuleDeclaration` holds the
+  last identifier as its `Body`, which this AST's `ModuleBody` cannot; the
+  last segment is a body-less `ModuleDeclaration` named by it, the shape
+  `getInnermostNameOfJSDocNamespace` (`reparser.go:707`) already reads as
+  "the name is this declaration's name". Falsifier: a corpus `@typedef {T}
+  A.` (a dangling dot), where native wraps an alias named `A` in namespace
+  `A`; this shape reads it as an alias `A` with no namespace.
+- binder: `declare_jsdoc_namespaced_alias` declares each namespace
+  (`NamespaceModule`: only types) — the outermost through
+  `declare_jsdoc_module_member` (§7's module/local rule, generalized to any
+  flags), each inner one and the alias in its parent's exports.
+
+**Measured** (on §7+§8's state, unfiltered): no verdict moves alone; zero
+losses against that state and the frozen base; `jsDeclarationsImportNamespacedType`'s
+`import('./mod1').Dotted.Name` now resolves (`any` → the alias, toward
+native's `number`); `slowcases` clean. Ir domain-model 1,092,197,112
+(+0.005%), generic-imports 343,074,215 (+0.007%).
+`tsr-binder/tests/jsdoc_namespaced_aliases.rs` (in the diff): one test,
+failing without it.
+
+**The held diff, re-measured** on that state plus this diff: **+3 / −0**
+diagnostics cases (`decoratorMetadataWithImportDeclarationNameCollision7`,
+`errorForUsingPropertyOfTypeAsType02`, `invalidUseOfTypeAsNamespace`;
+`errorForUsingPropertyOfTypeAsType03` +4 expected rows, still WRONG on its
+TS2749) — `callbackTagNamespace` stays EMPTY_RIGHT, as r5-smallcodes3's
+falsifier asked. Zero losses against the frozen base; `slowcases` clean. It
+applies unchanged after this diff.
+
+**Left.** `callbackTagNamespace`'s three type lines: `@type
+{NS.Nested.Inner}` resolves, but a *qualified* reference to a function-type
+alias keeps no signatures — the TypeScript twin (`const f: NS.Nested.Inner =
+(space, peace) => "1"` with a written namespace) prints `error` too, so this
+is `declared.rs`' qualified-alias mint (`signature_candidates_of_named_type`
+returns unresolved for a type-alias member table), not JSDoc.
+
+## 11. Apply order and totals
+
+All thirteen diffs apply in this order on this branch, build without
+warnings and pass `cargo fmt --check`:
+
+1. `r6-jsdoc-js-alias-types.diff`
+2. `r6-jsdoc-jsdoc-declarations.diff` (after 1)
+3. `r6-jsdoc-eof-host.diff` (after 2)
+4. `r6-jsdoc-namespaced-aliases.diff` (after 2–3)
+5. `r5-smallcodes3-type-as-namespace.diff` (after 4)
+6. `r6-jsdoc-overload.diff`
+7. `r6-jsdoc-js-return-union.diff` (after 6)
+8. `r6-jsdoc-return-predicates.diff`
+9. `r6-jsdoc-generic-callback.diff`
+10. `r6-jsdoc-template-grammar.diff`
+11. `r6-jsdoc-plain-js-merge.diff`
+12. `r6-jsdoc-nonstrict-declared-nullable.diff`
+13. `r6-jsdoc-type-parameter-error-modifiers.diff` (re-cut so its context
+    no longer includes `type_parameter_of`'s signature line, which 6 changes;
+    the hunk is the same match arm)
+
+Each was measured alone (or on the diffs it is marked as following) against
+the frozen base, so the numbers add only where the rows are disjoint.
