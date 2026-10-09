@@ -3877,7 +3877,7 @@ impl Checker<'_, '_> {
     /// `isInCompoundLikeAssignment` (`internal/checker/utilities.go:118`): a
     /// definite `=` whose right side (parentheses skipped) is a
     /// shift-or-higher binary — `x = x + 1` reads its target like `x += 1`.
-    fn is_in_compound_like_assignment(&self, id: NodeId) -> bool {
+    pub(crate) fn is_in_compound_like_assignment(&self, id: NodeId) -> bool {
         let Some(target) = self.assignment_target(id) else { return false };
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(target) else {
             return false;
