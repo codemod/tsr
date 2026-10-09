@@ -602,6 +602,29 @@ impl<'a> Parser<'a> {
                 }
                 SyntaxKind::QuestionDotToken => {
                     let question_dot = self.take_token();
+                    if matches!(
+                        self.token.kind,
+                        SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead
+                    ) {
+                        // `parseMemberExpressionRest`'s
+                        // `isTemplateStartOfTaggedTemplate` arm with a
+                        // `questionDotToken`: `a?.`b`` is a tagged template in
+                        // an optional chain, which the checker rejects (TS1358).
+                        let template = self.parse_template_literal(true);
+                        let node = self.finish_node(
+                            TaggedTemplateExpression::new(
+                                Some(expression),
+                                Some(question_dot),
+                                &[],
+                                Some(template),
+                            ),
+                            SyntaxKind::TaggedTemplateExpression,
+                            start,
+                        );
+                        self.mark_optional_chain(node.node_id(), true);
+                        expression = Expression::TaggedTemplateExpression(node);
+                        continue;
+                    }
                     if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
                         // `a?.<T>()` — type arguments after the optional-chain dot.
                         let type_arguments = if self.at(SyntaxKind::LessThanToken) {

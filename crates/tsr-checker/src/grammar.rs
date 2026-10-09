@@ -176,6 +176,26 @@ impl Checker<'_, '_> {
     /// `c.error` rather than `grammarErrorOnNode`, so they stand whether or not
     /// the file has parse diagnostics.
     pub(crate) fn check_parser_lane_statement(&mut self, typed: Node<'_>) {
+        // `checkGrammarTaggedTemplateChain` (`grammarchecks.go:859`), from
+        // `checkTaggedTemplateExpression`: TS1358 on the template of a tagged
+        // template in an optional chain.
+        if let Node::TaggedTemplateExpression(tagged) = typed
+            && !self.file_has_parse_errors
+            && let Some(id) = tagged.node_id
+            && (tagged.question_dot_token.is_some()
+                || self.nodes.flags(id).contains(tsr_ast::NodeFlags::OPTIONAL_CHAIN))
+            && let Some(template) = tagged.template.and_then(|template| template.node_id())
+            && let Some(file) = self.source_file_of_for_diagnostics(template)
+        {
+            let span = self.error_span(template);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::TAGGED_TEMPLATE_EXPRESSIONS_ARE_NOT_PERMITTED_IN_AN_OPTIONAL_CHAIN,
+                    span,
+                ),
+            );
+        }
         // `Checker.checkPropertyDeclaration` (`checker.go:2709`): TS1267, an
         // abstract property with an initializer, on the property's name.
         if let Node::PropertyDeclaration(property) = typed

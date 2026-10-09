@@ -573,3 +573,7 @@ per-file flag must become per-node.
   before it (return type, last parameter, last type parameter, or the arrow's
   start), only when that text holds a line break. It runs behind the
   parameter-list check, which now returns whether it reported.
+- `a?.`b`` (`parseMemberExpressionRest` with a `questionDotToken`): a
+  template after `?.` is a tagged template in the optional chain; the checker
+  reports TS1358 on its template (`checkGrammarTaggedTemplateChain`), also
+  for a tag that is itself a chain (`a?.b`c``).
