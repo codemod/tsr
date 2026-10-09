@@ -1129,10 +1129,20 @@ impl<'a, 'n> Binder<'a, 'n> {
             // excluded. A non-alias target resolves to itself, and the excludes
             // test above already passed, so upstream merges and there is
             // nothing to report (`misc-checks.md` §19).
-            if target_flags.intersects(SymbolFlags::ALIAS) && !assignment {
-                self.alias_merges.push((target, source));
+            if target_flags.intersects(SymbolFlags::ALIAS) {
+                if !assignment {
+                    self.alias_merges.push((target, source));
+                }
+                return;
             }
-            return;
+            // A non-alias target is its own `resolveSymbol`, so upstream's
+            // second excludes test is the one above and it merges
+            // (`checker.go:14153-14159`): a script's `import q = Q` into an
+            // earlier script's `var q` yields one `Variable | Alias` symbol
+            // whose type is the variable's (`getTypeOfSymbol` tests
+            // `Variable` before `Alias`). Only an alias *target* needs a
+            // resolution this binder cannot make (r5-errorsplit6 §5,
+            // `duplicateVarsAcrossFileBoundaries`).
         }
 
         // `recordMergedSymbol(target, source)` (`internal/checker/checker.go:14372`),
