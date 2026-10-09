@@ -81,6 +81,13 @@ mod property_slot {
         /// progress (the accessor's own, or a variable whose initializer holds
         /// the literal) — a re-entry native never makes. Read on demand.
         Accessor(SymbolId),
+        /// A mapped type's property whose type is not instantiated yet:
+        /// native `getTypeOfMappedSymbol` (`checker.go:20984`) instantiates
+        /// the template on the first read and publishes it on the symbol's
+        /// links. The owner is the `index`th property of `owner`'s member
+        /// table, where the first read publishes a [`Slot::Resolved`]
+        /// (`crate::mapped`, ADR-0050).
+        Mapped { owner: TypeId, index: u32, key: TypeId, strip_optional: bool },
     }
 
     impl PropertySlot {
@@ -92,6 +99,28 @@ mod property_slot {
         /// The type of an object-literal accessor symbol, read on demand.
         pub(crate) fn of_accessor(symbol: SymbolId) -> Self {
             Self(Slot::Accessor(symbol))
+        }
+
+        /// A mapped property read on demand ([`Slot::Mapped`]): the template
+        /// instantiated with `key`, stripping `undefined` when the modifier
+        /// removes the source's optionality.
+        pub(crate) fn of_mapped(
+            owner: TypeId,
+            index: u32,
+            key: TypeId,
+            strip_optional: bool,
+        ) -> Self {
+            Self(Slot::Mapped { owner, index, key, strip_optional })
+        }
+
+        /// The owner table position of a mapped slot not yet read.
+        pub(crate) fn mapped(self) -> Option<(TypeId, u32, TypeId, bool)> {
+            match self.0 {
+                Slot::Mapped { owner, index, key, strip_optional } => {
+                    Some((owner, index, key, strip_optional))
+                }
+                _ => None,
+            }
         }
 
         /// The stored slot, for the canonical accessors only.
@@ -191,17 +220,23 @@ impl Checker<'_, '_> {
         match slot.get() {
             property_slot::Slot::Resolved(r#type) => r#type,
             property_slot::Slot::Accessor(symbol) => self.get_type_of_symbol(symbol),
+            property_slot::Slot::Mapped { owner, index, key, strip_optional } => {
+                self.get_type_of_mapped_symbol(owner, index, key, strip_optional)
+            }
         }
     }
 
     /// The type of one anonymous-object property for a read that cannot
     /// resolve — a `&self` structural walk over completed types. `None` is an
-    /// accessor slot whose symbol type is not yet published; such a walk
+    /// accessor or mapped slot whose type is not yet published; such a walk
     /// follows no edge for it.
     pub(crate) fn peek_property_type(&self, property: &AnonymousProperty) -> Option<TypeId> {
         match property.slot.get() {
             property_slot::Slot::Resolved(r#type) => Some(r#type),
             property_slot::Slot::Accessor(symbol) => self.symbol_types.get(&symbol).copied(),
+            property_slot::Slot::Mapped { owner, index, .. } => {
+                self.peek_mapped_symbol_type(owner, index)
+            }
         }
     }
 
