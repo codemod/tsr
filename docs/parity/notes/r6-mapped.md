@@ -195,3 +195,182 @@ frozen base):
   top of the caller's frames and is popped before the result is published.
 - **Expensive work boundary:** one template instantiation per tuple
   element instead of the tuple's whole member table and its print.
+
+## 3. `.16.8` / `.16.91` / `.16.100`: what is left, classified against native
+
+Every remaining non-RIGHT line of `.16.91`'s nine cases and `.16.100`'s
+eight, and the mapped-shaped lines of `.16.8`, was probed against the
+native build. None of what is left is in this lane's files except where
+noted.
+
+**(a) declared.rs `get_instantiated_type_reference`'s alias-declared
+`return error` (r6-declared).** A reference to a conditional alias in an
+alias-declared position that `evaluate_conditional_alias` cannot evaluate
+answers `error` (`declared.rs`, the `§36`/`§92.1` arm, "Upstream evaluates
+conditional aliases in alias-declared positions even through
+type-parameter arguments"). Native defers it: getTypeAliasInstantiation
+gives a ConditionalType that prints as the alias reference. Inside a
+mapped node that `error` makes `mapped_type_info` decline, so the node
+falls back to its written text. Probed, outside an alias body the same
+nodes already print as native does. Lines:
+- `mappedTypeAsClauses:72/98/100/107/108` (as-clauses `Extract<P, …>`,
+  `Exclude<…>`, `If<…>`);
+- `recursiveMappedTypes:24` (`Remap2<T[P]>` in the template);
+- `reactReduxLikeDeferredInferenceAllowsAssignment:82`
+  (`HandleThunkActionCreator<TDispatchProps[C]>`);
+- `conditionalTypes2:172–184`.
+
+*Measured experiment* (not shipped; it is r6-declared's file and it has
+losses): letting that arm fall through to the named reference, on top of
+§2's commit, gives types **+78 / −21** and diagnostics −1 case
+(`contextualTypesNegatedTypeLikeConstraintInGenericMappedType3`,
+EMPTY_RIGHT → EMPTY_WRONG). Gains: `conditionalTypes1` ×33,
+`mappedTypesArraysTuples` ×8, `conditionalTypes2` ×8,
+`intersectionWithIndexSignatures` ×7, `mappedTypeAsClauses` ×4,
+`propTypeValidatorInference` ×4, and 14 more. The losses show what the
+`error` stands in for:
+- lines where native itself answers `any` from errorType (the circular or
+  too-deep `Awaited<BadPromise>`, `BuildTuple<…>`, `_Flatten<…>`, and
+  `conditionalTypes1:171/173/189/195`), which the fallthrough prints as the
+  alias reference;
+- `intersectionWithIndexSignatures:35…57`: native names the result `s`
+  (the declaring alias), the fallthrough prints `constr<{}, …>`;
+- `contextualTypesNegatedTypeLikeConstraintInGenericMappedType3` ×5: the
+  deferred reference reaches contextual typing and widens a parameter to
+  `number | Event`.
+
+So the faithful change is a deferred conditional with its alias identity,
+plus native's TS2589/circularity `errorType` for the others, not a plain
+fallthrough.
+
+**(b) Cross-file alias accessibility (r6-printer).** Native prints an
+alias only when `IsTypeSymbolAccessible` holds at the enclosing
+declaration (`nodebuilderimpl.go:3362`), and otherwise expands it. The
+port bakes the alias text at mint. Lines:
+- `declarationEmitOptionalMappedTypePropertyNoStrictNullChecks1/2/3` ×18:
+  the non-exported `Id<…>` in `index.ts`;
+- `declarationEmitInlinedDistributiveConditional` ×12;
+- `mappedTypeGenericInstantiationPreservesHomomorphism` ×5.
+
+**(c) Unique-symbol keys (r6-declared's `unique_symbols.rs`, r6-printer).**
+`declarationEmitMappedTypeTemplateTypeofSymbol` ×6:
+`{ [TKey in typeof timestampSymbol]: true }` resolves to one property named
+by the symbol, printed `[timestampSymbol]` or `[x.timestampSymbol]` by the
+symbol chain. The port's `unique symbol` type does not know its symbol's
+printable chain (it prints `unique symbol`, where native prints
+`typeof timestampSymbol`). Spelling the key from the declaration's name
+would be a guess for `Symbol.iterator`-style keys, so `mapped.rs` keeps
+declining the key.
+
+**(d) A deferred conditional template under alias frames (`.16.71`'s
+domain, declared.rs).** `declarationAssertionNodeNotReusedWhenTypeNotEquivalent1:16/17`:
+with (a) relaxed, the mapped node builds, but its template's written-text
+conditional is instantiated per key outside the frames, so `T` stays
+unsubstituted.
+
+**(e) Other owners.**
+- `deeplyNestedMappedTypes:68/93/124–134`: `PropertiesReduce<…>` is an
+  alias whose body is another alias reference, left unexpanded
+  (declared.rs alias instantiation);
+- `typeParameterConstModifiers` ×9: union and const inference
+  (inference.rs);
+- `mappedTypeRecursiveInference2` ×28: reverse-mapped inference of a
+  recursive tuple (inference.rs);
+- `conditionalTypes2:39/47/139`: `T_1` renaming of a signature's type
+  parameter (printing);
+- `reverseMappedTypeIntersectionConstraint` ×8: `any` from reverse-mapped
+  inference over an intersection constraint (inference.rs);
+- `dependentDestructuredVariablesFromNestedPatterns:53–58`: an `as const`
+  tuple under a contextual mapped type keeps `readonly`.
+
+## 4. TS2540 on a mapped member (diff)
+
+[`r6-mapped-readonly-members.diff`](r6-mapped-readonly-members.diff),
+`readonly_target.rs` (no round-6 owner; the integrator routes it) and a new
+test `tests/mapped_readonly_members.rs`.
+
+**Forcing constraint.** `omitTypeHelperModifiers01` (`Omit<A, 'a'>`'s
+`x.c = true`, `A.c` readonly) misses native's TS2540. Probing showed it is
+not `Omit`-specific: `Pick<A, 'c'>`, a local `MyPick` and the plain
+homomorphic `{ [P in keyof A]: A[P] }` all miss it, though the last prints
+`{ a: number; readonly c: boolean; }`. `globalThisReadonlyProperties`,
+the other case r5-smallcodes3 listed, is already RIGHT on the base.
+
+**Native.** resolveMappedTypeMembers (`checker.go:20894`) gives each
+mapped symbol CheckFlagsReadonly from the `readonly` modifier or its
+modifiers property, and isAssignmentToReadonlyEntity
+(`checker.go:27279`) reads isReadonlySymbol on the property
+getPropertyOfType answers.
+
+**Cause.** `is_assignment_to_readonly_property` returned `false` as soon
+as `get_property_of_type` answered `None`, and it does for a resolved
+mapped member (no binder symbol stands for native's transient mapped
+symbol). The member image's `readonly`, which the function already reads
+for const-context literals, was never consulted. For an alias instance
+(`Omit<A, "a">` is a reference whose body is the `Pick` instance) the
+image is on the body, resolved on first read.
+
+**The hunk.** The image is read first, on the receiver and on
+`binding_type_alias_body(receiver)` after `resolve_mapped_type_members`;
+with no property symbol, the image decides. The constructor permission
+after it needs a declared property, which a mapped member is not, so it is
+skipped in that case only.
+
+**Measured** on top of §2's commit, both dumps unfiltered:
+- diagnostics **+1 case** (`omitTypeHelperModifiers01`, WRONG → RIGHT);
+- types **+2 RIGHT** (`omitTypeHelperModifiers01:27/29`: the type road's
+  readonly write target prints `any`, as native's does);
+- zero losses on both dumps; slowcases clean;
+- Ir against §2's commit: domain-model +0.007%, generic-imports −0.002%.
+
+The test fails without the hunk (no TS2540 at all) and matches the native
+probe line for line, including the two silent lines (`p5.a = 1`, and the
+non-homomorphic `{ [P in 'c']: A[P] }`).
+
+## 5. `.16.71`, re-measured on this lane's stack
+
+r6-declared landed getObjectTypeInstantiation's referenced-parameter
+keying (`f9339d0`) and re-measured r5-mapped6's
+[`r5-mapped6-conditional-typed-print.diff`](r5-mapped6-conditional-typed-print.diff)
+there at +5, 0 losses (r6-declared.md §1.1). On this lane's two commits
+plus `f9339d0`, both dumps unfiltered:
+- types **+5 RIGHT, zero losses**, the same five lines
+  (`complicatedIndexesOfIntersectionsAreInferencable:5`,
+  `simplifyingConditionalWithInteriorConditionalIsRelated:17/19`,
+  `wideningWithTopLevelTypeParameter:47`, `mappedTypeAsClauses:106`);
+  diagnostics unchanged; slowcases clean;
+- Ir: domain-model 1,090,509,192 → 1,092,174,496 (**+0.153%**),
+  generic-imports −0.001%.
+
+**Where the +0.153% goes.** The profile difference is
+`conditional_type_text` (2.08 M inclusive): the deferred conditional's text
+is printed at mint from `get_type_from_type_node` of all four parts, so
+both branches are evaluated when the type is created. Native evaluates the
+check and extends types at creation, but instantiates the branches only
+when they are read (getTrueTypeFromConditionalType), which for a print is
+the node builder. This is the same constraint as §6: the port prints at
+mint. The diff's halves go to their owners as the brief says: the
+`declared.rs` half to r6-declared, the `node_reuse.rs` half
+(`binds_below_union`, `binds_below_function`) to r6-nodereuse. Landing it
+needs either the integrator's acceptance of +0.15% for +5, or lazy text.
+
+## 6. ADR-0050 alternative 1, lazy mapped text: not done
+
+Measured on domain-model at §2's commit, inclusive Ir:
+`resolved_mapped_object` 6.5 M, of which `mapped_object_text` 5.1 M
+(0.47%; its `mapped_property_member` reads 4.8 M, mostly
+`get_type_of_mapped_symbol` instantiating each member's template for the
+print). That is the eager member print of every non-generic mapped type at
+mint, including lib's `{ [K in keyof any[]]?: boolean }`.
+
+Removing it needs the type's text computed when it is first printed. Every
+`type_to_string` reads `TypeData::Named`'s baked text through `&self`
+(ADR-0050 alternative 1), so this is `printing.rs`/`types.rs` work
+(r6-printer and main), not `mapped.rs`. No measurable Ir drop is
+available from this lane's files alone: `mapped_object_text` already
+truncates and reads each slot once. Not counted as a perf item.
+
+Seen in the same profile, outside this lane: `complete_reverse_mapped_type`
+(inference.rs) costs 3.1 M inclusive on domain-model, 1.5 M of it in
+`pending_reverse_mapped.remove` (a hashbrown `remove_entry` on a
+`ReverseMappedInfo` table).
