@@ -6820,11 +6820,11 @@ impl<'a> Checker<'a, '_> {
                         crate::contextual::ContextualSignature::Present(signature) => {
                             let adopted: Vec<_> = signature.type_parameters.iter().filter_map(|parameter| parameter.resolved_type).collect();
                             signature.parameters.iter().enumerate().all(|(index, parameter)| {
-                            parts.parameters.iter().filter(|own| !Self::is_this_parameter_declaration(own)).nth(index).is_some_and(|own| own.r#type.is_some())
-                                || !{
-                                    let parameter_type = self.parameter_type(parameter);
-                                    self.mentions_type_parameter_out_of_scope(parameter_type, 2, node, &adopted)
-                                }
+                                parts.parameters.iter().filter(|own| !Self::is_this_parameter_declaration(own)).nth(index).is_some_and(|own| own.r#type.is_some())
+                                    || !{
+                                        let parameter_type = self.parameter_type(parameter);
+                                        self.mentions_type_parameter_out_of_scope(parameter_type, 2, node, &adopted)
+                                    }
                             })
                         }
                         // A computed nil context licenses ordinary implicit
@@ -6893,7 +6893,12 @@ impl<'a> Checker<'a, '_> {
                 if signature.type_parameters.is_empty()
                     && (signature.parameters.iter().any(|parameter| {
                         let parameter_type = self.parameter_type(parameter);
-                        self.mentions_type_parameter_out_of_scope(parameter_type, depth - 1, node, adopted)
+                        self.mentions_type_parameter_out_of_scope(
+                            parameter_type,
+                            depth - 1,
+                            node,
+                            adopted,
+                        )
                     }) || self.mentions_type_parameter_out_of_scope(
                         signature.r#type,
                         depth - 1,
