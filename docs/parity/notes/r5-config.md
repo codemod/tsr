@@ -64,8 +64,8 @@ owning lane confirms it.
 | `jsxFragmentFactoryReference` | jsx=react: missing TS2879 | `<></>` with no `React` in scope | `checkJsxFragment` → `getJsxFactoryEntity`'s fragment arm, `React` namespace symbol not found | rule | JSX (r5-jsx lanes) |
 | `tsxSpreadChildrenInvalidType` | jsx=react-jsx: missing TS7026 ×6 | file-level `declare namespace JSX`, no `react/jsx-runtime` | under `react-jsx` a file with a JSX tag is an **external module** (`getExternalModuleIndicator`'s JSX arm), so its `namespace JSX` is module-local and `getJsxNamespaceAt`'s global fallback finds nothing. *Corrected:* the first version of this row blamed the implicit-import road in `jsx_intrinsic.rs`; that road is faithful | plumbing | **fixed, §5** (`tsr-compiler` loader) |
 | `emitDecoratorMetadata_isolatedModules` | module=esnext: missing TS1272 ×3 | type-only names in decorated signatures | `markDecoratorAliasReferenced` → `markEntityNameOrEntityExpressionAsReference(…, forDecoratorMetadata)` (`checker.go:28686`, `:28857`). **Not ported**: nothing in the checker reads `emitDecoratorMetadata` | rule (missing) | new module + `check.rs` hook |
-| `exportDeclaration` | isolatedModules=true: missing TS1289 | `export = A` of a type-only import | `checkAliasSymbol`'s `GetIsolatedModules()` arm (`checker.go:6800`–`6850`). **Not ported** in `symbols.rs::check_alias_symbol` | rule (missing) | `symbols.rs` (main) |
-| `isolatedModulesSketchyAliasLocalMerge`, `isolatedModulesShadowGlobalTypeNotValue` | every configuration: missing TS2865/TS2866 (isolatedModules) and TS1484/TS1295 (verbatimModuleSyntax) | | same `checkAliasSymbol` arm: TS2865/TS2866 read `IsolatedModules.IsTrue()` directly, TS1484 and the CommonJS-file TS1295 read `VerbatimModuleSyntax` | rule (missing) | `symbols.rs` (main) |
+| `exportDeclaration` | isolatedModules=true: missing TS1289 | `export = A` of a type-only import | `checkExportAssignment`'s `GetIsolatedModules()` arm (`checker.go:5583`, the TS1289 report at `:5639`). *Corrected:* the first version of this row named `checkAliasSymbol`; its arm (§6) does not reach `export =` | rule (missing) | `checkExportAssignment` |
+| `isolatedModulesSketchyAliasLocalMerge`, `isolatedModulesShadowGlobalTypeNotValue` | every configuration: missing TS2865/TS2866 (isolatedModules) and TS1484/TS1295 (verbatimModuleSyntax) | | same `checkAliasSymbol` arm: TS2865/TS2866 read `IsolatedModules.IsTrue()` directly, TS1484 and the CommonJS-file TS1295 read `VerbatimModuleSyntax` | rule (missing) | `symbols.rs` (main); **diff, §6** (SketchyAliasLocalMerge ×3 converted) |
 | `bundlerSyntaxRestrictions` | module=preserve: extra TS2309 | `export = {}; export {};` | `checkExternalModuleExports`: `hasExportedMembers` is false (no export but `export=`) | rule | `check.rs` (main) |
 | `declarationFileForHtmlImport`, `declarationFilesForNodeNativeModules` (×3) | allowArbitraryExtensions=false: missing TS6263 (node modes: TS2306 instead) | `import "./file.html"` resolved to `file.d.html.ts` | `resolveExternalModule`'s arbitrary-extension arm (`checker.go`, `Module_0_was_resolved_to_1_but_allowArbitraryExtensions_is_not_set`). **Not ported**: no TSR file names the message | rule (missing) | `module_*.rs` (shared) |
 | `bundlerImportTsExtensions` | allowImportingTsExtensions=false: also missing TS5097 ×5 | `.ts` specifiers | `resolveExternalModule`'s `ResolvedUsingTsExtension && !AllowImportingTsExtensionsFrom(file)` arm (`checker.go:15238`). **Not ported**; TS2846/TS6142 missing in every configuration | rule (missing) | `module_*.rs` (shared) |
@@ -260,3 +260,75 @@ classic and automatic runtimes. Why each of the others is insensitive was
 not checked case by case; a file that already imports something is a
 module either way, and a `JSX` declared in a separate `.d.ts` does not
 depend on the `.tsx` file's module-ness.
+
+## 6. `checkAliasSymbol`'s isolatedModules / verbatimModuleSyntax arms (held diff)
+
+`symbols.rs::check_alias_symbol` ported only the head of `checkAliasSymbol`
+(`checker.go:6736`): resolution and the TS2440/TS2441 conflict arm. Every arm
+after it (`:6788`–`6858`) was missing, and nothing else in the checker
+reported their codes:
+
+| Code | Arm | Option read |
+|---|---|---|
+| TS2865 | an import whose local symbol also has a value (`appearsValueyToTranspiler`) | `IsolatedModules.IsTrue()` itself, not `GetIsolatedModules()` |
+| TS1484 / TS1485 / TS1288 | an import naming a type / a type-only declaration / an internal `import =` of a type | `VerbatimModuleSyntax` |
+| TS1269 | `export import` of a type | `GetIsolatedModules()` |
+| TS1205 / TS1448 | re-exporting a type / a type-only declaration | `GetIsolatedModules()`; `VerbatimModuleSyntax` or a type-only declaration in another file |
+| TS1295 / TS1286 | ESM syntax in a CommonJS-format file | `VerbatimModuleSyntax`, the file's emit format |
+| TS1293 | ESM syntax in a CommonJS file under `module: preserve` | `moduleKind` |
+| TS2748 | importing an ambient const enum | `VerbatimModuleSyntax` |
+
+That is a family of option-gated rules, all absent, which is why the
+`isolatedModules*`/`verbatimModuleSyntax*` cases failed in every
+configuration (§1 counted the configured ones as dependent, since their
+expected codes differ per configuration).
+
+`r5-config-isolated-alias.diff` ports them in a new
+`crates/tsr-checker/src/isolated_alias.rs`, called from the end of
+`check_alias_symbol` with the pieces that function already resolved
+(local symbol, target, target flags, whether the conflict arm reported). It
+adds two raw option reads to `Checker` (`isolated_modules_option`,
+`verbatim_module_syntax`; the existing `isolated_modules` is
+`GetIsolatedModules()`). Helpers it needed and did not find:
+`IsTypeOnlyImportOrExportDeclaration`, `getTypeOnlyAliasDeclaration` as a
+node (check.rs's `type_only_alias_declaration` answers only which kind),
+`IsInternalModuleImportEqualsDeclaration`, `getIsolatedModulesLikeFlagName`
+and `getVerbatimModuleSyntaxErrorMessage`. The ambient test is
+`declaration_is_in_an_ambient_context` (this parser never sets
+`NodeFlagsAmbient`). `addTypeOnlyDeclarationRelatedInfo` is not attached:
+related information is outside the oracle and the call sites have no
+related list.
+
+**Measured** against `6449b75`, unfiltered:
+
+- diagnostics +4 rows: `isolatedModulesReExportType` and the three
+  `isolatedModulesSketchyAliasLocalMerge` configurations, WRONG → RIGHT;
+  zero losses, no key missing;
+- 12 rows changed their reported list; **every added diagnostic is in its
+  baseline** and none was removed (checked row by row: the other 8 rows stay
+  WRONG on codes outside this arm);
+- types byte-identical; `slowcases` clean;
+- perf, median child CPU over 21 samples, new/base: domain-model 0.979,
+  generic-imports 1.018, `diagnostics_match: true`;
+- `cargo test --workspace --release` passes; the diff adds
+  `crates/tsr-compiler/tests/isolated_alias.rs` (TS2865 under
+  `isolatedModules`, TS1484 + TS1295 under `verbatimModuleSyntax`, nothing
+  under neither).
+
+What still blocks the rest of the family, not this arm:
+
+- `isolatedModulesShadowGlobalTypeNotValue`: TS2866 is
+  `checkIdentifier`'s "conflicts with global value used in this file", a
+  different function; `good.ts`'s TS1295 is on an alias whose target is
+  `export = globalThis.console`, which `resolve_alias` does not resolve, so
+  `check_alias_symbol` returns before any arm.
+- `exportDeclaration(isolatedmodules=true)`: TS1289 is
+  `checkExportAssignment`'s arm (`export = A` of a type-only import), not
+  `checkAliasSymbol`.
+- `isolatedModulesAmbientConstEnum`, `verbatimModuleSyntaxAmbientConstEnum`:
+  the remaining TS2748 is the property-access arm (`E.X` on an ambient const
+  enum, `checkPropertyAccessExpression`).
+- `isolatedModulesExportImportUninstantiatedNamespace` (TS1269 on an
+  uninstantiated namespace), `isolatedModulesExportDeclarationType` (TS1292),
+  `verbatimModuleSyntaxNoElision*` (TS1282–TS1285): `checkExportSpecifier` /
+  `checkExportAssignment` arms.
