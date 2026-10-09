@@ -33,7 +33,6 @@ use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::checker::Checker;
 
-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
 impl Checker<'_, '_> {
     /// Whether an argument-less reference at `site` to `resolved` is outside
     /// its arity window, so upstream answers `errorType` for it.

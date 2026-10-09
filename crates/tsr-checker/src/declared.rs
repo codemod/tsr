@@ -5870,6 +5870,11 @@ impl<'a> Checker<'a, '_> {
         // qualified print with the real lookup table. Generic references
         // stay print-only mints.
         if node.type_arguments.is_empty() {
+            // A generic target written without its required arguments is
+            // upstream's `errorType` (`qualified_reference_arity.rs`).
+            if self.argument_less_reference_is_error(resolved, node.node_id) {
+                return self.intrinsics.native_error;
+            }
             // §280's annotation half: a qualified name resolving to an ENUM
             // MEMBER answers the member's declared type in REGULAR form, not
             // a mint of the written text — upstream's `getTypeFromTypeNode`
