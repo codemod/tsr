@@ -2358,9 +2358,12 @@ impl Relater<'_, '_, '_> {
     ) -> RelationResult {
         let base_object = self.checker.base_constraint_or_type(object);
         let base_index = self.checker.base_constraint_or_type(index);
-        if self.checker.type_of(base_object).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-            || self.checker.indexed_access_index_is_generic(base_index)
-        {
+        match self.is_generic_object_type(base_object) {
+            Some(true) => return RelationResult::NotRelated,
+            None => return RelationResult::Unknown,
+            Some(false) => {}
+        }
+        if self.checker.indexed_access_index_is_generic(base_index) {
             return RelationResult::NotRelated;
         }
         let no_index_signatures = base_object != object;
@@ -2611,6 +2614,39 @@ impl Relater<'_, '_, '_> {
             }
             None => self.simplified_indexed_access_worker(result, writing, depth),
         }
+    }
+
+    /// `isGenericObjectType` (`checker.go`, getGenericObjectFlags'
+    /// IsGenericObjectType): an instantiable non-primitive type, a generic
+    /// mapped type or a generic tuple, or a union or intersection with such a
+    /// constituent. `None` when a constituent's mapped classification is
+    /// undecided.
+    fn is_generic_object_type(&mut self, id: TypeId) -> Option<bool> {
+        if self.checker.type_of(id).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
+            return Some(true);
+        }
+        if let Some(parts) =
+            self.union_constituents(id).or_else(|| self.intersection_constituents(id))
+        {
+            let mut undecided = false;
+            for part in parts {
+                match self.is_generic_object_type(part) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => undecided = true,
+                }
+            }
+            return if undecided { None } else { Some(false) };
+        }
+        if self.is_generic_mapped_type(id)? {
+            return Some(true);
+        }
+        // isGenericTupleType: a variadic element that is not an array.
+        Some(self.checker.variadic_tuple_elements.get(&id).cloned().is_some_and(|(elements, _)| {
+            elements.iter().any(|element| {
+                element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
+            })
+        }))
     }
 
     /// `isGenericMappedType` (`checker.go:24908`): a mapped type whose

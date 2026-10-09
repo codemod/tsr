@@ -84,3 +84,40 @@ excludes), now decided False where the decline kept `Unknown`.
 
 Test: `tests/r6_relater2.rs`
 `a_mapped_generic_indexed_access_meets_a_union_through_its_index_constraint`.
+
+## 2. The write-constraint step asks isGenericObjectType (§8.1 R-indexed)
+
+**Forcing constraint.** `undefinedAssignableToGenericMappedIntersection` 5
+(`obj[x] = undefined`, `obj: Errors<T>`, `Errors<T> = { [P in keyof T]:
+string | undefined } & { all: string | undefined }`, `x: keyof T`) is
+TS2322 natively. The indexed-access target arm (relater.go:3443-3488) takes
+the write constraint only when `!isGenericObjectType(baseObjectType) &&
+!isGenericIndexType(baseIndexType)`; the intersection's base is itself, and
+it holds a generic mapped type, so the step is skipped and the worker ends
+False. The port tested only `INSTANTIABLE_NON_PRIMITIVE` on the base object,
+went on to `indexed_access_write_constraint`, which answers an intersection
+object `Undecided`, and the pair stayed `Unknown`.
+
+**Ported.** `Relater::is_generic_object_type` (getGenericObjectFlags'
+IsGenericObjectType): an instantiable non-primitive type, a generic mapped
+type (`is_generic_mapped_type`), a generic tuple (a variadic element that is
+not an array), or a union/intersection with such a constituent; `None` when
+a constituent's mapped classification is undecided. The write-constraint
+step answers False for a generic base object and `Unknown` for an undecided
+one. `indexed_access_pair_after_components` keeps its own test (it already
+answers `Unknown` for an index it cannot classify).
+
+**Measured** against §1's commit (and §0), both loss checks empty,
+slowcases clean:
+- diagnostics: `undefinedAssignableToGenericMappedIntersection` WRONG →
+  RIGHT (RIGHT 5580, WRONG 1013);
+- types unchanged;
+- `Ir`: generic-imports 343,039,210 → 343,038,224 (−0.0003%); domain-model
+  1,091,006,021 → 1,090,403,545 (−0.06%). CLI output identical.
+
+**Falsifier.** A union or intersection base native does not classify as
+generic but the port does (a mapped constituent `is_generic_mapped_type`
+over-reads), now False where native relates through the write constraint.
+
+Test: `tests/r6_relater2.rs`
+`a_write_to_a_generic_intersection_object_is_not_related_through_a_constraint`.

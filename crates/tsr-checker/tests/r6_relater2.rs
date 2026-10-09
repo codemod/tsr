@@ -117,3 +117,23 @@ function getValueWrong<K extends keyof Foo1>(o: Partial<Foo1>, k: K): Foo1[K] | 
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }
+
+#[test]
+fn a_write_to_a_generic_intersection_object_is_not_related_through_a_constraint() {
+    // `undefinedAssignableToGenericMappedIntersection`: the base of
+    // `Errors<T>` is an intersection holding a generic mapped type, so
+    // isGenericObjectType skips the write-constraint step and `S -> T[K]`
+    // fails.
+    let source = r#"type Errors<T> = { [P in keyof T]: string | undefined } & { all: string | undefined };
+function foo<T>() {
+    let obj!: Errors<T>;
+    let x!: keyof T;
+    obj[x] = undefined; // error
+}
+type Plain = { a: string | undefined } & { b: string | undefined };
+function bar(obj: Plain, k: keyof Plain) {
+    obj[k] = undefined;
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
