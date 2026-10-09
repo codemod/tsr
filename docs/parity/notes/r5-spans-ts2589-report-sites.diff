@@ -1,0 +1,75 @@
+diff --git a/crates/tsr-checker/src/current_node.rs b/crates/tsr-checker/src/current_node.rs
+index 87af42c..5091f1d 100644
+--- a/crates/tsr-checker/src/current_node.rs
++++ b/crates/tsr-checker/src/current_node.rs
+@@ -30,6 +30,7 @@
+ //! reporting would add false TS2589s (r5-spans §2.3).
+ 
+ use tsr_ast::{NodeId, SyntaxKind};
++use tsr_diagnostics::{Diagnostic, messages};
+ 
+ use crate::checker::Checker;
+ 
+@@ -66,4 +67,22 @@ impl Checker<'_, '_> {
+     pub(crate) fn leave_current_node(&mut self, saved: Option<NodeId>) {
+         self.current_node = saved;
+     }
++
++    /// `c.error(c.currentNode, diagnostics.Type_instantiation_is_excessively_deep_and_possibly_infinite)`
++    /// (`checker.go:22118`, `:24311`).
++    ///
++    /// Upstream with no current node (an instantiation outside any check)
++    /// makes a diagnostic with no file; this port reports nothing there.
++    pub(crate) fn report_excessive_instantiation_depth(&mut self) {
++        let Some(node) = self.current_node else { return };
++        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
++        let span = self.error_span(node);
++        self.report(
++            file,
++            Diagnostic::new(
++                &messages::TYPE_INSTANTIATION_IS_EXCESSIVELY_DEEP_AND_POSSIBLY_INFINITE,
++                span,
++            ),
++        );
++    }
+ }
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 99e9ea0..b490088 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -687,6 +687,7 @@ impl<'a> Checker<'a, '_> {
+                         || self.mapped_template_depth == 0)
+                 {
+                     if self.instantiation_depth == 100 {
++                        self.report_excessive_instantiation_depth();
+                         return self.intrinsics.error;
+                     }
+                     self.instantiation_depth += 1;
+@@ -7690,6 +7691,7 @@ impl<'a> Checker<'a, '_> {
+         // The same guard as `instantiate_type`: a self-recursive conditional
+         // alias re-enters here through the branch's own references.
+         if self.instantiation_depth == 100 {
++            self.report_excessive_instantiation_depth();
+             return None;
+         }
+         // getTypeFromTypeNodeWorker resolves parenthesized bodies transparently;
+@@ -8106,6 +8108,7 @@ impl<'a> Checker<'a, '_> {
+                 if let crate::types::TypeData::Union { types, .. } = &self.store.get(check).data {
+                     let types = types.clone();
+                     if self.instantiation_depth == 100 {
++                        self.report_excessive_instantiation_depth();
+                         return None;
+                     }
+                     let mut results = Vec::with_capacity(types.len());
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index 045eed8..72432cf 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -5414,6 +5414,7 @@ impl<'a> Checker<'a, '_> {
+             return id;
+         }
+         if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
++            self.report_excessive_instantiation_depth();
+             return self.intrinsics.error;
+         }
+         // §107: the print-clone road substitutes identity for FOREIGN
