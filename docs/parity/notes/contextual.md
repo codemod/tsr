@@ -555,3 +555,36 @@ each later ordinary element Optional (`addOptionalityEx`). The destructuring
 mint declined holes, so `[, nameA] = robotA` printed `(string | undefined)[]`
 for native's `[undefined, string]`; with exact optional properties native and
 TSR both print `[never?, string?]`. No state.
+
+## 28. An unannotated binding-pattern declaration contextually types its initializer (tsr-2zk.16.95)
+
+`getContextualTypeForInitializerExpression` (`checker.go:29423`) falls back,
+after `getContextualTypeForVariableLikeDeclaration` answers nil, to
+`getTypeFromBindingPattern(name, true, false)` for a non-empty binding-pattern
+name unless the caller passes `ContextFlagsSkipBindingPatterns`.
+`get_contextual_type`'s `VariableDeclaration` arm now answers
+`binding_pattern_implied_type` there (its existing declines stay declines).
+`var [b2 = 3, b3 = true] = [3, false]` keeps `false` (context `boolean`), and
+`var {e: [e1, e2, e3 = {…}]} = { e: [1, 2, {…}] }` makes the nested literal a
+tuple (tsgo control, `destructuringVariableDeclaration1ES5`).
+
+`inferTypeArguments` reads the call's contextual type with
+`SkipBindingPatterns` (`checker.go:9400`); the pattern reaches only
+`returnMapper` through `binding_pattern_return_context`.
+`get_contextual_type_of_call` therefore sets
+`Checker::contextual_skip_binding_patterns` around its read: a boolean
+query flag with no cache, owner the private Checker, restored on exit.
+
+Two declines keep the previous answer (no implied context), each for a native
+mechanism this port lacks:
+- an element initializer reading a name bound by the same pattern
+  (`const [a, b = a] = [1]`): native's `checkIdentifier` answers
+  `nonInferrableAnyType` for it while `contextualBindingPatterns` holds the
+  pattern (`checker.go:11070`); resolving the element instead cycles through
+  the initializer (TS7022, `…SiblingInitializer` cases);
+- a top-level rest element over a reference initializer
+  (`const { kind, ...r1 } = t`): native reads the rest's parent under
+  `CheckModeRestBindingElement`, uncached and skipping binding patterns in
+  `hasContextualTypeWithNoGenericTypes`, so only the other elements see the
+  constraint-substituted reference; this port checks the initializer once
+  (`genericObjectSpreadResultInSwitch`, `narrowingDestructuring`).
