@@ -2051,17 +2051,10 @@ impl<'a> Checker<'a, '_> {
                             };
                             (access.expression?, Some(name.text.to_owned()))
                         }
+                        // The name is the argument's checked type
+                        // (`checkExpressionCached`), resolved below.
                         tsr_ast::Expression::ElementAccessExpression(access) => {
-                            let name = match access.argument_expression {
-                                Some(tsr_ast::Expression::StringLiteral(name)) => {
-                                    Some(name.text.to_owned())
-                                }
-                                Some(tsr_ast::Expression::NumericLiteral(name)) => {
-                                    Some(crate::printing::normalise_number(name.text))
-                                }
-                                _ => None,
-                            };
-                            (access.expression?, name)
+                            (access.expression?, None)
                         }
                         _ => return None,
                     };
@@ -2101,8 +2094,12 @@ impl<'a> Checker<'a, '_> {
                                 .type_annotation_of(declaration)
                                 .or_else(|| self.jsdoc_type_annotation(declaration))?;
                             let annotated = self.get_type_from_type_node(annotation);
-                            return name
-                                .and_then(|name| self.contextual_property_type(annotated, &name));
+                            if let Some(name) = name {
+                                return self.contextual_property_type(annotated, &name);
+                            }
+                            return self.contextual_type_for_element_assignment_declaration(
+                                annotated, binary,
+                            );
                         }
                     } else {
                         return None;
@@ -2118,6 +2115,38 @@ impl<'a> Checker<'a, '_> {
         let checked = self.check_expression(left);
         self.narrow_value_stack.remove(&binary_id);
         (checked != self.intrinsics.error).then_some(checked)
+    }
+
+    /// `getContextualTypeForAssignmentExpression`'s `F[xxx] = expr` arm
+    /// (`checker.go:29859-29863`): a key usable as a property name reads the
+    /// annotation's property by `getPropertyNameFromType` (a unique symbol by
+    /// this port's bracketed entity spelling); any other key is the left's
+    /// own type. Kept out of line: it runs only for an element-access
+    /// assignment declaration on an annotated variable.
+    #[inline(never)]
+    fn contextual_type_for_element_assignment_declaration(
+        &mut self,
+        annotated: TypeId,
+        binary: &tsr_ast::BinaryExpression<'_>,
+    ) -> Option<TypeId> {
+        let tsr_ast::Expression::ElementAccessExpression(access) = binary.left? else {
+            return None;
+        };
+        let argument = access.argument_expression?;
+        let name_type = self.check_expression(argument);
+        let name = self.property_name_from_index(name_type).or_else(|| {
+            self.store
+                .get(name_type)
+                .flags
+                .intersects(crate::flags::TypeFlags::UNIQUE_ES_SYMBOL)
+                .then(|| crate::destructure::late_bound_entity_name(&argument))
+                .flatten()
+        });
+        if let Some(name) = name {
+            return self.contextual_property_type(annotated, &name);
+        }
+        let left = self.check_expression(binary.left?);
+        (left != self.intrinsics.error).then_some(left)
     }
 
     /// `getContextualTypeForYieldOperand` (`checker.go:29719`), on
