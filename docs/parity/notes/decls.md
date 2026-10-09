@@ -491,3 +491,11 @@ related records are `tsr-binder`'s.
 - TS2394 (`checker.go:3703`): `The implementation signature is declared
   here.` (TS2750) at the body declaration's name
   (`check_overloads_compatible_with_implementation`).
+
+## §22 TS1107/TS1108 report on the `return` keyword
+
+`checkReturnStatement` (`checker.go:4098`) reports both with
+`grammarErrorOnFirstToken`; `check_return_container` reported the whole
+statement span (`return;` = 7, native 6). It now calls
+`grammar_error_on_first_token`, which also carries native's parse-diagnostic
+silence.

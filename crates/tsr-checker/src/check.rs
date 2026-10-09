@@ -9628,6 +9628,9 @@ impl Checker<'_, '_> {
     /// is nothing at all. Both branches ported — the static-block one has no
     /// blocked cases and is free, and shipping one branch of a two-branch `if`
     /// is §230's shape. §296.
+    ///
+    /// Both report with `grammarErrorOnFirstToken`: the `return` keyword
+    /// alone, not the statement (`docs/parity/notes/decls.md` §22).
     fn check_return_container(&mut self, node: NodeId, ambient: bool) {
         if ambient || self.file_has_parse_errors {
             return;
@@ -9645,8 +9648,7 @@ impl Checker<'_, '_> {
             Some(_) => return,
             None => &messages::A_RETURN_STATEMENT_CAN_ONLY_BE_USED_WITHIN_A_FUNCTION_BODY,
         };
-        // `grammarErrorOnFirstToken(node, …)` — the `return` keyword.
-        self.report_grammar_at(Some(node), message);
+        self.grammar_error_on_first_token(node, message);
     }
 
     /// `checkGrammarClassLikeDeclaration` and
