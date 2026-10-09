@@ -167,3 +167,20 @@ now re-mints such a union (one the indexed-access arm aliased by its target)
 under the declaring alias with `get_named_union_type`, as it already does
 for distributed mapped unions. A single-key answer (no alias) is untouched.
 No new cache.
+
+## Generic alias over a resolving indexed access declares the property type (tsr-2zk.16.56)
+
+`getDeclaredTypeOfTypeAlias` over a generic alias whose body is an indexed
+access (written, or a reference to an alias declaring one) hands its alias to
+`getIndexedAccessTypeOrUndefined`, which keeps it only on a deferred access
+(`shouldDeferIndexedAccessType`: generic index or object) or on a union built
+over a union index. Otherwise the answer is the property type as created:
+`type Cb<T> = { noAlias: () => T }["noAlias"]` records `>Cb : () => T`,
+`BivariantHack`'s `{ bivarianceHack(x: Input): Output }["bivarianceHack"]`
+records the method type. The declared-type arm publishes the resolved body
+only when the index is concrete and non-union, and the resolved type is not a
+deferred access sharing an operand with the body (conservative) nor the
+target's aliased mint. Controls kept: `Def<T, K> = T[K]`, `Def2<T> =
+T['a' & keyof T]`, `U<T> = {..}['a' | 'b']`, `Next<I> = IterationMap[I[1]]`
+print their alias. `alias_indexed_access_index_type` replaces the union-only
+helper's internals; no new cache.
