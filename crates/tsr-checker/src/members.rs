@@ -1277,7 +1277,13 @@ impl Checker<'_, '_> {
         //
         // Recursive base constraints also expose indexed and template types;
         // polymorphic this reads through its declaring class/interface.
-        let id = self.base_constraint_of_type(id).unwrap_or(id);
+        let id = match self.base_constraint_of_type(id) {
+            Some(constraint) => constraint,
+            None if self.store.get(id).flags.intersects(TypeFlags::INSTANTIABLE) => {
+                self.intrinsics.unknown
+            }
+            None => id,
+        };
         let flags = self.store.get(id).flags;
         let global = if flags.intersects(TypeFlags::STRING_LIKE) {
             "String"
