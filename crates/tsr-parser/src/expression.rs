@@ -250,6 +250,12 @@ impl<'a> Parser<'a> {
 
             // `as` and `satisfies` take a *type* on the right, not an expression.
             if matches!(self.token.kind, SyntaxKind::AsKeyword | SyntaxKind::SatisfiesKeyword) {
+                // `parseBinaryExpressionRest` (`parser.go:4619`): ASI applies,
+                // so `var x = foo` followed by `as (Bar)` on the next line is a
+                // call to a function named `as`, not an assertion.
+                if self.token.has_preceding_line_break() {
+                    break;
+                }
                 let is_as = self.at(SyntaxKind::AsKeyword);
                 self.next_token();
                 let type_node = self.parse_type();
