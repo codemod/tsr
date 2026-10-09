@@ -46,7 +46,7 @@ than the triage counted at `ccb48e7`). Classes:
 | `unknownControlFlow:0:23` (1) | `ThisOrThatNode \| null \| undefined` | (c) | origin entries sorted by a heuristic key, rendered without `formatUnionTypes`' nullable tail | **this lane, fixed §3** |
 | `typeInferenceLiteralUnion:0:15` (1) | `(T \| Primitive)[]` | (c) | same: alias `Primitive` keyed by its first member (`undefined`) | **fixed §3** |
 | `generatorYieldContextualType:0:25,29,69` (3) | `T \| Directive` | (c) | same | **fixed §3** |
-| `logicalOrOperatorWithEveryType:0:232,233,236,237` (4) | `{ a: string; } \| E` | (c) | see §4.1 | open |
+| `logicalOrOperatorWithEveryType:0:232,233,236,237` (4) | `{ a: string; } \| E` | (c) | `add_named_unions` did not count an enum as named | **this lane, fixed §4** |
 | `baseClassImprovedMismatchErrors:0:7,12` (2) | `() => number \| string` | (e) | pseudochecker return from `return 10 as number \| string` (`PSEUDO-RETURN-TYPE-FROM-SINGLE-RETURN-EXPRESSION`) | signatures.rs `written_return` |
 | `spreadObjectNoCircular1:0:4,5` (2) | `{ content: Foo \| Box; }` | (e) | object-literal property typed by `this as Foo \| Box`: reuse of the assertion node | printing.rs/objects.rs (r5-shapes) |
 | `typePredicatesOptionalChaining3:0:2,22` (2) | `value is undefined \| null` | (e) | written predicate type reused | signatures.rs |
@@ -120,6 +120,31 @@ domain-model 1.011 (21 samples), generic-imports 0.990 (41 samples).
 whose entries tie under `CompareTypes` until the id fallback would print in
 TSR's mint order. None is known.
 
-## 4. Open (d)/(c) items
+## 4. Fix: an enum's declared type is a named union
+
+**Native.** `addNamedUnions` (`checker.go:25828`) keeps a union whose
+`alias != nil`, and `getDeclaredTypeOfEnum` builds the enum's union with
+`&TypeAlias{symbol: symbol}` (`checker.go:23899`). So `a7 || a6`
+(`{a: string}` and enum `E`, subtype-reduced by `||`) gets the origin
+`[{ a: string; }, E]` in `CompareTypes` order, an object (`1 << 20`) before
+a union (`1 << 27`).
+
+**What TSR did.** `add_named_unions` (`unions.rs`) admitted only a symbol
+with `SymbolFlags::TYPE_ALIAS`, so an enum's union was not named in the
+subtype-reduction road (`subtype_union_from_sorted_list`) and in the
+aliased road of `union_type_worker`. No origin was built and the flat
+members printed with the enum collapse first: `E | { a: string; }`.
+
+**Change.** `add_named_unions` admits any union this port names by a
+symbol. The only producers of a symbol-named union are
+`get_named_union_type`'s callers: type aliases and the enum declaration
+(`declared.rs`, `ENUM_LITERAL`), so this is `t.alias != nil`.
+
+**Measured** (against the base after §3): types +4
+(`logicalOrOperatorWithEveryType:0:232,233,236,237`), zero losses;
+diagnostics unchanged; perf 0.982 (domain-model) and 0.981
+(generic-imports), 21 samples; `slowcases` clean.
+
+## 5. Open (d) items
 
 Filled in as investigated.

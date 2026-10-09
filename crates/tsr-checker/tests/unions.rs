@@ -373,6 +373,23 @@ fn subtype_elimination_precedes_named_origin_construction() {
 }
 
 #[test]
+fn an_enum_is_a_named_union_in_a_subtype_reduced_origin() {
+    // getDeclaredTypeOfEnum gives the enum's union an alias
+    // (checker.go:23899), so addNamedUnions keeps `E` as an origin entry and
+    // insertType places it after the object (`1 << 20` before `1 << 27`):
+    // `logicalOrOperatorWithEveryType.types:373` records `{ a: string; } | E`.
+    with_checker(
+        "enum E { a, b, c }
+         declare const o: { a: string } | undefined; declare const e: E;
+         const result = o || e;",
+        |checker, _bound, statements| {
+            let result = last_initializer(checker, statements);
+            assert_eq!(checker.type_to_string(result), "{ a: string; } | E");
+        },
+    );
+}
+
+#[test]
 fn a_partly_removed_named_union_does_not_resurrect_its_alias() {
     with_checker(
         "interface Broad { tag: 'a' }

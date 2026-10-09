@@ -1857,19 +1857,19 @@ impl crate::checker::Checker<'_, '_> {
 
     /// addNamedUnions (checker.go:25824): aliases are atomic entries; a union
     /// origin is traversed, while a non-union origin keeps its enclosing union.
+    /// An enum's declared type is aliased natively (`getDeclaredTypeOfEnum`,
+    /// checker.go:23899, `&TypeAlias{symbol: symbol}`), so any union this port
+    /// names by a symbol is `t.alias != nil`.
     fn add_named_unions(&self, named: &mut Vec<TypeId>, source: &[TypeId]) {
         for &id in source {
             let TypeData::Union { symbol, .. } = &self.store.get(id).data else { continue };
             let origin = self.union_origin.get(&id);
-            if symbol.is_some_and(|symbol| {
-                self.binder
-                    .symbols()
-                    .get(symbol)
-                    .flags
-                    .contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
-            }) || origin.is_some_and(|entries| {
-                entries.len() == 1 && !self.store.get(entries[0]).flags.contains(TypeFlags::UNION)
-            }) {
+            if symbol.is_some()
+                || origin.is_some_and(|entries| {
+                    entries.len() == 1
+                        && !self.store.get(entries[0]).flags.contains(TypeFlags::UNION)
+                })
+            {
                 if !named.contains(&id) {
                     named.push(id);
                 }
