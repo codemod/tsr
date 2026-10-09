@@ -371,6 +371,8 @@ impl Checker<'_, '_> {
                     )
                 }) {
                     self.check_exports_on_merged_declarations(node);
+                    // TS1280 (`checker.go:5168`), `isolated_alias.rs`.
+                    self.check_global_script_namespace(node);
                 }
                 ambient
                     || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword)
@@ -4708,6 +4710,11 @@ impl Checker<'_, '_> {
                 // `Alias && !Value`, and this port's alias symbols answer
                 // `VALUE` where upstream's do not (§119), so the test belongs
                 // here rather than on the meaning ladder below. §121.
+                // TS1281, reported inside `resolveNameHelper`'s walk at the
+                // enum declaration that found the name
+                // (`binder/nameresolver.go:153`), so before the success arms
+                // below; `isolated_alias.rs`.
+                self.check_enum_member_from_another_file(node, value, text);
                 self.report_type_only_alias_used_as_value(node, value, text);
                 // TS2866, `resolveNameHelper`'s next success arm
                 // (`checker.go:1872`), `isolated_alias.rs`.
