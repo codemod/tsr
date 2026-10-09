@@ -1607,3 +1607,20 @@ perf within noise.
 
 A TS6229 port was measured and not committed: declining at the factory text
 lost 30 cases. r6-jsx2 takes the remainder (`tsr-2zk.1147`).
+
+### r6-relater2 finished (batch BR); r6-relater3 dispatched
+
+Batch BR lands r6-relater2's ports:
+- the union-walk decline lift;
+- an alias written as a tuple or array relating as that type;
+- the intersection-bodied alias measurement;
+- distributeIndexOverObjectType in the indexed-access simplifier;
+- the inline conditional root diff (`conditional_root` reads
+  `conditional_inference_nodes`).
+
+Measured by the box: +3 diagnostics cases, and +2 with the root diff after
+r6-declared's 55cbd3f (landed in BM). domain-model Ir −0.07%.
+
+The write-constraint step stays held. Its blocker is instantiateContextualType
+in main's files. The single-code rows traced outside relater.rs go to
+r6-relater3 (`tsr-2zk.1148`).
