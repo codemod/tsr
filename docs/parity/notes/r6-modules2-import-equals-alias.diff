@@ -1,0 +1,147 @@
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -1358,6 +1358,16 @@
+                 if flags.intersects(SymbolFlags::NAMESPACE) {
+                     return Some(found);
+                 }
++                // `getSymbol` (`checker.go:2176`) admits an alias whose chain
++                // carries the meaning (`getSymbolFlags`), and
++                // `getSymbolOfPartOfRightHandSideOfImportEquals` (`:14474`) resolves with
++                // `dontResolveAlias`, so `import { N } from "./m"; import M =
++                // N;` targets the import alias `N` itself.
++                if flags.intersects(SymbolFlags::ALIAS)
++                    && self.get_symbol_flags(found).intersects(SymbolFlags::NAMESPACE)
++                {
++                    return Some(found);
++                }
+                 if flags.intersects(SymbolFlags::ALIAS) {
+                     // Force the alias even on a cold query. A known module
+                     // copy retains its source's namespace meaning, not the
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -3726,8 +3726,14 @@
+                 }
+                 let Some(link) = self.resolve_alias(candidate) else { continue };
+                 // The two-hop signature: the immediate target is the
+-                // `export=` alias, and ITS target is the namespace.
+-                if !self.binder.symbols().get(link).flags.intersects(SymbolFlags::ALIAS) {
++                // `export=` alias, and ITS target is the namespace. An
++                // `import x = a` whose `a` is an import alias is two alias
++                // hops too, but not this signature: native names its
++                // namespace through the accessibility walk, which prefers the
++                // earlier-declared `a` (r6-modules2 §1).
++                let link_entry = self.binder.symbols().get(link);
++                if !link_entry.flags.intersects(SymbolFlags::ALIAS) || link_entry.name != "export="
++                {
+                     continue;
+                 }
+                 if self.binder.merged_symbol(self.resolve_alias_fully(link)) != target {
+diff --git a/crates/tsr-checker/tests/symbol_chain.rs b/crates/tsr-checker/tests/symbol_chain.rs
+--- a/crates/tsr-checker/tests/symbol_chain.rs
++++ b/crates/tsr-checker/tests/symbol_chain.rs
+@@ -1221,6 +1221,15 @@
+                             {
+                                 intrinsics.any
+                             }
++                            // `import Linked = Head` targets the namespace
++                            // import itself (getSymbol's alias rule,
++                            // checker.go:2176), so `Linked` and `Tail` call
++                            // like `Head`. Native tsgo: `any` for all three
++                            // with an empty Function, TS2349 for all three
++                            // otherwise (r6-modules2.md §1).
++                            "Tail(3)" | "Linked(4)" if namespace_value && namespace_assignable => {
++                                intrinsics.any
++                            }
+                             // A function merged with a namespace is also
+                             // assignable to such a Function (native tsgo:
+                             // `any` for all four; r5-relater7.md §7).
+diff --git a/crates/tsr-compiler/tests/r6_modules2_import_equals.rs b/crates/tsr-compiler/tests/r6_modules2_import_equals.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_modules2_import_equals.rs
+@@ -0,0 +1,83 @@
++//! r6-modules2's import-equals diff (`docs/parity/notes/r6-modules2.md` §1):
++//! `import X = Y` resolves when `Y` is itself an import alias whose chain
++//! carries the namespace meaning (`getSymbol`'s alias rule).
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ModuleKind, ScriptTarget, Tristate};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// The `(line, code)` pairs the checker reports in `file`, sorted.
++fn reported(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<(u32, u32)> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: options,
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let text = files.iter().find(|(name, _)| *name == file).expect("listed").1;
++    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    let mut reported: Vec<(u32, u32)> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(at, _)| *at == id)
++        .map(|(_, diagnostic)| {
++            let line = text[..diagnostic.span.start as usize].matches('\n').count() as u32 + 1;
++            (line, diagnostic.message.code())
++        })
++        .collect();
++    reported.sort_unstable();
++    reported
++}
++
++#[test]
++fn export_import_of_an_imported_uninstantiated_namespace_is_ts1269() {
++    // `compiler/isolatedModulesExportImportUninstantiatedNamespace`, plus a
++    // local namespace; native `tsgo` reports both lines.
++    let files = [
++        ("/jsx.ts", "export namespace JSXInternal {\n  export type HTMLAttributes = string\n}\n"),
++        (
++            "/factory.ts",
++            "import { JSXInternal } from \"./jsx\"\nexport import JSX = JSXInternal;\nnamespace Local { export type T = 1 }\nexport import L = Local;\n",
++        ),
++    ];
++    let options = CompilerOptions {
++        module: ModuleKind::ESNext,
++        target: ScriptTarget::ESNext,
++        isolated_modules: Tristate::True,
++        ..Default::default()
++    };
++    assert_eq!(reported(&files, options, "/factory.ts"), [(2, 1269), (4, 1269)]);
++}
