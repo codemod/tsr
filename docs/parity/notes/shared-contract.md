@@ -106,3 +106,20 @@ excluded every enum-like type from the name comparison, so `E4 | E3` fell
 to creation order. A union carrying a symbol (`TypeData::Union { symbol }`)
 now names itself by that symbol; non-union enum members still answer no
 name and order by declaration. No new cache.
+
+## Indexed-access declared types through alias chains (tsr-2zk.16.56)
+
+`getTypeAliasInstantiation` → `instantiateTypeWithAlias` over a declared
+type that is an indexed access maps it through `getIndexedAccessTypeEx(..,
+alias)` (checker.go:22176): a resolved access is the property type itself
+(no alias), a deferred one carries the outer alias. The port's
+indexed-access arm of `create_type_reference_with_display` admitted only a
+written `O[K]` body, so `type W<O, K> = Idx<O, K>` minted a nominal `W<..>`
+that related to nothing (`deferredLookupTypeResolution`'s
+`ObjectHasKey<{ a: string }, 'a'>` is `"true"`). The arm now admits a body
+that is a reference to a generic alias whose declared type is an indexed
+access (`alias_body_is_indexed_access`, bounded chain depth 8 like
+`alias_body_receives_new_alias`). Native controls: `W<{ a: 'x' }, 'a'>` is
+`"x"`, `W<I, 'm'>` is `string`, `W<T, K>` / `W2<T, K>` inside a generic keep
+their own alias heads. No new cache: the existing `instantiations` and
+`alias_body_evaluations` keys.
