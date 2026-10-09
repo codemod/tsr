@@ -360,3 +360,279 @@ domain-model-large **0.952 wall** / 0.990 CPU.
 **How we would know it is wrong.** A global entry whose behaviour in these
 loops does not start with the `ALIAS` test (a new arm before it), or a
 binder that adds globals after checking starts.
+
+## §8 Multi-thread scaling on jsTyping (`tsr-2zk.935`): imbalance, not duplication
+
+**Question** (brief): `r4-realworld.md` measured TSR's user time at twice
+its wall on `src/jsTyping` (check 21.9 s, real 20.0 s, user 40.0 s). Do the
+pooled checkers duplicate work?
+
+**Setup.** `r4-realworld.md`'s scratch config in
+`vendor/typescript-go/_submodules/TypeScript/src/jsTyping`
+(`{"extends": "./tsconfig.json", "compilerOptions": {"types": [], "pretty":
+false, "noEmit": true}}`, removed afterwards), release `tsr` at this
+lane's §5 commit; 128 files, 83 checked. Check time is now **10.6 s** with
+the default pool (21.9 s in round 4). A temporary per-file timer around
+`check_source_file` in `checker_pool.rs` (not committed) attributed the
+time per checker and per file.
+
+| mode | wall | user | sys |
+|---|---:|---:|---:|
+| `--singleThreaded` | 19.82 s | 19.49 s | 0.20 s |
+| `--checkers 1` | 20.08 s | 19.78 s | 0.24 s |
+| `--checkers 2` | 14.66 s | 20.91 s | 0.31 s |
+| default (4 checkers) | 11.28 s | 22.19 s | 0.36 s |
+
+Per-file check time summed per checker (default pool): checker 0
+**11.31 s** (20 files), checker 1 3.89 s, checker 2 4.37 s, checker 3 3.33 s
+— 22.90 s in all against 19.91 s single-threaded.
+
+**Findings.**
+
+1. **Duplicated work is +15%** (22.9 s against 19.9 s), the lazily resolved
+   declarations every checker resolves for itself — native does the same
+   (`checker_pool.rs`'s header; native's own default pool spends 1.23 s of
+   check against 1.86 s single-threaded, but its user time was not
+   measured). It is not what keeps the wall high.
+2. **The wall is checker 0's share.** Files go to checkers round-robin by
+   program index, as native's `createCheckers` does (`checkerpool.go:98`),
+   and checker 0 drew `compiler/checker.ts`, **6.6 s on its own** (a third of
+   all checking), plus `binder.ts` (2.0 s). With 4 checkers the wall
+   (11.3 s) is that one checker; the other three finish in under 4.4 s.
+   The 1.76× speed-up from 4 checkers (native: 1.5×) is the most this file
+   order allows.
+3. So the lever is per-file speed on large real-world files — TSR's
+   single-threaded check is about 10× native's (19.5 s against 1.86 s) —
+   not the pool. A finer-grained pool (work stealing per file) would bring
+   the wall to about max(6.6 s, 22.9/4 s) but would change which checker
+   produces which file's diagnostics, which native's association fixes; it
+   is not proposed.
+
+With this lane's diffs stacked (§13), jsTyping's default-pool wall is
+11.07 s → **8.27 s** and its CPU 21.56 s → 16.77 s (5 interleaved rounds);
+native tsgo, run with `--incremental false --composite false` so that it
+does not replay a `.tsbuildinfo`, takes 2.27 s wall, 6.01 s CPU (check
+1.71 s). The ratio moves from 4.88 to 3.64; the rest is §9's remaining
+per-file cost, chiefly the property walk's misses and the relater.
+
+## §9 jsTyping's check phase, attributed
+
+`domain-model` is small, flat application code; `src/jsTyping` checks the
+TypeScript compiler's own sources (`checker.ts` alone is ~50,000 lines,
+with enums of hundreds of members and AST interfaces several `extends`
+deep), and it profiles differently. Check-phase-only callgrind
+(`--singleThreaded`, profiling build of the §5 commit plus §7's diff):
+**133,472,242,255 Ir**. Its top self-cost entries: `_int_free` 7.67 G,
+`malloc` 5.53 G, `SymbolTableField::get` 4.61 G, `base_symbols_of_ex`
+4.43 G, `get_property_of_declared_symbol` 3.89 G + 2.23 G,
+`push_children` 3.42 G, `get_property_of_type_ex` 3.28 G, `resolve_name`
+3.01 G, `get_type_at_flow_node::{closure#2}` 2.86 G, `late_bound_members_of`
+2.81 G, `get_regular_type_of_literal_type` 2.78 G, `format_inner` 2.41 G,
+`enum_member_value` 2.07 G, `core::fmt::write` 1.85 G. Three causes
+account for over a third of the phase:
+
+| cause | inclusive Ir | share | where |
+|---|---:|---:|---|
+| the declared-symbol property walk | 24.30 G | 18.2% | §11 |
+| `enum_member_value` formatting its key | 15.13 G | 11.3% | §9.1 |
+| `symbol_has_any_assignment`'s per-symbol container walk | 6.21 G | 4.6% | §10 |
+
+Fresh-process CPU below is `--singleThreaded`, base and new interleaved,
+same stdout on every run; Ir on the bench projects is §1's.
+
+### §9.1 `enum_member_value` (diff for the integrator)
+
+`Relater::is_simple_type_related_to` (`relater.rs`) asks
+`Checker::enum_member_value` (`flow.rs`) for both sides of every simple
+relation — 29,696,948 calls on jsTyping, where `SyntaxKind`-member pairs
+are related constantly — and each call that finds an enum member built its
+`n:<value>`/`s:<value>` key with `format!`: 24,269,304 `format_inner`
+calls, 13.06 G Ir, about 540 Ir per key. The payload is already a
+`String`, so the key is now concatenated (`String::with_capacity` plus two
+`push_str`) in an out-of-line helper, which keeps the non-member early
+return as light as before (`r5-checkperf-enum-key.diff`). Same key, same
+answer. A further step — comparing the borrowed payloads in the relater
+instead of building keys at all — needs `relater.rs` (r5-relater6's) and is
+left for its owner.
+
+**Measured.** jsTyping `--singleThreaded` CPU 18.97 s → 17.97 s (−5.3%, 5
+interleaved rounds; an earlier in-line build) and 18.96 s → 17.38 s (3
+rounds, the shipped build). The bench projects barely relate enum members:
+dm 1,190,949,247 → 1,191,577,516 (+0.05%), dml 5,176,857,053 →
+5,176,250,599 (−0.01%), the difference being glibc's allocator internals
+(`_int_free_merge_chunk`, `unlink_chunk`) after exact-size allocations
+replaced `format!`'s growth, not the changed function, whose own Ir fell.
+The first in-line version measured +0.02%/+0.03% for the same reason plus
+a heavier prologue on the non-member path, which moving the key out of
+line removed. Gate: both dumps `cmp`-identical; `tsr-checker` tests pass;
+CLI output identical.
+
+## §10 `symbol_has_any_assignment`: one walk per container (diff for the integrator)
+
+**Forcing measurement** (jsTyping, §9): `get_type_at_flow_node::{closure#2}`
+— the START arm's `symbol_has_any_assignment` — 6.21 G inclusive over
+15,299 calls, ~405,000 Ir each, with 74.7 M `push_children` calls.
+`symbol_has_any_assignment` (`flow.rs`, `checker-notes-narrow.md` §9.7) is
+memoised per symbol, but each new symbol walks its declaration's whole
+control-flow container looking for an assignment, `++` or `--` whose target
+identifier is spelled like the symbol and resolves to it. In `checker.ts`
+that container is `createTypeChecker`'s body, ~50,000 lines, walked once per
+outer `let`/parameter referenced from a closure.
+
+**Change** (`r5-checkperf-assignment-targets.diff`, `flow.rs` plus a
+`PerfLinks` field): `Checker::assignment_targets_under(root)` walks a
+container once and indexes its assignment-target identifiers by text;
+`symbol_has_any_assignment` answers whether any target spelled like the
+symbol resolves to it. The per-symbol walk's answer was exactly that `any`
+(its early return only stopped the search; the walk has no side effects),
+and `resolve_name` is pure (§4), so every answer is the same. Convention
+record: native has no counterpart (this is a port-side syntactic
+approximation of `isSymbolAssigned`'s `markNodeAssignments`, which native
+also does once per container); key the scan root's `NodeId`, value the
+target index; private `Checker`, Program lifetime; complete on first walk
+(the bound tree is immutable); no context.
+
+**Measured.** jsTyping `--singleThreaded` CPU 19.04 s → 18.16 s (−4.6%, 3
+rounds) and 18.96 s → 16.82 s (3 rounds, a later noisier run). Bench
+projects: dm 1,190,949,247 → 1,189,668,484 (−0.11%), dml 5,176,857,053 →
+5,176,932,026 (+0.001%, noise: its containers are small). Gate: both dumps
+`cmp`-identical; `tsr-checker` tests pass; CLI output identical.
+
+## §11 The declared-symbol property walk (`tsr-2zk.967`; diff for the integrator)
+
+**Forcing measurement** (jsTyping, §9): `get_property_of_declared_symbol`
+18.2% of the check phase, 23.8 M lookups from `get_property_of_type_ex`.
+Native answers a property of a class or interface from its resolved member
+table (`resolveStructuredTypeMembers` layers the bases in once); this port
+walks the symbol's own members, then its late-bound members, then each base
+in turn, per lookup. Each step copied two cached lists:
+`late_bound_members_of` returned a clone of its published
+`Vec<(String, NodeId)>` (49.2 M calls, 1.63 G in the clones alone, plus
+their frees), and `base_symbols_of` a clone of the published base list
+(52.3 M calls, 7.0 G inclusive).
+
+**Change** (`r5-checkperf-property-walk.diff`, `members.rs`, main's file):
+the walk searches a published late-bound list in place, and reads a
+published base list by index. Both tables only gain entries — the
+late-bound sentinel is replaced, never mutated under a reader, and a base
+list is stored once and never recomputed while present — so the in-place
+reads see exactly what the copies held. An unpublished list goes through
+the old calls. Same walk, same order, same answers.
+
+**Not done here: a `(owner, name)` property memo.** Native's resolved
+table would make each lookup one probe. In this port the walk's answer can
+be provisional (a base list is `None` while an alias resolves, a late-bound
+list is a placeholder while it computes), so such a memo needs the
+publication rules `receiver_signature_kinds` uses (`r5-perf4.md` §2) and
+belongs to whoever owns `members.rs`; §12 is that memo, as a separate diff.
+
+**Measured.** jsTyping `--singleThreaded` CPU 18.59 s → 17.54 s (−5.6%, 3
+rounds); 18.96 s → 17.85 s in the later run. dm 1,190,949,247 →
+1,183,630,460 (−0.61%); dml 5,176,857,053 → 5,140,838,820 (−0.70%). Gate:
+both dumps `cmp`-identical; CLI output identical (its tests ran with §12,
+which contains it).
+
+**jsTyping Ir after §9.1, §10 and §11** (stacked, profiling build): 133.47 G
+→ **108.08 G (−19.0%)**. The "before" binary also carried §7's diff and the
+"after" did not, so the three diffs' own reduction is at least that.
+
+## §12 A settled-walk property memo (`tsr-2zk.967`; diff for the integrator)
+
+**Forcing measurement** (jsTyping with §9.1, §10 and §11 stacked, 108.08 G
+Ir): the walk is still first — `get_property_of_declared_symbol` 6.07 G +
+3.72 G self, `SymbolTableField::get` 4.61 G (the per-step member-table
+probes), `get_property_of_type_ex` 3.28 G — each of the 23.8 M lookups
+re-walking the same few interface chains.
+
+**Native operation.** `getPropertyOfType` over a class or interface reads
+`resolveStructuredTypeMembers`' table, which layers the bases in once per
+type; a lookup is one probe.
+
+**Change** (`r5-checkperf-property-memo.diff`, `members.rs` and two
+`PerfLinks` fields; it contains §11's change):
+`get_property_of_declared_symbol_fresh(owner, name)` keeps its answer per
+`(owner, name)` in `PerfLinks::declared_properties`, `None` included.
+
+- **Identity and owner.** Key: the owner `SymbolId` as passed and the name.
+  The walk from an empty path is a function of the owner's member table
+  (binder, immutable), its published late-bound list, its published base
+  list, and the same three for each base. Private `Checker`, Program
+  lifetime. Only the fresh (empty-path) entry is memoised; the two callers
+  that pass their own path (`members.rs` near lines 1442 and 2987) walk as
+  before.
+- **Publication.** A walk publishes only if no step read unsettled state;
+  `PerfLinks::property_walk_provisional` counts such steps, and the fresh
+  entry publishes when the count did not move. Unsettled: a late-bound
+  list that is still its computing placeholder (`late_bound_active`); a
+  base list that was not published (a gap, or computed while
+  `alias_resolving > 0`, both of which `base_symbols_of_ex` already refuses
+  to store); an own member without `VALUE` flags, whose value-ness
+  `symbol_is_value` takes from an alias chain that may be mid-resolution.
+  Everything else a walk reads is either immutable or a published entry
+  that is never rewritten (§11), so a later walk would read the same tables
+  and give the same answer; that is the whole claim.
+- **Context.** None: no receiver `this`, mapper or alias frame enters the
+  walk; the caller applies the receiver to the symbol it gets back, as
+  before.
+- **Work boundary.** One walk per `(owner, name)`; a hit is two hash probes.
+- **Side effects skipped on a hit.** Publication requires the late-bound
+  and base lists the walk touched to be published already, so a repeated
+  walk would only have read caches.
+
+**Measured** (contains §11): jsTyping `--singleThreaded` CPU 17.87 s →
+16.76 s against §11 alone (−6.2%, 2 rounds) and 18.96 s → 17.05 s against
+the base (3 rounds). dm 1,190,949,247 → 1,182,167,836 (−0.74%); dml
+5,176,857,053 → 5,132,137,959 (−0.86%). Gate: both dumps `cmp`-identical;
+`tsr-checker` tests pass; CLI output identical.
+
+**How we would know it is wrong.** A table the walk reads that changes
+after it is published (a new writer that rewrites `base_symbols` or a
+published late-bound list, or a member table that is not the binder's), or
+an alias member whose answer changes without its flags saying `ALIAS`.
+
+
+## §13 The whole lane, stacked
+
+`r5-checkperf-stack.diff` is §3, §4, §6, §7, §9.1, §10 and §12 applied
+together on top of `ab77d39` (§5), with their insertion points merged; the
+individual diffs each apply alone to `ab77d39`, and where two of them add
+lines at the same place (the end of `PerfLinks`, the block before
+`perf_links.rs`'s tests, the `shared_flows` field in `checker.rs`) both
+sides are kept. Gate on the stack: both dumps `cmp`-identical,
+`tsr-checker` tests pass (205), `cargo fmt --check` clean, clippy reports
+nothing in touched code (stable flags pre-existing findings in
+`signatures.rs`, `enum_initializer.rs`, `index_signatures.rs:246` and
+`templates.rs`).
+
+| | base `ccb48e7` | §5 commit | stack |
+|---|---:|---:|---:|
+| dm Ir | 1,202,276,461 | 1,190,949,247 | **1,150,017,864 (−4.35%)** |
+| dml Ir | 5,229,776,873 | 5,176,857,053 | **4,671,587,004 (−10.67%)** |
+
+Interleaved fresh processes against the base binary and native tsgo
+(default mode; 31 rounds, domain-model 41 with a control):
+
+| project | base/tsgo wall | stack/tsgo wall | stack/base wall | stack/base CPU |
+|---|---:|---:|---:|---:|
+| domain-model | 0.678 | 0.673 | 0.992 | 0.988 (control 0.998 / 0.988) |
+| domain-model-large | 0.738 | **0.659** | **0.893** | 0.947 |
+| generic-imports | 0.790 | 0.790 | 1.000 | 0.999 |
+| jsTyping (§8, 5 rounds) | 4.88 | **3.64** | **0.747** | 0.778 |
+
+domain-model's wall is bounded by its program construction and its
+largest file, so a 4% Ir cut stays inside the noise; domain-model-large's
+critical path is the deep-flow file §3 fixes; generic-imports checks three
+files (r5-perf4 §7).
+
+**What is left, by measured size.**
+
+1. The allocator (§2): 16–21% of the check phase, from `TypeData`,
+   `Signature` and `String` copies. Signature parameter sharing (§6) is the
+   largest representation change on that list.
+2. Name resolution beyond the four routed sites (§4): the export-alias walk
+   (79.5 M self on dml) takes a checker callback and is not exact to memoise
+   as is.
+3. jsTyping: the relater's enum keys (comparing borrowed payloads,
+   `relater.rs`), `get_regular_type_of_literal_type` (61.9 M calls, 2.8 G,
+   one hash probe each for `enum_member_regular`), and
+   `is_pure_signature_type`'s index-info reads (6.2 G).
