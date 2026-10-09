@@ -545,3 +545,6 @@ per-file flag must become per-node.
   after a `{`. The related record's file is set when the program file is
   built (`tsr-compiler` `ProgramFile::new`, the related half of
   `attachFileToDiagnostics`), sharing one file image per file.
+- Nested namespace segments (`parseModuleOrNamespaceDeclaration(…, nested)`):
+  a segment after a dot is `parseIdentifierName`, so `chrome.debugger` is a
+  name and only the first segment can report TS1359.

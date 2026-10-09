@@ -471,7 +471,7 @@ impl<'a> Parser<'a> {
 
         let kind = keyword.kind;
         Statement::ModuleDeclaration(
-            self.parse_dotted_module_declaration(start, modifiers, kind, keyword),
+            self.parse_dotted_module_declaration(start, modifiers, kind, keyword, false),
         )
     }
 
@@ -488,14 +488,24 @@ impl<'a> Parser<'a> {
     /// reachable through the outer one. Both it and the segment's `namespace`
     /// keyword are zero-width: the source spells them once, and the node shape
     /// wants one per level.
+    ///
+    /// `parseModuleOrNamespaceDeclaration(…, nested, …)` (`parser.go:2205`): a
+    /// segment after a dot is `parseIdentifierName`, so a reserved word such
+    /// as `chrome.debugger` is a name there; the first segment is
+    /// `parseIdentifier`.
     fn parse_dotted_module_declaration(
         &mut self,
         start: u32,
         modifiers: &[ModifierLike<'a>],
         keyword_kind: SyntaxKind,
         keyword: &'a tsr_ast::Token<'a>,
+        nested: bool,
     ) -> &'a ModuleDeclaration<'a> {
-        let name = ModuleName::Identifier(self.parse_identifier());
+        let name = ModuleName::Identifier(if nested {
+            self.parse_identifier_name()
+        } else {
+            self.parse_identifier()
+        });
         let body = if self.eat(SyntaxKind::DotToken) {
             let nested_start = self.pos();
             let empty = tsr_core::Span::new(nested_start, nested_start);
@@ -506,6 +516,7 @@ impl<'a> Parser<'a> {
                 &[ModifierLike::Token(export)],
                 keyword_kind,
                 nested_keyword,
+                true,
             );
             Some(ModuleBody::ModuleDeclaration(inner))
         } else {
