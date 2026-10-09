@@ -68,6 +68,20 @@ fn an_optional_property_reuses_its_annotation() {
     );
 }
 
+/// `addPropertyToElementList`'s accessor arm (`nodebuilderimpl.go:2524`):
+/// a divergent getter/setter pair prints both signatures, the setter's
+/// written `number | string` kept (`divergentAccessors1`).
+#[test]
+fn a_divergent_accessor_pair_prints_as_accessors() {
+    assert_eq!(
+        type_of_last_expression(
+            "declare var t: { get foo(): number; set foo(v: number | string); };\nt;",
+            true
+        ),
+        "{ get foo(): number; set foo(v: number | string); }"
+    );
+}
+
 /// `getPropertyNameNodeForSymbol` (`nodebuilderimpl.go:2426`): a merged
 /// name is string-named only if every declaration is
 /// (`numericStringNamedPropertyEquivalence`).
