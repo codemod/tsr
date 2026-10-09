@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1733/1928 (89.89%)
-Assertion lines: 76970/78552 (97.99%)  — a gradient, not a pass rate
-Failed         : 195
+Passed         : 1735/1928 (89.99%)
+Assertion lines: 76972/78552 (97.99%)  — a gradient, not a pass rate
+Failed         : 193
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 195 failures:
+First 100 of 193 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -134,10 +134,6 @@ compiler/optionalChainWithInstantiationExpression1(target=es2019)
   optionalChainWithInstantiationExpression1.ts: >a?.b<c> : { new (x: unknown): b<unknown>; d: number; prototype: b<any>; } | undefined — expected >a?.b<c> : { new (x: unknown): A.b<unknown>; d: number; prototype: A.b<any>; } | undefined
 compiler/optionalChainWithInstantiationExpression1(target=es2020)
   optionalChainWithInstantiationExpression1.ts: >a?.b<c> : { new (x: unknown): b<unknown>; d: number; prototype: b<any>; } | undefined — expected >a?.b<c> : { new (x: unknown): A.b<unknown>; d: number; prototype: A.b<any>; } | undefined
-compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsx)
-  index.tsx: >React : typeof import("react").React — expected >React : typeof React
-compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsxdev)
-  index.tsx: >React : typeof import("react").React — expected >React : typeof React
 compiler/recursiveProperties(target=es2015)
   recursiveProperties.ts: >this.testProp : error — expected >this.testProp : any
 compiler/restElementWithNumberPropertyName(target=es2015)
@@ -228,3 +224,7 @@ conformance/esDecorators-classDeclaration-outerThisReference(target=es2021)
   esDecorators-classDeclaration-outerThisReference.ts: >this : this — expected >this : typeof globalThis
 conformance/esDecorators-classDeclaration-outerThisReference(target=es2022)
   esDecorators-classDeclaration-outerThisReference.ts: >this : this — expected >this : typeof globalThis
+conformance/esDecorators-classDeclaration-outerThisReference(target=esnext)
+  esDecorators-classDeclaration-outerThisReference.ts: >this : this — expected >this : typeof globalThis
+conformance/esnextmodulekindWithES5Target11(target=es2015)
+  esnextmodulekindWithES5Target11.ts: >C : any — expected >C : typeof C
