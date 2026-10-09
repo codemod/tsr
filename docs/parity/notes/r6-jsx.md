@@ -271,8 +271,14 @@ WRONG → RIGHT: `spellingSuggestionJSXAttribute`,
 `tsxStatelessFunctionComponentOverload4`,
 `jsxFragmentFactoryReference(jsx=react)`,
 `inlineJsxFactoryWithFragmentIsError`, `tsxElementResolution15`,
-`tsxElementResolution9`. Rows fixed in still-WRONG cases: 59 (§1: 16, §3:
-29, plus the §1 rows in the cases above). No case lost a row; no new extra
+`tsxElementResolution9`. 61 rows fixed in all, 40 of them in cases that
+stay WRONG (`jsxElementType` 2, `jsxIntrinsicElementsTypeArgumentErrors`
+10, `tsxNotUsingApparentTypeOfSFC` 2,
+`contextuallyTypedStringLiteralsInJsxAttributes02` 3,
+`jsxUnclosedParserRecovery` 13, `tsxStatelessFunctionComponentOverload5` 3,
+`tsxStatelessFunctionComponentsWithTypeArguments4` 1,
+`tsxTypeArgumentResolution` 6). (Corrected before the report: the first
+draft of this line said 59 and miscounted.) No case lost a row; no new extra
 row anywhere; slowcases clean on both dumps at every commit. Median child
 CPU against the frozen binary: domain-model 0.976–1.002, generic-imports
 0.964–0.997 (21 samples; neither project has JSX).
