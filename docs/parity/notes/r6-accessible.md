@@ -208,3 +208,90 @@ separate alias. It is wrong only for an inline mapped node inside an
 intersection alias body, instantiated under an outer mapper: declared.rs's
 alias-body evaluation. None of `mapped.rs`' optionality sites fire, because
 all are gated on `strict_null_checks`. Owner: r6-declared.
+
+## 4. Item 2: unique-symbol mapped keys (`declarationEmitMappedTypeTemplateTypeofSymbol`, 6 lines)
+
+`{ [TKey in typeof timestampSymbol]: true }` resolves natively to one
+property:
+- its name is `getPropertyNameFromType`'s third arm (`utilities.go:886`),
+  the unique symbol's escaped name;
+- it prints as `[symbolToExpression(nameType.symbol, Value)]`
+  (`getPropertyNameNodeForSymbolFromNameType`, `nodebuilderimpl.go:2482`).
+
+That gives `[timestampSymbol]` in `a.d.ts`, `[x.timestampSymbol]` in `b.ts`
+(`import * as x`), and `[timestampSymbol]` in `c.ts`. In `c.ts` only `now`
+is imported: `getSymbolChain(module, …, endOfChain = false,
+yieldModuleSymbol = false)` answers nil for an external module that no
+chain reaches (`nodebuilderimpl.go:1141`), so the symbol is written alone.
+
+Before this item the port declined the key outright. `mapped_member_keys`
+admitted only string/number literals and valid index keys, so the whole
+mapped type printed its generic form, `{ [TKey in unique symbol]: true; }`.
+
+**Commit**: `crates/tsr-checker/src/unique_symbol_keys.rs` and
+`tests/unique_symbol_keys.rs` (escaped-name round trip, and the three
+spellings above against a two-file program).
+- The escaped name is `__@<name>@<symbol id>`. tsgo's prefix is `"\xFE"`;
+  this port's internal names keep Strada's `__` (`__export`, the relater's
+  `__@` tests).
+- The site spelling uses the existing chain API (`needs_qualification`,
+  `best_name`, `symbol_chain`), as `serializeTypeName`'s value arm does.
+  The `yieldModuleSymbol = false` cut is asked of the resolver's
+  `accessible_symbol_chain` for the module container. No cache.
+
+**Diff 4**, `r6-accessible-unique-symbol-keys.diff` (mapped.rs; applies on
+top of diff 3, whose site-aware member print it extends):
+- `isTypeUsableAsPropertyName` (`utilities.go:879`) admits a unique-symbol
+  key in the constraint walk;
+- `mapped_key_property_name` gains the third arm;
+- the member's creation-time name is `[name]`, native's spelling with no
+  enclosing declaration;
+- the site print re-spells it.
+
+Measured on top of diffs 1–3, against the frozen base: types **+30 / −0**,
+i.e. exactly these 6. Diagnostics: 0 changed. slowcases: clean. Ir: dm
+1,090,421,280 (−0.07% vs base), gi 343,073,626 (−0.003%). CLI output
+`cmp`-identical.
+
+### What diff 4 exposes, routed to `.39`
+
+Mapped types over an array's keys (`keyof T[]`) now resolve their
+well-known-symbol members instead of dropping them:
+- these lines were WRONG before and stay WRONG: `mappedArrayTupleIntersections:0:11`,
+  `mappedTypeWithAsClauseAndLateBoundProperty{,2}`,
+  `restElementWithNumberPropertyName`, `restInvalidArgumentType`,
+  `spreadInvalidArgumentType` and
+  `dependentDestructuredVariablesFromNestedPatterns:0:14–25`;
+- the port now prints `[iterator]` where native prints `[Symbol.iterator]`.
+
+Native reaches `Symbol.` through `getContainersOfSymbol`'s variable-match
+arm: `SymbolConstructor`'s property is reached through the global
+`Symbol: SymbolConstructor`. The port's `symbol_chain` does not have that
+arm. That is `getAccessibleSymbolChain`/`getContainersOfSymbol` work, i.e.
+`tsr-2zk.39`.
+
+### The identity question this leaves open
+
+A *written* symbol-keyed member is named in this port by its bracketed
+expression text (`[s]`, objects.rs `late_bound_symbol_member_name`,
+members.rs `late_bound_members_of`), not by native's escaped name. A mapped
+member keyed by the same unique symbol is now named `__@s@<id>`, so the two
+do not unify in a relation or property read, where native's do.
+
+No corpus line exercises the mismatch: 0 diagnostics moved. Before diff 4
+the mapped member did not exist at all, so no relation was answered by it
+either way. The fix is one identity for both, native's escaped name. That
+belongs in the late-binding owners (`members.rs`, main; `objects.rs`,
+r6-printer). It is not taken here.
+
+## 5. Landing order
+
+1. commit `ed46162` (alias_accessibility.rs);
+2. this item's commit (unique_symbol_keys.rs);
+3. `r6-accessible-serialize-type-name.diff` (+18);
+4. `r6-accessible-alias-arm.diff` (0);
+5. `r6-accessible-mapped-object-site.diff` (+6);
+6. `r6-accessible-unique-symbol-keys.diff` (+6, needs 5).
+
+Steps 3–6 together: types RIGHT 549,881 → 549,911 (**+30 / −0**),
+diagnostics unchanged, slowcases clean, Ir flat.

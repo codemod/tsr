@@ -215,6 +215,7 @@ pub mod type_argument_arity;
 pub mod types;
 mod union_signatures;
 pub mod unions;
+mod unique_symbol_keys;
 mod unique_symbols;
 pub mod unused;
 mod using_declaration;
