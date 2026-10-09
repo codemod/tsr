@@ -992,16 +992,21 @@ fn function_namespace_copies_preserve_default_and_runtime_member_identity() {
             if empty_function {
                 let function = checker.get_declared_type_of_symbol(bound.globals()["Function"]);
                 // Native returns ordinary any through its empty Function. The
-                // existing relation cannot yet compare noncallable anonymous
-                // module copies; the call consumer certifies the target's
-                // emptiness without recovering Raw's return signature.
+                // copy of a function merged with a namespace relates over its
+                // members like a namespace object (r5-relater7.md §7); a plain
+                // function's noncallable module copy is still a gap, and the
+                // call consumer certifies the target's emptiness instead.
                 assert_eq!(
                     checker.relate_ternary(
                         head,
                         function,
                         tsr_checker::relater::Relation::Assignable
                     ),
-                    tsr_checker::relater::Ternary::Unknown,
+                    if merged {
+                        tsr_checker::relater::Ternary::Related
+                    } else {
+                        tsr_checker::relater::Ternary::Unknown
+                    },
                 );
             }
             assert_eq!(
@@ -1213,6 +1218,14 @@ fn module_copy_calls_require_a_certified_empty_global_function() {
                         let expected = match text {
                             "Head(1)" | "Twin(2)" | "Raw(5)"
                                 if namespace_value && namespace_assignable =>
+                            {
+                                intrinsics.any
+                            }
+                            // A function merged with a namespace is also
+                            // assignable to such a Function (native tsgo:
+                            // `any` for all four; r5-relater7.md §7).
+                            "Head(1)" | "Twin(2)" | "Tail(3)" | "Linked(4)"
+                                if namespace_meaning && clone && !class && namespace_assignable =>
                             {
                                 intrinsics.any
                             }

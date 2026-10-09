@@ -1,0 +1,32 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index 94feeda..71852fd 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -3353,18 +3353,17 @@ impl<'a, 'n> Binder<'a, 'n> {
+         // module's exports, where the exports arm of name resolution declines
+         // an ambient alias — so `I` never resolved inside its own module
+         // (`docs/parity/notes/names-modules.md` §1).
++        //
++        // The alias arm does not depend on the container: native tests it
++        // before `container.Flags&NodeFlagsExportContext` for every
++        // container, so an import inside `declare module "U" { … }` of a
++        // script is a local of that module too (`ramdaToolsNoInfinite2`:
++        // `import { Bit } from "B"` inside `declare module "U"` reported
++        // TS2552 for `Bit`; `docs/parity/notes/r5-relater7.md` §11).
+         let exported = match node {
+             Node::ExportSpecifier(_) => true,
+-            Node::ImportEqualsDeclaration(_)
+-                if self.nodes.kind(self.container) == SyntaxKind::SourceFile =>
+-            {
+-                self.has_export_modifier(node)
+-            }
+-            Node::ImportClause(_) | Node::ImportSpecifier(_) | Node::NamespaceImport(_)
+-                if self.nodes.kind(self.container) == SyntaxKind::SourceFile =>
+-            {
+-                false
+-            }
++            Node::ImportEqualsDeclaration(_) => self.has_export_modifier(node),
++            Node::ImportClause(_) | Node::ImportSpecifier(_) | Node::NamespaceImport(_) => false,
+             _ => self.export_context || self.has_export_modifier(node),
+         };
+         match self.nodes.kind(self.container) {

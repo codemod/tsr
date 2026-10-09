@@ -21,7 +21,9 @@ fn ts2322_lines(source: &str) -> Vec<usize> {
         type Partial<T> = { [P in keyof T]?: T[P] }; \
         type Required<T> = { [P in keyof T]-?: T[P] }; \
         type Readonly<T> = { readonly [P in keyof T]: T[P] }; \
-        type Record<K extends keyof any, T> = { [P in K]: T };";
+        type Record<K extends keyof any, T> = { [P in K]: T }; \
+        type Capitalize<S extends string> = intrinsic; \
+        type Uncapitalize<S extends string> = intrinsic;";
     let global = tsr_parser::parse_into(
         &arena,
         globals,
@@ -118,6 +120,85 @@ const d: D = new C();
 const d2: D = new E();
 const f: F = new C(); // error
 const c: C = new F(); // error
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
+
+#[test]
+fn variadic_tuple_elements_relate_by_their_flags() {
+    let source = r#"function f<T extends unknown[], U extends unknown[]>(a: [...T, ...U], b: [string, ...T], c: [...T, number], d: [...T, ...string[]], e: string[], g: [...T]) {
+  const x1: [...T, ...U] = a;
+  const x2: [string, ...T] = b;
+  const x3: [...T, number] = c;
+  const x4: [...T, ...string[]] = d;
+  const x5: [...T, ...string[]] = e; // error
+  const x6: [...T, ...unknown[]] = g;
+  const x7: [string, ...T] = c; // error
+  const x8: [...T, number] = b; // error
+  const x9: unknown[] = a;
+  const x10: [...T, ...unknown[]] = c;
+  const x11: [...T, ...U] = [] as any[]; // error
+}
+class I<SS extends string> {
+  f() {
+    let w: [...args: { [S in SS]: [a: number] }[SS]] = [1];
+  }
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
+
+#[test]
+fn a_string_mapping_meets_a_template_through_its_base_constraint() {
+    let source = r#"function f(t: `A${string}`, c: Capitalize<string>, u: Uncapitalize<string>, l: `a${string}`) {
+  t = c; // error
+  l = u; // error
+  c = t;
+  u = l;
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
+
+#[test]
+fn a_function_merged_with_a_namespace_relates_over_its_exports() {
+    let source = r#"function Point() { return 0; }
+namespace Point { export var Origin = 1; }
+const f: () => number = Point;
+const o: { Origin: number } = Point;
+const p: { Origin: string } = Point; // error
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
+
+#[test]
+fn union_fast_paths_keep_their_answers() {
+    let source = r#"type L = "a" | "b" | "c" | undefined;
+type O = { a: string } | { b: number };
+function f(x: L, y: L & O, s: string | number, t: "a" | "b") {
+  x = y;
+  s = t;
+  const u: "a" | "b" = "c"; // error
+  const v: string | number = "c";
+}
+"#;
+    assert_eq!(ts2322_lines(source), marked(source));
+}
+
+#[test]
+fn an_overflowing_check_is_not_reported_as_ts2322() {
+    // relationComplexityError's f2: native reports TS2859 (the reporter half
+    // is held, docs/parity/notes/r5-relater7.md section 9); the relater's
+    // overflow answer must not surface as a TS2322 meanwhile.
+    let source = r#"type Digits = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7';
+type T1 = `${Digits}${Digits}${Digits}${Digits}` | undefined;
+type T2 = { a: string } | { b: number };
+function f1(x: T1, y: T1 & T2) {
+    x = y;
+}
+function f2(x: T1 | null, y: T1 & T2) {
+    x = y;
+}
 "#;
     assert_eq!(ts2322_lines(source), marked(source));
 }

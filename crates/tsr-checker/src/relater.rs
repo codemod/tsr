@@ -469,6 +469,12 @@ struct Relater<'c, 'a, 'n> {
     intersection_target: bool,
     /// Optional direct diagnostic consumer. No storage allocation on verdict-only walks.
     diagnostic_pair: Option<(TypeId, TypeId)>,
+    /// Native `relationCount` (relater.go:369): how many more completed
+    /// results this check may publish before it overflows.
+    relation_count: isize,
+    /// Native `overflow` (relater.go:3086): the budget ran out; every
+    /// further structured comparison in this check answers False.
+    overflow: bool,
     signature_error: Option<(usize, usize)>,
 }
 
@@ -655,7 +661,6 @@ impl Checker<'_, '_> {
             return RecursionIdentity::Symbol(*symbol);
         }
         if let Some((symbol, _)) = self.type_reference_targets.get(&ty)
-            && !self.reference_types_from_nodes.contains(&ty)
             && self
                 .binder
                 .symbols()
@@ -829,7 +834,22 @@ impl Checker<'_, '_> {
         let mut relater = Relater::new(self, relation, report_errors.then_some((source, target)));
         // Measurement only; a no-op unless `reasons::enable` was called.
         let outer = reasons::begin();
-        let answer = relater.is_related_to(source, target).public_answer();
+        let mut answer = relater.is_related_to(source, target).public_answer();
+        if relater.overflow {
+            // checkTypeRelatedToEx (relater.go:371): the pair is recorded as
+            // a complexity overflow so the walk is not attempted again, and
+            // native reports TS2859 instead of the relation's own error.
+            // That report belongs to the reporting sites (`assignreport.rs`,
+            // `docs/parity/notes/r5-relater7.md` §9); until they issue it,
+            // the answer is `Unknown`, so no TS2322 stands in for it.
+            let key = (
+                relater.checker.get_regular_type_of_literal_type(source),
+                relater.checker.get_regular_type_of_literal_type(target),
+                false,
+            );
+            relater.publish_result(key, CachedRelation::ComplexityOverflow);
+            answer = Ternary::Unknown;
+        }
         reasons::finish(outer, answer == Ternary::Unknown);
         let diagnostic = if answer == Ternary::NotRelated {
             relater.signature_error.map(|(minimum, count)| {
@@ -878,6 +898,7 @@ impl Checker<'_, '_> {
         Some(match self.relation_results.get(relation, (source, target, false))? {
             CachedRelation::Succeeded => Ternary::Related,
             CachedRelation::Failed => Ternary::NotRelated,
+            CachedRelation::ComplexityOverflow => Ternary::Unknown,
         })
     }
 
@@ -1187,6 +1208,10 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
             let options = checker.relation_options();
             checker.relation_results.validate(options);
         }
+        // `relationCount = (16_000_000 - relation.size()) / 8`
+        // (checkTypeRelatedToEx, relater.go:369).
+        let relation_count_base =
+            isize::try_from(checker.relation_results.len(relation)).unwrap_or(isize::MAX);
         Relater {
             checker,
             relation,
@@ -1200,6 +1225,8 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
             intersection_target: false,
             diagnostic_pair,
             signature_error: None,
+            relation_count: (16_000_000 - relation_count_base) / 8,
+            overflow: false,
         }
     }
 
@@ -1213,6 +1240,9 @@ impl<'c, 'a, 'n> Relater<'c, 'a, 'n> {
 
     /// `relation.set(id, ...)` (`relater.go:3162`, `:3173`).
     fn publish_result(&mut self, key: RelationKey, result: CachedRelation) {
+        // Every published result spends one unit of the budget
+        // (`r.relationCount--`, relater.go:3163, :3174).
+        self.relation_count -= 1;
         match &mut self.local_results {
             Some(local) => {
                 local.insert(key, result);
@@ -1281,6 +1311,16 @@ impl Relater<'_, '_, '_> {
         let simplified_target = self.simplified_indexed_access(target, true);
         if simplified_source != source || simplified_target != target {
             return self.is_related_to_with_flags(simplified_source, simplified_target, flags);
+        }
+        // getNormalizedType's getNormalizedTupleType (checker.go:28073): a
+        // generic tuple's simplifiable elements are simplified (reading on
+        // the source side, writing on the target side) and the tuple is
+        // normalized again, so `[...{ [S in K]: [a: number] }[K]]` relates
+        // as `[a: number]` (`genericTupleWithSimplifiableElements`).
+        let normalized_source = self.normalized_tuple(source, false);
+        let normalized_target = self.normalized_tuple(target, true);
+        if normalized_source != source || normalized_target != target {
+            return self.is_related_to_with_flags(normalized_source, normalized_target, flags);
         }
         // getNormalizedType reduces source intersections before the simple
         // relation (relater.go:2625, checker.go:28041). Apparent constituents
@@ -1557,7 +1597,10 @@ impl Relater<'_, '_, '_> {
             || t.contains(TypeFlags::STRING_MAPPING)
             || (t.contains(TypeFlags::TEMPLATE_LITERAL)
                 && s.intersects(
-                    TypeFlags::STRING_LITERAL | TypeFlags::TEMPLATE_LITERAL | TypeFlags::STRING,
+                    TypeFlags::STRING_LITERAL
+                        | TypeFlags::TEMPLATE_LITERAL
+                        | TypeFlags::STRING
+                        | TypeFlags::STRING_MAPPING,
                 ))
         {
             return self.recursive_type_related_to(source, target, flags);
@@ -2923,7 +2966,10 @@ impl Relater<'_, '_, '_> {
             || match &self.checker.type_of(id).data {
                 TypeData::Named { members: Some(_), .. }
                 | TypeData::Anonymous { signature: true, .. } => true,
-                TypeData::Anonymous { symbol, .. } if self.is_namespace_object_symbol(*symbol) => {
+                TypeData::Anonymous { symbol, .. }
+                    if self.is_namespace_object_symbol(*symbol)
+                        || self.is_function_namespace_object(*symbol) =>
+                {
                     true
                 }
                 TypeData::Anonymous { .. } => {
@@ -2944,7 +2990,26 @@ impl Relater<'_, '_, '_> {
             && !flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::CLASS | SymbolFlags::ENUM)
     }
 
+    /// `typeof F` for a function merged with a namespace: native's
+    /// `createObjectType(ObjectFlagsAnonymous, symbol)` whose members are the
+    /// namespace exports beside the function's call signatures
+    /// (`resolveAnonymousTypeMembers`). Like a namespace object, the
+    /// structural arm relates it over those members. An enum object
+    /// (`typeof E`) is held: deciding it exposes an inference gap
+    /// (`docs/parity/notes/r5-relater7.md` §7).
+    fn is_function_namespace_object(&self, symbol: SymbolId) -> bool {
+        let flags = self.checker.binder.symbols().get(symbol).flags;
+        flags.intersects(SymbolFlags::VALUE_MODULE)
+            && flags.intersects(SymbolFlags::FUNCTION)
+            && !flags.intersects(SymbolFlags::CLASS | SymbolFlags::ENUM)
+    }
+
     fn is_pure_signature_type(&mut self, id: TypeId) -> bool {
+        // The signature list decides most calls; test it before enumerating
+        // members and index infos, which every relation pair reaches here.
+        if self.checker.signature_types.get(&id).is_none_or(Vec::is_empty) {
+            return false;
+        }
         if self.checker.get_property_names_of_type_shared(id).is_some_and(|names| !names.is_empty())
             || self.checker.get_index_infos_of_type(id).is_none_or(|infos| !infos.is_empty())
         {
@@ -3934,9 +3999,17 @@ impl Relater<'_, '_, '_> {
         target: TypeId,
         flags: RecursionFlags,
     ) -> RelationResult {
+        // Once the budget has overflowed, every structured comparison of this
+        // check is False (relater.go:3062).
+        if self.overflow {
+            return RelationResult::NotRelated;
+        }
         let key = (source, target, self.intersection_target);
         match self.cached_result(key) {
             Some(CachedRelation::Succeeded) => return RelationResult::Related,
+            // A pair that overflowed before is not attempted again
+            // (relater.go:3068-3082).
+            Some(CachedRelation::ComplexityOverflow) => return RelationResult::NotRelated,
             // Native re-runs a cached failure when it elaborates errors
             // (`relater.go:3069`). This port elaborates only the direct pair's
             // signature arity, so only that pair is re-run.
@@ -3944,6 +4017,11 @@ impl Relater<'_, '_, '_> {
                 return RelationResult::NotRelated;
             }
             _ => {}
+        }
+        // relater.go:3085: the budget is exhausted.
+        if self.relation_count <= 0 {
+            self.overflow = true;
+            return RelationResult::NotRelated;
         }
         if self.maybe_keys_set.contains(&key) {
             return RelationResult::Maybe;
@@ -4019,6 +4097,104 @@ impl Relater<'_, '_, '_> {
             }
         }
         self.maybe_keys.truncate(start);
+    }
+
+    /// typeRelatedToSomeType's fast paths (relater.go:2974-3005), before
+    /// the walk over the target union's constituents:
+    /// - `containsType`: the source is one of the constituents;
+    /// - a string, boolean or bigint literal (a number literal too under the
+    ///   subtype relations), not an enum literal, against an
+    ///   `ObjectFlagsPrimitiveUnion` target outside the comparable relation
+    ///   relates exactly when the union contains its base primitive or its
+    ///   other fresh/regular form.
+    ///
+    /// `ObjectFlagsPrimitiveUnion` is getUnionType's `includes &
+    /// TypeFlagsNotPrimitiveUnion == 0` (checker.go:25730): no `any`,
+    /// `unknown`, `void`, `never`, object, intersection or instantiable
+    /// constituent. `None` when neither path decides.
+    fn literal_in_union_shortcut(
+        &mut self,
+        source: TypeId,
+        constituents: &[TypeId],
+    ) -> Option<RelationResult> {
+        if constituents.contains(&source) {
+            return Some(RelationResult::Related);
+        }
+        if self.relation == Relation::Comparable {
+            return None;
+        }
+        let s = self.checker.type_of(source).flags;
+        let literal = s.intersects(
+            TypeFlags::STRING_LITERAL | TypeFlags::BOOLEAN_LITERAL | TypeFlags::BIG_INT_LITERAL,
+        ) || (matches!(self.relation, Relation::Subtype | Relation::StrictSubtype)
+            && s.intersects(TypeFlags::NUMBER_LITERAL));
+        if !literal || s.intersects(TypeFlags::ENUM_LITERAL | TypeFlags::UNION) {
+            return None;
+        }
+        let not_primitive_union = TypeFlags::ANY
+            | TypeFlags::UNKNOWN
+            | TypeFlags::VOID
+            | TypeFlags::NEVER
+            | TypeFlags::OBJECT
+            | TypeFlags::INTERSECTION
+            | TypeFlags::INSTANTIABLE;
+        if constituents.iter().any(|&constituent| {
+            self.checker.type_of(constituent).flags.intersects(not_primitive_union)
+        }) {
+            return None;
+        }
+        let regular = self.checker.get_regular_type_of_literal_type(source);
+        let alternate = if regular == source {
+            self.checker.get_fresh_type_of_literal_type(source)
+        } else {
+            regular
+        };
+        let primitive = if s.intersects(TypeFlags::STRING_LITERAL) {
+            Some(self.checker.intrinsics.string)
+        } else if s.intersects(TypeFlags::NUMBER_LITERAL) {
+            Some(self.checker.intrinsics.number)
+        } else if s.intersects(TypeFlags::BIG_INT_LITERAL) {
+            Some(self.checker.intrinsics.bigint)
+        } else {
+            None
+        };
+        Some(
+            if primitive.is_some_and(|primitive| constituents.contains(&primitive))
+                || constituents.contains(&alternate)
+            {
+                RelationResult::Related
+            } else {
+                RelationResult::NotRelated
+            },
+        )
+    }
+
+    /// The two origin tests of unionOrIntersectionRelatedTo for a source
+    /// union against a target union: the source's origin is an
+    /// intersection with the target among its constituents, or the target's
+    /// origin is a union with the source among its entries. Native asks the
+    /// contained side to carry an alias; here that is a union printing as a
+    /// symbol (`TypeData::Union { symbol: Some(_) }`).
+    fn union_target_is_origin_member(&self, source: TypeId, target: TypeId) -> bool {
+        let aliased = |id: TypeId| {
+            matches!(self.checker.type_of(id).data, TypeData::Union { symbol: Some(_), .. })
+        };
+        if !self.checker.type_of(target).flags.contains(TypeFlags::UNION) {
+            return false;
+        }
+        if aliased(target)
+            && let Some([origin]) = self.checker.union_origin.get(&source).map(Vec::as_slice)
+            && let TypeData::Intersection { types, .. } = &self.checker.type_of(*origin).data
+            && types.contains(&target)
+        {
+            return true;
+        }
+        aliased(source)
+            && self
+                .checker
+                .union_origin
+                .get(&target)
+                .is_some_and(|entries| entries.contains(&source))
     }
 
     /// Union and intersection dispatch.
@@ -4180,6 +4356,15 @@ impl Relater<'_, '_, '_> {
             return self.indexed_access_pair_after_components(source, target_object, target_index);
         }
         if let Some(constituents) = self.union_constituents(source) {
+            // unionOrIntersectionRelatedTo's origin fast paths (relater.go,
+            // before eachTypeRelatedToType): a source union distributed from
+            // an intersection that contains the (aliased) target relates,
+            // since `A & B` relates to `A`; and a source alias listed in the
+            // target union's origin relates. The normalized unions can be
+            // very large (`T1 & T2` with a 4,096-literal `T1`).
+            if self.union_target_is_origin_member(source, target) {
+                return RelationResult::Related;
+            }
             // Every constituent of a source union must be related.
             // Upstream's `eachTypeRelatedToType` — except under the
             // comparable relation, where SOME constituent suffices
@@ -4250,6 +4435,9 @@ impl Relater<'_, '_, '_> {
             // Related to *some* constituent of a target union.
             // Upstream's `typeRelatedToSomeType`.
             let regular = self.checker.get_regular_type_of_object_literal(source);
+            if let Some(answer) = self.literal_in_union_shortcut(regular, &constituents) {
+                return answer;
+            }
             let parts = constituents
                 .iter()
                 .map(|&c| self.is_related_to_with_flags(regular, c, RecursionFlags::TARGET));
@@ -4588,6 +4776,19 @@ impl Relater<'_, '_, '_> {
             } else {
                 RelationResult::NotRelated
             };
+        }
+        // A string-mapping source against a template target: the target's
+        // arm matches only literal and template sources
+        // (inferTypesFromTemplateLiteralType, relater.go:2345), so the
+        // source switch's string-mapping case relates its base constraint
+        // (relater.go:3782; `Capitalize<string>`'s is `string`,
+        // computeBaseConstraint checker.go:27544), and no later arm relates
+        // a non-object target.
+        if self.checker.type_of(source).flags.contains(TypeFlags::STRING_MAPPING)
+            && self.checker.template_literal_parts.contains_key(&target)
+            && let Some(result) = self.string_like_source_constraint(source, target)
+        {
+            return result;
         }
         if let Some((target_symbol, target_inner)) =
             self.checker.string_mapping_types.get(&target).copied()
@@ -5166,56 +5367,6 @@ impl Relater<'_, '_, '_> {
         self.checker.type_of(union).flags.contains(TypeFlags::NEVER)
     }
 
-    /// getConditionalType's `forConstraint` extra (checker.go): instantiated
-    /// at the check type's constraint `C`, a check that is not assignable to
-    /// the extends type `E` still includes the true branch when some
-    /// constituent of `E` is assignable to `C` (`Foo<T extends string>` with
-    /// `T extends "abc" | 42 ? true : false` is `boolean`, not `false`).
-    /// `declared.rs`'s capture evaluates without it, so it is added here.
-    /// `None` where the permissive instantiations are not the written types
-    /// (a generic `E`) or the true branch mentions the check type.
-    fn for_constraint_extra(
-        &mut self,
-        captured: TypeId,
-        operands: Option<[TypeId; 4]>,
-    ) -> Option<TypeId> {
-        let [check, extends, yes, _] = operands?;
-        let constraint = if self.checker.type_of(check).flags.contains(TypeFlags::TYPE_PARAMETER) {
-            self.checker.type_parameter_constraint(check)?
-        } else {
-            self.checker.base_constraint_of_type(check)?
-        };
-        if self.checker.mentions_registered_type_parameter(extends)
-            || self.checker.mentions_registered_type_parameter(constraint)
-        {
-            return None;
-        }
-        let forward = self.is_related_to(constraint, extends);
-        if forward.is_success() {
-            return Some(captured);
-        }
-        if forward == RelationResult::Unknown {
-            return None;
-        }
-        if self.checker.type_of(extends).flags.contains(TypeFlags::NEVER) {
-            return Some(captured);
-        }
-        let parts = self.union_constituents(extends).unwrap_or_else(|| vec![extends]);
-        let mut overlaps = RelationResult::NotRelated;
-        for part in parts {
-            overlaps = RelationResult::any([overlaps, self.is_related_to(part, constraint)]);
-            if overlaps.is_success() {
-                break;
-            }
-        }
-        match overlaps {
-            RelationResult::NotRelated => Some(captured),
-            RelationResult::Unknown => None,
-            _ if self.checker.mentions_type_parameter(yes, &[check], &[]) => None,
-            _ => Some(self.checker.get_union_type(&[captured, yes])),
-        }
-    }
-
     /// The conditional-target arm of structuredTypeRelatedToWorker
     /// (relater.go:3540). Applies when the root has no `infer` positions, is
     /// not distribution dependent, and the source is not an instantiation of
@@ -5438,27 +5589,17 @@ impl Relater<'_, '_, '_> {
                 };
                 match captured {
                     Some(captured) => {
-                        // The forConstraint extra only adds a constituent, so
-                        // a failure without it is already a failure.
+                        // The capture is getConditionalTypeInstantiation with
+                        // `forConstraint` set: `declared.rs` already joins
+                        // each distributed constituent's extra true branch
+                        // (`with_for_constraint_extras`,
+                        // `distributive_conditional_constraint`).
                         let result =
                             self.is_related_to_with_flags(captured, target, RecursionFlags::SOURCE);
                         if result.is_success() {
-                            let result = match self.for_constraint_extra(captured, operands) {
-                                Some(distributive) if distributive == captured => result,
-                                Some(distributive) => self.is_related_to_with_flags(
-                                    distributive,
-                                    target,
-                                    RecursionFlags::SOURCE,
-                                ),
-                                None => RelationResult::Unknown,
-                            };
-                            if result.is_success() {
-                                return result;
-                            }
-                            undecided |= result == RelationResult::Unknown;
-                        } else {
-                            undecided |= result == RelationResult::Unknown;
+                            return result;
                         }
+                        undecided |= result == RelationResult::Unknown;
                     }
                     None => undecided = true,
                 }
@@ -5511,13 +5652,26 @@ impl Relater<'_, '_, '_> {
         if source_readonly && !target_readonly {
             return Some(RelationResult::NotRelated);
         }
-        if source_elements.iter().chain(&target_elements).any(|element| {
-            element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
-        }) {
-            return Some(RelationResult::Unknown);
-        }
-        let source_rest = source_elements.iter().any(|element| element.spread);
-        let target_rest = target_elements.iter().any(|element| element.spread);
+        // propertiesRelatedTo's tuple arm (relater.go:4105-4227) reads each
+        // element's flags: a spread of an array is `Rest`, a spread of a
+        // generic type is `Variadic`, and both are `Variable`. A source
+        // array is one `Rest` element. `minLength` counts the required
+        // elements; `sourceRest` is `combinedFlags & Rest`, so a variadic
+        // source element alone does not make the source open-ended.
+        let is_rest = |checker: &mut Checker<'_, '_>, element: &crate::tuples::TupleElement| {
+            element.spread && checker.tuple_spread_array_element(element.r#type).is_some()
+        };
+        let source_flags: Vec<(bool, bool)> = source_elements
+            .iter()
+            .map(|element| (element.spread, is_rest(self.checker, element)))
+            .collect();
+        let target_flags: Vec<(bool, bool)> = target_elements
+            .iter()
+            .map(|element| (element.spread, is_rest(self.checker, element)))
+            .collect();
+        let source_rest = source_flags.iter().any(|&(_, rest)| rest);
+        let target_rest = target_flags.iter().any(|&(_, rest)| rest);
+        let target_variable = target_flags.iter().any(|&(spread, _)| spread);
         let source_min =
             source_elements.iter().filter(|element| !element.optional && !element.spread).count();
         let target_min =
@@ -5525,13 +5679,15 @@ impl Relater<'_, '_, '_> {
         let source_arity = source_elements.len();
         let target_arity = target_elements.len();
         if (!source_rest && source_arity < target_min)
-            || (!target_rest && target_arity < source_min)
-            || (!target_rest && (source_rest || target_arity < source_arity))
+            || (!target_variable && target_arity < source_min)
+            || (!target_variable && (source_rest || target_arity < source_arity))
         {
             return Some(RelationResult::NotRelated);
         }
-        let target_start = target_elements.iter().take_while(|element| !element.spread).count();
-        let target_end = target_elements.iter().rev().take_while(|element| !element.spread).count();
+        // getStartElementCount / getEndElementCount with `NonRest`: a
+        // variadic element counts toward the fixed ends.
+        let target_start = target_flags.iter().take_while(|&&(_, rest)| !rest).count();
+        let target_end = target_flags.iter().rev().take_while(|&&(_, rest)| !rest).count();
         let mut parts = Vec::with_capacity(source_arity);
         for (position, element) in source_elements.iter().enumerate() {
             let from_end = source_arity - 1 - position;
@@ -5543,13 +5699,22 @@ impl Relater<'_, '_, '_> {
             let Some(target_element) = target_elements.get(target_position) else {
                 return Some(RelationResult::NotRelated);
             };
-            if !target_element.optional
-                && !target_element.spread
-                && (element.optional || element.spread)
+            let (source_spread, source_is_rest) = source_flags[position];
+            let (target_spread, target_is_rest) = target_flags[target_position];
+            let source_variadic = source_spread && !source_is_rest;
+            let target_variadic = target_spread && !target_is_rest;
+            // A variadic target element accepts only a variadic source
+            // element; a variadic source element needs a variable target
+            // element; a required target element needs a required source.
+            if (target_variadic && !source_variadic)
+                || (source_variadic && !target_spread)
+                || (!target_element.optional
+                    && !target_element.spread
+                    && (element.optional || element.spread))
             {
                 return Some(RelationResult::NotRelated);
             }
-            let mut source_type = if element.spread {
+            let mut source_type = if source_is_rest {
                 self.checker.tuple_spread_array_element(element.r#type)?
             } else {
                 element.r#type
@@ -5565,8 +5730,17 @@ impl Relater<'_, '_, '_> {
                 };
                 source_type = self.checker.get_union_type_unprinted(&[source_type, marker]);
             }
-            let mut target_type = if target_element.spread {
-                self.checker.tuple_spread_array_element(target_element.r#type)?
+            let mut target_type = if target_is_rest {
+                let element_type =
+                    self.checker.tuple_spread_array_element(target_element.r#type)?;
+                if source_variadic {
+                    // `createArrayType(targetType)` for a variadic source
+                    // against a rest target (relater.go:4199).
+                    let array = self.checker.global_type_symbol("Array")?;
+                    self.checker.create_type_reference(array, vec![element_type])
+                } else {
+                    element_type
+                }
             } else if target_element.optional
                 && self.checker.strict_null_checks
                 && !self.checker.exact_optional_property_types
@@ -5745,6 +5919,41 @@ impl Relater<'_, '_, '_> {
         self.checker
             .tuple_target_properties(source)
             .is_some_and(|properties| !properties.iter().any(|(property, _)| property == name))
+    }
+
+    /// getNormalizedTupleType (checker.go:28073) for a generic tuple: each
+    /// element whose type is an indexed access is simplified, and a changed
+    /// element list is renormalized (`createNormalizedTupleType`, which
+    /// flattens a spread that became a tuple or array). Any other type is
+    /// returned unchanged.
+    fn normalized_tuple(&mut self, id: TypeId, writing: bool) -> TypeId {
+        let Some((elements, _)) = self.checker.variadic_tuple_elements.get(&id) else {
+            return id;
+        };
+        // Only an indexed-access element can simplify; test that on the
+        // borrowed list before cloning anything.
+        if !elements.iter().any(|element| {
+            self.checker.type_of(element.r#type).flags.contains(TypeFlags::INDEXED_ACCESS)
+        }) || !self.checker.is_generic_tuple_type(id)
+        {
+            return id;
+        }
+        let (mut elements, readonly) = self.checker.variadic_tuple_elements[&id].clone();
+        let mut changed = false;
+        for element in &mut elements {
+            if self.checker.type_of(element.r#type).flags.contains(TypeFlags::INDEXED_ACCESS) {
+                let simplified = self.simplified_indexed_access(element.r#type, writing);
+                if simplified != element.r#type {
+                    element.r#type = simplified;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return id;
+        }
+        let normalized = self.checker.normalize_variadic_tuple(elements, readonly);
+        if self.checker.is_error(normalized) { id } else { normalized }
     }
 
     fn tuple_relation_elements(
