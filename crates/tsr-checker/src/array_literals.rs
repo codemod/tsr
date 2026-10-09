@@ -675,9 +675,14 @@ impl Checker<'_, '_> {
         // mints a TUPLE of its element targets' types — upstream's
         // `inDestructuringPattern` exit of `checkArrayLiteral`
         // (`checker.go:8084`, `createTupleTypeEx`): `[a, b] = new FooIterator`
-        // records `>[a, b] : [Bar, Bar]` (`iterableArrayPattern3`). Spreads
-        // and omissions need the rest/optional element flags this tuple mint
-        // does not carry, so they keep today's road.
+        // records `>[a, b] : [Bar, Bar]` (`iterableArrayPattern3`). A spread
+        // before the last position needs the rest flags this tuple mint does
+        // not carry, so it keeps today's road. An omission is a Required
+        // `undefinedWideningType` element (`checkExpressionWorker`'s
+        // `KindOmittedExpression` arm), or, under exactOptionalPropertyTypes,
+        // an Optional `undefinedOrMissingType` that makes every later
+        // ordinary element Optional (`addOptionalityEx`): `[, a] = robot`
+        // records `[undefined, string]`.
         if let Some(id) = node.node_id
             && self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
             && !node.elements.iter().enumerate().any(|(index, element)| {
@@ -685,9 +690,9 @@ impl Checker<'_, '_> {
                 // one-element tuple. It must still use the assignment-target
                 // index/iteration/unknown fallback rather than spread's any.
                 matches!(element, Expression::SpreadElement(_)) && index + 1 != node.elements.len()
-                    || matches!(element, Expression::OmittedExpression(_))
             })
         {
+            let mut has_omitted = false;
             // §371: the EMPTY target included — `[] = iterable` records
             // `>[] : []` (`emptyAssignmentPatterns01_ES6`); §365's draft
             // excluded it for no upstream reason.
@@ -738,6 +743,18 @@ impl Checker<'_, '_> {
                         };
                         (self.create_type_reference(array, vec![indexed]), true)
                     }
+                } else if matches!(element, Expression::OmittedExpression(_)) {
+                    if self.exact_optional_property_types {
+                        has_omitted = true;
+                        elements.push(crate::tuples::TupleElement {
+                            r#type: self.intrinsics.missing,
+                            spread: false,
+                            optional: true,
+                            label: None,
+                        });
+                        continue;
+                    }
+                    (self.intrinsics.undefined_widening, false)
                 } else {
                     // `checkArrayLiteral` reads every element through
                     // checkExpressionForMutableLocation, so a defaulted target
@@ -746,12 +763,17 @@ impl Checker<'_, '_> {
                     if element_type == error {
                         return error;
                     }
+                    let element_type = if has_omitted && self.strict_null_checks {
+                        self.get_optional_type(element_type, true)
+                    } else {
+                        element_type
+                    };
                     (element_type, false)
                 };
                 elements.push(crate::tuples::TupleElement {
                     r#type: element_type,
                     spread,
-                    optional: false,
+                    optional: has_omitted && !spread,
                     label: None,
                 });
             }

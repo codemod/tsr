@@ -544,3 +544,14 @@ spells the token too. No state.
 the shorthand name's own `.types` line still reads the unresolved value symbol
 (`s : any`), so the property symbol's type is not recorded from this path.
 The member previously gapped the literal. No state.
+
+## 27. Omitted elements of a destructuring-target array literal (tsr-2zk.16.288)
+
+`checkArrayLiteral` (`checker.go:8021`) keeps the `inDestructuringPattern`
+tuple when the target has holes: an `OmittedExpression` is a Required
+`undefinedWideningType` element (`checkExpressionWorker`), or under
+`exactOptionalPropertyTypes` an Optional `undefinedOrMissingType` that makes
+each later ordinary element Optional (`addOptionalityEx`). The destructuring
+mint declined holes, so `[, nameA] = robotA` printed `(string | undefined)[]`
+for native's `[undefined, string]`; with exact optional properties native and
+TSR both print `[never?, string?]`. No state.
