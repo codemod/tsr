@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 894/1091 (81.94%)
-Failed         : 197
+Passed         : 902/1091 (82.68%)
+Failed         : 189
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 197 failures:
+First 100 of 189 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -51,9 +51,9 @@ compiler/commonJsExportTypeDeclarationError(target=es2015)
 compiler/complicatedPrivacy(target=es2015)
   1 missing (first TS2694 at complicatedPrivacy.ts(73,55))
 compiler/declarationEmitUnknownImport(target=es2015)
-  4 missing (first TS2303 at declarationEmitUnknownImport.ts(1,1))
+  3 missing (first TS2303 at declarationEmitUnknownImport.ts(1,1))
 compiler/declarationEmitUnknownImport2(target=es2015)
-  4 missing (first TS2303 at declarationEmitUnknownImport2.ts(1,1))
+  3 missing (first TS2303 at declarationEmitUnknownImport2.ts(1,1))
 compiler/decoratorMetadataWithImportDeclarationNameCollision4(target=es2015)
   1 missing (first TS2613 at service.ts(1,8))
 compiler/decoratorMetadataWithImportDeclarationNameCollision7(target=es2015)

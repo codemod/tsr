@@ -6,8 +6,8 @@ Passed         : 1660/1700 (97.65%)
 Failed         : 40
 Skipped        : 2468 (excluded from the denominator)
 
-  195  skipped: the baseline names no symbols in any unit we bind
-  69  skipped: the parser reports errors for this file
+  191  skipped: the baseline names no symbols in any unit we bind
+  73  skipped: the parser reports errors for this file
   458  skipped: upstream recorded no .symbols baseline
   36  skipped: upstream recorded no output for this case
   68  skipped: upstream records a known divergence from TypeScript (.diff baseline)
