@@ -796,7 +796,7 @@ impl Checker<'_, '_> {
     }
 }
 
-impl Checker<'_, '_> {
+impl<'a> Checker<'a, '_> {
     /// `checkTypeReferenceOrImport`'s constraint arm (`checker.go:2998`) into
     /// `checkTypeArgumentConstraints` (`checker.go:3016`) for a written type
     /// reference: each type argument must be assignable to its parameter's
@@ -832,10 +832,21 @@ impl Checker<'_, '_> {
                 (symbol, reference.type_arguments)
             }
             Some(tsr_ast::Node::ExpressionWithTypeArguments(reference)) => {
+                // The written arguments, or in JS the ones `reparseHosted`'s
+                // `KindJSDocAugmentsTag` arm copies from an `@augments` tag
+                // onto an `extends` element that writes none.
+                let type_arguments = if reference.type_arguments.is_empty() {
+                    match self.jsdoc_augments_type_arguments(node) {
+                        Some(arguments) if !arguments.is_empty() => arguments,
+                        _ => return,
+                    }
+                } else {
+                    reference.type_arguments
+                };
                 let Some(symbol) = self.heritage_type_argument_symbol(node, reference) else {
                     return;
                 };
-                (symbol, reference.type_arguments)
+                (symbol, type_arguments)
             }
             _ => return,
         };
@@ -856,6 +867,17 @@ impl Checker<'_, '_> {
         {
             return;
         }
+        self.check_type_argument_constraints_of(symbol, type_arguments);
+    }
+
+    /// `checkTypeArgumentConstraints` (`checker.go:3016`) for `symbol`'s
+    /// type parameters against the written `type_arguments`, after the
+    /// caller has resolved the reference to a class, interface or alias.
+    fn check_type_argument_constraints_of(
+        &mut self,
+        symbol: SymbolId,
+        type_arguments: &'a [tsr_ast::TypeNode<'a>],
+    ) {
         let Some(parameters) = self.constraint_check_type_parameters(symbol) else { return };
         if parameters.is_empty() || type_arguments.len() > parameters.len() {
             return;
@@ -941,9 +963,6 @@ impl Checker<'_, '_> {
         node: NodeId,
         reference: &tsr_ast::ExpressionWithTypeArguments<'_>,
     ) -> Option<tsr_binder::SymbolId> {
-        if reference.type_arguments.is_empty() {
-            return None;
-        }
         let parent = self.nodes.parent(node)?;
         if self.nodes.kind(parent) != SyntaxKind::HeritageClause {
             return None;
@@ -1078,11 +1097,15 @@ impl<'a> Checker<'a, '_> {
         let mut written: Vec<&'a tsr_ast::TypeParameterDeclaration<'a>> = Vec::new();
         for (position, declaration) in declarations.iter().enumerate() {
             match self.node_map.get(*declaration) {
+                // A JS class's `@template` tags are its type parameters
+                // when it writes none (`reparseHosted`, `parser/reparser.go:459`).
                 Some(tsr_ast::Node::ClassDeclaration(node)) => {
                     written.extend(node.type_parameters.iter().copied());
+                    written.extend(self.jsdoc_class_template_parameters(*declaration));
                 }
                 Some(tsr_ast::Node::ClassExpression(node)) => {
                     written.extend(node.type_parameters.iter().copied());
+                    written.extend(self.jsdoc_class_template_parameters(*declaration));
                 }
                 Some(tsr_ast::Node::InterfaceDeclaration(node)) => {
                     written.extend(node.type_parameters.iter().copied());
