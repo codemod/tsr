@@ -322,3 +322,22 @@ index 0000000..b25aa88
 +        ]
 +    );
 +}
+diff --git a/crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs b/crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs
+index 2cc9074..64e9588 100644
+--- a/crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs
++++ b/crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs
+@@ -472,7 +472,11 @@ fn diagnostic_traversal_respects_native_declared_variance() {
+         .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+         .collect();
+     actual.sort_unstable();
+-    // Native rejects 36:1 and accepts 37:1. The separate TS1274 grammar
+-    // diagnostic at 59:14 remains unsupported; no assignment is suppressed.
+-    assert_eq!(actual, [(18, 1, 2322), (36, 1, 2322), (55, 1, 2322), (56, 1, 2322)]);
++    // Native rejects 36:1 and accepts 37:1, and reports TS1274 at 59:14 —
++    // `@template in T` on a function (`checkGrammarModifiers`,
++    // `grammarchecks.go:526`); no assignment is suppressed.
++    assert_eq!(
++        actual,
++        [(18, 1, 2322), (36, 1, 2322), (55, 1, 2322), (56, 1, 2322), (59, 14, 1274)]
++    );
+ }

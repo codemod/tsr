@@ -487,10 +487,57 @@ alias keeps no signatures — the TypeScript twin (`const f: NS.Nested.Inner =
 is `declared.rs`' qualified-alias mint (`signature_candidates_of_named_type`
 returns unresolved for a type-alias member table), not JSDoc.
 
-## 11. Apply order and totals
+## 11. T10: literal preservation and excess checks under a JSDoc type
 
-All thirteen diffs apply in this order on this branch, build without
-warnings and pass `cargo fmt --check`:
+r5-jsdoc5's T10 row (6 cases) read as one producer, "literal freshness
+under JSDoc context"; read one at a time it is five:
+
+- **`jsdocBracelessTypeTag1`'s `{ type: "other", prop: 10 }` widened
+  `"other"` to `string`.** `annotation_member_context` (`symbols.rs`) — this
+  port's road for `isLiteralOfContextualType` on an object-literal member —
+  read a variable's written annotation only; in JS `node.Type()` is the
+  reparsed `@type`. Diff
+  [`r6-jsdoc-annotation-member-context.diff`](r6-jsdoc-annotation-member-context.diff):
+  types **+2 lines, +1 case** (`jsdocBracelessTypeTag1`), zero losses,
+  `slowcases` clean, Ir 1,092,188,368 / 343,052,771 (noise). Test
+  `jsdoc_annotation_member_context.rs`.
+- **Its TS2322 on the member was missing.** `excess_properties_verdict`
+  (`assignreport.rs`) declined every JS source literal ("JSLiteral not
+  ported"). Native's exemption (`hasExcessProperties`, `relater.go:2715`)
+  reads `ObjectFlagsJSLiteral` on the **target**, which `checkObjectLiteral`
+  sets only for a JS literal made without a contextual type
+  (`checker.go:13206`; this port's `js_literal_types`). Diff
+  [`r6-jsdoc-js-literal-excess-target.diff`](r6-jsdoc-js-literal-excess-target.diff):
+  diagnostics: `jsdocBracelessTypeTag1` gains its (20,16) TS2322 and stays
+  WRONG on (3,3), below; nothing else moves; zero losses, `slowcases` clean,
+  Ir 1,092,134,703 / 343,065,501 (noise). Test `js_literal_excess_target.rs`.
+- **`jsdocBracelessTypeTag1`'s (3,3) TS2322** (`return 42` under `@type () =>
+  string`): `check_return_statement` (`assignreport.rs`) declines every JS
+  file, so no JS return is related to its declared, `@returns` or full
+  signature return type. Not ported here: it is every JS function's return
+  check, a measurement of its own for the relater lane.
+- **`checkJsdocSatisfiesTag8`**: the satisfies target is `Object.<string,
+  boolean>` — T7 (`getIntendedTypeFromJSDocTypeReference`'s `Record` arm,
+  `declared.rs`).
+- **`jsDeclarationsTypedefFunction`**: `handlers[++id] = [resolve, reject]`
+  wants the index signature's tuple as context;
+  `assignreport.rs`/`contextual.rs` decline a JS element-access assignment's
+  contextual type (the comment there names this case).
+- **`arrowExpressionBodyJSDoc`, `arrowExpressionJs`**: `{ ...value }` with
+  `value: T | undefined` prints `T | {}` where native prints `{}` — the
+  spread of a nullable union (`spreads.rs`), not JSDoc; the TypeScript twin
+  is the same expression.
+- **`checkJsdocSatisfiesTag15`**: `@type Foo` with `@typedef
+  {Parameters<typeof fn1>} Foo`, where `fn1` is typed by `@satisfies`; not
+  read to a producer.
+
+## 12. Apply order and totals
+
+(Numbered §11 when `134af24` first wrote it with thirteen diffs.) All
+fifteen diffs apply in this order on this branch (`git apply`), build
+without warnings, pass `cargo fmt --check`, and with all of them applied
+`cargo test --workspace --release` passes and clippy reports only the base's
+twelve pre-existing findings:
 
 1. `r6-jsdoc-js-alias-types.diff`
 2. `r6-jsdoc-jsdoc-declarations.diff` (after 1)
@@ -507,6 +554,30 @@ warnings and pass `cargo fmt --check`:
 13. `r6-jsdoc-type-parameter-error-modifiers.diff` (re-cut so its context
     no longer includes `type_parameter_of`'s signature line, which 6 changes;
     the hunk is the same match arm)
+14. `r6-jsdoc-annotation-member-context.diff`
+15. `r6-jsdoc-js-literal-excess-target.diff`
 
-Each was measured alone (or on the diffs it is marked as following) against
-the frozen base, so the numbers add only where the rows are disjoint.
+Two existing tests pinned the behaviour these diffs port, and each diff
+updates its own (both checked against `tsgo`):
+`tsr-conformance/tests/jsdoc_typedef_aliases.rs` expected TS1274 at
+`jsdocTemplateTag8` (59,14) to stay unsupported (now 10 reports it), and
+`tsr-checker/tests/contextual.rs`' IIFE test expected a loose
+`undefined as undefined` argument to widen to `any` (12 keeps it
+`undefined`, as `tsgo` declares; only the bare `undefined` widens).
+
+**All fifteen together** (unfiltered, against the frozen base): types
+**549,853 → 549,937 RIGHT (+84 lines)**, **+14 cases** (`overloadTag1`,
+`overloadTag2`, `jsFileMethodOverloads`, `jsFileMethodOverloads3`,
+`unreachableJavascriptChecked`, `unreachableJavascriptUnchecked`,
+`assertionsAndNonReturningFunctions`, `callbackTag2`, `typeTagNoErasure`,
+`jsdocTypeDefAtStartOfFile`, `jsdocTemplateTag7`, `typeFromJSInitializer3`,
+`jsDeclarationsFunctionJSDoc`, `jsdocBracelessTypeTag1`); diagnostics
+**5,530 → 5,543 RIGHT, 5,596 → 5,597 EMPTY_RIGHT (+14 cases)**
+(`jsFileMethodOverloads3`, `jsdocTemplateTag7`, `jsdocTemplateTag8`,
+`typeParameterConstModifiers`,
+`typeArgumentDefaultUsesConstraintOnCircularDefault`, `importTag4`,
+`importingExportingTypes`, `elidedJSImport1`, `typedefCrossModule5`,
+`jsDeclarationsDefaultsErr`, `recursiveResolveDeclaredMembers`,
+`decoratorMetadataWithImportDeclarationNameCollision7`,
+`errorForUsingPropertyOfTypeAsType02`, `invalidUseOfTypeAsNamespace`);
+**zero losses on both dumps**; `slowcases` clean.
