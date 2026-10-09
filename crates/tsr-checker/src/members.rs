@@ -3427,6 +3427,9 @@ impl Checker<'_, '_> {
         }
         // resolveAnonymousTypeMembers: function, enum and module values expose
         // exports. Class statics were handled above; instance members stay separate.
+        // A function or constructor type node's literal symbol declares no
+        // property (`resolveAnonymousTypeMembers` over its `__call`/`__new`
+        // members only); an alias names it in print, which clears `signature`.
         if let TypeData::Anonymous { symbol, signature, .. } = self.type_of(id).data
             && (signature
                 || self
@@ -3434,7 +3437,8 @@ impl Checker<'_, '_> {
                     .symbols()
                     .get(symbol)
                     .flags
-                    .intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE))
+                    .intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE)
+                || self.is_signature_type_literal_symbol(symbol))
         {
             let mut names: Vec<_> = self
                 .binder
@@ -3461,6 +3465,20 @@ impl Checker<'_, '_> {
             return Some(names.into());
         }
         self.structured_property_names(owner).map(PropertyNames::Shared)
+    }
+
+    /// Whether `symbol` is the `__type` literal symbol of a function or
+    /// constructor type node, every declaration of which is one.
+    fn is_signature_type_literal_symbol(&self, symbol: SymbolId) -> bool {
+        let data = self.binder.symbols().get(symbol);
+        data.flags.contains(SymbolFlags::TYPE_LITERAL)
+            && !data.declarations.is_empty()
+            && data.declarations.iter().all(|&declaration| {
+                matches!(
+                    self.nodes.kind(declaration),
+                    tsr_ast::SyntaxKind::FunctionType | tsr_ast::SyntaxKind::ConstructorType
+                )
+            })
     }
 
     /// A class's or interface's instance property names, own then

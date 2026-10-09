@@ -820,7 +820,13 @@ impl<'a> Checker<'a, '_> {
             if index > 0 && self.is_overload_implementation(declaration, declarations[index - 1]) {
                 continue;
             }
-            result.push(self.get_signature_from_declaration(declaration)?);
+            // `getSignatureOfFullSignatureType` first (`checker.go:19827`): a JS
+            // function's `@type` signature is its signature.
+            let signature = match self.jsdoc_full_signature(declaration) {
+                Some(signature) => signature,
+                None => self.get_signature_from_declaration(declaration)?,
+            };
+            result.push(signature);
         }
         Some(result)
     }

@@ -18,7 +18,12 @@
 
 use tsr_ast::{Node, NodeId, SyntaxKind, TypeNode};
 
-use crate::{checker::Checker, types::TypeId};
+use crate::{
+    checker::Checker,
+    flags::TypeFlags,
+    signatures::{Signature, SignatureKind},
+    types::TypeId,
+};
 
 impl<'a> Checker<'a, '_> {
     /// The `@type` node `reparseHosted` would store as `function`'s
@@ -39,6 +44,17 @@ impl<'a> Checker<'a, '_> {
         self.jsdoc_reparsed_function(function).full_signature
     }
 
+    /// `getSignatureOfFullSignatureType` (`checker/checker.go:20072`): the
+    /// single call signature of `function`'s `@type`, type parameters
+    /// included. `getSignaturesOfSymbol` (`:19827`) and
+    /// `getTypeParametersFromDeclaration` (`:19913`) take it in place of the
+    /// declaration's own signature.
+    pub(crate) fn jsdoc_full_signature(&mut self, function: NodeId) -> Option<Signature> {
+        let annotation = self.jsdoc_full_signature_node(function)?;
+        let ty = self.get_type_from_type_node(annotation);
+        self.single_call_signature_of(ty)
+    }
+
     /// `getParameterTypeOfFullSignature` (`checker/checker.go:20079`): the
     /// type an unannotated JS parameter takes from its function's `@type`.
     pub(crate) fn jsdoc_full_signature_parameter_type(
@@ -46,19 +62,14 @@ impl<'a> Checker<'a, '_> {
         parameter: NodeId,
     ) -> Option<TypeId> {
         let function = self.nodes.parent(parameter)?;
-        let annotation = self.jsdoc_full_signature_node(function)?;
         let parameters = match self.node_map.get(function)? {
             Node::FunctionDeclaration(node) => node.parameters,
             Node::MethodDeclaration(node) => node.parameters,
             _ => return None,
         };
+        let signature = self.jsdoc_full_signature(function)?;
         let position = parameters.iter().position(|node| node.node_id == Some(parameter))?;
-        let is_rest = parameters[position].dot_dot_dot_token.is_some();
-        // getSignatureOfFullSignatureType: getSingleCallSignature of the
-        // annotation's type.
-        let ty = self.get_type_from_type_node(annotation);
-        let signature = self.single_call_signature(ty)?;
-        Some(if is_rest {
+        Some(if parameters[position].dot_dot_dot_token.is_some() {
             self.signature_rest_type_at_position(&signature, position)
         } else {
             self.signature_type_at_position(&signature, position).unwrap_or(self.intrinsics.any)
@@ -69,9 +80,29 @@ impl<'a> Checker<'a, '_> {
     /// arm of `getReturnTypeFromAnnotation`: a JS function whose `@type` tag
     /// is its full signature returns that signature's return type.
     pub(crate) fn jsdoc_full_signature_return_type(&mut self, function: NodeId) -> Option<TypeId> {
-        let annotation = self.jsdoc_full_signature_node(function)?;
-        let ty = self.get_type_from_type_node(annotation);
-        let signature = self.single_call_signature(ty)?;
+        let signature = self.jsdoc_full_signature(function)?;
         self.get_return_type_of_signature(&signature)
+    }
+
+    /// `getSingleCallSignature` → `getSingleSignature(t, SignatureKindCall,
+    /// false)` (`checker/checker.go:19353`): exactly one call signature, no
+    /// construct signature, and no property or index signature. Unlike the
+    /// contextual `single_call_signature`, a generic signature is kept.
+    fn single_call_signature_of(&mut self, ty: TypeId) -> Option<Signature> {
+        if !self.store.get(ty).flags.contains(TypeFlags::OBJECT) {
+            return None;
+        }
+        if !self.get_property_names_of_type(ty)?.is_empty()
+            || !self.get_index_infos_of_type(ty)?.is_empty()
+        {
+            return None;
+        }
+        let mut calls = self.signatures_of_type_kind(ty, SignatureKind::Call)?;
+        if calls.len() != 1
+            || !self.signatures_of_type_kind(ty, SignatureKind::Construct)?.is_empty()
+        {
+            return None;
+        }
+        calls.pop()
     }
 }
