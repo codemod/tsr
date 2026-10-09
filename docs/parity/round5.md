@@ -1646,3 +1646,28 @@ moduleResolutionWithSymlinks is not a symlink case. r6-smallcodes5 §4's
 routing of it was wrong: an export-specifier alias's declared type reads
 `any`. The remainder is in `tsr-2zk.1149`. The root trackers .16.59 and
 .16.77 are reopened unassigned.
+
+### r6-errorsplit2 finished (batch BT); r6-errorsplit3 dispatched
+
+Batch BT lands r6-errorsplit2's eight diffs, in this order (N, P, Q, W, M, C,
+A, B):
+- getTypeOfNode's fall-through (checker.go:32035) and its in-with-statement
+  exit (:31932);
+- the complete-receiver property-access miss (:11353-11369);
+- a private name that no class declares;
+- checkMetaProperty's type half;
+- getContextualTypeForAssignmentExpression's `F[xxx] = expr` arm;
+- lateBindMember's merged declarations;
+- the binder's JS `this[k] = v` arm.
+
+Measured by the box against `b9ede2e`, with zero losses on both dumps:
+- 555 lines go to errorType, every one errorType natively;
+- +11 types and +1 diagnostics case;
+- the credited gap goes from 2,131 to 1,602.
+
+Diff C shifts domain-model Ir by +0.045% from codegen layout; its path runs 0
+times there (notes §11).
+
+The box refused the reference-receiver property miss: +391 to +430 lines
+against 40 to 46 false claims. Its causes are the narrowing and augmentation
+ports. The remainder is in `tsr-2zk.1150`.
