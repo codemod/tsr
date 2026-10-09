@@ -474,3 +474,73 @@ The arm sits before the tuple arms, which is native's order.
 Unit test: `relater.rs`
 `generic_key_tests::a_homomorphic_mapped_source_over_tuples_meets_arrays_as_its_apparent_type`.
 On §4's commit it answers NotRelated for `H<T> → any[]`.
+
+## 6. One `isDiscriminantProperty`, cached per `(union, name)`
+
+r5-relater5's held [`r5-relater5-discriminant-property.diff`](r5-relater5-discriminant-property.diff)
+lands here (§4a there). It deletes `flow.rs`'s and `assignreport.rs`'s private
+copies and adds `Checker::is_discriminant_property(t, name)` in `relater.rs`.
+`flow.rs`'s `get_discriminant_property_access` (a one-line call swap)
+and `assignreport.rs`'s `discriminate` caller now ask the relater's
+computation. `flow.rs` had not moved, so the diff applied unchanged.
+
+**Rebased baseline.** Before this commit the branch merged the integration
+head again (`a05e5b1`, "base6"):
+- `diagverdictdump`: RIGHT 5388, EMPTY_RIGHT 5585, WRONG 1203, EMPTY_WRONG 62;
+- `verdictdump`: RIGHT 545046, WRONG 6579, GAP 908;
+- `Ir`: generic-imports 342,964,276; domain-model 1,197,122,112.
+
+**The cache** (checker port convention):
+- **Native operation.** `isDiscriminantProperty` (relater.go:1087) reads
+  `links.isDiscriminantProperty` on the synthetic union property.
+  `createUnionOrIntersectionProperty` interns that property per union and
+  name (`getUnionOrIntersectionProperty`'s `propertyCacheWithoutObjectFunctionPropertyAugment`),
+  so the answer is computed once per `(union, name)`. Consumers are
+  `flow.go`'s `getDiscriminantPropertyAccess`, `isDiscriminantWithNeverType`
+  and the relater's discriminated-target arm.
+- **Identity and owner.** `Checker::discriminant_properties`: union
+  `TypeId` → property name → `bool`, private to the checker, for its
+  lifetime. The key is native's: one synthetic property per union type and
+  name. A name lookup allocates nothing.
+- **Publication.**
+  - Only a completed answer is stored.
+  - `None` (a member type this port could not compute, a gap) is
+    recomputed on the next query, so an unsupported answer never becomes
+    a completed false.
+  - Inside a conditional-alias or mapped-template evaluation frame, member
+    types are read through the frame, so the cache is neither read nor
+    written. That is the relation store's exclusion (`Relater::new`).
+  - There is no active state: the computation does not re-enter itself.
+- **Consumer context.** The answer depends only on the union's constituents
+  and the name, as native's does. The callers that pass a list of
+  constituents rather than a union (the relater's discriminated arm,
+  `assignreport.rs`) recompute, since they have no union identity to key
+  on.
+- **Work boundary.** The worker is `is_discriminant_property_of_types`: each
+  constituent's apparent type, member type and member symbol.
+
+**Second cost, removed.** The worker built `getUnionType(memberTypes)` only
+to test genericity, and minting that union printed it
+(`create_union_with_text` → `best_name` → name resolution). That was most of
+the remaining `Ir` after the cache. A union's generic flags are its
+constituents', and union reduction never drops a generic constituent, so the
+flags are now read per member.
+
+**Measured** against base6:
+- `diagverdictdump` verdicts and lines are identical (only the timing
+  columns differ). `verdictdump` verdicts are identical. No case or line
+  moves.
+- `Ir`, base6 → this commit: generic-imports 342,964,276 → 342,984,727
+  (+0.006%); domain-model 1,197,122,112 → 1,197,483,504 (+0.030%). CLI
+  output is identical.
+- Along the way: the diff alone cost +0.41% on domain-model (r5-relater5);
+  with the cache, +0.096%; without the union mint as well, +0.030%.
+- An attempt to read member symbols only after the non-uniform and literal
+  tests measured +0.15%, worse, and was dropped.
+- Median child CPU (21 samples): 0.975 and 1.003.
+
+**Falsifier.** A narrowing whose discriminant answer changes after a
+member table completes (a `false` published while a constituent's
+properties were still incomplete). Native's synthetic property would also
+have been created at first query, so this would be a divergence in when
+tables complete, not in the cache.

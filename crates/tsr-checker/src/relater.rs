@@ -493,6 +493,40 @@ bitflags::bitflags! {
 type ReferenceParts = (SymbolId, Vec<TypeId>);
 
 impl Checker<'_, '_> {
+    /// `isDiscriminantProperty` (relater.go:1087): `name` is a discriminant
+    /// of the union `t`. A type that is not a union has none.
+    ///
+    /// Native computes the answer once per synthetic union property
+    /// (`createUnionOrIntersectionProperty` interns that symbol per union and
+    /// name, and `links.isDiscriminantProperty` holds the answer). This port
+    /// has no such symbol, so the answer is kept per `(union, name)` in
+    /// `discriminant_properties`, for the checker's lifetime:
+    /// - only a completed answer is published; `None` (a gap member) is
+    ///   recomputed;
+    /// - inside a conditional-alias or mapped-template evaluation frame the
+    ///   member types are read through the frame, so neither read nor
+    ///   publish, as relation walks do (`Relater::new`);
+    /// - the work it saves is the walk over every constituent's apparent
+    ///   type and member symbols, which `flow.rs` asks for on each narrowing
+    ///   reference to a property of a union
+    ///   (`docs/parity/notes/r5-relater6.md` §6).
+    pub(crate) fn is_discriminant_property(&mut self, t: TypeId, name: &str) -> Option<bool> {
+        let TypeData::Union { types, .. } = &self.type_of(t).data else { return Some(false) };
+        let framed = !self.alias_evaluation_bindings.is_empty() || self.mapped_template_depth != 0;
+        if !framed
+            && let Some(&answer) =
+                self.discriminant_properties.get(&t).and_then(|names| names.get(name))
+        {
+            return Some(answer);
+        }
+        let types = types.clone();
+        let answer = self.is_discriminant_property_of_types(&types, name)?;
+        if !framed {
+            self.discriminant_properties.entry(t).or_default().insert(name.into(), answer);
+        }
+        Some(answer)
+    }
+
     /// `isDiscriminantProperty` (relater.go:1087) over the union `types`: the
     /// synthetic property's member types (createUnionOrIntersectionProperty,
     /// checker.go:21452, over apparent constituents) are non-uniform, one is
@@ -503,7 +537,8 @@ impl Checker<'_, '_> {
     ///
     /// The one computation of the predicate in this port. Native caches the
     /// answer on the synthetic union property (`links.isDiscriminantProperty`);
-    /// this port builds no such symbol, so each call recomputes it.
+    /// [`Checker::is_discriminant_property`] keeps it per `(union, name)`.
+    /// Callers holding a list of constituents rather than a union recompute.
     pub(crate) fn is_discriminant_property_of_types(
         &mut self,
         types: &[TypeId],
@@ -551,9 +586,18 @@ impl Checker<'_, '_> {
         if non_public && (partial || declarations.len() > 1) && !shared_declaration {
             return Some(false);
         }
-        let union = self.get_union_type(&members);
-        let (object, index) = self.spread_generic_flags(union, &mut Vec::new());
-        Some(!object && !index)
+        // `!isGenericType(getTypeOfSymbol(prop))` over the union of the
+        // member types. A union's generic flags are its constituents', and
+        // union reduction never drops a generic constituent, so they are
+        // read per member: building the union would mint (and print) a
+        // type only to test it.
+        for member in members {
+            let (object, index) = self.spread_generic_flags(member, &mut Vec::new());
+            if object || index {
+                return Some(false);
+            }
+        }
+        Some(true)
     }
 
     /// The `(target, typeArguments)` pairs of two type references, as
