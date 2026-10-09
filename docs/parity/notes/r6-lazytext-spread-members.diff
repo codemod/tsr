@@ -1,0 +1,136 @@
+diff --git a/crates/tsr-checker/src/spreads.rs b/crates/tsr-checker/src/spreads.rs
+index 2edf9c0..4f6b570 100644
+--- a/crates/tsr-checker/src/spreads.rs
++++ b/crates/tsr-checker/src/spreads.rs
+@@ -11,6 +11,19 @@ use crate::{
+ };
+ 
+ impl Checker<'_, '_> {
++    /// A spread property's printed slot: `addPropertyToElementList`'s
++    /// `serializeTypeForDeclaration` on the property's declaration, asked by
++    /// the site renderer when it prints the member
++    /// (`docs/parity/notes/r6-lazytext.md` §1). The mint keeps the displayed
++    /// type's own print, as before.
++    fn spread_property_slot(&self, origin: Option<SymbolId>, displayed: TypeId) -> PrintedSlot {
++        let text = self.type_to_string(displayed);
++        match origin {
++            Some(_) => PrintedSlot::of_declaration(text, displayed),
++            None => PrintedSlot::printed(text),
++        }
++    }
++
+     pub(crate) fn check_object_spread_literal(
+         &mut self,
+         node: &ObjectLiteralExpression<'_>,
+@@ -231,7 +244,7 @@ impl Checker<'_, '_> {
+                     right_property.accessor_write = None;
+                     let displayed = self.remove_missing_type(value);
+                     right_property.printed_slot =
+-                        PrintedSlot::printed(self.type_to_string(displayed));
++                        self.spread_property_slot(right_property.origin, displayed);
+                 }
+             } else {
+                 properties.push(left_property);
+@@ -359,7 +372,7 @@ impl Checker<'_, '_> {
+                     origin,
+                     checked_declaration: None,
+                     printed_name: self.spread_property_name(origin?, &name)?,
+-                    printed_slot: PrintedSlot::printed(self.type_to_string(displayed)),
++                    printed_slot: self.spread_property_slot(origin, displayed),
+                     optional: origin.is_some_and(|symbol| self.property_is_optional(symbol)),
+                     readonly: origin.is_some_and(|symbol| self.is_readonly_symbol(symbol)),
+                     name,
+@@ -435,7 +448,7 @@ impl Checker<'_, '_> {
+             combined.accessor_write = None;
+             combined.slot = PropertySlot::resolved(value);
+             let displayed = self.remove_missing_type(value);
+-            combined.printed_slot = PrintedSlot::printed(self.type_to_string(displayed));
++            combined.printed_slot = self.spread_property_slot(combined.origin, displayed);
+             properties.push(combined);
+         }
+         Some((properties, skipped_private))
+diff --git a/crates/tsr-checker/tests/print_time_spread_members.rs b/crates/tsr-checker/tests/print_time_spread_members.rs
+new file mode 100644
+index 0000000..7e4fe59
+--- /dev/null
++++ b/crates/tsr-checker/tests/print_time_spread_members.rs
+@@ -0,0 +1,79 @@
++//! A spread member's declaration reuse is decided when the member is printed
++//! (`docs/parity/notes/r6-lazytext.md` §1). Native's
++//! addPropertyToElementList asks serializeTypeForDeclaration
++//! (`nodebuilderimpl.go:2486`, `:2181`) only while the node builder prints;
++//! the mint keeps the displayed type's own print.
++
++use tsr_ast::{Node, NodeId, Statement};
++use tsr_checker::{Checker, TypeId};
++use tsr_core::Arena;
++
++/// Run `ask` against the type of the final expression statement, with that
++/// statement's expression as the print site.
++fn at_last_expression<R>(
++    source: &str,
++    ask: impl FnOnce(&mut Checker<'_, '_>, TypeId, NodeId) -> R,
++) -> R {
++    let arena = Arena::new();
++    let parsed = tsr_parser::parse(&arena, source);
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "test.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    let options = tsr_core::CompilerOptions {
++        strict_null_checks: tsr_core::Tristate::True,
++        ..Default::default()
++    };
++    checker.apply_compiler_options(&options);
++    let last = parsed
++        .source_file
++        .statements
++        .iter()
++        .rev()
++        .find_map(|statement| match statement {
++            Statement::ExpressionStatement(node) => node.expression,
++            _ => None,
++        })
++        .expect("the fixture must end with an expression statement");
++    let site = Node::from(last).node_id().expect("a parsed node");
++    let id = checker.check_expression(last);
++    ask(&mut checker, id, site)
++}
++
++#[test]
++fn a_spread_member_reuses_its_declaration_when_printed() {
++    // unionExcessPropsWithPartialMember: tsgo prints `unused?: string`, the
++    // optional property's written annotation. The baked (site-free) text
++    // is the displayed type's own print: no reuse ran at the mint.
++    at_last_expression(
++        "interface A { unused?: string; x: string; }\ndeclare var a: A;\n({ ...a });",
++        |checker, id, site| {
++            assert_eq!(checker.type_to_string(id), "{ unused?: string | undefined; x: string; }");
++            assert_eq!(
++                checker.type_to_string_at(id, site).as_deref(),
++                Some("{ unused?: string; x: string; }")
++            );
++        },
++    );
++}
++
++#[test]
++fn a_spread_member_whose_type_moved_prints_its_type() {
++    // An optional right `x` merges with the left's: the member's type is
++    // `string | number`, to which neither declaration's annotation is
++    // equivalent, so the reuse declines at print and the baked print stays.
++    at_last_expression(
++        "declare const a: { x: string };\ndeclare const c: { x?: number };\n({ ...a, ...c });",
++        |checker, id, site| {
++            assert_eq!(checker.type_to_string(id), "{ x: string | number; }");
++            assert_eq!(
++                checker.type_to_string_at(id, site).as_deref(),
++                Some("{ x: string | number; }")
++            );
++        },
++    );
++}

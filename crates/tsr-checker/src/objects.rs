@@ -134,23 +134,50 @@ mod property_slot {
     /// node builder's `serializeTypeForDeclaration` of the property type.
     /// `None` is a slot whose type is read on demand
     /// ([`PropertySlot::of_accessor`]); it is printed from that type.
+    ///
+    /// The second field is the print-time reuse plan
+    /// ([`PrintedSlot::of_declaration`], `r6-lazytext.md` §1): the type the
+    /// slot displays, whose declaration reuse the site renderer asks when it
+    /// prints. The text beside it is that type's site-free print, which every
+    /// baked (site-free) reader keeps.
     #[derive(Clone, Debug)]
-    pub(crate) struct PrintedSlot(Option<String>);
+    pub(crate) struct PrintedSlot(Option<String>, Option<TypeId>);
 
     impl PrintedSlot {
         /// Text printed by the property's producer.
         pub(crate) fn printed(text: String) -> Self {
-            Self(Some(text))
+            Self(Some(text), None)
         }
 
         /// No producer text: printed from the type read on demand.
         pub(crate) fn on_demand() -> Self {
-            Self(None)
+            Self(None, None)
+        }
+
+        /// `addPropertyToElementList`'s `serializeTypeForDeclaration`
+        /// (`nodebuilderimpl.go:2486`, `:2181`) deferred to the print: `text`
+        /// is `displayed`'s own print, and the site renderer asks the reuse
+        /// arm on the property's declaration
+        /// ([`crate::checker::Checker::reused_property_type_text`]) only when
+        /// it prints the member, as native's node builder does. Nothing is
+        /// decided or resolved at the mint
+        /// (`docs/parity/notes/r6-lazytext.md` §1).
+        // Its producers are spreads.rs's mint sites (r6-errorsplit's file),
+        // which ship as `r6-lazytext-spread-members.diff`.
+        #[allow(dead_code)]
+        pub(crate) fn of_declaration(text: String, displayed: TypeId) -> Self {
+            Self(Some(text), Some(displayed))
         }
 
         /// The stored text, for the canonical accessor only.
         pub(super) fn get(&self) -> Option<&str> {
             self.0.as_deref()
+        }
+
+        /// The displayed type whose declaration reuse is asked at print
+        /// ([`PrintedSlot::of_declaration`]).
+        pub(crate) fn reuse_at_print(&self) -> Option<TypeId> {
+            self.1
         }
     }
 }

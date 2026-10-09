@@ -216,46 +216,66 @@ impl Checker<'_, '_> {
         visit_identity: bool,
     ) -> Option<String> {
         self.certified_object_literal_text_at(id, reference, visit_identity)
-            .or_else(|| self.deferred_accessor_text_at(id, reference))
+            .or_else(|| self.deferred_member_text_at(id, reference))
     }
 
-    /// An object-literal image whose member plan the certified renderer
-    /// declines still carries the placeholder an on-demand accessor slot baked
-    /// at the mint (`DEFERRED_ACCESSOR_TEXT`). Native serializes that member
-    /// from the accessor symbol's type (createTypeNodesFromResolvedType), so
-    /// the baked plan is kept and only those slots are printed from the type
-    /// read here. While a variable enclosing the literal is still resolving,
-    /// that read is the re-entry native never makes: keep the baked text.
-    fn deferred_accessor_text_at(
+    /// An object image whose member plan the certified renderer declines
+    /// can still hold slots whose print native decides only at print time
+    /// (`docs/parity/notes/r6-lazytext.md` §1). The baked plan is kept and
+    /// only those slots are re-printed here, at the site:
+    ///
+    /// - an on-demand accessor slot baked a placeholder at the mint
+    ///   (`DEFERRED_ACCESSOR_TEXT`); native serializes that member from the
+    ///   accessor symbol's type (createTypeNodesFromResolvedType), read here;
+    /// - a declaration slot ([`crate::objects::PrintedSlot::of_declaration`])
+    ///   baked its displayed type's site-free print; native's
+    ///   addPropertyToElementList asks serializeTypeForDeclaration
+    ///   (`nodebuilderimpl.go:2486`, `:2181`) when it prints the member, so
+    ///   the declaration's reuse arm
+    ///   ([`Checker::reused_property_type_text`]) is asked here. A declined
+    ///   reuse keeps the baked print.
+    ///
+    /// While a variable enclosing the literal is still resolving, a read is
+    /// the re-entry native never makes: keep the baked text.
+    fn deferred_member_text_at(
         &mut self,
         id: TypeId,
         reference: tsr_ast::NodeId,
     ) -> Option<String> {
         let properties = &self.anonymous_properties.get(&id)?.0;
-        if !properties.iter().any(crate::objects::AnonymousProperty::reads_on_demand) {
+        let deferred = |property: &crate::objects::AnonymousProperty| {
+            property.reads_on_demand() || property.printed_slot.reuse_at_print().is_some()
+        };
+        if !properties.iter().any(deferred) {
             return None;
         }
-        let deferred: Vec<_> =
-            properties.iter().filter(|property| property.reads_on_demand()).cloned().collect();
+        let deferred: Vec<_> = properties.iter().filter(|p| deferred(p)).cloned().collect();
+        let accessor = deferred.iter().any(crate::objects::AnonymousProperty::reads_on_demand);
         // createAnonymousTypeNode's visited check: re-entry elides to `any`.
+        // A plan with declaration slots only keeps its baked print, which is
+        // what this image printed before its reuse moved to print time.
         if self.rendering_composites.contains(&id) {
-            return Some("any".to_string());
+            return accessor.then(|| "any".to_string());
         }
-        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+        let TypeData::Named { members: owner, .. } = self.store.get(id).data else {
             return None;
         };
-        if self
-            .binder
-            .symbols()
-            .get(owner)
-            .declarations
-            .iter()
-            .any(|&declaration| self.enclosing_variable_resolving(declaration))
-        {
+        if accessor && owner.is_none() {
+            return None;
+        }
+        if owner.is_some_and(|owner| {
+            self.binder
+                .symbols()
+                .get(owner)
+                .declarations
+                .iter()
+                .any(|&declaration| self.enclosing_variable_resolving(declaration))
+        }) {
             return None;
         }
         let mut members = self.object_literal_members.get(&id)?.clone();
         self.rendering_composites.insert(id);
+        let mut changed = false;
         let result = deferred.iter().try_for_each(|property| {
             let Some(crate::objects::Member::Property { printed, .. }) =
                 members.iter_mut().find(|member| {
@@ -265,12 +285,29 @@ impl Checker<'_, '_> {
             else {
                 return Some(());
             };
+            if let Some(displayed) = property.printed_slot.reuse_at_print() {
+                // Site-free, as the mint asked it before (`r6-lazytext.md` §1): with a
+                // site, the visitor declines a name the site cannot reach
+                // (`[Foo.sym]` read from a file that does not import `Foo`,
+                // declarationEmitComputedPropertyNameSymbol1), which native's
+                // typeToString still writes as the declaration spelled it.
+                if let Some(text) = property
+                    .origin
+                    .and_then(|origin| self.reused_property_type_text(origin, displayed, None))
+                {
+                    changed |= text != *printed;
+                    *printed = text;
+                }
+                return Some(());
+            }
             let property_type = self.property_type(property);
             *printed = self.type_to_string_at(property_type, reference)?;
+            changed = true;
             Some(())
         });
         self.rendering_composites.remove(&id);
-        result.map(|()| crate::objects::render_object_type(&members))
+        result?;
+        changed.then(|| crate::objects::render_object_type(&members))
     }
 
     fn certified_object_literal_text_at(
