@@ -404,6 +404,51 @@ pre-existing code (`signatures.rs`, `enum_initializer.rs`,
 `index_signatures.rs`, `templates.rs`, `unique_symbols.rs`, `members.rs`);
 `cargo fmt --all --check` is clean, with every diff applied and without.
 
+### 2.10 TS18042 / TS18043: `checkAliasSymbol`'s JS arm — `js_alias_types.rs`
+
+Cases on the base:
+
+- `elidedJSImport1`: missing TS18042 at `caller.js(2,8)`;
+- `importingExportingTypes`: missing TS18042 ×2 and TS18043 ×3 (converts
+  with §2.11; see below).
+
+Native: `checkAliasSymbol` (`checker.go:6751`) has an arm before its
+conflict test. In a JS file, an alias whose target has no value meaning, on a
+declaration that is not type-only (`ast.IsTypeOnlyImportOrExportDeclaration`),
+reports at `node.PropertyNameOrName()`:
+
+- an export specifier: TS18043 `Types cannot appear in export declarations
+  in JavaScript files.`;
+- any other alias: TS18042 `'{0}' is a type and cannot be imported in
+  JavaScript files. Use '{1}' in a JSDoc type annotation.`, with `{1}` built
+  from `TryGetModuleSpecifierFromDeclaration` (`nodebuilderimpl.go:1193`) on
+  the nearest import, import-equals or variable declaration (`...` when
+  there is none), plus `.name` for an import specifier.
+
+It then returns: the conflict test (TS2440/TS2484) never runs for it.
+
+TSR: `check_alias_symbol` (`symbols.rs`, main's) recorded the arm as
+unreachable, because `allowJs` cases were once excluded from the
+diagnostics suite (§197 there). They are not any more. The new file is the
+arm; the hook (`r6-smallcodes5-js-alias-types.diff`) calls it before the
+conflict test and makes `is_type_only_import_or_export_declaration`
+(`isolated_alias.rs`, r6-isolated's) `pub(crate)`.
+
+One deviation, toward silence: when TSR cannot resolve the alias chain
+(`resolve_alias` answers `None`), the arm does not report. Upstream's
+`resolveAlias` ends such a chain at `unknownSymbol`, whose `Property` flag is
+a value meaning, so the arm does not run there either; TSR's
+`get_symbol_flags` cannot tell that from a gap. A chain that resolves to
+itself (an `export { T }` merged with an implicitly exported `@typedef T`,
+§2.11) is resolved, as upstream's related information
+(`alreadyExportedSymbol == target`) shows. The related information
+(`X_0_is_automatically_exported_here`) is not ported.
+
+Probe (`importingExportingTypes`' two files, with and without `--types
+node`): native and TSR identical, texts included.
+
+Unit test: `tests/js_alias_types.rs`, in the diff.
+
 ## 3. Apply order
 
 | # | Diff | New file | Cases |
@@ -415,6 +460,7 @@ pre-existing code (`signatures.rs`, `enum_initializer.rs`,
 | 5 | `r6-smallcodes5-qualified-reference-arity.diff` (`declared.rs`) | `qualified_reference_arity.rs` | +2, +9 type lines |
 | 6 | `r6-smallcodes5-jsdoc-import-duplicates.diff` (`binder.rs`) | none | +1 |
 | 7 | `r6-smallcodes5-receiver-parse-errors.diff` (`check.rs`) | none | +2 |
+| 8 | `r6-smallcodes5-js-alias-types.diff` (`symbols.rs`, `isolated_alias.rs`) | `js_alias_types.rs` | +2 with #9 |
 
-Each later diff is relative to the ones before it. Stacked, the seven diffs
+Each later diff is relative to the ones before it. Stacked, the diffs
 reproduce the measured tree byte for byte.

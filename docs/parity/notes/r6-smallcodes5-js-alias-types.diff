@@ -1,0 +1,107 @@
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -2536,8 +2536,8 @@
+     /// the union of every meaning that name already carries; the rule asks
+     /// whether the imported target claims one of them.
+     ///
+-    /// Upstream's `IsInJSFile` arm above this is unreachable rather than
+-    /// declined — §197 excludes `allowJs` cases from the diagnostics suite.
++    /// Upstream's `IsInJSFile` arm (TS18042/TS18043) is
++    /// [`Checker::report_js_type_alias`].
+     pub(crate) fn check_alias_symbol(&mut self, node: NodeId) -> Option<()> {
+         let declared = self.binder.symbol_of(node)?;
+         let target = match self.resolve_alias(declared) {
+@@ -2557,6 +2557,12 @@
+         let local = self.binder.merged_symbol(local);
+         let flags = self.binder.symbols().get(local).flags;
+         let target_flags = self.get_symbol_flags(target);
++        // The JS arm (`checker.go:6751`) returns before the conflict test
++        // (`js_alias_types.rs`).
++        let type_only = self.is_type_only_import_or_export_declaration(node);
++        if self.report_js_type_alias(node, local, target, target_flags, type_only) {
++            return None;
++        }
+         let mut excluded = SymbolFlags::empty();
+         if flags.intersects(SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE) {
+             excluded |= SymbolFlags::VALUE;
+diff --git a/crates/tsr-checker/src/isolated_alias.rs b/crates/tsr-checker/src/isolated_alias.rs
+--- a/crates/tsr-checker/src/isolated_alias.rs
++++ b/crates/tsr-checker/src/isolated_alias.rs
+@@ -188,7 +188,7 @@
+ 
+     /// `ast.IsTypeOnlyImportOrExportDeclaration`
+     /// (`IsTypeOnlyImportDeclaration` || `IsTypeOnlyExportDeclaration`).
+-    fn is_type_only_import_or_export_declaration(&self, node: NodeId) -> bool {
++    pub(crate) fn is_type_only_import_or_export_declaration(&self, node: NodeId) -> bool {
+         let clause_is_type_only = |clause: Option<NodeId>| {
+             matches!(clause.and_then(|clause| self.node_map.get(clause)), Some(Node::ImportClause(clause))
+                 if clause.phase_modifier.is_some_and(|token| token.kind == SyntaxKind::TypeKeyword))
+diff --git a/crates/tsr-checker/src/js_alias_types.rs b/crates/tsr-checker/src/js_alias_types.rs
+--- a/crates/tsr-checker/src/js_alias_types.rs
++++ b/crates/tsr-checker/src/js_alias_types.rs
+@@ -33,7 +33,6 @@
+ 
+ use crate::checker::Checker;
+ 
+-#[expect(dead_code, reason = "r6-smallcodes5 hook diff not applied")]
+ impl Checker<'_, '_> {
+     /// `checkAliasSymbol`'s JS arm. `true` when it applied, so the caller
+     /// returns before its conflict test. `type_only` is
+diff --git a/crates/tsr-checker/tests/js_alias_types.rs b/crates/tsr-checker/tests/js_alias_types.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/tsr-checker/tests/js_alias_types.rs
+@@ -0,0 +1,52 @@
++//! TS18043 — `checkAliasSymbol`'s JS arm (`checker.go:6751`): an export
++//! specifier whose target has no value meaning, in a JavaScript file.
++//! Expectations were checked against a native `tsgo` built from the pinned
++//! submodule.
++use tsr_ast::Node;
++use tsr_binder::BindResult;
++use tsr_checker::{Checker, check::FileContext};
++use tsr_core::Arena;
++
++/// The codes reported for a one-file JS module, with their spans' text.
++fn reports(source: &str) -> Vec<(u32, String)> {
++    let name = "t.js";
++    let arena = Arena::new();
++    let mut parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
++    parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name, text: source },
++        &jsdoc,
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.set_jsdoc(parsed.jsdoc.iter());
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    let mut reports: Vec<(u32, String)> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(_, d)| matches!(d.message.code(), 18042 | 18043 | 2484))
++        .map(|(_, d)| {
++            (d.message.code(), source[d.span.start as usize..d.span.end as usize].to_string())
++        })
++        .collect();
++    reports.sort();
++    reports
++}
++
++#[test]
++fn exporting_a_typedef_is_ts18043() {
++    let source = "/** @typedef {{ x: any }} JSDocType */\nexport { JSDocType };\nexport { JSDocType as ThisIsFine };\nexport const v = 1;\n";
++    assert_eq!(reports(source), [(18043, "JSDocType".into()), (18043, "JSDocType".into())]);
++}
++
++#[test]
++fn exporting_a_value_does_not_report() {
++    assert!(reports("const a = 1;\nexport { a };\n").is_empty());
++}

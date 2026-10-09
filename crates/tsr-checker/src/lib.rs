@@ -155,6 +155,7 @@ pub mod intersections;
 pub mod intrinsics;
 mod isolated_alias;
 mod iteration;
+mod js_alias_types;
 mod js_case_data;
 mod jsdoc_annotations;
 mod jsdoc_checks;
