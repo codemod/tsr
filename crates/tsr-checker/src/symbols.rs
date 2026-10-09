@@ -4279,12 +4279,27 @@ impl<'a> Checker<'a, '_> {
                 _ => continue,
             };
             let Some(initializer) = assignment.initializer else { continue };
+            // `isPossiblyDiscriminantValue` (`checker.go`) admits an entity
+            // name expression too: an enum member `E.A` (and a dotted
+            // namespace path to one) is read context-free like a literal.
+            fn entity_name_expression(expression: tsr_ast::Expression<'_>) -> bool {
+                match expression {
+                    tsr_ast::Expression::Identifier(_) => true,
+                    tsr_ast::Expression::PropertyAccessExpression(access) => {
+                        access.expression.is_some_and(entity_name_expression)
+                    }
+                    _ => false,
+                }
+            }
             let context_free = match initializer {
                 tsr_ast::Expression::StringLiteral(_) | tsr_ast::Expression::NumericLiteral(_) => {
                     true
                 }
                 tsr_ast::Expression::KeywordExpression(keyword) => {
                     matches!(keyword.kind, SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword)
+                }
+                tsr_ast::Expression::PropertyAccessExpression(access) => {
+                    access.expression.is_some_and(entity_name_expression)
                 }
                 _ => false,
             };
