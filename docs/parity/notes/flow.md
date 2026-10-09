@@ -630,3 +630,16 @@ property walk (no new side table). Native control
 (`narrowingUnionWithBang`): `working.thing!.name !== "Correct"` else-branch
 → `{ name: 'Correct'; id: string; }` in both; the true branch keeps
 `| undefined` in both.
+
+## 31. `getEffectsSignature` reads the callee through `checkNonNullType`
+
+Pinned `flow.go:2087-2092`: a call that is not an expression statement takes
+its callee type from `checkNonNullType(getOptionalExpressionType(…))` when the
+call is an optional chain, else `checkNonNullExpression`. TSR used the raw
+`checkExpression`, so `f?.(x)` with `f: undefined | ((x: any) => x is number)`
+saw a union with `undefined`, found no single call signature and narrowed
+nothing; likewise `o2?.f(x)` and `o6?.f()` (`this is Derived`). Native control
+(`controlFlowOptionalChain`): `x` → `number` after `if (f?.(x))`, `o6` →
+`Derived` after `if (o6?.f())`, in both. Six type lines converge; the case
+stays non-exact on `f(x)` with a possibly-undefined callee (calls lane:
+TS2722's non-null result type).

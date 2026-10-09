@@ -2857,11 +2857,20 @@ impl Checker<'_, '_> {
         } else if self.nodes.kind(callee_id) == SyntaxKind::SuperKeyword {
             return None;
         } else {
-            // `checkNonNullExpression(node.Expression())`. The optional-chain
-            // arm (`getOptionalExpressionType`) is not split out: this
-            // port's `check_expression` of a chain already answers the
-            // non-optional type at the callee position.
-            self.check_expression(callee)
+            // `flow.go:2087-2092`: `checkNonNullType(getOptionalExpressionType(
+            // checkExpression(callee), callee))` for an optional chain, else
+            // `checkNonNullExpression(callee)`.
+            let callee_type = self.check_expression(callee);
+            let callee_type = if self.expression_is_optional_chain(call_node) {
+                self.get_optional_expression_type(
+                    callee_type,
+                    Some(callee_id),
+                    call.question_dot_token.is_some(),
+                )
+            } else {
+                callee_type
+            };
+            self.check_non_null_type(callee_type)
         };
         if func_type == self.intrinsics.error {
             return None;
