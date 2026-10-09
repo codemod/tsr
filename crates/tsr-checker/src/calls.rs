@@ -707,10 +707,22 @@ impl Checker<'_, '_> {
                         ),
                     );
                 } else {
+                    let related = if call.arguments.len() == 1 && self.line_break_follows(callee_id)
+                    {
+                        self.related_diagnostic(
+                            callee_id,
+                            &messages::ARE_YOU_MISSING_A_SEMICOLON,
+                            [],
+                        )
+                    } else {
+                        None
+                    };
                     self.invocation_error(
                         callee_id,
                         call.arguments.is_empty(),
                         SignatureKind::Call,
+                        apparent,
+                        related,
                     );
                 }
                 return CallHead::Done;
@@ -2422,7 +2434,7 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        self.invocation_error(tag_id, false, SignatureKind::Call);
+        self.invocation_error(tag_id, false, SignatureKind::Call, apparent, None);
     }
 
     /// `resolveTaggedTemplateExpression`'s `resolveCall` (`checker.go:8719`,
@@ -2503,6 +2515,8 @@ impl Checker<'_, '_> {
                     callee_id,
                     new.arguments.is_empty(),
                     SignatureKind::Construct,
+                    apparent,
+                    None,
                 );
                 CallHead::Done
             }
@@ -2742,14 +2756,20 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `invocationError` (`checker.go:9996`) → `invocationErrorDetails`: the
-    /// head message on `target` (a property access's name). Only the head is
-    /// emitted; the detail chain is not modelled by this port's `Diagnostic`.
+    /// `invocationError` (`checker.go:9996`) → `invocationErrorDetails`
+    /// (`checker.go:9940`): the head on `target` (a property access's name)
+    /// chained over the detail ([`Checker::invocation_error_detail`]), the
+    /// `Did_you_forget_to_use_await` note when `apparent`'s awaited type has
+    /// signatures of `kind`, then the caller's `related` note.
+    /// `invocationErrorRecovery`'s originating-import note is not ported (no
+    /// `exportTypeLinks.originatingImport`).
     pub(crate) fn invocation_error(
         &mut self,
         error_target: tsr_ast::NodeId,
         zero_arguments: bool,
         kind: SignatureKind,
+        apparent: TypeId,
+        related: Option<Diagnostic>,
     ) {
         let is_call = kind == SignatureKind::Call;
         let parent_is_call = self
@@ -2777,7 +2797,139 @@ impl Checker<'_, '_> {
                 None => return,
             }
         }
-        self.report_at_node(target, Diagnostic::new(head, self.error_span(target)));
+        let detail = self.invocation_error_detail(target, apparent, kind);
+        let mut diagnostic = match detail {
+            Some(detail) => Diagnostic::new_chain(Some(detail), head, []),
+            None => Diagnostic::new(head, self.error_span(target)),
+        };
+        let maybe_missing_await = self.awaited_type(apparent).is_some_and(|awaited| {
+            self.head_signature_count(awaited, kind).is_some_and(|count| count != 0)
+        });
+        if maybe_missing_await {
+            let note =
+                self.related_diagnostic(error_target, &messages::DID_YOU_FORGET_TO_USE_AWAIT, []);
+            diagnostic.add_related_information(note);
+        }
+        diagnostic.add_related_information(related);
+        self.report_at_node(target, diagnostic);
+    }
+
+    /// `resolveCallExpression`'s `Are_you_missing_a_semicolon` test
+    /// (`checker.go:8546`): the character before
+    /// `SkipTriviaEx(text, node.End(), StopAfterLineBreak)` is a line break.
+    /// Whitespace and comments are skipped as the scanner does; a
+    /// merge-conflict marker is not trivia here. `false` without source text.
+    fn line_break_follows(&self, node: tsr_ast::NodeId) -> bool {
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return false };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return false;
+        };
+        let mut pos = self.nodes.span(node).end as usize;
+        while let Some(ch) = text.get(pos..).and_then(|rest| rest.chars().next()) {
+            match ch {
+                '\r' | '\n' => {
+                    pos += if text[pos..].starts_with("\r\n") { 2 } else { 1 };
+                    break;
+                }
+                '/' if text[pos..].starts_with("//") => {
+                    pos += text[pos..]
+                        .find(['\r', '\n', '\u{2028}', '\u{2029}'])
+                        .unwrap_or(text.len() - pos);
+                }
+                '/' if text[pos..].starts_with("/*") => {
+                    pos += text[pos + 2..].find("*/").map_or(text.len() - pos, |end| end + 4);
+                }
+                // `IsWhiteSpaceLike`: U+2028/U+2029 do not stop the skip.
+                _ if tsr_scanner::is_whitespace_single_line(ch)
+                    || tsr_scanner::is_line_break(ch) =>
+                {
+                    pos += ch.len_utf8();
+                }
+                _ => break,
+            }
+        }
+        // `rune(text[pos-1])`: one byte, so only `\n` or `\r` can match.
+        pos.checked_sub(1)
+            .and_then(|last| text.as_bytes().get(last))
+            .is_some_and(|&byte| byte == b'\n' || byte == b'\r')
+    }
+
+    /// The detail `invocationErrorDetails` (`checker.go:9940`) chains under
+    /// the head, located at `target` in its file: for a union, the first
+    /// constituent without signatures of `kind` (`Type_0_has_no_call_signatures`
+    /// under `Not_all_constituents_of_type_0_are_callable`), else
+    /// `No_constituent_of_type_0_is_callable` when none has any, else
+    /// `Each_member_of_the_union_type_0_has_signatures_but_none_...`; any
+    /// other type is `Type_0_has_no_call_signatures` (construct forms for
+    /// `new`). `None` (head alone) when a constituent's signature list is
+    /// not certified or the file has no image.
+    fn invocation_error_detail(
+        &mut self,
+        target: tsr_ast::NodeId,
+        apparent: TypeId,
+        kind: SignatureKind,
+    ) -> Option<Diagnostic> {
+        let is_call = kind == SignatureKind::Call;
+        let file = self.source_file_of_for_diagnostics(target)?;
+        let image = self.diagnostic_file_image(file)?;
+        let span = self.error_span(target);
+        let at = |message: &'static tsr_diagnostics::Message, printed: String| {
+            let mut diagnostic = Diagnostic::with_args(message, span, [printed]);
+            diagnostic.set_file(image.clone());
+            diagnostic
+        };
+        let no_signatures = if is_call {
+            &messages::TYPE_0_HAS_NO_CALL_SIGNATURES
+        } else {
+            &messages::TYPE_0_HAS_NO_CONSTRUCT_SIGNATURES
+        };
+        let TypeData::Union { types, .. } = &self.store.get(apparent).data else {
+            return Some(at(no_signatures, self.type_to_string(apparent)));
+        };
+        let types = types.clone();
+        let mut detail = None;
+        let mut has_signatures = false;
+        for constituent in types {
+            if self.head_signature_count(constituent, kind)? != 0 {
+                has_signatures = true;
+                if detail.is_some() {
+                    break;
+                }
+            } else {
+                if detail.is_none() {
+                    let child = at(no_signatures, self.type_to_string(constituent));
+                    detail = Some(Diagnostic::new_chain(
+                        Some(child),
+                        if is_call {
+                            &messages::NOT_ALL_CONSTITUENTS_OF_TYPE_0_ARE_CALLABLE
+                        } else {
+                            &messages::NOT_ALL_CONSTITUENTS_OF_TYPE_0_ARE_CONSTRUCTABLE
+                        },
+                        [self.type_to_string(apparent)],
+                    ));
+                }
+                if has_signatures {
+                    break;
+                }
+            }
+        }
+        if !has_signatures {
+            let message = if is_call {
+                &messages::NO_CONSTITUENT_OF_TYPE_0_IS_CALLABLE
+            } else {
+                &messages::NO_CONSTITUENT_OF_TYPE_0_IS_CONSTRUCTABLE
+            };
+            detail = Some(at(message, self.type_to_string(apparent)));
+        }
+        Some(detail.unwrap_or_else(|| {
+            let message = if is_call {
+                &messages::EACH_MEMBER_OF_THE_UNION_TYPE_0_HAS_SIGNATURES_BUT_NONE_OF_THOSE_SIGNATURES_ARE_COMPATIBLE_WITH_EACH_OTHER
+            } else {
+                &messages::EACH_MEMBER_OF_THE_UNION_TYPE_0_HAS_CONSTRUCT_SIGNATURES_BUT_NONE_OF_THOSE_SIGNATURES_ARE_COMPATIBLE_WITH_EACH_OTHER
+            };
+            at(message, self.type_to_string(apparent))
+        }))
     }
 
     /// `getResolvedSymbolOrNil(errorTarget).Flags & SymbolFlagsGetAccessor`

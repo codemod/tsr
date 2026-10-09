@@ -169,3 +169,28 @@ TS2793; one overload + `any` implementation → TS2345 + TS2793.
 Remaining: the declared-here span at a method signature or constructor
 (`error_span`, check.rs), and chains under elaborated relation children
 (assignreport).
+
+## invocationErrorDetails' chain and notes (tsr-2zk.16.58)
+
+`invocation_error` emitted the TS2349/TS2351/TS6234 head alone. It now takes
+the apparent type the native caller passes (`resolveCallExpression` and the
+tagged template: `apparentType`; `resolveNewExpression`: its apparent
+`expressionType`) and ports `invocationErrorDetails` (`checker.go:9940`):
+the head chained over `Type_0_has_no_call_signatures`, or for a union the
+first signature-less constituent under `Not_all_constituents_of_type_0_are_callable`,
+`No_constituent_of_type_0_is_callable`, or `Each_member_of_the_union_type_0_...`
+(construct forms for `new`); the children carry their file. Notes:
+`Did_you_forget_to_use_await` when the awaited type (`awaited_type`) has
+signatures of the kind, and `resolveCallExpression`'s
+`Are_you_missing_a_semicolon` (`checker.go:8546`, `line_break_follows`:
+`SkipTriviaEx(..., StopAfterLineBreak)` then the byte before). An
+uncertified constituent signature list keeps the head alone.
+`invocationErrorRecovery`'s originating-import note is not ported. No cache.
+Converts 24 EXACT cases (`betterErrorForAccidentalCall`, `callOnInstance`,
+`methodChainError`, `templateStringIn*`, `taggedTemplateWithConstructableTag01/02`,
+…). Remaining here: `typeof import("…")` printing of a module namespace,
+`never`-reduced intersections (`getApparentType` → `getReducedType`), and
+heads TSR declines (`newOperator`, `betterErrorForUnionCall`).
+Native control: `s()`, `u()` (`string | (() => void)`), `v()`
+(`string | number`), `p()` (`Promise<() => void>`, await note), `new s()`,
+and `s\n(1)` (semicolon note) print identically to tsgo; `s(3)` has no note.
