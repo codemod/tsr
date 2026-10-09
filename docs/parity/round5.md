@@ -994,3 +994,22 @@ TS2589's currentNode reporting (`.1103`).
 Most of the unowned pool is now spent. The largest remaining clusters (TS2345,
 TS2769, TS2339, TS7006, TS2304, flow and contextual typing) sit in main's
 active lanes (`.4`, `.6`, `.9`, `.11`) or in main's files.
+
+### r5-errorsplit5 finished; r5-errorsplit6 dispatched (`tsr-2zk.1106`)
+
+r5-errorsplit5 ran the native identity probe over the whole corpus (12,157
+baselines) and switched four producers, each verified line by line:
+- nullable `+`;
+- JSX elements (errorType) vs fragments (anyType);
+- checkSuperExpression, including GetSuperContainer's static-block and
+  decorator arms;
+- the indexed twin.
+
+That is +84 type lines with no losses. Its symbols.rs diff (alias not-a-value,
+the getTypeOfSymbol fallthrough) and members.rs diff (the property twin) land
+in batch AO.
+
+With them, the first writer rewrite reaches zero RIGHT cost and is narrowed:
+GlobalAugmentation. The ADR-0048 narrowing cost falls from 4,504 to 3,030.
+r5-errorsplit6 takes indexed.rs' failed-lookup arms, the false-claim roots and
+spread propagation. Main's remainder is `.1107`.
