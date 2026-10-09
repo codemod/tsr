@@ -1221,6 +1221,15 @@ fn module_copy_calls_require_a_certified_empty_global_function() {
                             {
                                 intrinsics.any
                             }
+                            // `import Linked = Head` targets the namespace
+                            // import itself (getSymbol's alias rule,
+                            // checker.go:2176), so `Linked` and `Tail` call
+                            // like `Head`. Native tsgo: `any` for all three
+                            // with an empty Function, TS2349 for all three
+                            // otherwise (r6-modules2.md §1).
+                            "Tail(3)" | "Linked(4)" if namespace_value && namespace_assignable => {
+                                intrinsics.any
+                            }
                             // A function merged with a namespace is also
                             // assignable to such a Function (native tsgo:
                             // `any` for all four; r5-relater7.md §7).

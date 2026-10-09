@@ -68,7 +68,7 @@ the one measured below).
 | 4 | `r6-names-primitive-spellings.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 | 5 | `r6-names-typeof-null.diff` | +1 case | 0 | 3,382/1,089 → 3,381/1,089 |
 | 6 | `r6-names-export-specifier.diff` | +1 case | 0 | 3,382/1,089 → 3,380/1,089 |
-| 7 | `r6-names-parameter-scope.diff` | +5 cases, +38 type lines | 0 | 3,382/1,089 → 3,373/1,088 |
+| 7 | `r6-names-parameter-scope.diff` (superseded by `r6-names2-parameter-scope.diff`) | +5 cases, +38 type lines | 0 | 3,382/1,089 → 3,373/1,088 |
 
 Diff 2 replaces two earlier diffs, `r6-names-empty-for-of` (measured alone:
 +4 cases, extra rows −4) and `r6-names-decorator-targets` (+1 case, extra
@@ -269,7 +269,9 @@ at `value`; `export { string }` → TS2661 only; `declare namespace D { export
 { amb } }` → TS2304; `declare module "mm" { export { amb2 } }` → TS2664 and
 TS2304. The port with the diff matches every row except two pre-existing
 ones (the namespace TS2303, and TS1003 for `export { "str" as s2 }`, a parser
-difference).
+difference). **Corrected by r6-names2:** TS1003 is a checker grammar error
+(`checkModuleExportName`, `checker.go:5388`), not a parser difference; both
+rows are ported in `r6-names2.md` §3.
 
 The hook passes `check.rs`'s `cannot_find_name_message` in as a function
 pointer, so the tail shares the table rather than copying it.
@@ -396,6 +398,11 @@ answers the merged symbol). The integrator decides whether +0.1% Ir for
 +5 cases and +38 type lines is acceptable (§12 has the stacked numbers); the falsifier for "layout, not
 work" is a build that moves the options out of `BindResult` and still reads
 +0.1%.
+
+**Superseded (r6-names2):** this section's diff is replaced by
+`r6-names2-parameter-scope.diff`, which keeps the options off `BindResult`
+(the falsifier above held: moving them out removed the `lookup_scoped` /
+`merged_symbol` shift). Measurements in `r6-names2.md` §1.
 
 ## §12 Cost of the stack
 

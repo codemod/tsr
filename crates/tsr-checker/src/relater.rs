@@ -680,6 +680,12 @@ impl Checker<'_, '_> {
         {
             return RecursionIdentity::Node(literal);
         }
+        // A deferred type reference is tracked through its node: the tuple or
+        // array node of the alias whose image the relater normalized to
+        // this body.
+        if let Some(&node) = self.relation_results.alias_reference_nodes.get(&ty) {
+            return RecursionIdentity::Node(node);
+        }
         if let Some(info) = self.mapped_conditionals.get(&ty) {
             return RecursionIdentity::Node(info.declaration);
         }
@@ -2136,6 +2142,21 @@ impl Relater<'_, '_, '_> {
         None
     }
 
+    /// The tuple or array type node `symbol` is declared as, if it is a type
+    /// alias written as one (`type A<T> = [number, T]`, `type B<T> = T[]`).
+    fn alias_tuple_or_array_node(&self, symbol: SymbolId) -> Option<tsr_ast::NodeId> {
+        self.checker.binder.symbols().get(symbol).declarations.iter().find_map(|&declaration| {
+            match self.checker.node_map.get(declaration) {
+                Some(tsr_ast::Node::TypeAliasDeclaration(alias)) => match alias.r#type? {
+                    tsr_ast::TypeNode::TupleTypeNode(node) => node.node_id,
+                    tsr_ast::TypeNode::ArrayTypeNode(node) => node.node_id,
+                    _ => None,
+                },
+                _ => None,
+            }
+        })
+    }
+
     /// Whether `symbol` is a type alias declared as a bare type reference
     /// (`type A<T> = B<T>`).
     fn alias_body_is_type_reference(&self, symbol: SymbolId) -> bool {
@@ -2358,9 +2379,12 @@ impl Relater<'_, '_, '_> {
     ) -> RelationResult {
         let base_object = self.checker.base_constraint_or_type(object);
         let base_index = self.checker.base_constraint_or_type(index);
-        if self.checker.type_of(base_object).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-            || self.checker.indexed_access_index_is_generic(base_index)
-        {
+        match self.is_generic_object_type(base_object) {
+            Some(true) => return RelationResult::NotRelated,
+            None => return RelationResult::Unknown,
+            Some(false) => {}
+        }
+        if self.checker.indexed_access_index_is_generic(base_index) {
             return RelationResult::NotRelated;
         }
         let no_index_signatures = base_object != object;
@@ -2481,9 +2505,10 @@ impl Relater<'_, '_, '_> {
     ///
     /// Stated divergences, each leaving the indexed access as written:
     /// - the other arms are not ported: a union index over a non-mapped
-    ///   object, `(T | U)[K]`/`(T & U)[K]`, and a generic tuple read by a
-    ///   number. Native's simplification there changes what the pair relates
-    ///   through, not whether this arm applies.
+    ///   object and a generic tuple read by a number. Native's
+    ///   simplification there changes what the pair relates through, not
+    ///   whether this arm applies. `(T | U)[K]`/`(T & U)[K]` is
+    ///   ([`Self::distributed_index_over_object`]).
     /// - a substituted conditional constituent is not simplified here; the
     ///   gate's `simplified_conditional` meets it when that constituent is
     ///   related.
@@ -2520,6 +2545,20 @@ impl Relater<'_, '_, '_> {
             return None;
         }
         let object = self.simplified_indexed_access_worker(object, writing, depth + 1)?;
+        // distributeIndexOverObjectType (checker.go:27990), taken only when
+        // the index can no longer be instantiated to distribute again
+        // (checker.go:27942): `(T | U)[K]` is `T[K] | U[K]` (reading) or
+        // `T[K] & U[K]` (writing), and `(T & U)[K]` is `T[K] & U[K]` unless
+        // shouldDeferIndexType keeps the intersection.
+        // The port's `keyof T` is not flagged INSTANTIABLE (it is a deferred
+        // keyof operand), so a generic index is asked for as well.
+        if !self.checker.type_of(index).flags.intersects(TypeFlags::INSTANTIABLE)
+            && !self.checker.indexed_access_index_is_generic(index)
+            && let Some(distributed) =
+                self.distributed_index_over_object(object, index, writing, depth).ok()?
+        {
+            return Some(distributed);
+        }
         self.checker.ensure_mapped_type_info(object);
         let Some(info) = self.checker.mapped_types.get(&object).cloned() else {
             return Some(id);
@@ -2563,6 +2602,50 @@ impl Relater<'_, '_, '_> {
             }
             _ => result,
         })
+    }
+
+    /// distributeIndexOverObjectType (checker.go:27990) for a union or
+    /// intersection object: `Ok(None)` when it does not apply, `Err(())` when
+    /// a constituent's access or simplification cannot be computed.
+    /// shouldDeferIndexType (checker.go) keeps an intersection that mentions
+    /// an instantiable type and has an empty anonymous object constituent.
+    fn distributed_index_over_object(
+        &mut self,
+        object: TypeId,
+        index: TypeId,
+        writing: bool,
+        depth: u32,
+    ) -> Result<Option<TypeId>, ()> {
+        let (parts, intersection) = match self.union_constituents(object) {
+            Some(parts) => (parts, false),
+            None => match self.intersection_constituents(object) {
+                Some(parts) => (parts, true),
+                None => return Ok(None),
+            },
+        };
+        if intersection
+            && self.checker.maybe_type_of_kind(object, TypeFlags::INSTANTIABLE)
+            && parts.iter().any(|&part| self.checker.is_empty_anonymous_object_type(part))
+        {
+            return Ok(None);
+        }
+        let mut types = Vec::with_capacity(parts.len());
+        for part in parts {
+            let Some(access) = self.checker.resolved_indexed_access_type(part, index, false) else {
+                return Err(());
+            };
+            let Some(simplified) =
+                self.simplified_indexed_access_worker(access, writing, depth + 1)
+            else {
+                return Err(());
+            };
+            types.push(simplified);
+        }
+        Ok(Some(if intersection || writing {
+            self.checker.get_intersection_type(&types, None)
+        } else {
+            self.checker.get_union_type(&types)
+        }))
     }
 
     /// `substituteIndexedMappedType` (`checker.go:29291`) for a generic mapped
@@ -2611,6 +2694,39 @@ impl Relater<'_, '_, '_> {
             }
             None => self.simplified_indexed_access_worker(result, writing, depth),
         }
+    }
+
+    /// `isGenericObjectType` (`checker.go`, getGenericObjectFlags'
+    /// IsGenericObjectType): an instantiable non-primitive type, a generic
+    /// mapped type or a generic tuple, or a union or intersection with such a
+    /// constituent. `None` when a constituent's mapped classification is
+    /// undecided.
+    fn is_generic_object_type(&mut self, id: TypeId) -> Option<bool> {
+        if self.checker.type_of(id).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
+            return Some(true);
+        }
+        if let Some(parts) =
+            self.union_constituents(id).or_else(|| self.intersection_constituents(id))
+        {
+            let mut undecided = false;
+            for part in parts {
+                match self.is_generic_object_type(part) {
+                    Some(true) => return Some(true),
+                    Some(false) => {}
+                    None => undecided = true,
+                }
+            }
+            return if undecided { None } else { Some(false) };
+        }
+        if self.is_generic_mapped_type(id)? {
+            return Some(true);
+        }
+        // isGenericTupleType: a variadic element that is not an array.
+        Some(self.checker.variadic_tuple_elements.get(&id).cloned().is_some_and(|(elements, _)| {
+            elements.iter().any(|element| {
+                element.spread && self.checker.tuple_spread_array_element(element.r#type).is_none()
+            })
+        }))
     }
 
     /// `isGenericMappedType` (`checker.go:24908`): a mapped type whose
@@ -3016,6 +3132,14 @@ impl Relater<'_, '_, '_> {
         let body = self.checker.evaluate_alias_body(symbol, &arguments)?;
         if body == id || body == self.checker.intrinsics.error {
             return None;
+        }
+        // An alias written as a tuple or array type: its image carries the
+        // alias symbol's member table, which has no elements or `length`,
+        // so the structural walk would relate it vacuously. Native relates
+        // the tuple or array reference itself.
+        if let Some(node) = self.alias_tuple_or_array_node(symbol) {
+            self.checker.relation_results.alias_reference_nodes.entry(body).or_insert(node);
+            return Some(body);
         }
         let parts = self.union_constituents(body).unwrap_or_else(|| vec![body]);
         parts
@@ -4657,17 +4781,18 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, variable]);
             }
-            // The fallthrough is not taken for an indexed-access source
-            // (above). For `{ [P in K]: E }[X]` with a generic `X`, native's
-            // goes on to the substitution and to `{ [P in K]: E }[constraint
-            // of X]` (isMappedTypeGenericIndexedAccess, relater.go:3681):
-            // `Funcs[K]` meets `Func<"a"> | Func<"b">` as `Funcs[keyof
-            // ArgMap]` (`correlatedUnions`). Without those steps the failed
-            // walk is no proof.
+            // The fallthrough is taken for an indexed-access source only when
+            // it is `{ [P in K]: E }[X]` with a generic `X`: native's goes on
+            // to the substitution `E[P := X]` and to `{ [P in K]: E
+            // }[constraint of X]` (isMappedTypeGenericIndexedAccess,
+            // relater.go:3681), so `Funcs[K]` meets `Func<"a"> | Func<"b">`
+            // as `Funcs[keyof ArgMap]` and `Partial<Foo1>[K]` meets `Foo1[K]
+            // | undefined` as its substitution (`correlatedUnions`).
             if result == RelationResult::NotRelated
                 && self.is_mapped_type_generic_indexed_access(source)
+                && let Some(variable) = self.type_variable_source_related_to(source, target)
             {
-                return RelationResult::Unknown;
+                return RelationResult::any([result, variable]);
             }
             return result;
         }
@@ -4708,17 +4833,18 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, variable]);
             }
-            // The fallthrough is not taken for an indexed-access source
-            // (above). For `{ [P in K]: E }[X]` with a generic `X`, native's
-            // goes on to the substitution and to `{ [P in K]: E }[constraint
-            // of X]` (isMappedTypeGenericIndexedAccess, relater.go:3681):
-            // `Funcs[K]` meets `Func<"a"> | Func<"b">` as `Funcs[keyof
-            // ArgMap]` (`correlatedUnions`). Without those steps the failed
-            // walk is no proof.
+            // The fallthrough is taken for an indexed-access source only when
+            // it is `{ [P in K]: E }[X]` with a generic `X`: native's goes on
+            // to the substitution `E[P := X]` and to `{ [P in K]: E
+            // }[constraint of X]` (isMappedTypeGenericIndexedAccess,
+            // relater.go:3681), so `Funcs[K]` meets `Func<"a"> | Func<"b">`
+            // as `Funcs[keyof ArgMap]` and `Partial<Foo1>[K]` meets `Foo1[K]
+            // | undefined` as its substitution (`correlatedUnions`).
             if result == RelationResult::NotRelated
                 && self.is_mapped_type_generic_indexed_access(source)
+                && let Some(variable) = self.type_variable_source_related_to(source, target)
             {
-                return RelationResult::Unknown;
+                return RelationResult::any([result, variable]);
             }
             // structuredTypeRelatedToWorker (relater.go:3889): an object or
             // intersection source that failed every constituent may still
@@ -5502,57 +5628,32 @@ impl Relater<'_, '_, '_> {
         if self.checker.type_of(source).flags.contains(TypeFlags::INDEXED_ACCESS)
             && !self.checker.type_of(target).flags.contains(TypeFlags::INDEXED_ACCESS)
         {
-            // getConstraintOfType (relater.go:3667): for `{ [P in K]: E }[X]`
-            // that is the substitution `E[P := X]`, not the base constraint
-            // `{ [P in K]: E }[constraint of X]` (getConstraintFromIndexedAccess,
-            // checker.go:17227). The base constraint stays the road where the
-            // port's constraint is undecided. A lazily captured mapped
-            // object is captured first, as getConstraintTypeFromMappedType
-            // resolves on first use.
-            if let Some(&(object, _, _)) = self.checker.deferred_indexed_access_types.get(&source) {
-                self.checker.ensure_mapped_type_info(object);
+            let result = self.indexed_access_source_constraint_related_to(source, target);
+            if result.is_success() || !self.is_mapped_type_generic_indexed_access(source) {
+                return Some(result);
             }
-            match self.checker.constraint_of_type(source) {
-                crate::constraints::ConstraintOfType::Constraint(constraint)
-                    if constraint != source =>
-                {
-                    return Some(self.is_related_to_with_flags(
-                        constraint,
-                        target,
-                        RecursionFlags::SOURCE,
-                    ));
+            // isMappedTypeGenericIndexedAccess (relater.go:3681): for `{ [P in
+            // K]: E }[X]`, the substitution `E[P := X]` was explored above;
+            // native also explores `{ [P in K]: E }[C]`, where `C` is the
+            // constraint of `X` (`Funcs[K] -> Funcs[keyof ArgMap]`,
+            // `correlatedUnions`). A nil index constraint skips the step.
+            let Some(&(object, index, _)) = self.checker.deferred_indexed_access_types.get(&source)
+            else {
+                return Some(result);
+            };
+            let mapped = match self.checker.constraint_of_type(index) {
+                crate::constraints::ConstraintOfType::Constraint(constraint) => {
+                    match self.checker.resolved_indexed_access_type(object, constraint, false) {
+                        Some(access) => {
+                            self.is_related_to_with_flags(access, target, RecursionFlags::SOURCE)
+                        }
+                        None => RelationResult::Unknown,
+                    }
                 }
-                crate::constraints::ConstraintOfType::Nil => {
-                    let unknown = self.checker.intrinsics.unknown;
-                    return Some(self.is_related_to_with_flags(
-                        unknown,
-                        target,
-                        RecursionFlags::SOURCE,
-                    ));
-                }
-                _ => {}
-            }
-            if let Some(constraint) = self.checker.base_constraint_of_type(source) {
-                return Some(if constraint == source {
-                    RelationResult::Unknown
-                } else {
-                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
-                });
-            }
-            // No base constraint: native relates getConstraintOfType, or
-            // `unknown` for a nil one (relater.go:3668).
-            return Some(match self.checker.constraint_of_type(source) {
-                crate::constraints::ConstraintOfType::Constraint(constraint)
-                    if constraint != source =>
-                {
-                    self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
-                }
-                crate::constraints::ConstraintOfType::Nil => {
-                    let unknown = self.checker.intrinsics.unknown;
-                    self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE)
-                }
-                _ => RelationResult::Unknown,
-            });
+                crate::constraints::ConstraintOfType::Nil => RelationResult::NotRelated,
+                crate::constraints::ConstraintOfType::Undecided => RelationResult::Unknown,
+            };
+            return Some(RelationResult::any([result, mapped]));
         }
         // Synthetic polymorphic this is a source type variable too, not the
         // object member table carried by its representation (relater.go:3665).
@@ -5602,6 +5703,60 @@ impl Relater<'_, '_, '_> {
         None
     }
 
+    /// The constraint steps of structuredTypeRelatedToWorker's type-variable
+    /// arm (relater.go:3665-3678) for an indexed-access source whose target
+    /// is not an indexed access: getConstraintOfType, or `unknown` for a nil
+    /// one.
+    fn indexed_access_source_constraint_related_to(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> RelationResult {
+        // getConstraintOfType (relater.go:3667): for `{ [P in K]: E }[X]`
+        // that is the substitution `E[P := X]`, not the base constraint
+        // `{ [P in K]: E }[constraint of X]` (getConstraintFromIndexedAccess,
+        // checker.go:17227). The base constraint stays the road where the
+        // port's constraint is undecided. A lazily captured mapped
+        // object is captured first, as getConstraintTypeFromMappedType
+        // resolves on first use.
+        if let Some(&(object, _, _)) = self.checker.deferred_indexed_access_types.get(&source) {
+            self.checker.ensure_mapped_type_info(object);
+        }
+        match self.checker.constraint_of_type(source) {
+            crate::constraints::ConstraintOfType::Constraint(constraint)
+                if constraint != source =>
+            {
+                return self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE);
+            }
+            crate::constraints::ConstraintOfType::Nil => {
+                let unknown = self.checker.intrinsics.unknown;
+                return self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE);
+            }
+            _ => {}
+        }
+        if let Some(constraint) = self.checker.base_constraint_of_type(source) {
+            return if constraint == source {
+                RelationResult::Unknown
+            } else {
+                self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+            };
+        }
+        // No base constraint: native relates getConstraintOfType, or
+        // `unknown` for a nil one (relater.go:3668).
+        match self.checker.constraint_of_type(source) {
+            crate::constraints::ConstraintOfType::Constraint(constraint)
+                if constraint != source =>
+            {
+                self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE)
+            }
+            crate::constraints::ConstraintOfType::Nil => {
+                let unknown = self.checker.intrinsics.unknown;
+                self.is_related_to_with_flags(unknown, target, RecursionFlags::SOURCE)
+            }
+            _ => RelationResult::Unknown,
+        }
+    }
+
     /// Whether `id` is a deferred conditional type. The CONDITIONAL flag
     /// marks a conditional alias reference and a mapped template's
     /// conditional; an inline conditional elsewhere is minted with OBJECT
@@ -5639,6 +5794,13 @@ impl Relater<'_, '_, '_> {
     /// type-parameter check type).
     fn conditional_root(&self, id: TypeId) -> Option<(tsr_ast::NodeId, bool, bool)> {
         let node = if let Some(info) = self.checker.mapped_conditionals.get(&id) {
+            match self.checker.node_map.get(info.declaration) {
+                Some(tsr_ast::Node::ConditionalTypeNode(node)) => node,
+                _ => return None,
+            }
+        } else if let Some(info) = self.checker.conditional_inference_nodes.get(&id) {
+            // An inline conditional's root: the written node `declared.rs`
+            // retained for its deferred instantiation.
             match self.checker.node_map.get(info.declaration) {
                 Some(tsr_ast::Node::ConditionalTypeNode(node)) => node,
                 _ => return None,

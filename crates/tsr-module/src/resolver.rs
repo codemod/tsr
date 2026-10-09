@@ -316,6 +316,36 @@ impl<'host> Resolver<'host> {
         (result, state.traces)
     }
 
+    /// `Resolver.ResolvePackageDirectory` (`module/resolver.go:331`): the
+    /// directory of package `module_name` in the nearest `node_modules`
+    /// above `containing_file`, with its realpath. `None` when no
+    /// `node_modules` holds it. The program's symlink cache asks it for each
+    /// runtime dependency of an emitted file's package
+    /// (`Program.GetSymlinkCache`, `compiler/program.go:2095`). Untraced and
+    /// uncached, as upstream's.
+    #[must_use]
+    pub fn resolve_package_directory(
+        &self,
+        module_name: &str,
+        containing_file: &str,
+        resolution_mode: ResolutionMode,
+    ) -> Option<ResolvedModule> {
+        let containing_directory = get_directory_path(containing_file).to_string();
+        let mut state = ResolutionState::new(
+            self,
+            module_name.to_string(),
+            containing_directory,
+            /* is_type_reference_directive */ false,
+            resolution_mode,
+            /* tracing */ false,
+        );
+        state.resolve_package_directory_only = true;
+        let result = state
+            .load_module_from_nearest_node_modules_directory(/* types_scope_only */ false)
+            .filter(|result| !result.path.is_empty())?;
+        Some(state.create_resolved_module_handling_symlink(Some(result)))
+    }
+
     /// Resolve a `tsconfig.json`'s `extends` target (`module.ResolveConfig`).
     ///
     /// `resolver.go:2077` plus `resolveConfig` (`:371`). Three things make it
@@ -448,6 +478,8 @@ struct ResolutionState<'a, 'host> {
     // Mutable search state.
     candidate_ending_is_from_config: bool,
     resolved_package_directory: bool,
+    /// `resolvePackageDirectoryOnly`: [`Resolver::resolve_package_directory`].
+    resolve_package_directory_only: bool,
     diagnostics: Vec<Trace>,
 }
 
@@ -506,6 +538,7 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
             extensions,
             candidate_ending_is_from_config: false,
             resolved_package_directory: false,
+            resolve_package_directory_only: false,
             diagnostics: Vec::new(),
         }
     }
@@ -1452,6 +1485,13 @@ impl<'a, 'host> ResolutionState<'a, 'host> {
         } else {
             combine_paths(node_modules_directory, &[&package_name])
         };
+
+        if self.resolve_package_directory_only {
+            if self.fs().directory_exists(&package_directory) {
+                return Some(Resolved { path: package_directory, ..Resolved::default() });
+            }
+            return continue_searching();
+        }
 
         let mut root_package_info = None;
         // A nested `package.json` — `node_modules/foo/bar/package.json` — is

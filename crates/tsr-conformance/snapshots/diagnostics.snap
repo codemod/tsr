@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4691/5502 (85.26%)
-Failed         : 811
+Passed         : 4705/5502 (85.51%)
+Failed         : 797
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 811 failures:
+First 100 of 797 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -150,8 +150,6 @@ compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
   2 unexpected (first TS2322 at complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts(40,7)), 1 missing
 compiler/computedPropertyBindingElementDeclarationNoCrash1
   1 missing (first TS2739 at computedPropertyBindingElementDeclarationNoCrash1.ts(12,21))
-compiler/conditionalTypeAssignabilityWhenDeferred
-  2 missing (first TS2322 at conditionalTypeAssignabilityWhenDeferred.ts(39,3))
 compiler/conditionalTypeDoesntSpinForever
   1 missing (first TS2769 at conditionalTypeDoesntSpinForever.ts(96,41))
 compiler/conflictMarkerTrivia3
@@ -202,8 +200,6 @@ compiler/crashInEmitTokenWithComment
   2 missing (first TS2345 at crashInEmitTokenWithComment.ts(5,4))
 compiler/dataViewConstructor
   1 missing (first TS2345 at dataViewConstructor.ts(1,14))
-compiler/declarationEmitCommonJsModuleReferencedType
-  1 missing (first TS2883 at r/entry.ts(3,14))
 compiler/declarationEmitExpandoPropertyPrivateName
   1 missing (first TS4032 at b.ts(4,1))
 compiler/declarationEmitExpressionInExtends4
@@ -212,3 +208,7 @@ compiler/declarationEmitInvalidReferenceAllowJs
   1 unexpected (first TS6053 at declarationEmitInvalidReferenceAllowJs.ts(1,22)), 1 missing
 compiler/declarationEmitMappedTypeTemplateTypeofSymbol
   2 missing (first TS4118 at b.ts(2,14))
+compiler/declarationEmitObjectAssignedDefaultExport
+  1 missing (first TS2883 at index.ts(7,1))
+compiler/declarationEmitPrivatePromiseLikeInterface
+  3 missing (first TS7056 at Api.ts(6,5))

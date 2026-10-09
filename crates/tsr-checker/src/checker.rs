@@ -647,6 +647,9 @@ pub struct Checker<'a, 'n> {
     /// import-specifier spellings; the relative-spelling arm declines when
     /// set.
     pub(crate) allow_importing_ts_extensions: bool,
+    /// `RewriteRelativeImportExtensions.IsTrue()`, read by
+    /// `resolveExternalModule`'s rewrite arm (`isolated_alias.rs`).
+    pub(crate) rewrite_relative_import_extensions: bool,
     /// The options `GetResolutionDiagnostic` reads (`crate::isolated_alias`).
     pub(crate) resolution_diagnostic_options: crate::isolated_alias::ResolutionDiagnosticOptions,
     /// `compilerOptions.noUncheckedSideEffectImports`, read through upstream's
@@ -1551,6 +1554,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             standard_class_fields: false,
             allow_synthetic_defaults: false,
             allow_importing_ts_extensions: false,
+            rewrite_relative_import_extensions: false,
             resolution_diagnostic_options:
                 crate::isolated_alias::ResolutionDiagnosticOptions::default(),
             no_unchecked_side_effect_imports: true,
@@ -1785,6 +1789,8 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `esModuleInterop` (explicit only — its own Node16+ default is the
         // §131 Node16/NodeNext exclusion's business); else `module == System`.
         self.allow_importing_ts_extensions = options.allow_importing_ts_extensions.is_true();
+        self.rewrite_relative_import_extensions =
+            options.rewrite_relative_import_extensions.is_true();
         self.resolution_diagnostic_options = crate::isolated_alias::ResolutionDiagnosticOptions {
             allow_js: options.get_allow_js(),
             resolve_json_module: options.get_resolve_json_module(),
@@ -2382,6 +2388,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(out) = self.union_text_at(id, reference) {
                 return Some(out);
             }
+            // The same at-site rendering for the other composites the node
+            // builder walks slot by slot: intersections and plain tuples.
+            if let Some(out) = self.intersection_text_at(id, reference) {
+                return Some(out);
+            }
+            if let Some(out) = self.tuple_text_at(id, reference) {
+                return Some(out);
+            }
             // §95 (`checker-notes-narrow.md`): a GENERIC reference re-renders
             // its ARGUMENT slots at the site — the baked argument text was
             // minted at creation (inside-view), and `split_around_name`'s
@@ -2428,7 +2442,10 @@ impl<'a, 'n> Checker<'a, 'n> {
                     return Some(out);
                 }
             }
-            let printed = self.type_to_string(id);
+            // A deferred conditional's typed print stands where its baked
+            // written text did (`docs/parity/notes/r6-lazytext.md` §2).
+            let printed =
+                self.deferred_conditional_text_at(id).unwrap_or_else(|| self.type_to_string(id));
             return self.qualified_name_at(id, printed, reference);
         };
         if let Some(name) = self.module_name_at(module, reference, SymbolFlags::VALUE) {
@@ -3749,8 +3766,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 }
                 let Some(link) = self.resolve_alias(candidate) else { continue };
                 // The two-hop signature: the immediate target is the
-                // `export=` alias, and ITS target is the namespace.
-                if !self.binder.symbols().get(link).flags.intersects(SymbolFlags::ALIAS) {
+                // `export=` alias, and ITS target is the namespace. An
+                // `import x = a` whose `a` is an import alias is two alias
+                // hops too, but not this signature: native names its
+                // namespace through the accessibility walk, which prefers the
+                // earlier-declared `a` (r6-modules2 §1).
+                let link_entry = self.binder.symbols().get(link);
+                if !link_entry.flags.intersects(SymbolFlags::ALIAS) || link_entry.name != "export="
+                {
                     continue;
                 }
                 if self.binder.merged_symbol(self.resolve_alias_fully(link)) != target {
@@ -4539,11 +4562,36 @@ impl<'a, 'n> Checker<'a, 'n> {
         // are listed once (`r5-checkperf.md` §7).
         candidates.extend(self.global_alias_entries().iter().map(|&(_, id)| id));
         candidates.into_iter().any(|candidate| {
+            // `trySymbolTable` compares `c.resolveAlias(symbolFromSymbolTable)`
+            // with the symbol: the target, followed through every pure alias
+            // (`resolveIndirectionAlias`, `checker.go:16280`).
             self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
-                && self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
-                    == Some(target)
+                && self.resolve_alias_through_pure_aliases(candidate) == Some(target)
                 && !self.alias_targets_module_clone(candidate)
         })
+    }
+
+    /// `resolveAlias` (`checker.go:16266`) as `trySymbolTable` reads it: the
+    /// alias's target and, while that target is a pure alias
+    /// (`ast.IsNonLocalAlias(target, Value|Type|Namespace)`, so not one
+    /// merged with a local declaration), its target in turn. Merged.
+    fn resolve_alias_through_pure_aliases(&mut self, alias: SymbolId) -> Option<SymbolId> {
+        let mut target = self.resolve_alias(alias)?;
+        for _ in 0..Self::MAX_SYMBOL_CHAIN {
+            let flags = self.binder.symbols().get(target).flags;
+            let pure = flags.intersection(
+                SymbolFlags::ALIAS
+                    | SymbolFlags::VALUE
+                    | SymbolFlags::TYPE
+                    | SymbolFlags::NAMESPACE,
+            ) == SymbolFlags::ALIAS
+                || flags.contains(SymbolFlags::ALIAS) && flags.intersects(SymbolFlags::ASSIGNMENT);
+            if !pure {
+                break;
+            }
+            target = self.resolve_alias(target)?;
+        }
+        Some(self.binder.merged_symbol(target))
     }
 
     /// The global symbol table's entries whose symbol carries `ALIAS`, in the

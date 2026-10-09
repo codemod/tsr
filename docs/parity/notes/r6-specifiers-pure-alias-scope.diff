@@ -1,0 +1,45 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 83c56a3..746a5f1 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -4516,13 +4516,38 @@ impl<'a, 'n> Checker<'a, 'n> {
+         // are listed once (`r5-checkperf.md` §7).
+         candidates.extend(self.global_alias_entries().iter().map(|&(_, id)| id));
+         candidates.into_iter().any(|candidate| {
++            // `trySymbolTable` compares `c.resolveAlias(symbolFromSymbolTable)`
++            // with the symbol: the target, followed through every pure alias
++            // (`resolveIndirectionAlias`, `checker.go:16280`).
+             self.binder.symbols().get(candidate).flags.intersects(SymbolFlags::ALIAS)
+-                && self.resolve_alias(candidate).map(|t| self.binder.merged_symbol(t))
+-                    == Some(target)
++                && self.resolve_alias_through_pure_aliases(candidate) == Some(target)
+                 && !self.alias_targets_module_clone(candidate)
+         })
+     }
+ 
++    /// `resolveAlias` (`checker.go:16266`) as `trySymbolTable` reads it: the
++    /// alias's target and, while that target is a pure alias
++    /// (`ast.IsNonLocalAlias(target, Value|Type|Namespace)`, so not one
++    /// merged with a local declaration), its target in turn. Merged.
++    fn resolve_alias_through_pure_aliases(&mut self, alias: SymbolId) -> Option<SymbolId> {
++        let mut target = self.resolve_alias(alias)?;
++        for _ in 0..Self::MAX_SYMBOL_CHAIN {
++            let flags = self.binder.symbols().get(target).flags;
++            let pure = flags.intersection(
++                SymbolFlags::ALIAS
++                    | SymbolFlags::VALUE
++                    | SymbolFlags::TYPE
++                    | SymbolFlags::NAMESPACE,
++            ) == SymbolFlags::ALIAS
++                || flags.contains(SymbolFlags::ALIAS) && flags.intersects(SymbolFlags::ASSIGNMENT);
++            if !pure {
++                break;
++            }
++            target = self.resolve_alias(target)?;
++        }
++        Some(self.binder.merged_symbol(target))
++    }
++
+     /// The global symbol table's entries whose symbol carries `ALIAS`, in the
+     /// table's iteration order: the only global entries `best_name`'s and
+     /// `alias_in_scope_for`'s alias loops act on (`trySymbolTable`'s alias

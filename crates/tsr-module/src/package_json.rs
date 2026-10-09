@@ -263,6 +263,10 @@ pub struct PackageJson {
     pub exports: ExportsOrImports,
     /// `peerDependencies`.
     pub peer_dependencies: Expected<DependencyMap>,
+    /// `dependencies`.
+    pub dependencies: Expected<DependencyMap>,
+    /// `optionalDependencies`.
+    pub optional_dependencies: Expected<DependencyMap>,
     /// Whether the file parsed as JSON at all.
     pub parseable: bool,
     /// Memoised `typesVersions` resolution and the traces it produced.
@@ -270,6 +274,23 @@ pub struct PackageJson {
 }
 
 impl PackageJson {
+    /// `DependencyFields.GetRuntimeDependencyNames`
+    /// (`packagejson/packagejson.go:89`): the names in `dependencies`,
+    /// `peerDependencies` and `optionalDependencies`, each once, in that
+    /// order (upstream's is a set; its one consumer is order-insensitive).
+    #[must_use]
+    pub fn runtime_dependency_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = Vec::new();
+        for field in [&self.dependencies, &self.peer_dependencies, &self.optional_dependencies] {
+            for (name, _) in field.value.iter().flatten() {
+                if !names.contains(&name.as_str()) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+
     /// Parse a `package.json`'s text (`packagejson.Parse`).
     ///
     /// Unparseable input yields an all-absent record with `parseable` false,
@@ -291,6 +312,10 @@ impl PackageJson {
             imports: ExportsOrImports::from_json(get("imports")),
             exports: ExportsOrImports::from_json(get("exports")),
             peer_dependencies: Expected::<DependencyMap>::from_json(get("peerDependencies")),
+            dependencies: Expected::<DependencyMap>::from_json(get("dependencies")),
+            optional_dependencies: Expected::<DependencyMap>::from_json(get(
+                "optionalDependencies",
+            )),
             parseable: root.is_some(),
             version_paths: OnceCell::new(),
         }

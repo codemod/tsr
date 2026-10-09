@@ -877,12 +877,20 @@ impl<'a> Checker<'a, '_> {
         let binder = self.binder;
         let nodes = self.nodes;
         let node_map = self.node_map;
-        binder.resolve_name_with_export_alias(
+        // `useOuterVariableScopeInParameter`'s two options, read from the
+        // checker's own fields at the call (`docs/parity/notes/r6-names2.md`
+        // §1): native's `NameResolver` holds `CompilerOptions`.
+        let scope_change = tsr_binder::ScopeChangeOptions {
+            target: self.language_version,
+            emit_standard_class_fields: self.standard_class_fields,
+        };
+        binder.resolve_name_with_export_alias_in_scope(
             nodes,
             node_map,
             start,
             name,
             meaning,
+            scope_change,
             |alias, mask| {
                 let target = self.resolve_alias(alias)?;
                 let flags = binder.symbols().get(binder.merged_symbol(target)).flags;
@@ -1382,16 +1390,14 @@ impl<'a> Checker<'a, '_> {
                     // import of a type-only namespace has no value to clone,
                     // so the arm above never saw it: `import { JSXInternal }
                     // from '..'` then `export import JSX = JSXInternal`
-                    // (`docs/parity/notes/r5-errorsplit6.md` §4). Only for a
-                    // target with no value meaning: a value namespace resolved
-                    // here would print under the importing alias's name
-                    // (`typeof x` where upstream records `typeof a`,
-                    // `es6ImportNamedImportInIndirectExportAssignment`), the
-                    // naming hazard this function's other declines record.
-                    let target_flags = self.get_symbol_flags(found);
-                    if target_flags.intersects(SymbolFlags::NAMESPACE)
-                        && !target_flags.intersects(SymbolFlags::VALUE)
-                    {
+                    // (`docs/parity/notes/r5-errorsplit6.md` §4). A value
+                    // namespace target too: r6-errorsplit §8 refused that half
+                    // for printing `typeof x` where upstream records `typeof a`
+                    // (`es6ImportNamedImportInIndirectExportAssignment`). The
+                    // cause was `export_equals_alias_name_at`'s two-hop rename
+                    // matching an `import x = a` chain, and that walk is now
+                    // limited to the `export=` link it names (r6-modules2 §1).
+                    if self.get_symbol_flags(found).intersects(SymbolFlags::NAMESPACE) {
                         return Some(found);
                     }
                 }
@@ -1447,6 +1453,43 @@ impl<'a> Checker<'a, '_> {
             tsr_ast::EntityName::QualifiedName(name),
             SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
         )
+    }
+
+    /// The value member a named import reads off an `export =` target, for
+    /// callers that need its **flags** and not its name: the
+    /// [`Checker::qualified_alias_target`] of `import { m } from "x"`.
+    ///
+    /// `getExternalModuleMember` (`checker.go:14667`) answers
+    /// `getPropertyOfType(getTypeOfSymbol(exportEquals), name)` for a module
+    /// with `export =`. [`Checker::get_external_module_member`] withholds a
+    /// member whose type is not site-independent, because its printed form can
+    /// depend on the importing site, and it answers `None` instead.
+    /// `checkAliasSymbol` reads only the target's flags and prints the
+    /// local name, so that constraint does not reach it (§686's argument).
+    /// `export = globalThis.console` with `import { Console }` is the shape
+    /// (r6-modules2 §5).
+    fn export_equals_member_for_flags(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+        let declaration = self.declaration_of_alias_symbol(symbol)?;
+        let Node::ImportSpecifier(specifier) = self.node_map.get(declaration)? else {
+            return None;
+        };
+        let name = specifier
+            .property_name
+            .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))?;
+        let name = crate::module_exports::module_export_name_text(name);
+        if name == "default" {
+            return None;
+        }
+        let import = self.nodes.parent(self.nodes.parent(self.nodes.parent(declaration)?)?)?;
+        let module_specifier = self.external_module_name(import)?;
+        let module_symbol = self.resolve_external_module_name(import, module_specifier)?;
+        let target = self.resolve_external_module_symbol(module_symbol);
+        if target == module_symbol {
+            return None;
+        }
+        let target_type = self.get_type_of_symbol(target);
+        let value = self.get_property_of_type_ex(target_type, name, true)?;
+        (!self.binder.symbols().get(value).flags.intersects(SymbolFlags::ALIAS)).then_some(value)
     }
 
     /// The declaration an alias symbol's target is read from.
@@ -1577,13 +1620,31 @@ impl<'a> Checker<'a, '_> {
                 // an identifier and a class expression, and testing them here
                 // rather than answering by kind keeps the predicate honest —
                 // see the doc above.
+                //
+                // `IsPropertyAccessEntityNameExpression` (`:1624`), the
+                // dotted half of `IsEntityNameExpression`, resolves through
+                // `export_assignment_property_access_target` for `export =`
+                // only (r6-modules2 §5). `export default C.B` is the same
+                // alias upstream, and declines here: resolved, its default
+                // import's type reference lost `exportDefaultProperty2`'s
+                // `x : B`, because the declared type of a merged
+                // `Property|Interface` target is not read by its flags.
                 SyntaxKind::ExportAssignment => matches!(
                     self.node_map.get(declaration),
                     Some(Node::ExportAssignment(node))
                         if matches!(
                             node.expression,
                             Some(tsr_ast::Expression::Identifier(_) | tsr_ast::Expression::ClassExpression(_))
-                        )
+                        ) || node.is_export_equals && node.expression.is_some_and(|mut expression| {
+                            while let Expression::PropertyAccessExpression(access) = expression {
+                                if !matches!(access.name, Some(tsr_ast::MemberName::Identifier(_))) {
+                                    return false;
+                                }
+                                let Some(receiver) = access.expression else { return false };
+                                expression = receiver;
+                            }
+                            matches!(expression, Expression::Identifier(_))
+                        })
                 ),
                 // `KindImportClause` needs `Name() != nil` — a bare
                 // `import "m"` declares nothing.
@@ -1978,6 +2039,9 @@ impl<'a> Checker<'a, '_> {
                 .symbol_of(class.node_id?)
                 .map(|symbol| self.binder.merged_symbol(symbol));
         }
+        if let Some(tsr_ast::Expression::PropertyAccessExpression(access)) = node.expression {
+            return self.export_assignment_property_access_target(access);
+        }
         let Some(tsr_ast::Expression::Identifier(name)) = node.expression else {
             return None;
         };
@@ -1989,6 +2053,53 @@ impl<'a> Checker<'a, '_> {
             SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
         )?;
         Some(self.binder.merged_symbol(found))
+    }
+
+    /// `getTargetOfAliasLikeExpression`'s entity-name arm for `export =
+    /// a.b` (`checker.go:14996`): `resolveEntityName(expression,
+    /// Value|Type|Namespace, ignoreErrors, dontResolveAlias)`. Its
+    /// property-access arm (`:15809`) resolves the left side as a namespace
+    /// with aliases resolved, then answers `getSymbol(getExportsOfSymbol(left),
+    /// right, meaning)`, and leaves that symbol's own alias unresolved.
+    ///
+    /// The binder has no `globalThis` symbol. Upstream's (`:962`) is a
+    /// `Module` in `globals` whose exports are `globals` itself, so an
+    /// unbound `globalThis` on the left reads the global table
+    /// (`export = globalThis.console` in a `declare module`, r6-modules2 §5).
+    fn export_assignment_property_access_target(
+        &mut self,
+        access: &tsr_ast::PropertyAccessExpression<'_>,
+    ) -> Option<SymbolId> {
+        let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
+        let left = access.expression?;
+        let global_this = match left {
+            tsr_ast::Expression::Identifier(identifier) if identifier.text == "globalThis" => self
+                .binder
+                .resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    identifier.node_id?,
+                    identifier.text,
+                    SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
+                )
+                .is_none(),
+            _ => false,
+        };
+        let found = if global_this {
+            *self.binder.globals().get(name.text)?
+        } else {
+            let owner = self.heritage_entity_symbol(left, SymbolFlags::NAMESPACE)?;
+            *self.binder.symbols().get(owner).exports.get(name.text)?
+        };
+        let found = self.binder.merged_symbol(found);
+        // `getSymbol` (`checker.go:2176`): the symbol's own meaning, or an
+        // alias whose chain carries it.
+        let meaning = SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE;
+        let flags = self.binder.symbols().get(found).flags;
+        (flags.intersects(meaning)
+            || flags.intersects(SymbolFlags::ALIAS)
+                && self.get_symbol_flags(found).intersects(meaning))
+        .then_some(found)
     }
 
     /// The symbol an **export specifier** names, for the half that resolves
@@ -2568,7 +2679,9 @@ impl<'a> Checker<'a, '_> {
             // under a name this port cannot spell. This rule prints the *local*
             // symbol's name, which it already has, and reads the target only
             // for its flags — so the constraint does not reach it. §686.
-            None => self.qualified_alias_target(declared)?,
+            None => self
+                .qualified_alias_target(declared)
+                .or_else(|| self.export_equals_member_for_flags(declared))?,
         };
         // `symbol.ExportSymbol ?? symbol`, then merged: an exported alias has a
         // separate export symbol carrying the real flags (`declareModuleMember`).

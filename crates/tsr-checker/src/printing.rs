@@ -216,46 +216,66 @@ impl Checker<'_, '_> {
         visit_identity: bool,
     ) -> Option<String> {
         self.certified_object_literal_text_at(id, reference, visit_identity)
-            .or_else(|| self.deferred_accessor_text_at(id, reference))
+            .or_else(|| self.deferred_member_text_at(id, reference))
     }
 
-    /// An object-literal image whose member plan the certified renderer
-    /// declines still carries the placeholder an on-demand accessor slot baked
-    /// at the mint (`DEFERRED_ACCESSOR_TEXT`). Native serializes that member
-    /// from the accessor symbol's type (createTypeNodesFromResolvedType), so
-    /// the baked plan is kept and only those slots are printed from the type
-    /// read here. While a variable enclosing the literal is still resolving,
-    /// that read is the re-entry native never makes: keep the baked text.
-    fn deferred_accessor_text_at(
+    /// An object image whose member plan the certified renderer declines
+    /// can still hold slots whose print native decides only at print time
+    /// (ADR-0052, `r6-lazytext.md` §1). The baked plan is kept and
+    /// only those slots are re-printed here, at the site:
+    ///
+    /// - an on-demand accessor slot baked a placeholder at the mint
+    ///   (`DEFERRED_ACCESSOR_TEXT`); native serializes that member from the
+    ///   accessor symbol's type (createTypeNodesFromResolvedType), read here;
+    /// - a declaration slot ([`crate::objects::PrintedSlot::of_declaration`])
+    ///   baked its displayed type's site-free print; native's
+    ///   addPropertyToElementList asks serializeTypeForDeclaration
+    ///   (`nodebuilderimpl.go:2486`, `:2181`) when it prints the member, so
+    ///   the declaration's reuse arm
+    ///   ([`Checker::reused_property_type_text`]) is asked here. A declined
+    ///   reuse keeps the baked print.
+    ///
+    /// While a variable enclosing the literal is still resolving, a read is
+    /// the re-entry native never makes: keep the baked text.
+    fn deferred_member_text_at(
         &mut self,
         id: TypeId,
         reference: tsr_ast::NodeId,
     ) -> Option<String> {
         let properties = &self.anonymous_properties.get(&id)?.0;
-        if !properties.iter().any(crate::objects::AnonymousProperty::reads_on_demand) {
+        let deferred = |property: &crate::objects::AnonymousProperty| {
+            property.reads_on_demand() || property.printed_slot.reuse_at_print().is_some()
+        };
+        if !properties.iter().any(deferred) {
             return None;
         }
-        let deferred: Vec<_> =
-            properties.iter().filter(|property| property.reads_on_demand()).cloned().collect();
+        let deferred: Vec<_> = properties.iter().filter(|p| deferred(p)).cloned().collect();
+        let accessor = deferred.iter().any(crate::objects::AnonymousProperty::reads_on_demand);
         // createAnonymousTypeNode's visited check: re-entry elides to `any`.
+        // A plan with declaration slots only keeps its baked print, which is
+        // what this image printed before its reuse moved to print time.
         if self.rendering_composites.contains(&id) {
-            return Some("any".to_string());
+            return accessor.then(|| "any".to_string());
         }
-        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+        let TypeData::Named { members: owner, .. } = self.store.get(id).data else {
             return None;
         };
-        if self
-            .binder
-            .symbols()
-            .get(owner)
-            .declarations
-            .iter()
-            .any(|&declaration| self.enclosing_variable_resolving(declaration))
-        {
+        if accessor && owner.is_none() {
+            return None;
+        }
+        if owner.is_some_and(|owner| {
+            self.binder
+                .symbols()
+                .get(owner)
+                .declarations
+                .iter()
+                .any(|&declaration| self.enclosing_variable_resolving(declaration))
+        }) {
             return None;
         }
         let mut members = self.object_literal_members.get(&id)?.clone();
         self.rendering_composites.insert(id);
+        let mut changed = false;
         let result = deferred.iter().try_for_each(|property| {
             let Some(crate::objects::Member::Property { printed, .. }) =
                 members.iter_mut().find(|member| {
@@ -265,12 +285,29 @@ impl Checker<'_, '_> {
             else {
                 return Some(());
             };
+            if let Some(displayed) = property.printed_slot.reuse_at_print() {
+                // Site-free, as the mint asked it before (`r6-lazytext.md` §1): with a
+                // site, the visitor declines a name the site cannot reach
+                // (`[Foo.sym]` read from a file that does not import `Foo`,
+                // declarationEmitComputedPropertyNameSymbol1), which native's
+                // typeToString still writes as the declaration spelled it.
+                if let Some(text) = property
+                    .origin
+                    .and_then(|origin| self.reused_property_type_text(origin, displayed, None))
+                {
+                    changed |= text != *printed;
+                    *printed = text;
+                }
+                return Some(());
+            }
             let property_type = self.property_type(property);
             *printed = self.type_to_string_at(property_type, reference)?;
+            changed = true;
             Some(())
         });
         self.rendering_composites.remove(&id);
-        result.map(|()| crate::objects::render_object_type(&members))
+        result?;
+        changed.then(|| crate::objects::render_object_type(&members))
     }
 
     fn certified_object_literal_text_at(
@@ -575,6 +612,73 @@ impl Checker<'_, '_> {
             })
             .collect::<Option<Vec<_>>>()
             .map(|parts| parts.join(" | "));
+        self.rendering_composites.remove(&id);
+        result
+    }
+
+    /// `typeToTypeNodeHelper`'s intersection arm (`nodebuilderimpl.go`,
+    /// `formatIntersectionTypes` then `NewIntersectionTypeNode`): an
+    /// intersection no alias names prints each constituent at the site, so a
+    /// constituent from another module takes its qualifier
+    /// (`import("react-select").Whatever`), with the precedence parentheses
+    /// the minted text uses (`intersections.rs`). Any constituent that
+    /// declines keeps the minted text.
+    pub(crate) fn intersection_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let TypeData::Intersection { types, symbol: None, .. } = &self.store.get(id).data else {
+            return None;
+        };
+        let types = types.clone();
+        if !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let result = types
+            .iter()
+            .map(|&member| {
+                let text = self.type_to_string_at(member, reference)?;
+                let minted = type_to_string(self.store.get(member));
+                let needs = crate::node_reuse::binds_below_intersection(&minted);
+                Some(if needs { format!("({text})") } else { text })
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|parts| parts.join(" & "));
+        self.rendering_composites.remove(&id);
+        result
+    }
+
+    /// `typeToTypeNodeHelper`'s tuple arm (`nodebuilderimpl.go`,
+    /// `NewTupleTypeNode` over `mapToTypeNodes`) for a tuple with no
+    /// labels, optional, rest or variadic elements: each element printed at
+    /// the site. The other shapes keep their minted text.
+    pub(crate) fn tuple_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let (elements, readonly) = self.tuple_element_lists.get(&id)?.clone();
+        if self.tuple_optional_masks.contains_key(&id)
+            || self.tuple_labels.contains_key(&id)
+            || self.tuple_rest_tails.contains_key(&id)
+            || self.variadic_tuple_nodes.contains_key(&id)
+            || self.variadic_tuple_elements.contains_key(&id)
+            || self.tuple_types.get(&(elements.clone(), readonly)) != Some(&id)
+        {
+            return None;
+        }
+        if !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let result = elements
+            .iter()
+            .map(|&element| self.type_to_string_at(element, reference))
+            .collect::<Option<Vec<_>>>()
+            .map(|parts| {
+                let printed = parts.join(", ");
+                if readonly { format!("readonly [{printed}]") } else { format!("[{printed}]") }
+            });
         self.rendering_composites.remove(&id);
         result
     }
@@ -959,6 +1063,122 @@ impl<'a> Checker<'a, '_> {
             format!("get {name}(): {getter_return}"),
             format!("set {name}({}: {parameter_text})", parameter.name),
         ])
+    }
+}
+
+impl<'a> Checker<'a, '_> {
+    /// A deferred conditional type printed from its typed parts, at print
+    /// time (ADR-0052, `r6-lazytext.md` §2): conditionalTypeToTypeNode
+    /// (`nodebuilderimpl.go:2916`) asks getTrueTypeFromConditionalType and
+    /// getFalseTypeFromConditionalType when it prints, and those instantiate
+    /// the written branches under the conditional's mapper then. `node`,
+    /// `bindings` and `mapped_template` are the root and mapper the mint
+    /// captured (the alias-evaluation frames, flattened); they are installed
+    /// for the read and the print site's own frames are set aside, so the
+    /// parts are read exactly as at the mint. `None` keeps the baked written
+    /// text: a part that does not evaluate, re-entry into `id`, or the
+    /// instantiation depth limit.
+    // Its callers are the deferred-text dispatch of the site renderer
+    // (checker.rs) and the captured-root lookup (declared.rs), which ship as
+    // `r6-lazytext-conditional-text.diff`.
+    #[allow(dead_code)]
+    pub(crate) fn deferred_conditional_text(
+        &mut self,
+        id: TypeId,
+        node: &'a tsr_ast::ConditionalTypeNode<'a>,
+        bindings: rustc_hash::FxHashMap<tsr_binder::SymbolId, TypeId>,
+        mapped_template: bool,
+    ) -> Option<String> {
+        if self.instantiation_depth == 100 || !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let frames = std::mem::take(&mut self.alias_evaluation_bindings);
+        let mapped_template_depth =
+            std::mem::replace(&mut self.mapped_template_depth, usize::from(mapped_template));
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(bindings);
+        let text = self.conditional_type_text(node);
+        self.instantiation_depth -= 1;
+        self.alias_evaluation_bindings = frames;
+        self.mapped_template_depth = mapped_template_depth;
+        self.rendering_composites.remove(&id);
+        text
+    }
+
+    /// conditionalTypeToTypeNode (`nodebuilderimpl.go:2916`) and
+    /// emitConditionalType (`printer.go:2058`): a deferred conditional printed
+    /// from its typed parts under the current alias-evaluation frames. The
+    /// check type is emitted at `TypePrecedenceUnion` and the extends type at
+    /// `TypePrecedenceFunction` (`printer.go:2060`, `:2275`); both branches at
+    /// the lowest precedence. The parentheses follow the part's node kind as
+    /// `GetTypeNodePrecedence` (`ast/precedence.go:655`) reads it, recovered
+    /// from the type as the union printer does
+    /// (`crate::unions::union_constituent_needs_parentheses`): a conditional
+    /// or function check type, and a conditional extends type, are
+    /// parenthesised.
+    ///
+    /// An extends clause holding an `infer` declaration keeps its written
+    /// text: native prints those type parameters as `infer P` through
+    /// `ctx.inferTypeParameters`, a print context `type_to_string` does not
+    /// have (`r5-mapped6.md` §2). `None` when a part does not evaluate.
+    fn conditional_type_text(
+        &mut self,
+        node: &'a tsr_ast::ConditionalTypeNode<'a>,
+    ) -> Option<String> {
+        let (check, extends) = (node.check_type?, node.extends_type?);
+        let (true_type, false_type) = (node.true_type?, node.false_type?);
+        let error = self.intrinsics.error;
+        let check = self.get_type_from_type_node(check);
+        if check == error {
+            return None;
+        }
+        let check_text = self.type_to_string(check);
+        let check_text = if !matches!(self.store.get(check).data, TypeData::Intersection { .. })
+            && crate::unions::union_constituent_needs_parentheses(&self.store, check)
+        {
+            format!("({check_text})")
+        } else {
+            check_text
+        };
+        let extends_text = if self.type_node_declares_infer(extends) {
+            let (mut single_quoted, mut array_headed) = (false, false);
+            Self::written_type_text(extends, &mut single_quoted, &mut array_headed)?
+        } else {
+            let extends = self.get_type_from_type_node(extends);
+            if extends == error {
+                return None;
+            }
+            let text = self.type_to_string(extends);
+            if self.store.get(extends).flags.contains(TypeFlags::CONDITIONAL)
+                && crate::unions::union_constituent_needs_parentheses(&self.store, extends)
+            {
+                format!("({text})")
+            } else {
+                text
+            }
+        };
+        let true_type = self.get_type_from_type_node(true_type);
+        let true_text = (true_type != error).then(|| self.type_to_string(true_type))?;
+        let false_type = self.get_type_from_type_node(false_type);
+        let false_text = (false_type != error).then(|| self.type_to_string(false_type))?;
+        Some(format!("{check_text} extends {extends_text} ? {true_text} : {false_text}"))
+    }
+
+    /// Whether `node` contains an `infer` declaration anywhere, a nested
+    /// conditional's included (whose written text is then kept too).
+    fn type_node_declares_infer(&self, node: tsr_ast::TypeNode<'a>) -> bool {
+        let mut stack = Vec::new();
+        if let Some(id) = tsr_ast::Node::from(node).node_id() {
+            stack.push(id);
+        }
+        while let Some(id) = stack.pop() {
+            let Some(node) = self.node_map.get(id) else { continue };
+            if matches!(node, tsr_ast::Node::InferTypeNode(_)) {
+                return true;
+            }
+            tsr_ast::for_each_child_id(node, |child| stack.push(child));
+        }
+        false
     }
 }
 

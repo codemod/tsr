@@ -16,6 +16,10 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
 
+/// `markJsxAliasReferenced`'s not-found message (TS2874).
+const TAG_MESSAGE: &tsr_diagnostics::Message =
+    &messages::THIS_JSX_TAG_REQUIRES_0_TO_BE_IN_SCOPE_BUT_IT_COULD_NOT_BE_FOUND;
+
 /// The first identifier of `parser.ParseIsolatedEntityName(text)`
 /// (`parser.go:279`), or `None` where that parse fails.
 ///
@@ -124,11 +128,11 @@ impl Checker<'_, '_> {
         let namespace = self.jsx_namespace_at(location, fragment);
         // #38720/60122: `null` is allowed as the fragment factory.
         if !(fragment && namespace == "null") {
-            self.resolve_jsx_factory_name(file, location, &namespace, flags, report, true);
+            self.resolve_jsx_factory_name(location, &namespace, flags, report, true, TAG_MESSAGE);
         }
         if fragment {
             let root = self.jsx_factory_entity_root(file);
-            self.resolve_jsx_factory_name(file, location, &root, flags, report, false);
+            self.resolve_jsx_factory_name(location, &root, flags, report, false, TAG_MESSAGE);
         }
     }
 
@@ -138,17 +142,18 @@ impl Checker<'_, '_> {
     /// `isUse` marks the symbol with `flags` (`nameresolver.go:314`); the
     /// first lookup then marks it again with `SymbolFlagsAll`
     /// (`symbolReferenced`, `checker.go:28527`), which `mark_all` stands for.
-    /// A miss under `jsx: react` is `onFailedToResolveSymbol` with TS2874 as
-    /// the not-found message: the missing-lib and spelling arms first
+    /// A miss under `jsx: react` is `onFailedToResolveSymbol` with `message`
+    /// (TS2874 here, TS2879 for [`Checker::check_jsx_fragment_factory_in_scope`])
+    /// as the not-found message: the missing-lib and spelling arms first
     /// (`checker.go:1585-1607`), so a near neighbour turns it into TS2552.
     fn resolve_jsx_factory_name(
         &mut self,
-        file: NodeId,
         location: NodeId,
         name: &str,
         flags: SymbolFlags,
         report: bool,
         mark_all: bool,
+        message: &'static tsr_diagnostics::Message,
     ) {
         if let Some(symbol) =
             self.binder.resolve_name(self.nodes, self.node_map, location, name, flags)
@@ -161,13 +166,10 @@ impl Checker<'_, '_> {
         if !report {
             return;
         }
+        let Some(file) = self.source_file_of_for_diagnostics(location) else { return };
         let span = self.nodes.span(location);
         let diagnostic = if let Some(lib) = crate::check::suggested_lib_for(name) {
-            Diagnostic::with_args(
-                &messages::THIS_JSX_TAG_REQUIRES_0_TO_BE_IN_SCOPE_BUT_IT_COULD_NOT_BE_FOUND,
-                span,
-                [name.to_string(), lib.to_string()],
-            )
+            Diagnostic::with_args(message, span, [name.to_string(), lib.to_string()])
         } else if let Some(suggestion) = self.spelling_suggestion_for(location, name, flags) {
             Diagnostic::with_args(
                 &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
@@ -175,11 +177,7 @@ impl Checker<'_, '_> {
                 [name.to_string(), suggestion],
             )
         } else {
-            Diagnostic::with_args(
-                &messages::THIS_JSX_TAG_REQUIRES_0_TO_BE_IN_SCOPE_BUT_IT_COULD_NOT_BE_FOUND,
-                span,
-                [name.to_string()],
-            )
+            Diagnostic::with_args(message, span, [name.to_string()])
         };
         self.report(file, diagnostic);
     }
@@ -193,6 +191,10 @@ impl Checker<'_, '_> {
     /// reports from the per-node walk, which visits each fragment once (the
     /// same split as `check_jsx_expression`, §2).
     pub(crate) fn check_jsx_fragment_factory(&mut self, node: NodeId, typed: Node<'_>) {
+        if matches!(typed, Node::JsxOpeningFragment(_)) {
+            self.check_jsx_fragment_factory_in_scope(node);
+            return;
+        }
         if !matches!(typed, Node::JsxFragment(_)) {
             return;
         }
@@ -210,6 +212,64 @@ impl Checker<'_, '_> {
         };
         let span = self.nodes.span(node);
         self.report(file, Diagnostic::new(message, span));
+    }
+
+    /// `getJSXFragmentType`'s factory lookup (`jsx.go:499-522`), which
+    /// `resolveJsxOpeningLikeElement` reaches for an opening fragment: when
+    /// the classic runtime is selected (`jsx: react`) or a
+    /// `jsxFragmentFactory` option is set, and the fragment factory
+    /// (`getJsxNamespace` at the fragment) is not `null`, it is resolved as a
+    /// value at the fragment — unless the automatic runtime's module answers
+    /// (`getJsxNamespaceContainerForImplicitImport`) — with TS2879 as the
+    /// not-found message (Enum excluded under `preserve`/`react-native`).
+    ///
+    /// Upstream caches the answer in the file's links (`jsxFragmentType`), so
+    /// only the first fragment it types reports. Asking from the fragment
+    /// itself, the first opening fragment of a pre-order walk stands for
+    /// that first request (the TS2875 shape, [`Checker::check_jsx_runtime_module`]);
+    /// no per-file table is added. The fragment's type itself
+    /// (`React.Fragment`'s signatures) is not built here.
+    fn check_jsx_fragment_factory_in_scope(&mut self, node: NodeId) {
+        let name = self.jsx_namespace_at(node, true);
+        let classic = self.jsx_emit == tsr_core::JsxEmit::React;
+        if !(classic || self.jsx_fragment_namespace.is_some()) || name == "null" {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        if self.module_host.is_some_and(|host| host.jsx_implicit_import_base(file).is_some())
+            && self.jsx_implicit_import_container(node).is_some()
+        {
+            return;
+        }
+        if self.first_jsx_opening_fragment_in(file, self.nodes.span(node).start) != Some(node) {
+            return;
+        }
+        let mut flags = SymbolFlags::VALUE;
+        if matches!(self.jsx_emit, tsr_core::JsxEmit::Preserve | tsr_core::JsxEmit::ReactNative) {
+            flags.remove(SymbolFlags::ENUM);
+        }
+        self.resolve_jsx_factory_name(node,
+            &name,
+            flags,
+            true,
+            false,
+            &messages::USING_JSX_FRAGMENTS_REQUIRES_FRAGMENT_FACTORY_0_TO_BE_IN_SCOPE_BUT_IT_COULD_NOT_BE_FOUND,
+        );
+    }
+
+    /// The pre-order walk's first `JsxOpeningFragment` starting no later than
+    /// `limit` (subtrees after it are not entered).
+    fn first_jsx_opening_fragment_in(&self, root: NodeId, limit: u32) -> Option<NodeId> {
+        let node = self.node_map.get(root)?;
+        if matches!(node, Node::JsxOpeningFragment(_)) {
+            return Some(root);
+        }
+        let mut children = Vec::new();
+        tsr_ast::for_each_child_id(node, |child| children.push(child));
+        children
+            .into_iter()
+            .take_while(|&child| self.nodes.span(child).start <= limit)
+            .find_map(|child| self.first_jsx_opening_fragment_in(child, limit))
     }
 
     /// TS2875, `getJsxNamespaceContainerForImplicitImport`'s report
