@@ -722,7 +722,26 @@ fn import_types() {
         &arena,
         r#"type C = import("mod", { with: { "resolution-mode": "import" } }).Type;"#,
     );
-    statements(&arena, r#"type D = import("mod", { assert: { type: "json", }, }).Type;"#);
+    statements(&arena, r#"type D = import("mod", { with: { type: "json", }, }).Type;"#);
+}
+
+#[test]
+fn import_assertions_parse_with_ts2880() {
+    // `parser.go:2497`/`:2565`/`:3039`: the `assert` spelling still parses,
+    // reporting TS2880 at the keyword — and only on the same line.
+    let arena = Arena::new();
+    for (source, start) in [
+        (r#"import a from "m" assert { type: "json" };"#, 18),
+        (r#"export { a } from "m" assert { type: "json" };"#, 22),
+        (r#"type D = import("mod", { assert: { type: "json" } }).Type;"#, 25),
+    ] {
+        let result = parse(&arena, source);
+        let reported: Vec<_> =
+            result.diagnostics.iter().map(|d| (d.code(), d.span.start)).collect();
+        assert_eq!(reported, [("TS2880".into(), start)], "{source}");
+    }
+    let result = parse(&arena, "import a from \"m\"\nassert({});");
+    assert!(result.diagnostics.is_empty());
 }
 
 // ---- long-tail syntax -----------------------------------------------------
