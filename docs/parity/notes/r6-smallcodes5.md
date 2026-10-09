@@ -520,4 +520,51 @@ Unit test: `tsr-binder/tests/jsdoc_typedef_exports.rs`, in the diff.
 | 9 | `r6-smallcodes5-jsdoc-typedef-exports.diff` (`binder.rs`) | none | with #8 |
 
 Each later diff is relative to the ones before it. Stacked, the diffs
-reproduce the measured tree byte for byte.
+reproduce the measured tree byte for byte. Every diff carries its unit test;
+each new file is committed with `#[expect(dead_code, reason = "r6-smallcodes5
+hook diff not applied")]` on its `impl`, which its diff removes.
+
+With all nine applied:
+
+- diagnostics dump: 5,545 RIGHT + 5,597 EMPTY_RIGHT = 11,142 right (base
+  11,126; +16), zero RIGHT/EMPTY_RIGHT losses;
+- types dump: 549,862 RIGHT (base 549,853; +9), zero RIGHT losses;
+- `coverage`: `diagnostics` 4,647/5,502 (84.46%; `STATUS.md` reads 84.26% at
+  `17265fac`), `diagnostics_configured` 898/1,091 (82.31%), `checker_types`
+  8,490/9,538 (89.01%), `checker_types_configured` 1,716/1,928 (89.00%);
+- `cargo test --workspace --release` passes (361 test binaries);
+- `cargo clippy --workspace`-level lint on `tsr-checker`/`tsr-binder` flags
+  only pre-existing code; `cargo fmt --all --check` is clean with and
+  without the diffs;
+- slowcases clean on both dumps at every step; Ir within the base's own
+  spread at every step, CLI output byte-identical.
+
+## 4. Remaining, with causes
+
+The seven codes' sole-code cases on the base were 35. Sixteen convert with
+the stack (§2). One more (`unmetTypeConstraintInJSDocImportCall`) resolves
+with §2.11 once its comment has a host. The rest:
+
+| Code | Case | Shape | Cause | Owner |
+|---|---|---|---|---|
+| TS2344 | `unmetTypeConstraintInJSDocImportCall` | missing | the `@typedef` is the last thing in `file2.js`; the parser attaches no JSDoc to the end-of-file token, so the check walk never reaches its import type (§2.5) | parser (main) |
+| TS2344 | `circularlyConstrainedMappedTypeContainingConditionalNoInfiniteInstantiationDepth`, `reactReduxLikeDeferredInferenceAllowsAssignment`, `styledComponentsInstantiaionLimitNotReached` | missing | a generic argument (`GetProps<C>`, `WithC`, `AnyStyledComponent & C`) against a generic constraint; `check_type_argument_constraints_of`'s generic-argument gates (`type_argument_node_is_generic`, `relation_undecidable_for_constraint`) decline, and the deferred conditional/mapped relation behind the elaboration is not decided | `constraints.rs` (main), relater (r6-relater) |
+| TS2344 | `instantiationExpressionErrorNoCrash` | missing | `typeof createCacheReducer<QR>` has no applicable signature (TS2635); upstream's result is an object with no signatures, which then fails `(...args: any) => any`. TSR's instantiation expression answers the gap | `instantiation_expressions.rs` (r6-declared) |
+| TS2300 | `checkerInitializationCrash` | missing ×2 | two `declare global { namespace FullCalendarVDom { … VNode … } }` blocks in two node_modules modules are not merged (TSR reports nothing). A reduced two-file probe does merge, and shows a second defect: the `export import VNode = …` row is at the declaration's start, not its name, in `report_merge_symbol_error` | binder `merge_globals` (main); `merge_conflicts.rs` |
+| TS2300 | `jsDeclarationsDefaultsErr(target=es2015)` | missing ×2 | end-of-file JSDoc (as above); with a host the positions match (§2.11), and the binder's report then names `'default'` where native names `'C'` (`getDisplayName`, `binder.go:357`) | parser, binder (main) |
+| TS2454 | `augmentExportEquals5` | missing | `Request`, imported from an `export =` namespace merged with a module augmentation, does not resolve, so `x` is not a checked variable type | `symbols.rs` (main) |
+| TS2454 | `moduleResolutionWithSymlinks`, `…_withOutDir` | missing | `MyClass2` comes through a symlinked package; the loader does not realpath it (`tsr-2zk.1098`) | loader |
+| TS18048 | `contextuallyTypedOptionalProperty(exactoptionalpropertytypes=true)` | extra | the contextual type of an optional property keeps `\| undefined` under `exactOptionalPropertyTypes` (types 0:9–0:16 WRONG) | `contextual.rs` (main) |
+| TS18048 | `discriminateWithOptionalProperty4(exactoptionalpropertytypes=false)` | missing | `z.a ? … : z.b.toString()` over the normalized literal union; TSR's false branch drops a constituent native keeps | `flow.rs` (main) |
+| TS18048 | `dependentDestructuredVariables` | extra ×2 | `const { kind, payload } = action` after `if (action.payload)`: native narrows `payload` from the narrowed `action`, TSR does not | `flow.rs` (main) |
+| TS18048 | `for-of58` | extra ×2 | `for (const item of arr)` with `arr: X[] & Y[]` iterates `(X & Y) \| undefined`; native `X & Y` (types 0:5, 0:8, 0:11) | iteration (main) |
+| TS2536 | `assignmentToAnyArrayRestParameters`, `intersectionsOfLargeUnions`, `intersectionsOfLargeUnions2` | missing | `T["0.0"]` with `T extends string[]`, and `HTMLElementTagNameMap[T][P]`'s two reports at one position | `index_access_reports.rs` (r6-relater) |
+| TS2559 | `nestedExcessPropertyChecking`, `noInferCommonPropertyCheck1`, `tsxSpreadAttributesResolution5` | missing | the weak-type check inside relation elaboration (nested intersection targets, `NoInfer` intersections, a JSX spread) | relater (r6-relater) |
+| TS2739 | `setMethods` | missing ×4 | `numberSet.union([])` and its three generic siblings (`union<U>(other: ReadonlySetLike<U>)`): the generic call's inference from `[]` | `inference.rs`/`calls.rs` (main) |
+| TS2739 | `computedPropertyBindingElementDeclarationNoCrash1` | missing | `Object.entries(e)` with `e: any` answers `any`; native picks the generic overload (`[string, unknown][]`) | `calls.rs` (main) |
+
+Not ported, message only (the suites cannot see it): the binder's
+`declareSymbol` report names every declaration after its own name node
+(`getDisplayName` → `DeclarationNameToString`); TSR passes the symbol table
+key to all of them.
+
