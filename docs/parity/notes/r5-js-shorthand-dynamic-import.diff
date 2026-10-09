@@ -1,0 +1,60 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index 349c60f..3d3c8f2 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -2697,6 +2697,14 @@ impl Checker<'_, '_> {
+                 return Some(self.create_type_reference(promise, vec![synthetic]));
+             }
+         }
++        // `getTypeOfSymbol(esModuleSymbol)` of a shorthand ambient module
++        // (`declare module "x";`) is `anyType`, and every synthetic-default
++        // road keeps it: `getSpreadType` answers `any` for an `any` side
++        // (`checker.go:8309`). So the import is `Promise<any>`
++        // (`nodeModulesAllowJsDynamicImport`, r5-js §3.2).
++        if self.is_shorthand_ambient_module(self.resolve_external_module_symbol(module)) {
++            return self.promise_of_any();
++        }
+         // Interned per (module, written spelling): duplicate mints would
+         // churn prints (the bar's falsifier c).
+         // SS196: the specifier is a STRING and prints escaped —
+diff --git a/crates/tsr-checker/tests/import_call_promise.rs b/crates/tsr-checker/tests/import_call_promise.rs
+index c4fce7a..a48f3db 100644
+--- a/crates/tsr-checker/tests/import_call_promise.rs
++++ b/crates/tsr-checker/tests/import_call_promise.rs
+@@ -160,3 +160,36 @@ fn without_a_promise_global_the_call_declines() {
+     let fixture = program(&arena, &[("a", "declare const s: string;\nconst p = import(s);\n")]);
+     assert_eq!(variable_type(&fixture, "p"), "error");
+ }
++
++/// `getTypeOfSymbol` of a shorthand ambient module (`declare module "x";`)
++/// is `anyType`, and both synthetic-default roads keep `any`
++/// (`getSpreadType` of an `any` side), so the import is `Promise<any>`
++/// (`nodeModulesDynamicImport`). `docs/parity/notes/r5-js.md` §3.2.
++#[test]
++fn a_shorthand_ambient_module_is_a_promise_of_any() {
++    let arena = Arena::new();
++    let fixture = program(
++        &arena,
++        &[
++            ("lib", PROMISE),
++            ("d", "declare module \"fs\";\n"),
++            ("a", "const p = import(\"fs\");\n"),
++        ],
++    );
++    assert_eq!(variable_type(&fixture, "p"), "Promise<any>");
++}
++
++/// A bodied ambient module is not shorthand and keeps its namespace.
++#[test]
++fn a_bodied_ambient_module_keeps_its_namespace() {
++    let arena = Arena::new();
++    let fixture = program(
++        &arena,
++        &[
++            ("lib", PROMISE),
++            ("d", "declare module \"fs\" { export const x: number; }\n"),
++            ("a", "const p = import(\"fs\");\n"),
++        ],
++    );
++    assert_ne!(variable_type(&fixture, "p"), "Promise<any>");
++}

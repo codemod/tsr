@@ -36,16 +36,16 @@ the witness fails the same way (probed with `probefile`).
 
 | # | sub-cause | producer (file) | owner | cases | lines | witnesses |
 |---|---|---|---|---:|---:|---|
-| S8 | JSDoc tags: `@param`/`@type`/`@template`/`@overload`/`@callback`/`@satisfies`/typedef reach | `jsdoc_*.rs`, `signatures.rs`, the parser's EOF comment | r5-jsdoc4 and successors | 53 | 239 | `jsdocSignatureOnReturnedFunction`, `overloadTag1`, `typeTagWithGenericSignature`, `checkJsdocTypeTagOnExportAssignment1` |
+| S8 | JSDoc tags: `@param`/`@type`/`@template`/`@overload`/`@callback`/`@satisfies`/typedef reach | `jsdoc_*.rs`, `signatures.rs`, the parser's EOF comment | r5-jsdoc4 and successors | 55 | 248 | `jsdocSignatureOnReturnedFunction`, `overloadTag1`, `typeTagWithGenericSignature`, `checkJsdocTypeTagOnExportAssignment1` |
 | S7 | names: `typeof m26` vs `typeof m4`, `default: typeof mod2`, `import(".")` vs `import("./index")`, import qualifiers | the symbol-chain printer | main `.39`, r5-modules2 | 15 | 160 | `nodeModulesAllowJs1` ×4, `nodeModulesAllowJsSynchronousCallErrors` ×4, `reactImportDropped` |
 | S1 | expando / property-assignment declarations: late-bound `f[k] = v`, `Object.defineProperty` merged with `module.exports =`, `exports.a.b =`, `x.#p.q =` | `binder.rs` late binding, `members.rs` / `symbols.rs` (`getTypeOfFuncClassEnumModule`'s expando members) | main `tsr-2zk.5` | 5 | 53 | `declarationEmitLateBoundJSAssignments`, `expandoFunctionSymbolPropertyJs`, `ensureNoCrashExportAssignmentDefineProperrtyPotentialMerge` |
 | S3 | JS value / require aliases in type positions: `@type {D}` with `const D = require(…)`, `@param {K}` with `const { K } = require(…)`, `ex.Crunch` through `var ex = require(…)`, `typeof import(export= module)` | `declared.rs` (`getTypeFromJSDocValueReference`, the import-type arm) | r5-declared3 | 5 | 22 | `jsdocImportType`, `commonJSImportClassTypeReference`, `varRequireFromTypescript` |
-| S9 | not JS-specific: self-referential redeclared `var a = f(a)`, unreachable returns, generic callback inference | `symbols.rs`, `signatures.rs`, `inference.rs` | main, r5-printer2 | 5 | 25 | `inferingFromAny`, `unreachableJavascriptUnchecked` |
-| S4 | `this.x =` in constructors, constructor functions and static blocks | `assignment_declarations.rs`, `this_expression.rs` | unowned | 4 | 25 | `javascriptThisAssignmentInStaticBlock`, `jsDeclarationEmitDoesNotRenameImport`, `controlFlowInstanceof` |
+| S9 | not JS-specific: self-referential redeclared `var a = f(a)`, unreachable returns, generic callback inference, `instanceof` a call-only function | `symbols.rs`, `signatures.rs`, `inference.rs`, `flow.rs` | main, r5-printer2 | 6 | 26 | `inferingFromAny`, `unreachableJavascriptUnchecked`, `controlFlowInstanceof` |
+| S4 | `this.x =` in constructors, constructor functions and static blocks | `assignment_declarations.rs`, `this_expression.rs` | unowned | 0 | 0 | none survives reading (§2.1) |
 | S2c | `import("x")` of a shorthand ambient module (`declare module "x";`) printed `{ default: typeof import("x") }` | `calls.rs` `check_import_call_expression` | main (diff, §3.2) | 4 | 24 | `nodeModulesAllowJsDynamicImport` ×4 |
 | S2a | `require("x")` of an ambient module prints through the local alias (`typeof fs`, `typeof _`) | the symbol-chain printer | main `.39` | 4 | 4 | `ambientRequireFunction` ×2, `bundlerSyntaxRestrictions` ×2 |
 | S5 | uncontextual parameter: an undocumented JS setter parameter reads the getter | `symbols.rs` `get_type_for_variable_like_declaration` | main (diff, §3.1) | 2 | 4 | `accessorDeclarationEmitJs`, `privateNamesIncompatibleModifiersJs` |
-| S6 | `super` in a `static {}` block (TS too) | `expressions.rs` `check_super_expression` | hub (diff, §3.3) | 1 | 6 | `classFieldSuperAccessibleJs1` |
+| S6 | `super` in a `static {}` block (TS too) | `expressions.rs` `check_super_expression` | hub (diff, §3.3) | 2 | 21 | `classFieldSuperAccessibleJs1`, `javascriptThisAssignmentInStaticBlock` |
 | S2b | `module.exports = { [sym]() {} }` gaps | `symbols.rs` export= literal | main | 1 | 9 | `jsDeclarationsComputedNames` |
 | S2d | a module that default-imports itself | `symbols.rs` alias circularity | main | 1 | 3 | `selfReferentialDefaultNoStackOverflow` |
 
@@ -53,27 +53,141 @@ Reading it:
 
 - **Most of the JS remainder is JSDoc (53) and names (15).** Neither is a
   JS-checking producer; they stay with the JSDoc lane and the printer.
-- **The five producers the brief named hold 20 cases between them**:
+- **The five producers the brief named hold 17 cases between them**:
   expando 5 (S1), CommonJS 10 (S2a–d), value references in type
-  positions 5 (S3), constructor `this` 4 (S4), uncontextual parameters 2
+  positions 5 (S3), constructor `this` 0 (S4), uncontextual parameters 2
   (S5). S2a is the printer, not CommonJS: `require("fs")` resolves and the
   alias `fs` already prints `typeof fs`, but the bare call names the module
   through its local alias, which is getSymbolChain's job.
 - Owners: S1 is main's binder and member image (`tsr-2zk.5` is in
   progress there); S3 is declared.rs (r5-declared3). This lane ports S5,
-  S2c and S6 as measured diffs, and S4 directly (its producer files are
-  unowned).
+  S2c and S6 as measured diffs (§3).
+
+### 2.1 Corrections to the first table (`8696a95`)
+
+The pushed table put four cases under S4 by their `this.x =` lines. Read
+line by line, none of them is the constructor-`this` producer:
+
+- `javascriptThisAssignmentInStaticBlock`: every wrong line follows from
+  `super.isArray` answering `error` inside `static {}` — S6. §3.3's diff
+  converts the whole case.
+- `jsDeclarationEmitDoesNotRenameImport`: `options.test` is a `@typedef`
+  `@property` read — S8.
+- `jsDeclarationsFunctionJSDoc`: `@param {null} b` under `strict: false`
+  reads `any` — S8.
+- `controlFlowInstanceof` (its `.js` unit): `v instanceof AtTop` with a
+  call-only function narrows `any` to `{}` in native (`getInstanceType`'s
+  empty-object leg, `flow.go:971`) — `flow.rs`, S9.
+
+So S4 holds no case at `e20cdd4`, and the files this lane claimed for it
+(`assignment_declarations.rs`, `this_expression.rs`) are released.
+
+### 2.2 Why S1 and S3 are not ported here
+
+- **S1, late-bound expandos.** `foo[k] = v` with a non-literal `k` binds
+  through `bindDeferredExpandoAssignment`'s `HasDynamicName` arm
+  (`binder.go:1057`): an anonymous `__computed` property plus the target's
+  `exports["__assignment"]` list (`addLateBoundAssignmentDeclarationToSymbol`,
+  `binder.go:1000`), which `getResolvedMembersOrExportsOfSymbol` late-binds
+  for the static side (`checker.go:15963`). TSR's binder has no
+  `__assignment` table, so the port is a binder change plus a members.rs
+  change plus the function-type printer reading the new members. That is
+  main's `tsr-2zk.5`, not a small diff.
+- **S3, require aliases in type positions.** `declared.rs`'s alias road
+  (`get_type_from_type_reference`) admits `ImportSpecifier`,
+  `ImportClause`, `ImportEquals` and a require-initialised
+  `VariableDeclaration`; a destructured `const { K } = require(…)` binding
+  element is none of them. Whether it should take the name-agreement road
+  of the import specifier is r5-declared3's call (§158's naming wall); it
+  is reported, not made (§4).
 
 ## 3. Ports
 
-### 3.1 S5: the JS setter parameter (diff, `symbols.rs`)
+All three are measured diffs against the frozen base (`e20cdd4`),
+unfiltered, each applied alone; each carries its test. Ir is Callgrind's
+`tsr -p <project> --singleThreaded --pretty false --noEmit`, base
+domain-model 1,155,945,043 and generic-imports 342,949,755.
 
-Measurement pending.
+| diff | types RIGHT | cases converted | diagnostics | losses | Ir dm | Ir gi | slowcases |
+|---|---:|---|---|---|---:|---:|---|
+| [`r5-js-super-static-block.diff`](r5-js-super-static-block.diff) | +45 (548,796) | 6: `classFieldSuperAccessible`, `classFieldSuperAccessibleJs1`, `javascriptThisAssignmentInStaticBlock`, `classStaticBlock5` ×3 | unchanged | none | 1,155,899,389 (−0.004%) | 342,928,996 (−0.006%) | clean |
+| [`r5-js-setter-parameter.diff`](r5-js-setter-parameter.diff) | +4 (548,755) | 2: `accessorDeclarationEmitJs`, `privateNamesIncompatibleModifiersJs` | unchanged | none | 1,155,964,693 (+0.002%) | 342,922,580 (−0.008%) | clean |
+| [`r5-js-shorthand-dynamic-import.diff`](r5-js-shorthand-dynamic-import.diff) | +48 (548,799) | 8: `nodeModulesAllowJsDynamicImport` ×4, `nodeModulesDynamicImport` ×4 | unchanged | none | 1,155,878,692 (−0.006%) | 342,913,942 (−0.010%) | clean |
 
-### 3.2 S2c: dynamic import of a shorthand ambient module (diff, `calls.rs`)
+The three touch disjoint functions and apply in any order.
 
-Measurement pending.
+### 3.1 S5: the JS setter parameter (`symbols.rs`)
 
-### 3.3 S6: `super` in a static block (diff, `expressions.rs`)
+**Native.** `getTypeForVariableLikeDeclaration` (`checker.go:16712`):
+after `tryGetTypeFromEffectiveTypeNode` has found no annotation, a
+parameter of a set accessor with a bindable name takes the getter's return
+type (`:16719`), before `getParameterTypeOfFullSignature` and the
+contextual type.
 
-Measurement pending.
+**What TSR had.** The §441 arm read the accessor pair for TypeScript only:
+`!self.in_js_file(declaration)`. The gate was added because the ungated
+arm lost `declarationEmitClassAccessorsJs1`, whose setter carries
+`@param {URL | string} path`. That loss was the order, not JS: in JS the
+reparsed `@param` *is* the effective type node, so native never reaches the
+getter arm for a documented parameter.
+
+**Port.** The gate becomes native's condition: in JS, the arm runs when
+the parameter has neither a `@param` (`jsdoc_parameter_annotation`) nor a
+parameter `@type` (`jsdoc_type_annotation`). A tag whose type does not
+compute still counts as present, as native's annotation does. The TS path
+runs the same single `in_js_file` test it ran before.
+
+**Falsifier.** A JS setter whose only typing is a full-signature `@type`
+on the setter: native's getter arm wins over `getParameterTypeOfFullSignature`
+there too, and this port agrees; a case wanting the full signature's
+parameter type would show the order is wrong.
+
+### 3.2 S2c: `import()` of a shorthand ambient module (`calls.rs`)
+
+**Native.** `checkImportCallExpression` (`checker.go:8301`) types the
+promise's argument as `getTypeWithSyntheticDefaultOnly(getTypeOfSymbol(esModuleSymbol), …)
+?? getTypeWithSyntheticDefaultImportType(…)`. For a shorthand ambient
+module `getTypeOfSymbol` is `anyType` (`getTypeOfFuncClassEnumModule`'s
+`isShorthandAmbientModuleSymbol` arm). The default-only road is not taken
+(not JSON); the synthetic-import road either returns `any` unchanged or
+spreads the wrapper with it, and `getSpreadType` answers `any` for an
+`any` side. So the call is `Promise<any>`.
+
+**What TSR had.** `check_import_call_expression` mints the
+`typeof import("x")` namespace object for every resolved module, then
+wraps it in `{ default: … }` under node16+ ESM. A shorthand module printed
+`Promise<{ default: typeof import("fs"); }>`.
+
+**Port.** After the default-only test, a shorthand ambient module answers
+`Promise<any>` — the one value every remaining native road produces for
+it. This is not JS-specific: the four `nodeModulesDynamicImport` TS cases
+convert with the four JS ones.
+
+### 3.3 S6: `super` in a static block (`expressions.rs`)
+
+**Native.** `GetSuperContainer` (`ast/utilities.go:1835`) stops at
+`ClassStaticBlockDeclaration` as at any member, and `ast.IsStatic` is true
+for a static block, so `checkSuperExpression` answers
+`getBaseConstructorTypeOfClass` there (`checker.go:7946`); a `super(...)`
+call in one fails `isLegalUsageOfSuperExpression`'s constructor test and
+is the error-any.
+
+**What TSR had.** `check_super_expression`'s container walk listed every
+member kind but the static block, so `super` in `static {}` walked past it
+to the class with no member found and answered `error`.
+
+**Port.** The static block joins the member arm with `is_static = true`.
+It is a TypeScript fix as much as a JS one: `classStaticBlock5` and
+`classFieldSuperAccessible` are `.ts`. `expressions.rs` is a hub file and
+the function is not this lane's, hence a diff.
+
+## 4. Needed outside this lane's files
+
+| function (file) | change | cases | owner |
+|---|---|---:|---|
+| `check_super_expression` (`expressions.rs`) | §3.3's diff | 6 | hub |
+| `get_type_for_variable_like_declaration` (`symbols.rs`) | §3.1's diff | 2 | main |
+| `check_import_call_expression` (`calls.rs`) | §3.2's diff | 8 | main |
+| late-bound expando members (`binder.rs`, `members.rs`) | `exports["__assignment"]` and its late binding (§2.2) | 2 (`declarationEmitLateBoundJSAssignments`, `expandoFunctionSymbolPropertyJs`) | main `tsr-2zk.5` |
+| `get_type_from_type_reference` (`declared.rs`) | admit an unrenamed require-destructuring `BindingElement` on the alias road (§2.2) | up to 2 (`commonJSImportClassTypeReference`, `commonJSImportExportedClassExpression`), unmeasured | r5-declared3 |
+| getSymbolChain through a local require alias (printer) | `require("fs")` names the module by the alias in scope (S2a) | 4 | main `.39` |
