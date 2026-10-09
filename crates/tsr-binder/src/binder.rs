@@ -3486,8 +3486,10 @@ impl<'a, 'n> Binder<'a, 'n> {
                         // §269: `@import { Foo } from "./m"` declares each
                         // binding as an alias in FILE locals — the same
                         // (ALIAS, Locals) classification the written form's
-                        // nodes get, filed through `declare_jsdoc_symbol`
-                        // because this loop runs outside the container walk.
+                        // nodes get, filed through `declare_jsdoc_import_binding`
+                        // (`declareSymbol` with the alias excludes, so a
+                        // repeated binding is TS2300) because this loop runs
+                        // outside the container walk.
                         // Upstream reaches the identical state by reparsing
                         // the tag into a `JSImportDeclaration` and binding
                         // that; this port binds JSDoc directly (the
@@ -3495,7 +3497,12 @@ impl<'a, 'n> Binder<'a, 'n> {
                         JSDocTag::JSDocImportTag(import) => {
                             let Some(clause) = import.import_clause else { continue };
                             if let (Some(name), Some(id)) = (clause.name, clause.node_id) {
-                                self.declare_jsdoc_symbol(root, name.text, SymbolFlags::ALIAS, id);
+                                self.declare_jsdoc_import_binding(
+                                    root,
+                                    name.text,
+                                    name.node_id,
+                                    id,
+                                );
                             }
                             match clause.named_bindings {
                                 Some(tsr_ast::NamedImportBindings::NamedImports(named)) => {
@@ -3503,10 +3510,10 @@ impl<'a, 'n> Binder<'a, 'n> {
                                         if let (Some(name), Some(id)) =
                                             (specifier.name, specifier.node_id)
                                         {
-                                            self.declare_jsdoc_symbol(
+                                            self.declare_jsdoc_import_binding(
                                                 root,
                                                 name.text,
-                                                SymbolFlags::ALIAS,
+                                                name.node_id,
                                                 id,
                                             );
                                         }
@@ -3522,10 +3529,10 @@ impl<'a, 'n> Binder<'a, 'n> {
                                     if let (Some(name), Some(id)) =
                                         (namespace.name, namespace.node_id)
                                     {
-                                        self.declare_jsdoc_symbol(
+                                        self.declare_jsdoc_import_binding(
                                             root,
                                             name.text,
-                                            SymbolFlags::ALIAS,
+                                            name.node_id,
                                             id,
                                         );
                                     }
@@ -3679,6 +3686,34 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
         }
         root
+    }
+
+    /// One `@import` binding. Upstream reparses the tag into a
+    /// `JSImportDeclaration` and binds each binding through
+    /// `declareSymbolAndAddToSymbolTable(…, SymbolFlagsAlias,
+    /// SymbolFlagsAliasExcludes)` into the file's locals
+    /// (`declareModuleMember`, `binder.go:380`), so a second `@import` of the
+    /// same name is TS2300 on both, like any other alias redeclaration. The
+    /// name node positions that report (`GetNameOfDeclaration`).
+    fn declare_jsdoc_import_binding(
+        &mut self,
+        root: NodeId,
+        name: &'a str,
+        name_node: Option<NodeId>,
+        declaration: NodeId,
+    ) {
+        if let Some(name_node) = name_node {
+            self.name_nodes.push((declaration, name_node));
+        }
+        let symbol = self.declare_into(
+            Destination::Locals,
+            root,
+            None,
+            name,
+            SymbolFlags::ALIAS,
+            declaration,
+        );
+        self.node_symbols[declaration.index() - self.node_base] = Some(symbol);
     }
 
     /// One JSDoc-declared symbol, merged with an earlier tag of the same name.
