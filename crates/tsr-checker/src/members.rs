@@ -140,14 +140,11 @@ impl Checker<'_, '_> {
         {
             return self.intrinsics.any;
         }
-        let computed = self.check_property_access_expression_worker(node);
-        // §55.1 (`checker-notes-narrow.md`): a single-member enum's ACCESS
-        // prints the enum spelling while its declaration line keeps the
-        // per-name fresh form (`Enum.A : Enum` beside `>A : Enum.A`).
-        if let Some(&spelled) = self.enum_access_spelling.get(&computed) {
-            return spelled;
-        }
-        computed
+        // §55.1's single-member enum spelling (`Enum.A : Enum` beside
+        // `>A : Enum.A`) is not this road's: the access keeps the member's
+        // fresh literal, and the baseline writer's `getRegularTypeOfExpression`
+        // reads the enum-spelled regular form (`r5-printer3.md` §3).
+        self.check_property_access_expression_worker(node)
     }
 
     /// SS186: does the class body lexically containing `node` declare the

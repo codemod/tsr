@@ -598,7 +598,39 @@ pub enum ProducerArm {
 }
 
 /// [`type_id_at_location_tracking`], also naming the arm that answered.
+///
+/// Every arm that stands for `getTypeOfNode`'s `ast.IsExpressionNode` branch
+/// answers `getRegularTypeOfExpression` (`checker.go:32111`): the regular
+/// form of the expression's type. A fresh literal stays fresh in the value
+/// (an object-literal property or an inference keeps it, `{ type: E.A }`);
+/// only the baseline line reads the regular form, which is what prints a
+/// single-value enum's member access as the enum (`E.A : E`, the node
+/// builder's `getDeclaredTypeOfSymbol(parent) == t` arm,
+/// `nodebuilderimpl.go:3266`). See `docs/parity/notes/r5-printer3.md` §3.
 pub fn type_id_at_location_arm<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    id: NodeId,
+    saw_checker_error: &mut bool,
+    arm: &mut ProducerArm,
+) -> tsr_checker::TypeId {
+    let computed =
+        type_id_at_location_arm_inner(checker, binder, nodes, map, id, saw_checker_error, arm);
+    if matches!(
+        arm,
+        ProducerArm::Expression
+            | ProducerArm::PropertyAccessName
+            | ProducerArm::TypeQueryName
+            | ProducerArm::QualifiedNameLeft
+    ) {
+        return checker.get_regular_type_of_literal_type(computed);
+    }
+    computed
+}
+
+fn type_id_at_location_arm_inner<'a>(
     checker: &mut tsr_checker::Checker<'a, '_>,
     binder: &tsr_binder::BindResult<'a>,
     nodes: &NodeTable,
