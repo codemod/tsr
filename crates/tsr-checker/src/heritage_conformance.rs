@@ -155,6 +155,19 @@ impl Checker<'_, '_> {
             // (`classWithMultipleBaseClasses`); only the class-extends arm
             // keeps the lib-merged base decline.
             if !flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE) {
+                // `getTypeFromTypeNode` answers any declaration's type; a
+                // type alias's is related like an interface
+                // (`implemented_alias.rs`).
+                if let Some((target, is_class)) =
+                    self.implemented_alias_type(implemented, entry.type_arguments)
+                {
+                    let message = if is_class {
+                        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_CLASS_1_DID_YOU_MEAN_TO_EXTEND_1_AND_INHERIT_ITS_MEMBERS_AS_A_SUBCLASS
+                    } else {
+                        &messages::CLASS_0_INCORRECTLY_IMPLEMENTS_INTERFACE_1
+                    };
+                    self.check_class_heritage_entry(node, source, target, message);
+                }
                 continue;
             }
             let Some(target) =

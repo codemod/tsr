@@ -1246,7 +1246,12 @@ impl Checker<'_, '_> {
             return None;
         };
         let name = late_bound_entity_name(computed.expression.as_ref()?)?;
-        self.get_type_of_property_of_type(parent_type, &name)
+        // A non-generic key does not defer under a computed name
+        // (`getIndexedAccessTypeOrUndefined`'s access-node arm): the property
+        // is read on the apparent type, `getPropertyTypeForIndexType`'s
+        // `apparentObjectType` (r6-typesroots §7).
+        let apparent = self.apparent_type(parent_type);
+        self.get_type_of_property_of_type(apparent, &name)
     }
 
     /// `getPropertyTypeForIndexType`'s index-signature choice

@@ -1,0 +1,171 @@
+diff --git a/crates/tsr-binder/src/binder.rs b/crates/tsr-binder/src/binder.rs
+index bd62f11..3d8b9c3 100644
+--- a/crates/tsr-binder/src/binder.rs
++++ b/crates/tsr-binder/src/binder.rs
+@@ -479,6 +479,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             end_flow,
+             return_flow,
+             fallthrough_flow,
++            scope_change_options: _,
+         } = bindings;
+         assert!(globals.is_empty() && global_exports.is_empty() && undefined_symbol.is_none());
+         let symbol_base = binder.symbols.append(symbols);
+@@ -596,6 +597,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             end_flow,
+             return_flow,
+             fallthrough_flow,
++            scope_change_options: _,
+         } = previous;
+ 
+         // Measured: `checker.ts`, `dom.generated.d.ts`, `Herebyfile.mjs` and a
+@@ -844,6 +846,7 @@ impl<'a, 'n> Binder<'a, 'n> {
+             end_flow: self.end_flow,
+             return_flow: self.return_flow,
+             fallthrough_flow: self.fallthrough_flow,
++            scope_change_options: std::sync::OnceLock::new(),
+         }
+     }
+ 
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index f876fdc..49a4123 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -70,6 +70,7 @@ mod names;
+ mod narrowing;
+ #[cfg(test)]
+ mod parallel_tests;
++mod scope_change;
+ mod suggestion;
+ mod symbol;
+ mod symbol_table;
+@@ -83,6 +84,7 @@ pub use binder::{is_declaration_file, is_external_module, is_external_module_in}
+ pub use container::{ContainerFlags, container_flags};
+ pub use flow::{Antecedents, FlowFlags, FlowId, FlowStore, ReduceLabel, SwitchClause};
+ pub use names::PreparedNames;
++pub use scope_change::ScopeChangeOptions;
+ pub use suggestion::{SuggestionHost, SuggestionWalk};
+ pub use symbol::{
+     Symbol, SymbolFlags, SymbolId, SymbolStore, SymbolStoreIdentity, SymbolTable, SymbolTableField,
+@@ -186,6 +188,10 @@ pub struct BindResult<'a> {
+     end_flow: FxHashMap<NodeId, FlowId>,
+     return_flow: FxHashMap<NodeId, FlowId>,
+     fallthrough_flow: FxHashMap<NodeId, FlowId>,
++    /// The options `useOuterVariableScopeInParameter` reads, published once
++    /// by the checker ([`BindResult::set_scope_change_options`]).
++    /// `docs/parity/notes/r6-names.md` §11.
++    scope_change_options: std::sync::OnceLock<ScopeChangeOptions>,
+ }
+ 
+ /// An unpublished file-local bind. Its IDs cannot be read by a checker.
+@@ -286,9 +292,19 @@ impl<'a> BindResult<'a> {
+             end_flow: FxHashMap::default(),
+             return_flow: FxHashMap::default(),
+             fallthrough_flow: FxHashMap::default(),
++            scope_change_options: std::sync::OnceLock::new(),
+         }
+     }
+ 
++    /// Publish the compiler options `resolveNameHelper`'s
++    /// `useOuterVariableScopeInParameter` arm reads (native's `NameResolver`
++    /// holds `CompilerOptions`). Set once, by the checker, before it resolves
++    /// any name; later calls with the program's same options are no-ops.
++    /// Until set, the arm is declined.
++    pub fn set_scope_change_options(&self, options: ScopeChangeOptions) {
++        let _ = self.scope_change_options.set(options);
++    }
++
+     /// TEMPORARY instrumentation for `bd tsr-el3.1`: peak `bind()` recursion depth.
+     #[must_use]
+     pub fn max_depth(&self) -> u32 {
+@@ -1178,6 +1194,19 @@ impl<'a> BindResult<'a> {
+                 && !self.symbol_is_declared_within(found, exclude, nodes)
+                 && !self.parameter_hidden_from_type_parameter_list(found, node, last, nodes)
+                 && !self.local_type_hidden_outside_body(found, node, last, meaning, nodes, node_map)
++                // `useOuterVariableScopeInParameter` (`nameresolver.go:74`),
++                // whose first test (`IsParameterDeclaration(lastLocation)`)
++                // stays inline: the rest runs on almost no lookup.
++                && !(last.is_some_and(|last| nodes.kind(last) == SyntaxKind::Parameter)
++                    && self.use_outer_variable_scope_in_parameter(
++                        self.scope_change_options.get(),
++                        found,
++                        node,
++                        last,
++                        meaning,
++                        nodes,
++                        node_map,
++                    ))
+                 // resolveNameHelper exposes conditional infer locals only in
+                 // the true branch; check/extends/false continue outward.
+                 && !matches!(node_map.get(node), Some(tsr_ast::Node::ConditionalTypeNode(conditional))
+diff --git a/crates/tsr-binder/src/scope_change.rs b/crates/tsr-binder/src/scope_change.rs
+index 431de8e..3e09bbc 100644
+--- a/crates/tsr-binder/src/scope_change.rs
++++ b/crates/tsr-binder/src/scope_change.rs
+@@ -32,7 +32,6 @@ pub struct ScopeChangeOptions {
+     pub emit_standard_class_fields: bool,
+ }
+ 
+-#[allow(dead_code, reason = "hook: docs/parity/notes/r6-names-parameter-scope.diff")]
+ impl BindResult<'_> {
+     /// The `useResult = false` arm of `resolveNameHelper`
+     /// (`nameresolver.go:72-75`): `symbol`, found in `location`'s locals on a
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 7eec834..c673713 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -1835,6 +1835,12 @@ impl<'a, 'n> Checker<'a, 'n> {
+         self.no_unchecked_indexed_access = options.no_unchecked_indexed_access.is_true();
+         self.exact_optional_property_types = options.exact_optional_property_types.is_true();
+         self.language_version = options.emit_script_target();
++        // r6-names: the options `resolveName`'s
++        // `useOuterVariableScopeInParameter` arm reads.
++        self.binder.set_scope_change_options(tsr_binder::ScopeChangeOptions {
++            target: self.language_version,
++            emit_standard_class_fields: self.standard_class_fields,
++        });
+ 
+         // `unusedIsError` (`checker.go:7104`), both `IsTrue()`. An unset option
+         // reports nothing at all, which is what confines the unused family to the
+diff --git a/crates/tsr-conformance/tests/r6_names_parameter_scope.rs b/crates/tsr-conformance/tests/r6_names_parameter_scope.rs
+new file mode 100644
+index 0000000..052f20a
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_names_parameter_scope.rs
+@@ -0,0 +1,37 @@
++//! r6-names: `resolveName`'s `useOuterVariableScopeInParameter` arm
++//! (`crates/tsr-binder/src/scope_change.rs`). A parameter initializer does not
++//! see the function body's variables unless the parameters require a scope
++//! change. Expectations are native tsgo output at the pinned 5b1047d
++//! (`--strict`).
++
++use tsr_conformance::{TestCase, diagnostics_suite};
++
++fn diagnostics(source: &str, target: &str) -> Vec<(u32, u32, u32)> {
++    let mut case = TestCase::parse("probe/r6-names", "s.ts", source);
++    case.options.insert("target".into(), target.into());
++    case.options.insert("strict".into(), "true".into());
++    let mut diagnostics: Vec<_> = diagnostics_suite::reported_for(&case)
++        .into_iter()
++        .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
++        .collect();
++    diagnostics.sort_unstable();
++    diagnostics
++}
++
++const SOURCE: &str = "export function bar(func = () => foo) { let foo = \"in\"; }
++let outer = \"\";
++export function f1(p = outer) { var outer: number = 2; return p; }
++export function nullish(a = c ?? 1) { var c: number | undefined; return a; }
++export function plain(a = d) { var d = 1; return a; }";
++
++/// Below ES2020 `??` in a parameter requires a scope change, so `c` is the
++/// body's (TS2373); the other initializers look outside the function.
++#[test]
++fn an_es2015_nullish_initializer_keeps_the_body_scope() {
++    assert_eq!(diagnostics(SOURCE, "es2015"), [(1, 34, 2304), (4, 29, 2373), (5, 27, 2304)]);
++}
++
++#[test]
++fn from_es2020_every_initializer_looks_outside_the_function() {
++    assert_eq!(diagnostics(SOURCE, "es2022"), [(1, 34, 2304), (4, 29, 2304), (5, 27, 2304)]);
++}

@@ -172,11 +172,12 @@ fn the_next_slot_is_read_and_not_assumed() {
         ),
         "unknown"
     );
-    // And a third parameter with NO default is a slot this port cannot fill,
-    // which is a gap rather than `any`.
+    // And a third parameter with NO default puts `G<number>` outside the
+    // arity window: the annotation is native `errorType` (r6-typesroots §2),
+    // so the yield reads `any` from it rather than a filled slot.
     assert_eq!(
         type_of_first_yield("interface G<T, R, N> {}\nfunction* g(): G<number> { yield 1; }"),
-        "error"
+        "any"
     );
 }
 

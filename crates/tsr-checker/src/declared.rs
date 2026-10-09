@@ -8,6 +8,7 @@
 //! Not to be confused with [`crate::symbols`], which answers what type a
 //! *value* symbol has.
 
+use crate::type_literal_index_symbols::TypeLiteralComputedName;
 use std::borrow::Cow;
 
 use tsr_ast::{Expression, Node, NodeId, Statement, SyntaxKind, TypeNode};
@@ -779,12 +780,21 @@ impl<'a> Checker<'a, '_> {
                 // instantiated per reference, and `mappedTypeRelationships`'s 63
                 // gains are exactly those expanded forms.
                 if matches!(node, TypeNode::MappedTypeNode(_))
-                    && let Some(id) = tsr_ast::Node::from(node).node_id()
-                    && let Some(name) = self.non_generic_alias_body_name(id)
+                    && let Some(body) = tsr_ast::Node::from(node).node_id()
+                    && let Some(name) = self.non_generic_alias_body_name(body)
                 {
                     let id = self.store.new_named(TypeFlags::OBJECT, name, None);
                     if let TypeNode::MappedTypeNode(mapped) = node {
                         self.capture_mapped_type(id, mapped);
+                    }
+                    // getTypeFromMappedTypeNode (checker.go:24255) gives the
+                    // type `getAliasForTypeNode` (`:23711`), ADR-0045 rule 2;
+                    // the printer names it where it is accessible
+                    // (`nodebuilderimpl.go:3362`, `crate::alias_accessibility`).
+                    if let Some(alias) =
+                        self.nodes.parent(body).and_then(|p| self.binder.symbol_of(p))
+                    {
+                        self.alias_of.insert(id, (alias, Vec::new()));
                     }
                     return id;
                 }
@@ -2601,7 +2611,25 @@ impl<'a> Checker<'a, '_> {
                         tsr_ast::PropertyName::ComputedPropertyName(computed) => {
                             match self.late_bound_symbol_member_name(computed) {
                                 Some((name, _)) => name,
-                                None => return error,
+                                // A name that does not late-bind joins the
+                                // index symbol or is dropped
+                                // (`crate::type_literal_index_symbols`).
+                                None => match self.type_literal_computed_name(computed) {
+                                    TypeLiteralComputedName::Dropped => continue,
+                                    TypeLiteralComputedName::Index(key) => {
+                                        let optional = method.postfix_token.is_some_and(|token| {
+                                            token.kind == SyntaxKind::QuestionToken
+                                        });
+                                        let Some(id) = method.node_id else { return error };
+                                        let Some(method_type) =
+                                            self.type_literal_computed_method_type(id, optional)
+                                        else {
+                                            return error;
+                                        };
+                                        computed_indexes.push((key, method_type));
+                                        continue;
+                                    }
+                                },
                             }
                         }
                         // §586 REVERTED: the symmetric arm for the METHOD half
@@ -2919,12 +2947,18 @@ impl<'a> Checker<'a, '_> {
                             // `isolatedModulesConstEnum` (a full case) for
                             // that one line; the ungated form is kept on that
                             // measurement.
-                            match self.computed_member_index_key(computed) {
-                                crate::objects::ComputedNameKey::LateBound => return error,
-                                crate::objects::ComputedNameKey::Nothing => continue,
-                                crate::objects::ComputedNameKey::Index(key) => {
-                                    let Some(annotation) = property.r#type else { return error };
-                                    let mut member_type = self.get_type_from_type_node(annotation);
+                            // `hasLateBindableIndexSignature`, else dropped
+                            // (`crate::type_literal_index_symbols`).
+                            match self.type_literal_computed_name(computed) {
+                                TypeLiteralComputedName::Dropped => continue,
+                                TypeLiteralComputedName::Index(key) => {
+                                    // No annotation: the implicit `any` (§355).
+                                    let mut member_type = match property.r#type {
+                                        Some(annotation) => {
+                                            self.get_type_from_type_node(annotation)
+                                        }
+                                        None => self.intrinsics.any,
+                                    };
                                     if member_type == error {
                                         return error;
                                     }
@@ -5026,6 +5060,13 @@ impl<'a> Checker<'a, '_> {
                 self.nodes.flags(file).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
             });
         let fillable = partially_written || bare_and_fully_defaulted || js_fill;
+        // Outside native's arity window the reference is upstream's
+        // `errorType`, which composes (`C<I>` is `C<any>`); only a count
+        // inside it that this port cannot fill is the gap
+        // (`crate::reference_arity`).
+        if self.reference_arity_answers_error_type(node, symbol) {
+            return self.intrinsics.native_error;
+        }
         if node.type_arguments.len() != parameters && !fillable {
             return error;
         }
@@ -5729,6 +5770,10 @@ impl<'a> Checker<'a, '_> {
     /// written type arguments (the instantiated print is its own row).
     fn get_type_from_import_type_node(&mut self, node: &tsr_ast::ImportTypeNode<'a>) -> TypeId {
         let error = self.intrinsics.error;
+        // The unqualified type-meaning arm (`crate::import_type_meaning`).
+        if let Some(answer) = self.unqualified_import_type_meaning(node) {
+            return answer;
+        }
         if node.is_type_of || !node.type_arguments.is_empty() {
             return error;
         }
@@ -5870,6 +5915,11 @@ impl<'a> Checker<'a, '_> {
         // qualified print with the real lookup table. Generic references
         // stay print-only mints.
         if node.type_arguments.is_empty() {
+            // A generic target written without its required arguments is
+            // upstream's `errorType` (`qualified_reference_arity.rs`).
+            if self.argument_less_reference_is_error(resolved, node.node_id) {
+                return self.intrinsics.native_error;
+            }
             // §280's annotation half: a qualified name resolving to an ENUM
             // MEMBER answers the member's declared type in REGULAR form, not
             // a mint of the written text — upstream's `getTypeFromTypeNode`

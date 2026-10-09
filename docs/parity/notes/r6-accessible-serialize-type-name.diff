@@ -1,0 +1,21 @@
+diff --git a/crates/tsr-checker/src/node_reuse.rs b/crates/tsr-checker/src/node_reuse.rs
+index f6f8016..75cfd3f 100644
+--- a/crates/tsr-checker/src/node_reuse.rs
++++ b/crates/tsr-checker/src/node_reuse.rs
+@@ -1687,10 +1687,12 @@ impl<'a> Checker<'a, '_> {
+         let symbol = self.binder.merged_symbol(record.export_symbol.unwrap_or(symbol));
+         let record = self.binder.symbols().get(symbol);
+         let text = record.name;
+-        // `IsSymbolAccessible` (`symbolaccessibility.go:26`): a symbol whose
+-        // declarations are not visible from outside (a function-local alias)
+-        // cannot be named; the visitor serializes the node from its type.
+-        if !self.has_visible_declarations(symbol) {
++        // `IsSymbolAccessible(symbol, enclosingDeclaration, meaning, false)`
++        // (`nodebuilderimpl.go:451`): a symbol no accessible chain reaches
++        // from the site (a function-local alias, a non-exported declaration
++        // of another module) cannot be named; the visitor serializes the
++        // node from its type (`crate::alias_accessibility`).
++        if !self.is_symbol_accessible_at(symbol, site, meaning) {
+             return None;
+         }
+         let module_member = record.parent.is_some_and(|parent| {
