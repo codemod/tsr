@@ -494,29 +494,7 @@ impl<'a> Scanner<'a> {
                         if (flags.contains(TokenFlags::PRECEDING_LINE_BREAK) || i == 0)
                             && Self::is_conflict_marker(bytes, i, limit) =>
                     {
-                        #[allow(clippy::cast_possible_truncation)]
-                        self.error(
-                            &messages::MERGE_CONFLICT_MARKER_ENCOUNTERED,
-                            Span::new(i as u32, i as u32 + 7),
-                        );
-                        if b == b'<' || b == b'>' {
-                            while i < limit && bytes[i] != b'\n' && bytes[i] != b'\r' {
-                                i += 1;
-                            }
-                        } else {
-                            i += 7;
-                            while i < limit {
-                                let current = bytes[i];
-                                if (current == b'=' || current == b'>')
-                                    && current != b
-                                    && (i == 0 || bytes[i - 1] == b'\n' || bytes[i - 1] == b'\r')
-                                    && Self::is_conflict_marker(bytes, i, limit)
-                                {
-                                    break;
-                                }
-                                i += 1;
-                            }
-                        }
+                        i = self.scan_conflict_marker_trivia(i, b);
                     }
                     // Anything else ASCII starts a token.
                     b if b < 0x80 => break 'trivia,
@@ -1667,6 +1645,23 @@ impl<'a> Scanner<'a> {
         let mut leading_line_break = false;
 
         while let Some(ch) = self.peek() {
+            // `ScanJsxTokenEx` (`scanner.go:1281`): a `<` that opens a merge
+            // conflict marker at a line start ends the text as one
+            // `ConflictMarkerTrivia` token.
+            if ch == '<' {
+                let bytes = self.source.as_bytes();
+                let i = self.pos as usize;
+                if (i == 0 || bytes[i - 1] == b'\n' || bytes[i - 1] == b'\r')
+                    && Self::is_conflict_marker(bytes, i, self.limit as usize)
+                {
+                    let end = self.scan_conflict_marker_trivia(i, b'<');
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        self.pos = end as u32;
+                    }
+                    return SyntaxKind::ConflictMarkerTrivia;
+                }
+            }
             if ch == '<' || ch == '{' {
                 break;
             }
@@ -1879,6 +1874,36 @@ impl<'a> Scanner<'a> {
             );
         }
         self.token
+    }
+
+    /// `scanConflictMarkerTrivia` (`scanner.go:2444`) from the marker at `i`
+    /// (its byte `b`): TS1185 over the seven marker characters, then `<`/`>`
+    /// skip their line and `=`/`|` skip to the next `=======` or `>>>>>>>`
+    /// marker at a line start. Returns the position after the trivia.
+    fn scan_conflict_marker_trivia(&mut self, mut i: usize, b: u8) -> usize {
+        let bytes = self.source.as_bytes();
+        let limit = self.limit as usize;
+        #[allow(clippy::cast_possible_truncation)]
+        self.error(&messages::MERGE_CONFLICT_MARKER_ENCOUNTERED, Span::new(i as u32, i as u32 + 7));
+        if b == b'<' || b == b'>' {
+            while i < limit && bytes[i] != b'\n' && bytes[i] != b'\r' {
+                i += 1;
+            }
+        } else {
+            i += 7;
+            while i < limit {
+                let current = bytes[i];
+                if (current == b'=' || current == b'>')
+                    && current != b
+                    && (i == 0 || bytes[i - 1] == b'\n' || bytes[i - 1] == b'\r')
+                    && Self::is_conflict_marker(bytes, i, limit)
+                {
+                    break;
+                }
+                i += 1;
+            }
+        }
+        i
     }
 
     /// §301: `isConflictMarkerTrivia` (`scanner.go:2409`) — seven identical

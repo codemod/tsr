@@ -581,3 +581,7 @@ per-file flag must become per-node.
   `isMissingNodeList(parameters)` has no counterpart (lists keep no range).
 - `T[` (`parsePostfixTypeOrHigher`): an indexed access only when a type
   starts after the `[`; otherwise an array type whose `]` is expected.
+- Merge conflict markers in JSX text (`ScanJsxTokenEx`): a `<` that opens a
+  marker at a line start ends the text as one `ConflictMarkerTrivia` token
+  after `scanConflictMarkerTrivia` (TS1185), the same skip the trivia loop
+  uses (`scan_conflict_marker_trivia`).
