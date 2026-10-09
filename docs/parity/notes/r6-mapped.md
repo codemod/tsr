@@ -374,3 +374,38 @@ Seen in the same profile, outside this lane: `complete_reverse_mapped_type`
 (inference.rs) costs 3.1 M inclusive on domain-model, 1.5 M of it in
 `pending_reverse_mapped.remove` (a hashbrown `remove_entry` on a
 `ReverseMappedInfo` table).
+
+## 7. Head summary and landing order
+
+**Commits** (on the frozen base `b18aec06`):
+- `6e17725`: a generic mapped instance prints its mapped form (§1), +4;
+- `5026f57`: a mapped node under alias bindings maps a tuple image
+  elementwise (§2), +1;
+- `ce372e4`: notes and diffs only (§3–§6).
+
+**Diffs, in landing order**, each measured on top of the commits:
+
+| diff | files (owner) | effect |
+|---|---|---|
+| `r6-mapped-apparent-instance.diff` | `mapped.rs`, `contextual.rs` (main) | +15 types (§1) |
+| `r6-mapped-readonly-members.diff` | `readonly_target.rs` (unassigned), new test | +1 case, +2 types (§4) |
+| `r5-mapped6-conditional-typed-print.diff` | `declared.rs` (r6-declared), `node_reuse.rs` (r6-nodereuse) | +5 types after r6-declared's `f9339d0`; Ir dm +0.153% (§5) |
+
+The two commits and the first two diffs together, against the frozen base,
+both dumps unfiltered:
+- types 549,853 → 549,875 RIGHT (**+22**); diagnostics 5,530 → 5,531
+  RIGHT (**+1 case**, `omitTypeHelperModifiers01`);
+- zero losses on both dumps; no base-RIGHT key missing; slowcases clean;
+- Ir: domain-model 1,091,471,488 → 1,091,820,511 (+0.032%),
+  generic-imports 343,082,464 → 343,087,648 (+0.002%);
+- median child CPU new/old (21 samples): domain-model 0.970,
+  generic-imports 0.981; `diagnostics_match: true`;
+- `cargo test --workspace --release` passes with and without the diffs;
+  clippy (stable 1.97) flags only pre-existing code in other files;
+  `xtask anchors` has only the pre-existing unresolved
+  `tsr-conformance/src/full_oracle.rs:4`.
+
+**Remaining, with causes:** §3 (a)–(e). The largest is declared.rs's
+alias-declared `return error` (§3 (a), measured +78/−21 as a plain
+fallthrough); cross-file alias accessibility is next (§3 (b), 35 lines).
+Lazy text (§6) blocks both `.16.71`'s Ir and item 4.
