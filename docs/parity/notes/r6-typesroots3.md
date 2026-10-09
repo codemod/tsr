@@ -258,7 +258,8 @@ on `e6eadf4`; on `f334de9` the same three diffs are 58 WRONG→RIGHT, 9
 GAP→RIGHT, 4 GAP→WRONG, zero losses, which is BU's own transition set.)
 
 **The held diff re-measured.** `r6-typesroots2-HELD-conditional-node-consumers.diff`
-on base `BU` with this note's §2 diffs and §4.2 below: types **+112**
+on base `BU` with this note's §2 diffs and §4.2's first half (the
+`couldContainTypeVariables` arm): types **+112**
 (98 WRONG→RIGHT, 14 GAP→RIGHT; 15 GAP→WRONG, 1 WRONG→GAP), **zero type
 losses**, and still the one diagnostics loss:
 complicatedIndexesOfIntersectionsAreInferencable EMPTY_RIGHT → EMPTY_WRONG

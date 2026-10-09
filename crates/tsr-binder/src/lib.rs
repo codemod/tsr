@@ -1051,8 +1051,39 @@ impl<'a> BindResult<'a> {
             return false;
         }
         let flags = self.symbols.get(self.merged_symbol(symbol)).flags;
-        meaning.intersects(flags & SymbolFlags::TYPE)
-            && !flags.contains(SymbolFlags::TYPE_PARAMETER)
+        if !meaning.intersects(flags & SymbolFlags::TYPE) || nodes.kind(last) == SyntaxKind::JSDoc {
+            return false;
+        }
+        if !flags.contains(SymbolFlags::TYPE_PARAMETER) {
+            return true;
+        }
+        // A type parameter is visible from the parameter list, the return
+        // type and the type-parameter list only (`nameresolver.go:64`); a
+        // member's computed name or a decorator does not see it.
+        let return_type = match node_map.get(location) {
+            Some(tsr_ast::Node::FunctionDeclaration(f)) => f.r#type,
+            Some(tsr_ast::Node::FunctionExpression(f)) => f.r#type,
+            Some(tsr_ast::Node::ArrowFunction(f)) => f.r#type,
+            Some(tsr_ast::Node::MethodDeclaration(m)) => m.r#type,
+            Some(tsr_ast::Node::MethodSignatureDeclaration(m)) => m.r#type,
+            Some(tsr_ast::Node::GetAccessorDeclaration(a)) => a.r#type,
+            Some(tsr_ast::Node::SetAccessorDeclaration(a)) => a.r#type,
+            Some(tsr_ast::Node::CallSignatureDeclaration(c)) => c.r#type,
+            Some(tsr_ast::Node::ConstructSignatureDeclaration(c)) => c.r#type,
+            Some(tsr_ast::Node::IndexSignatureDeclaration(i)) => i.r#type,
+            Some(tsr_ast::Node::FunctionTypeNode(f)) => f.r#type,
+            Some(tsr_ast::Node::ConstructorTypeNode(c)) => c.r#type,
+            Some(tsr_ast::Node::ConstructorDeclaration(c)) => c.r#type,
+            _ => None,
+        };
+        !(return_type.and_then(|t| tsr_ast::Node::from(t).node_id()) == Some(last)
+            || matches!(
+                nodes.kind(last),
+                SyntaxKind::Parameter
+                    | SyntaxKind::JSDocParameterTag
+                    | SyntaxKind::JSDocReturnTag
+                    | SyntaxKind::TypeParameter
+            ))
     }
 
     /// `useResult`'s parameter arm (`binder/nameresolver.go:72`): *"parameters
@@ -1287,6 +1318,22 @@ impl<'a> BindResult<'a> {
                 && !self.symbol_is_declared_within(symbol, exclude, nodes)
             {
                 return Some(symbol);
+            }
+            // `nameresolver.go:216`: a computed property name of a class or
+            // interface member cannot reference that container's type
+            // parameters. Upstream reports TS2467 and returns nil when the
+            // container's members table has the name with Type meaning.
+            if nodes.kind(node) == SyntaxKind::ComputedPropertyName
+                && let Some(grandparent) = nodes.parent(node).and_then(|p| nodes.parent(p))
+                && matches!(
+                    nodes.kind(grandparent),
+                    SyntaxKind::ClassDeclaration
+                        | SyntaxKind::ClassExpression
+                        | SyntaxKind::InterfaceDeclaration
+                )
+                && self.lookup_type_member(grandparent, name, meaning & SymbolFlags::TYPE).is_some()
+            {
+                return None;
             }
             if matches!(
                 nodes.kind(node),

@@ -4083,8 +4083,12 @@ impl<'a> Checker<'a, '_> {
         {
             return true;
         }
-        // A UNION, likewise over its constituents.
-        if let TypeData::Union { types, .. } = &self.store.get(id).data {
+        // A UNION or INTERSECTION, likewise over its constituents
+        // (couldContainTypeVariables' `TypeFlagsUnionOrIntersection` arm,
+        // checker.go: `core.Some(t.Types(), c.couldContainTypeVariables)`).
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(id).data
+        {
             let constituents = types.clone();
             if constituents.into_iter().any(|constituent| {
                 self.target_could_contain_parameter(constituent, parameters, visiting)
@@ -4321,6 +4325,80 @@ impl<'a> Checker<'a, '_> {
         self.mint_rest_properties(properties, indexes)
     }
 
+    /// `getSimplifiedIndexedAccessType` (checker.go:27915) for an inference
+    /// target, the two arms that expose a type parameter: a generic mapped
+    /// object `{ [P in K]: E }[X]` becomes `E[P := X]`
+    /// (`substituteIndexedMappedType`, `:27965`), and an intersection object
+    /// distributes, `(T & U)[K] -> T[K] & U[K]` (`distributeIndexOverObjectType`,
+    /// `:27990`, reached at `:27946` when the index is not instantiable and
+    /// `shouldDeferIndexType(object)` is false: an intersection defers only
+    /// when it is instantiable AND holds an empty anonymous object, `:26839`).
+    /// So `Pick<Readonly<FC<V> & EP>, "a">`'s member
+    /// `Readonly<FC<V> & EP>["a"]` is inferred to as `V & EP["a"]`.
+    ///
+    /// Not ported here: the union arms, the generic-tuple arm, and the
+    /// mapped arm's added optionality from the modifiers type
+    /// (`getCombinedMappedTypeOptionality`); only the mapped type's own `?`
+    /// adds `undefined`. `None` where a step cannot be computed. Per query,
+    /// no cache (native memoises in `cachedTypes`).
+    fn inference_simplified_indexed_access(
+        &mut self,
+        target: TypeId,
+        depth: u32,
+    ) -> Option<TypeId> {
+        use crate::flags::TypeFlags;
+        let &(object, index, _) = self.deferred_indexed_access_types.get(&target)?;
+        if depth > 8 || self.store.get(index).flags.intersects(TypeFlags::INSTANTIABLE) {
+            return None;
+        }
+        let object = if self.deferred_indexed_access_types.contains_key(&object) {
+            self.inference_simplified_indexed_access(object, depth + 1).unwrap_or(object)
+        } else {
+            object
+        };
+        if let TypeData::Intersection { types, .. } = &self.store.get(object).data {
+            let types = types.clone();
+            let defers = types
+                .iter()
+                .any(|&part| self.store.get(part).flags.intersects(TypeFlags::INSTANTIABLE))
+                && types.iter().any(|&part| {
+                    part == self.intrinsics.empty_object
+                        || self.is_unaliased_empty_type_literal(part)
+                });
+            if defers {
+                return None;
+            }
+            let mut parts = Vec::with_capacity(types.len());
+            for part in types {
+                let accessed = self.resolved_indexed_access_type(part, index, false)?;
+                let accessed = if self.deferred_indexed_access_types.contains_key(&accessed) {
+                    self.inference_simplified_indexed_access(accessed, depth + 1)
+                        .unwrap_or(accessed)
+                } else {
+                    accessed
+                };
+                parts.push(accessed);
+            }
+            return Some(self.get_intersection_type(&parts, None));
+        }
+        self.ensure_mapped_type_info(object);
+        let info = self.mapped_types.get(&object)?.clone();
+        if info.name_type.is_some() || !self.is_generic_index_type(info.constraint) {
+            return None;
+        }
+        let template = self.mapped_template_type(&info);
+        let substituted =
+            self.instantiate_type(template, &[(info.parameter, index)], &[info.parameter], &[]);
+        if self.is_error(substituted) {
+            return None;
+        }
+        Some(if self.deferred_indexed_access_types.contains_key(&substituted) {
+            self.inference_simplified_indexed_access(substituted, depth + 1).unwrap_or(substituted)
+        } else {
+            substituted
+        })
+    }
+
     fn infer_from_types_within(
         &mut self,
         source: TypeId,
@@ -4375,6 +4453,17 @@ impl<'a> Checker<'a, '_> {
                 info.top_level = false;
             }
             return;
+        }
+        // inferFromTypes' type-variable arm (`inference.go:217-219`): "infer
+        // to the simplified version of an indexed access, if possible, to
+        // (hopefully) expose more bare type parameters to the inference
+        // engine". Native continues to its structural arms afterwards; so
+        // does this.
+        if self.deferred_indexed_access_types.contains_key(&target)
+            && let Some(simplified) = self.inference_simplified_indexed_access(target, 0)
+            && simplified != target
+        {
+            self.infer_from_types_within(source, simplified, original, parameters, out, depth + 1);
         }
         if let (Some((source_symbol, source_inner)), Some((target_symbol, target_inner))) = (
             self.string_mapping_types.get(&source).cloned(),
@@ -5991,6 +6080,10 @@ impl<'a> Checker<'a, '_> {
             Some(Node::FunctionTypeNode(node)) => node.type_parameters,
             _ => return signature,
         };
+        // typeParameterShadowsOtherTypeParameterInScope resolves from the
+        // node builder's enclosing declaration, the assertion's parent
+        // (`type_symbol_baseline.go:394`), never from the printed name.
+        let enclosing = self.nodes.parent(reference).unwrap_or(reference);
         let mut map = Vec::new();
         let mut renames: Vec<Option<String>> = Vec::with_capacity(own.len());
         for ((parameter, &own_type), declaration) in
@@ -6010,7 +6103,7 @@ impl<'a> Checker<'a, '_> {
                         .resolve_name(
                             self.nodes,
                             self.node_map,
-                            reference,
+                            enclosing,
                             &parameter.name,
                             tsr_binder::SymbolFlags::TYPE,
                         )
@@ -6029,7 +6122,7 @@ impl<'a> Checker<'a, '_> {
             // holds ZERO renames at neutral sites — the byText half does not
             // exist in this corpus and regressed 763 lines when built.
             let fresh_name = shadowed.then(|| {
-                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), reference)
+                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), enclosing)
             });
             if let Some(fresh_name) = fresh_name {
                 let fresh = self.store.new_named(

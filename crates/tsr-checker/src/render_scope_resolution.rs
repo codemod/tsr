@@ -46,7 +46,6 @@ use crate::checker::Checker;
 impl Checker<'_, '_> {
     /// `resolveName` from a print site, inside the node builder's signature
     /// scopes.
-    #[expect(dead_code, reason = "consumer: r6-typesroots2-shadowed-type-parameter-rename.diff")]
     pub(crate) fn resolve_name_at_print_site(
         &self,
         reference: tsr_ast::NodeId,
