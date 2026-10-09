@@ -230,3 +230,73 @@ symbol-chain printer (`tsr-2zk.39`, main's), which this lane does not port.
 Falsifier: with `getWithAlternativeContainers` in `symbol_chain`, this diff
 measures ≥ +16 types and the two EMPTY_RIGHT cases stay right. If they
 still report TS2883 then, the gate is wrong.
+
+### 3.4 `r6-specifiers-composite-slots.diff` — intersections and plain tuples at the site (+14, TS2883 +1)
+
+Files: `printing.rs` (r6-lazytext's; two functions beside `union_text_at`)
+and `checker.rs` (main's; two calls after `union_text_at` in
+`type_to_string_at_worker`). Independent of §3.1–§3.3; measured on §3.1 +
+§3.2.
+
+The node builder prints every slot of a composite through
+`typeToTypeNodeHelper`, so a constituent from another module takes its
+`import("…")` qualifier wherever it sits. This port mints composite text
+at creation (inside view) and re-renders at the site only the shapes that
+have an at-site arm: unions (`union_text_at`), references, signatures,
+type literals. Intersections and tuples had none, so their members printed
+bare: `[SomeProps, OtherProps, …]` where native prints
+`[import("foo").SomeProps, …, import("foo/node_modules/nested").NestedProps]`.
+That bare print is why `declarationEmitCommonJsModuleReferencedType`'s
+TS2883 never reached the r5-modules §6 sink (r6-smallcodes4 §4).
+
+- `intersection_text_at`: an intersection no alias names prints each
+  constituent through `type_to_string_at`, parenthesised by the same
+  `binds_below_intersection` rule its minted text uses.
+- `tuple_text_at`: a plain tuple (`create_tuple_type`'s; no labels,
+  optional, rest or variadic elements, which keep their minted text) prints
+  each element at the site.
+
+Either declines, and the minted text stands, when any slot declines.
+
+**Measured** unfiltered, on §3.1 + §3.2: **types +14, 0 lost**
+(`accessorsOverrideProperty8` 3, `tsxSpreadDoesNotReportExcessProps`,
+`reactReadonlyHOCAssignabilityReal`, `reactHOCSpreadprops`,
+`reactDefaultPropsInferenceSuccess`, `jsxElementType` 2 each,
+`declarationEmitTypeParameterNameShadowedInternally` 1); **diagnostics
++1, 0 lost** (`declarationEmitCommonJsModuleReferencedType`, TS2883);
+`slowcases` clean; Ir dm 1,092.49 M → 1,092.40 M (three runs each), gi
+within ±0.01%. The case's four type lines stay WRONG on one member:
+`import("foo/other").OtherIndexProps` where native keeps
+`foo/other/index`, because `processEnding` keeps `/index` when a file
+shares the directory's name (`tryGetAnyFileFromPath`, `util.go:194`,
+`foo/other.d.ts` here). That probe asks the file system, which the
+checker's host does not keep after loading (r5-modules §4.2); the fix is a
+loader-side precompute like `extensionless_relative_import`, not built.
+
+## 4. TS2883 (item 3)
+
+| Case | State | Cause |
+|---|---|---|
+| `declarationEmitCommonJsModuleReferencedType` | RIGHT with §3.4 | tuple slots at the site |
+| `declarationEmitReexportedSymlinkReference3` | RIGHT with §3.3 (held) | by coincidence: wrong container, right code and position (§3.3) |
+| `declarationEmitObjectAssignedDefaultExport` | WRONG | with §3.4 the intersection prints at the site, but `NonReactStatics` takes the alias `hoistNonReactStatics.` (`best_name` finds a namespace import in `styled-components`' own file); native has no accessible chain and spells `import("styled-components/node_modules/hoist-non-react-statics")`. The accessibility walk, `tsr-2zk.39`. Its other six lines want `StyledComponent<"div">`: native drops the trailing type arguments equal to their defaults (the node builder's default-argument elision), a printer piece, not a specifier. |
+| `declarationEmitUsingTypeAlias1` | WRONG | r6-smallcodes4 §3.2's import-type diff, then the alias name through `getSymbolChain` (`tsr-2zk.39`) |
+
+## 5. Remaining, with causes
+
+| Case(s) | Lines | Cause | Owner |
+|---|---|---|---|
+| `declarationEmitReexportedSymlinkReference{,2,3}`, `declarationEmitForGlobalishSpecifierSymlink{,2}`, `symbolLinkDeclarationEmitModuleNames{,RootDir}`, `typesVersionsDeclarationEmit.multiFileBackReferenceToUnmapped`, `reactTransitiveImportHasValidDeclaration` | ~45 | the container: native names the symbol through a module that re-exports it and that the enclosing file reaches (`getWithAlternativeContainers` / `getAlternativeContainingModules`, `symbolaccessibility.go`); TSR names the declaring file | `tsr-2zk.39` (main) |
+| `symlinkedWorkspaceDependenciesNoDirectLink*` (4 cases, 16 lines) | 16 | convert with §3.1 + §3.3; §3.3 is held on the row above | §3.3 |
+| `declarationsIndirectGeneratedAliasReference`, `duplicatePackage` | 11 | a default-exported class prints by its local name (`Ctor`, `X`) where the chain ends in the export name (`import("mod").default`); `duplicatePackage` also needs `GetRedirectTargets` (the loader's duplicate-package table) | `tsr-2zk.39`; `tsr-compiler` |
+| `legacyNodeModulesExportsSpecifierGenerationConditions` | 3 | the members of `(await import("inner"))`'s synthesized namespace object print from minted text, not at the site | printer (main / r6-lazytext) |
+| `declarationEmitCommonJsModuleReferencedType` | 4 | `tryGetAnyFileFromPath` (§3.4) | loader + `module_specifiers.rs` |
+| `moduleResolutionWithSymlinks{,_withOutDir}` | 8 + 2 diagnostics cases | `export { T }` of a local type reads `any` (§1); not symlinks | `symbols.rs` (main) |
+| `inferrenceInfiniteLoopWithSubtyping` | 2 | `Readonly<{ [key: string]: Readonly<T>; }>` prints as the alias `ObjMapReadOnly<T>`: alias naming of an instantiated alias, not a specifier | printer / `declared.rs` |
+| `jsDeclarationsWithDefaultAsNamespaceLikeMerge` | 5 | a JS default-export namespace merge types `computed` as an index signature (`{ [x: string]: Computed; }`) | JS binder/checker (main) |
+| `mergeSymbolReexportInterface`, `mergeSymbolReexportedTypeAliasInstantiation` | 3 | `Row2` reads `any`: a module augmentation into a re-exported interface/alias (r6-smallcodes4 §5's TS1362 cause) | binder (main) |
+| `inlineJsxFactoryDeclarationsLocalTypes` | 3 | `children?: predom.JSX.Element[]` inside a JSX props literal keeps its minted text | printer (main / r6-lazytext) |
+| `umd8` | 6 | a UMD global used from a module reads `any` | binder/`symbols.rs` (main) |
+
+The `.16.77` rows after the first three were classified by their printed
+difference only; none prints a module specifier wrong.
