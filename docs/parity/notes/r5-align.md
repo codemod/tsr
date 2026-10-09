@@ -290,6 +290,79 @@ printed no transition for it. `parity_gate.sh compare` already counts such a
 key as `TYPE_MISSING`. The hand-rolled `join` in `box-protocol.md` §5.2 still
 drops it, so the integrator's gate should keep its missing-key check.
 
+## 7. `examples/any_audit.rs`: its control restored
+
+Integrator item, reported by r5-shapes. At `5ef1036`, `any_audit` failed its own
+assertion: `UNCLASSIFIED` 912 banked plus 85 lost, and `DISAGREEMENT` 979, for
+1,976 in total. Its producer column (`TSR_ANY_DUMP`, `target/any_lost_lines.tsv`)
+is what `r5-typetriage` attributes `any` lines by.
+
+### What drifted
+
+The classifier re-derived *which branch of `type_at_location` printed the
+line*, using its own copy of the branch conditions. Three things had moved
+under it:
+
+1. **It used a bare checker.** It built `Checker::new(bound, nodes, map)`:
+   no module host, no JSDoc table, default compiler options. The producer
+   renders through `types_producer::configured_checker`. This is the defect
+   `examples/depend.rs` had (`bd tsr-6.29`). Switching to the configured
+   checker: 1,976 → 680.
+2. **It mirrored 9 of the producer's 17 arms, in a different order.** Since
+   the mirror was written the producer gained, or reordered, the `with`-body,
+   meta-property, `typeof`-query, specifier property-name, type-only
+   specifier, type-only import clause, and import/export-assignment arms. It
+   also gained the import/export statement-name writer arm. The binding
+   property-name and label arms now print `any` unconditionally, where the
+   mirror tested for an `error` answer first. The fall-through also requires
+   `is_expression_node`, which the mirror did not: 78 `JsxNamespacedName`
+   lines. A declaration name is typed through `merged_symbol`.
+3. **`is_error` tested the gap alone.** ADR-0048 split `errorType` into
+   the gap and `native_error`. Widened to both. This **moved nothing**
+   (680 → 680) and is kept only because it is the right test.
+
+### The fix
+
+The producer now records the arm where the arm is decided.
+`types_producer::type_id_at_location_arm` is the producer's body with a
+`ProducerArm` out-parameter set at each of its 23 returns.
+`type_id_at_location_tracking` calls it and discards the arm, so every existing
+caller is unchanged. The classifier asks the producer for the arm, then
+attributes inside that arm only (`attribute`), keeping each arm's existing
+reason text where it had one. A drift of the old kind is now impossible: the
+classifier never decides the arm itself. Its control still tests what remains,
+namely that the attributing branch's own type prints `any`.
+
+Considered and rejected:
+- **Re-mirroring the 17 arms by hand.** That is how it drifted, and the producer
+  keeps gaining arms.
+- **Deleting the control.** Triage relies on the column, and the column is
+  only as good as the control.
+
+**35 lines are order-dependent, not drift.** The producer itself, asked again
+after the walk, no longer answers a type that prints `any` there: contextually
+typed parameters, circular initialisers and re-exported defaults, in
+`genericRestParameters1`, `returnInfiniteIntersection`, `esmModuleExports1`
+and others. This is §781's finding (the checker is order-dependent), and no
+replay can attribute those lines. They get their own `ORDER-DEPENDENT` row
+and a printed count, outside the asserted control.
+
+`any_audit` now reads baselines with `expected_for_case`, the suite's reader
+(§2.3), so its reconciliation against `coverage` holds.
+
+### Measured
+
+| | `5ef1036` | after |
+|---|---:|---:|
+| `UNCLASSIFIED` banked / lost | 912 / 85 | 0 / 0 |
+| `DISAGREEMENT` | 979 | 0 |
+| `ORDER-DEPENDENT` (outside the control) | n/a | 35 |
+| exit status | 134 (assertion) | 0 |
+
+`verdictdump` before and after the instrumentation is byte-identical with the
+guard columns stripped. The arm is recorded, never consulted, on the render
+path.
+
 ## 4. Follow-ups
 
 - **`noCircularitySelfReferentialGetter2` hangs** (§5): over 120 s and

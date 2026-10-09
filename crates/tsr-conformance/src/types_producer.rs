@@ -528,8 +528,83 @@ pub fn type_id_at_location_tracking<'a>(
     id: NodeId,
     saw_checker_error: &mut bool,
 ) -> tsr_checker::TypeId {
+    type_id_at_location_arm(
+        checker,
+        binder,
+        nodes,
+        map,
+        id,
+        saw_checker_error,
+        &mut ProducerArm::NoArm,
+    )
+}
+
+/// Which arm of [`type_id_at_location_arm`] answered a node: the branch that
+/// returned, in the producer's own order.
+///
+/// `examples/any_audit.rs` attributes each printed `any` to its producer.
+/// It used to re-derive the branch with a hand-written mirror of this
+/// function, and the mirror drifted: nine arms against this function's
+/// seventeen, in a different order, under a bare checker. At `5ef1036`,
+/// 1,976 lines failed its control (`docs/parity/notes/r5-align.md` §7). The
+/// arm is now recorded where it is decided, so it cannot drift.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ProducerArm {
+    /// The id has no node.
+    NoNode,
+    /// Inside a `with` statement's body: `errorType` (`NodeFlagsInWithStatement`).
+    WithStatementBody,
+    /// The writer's base-class workaround (`type_symbol_baseline.go:370`).
+    ExtendsBase,
+    /// A type declaration's own name: its declared type.
+    TypeDeclarationName,
+    /// The name side of a property access.
+    PropertyAccessName,
+    /// The name of a meta-property.
+    MetaPropertyName,
+    /// A name inside a `typeof` query's qualified name.
+    TypeQueryName,
+    /// The property name of an import or export specifier.
+    SpecifierPropertyName,
+    /// The name of a type-only import or export specifier.
+    TypeOnlySpecifierName,
+    /// The name of a type-only import clause.
+    TypeOnlyImportClauseName,
+    /// Any other declaration name: the type of its symbol.
+    DeclarationName,
+    /// The right side of an import-equals or export assignment.
+    ImportExportAssignmentRight,
+    /// The left of a qualified name in type position: `any` (writer).
+    QualifiedNameLeft,
+    /// The property name of a binding element: `any` (writer).
+    BindingPropertyName,
+    /// A label name: `any` (writer).
+    LabelName,
+    /// An import or export statement name answering error or `any` (writer).
+    StatementName,
+    /// An intrinsic JSX tag name answering error or `any` (writer).
+    IntrinsicJsxTag,
+    /// The expression fall-through: `checkExpression`.
+    Expression,
+    /// No arm: `errorType`.
+    NoArm,
+}
+
+/// [`type_id_at_location_tracking`], also naming the arm that answered.
+pub fn type_id_at_location_arm<'a>(
+    checker: &mut tsr_checker::Checker<'a, '_>,
+    binder: &tsr_binder::BindResult<'a>,
+    nodes: &NodeTable,
+    map: &NodeMap<'a>,
+    id: NodeId,
+    saw_checker_error: &mut bool,
+    arm: &mut ProducerArm,
+) -> tsr_checker::TypeId {
     let error = checker.intrinsics().error;
-    let Some(node) = map.get(id) else { return error };
+    let Some(node) = map.get(id) else {
+        *arm = ProducerArm::NoNode;
+        return error;
+    };
 
     // `getTypeOfNode` (`checker.go:31927`) opens with `if
     // node.Flags&ast.NodeFlagsInWithStatement != 0 { return c.errorType }` —
@@ -539,6 +614,7 @@ pub fn type_id_at_location_tracking<'a>(
     // parser does not record it, so the ancestor walk recomputes it.
     if in_with_statement_body(id, nodes, map) {
         *saw_checker_error = true;
+        *arm = ProducerArm::WithStatementBody;
         return error;
     }
 
@@ -568,6 +644,7 @@ pub fn type_id_at_location_tracking<'a>(
         && let Some(&base) = checker.get_base_types(class_symbol).first()
         && !checker.type_of(base).flags.contains(tsr_checker::flags::TypeFlags::ANY)
     {
+        *arm = ProducerArm::ExtendsBase;
         return base;
     }
 
@@ -581,6 +658,7 @@ pub fn type_id_at_location_tracking<'a>(
         && let Some(symbol) = binder.symbol_of(parent)
     {
         let declared = checker.get_declared_type_of_symbol(symbol);
+        *arm = ProducerArm::TypeDeclarationName;
         return declared;
     }
 
@@ -610,8 +688,10 @@ pub fn type_id_at_location_tracking<'a>(
         // whole access taking the fast path and its NAME not.
         if is_error_identity(checker, computed) || computed == checker.intrinsics().any {
             *saw_checker_error |= computed == error;
+            *arm = ProducerArm::PropertyAccessName;
             return checker.intrinsics().any;
         }
+        *arm = ProducerArm::PropertyAccessName;
         return computed;
     }
 
@@ -629,8 +709,10 @@ pub fn type_id_at_location_tracking<'a>(
         let computed = checker.check_expression(expression);
         if computed == error {
             *saw_checker_error = true;
+            *arm = ProducerArm::MetaPropertyName;
             return checker.intrinsics().any;
         }
+        *arm = ProducerArm::MetaPropertyName;
         return computed;
     }
 
@@ -656,8 +738,10 @@ pub fn type_id_at_location_tracking<'a>(
         let computed = checker.check_qualified_name(qualified);
         if is_error_identity(checker, computed) || computed == checker.intrinsics().any {
             *saw_checker_error |= computed == error;
+            *arm = ProducerArm::TypeQueryName;
             return checker.intrinsics().any;
         }
+        *arm = ProducerArm::TypeQueryName;
         return computed;
     }
 
@@ -709,8 +793,10 @@ pub fn type_id_at_location_tracking<'a>(
             };
             if is_error_identity(checker, computed) {
                 *saw_checker_error |= computed == error;
+                *arm = ProducerArm::SpecifierPropertyName;
                 return checker.intrinsics().any;
             }
+            *arm = ProducerArm::SpecifierPropertyName;
             return computed;
         }
     }
@@ -783,6 +869,7 @@ pub fn type_id_at_location_tracking<'a>(
         // alias merged with a local type declaration answers that
         // declaration's type, and an alias answers `getDeclaredTypeOfAlias`
         // — the declared type at the END of its chain (`resolveAlias`).
+        *arm = ProducerArm::TypeOnlySpecifierName;
         return declared_type_of_symbol(checker, binder, binder.merged_symbol(symbol));
     }
 
@@ -801,6 +888,7 @@ pub fn type_id_at_location_tracking<'a>(
         && let Some(symbol) = binder.symbol_of(parent)
     {
         let target = checker.resolve_alias(symbol).unwrap_or(symbol);
+        *arm = ProducerArm::TypeOnlyImportClauseName;
         return checker.get_declared_type_of_symbol(target);
     }
 
@@ -815,6 +903,7 @@ pub fn type_id_at_location_tracking<'a>(
         && let Some(symbol) = binder.symbol_of(parent)
     {
         let computed = checker.get_type_of_symbol(binder.merged_symbol(symbol));
+        *arm = ProducerArm::DeclarationName;
         return computed;
     }
 
@@ -857,8 +946,10 @@ pub fn type_id_at_location_tracking<'a>(
             )
         {
             *saw_checker_error |= computed == error;
+            *arm = ProducerArm::ImportExportAssignmentRight;
             return checker.intrinsics().any;
         }
+        *arm = ProducerArm::ImportExportAssignmentRight;
         return computed;
     }
 
@@ -917,6 +1008,7 @@ pub fn type_id_at_location_tracking<'a>(
         let enclosing = nodes.parent(outermost).map(|above| nodes.kind(above));
 
         if enclosing != Some(SyntaxKind::TypeQuery) {
+            *arm = ProducerArm::QualifiedNameLeft;
             return checker.intrinsics().any;
         }
     }
@@ -984,6 +1076,7 @@ pub fn type_id_at_location_tracking<'a>(
         && let Some(Node::BindingElement(element)) = map.get(parent)
         && element.property_name.and_then(|name| name.node_id()) == Some(id)
     {
+        *arm = ProducerArm::BindingPropertyName;
         return checker.intrinsics().any;
     }
 
@@ -1022,6 +1115,7 @@ pub fn type_id_at_location_tracking<'a>(
     // `IsLabelName` guard prints `any`.
     if is_label_name(id, nodes, map) {
         *saw_checker_error = true;
+        *arm = ProducerArm::LabelName;
         return checker.intrinsics().any;
     }
 
@@ -1172,6 +1266,7 @@ pub fn type_id_at_location_tracking<'a>(
             .map_or(error, |expression| checker.check_expression(expression));
         if is_error_identity(checker, computed) || computed == checker.intrinsics().any {
             *saw_checker_error |= computed == error;
+            *arm = ProducerArm::StatementName;
             return checker.intrinsics().any;
         }
     }
@@ -1186,6 +1281,7 @@ pub fn type_id_at_location_tracking<'a>(
             .map_or(error, |expression| checker.check_expression(expression));
         if is_error_identity(checker, tag) || tag == checker.intrinsics().any {
             *saw_checker_error |= tag == error;
+            *arm = ProducerArm::IntrinsicJsxTag;
             return checker.intrinsics().any;
         }
     }
@@ -1200,8 +1296,10 @@ pub fn type_id_at_location_tracking<'a>(
         && let Ok(expression) = tsr_ast::Expression::try_from(node)
     {
         let computed = checker.check_expression(expression);
+        *arm = ProducerArm::Expression;
         return computed;
     }
+    *arm = ProducerArm::NoArm;
     error
 }
 
