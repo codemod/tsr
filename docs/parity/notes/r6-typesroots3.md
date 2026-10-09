@@ -245,3 +245,89 @@ signature. Emulating the identity ("the parameter is a naked type parameter
 inferred from this very argument") would re-derive native's decision outside
 its algorithm (`box-protocol.md` §3a), so it is not attempted. Owner: lazy
 signature returns (main; the same wall as r5-instexpr §2.5).
+
+## 4. The held conditional-node pair: its blocker is five ports deep, two shipped
+
+**Re-base.** Batch BU had not landed when this item started, so this branch
+merged `claude/beautiful-shannon-ar5gh0-r6-typesroots2` (BU's commits) and
+applied BU's three diffs in the working tree for every measurement in this
+section: base `BU` = `f334de9` + that merge + diffs 1-3 of
+`r6-typesroots2.md` §6: types 550,408 RIGHT / 5,151 WRONG / 744 GAP,
+diagnostics 12,238 cases, Ir 1,091,010,319 / 343,080,835. (BU measured +67
+on `e6eadf4`; on `f334de9` the same three diffs are 58 WRONG→RIGHT, 9
+GAP→RIGHT, 4 GAP→WRONG, zero losses, which is BU's own transition set.)
+
+**The held diff re-measured.** `r6-typesroots2-HELD-conditional-node-consumers.diff`
+on base `BU` with this note's §2 diffs and §4.2 below: types **+112**
+(98 WRONG→RIGHT, 14 GAP→RIGHT; 15 GAP→WRONG, 1 WRONG→GAP), **zero type
+losses**, and still the one diagnostics loss:
+complicatedIndexesOfIntersectionsAreInferencable EMPTY_RIGHT → EMPTY_WRONG
+(TS2339 on `props.foo`, `props : object`).
+
+### 4.1 What native actually does with that call (the brief's name is not the mechanism)
+
+r6-typesroots2 §2 named the blocker INFERENCE-REVERSE-MAPPED-INTERSECTION,
+reverse inference into `Readonly<FormikConfig<Values> & ExtraProps>`. Read
+against the pinned source and probed piece by piece with the pinned `tsgo`,
+that branch infers nothing natively:
+
+- `getIndexType(FC<V> & EP)` is the union `keyof FC<V> | keyof EP`
+  (literals plus a deferred `keyof EP`), so `inferToMappedType`
+  (`inference.go:948`) walks the union, reaches the `Index` constituent, finds
+  no inference for `FC<V> & EP` (it is not a type parameter), and returns
+  `true` (`:971`): no structural inference follows.
+  `declare function F1<V = object, EP = {}>(x: Readonly<FC<V> & EP>): V`
+  infers `V = object` natively (probed).
+- `Values` comes from the conditional's FALSE branch,
+  `Pick<Readonly<FC<V> & EP>, "validate" | "initialValues" | Exclude<keyof EP,
+  "validateOnChange">> & Partial<Pick<…>>` (probed: the Pick alone infers
+  `{ foo: string }`). That needs, in order:
+  1. `couldContainTypeVariables`' union-OR-intersection arm (an
+     intersection argument was not walked) — ported, §4.2;
+  2. inference to the simplified indexed access (`inference.go:217`):
+     the Pick member `Readonly<FC<V> & EP>["initialValues"]` → the mapped
+     arm `(FC<V> & EP)["initialValues"]` → the intersection arm
+     `V & EP["initialValues"]`, whose one naked variable is `V` — ported,
+     §4.2;
+  3. the Pick's member keys: `getLowerBoundOfKeyType` (`checker.go:21021`)
+     maps the distributive `Exclude<keyof EP, …>` through `keyof EP`'s lower
+     bound (`keyof {}` = `never`). `mapped_member_keys` declines any generic
+     constituent, so `Pick<…, "validate" | "initialValues" | Exclude<…>>` has
+     no members here. Owner: `mapped.rs` (r6-declared2), with the conditional
+     instantiation in `declared.rs`. Not ported;
+  4. the candidate-free `EP` must resolve to its default:
+     `check_generic_call_worker` (`inference.rs`, main, "Structural inference
+     is still incomplete") refuses the whole call when a parameter with no
+     candidate is mentioned by a parameter type that received a source.
+     `EP` occurs only as an indexed-access object (`EP["initialValues"]`),
+     where native infers nothing. Measured with the refusal bypassed (a
+     probe, not a port): `F13<V = object, EP = {}>(x: (FC<V> &
+     EP)["initialValues"])` and `Pick<FC<V> & EP, …>` then infer `{ foo:
+     string }` as native. A port needs a certificate that every occurrence
+     is a non-inferring position; not attempted;
+  5. inference to the conditional target's two branches
+     (`inferToConditionalType`), unverified here because 3-4 stop first.
+
+So the held diff still waits, now on 3 and 4 rather than on reverse mapped
+inference.
+
+### 4.2 `…-inference-intersection-indexed-access.diff` (inference.rs, main)
+
+Steps 1 and 2 above:
+
+- `could_contain_parameter_inner`'s union arm also takes an intersection
+  (`couldContainTypeVariables`, `TypeFlagsUnionOrIntersection`). Without it
+  `Readonly<FC<V> & E>` (concrete `E`) was treated as parameter-free and
+  `G1({ initialValues: { foo: "" }, … })` inferred `object`; native `{ foo:
+  string }` (probed).
+- `inference_simplified_indexed_access`: `getSimplifiedIndexedAccessType`'s
+  generic-mapped arm (`substituteIndexedMappedType`) and intersection arm
+  (`distributeIndexOverObjectType`, gated by `shouldDeferIndexType`'s
+  intersection clause), applied where `inferFromTypes` applies it, before the
+  structural arms, which still run. Stated gaps: the union arms, the
+  generic-tuple arm, and the modifiers-type optionality of the mapped arm.
+
+**Measured** (on base `BU`, alone): types **+2 WRONG→RIGHT**
+(defaultDeclarationEmitNamedCorrectly), zero losses on both dumps, slowcases
+clean, Ir ×1.00044 / ×1.00000. Small alone; it is the half of the held pair
+this lane can reach. The test pins both arms and fails without the diff.
