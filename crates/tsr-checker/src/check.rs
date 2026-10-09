@@ -12525,6 +12525,21 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(left) else { return };
+        // `isInDiag2657` (`checker.go:12537`): adjacent JSX elements parse as a
+        // synthetic comma expression under a TS2657 parse diagnostic, and the
+        // comma report stands down for a left operand starting inside one.
+        // `r5-smallcodes2.md` §2.2.
+        let start = self.nodes.span(left).start;
+        if self.module_host.is_some_and(|host| {
+            host.parse_diagnostics(file, self.nodes).iter().any(|diagnostic| {
+                diagnostic.message.code()
+                    == messages::JSX_EXPRESSIONS_MUST_HAVE_ONE_PARENT_ELEMENT.code()
+                    && diagnostic.span.start <= start
+                    && start < diagnostic.span.end
+            })
+        }) {
+            return;
+        }
         let span = self.error_span(left);
         self.report(
             file,

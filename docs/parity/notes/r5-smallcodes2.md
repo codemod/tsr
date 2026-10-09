@@ -7,7 +7,7 @@ TS2695, TS2403, TS1156, TS2454 or TS7010.
 
 Frozen baseline: branch head `e20cdd4` (batch AH snapshots). Diagnostics dump
 12,238 rows, 11,021 RIGHT or EMPTY_RIGHT (5,431 + 5,590), 1,160 WRONG, 57
-EMPTY_WRONG; types dump 556,293 lines, 548,751 RIGHT, 900 GAP, 6,640 WRONG.
+EMPTY_WRONG; types dump 556,291 lines, 548,751 RIGHT, 900 GAP, 6,640 WRONG.
 
 Cases were listed with a throwaway script over `diagverdictdump`: WRONG and
 EMPTY_WRONG rows whose differing `(file, line, column, code)` entries all carry
@@ -88,7 +88,20 @@ empty list, `using` placement) is not added: no listed case needs it.
 
 ### 2.2 TS2695 inside a TS2657 range
 
-*In progress.*
+`checkBinaryLikeExpressionWorker`'s comma arm (`checker.go:12534`) skips the
+report when the left operand's first token lies inside a TS2657 parse
+diagnostic (`isInDiag2657`, reading `sourceFile.Diagnostics()`). The parser
+builds `<div/><div/>` as a synthetic comma expression and reports TS2657 over
+it, so without the exemption every adjacent-JSX recovery also reported
+TS2695.
+
+The checker had no way to read parse diagnostics: `FileContext` carries only
+`has_parse_errors`. `ModuleHost` gains `parse_diagnostics(file, nodes)`,
+witnessed against the node table as `source_text` is, defaulting to none;
+`Program` answers its `ProgramFile`'s list. Rejected: adding the list to
+`FileContext`, which every one of its ten constructors would have to fill, and
+re-deriving the TS2657 range from the tree, which would be a second copy of
+the parser's recovery.
 
 ### 2.3 TS2300 from `lateBindMember`
 
@@ -130,6 +143,26 @@ a missing TS2717).
   global-augmentation merge comment in `binder.rs` explains why), and the
   diagnostic road answers the one name on the `typeof globalThis` receiver
   directly. The type road already printed `any` there.
+
+### 2.5 Measured
+
+§2.1–§2.4 together, four commits, both dumps unfiltered against the frozen
+base, both loss checks empty:
+
+- diagnostics: 11,021 → 11,031 RIGHT or EMPTY_RIGHT of 12,238. Converted:
+  `constDeclarations-invalidContexts(alwaysstrict=true)`,
+  `letDeclarations-invalidContexts`,
+  `exportNonInitializedVariablesInIfThenStatementNoCrash1` (commonjs,
+  esnext), `jsxInvalidEsprimaTestSuite`, `tsxErrorRecovery2`,
+  `tsxErrorRecovery3`, `symbolProperty44`, `readonlyMembers(target=es2015)`,
+  `globalThisReadonlyProperties`. No other row changed verdict.
+- type lines: 548,751 RIGHT of 556,291, verdict columns unchanged.
+- slowcases: only the KNOWN_SLOW cases, on both dumps.
+- Ir (callgrind, release binaries, `--singleThreaded --pretty false`):
+  domain-model 1,156,062,302 → 1,155,964,115 (−0.008%), generic-imports
+  342,945,542 → 342,943,020 (−0.001%); CLI output `cmp`-identical.
+- `cargo test --workspace --release` passes; clippy reports nothing in the
+  touched files (stable 1.97 flags pre-existing code elsewhere).
 
 ## 3. Measured diffs and reports for other files
 

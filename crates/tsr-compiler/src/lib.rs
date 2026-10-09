@@ -1169,6 +1169,14 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
         Some(self.files[index].text())
     }
 
+    fn parse_diagnostics(&self, file: NodeId, nodes: &NodeTable) -> &[tsr_diagnostics::Diagnostic] {
+        if !std::ptr::eq(nodes, self.nodes()) {
+            return &[];
+        }
+        let Some(&index) = self.files_by_source_file.get(&file) else { return &[] };
+        self.files[index].diagnostics()
+    }
+
     fn module_resolution_found(&self, importing_file: NodeId, specifier: &str) -> bool {
         Program::module_resolution_found(self, importing_file, specifier)
     }
