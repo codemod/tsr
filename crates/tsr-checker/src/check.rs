@@ -154,6 +154,8 @@ impl Checker<'_, '_> {
         self.reset_unused_state();
         self.check_top_level_declare_modifiers(file, context.ambient);
         self.check_node(file, context.ambient, 0);
+        // `checkExternalModuleExports`' `getExportsOfModule` (`checker.go:5672`).
+        self.check_export_star_conflicts(file);
         // `checkSourceFile` (`checker.go:2220`) runs the unused-identifier pass
         // *after* the file's own check, because it reads reference marks the
         // check produces. Here the marks come from the walk that just finished,

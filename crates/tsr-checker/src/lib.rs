@@ -131,6 +131,7 @@ mod destructuring_assignment;
 mod emit_helpers;
 mod enum_initializer;
 pub mod enum_member_name;
+mod export_star_conflicts;
 pub mod expressions;
 pub mod flags;
 pub mod flow;
