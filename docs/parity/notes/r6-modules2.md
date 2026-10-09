@@ -553,3 +553,48 @@ Applied on the base (BE + BC):
 
 This commit also fixes a `doc_markdown` lint (`CommonJS`) in §2's
 `check_global_script_namespace` comment.
+
+## 8. Fold-in: one `NodeCanBeDecorated` (item 8, a held diff)
+
+r6-isolated §3 ported `ast.NodeCanBeDecorated` a second time, as
+`isolated_alias.rs::decorated_node_can_be_decorated`, because
+`grammar.rs::node_can_be_decorated` is private. The two turned out not to
+be the same predicate:
+
+- grammar.rs's answered **true** for a legacy-decorator `#private` member.
+  Its doc says why: `NodeCanBeDecorated`'s legacy private-name exit
+  (`ast/utilities.go:4256`) is `check_decorated_private_name`'s report, so
+  `check_grammar_decorator_target` must not report it again. It also left out
+  `GetThisParameter(parent) != node`, because its caller handles a `this`
+  parameter first.
+- r6-isolated's copy is upstream's function, with both exits.
+
+So a plain visibility change would have changed one caller's answers. The
+diff (`r6-modules2-node-can-be-decorated.diff`, main's `grammar.rs` plus this
+lane's `isolated_alias.rs`) does three things:
+
+- makes grammar.rs's `node_can_be_decorated` the faithful body (r6-isolated's)
+  and `pub(crate)`;
+- moves the private-name allowance to grammar's one call site as
+  `|| (self.legacy_decorators && member_name_is_private(typed))`, a new
+  helper over the four member kinds. Since the faithful function is
+  `!(legacy && private) && X`, `faithful || (legacy && private)` is the old
+  `(legacy && private) || X`. The `this` exit cannot change that caller's
+  answer, because a `this` parameter takes the TS1433 arm before the call;
+- deletes the copy and calls the shared function from
+  `check_decorator_linked_references`.
+
+The `isolated_alias.rs` half cannot be committed alone, because it calls a
+function that is private until the `grammar.rs` half lands, so both travel
+in the diff.
+
+### Measured
+
+- Both unfiltered dumps are byte-identical to the base outside the timing
+  columns (`cut -f1-4 | cmp`); `slowcases` clean.
+- Callgrind Ir, domain-model, three pairs: base 1,091,305,518 /
+  1,091,988,649 / 1,091,347,274, new 1,092,229,485 / 1,091,531,518 /
+  1,092,195,758. Mean +0.04%, inside the base binary's own spread across
+  those runs (0.06%). generic-imports 343,057,430 → 343,063,554.
+- `cargo test --workspace --release` with the diff applied: 3,508 passed, 0
+  failed.
