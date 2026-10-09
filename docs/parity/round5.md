@@ -1490,3 +1490,24 @@ Remaining, routed:
 
 r6-specifiers takes module specifiers into node_modules: `.999`, `.1098`,
 `.16.59` and `.16.77`, about 36 blocked cases.
+
+### r6-typesroots finished (batch BL); r6-typesroots2 dispatched
+
+Batch BL lands r6-typesroots' five query files and seven hook diffs, measured
+lossless as a stack (+78 type lines across 29 cases; Ir flat):
+- arity-window errorType: +31;
+- late-bindable index signatures of type literals: +7;
+- typeof reuse for instantiation expressions: +4;
+- dedupe of a signature's merged type parameters: +17;
+- the rest parameter binding pattern's implied type: +6;
+- late-bound destructuring through the apparent type: +2;
+- unqualified type-meaning import types: +11.
+
+Closed: `.16.28/.34/.35/.40/.41/.43/.47/.54`. Released with their causes:
+`.16.14/.16/.21/.32/.36/.46`.
+
+The origin-slice gate (+35/−2) is held. Its losses were right by accident: a
+type literal recursing through a union alias answers Unknown, and fixing that
+needs lazy type-literal members.
+
+r6-typesroots2 takes `.16.65/.69/.73/.74/.7/.6/.76/.79`.
