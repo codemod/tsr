@@ -195,6 +195,7 @@ pub mod readonly_target;
 mod reference_target;
 pub mod relater;
 mod relation_cache;
+mod render_scope_resolution;
 pub mod resolution;
 mod rest_parameter_type;
 mod satisfies;

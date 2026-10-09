@@ -38,9 +38,9 @@ Failing type lines (non-RIGHT) across each cluster's listed cases on
 | Cluster | Failing cases | Lines | Fixed cases | Classification |
 |---|---|---|---|---|
 | `.16.74` CONDITIONAL-INLINE-NODE-INSTANTIATION | 12 of 12 | 121 | — | §2 (held diff) |
-| `.16.69` TYPE-PARAMETER-CONSTRAINT-NODE-REUSE | 10 of 16 | 115 | 6 | §4 |
+| `.16.69` TYPE-PARAMETER-CONSTRAINT-NODE-REUSE | 10 of 16 | 115 | 6 | §4: mostly other roots |
 | `.16.79` TUPLE-OPTIONAL-ELEMENT-OPTIONALITY | 4 of 11 | 85 | 7 | §4: root fixed |
-| `.16.65` SHADOWED-TYPEPARAM-RENAME | 17 of 19 | 80 | 2 | §4 |
+| `.16.65` SHADOWED-TYPEPARAM-RENAME | 17 of 19 | 80 | 2 | §5 (diff) |
 | `.16.73` IMPORT-TYPE-NODE-TYPEOF | 13 of 13 | 44 | — | §3 (diff) |
 | `.16.76` QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE | 11 of 11 | 37 | — | §4 |
 | `.16.6` SYNTHETIC-DEFAULT-IMPORT-TARGET | 3 of 12 | 10 | 9 | §4: resolution fixed |
@@ -184,9 +184,157 @@ the symbol-chain printer (`tsr-2zk.39`, main's claim), not this resolution.
 member, written type arguments, and the type-only-member miss, each
 expectation read from the pinned `tsgo` first.
 
-## 4. What remains, with causes
+## 4. Clusters classified without a port
 
-Filled in as the remaining clusters are classified (§1 order).
+Each failing line of these clusters' cases was classified against the
+pinned native baseline. None still fails for the cluster's own root, so
+nothing is ported for them here.
+
+- **`.16.7` NULL-WIDENING-TYPES-MISSING**: all twelve cases RIGHT on the
+  base. Closeable.
+- **`.16.79` TUPLE-OPTIONAL-ELEMENT-OPTIONALITY**: seven of eleven cases
+  RIGHT. The other four (85 lines) carry **no** optional-element line: no
+  wanted text with `?]`, `?,` or `| undefined]` fails. They are other roots:
+  mappedTypesArraysTuples' `Promise<Awaitified<[…]>>` where native resolves
+  the homomorphic tuple mapping to `Promise<[number]>` (and four
+  `[number, string, ...boolean[]]` gaps); variadicTuples1's literal
+  retention (`[number, true]`, `true[]`) and rest-parameter expansion of a
+  labelled tuple (`(x: number, b: boolean, ...args: string[])`);
+  genericRestParameters1 and variadicTuples2's `any` callees (the §2
+  conditional-consumer gate, and others). Closeable as to its own root.
+- **`.16.6` SYNTHETIC-DEFAULT-IMPORT-TARGET**: nine of twelve RIGHT. The
+  resolution half is done: `import React from "react"` reaches the
+  namespace. The remaining 10 lines print it `typeof import("react").React`
+  where native writes `typeof React`, the default-import alias found by
+  `getAccessibleSymbolChain`'s `trySymbolTable` (TRY-SYMBOL-TABLE-DEFAULT-IMPORT-ALIAS).
+  That is the symbol-chain printer, `tsr-2zk.39`, which main has claimed.
+- **`.16.76` QUALIFIED-TYPEREF-GET-TYPE-REFERENCE-TYPE**: all 11 cases fail,
+  but 31 of the 37 lines already resolve the right type and choose a
+  different NAME: `M.T0` for `T0`, `Points.Point` for `A.Point`,
+  `server.IServer` for `import("./…_server").IServer`, `Math2d.Point` for
+  `m.Point`, `teams.calling.Foo` for `import("./a").Foo`. That is the same
+  symbol-chain printer (`tsr-2zk.39`). The rest: umd8 (6 lines) is a UMD
+  global alias in type position (`declare let y: Foo` over `export = Thing`),
+  which needs both the alias road `declared.rs` declines for ES and UMD
+  aliases (§158's naming wall) and r6-typesroots' `export =` instance print
+  (`r6-typesroots.md` §8); chained2 (4) is a type-only re-export used as a
+  value; enumLiteralAssignableToEnumInsideUnion (1) is enum-union print
+  order.
+- **`.16.69` TYPE-PARAMETER-CONSTRAINT-NODE-REUSE**: six of sixteen RIGHT.
+  Of the 115 lines in the other ten, only **3** differ in a constraint alone:
+  declFileRestParametersOfFunctionAndFunctionType (`(...args: any)` written,
+  `any[]` printed), styledComponentsInstantiaionLimitNotReached (now RIGHT
+  through §5), typeParameterConstraints1 (`T extends any` written; native
+  prints `unknown` because `getConstraintFromTypeParameter` maps an `any`
+  constraint to `unknownType` and the reuse test then fails). Plus
+  correlatedUnions' 3 `keyof { … }` constraints. The other ~105 belong to
+  other roots: objectFreeze, objectFreezeLiteralsDontWiden and
+  objectFromEntries (40 lines) are literal retention under a primitive
+  constraint (`U extends string | bigint | …`) and a contextual function
+  return (`=> false`); mappedTypeIndexedAccessConstraint (44) is
+  `PartMappings[K]` against `SetOptional<…>[K]`, an alias print. The
+  constraint printer is `signatures.rs` (r6-lazytext).
+
+## 5. `.16.65`: the shadow rename resolves where the node builder does (diff)
+
+**Forcing constraint.** `typeParameterToName` (`nodebuilderimpl.go:1404`)
+renames a printed type parameter when
+`typeParameterShadowsOtherTypeParameterInScope` (`:1396`) finds its name
+resolving, from `ctx.enclosingDeclaration`, to a different type parameter.
+The `.types` writer passes the assertion's parent as that declaration
+(`type_symbol_baseline.go:395`). So an arrow `<T>(x: T) => x` inside
+`function f<T>` prints `<T_1>(x: T_1) => T_1`
+(`subtypesOfTypeParameter.types:222`), and so does an interface member's
+`<T>(x: T) => T` inside `interface I<T>` (`subtypesOfUnion.types:81`).
+`signature_to_string_at` (`signatures.rs`, r6-lazytext) anchored the test at
+the signature's OWN declaration instead, and the §19 text pass excluded the
+whole ancestor chain of that declaration. Both choices declined exactly the
+case native renames: a signature nested under the declaration of the
+parameter it shadows.
+
+**Port.** Five pieces, one diff, because each was the measured cause of a
+loss once the anchor moved:
+
+1. **The anchor.** `rename_type_parameters_for_site` (`inference.rs`, main)
+   resolves from `parent(reference)`, the native enclosing declaration, for
+   every printer that calls it (signature, composite, type literal, callable
+   object). `signature_to_string_at` passes the site like the others.
+2. **`resolveNameHelper`'s computed-name arm** (`nameresolver.go:216`,
+   `tsr-binder`, main): a class's or interface's type parameters do not
+   resolve from its member's computed name. Without it,
+   `class C<T> { [foo<T>()]() {} }` renamed `foo`'s own `T`
+   (computedPropertyNames32/35, 4 R→W).
+3. **`useResult`'s type-parameter half** (`nameresolver.go:54-70`, same
+   function): from a function-like's locals, a type parameter is visible
+   only when the walk arrives from the return type, a parameter, a
+   type-parameter declaration or a JSDoc tag. The binder had ported only the
+   non-type-parameter half. Without it, `[foo<T>(a)]<T>(a: T)` saw the
+   method's own `T` from its computed name
+   (typeParametersAndParametersInComputedNames, 1 R→W).
+4. **`enterNewScope`'s synthesized scope**
+   (`crate::render_scope_resolution`, new): inside a signature print, the
+   builder's lookups see the signature's type parameters first (the
+   `NodeFlagsSynthesized` arm of `useResult`). Point 3 made the printer's
+   lookups that started at the printed identifier lose them:
+   `function a4<A>(x: A) { return new A() }` printed `=> A` where native
+   writes `=> globalThis.A` (declarationEmitTypeParameterNameInOuterScope,
+   2 R→W). `needs_qualification`, `own_name_alias_at`, `qualified_name_at`
+   and `symbol_chain`'s export test (`checker.rs`, main) now resolve through
+   `resolve_name_at_print_site`, which reads `render_type_parameter_scope`
+   before the binder.
+5. **The rename clone keeps the written constraint**
+   (`carry_written_annotations_through_rename`, `node_reuse.rs`, no owner).
+   `typeParameterToDeclaration` (`:1611`) keeps the parameter's identity under
+   a rename, so its constraint is still the written node's type and is
+   reused with the renamed names. TSR's rename is a clone with fresh
+   parameters, which evaluated `[null] extends [T] ? any : never` to `never`
+   (conditionalTypeAssignabilityWhenDeferred) and lost an alias name
+   (genericFunctionsAndConditionalInference). The clone now re-reads the
+   constraint node under the render's allocations. Where the original's
+   build already decided to reuse it (its baked `written_constraint`), that
+   decision is kept without re-deciding, because a conditional constraint
+   node mints a fresh type per `getTypeFromTypeNode` call here and the
+   identity test cannot hold for it.
+
+   The renamed annotation's blanket refusal of any node that declares type
+   parameters (`cx.declares_type_parameters`) is narrowed to native's actual
+   condition: a declared name already claimed in this render (an allocation
+   or an enclosing render's parameter), or resolving at the site to a type
+   parameter, would be renamed by `typeParameterToName`, so it is still
+   refused. Any other keeps its written name, as native's does. Without
+   this, a renamed return `{ [K in PublicKeys1<keyof Obj>]: … }` fell back to
+   a structural print without its `import("./internal")` qualifier
+   (declarationEmitInlinedDistributiveConditional).
+
+**Measured** (alone on `e2a7b73`): types **+37 WRONG→RIGHT**, **zero losses**
+on both dumps, diagnostics unchanged. slowcases clean. Ir ×1.00049
+domain-model, ×1.00005 generic-imports. Converted: subtypesOfTypeParameter 6,
+subtypesOfTypeParameterWithConstraints2 6, typeParametersAvailableInNestedScope3
+3, instanceMemberInitialization 3, declarationEmitTypeParameterNameShadowedInternally
+3, declarationEmitShadowing 3, subtypesOfUnion 2,
+subclassWithPolymorphicThisIsAssignable 2, declarationEmitNestedGenerics 2,
+awaitedTypeStrictNull 2, computedPropertyNames33_ES5/ES6 1+1,
+twiceNestedKeyofIndexInference 1, styledComponentsInstantiaionLimitNotReached
+1, genericMemberFunction 1.
+
+**Alternative rejected.** Keeping the declaration anchor and widening §19's
+text substitution to nested declarations was the obvious patch. It renames
+by spelling, not by identity, and the computed-name and outer-class cases
+above show that the spelling test answers wrong exactly where native's
+scope rules differ.
+
+**Remaining, with cause.** The by-text half of `typeParameterToName`
+(`typeParameterNamesByText`): a name already claimed anywhere in the same
+print, not only in scope, takes the next suffix
+(typeParametersAvailableInNestedScope3's inner `<T_2>`,
+declarationEmitTypeParameterNameShadowedInternally's `[T_1, T]` tuple,
+inferredReturnTypeIncorrectReuse1's `fn_1`). `rename_type_parameters_for_site`
+records that the by-text half "regressed 763 lines when built", because this
+port's print units are not native's print contexts. That needs a
+print-context owner in the printer lane, not this anchor.
+
+**Falsifier.** `crates/tsr-conformance/tests/r6_typesroots2_shadowed_rename.rs`
+(in the diff) pins each of the five pieces with a pinned-baseline line.
 
 ## 6. Diffs, in apply order
 
@@ -198,6 +346,11 @@ so that none shares context lines with r6-typesroots' seven diffs
    (r6-declared), `instantiation_expressions.rs` (r6-declared),
    `import_type_value_meaning.rs`, tests. +30 types, +2 diagnostics, zero
    losses.
+2. `r6-typesroots2-shadowed-type-parameter-rename.diff` (§5):
+   `tsr-binder/src/lib.rs` (main), `checker.rs` (main), `inference.rs`
+   (main), `node_reuse.rs` (no owner), `signatures.rs` (r6-lazytext),
+   `render_scope_resolution.rs`, tests. +37 types, zero losses. Independent
+   of 1.
 
 Held, not for application:
 `r6-typesroots2-HELD-conditional-node-consumers.diff` (§2, `declared.rs`):
