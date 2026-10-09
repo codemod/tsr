@@ -112,3 +112,38 @@ fn an_any_argument_becomes_an_any_array_rest() {
         "[string, ...any[], number]"
     );
 }
+
+#[test]
+fn a_named_rest_splices_with_its_native_ast_ownership() {
+    assert_eq!(
+        type_of_annotation(
+            "interface Array<T> { length: number } type Spread<T extends unknown[]> = [head: string, ...tail: T]; declare let value: Spread<[boolean, number]>;"
+        ),
+        "[head: string, boolean, number]"
+    );
+}
+
+#[test]
+fn a_named_array_rest_keeps_the_label_and_spread() {
+    assert_eq!(
+        type_of_annotation(
+            "interface Array<T> { length: number } type Spread<T> = [head: string, ...function: T[]]; declare let value: Spread<number>;"
+        ),
+        "[head: string, ...function: number[]]"
+    );
+}
+
+#[test]
+fn invalid_named_operands_keep_their_recovered_alias_type() {
+    // Native still resolves these aliases while reporting TS5086/TS5087.
+    for (name, body) in
+        [("Opt", "[element: string?]"), ("Trailing", "[first: string, rest: ...string[]]")]
+    {
+        assert_eq!(
+            type_of_annotation(&format!(
+                "interface Array<T> {{ length: number }} type {name} = {body}; declare let value: {name};"
+            )),
+            name
+        );
+    }
+}

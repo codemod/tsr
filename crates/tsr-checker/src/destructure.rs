@@ -712,12 +712,19 @@ impl Checker<'_, '_> {
     /// alias identities separately; project that body before testing tuple,
     /// array or discriminated-union shape, preserving the printed source identity.
     pub(crate) fn binding_type_alias_body(&mut self, mut source: TypeId) -> TypeId {
+        // The starting type is kept apart from `visited`, so the common single
+        // step allocates no visited list.
+        let start = source;
+        let mut first = true;
         let mut visited = Vec::new();
         while let Some((symbol, arguments)) = self.type_reference_targets.get(&source).cloned() {
-            if visited.contains(&source) {
-                break;
+            if !first {
+                if source == start || visited.contains(&source) {
+                    break;
+                }
+                visited.push(source);
             }
-            visited.push(source);
+            first = false;
             let Some(body) = self.evaluate_alias_body(symbol, &arguments) else { break };
             if body == source {
                 break;

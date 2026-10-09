@@ -1,0 +1,113 @@
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -4482,6 +4482,16 @@
+         tables.push(Table::Globals);
+         let binder = self.binder;
+         for table in tables {
++            #[cfg(feature = "work-trace")]
++            let (probe_key, present) = {
++                use crate::symbol_access::NamingProbeKey as K;
++                match &table {
++                    Table::Locals(node) => (K::Locals(*node), binder.locals(*node).is_some()),
++                    Table::Exports(module) => (K::Exports(module.clone()), self.symbols.view(module).unwrap().has_export_table()),
++                    Table::ClassName(_, symbol) => (K::ClassName(symbol.clone()), true),
++                    Table::Globals => (K::Globals, true),
++                }
++            };
+             let table: Vec<(String, crate::symbol_access::SymbolRef)> = match table {
+                 Table::Locals(node) => binder
+                     .locals(node)
+@@ -4514,10 +4524,14 @@
+                     })
+                     .collect(),
+             };
++            #[cfg(feature = "work-trace")]
++            crate::symbol_access::naming_probe_table(&probe_key, table.len(), table.iter().filter(|(_, symbol)| self.symbols.view(symbol).unwrap().flags().intersects(SymbolFlags::ALIAS)).count(), table.iter().map(|(name, _)| name.len()).sum(), present);
+             let direct = table.iter().find(|(name, _)| *name == own).map(|(_, hit)| hit.clone());
+             if direct.as_ref().is_some_and(|hit| {
+                 self.symbols.merged_symbol(hit).expect("selected naming candidate") == target
+             }) {
++                #[cfg(feature = "work-trace")]
++                crate::symbol_access::naming_probe_direct(&probe_key);
+                 return Some(own.clone());
+             }
+             // `trySymbolTable` (`symbolaccessibility.go:551`): a local whose
+@@ -4627,6 +4641,8 @@
+                             })
+                             .collect()
+                     };
++                    #[cfg(feature = "work-trace")]
++                    crate::symbol_access::naming_probe_table(&crate::symbol_access::NamingProbeKey::AliasExports(resolved.clone()), exports.len(), exports.iter().filter(|(_, symbol)| self.symbols.view(symbol).unwrap().flags().intersects(SymbolFlags::ALIAS)).count(), exports.iter().map(|(name, _)| name.len()).sum(), self.symbols.view(&resolved).unwrap().has_export_table());
+                     // trySymbolTable checks a direct own-name hit before
+                     // sorting aliases even when this table is reached through
+                     // a container alias (symbolaccessibility.go:543-547).
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -40,6 +40,48 @@
+ enum Identity {
+     Bound(ProgramDomain, SymbolId),
+     Private(CheckerIdentity, u32),
++}
++
++// TSR_NAMING_PROBE: private attribution only, never runtime delivery.
++#[cfg(feature = "work-trace")]
++#[derive(Clone, Debug, PartialEq, Eq, Hash)]
++pub enum NamingProbeKey {
++    Locals(NodeId),
++    Exports(SymbolRef),
++    ClassName(SymbolRef),
++    Globals,
++    AliasExports(SymbolRef),
++}
++#[cfg(feature = "work-trace")]
++thread_local! {
++    static NAMING_PROBE: std::cell::RefCell<FxHashMap<NamingProbeKey, [u64; 7]>> = std::cell::RefCell::new(FxHashMap::default());
++}
++#[cfg(feature = "work-trace")]
++pub fn naming_probe_reset() { NAMING_PROBE.with(|m| m.borrow_mut().clear()); }
++#[cfg(feature = "work-trace")]
++pub fn naming_probe_table(key: &NamingProbeKey, entries: usize, aliases: usize, bytes: usize, present: bool) {
++    NAMING_PROBE.with(|m| {
++        let mut m = m.borrow_mut();
++        let v = m.entry(key.clone()).or_default();
++        v[0] += 1; v[1] += entries as u64; v[2] += aliases as u64; v[3] += bytes as u64;
++        v[5] += u64::from(!present); v[6] += u64::from(present && entries == 0);
++    });
++}
++#[cfg(feature = "work-trace")]
++pub fn naming_probe_direct(key: &NamingProbeKey) {
++    NAMING_PROBE.with(|m| m.borrow_mut().get_mut(key).unwrap()[4] += 1);
++}
++#[cfg(feature = "work-trace")]
++pub fn naming_probe_counts() -> [[u64; 8]; 5] {
++    NAMING_PROBE.with(|m| {
++        let mut totals = [[0; 8]; 5];
++        for (key, value) in m.borrow().iter() {
++            let kind = match key { NamingProbeKey::Locals(_) => 0, NamingProbeKey::Exports(_) => 1, NamingProbeKey::ClassName(_) => 2, NamingProbeKey::Globals => 3, NamingProbeKey::AliasExports(_) => 4 };
++            totals[kind][0] += 1;
++            for (i, v) in value.iter().enumerate() { totals[kind][i + 1] += v; }
++        }
++        totals
++    })
+ }
+
+ bitflags::bitflags! {
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -111,6 +111,8 @@
+
+     let run = |owner: usize| -> (Located, Located, usize, Duration) {
+         #[cfg(feature = "work-trace")]
++        tsr_checker::symbol_access::naming_probe_reset();
++        #[cfg(feature = "work-trace")]
+         if let Some(trace) = trace {
+             trace.checker_construction_started(owner);
+         }
+@@ -173,5 +175,7 @@
+                 (index % count == owner).then(|| (index, diagnostic.clone()))
+             })
+             .collect();
++        #[cfg(feature = "work-trace")]
++        eprintln!("TSR_NAMING_PROBE owner={owner} checked={checked_count} counts={:?}", tsr_checker::symbol_access::naming_probe_counts());
+         (diagnostics, js_syntax, checked_count, constructed)
+     };

@@ -4222,8 +4222,8 @@ impl<'a> Checker<'a, '_> {
                 {
                     Some((0, source))
                 } else if flags.contains(TypeFlags::STRING_MAPPING)
-                    && self.string_mapping_types.get(&constraint).copied().is_some_and(
-                        |(symbol, _)| self.apply_string_mapping(symbol, &value) == value,
+                    && self.string_mapping_types.get(&constraint).cloned().is_some_and(
+                        |(symbol, _)| self.apply_string_mapping(&symbol, &value) == value,
                     )
                 {
                     Some((1, source))
@@ -4377,8 +4377,8 @@ impl<'a> Checker<'a, '_> {
             return;
         }
         if let (Some((source_symbol, source_inner)), Some((target_symbol, target_inner))) = (
-            self.string_mapping_types.get(&source).copied(),
-            self.string_mapping_types.get(&target).copied(),
+            self.string_mapping_types.get(&source).cloned(),
+            self.string_mapping_types.get(&target).cloned(),
         ) {
             if source_symbol == target_symbol {
                 self.infer_from_types_within(
@@ -5513,9 +5513,9 @@ impl<'a> Checker<'a, '_> {
         if self.conditional_inference_nodes.contains_key(&id) {
             return self.instantiate_conditional_node(id, map, parameters, names);
         }
-        if let Some((symbol, target)) = self.string_mapping_types.get(&id).copied() {
+        if let Some((symbol, target)) = self.string_mapping_types.get(&id).cloned() {
             let target = self.instantiate_type(target, map, parameters, names);
-            return self.get_string_mapping_type(symbol, target);
+            return self.get_string_mapping_type_ref(&symbol, target);
         }
         if let Some(parts) = self.template_literal_parts.get(&id).cloned() {
             let types: Vec<_> = parts

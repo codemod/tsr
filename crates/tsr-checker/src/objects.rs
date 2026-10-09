@@ -1327,31 +1327,41 @@ impl Checker<'_, '_> {
                     // rather than a type. Deliberately NOT covered by a test:
                     // the obvious fixture passes whether or not this line
                     // exists, which would be a decoration.
-                    if shorthand.object_assignment_initializer.is_some() {
+                    if let Some(initializer) = shorthand.object_assignment_initializer {
                         // §365: the named edit arrived — destructuring
                         // assignment is ported, so `{ nameA = "noName" } = x`
                         // reaches this literal. In pattern position the
                         // member types as the NAME expression (its declared
                         // binding) and the default makes it optional
-                        // (checker.go:13248). Outside a pattern the form is
-                        // a grammar error and keeps the gap.
-                        if !in_destructuring_pattern {
-                            return error;
+                        // (checker.go:13248). Outside a pattern (a grammar
+                        // error reported separately) checkShorthandPropertyAssignment
+                        // (`checker.go:13689`) types the member by its
+                        // initializer: `{ s = 5 }` is `{ s: number; }`.
+                        if in_destructuring_pattern {
+                            member_optional = true;
+                            let tsr_ast::PropertyName::Identifier(identifier) = shorthand.name
+                            else {
+                                return error;
+                            };
+                            (shorthand.name, PropertyValue::Shorthand(identifier))
+                        } else {
+                            (shorthand.name, PropertyValue::Initializer(initializer))
                         }
-                        member_optional = true;
-                    } else if let Some(pattern) = contextual_pattern
-                        && implied_pattern_member_is_optional(pattern, &shorthand.name)
-                    {
-                        // §489 — the shorthand member reads the same implied
-                        // optionality (`{x}` against `let {x = 1} = …`).
-                        member_optional = true;
+                    } else {
+                        if let Some(pattern) = contextual_pattern
+                            && implied_pattern_member_is_optional(pattern, &shorthand.name)
+                        {
+                            // §489 — the shorthand member reads the same implied
+                            // optionality (`{x}` against `let {x = 1} = …`).
+                            member_optional = true;
+                        }
+                        let tsr_ast::PropertyName::Identifier(identifier) = shorthand.name else {
+                            // The grammar gives a shorthand an identifier name; any
+                            // other spelling is a parse error already reported.
+                            return error;
+                        };
+                        (shorthand.name, PropertyValue::Shorthand(identifier))
                     }
-                    let tsr_ast::PropertyName::Identifier(identifier) = shorthand.name else {
-                        // The grammar gives a shorthand an identifier name; any
-                        // other spelling is a parse error already reported.
-                        return error;
-                    };
-                    (shorthand.name, PropertyValue::Shorthand(identifier))
                 }
                 // Every spread is folded by check_object_spread_literal;
                 // this collector only receives contiguous ordinary batches.

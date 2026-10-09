@@ -2096,9 +2096,17 @@ pub fn program_and_config_for_case<'a>(
     // `@typescript/lib-*` relative to — was simply absent.
     // `trace_case::compilation` has had this branch all along.
     // `docs/architecture/checker-notes-diag2.md` §533.
-    let base = parsed_config
+    let mut base = parsed_config
         .as_ref()
         .map_or_else(tsr_core::CompilerOptions::default, |config| config.compiler_options.clone());
+    // `harnessutil.CompileFiles` defaults (`harnessutil.go:99`), set before the
+    // directives so `@skipDefaultLibCheck: false` still wins: the harness never
+    // checks the default library. `createProgram` (`:939`) builds the program
+    // single-threaded under the test default (`TestProgramIsSingleThreaded`).
+    if base.skip_default_lib_check.is_unknown() {
+        base.skip_default_lib_check = tsr_core::Tristate::True;
+    }
+    base.single_threaded = tsr_core::Tristate::True;
     let options = crate::trace_case::apply_test_directives(base, case, current_directory);
     // §118 (`checker-notes-narrow.md`): the case's `@symlink` links, normalized
     // exactly as `trace_case::build_file_system` normalizes them. The VFS and

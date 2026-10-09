@@ -1,0 +1,110 @@
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -28,8 +28,33 @@
+ }
+
+ /// An owned symbol identity. Constructors and private indexes stay in this module.
+-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
++#[derive(Debug, PartialEq, Eq, Hash)]
+ pub struct SymbolRef(Identity);
++
++// TSR_STAMP_PROBE: task-local, feature-only attribution; never runtime delivery.
++#[cfg(feature = "work-trace")]
++thread_local! { static STAMP_PROBE: std::cell::Cell<[u64; 8]> = const { std::cell::Cell::new([0; 8]) }; }
++#[cfg(feature = "work-trace")]
++pub fn stamp_probe_reset() { STAMP_PROBE.with(|n| n.set([0; 8])); }
++#[cfg(feature = "work-trace")]
++pub fn stamp_probe_counts() -> [u64; 8] { STAMP_PROBE.with(std::cell::Cell::get) }
++fn clone_program_stamp(domain: &SymbolStoreIdentity, site: usize) -> SymbolStoreIdentity {
++    #[cfg(feature = "work-trace")]
++    STAMP_PROBE.with(|n| { let mut v=n.get(); v[site]+=1; n.set(v); });
++    domain.clone()
++}
++impl Clone for SymbolRef {
++    fn clone(&self) -> Self {
++        Self(match &self.0 {
++            Identity::Bound(domain, id) => Identity::Bound(clone_program_stamp(domain, 0), *id),
++            Identity::Private(domain, id) => {
++                #[cfg(feature = "work-trace")]
++                STAMP_PROBE.with(|n| { let mut v=n.get(); v[7]+=1; n.set(v); });
++                Identity::Private(domain.clone(), *id)
++            }
++        })
++    }
++}
+
+ #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+ enum Identity {
+@@ -192,7 +217,7 @@
+     pub fn parent(&self) -> Option<SymbolRef> {
+         match &self.0 {
+             View::Bound(s, domain) => {
+-                s.parent.map(|id| SymbolRef(Identity::Bound((*domain).clone(), id)))
++                s.parent.map(|id| SymbolRef(Identity::Bound(clone_program_stamp(domain, 2), id)))
+             }
+             View::Private(s) => s.parent.clone(),
+         }
+@@ -202,7 +227,7 @@
+     pub fn export_symbol(&self) -> Option<SymbolRef> {
+         match &self.0 {
+             View::Bound(s, domain) => {
+-                s.export_symbol.map(|id| SymbolRef(Identity::Bound((*domain).clone(), id)))
++                s.export_symbol.map(|id| SymbolRef(Identity::Bound(clone_program_stamp(domain, 3), id)))
+             }
+             View::Private(s) => s.export_symbol.clone(),
+         }
+@@ -212,7 +237,7 @@
+     pub fn member(&self, name: &str) -> Option<SymbolRef> {
+         match &self.0 {
+             View::Bound(s, domain) => {
+-                s.members.get(name).map(|&id| SymbolRef(Identity::Bound((*domain).clone(), id)))
++                s.members.get(name).map(|&id| SymbolRef(Identity::Bound(clone_program_stamp(domain, 4), id)))
+             }
+             View::Private(s) => s.members.as_ref()?.get(name).cloned(),
+         }
+@@ -232,7 +257,7 @@
+                 table.iter().map(move |(&name, &id)| {
+                     (
+                         name,
+-                        SymbolRef(Identity::Bound(domain.expect("bound table domain").clone(), id)),
++                        SymbolRef(Identity::Bound(clone_program_stamp(domain.expect("bound table domain"), 5), id)),
+                     )
+                 })
+             })
+@@ -246,7 +271,7 @@
+     pub fn export(&self, name: &str) -> Option<SymbolRef> {
+         match &self.0 {
+             View::Bound(s, domain) => {
+-                s.exports.get(name).map(|&id| SymbolRef(Identity::Bound((*domain).clone(), id)))
++                s.exports.get(name).map(|&id| SymbolRef(Identity::Bound(clone_program_stamp(domain, 6), id)))
+             }
+             View::Private(s) => s.exports.as_ref()?.get(name).cloned(),
+         }
+@@ -382,7 +407,7 @@
+         if id.index() >= self.program.len() {
+             return Err(SymbolAccessError::InvalidIndex);
+         }
+-        Ok(SymbolRef(Identity::Bound(self.program.identity().clone(), id)))
++        Ok(SymbolRef(Identity::Bound(clone_program_stamp(self.program.identity(), 1), id)))
+     }
+
+     /// Validate the domain before indexing either store.
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -111,6 +111,8 @@
+
+     let run = |owner: usize| -> (Located, Located, usize, Duration) {
+         #[cfg(feature = "work-trace")]
++        tsr_checker::symbol_access::stamp_probe_reset();
++        #[cfg(feature = "work-trace")]
+         if let Some(trace) = trace {
+             trace.checker_construction_started(owner);
+         }
+@@ -173,5 +175,7 @@
+                 (index % count == owner).then(|| (index, diagnostic.clone()))
+             })
+             .collect();
++        #[cfg(feature = "work-trace")]
++        eprintln!("TSR_STAMP_PROBE owner={owner} checked={checked_count} counts={:?}", tsr_checker::symbol_access::stamp_probe_counts());
+         (diagnostics, js_syntax, checked_count, constructed)
+     };

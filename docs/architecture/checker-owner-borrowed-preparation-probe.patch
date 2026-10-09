@@ -1,0 +1,238 @@
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -4482,6 +4482,16 @@
+         tables.push(Table::Globals);
+         let binder = self.binder;
+         for table in tables {
++            #[cfg(feature = "work-trace")]
++            let (probe_key, present, empty) = {
++                use crate::symbol_access::NamingProbeKey as K;
++                match &table {
++                    Table::Locals(node) => (K::Locals(*node), binder.locals(*node).is_some(), binder.locals(*node).is_some_and(|table| table.is_empty())),
++                    Table::Exports(module) => { let view = self.symbols.view(module).unwrap(); (K::Exports(module.clone()), view.has_export_table(), view.export_names().next().is_none()) },
++                    Table::ClassName(_, symbol) => (K::ClassName(symbol.clone()), true, false),
++                    Table::Globals => (K::Globals, true, binder.globals().is_empty()),
++                }
++            };
+             // Native 5b1047d `trySymbolTable` (symbolaccessibility.go:535)
+             // checks the direct key before `getSymbolTableAliases` prepares
+             // alias candidates. These bound Program tables are frozen; keep
+@@ -4505,6 +4515,11 @@
+             if direct.as_ref().is_some_and(|hit| {
+                 self.symbols.merged_symbol(hit).expect("selected naming candidate") == target
+             }) {
++                #[cfg(feature = "work-trace")]
++                {
++                    crate::symbol_access::naming_probe_table(&probe_key, 0, 0, 0, present, empty);
++                    crate::symbol_access::naming_probe_direct(&probe_key);
++                }
+                 return Some(own.clone());
+             }
+             // `trySymbolTable` (`symbolaccessibility.go:551`): a local whose
+@@ -4527,71 +4542,64 @@
+                         })
+                 })
+                 .map(|_| (own.clone(), symbol.clone()));
+-            // Native `getSymbolTableAliases` retains symbol names instead of
+-            // copying table strings (`symbolaccessibility.go:513`). Program
+-            // local/global keys live through this mutable alias-resolution
+-            // walk; exports and class display names remain owned. Keep the
+-            // table key's spelling, including aliases, rather than re-reading
+-            // a resolved symbol's name.
+-            let aliases: Vec<(std::borrow::Cow<'_, str>, crate::symbol_access::SymbolRef)> =
+-                match table {
+-                    Table::Locals(node) => binder
+-                        .locals(node)
+-                        .into_iter()
+-                        .flat_map(|locals| locals.iter())
+-                        .filter(|(_, id)| {
+-                            binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
++            let aliases: Vec<(std::borrow::Cow<'_, str>, crate::symbol_access::SymbolRef)> = match table {
++                Table::Locals(node) => binder
++                    .locals(node)
++                    .into_iter()
++                    .flat_map(|locals| locals.iter())
++                    .filter(|(_, id)| {
++                        binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
++                    })
++                    .map(|(&name, &id)| {
++                        (
++                            std::borrow::Cow::Borrowed(name),
++                            self.symbols.bound(id).expect("syntax local belongs to this Program"),
++                        )
++                    })
++                    .collect(),
++                Table::Exports(module) => {
++                    let view = self.symbols.view(&module).expect("selected namespace table");
++                    view.export_names()
++                        .filter_map(|name| {
++                            let symbol = view.export(name).expect("existing export edge");
++                            self.symbols
++                                .view(&symbol)
++                                .expect("selected naming candidate")
++                                .flags()
++                                .intersects(SymbolFlags::ALIAS)
++                                .then(|| (std::borrow::Cow::Owned(name.to_owned()), symbol))
+                         })
+-                        .map(|(&name, &id)| {
+-                            (
+-                                std::borrow::Cow::Borrowed(name),
+-                                self.symbols
+-                                    .bound(id)
+-                                    .expect("syntax local belongs to this Program"),
+-                            )
+-                        })
+-                        .collect(),
+-                    Table::Exports(module) => {
+-                        let view = self.symbols.view(&module).expect("selected namespace table");
+-                        view.export_names()
+-                            .filter_map(|name| {
+-                                let symbol = view.export(name).expect("existing export edge");
+-                                self.symbols
+-                                    .view(&symbol)
+-                                    .expect("selected naming candidate")
+-                                    .flags()
+-                                    .intersects(SymbolFlags::ALIAS)
+-                                    .then(|| (std::borrow::Cow::Owned(name.to_owned()), symbol))
+-                            })
+-                            .collect()
++                        .collect()
++                }
++                Table::ClassName(name, symbol) => {
++                    if self
++                        .symbols
++                        .view(&symbol)
++                        .expect("selected naming candidate")
++                        .flags()
++                        .intersects(SymbolFlags::ALIAS)
++                    {
++                        vec![(std::borrow::Cow::Owned(name), symbol)]
++                    } else {
++                        Vec::new()
+                     }
+-                    Table::ClassName(name, symbol) => {
+-                        if self
+-                            .symbols
+-                            .view(&symbol)
+-                            .expect("selected naming candidate")
+-                            .flags()
+-                            .intersects(SymbolFlags::ALIAS)
+-                        {
+-                            vec![(std::borrow::Cow::Owned(name), symbol)]
+-                        } else {
+-                            Vec::new()
+-                        }
+-                    }
+-                    Table::Globals => binder
+-                        .globals()
+-                        .iter()
+-                        .filter(|(_, id)| {
+-                            binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
+-                        })
+-                        .map(|(&name, &id)| {
+-                            (
+-                                std::borrow::Cow::Borrowed(name),
+-                                self.symbols.bound(id).expect("global belongs to this Program"),
+-                            )
+-                        })
+-                        .collect(),
+-                };
++                }
++                Table::Globals => binder
++                    .globals()
++                    .iter()
++                    .filter(|(_, id)| {
++                        binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
++                    })
++                    .map(|(&name, &id)| {
++                        (
++                            std::borrow::Cow::Borrowed(name),
++                            self.symbols.bound(id).expect("global belongs to this Program"),
++                        )
++                    })
++                    .collect(),
++            };
++            #[cfg(feature = "work-trace")]
++            crate::symbol_access::naming_probe_table(&probe_key, aliases.len(), aliases.len(), aliases.iter().map(|(name, _)| match name { std::borrow::Cow::Owned(name) => name.len(), std::borrow::Cow::Borrowed(_) => 0 }).sum(), present, empty);
+             let mut qualified = Vec::new();
+             for (name, candidate) in aliases {
+                 // Upstream's own alias exclusions (`trySymbolTable`,
+@@ -4670,6 +4678,8 @@
+                             })
+                             .collect()
+                     };
++                    #[cfg(feature = "work-trace")]
++                    crate::symbol_access::naming_probe_table(&crate::symbol_access::NamingProbeKey::AliasExports(resolved.clone()), exports.len(), exports.iter().filter(|(_, symbol)| self.symbols.view(symbol).unwrap().flags().intersects(SymbolFlags::ALIAS)).count(), exports.iter().map(|(name, _)| name.len()).sum(), self.symbols.view(&resolved).unwrap().has_export_table(), exports.is_empty());
+                     // trySymbolTable checks a direct own-name hit before
+                     // sorting aliases even when this table is reached through
+                     // a container alias (symbolaccessibility.go:543-547).
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -40,6 +40,48 @@
+ enum Identity {
+     Bound(ProgramDomain, SymbolId),
+     Private(CheckerIdentity, u32),
++}
++
++// TSR_NAMING_PROBE: private attribution only, never runtime delivery.
++#[cfg(feature = "work-trace")]
++#[derive(Clone, Debug, PartialEq, Eq, Hash)]
++pub enum NamingProbeKey {
++    Locals(NodeId),
++    Exports(SymbolRef),
++    ClassName(SymbolRef),
++    Globals,
++    AliasExports(SymbolRef),
++}
++#[cfg(feature = "work-trace")]
++thread_local! {
++    static NAMING_PROBE: std::cell::RefCell<FxHashMap<NamingProbeKey, [u64; 7]>> = std::cell::RefCell::new(FxHashMap::default());
++}
++#[cfg(feature = "work-trace")]
++pub fn naming_probe_reset() { NAMING_PROBE.with(|m| m.borrow_mut().clear()); }
++#[cfg(feature = "work-trace")]
++pub fn naming_probe_table(key: &NamingProbeKey, entries: usize, aliases: usize, bytes: usize, present: bool, empty: bool) {
++    NAMING_PROBE.with(|m| {
++        let mut m = m.borrow_mut();
++        let v = m.entry(key.clone()).or_default();
++        v[0] += 1; v[1] += entries as u64; v[2] += aliases as u64; v[3] += bytes as u64;
++        v[5] += u64::from(!present); v[6] += u64::from(present && empty);
++    });
++}
++#[cfg(feature = "work-trace")]
++pub fn naming_probe_direct(key: &NamingProbeKey) {
++    NAMING_PROBE.with(|m| m.borrow_mut().get_mut(key).unwrap()[4] += 1);
++}
++#[cfg(feature = "work-trace")]
++pub fn naming_probe_counts() -> [[u64; 8]; 5] {
++    NAMING_PROBE.with(|m| {
++        let mut totals = [[0; 8]; 5];
++        for (key, value) in m.borrow().iter() {
++            let kind = match key { NamingProbeKey::Locals(_) => 0, NamingProbeKey::Exports(_) => 1, NamingProbeKey::ClassName(_) => 2, NamingProbeKey::Globals => 3, NamingProbeKey::AliasExports(_) => 4 };
++            totals[kind][0] += 1;
++            for (i, v) in value.iter().enumerate() { totals[kind][i + 1] += v; }
++        }
++        totals
++    })
+ }
+
+ bitflags::bitflags! {
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -111,6 +111,8 @@
+
+     let run = |owner: usize| -> (Located, Located, usize, Duration) {
+         #[cfg(feature = "work-trace")]
++        tsr_checker::symbol_access::naming_probe_reset();
++        #[cfg(feature = "work-trace")]
+         if let Some(trace) = trace {
+             trace.checker_construction_started(owner);
+         }
+@@ -173,5 +175,7 @@
+                 (index % count == owner).then(|| (index, diagnostic.clone()))
+             })
+             .collect();
++        #[cfg(feature = "work-trace")]
++        eprintln!("TSR_NAMING_PROBE owner={owner} checked={checked_count} counts={:?}", tsr_checker::symbol_access::naming_probe_counts());
+         (diagnostics, js_syntax, checked_count, constructed)
+     };

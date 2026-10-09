@@ -22,6 +22,169 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Tuple-label prerequisite (`tsr-1yb.35`), measured on `daee9552` plus the six-file
+overlay recorded in `step284-final-tuple-manifest.json` under
+`target/native-optimization-goal/module-owner-current-189`: native `5b1047d`
+keyword labels and named-rest AST ownership are ported with their checker
+consumers. Workspace **3255/0/19** passes. Complete legacy dumps retain all
+**552,533 type/12,238 diagnostic keys**, with **one type gain and zero previously
+RIGHT losses**; two diagnostic changes remain previously WRONG. The initial
+two-RIGHT-loss patch was rejected and repaired before retention. Scoped Clippy
+passes with five existing warnings; strict Clippy remains blocked by those
+warnings. The four ioredis parser errors are removed, exposing semantic checking
+gaps (the first candidate emitted 203 diagnostics, native zero). No speed win,
+full native corpus qualification or six-ticket completion is claimed.
+[AST and recovery boundary](docs/architecture/parser.md#tuple-labels-and-rest-ownership).
+
+Selected owner continuation at frozen `2e47ffaa`, pinned native `5b1047d`:
+the exact 92-file private replay preserves all 1,056 guarded inputs. The actual
+full native gate improves 8,275 to **8,303 EXACT cases**, with **28 gains, zero
+losses and zero missing** among 12,797 compared cases; the existing one failure
+and one timeout remain. All previously exact diagnostic/type halves also survive.
+The complete legacy comparison retains all 552,533 type/12,238 diagnostic keys,
+with **124 type gains/nine diagnostic gains and zero previously RIGHT losses**.
+Workspace **3286/0/19**, strict workspace Clippy, formatting and work-trace pass.
+This corrects the remaining 2/2-loss status of the historical continuation below.
+
+Runtime retention is now refused by measured performance: the original owner
+port regresses **56.88% default/17.16% single** versus frozen main. A private
+Checker-local `Arc` lifetime holder saves **22.43% default wall/36.26% user CPU**
+against that port while preserving the same Program identity. Its direct paired
+comparison still regresses **20.997% default/16.244% single** versus main.
+Corrected complete-checker counts are 21,548,677 bound handle operations default
+and 21,320,280 single; these are not semantic worker executions. The safe variant
+passes **230 library tests**; the `Rc` alternative is rejected for no meaningful
+CLI benefit and changed handle thread safety. The safe variant's actual full
+native rerun retains all 8,303 EXACT cases and every non-timing case payload,
+with strict checker all-targets Clippy passing. Naming probe repeats 400 global
+queries/891,600 copied entries/15.2MB name payload with zero aliases, and 5,200
+local queries/865,904 entries/516,704 aliases. Private `tsr-1yb.33.1.2` direct
+lookup and borrowed-name variants now pass complete native/legacy preservation.
+They remove 1,241,600 primary entry copies and all 26,759,920 snapshot name bytes
+on this fixture. Borrowed preparation passes workspace **3287/0/19** and strict
+Clippy/fmt/work-trace, but remains **6.647% default/5.855% single** slower than
+main in its own paired batch. Native accessible-chain completion keys and reuse
+are now `tsr-1yb.11.5.1`; alias table caching remains `tsr-1yb.11.5`.
+Fresh native/TSR probes now show generated400 **0 native chain requests versus
+2,000 private TSR best-name workers**, with2,000 distinct legacy first-scope keys.
+Native API has42requests/1walk/41completed-nil hits; declaration control9/2/7success hits.
+Real API refuses the private candidate at **120.293s/11.89GB RSS**, versus one
+frozen-main5.816s observation; sampled CPU471.655s is not a speed ratio.
+`tsr-1yb.11.7` owns actual type-literal frame/key preparation and native mapper
+continuation. [Attribution and refusal](docs/architecture/checker-accessible-chain-attribution.md).
+Fresh source193/201 key observers change the diagnosis: canonical API completes
+with408,068 conditional-node workers/depth16; the capped private observation
+already has34,685,736/depth100. Direct Drizzle mapped fields over `any` reproduce
+without application source; a standalone recursive `Simplify` mapped intersection
+also times out in main. Native completes those constructor-only producers with
+zero mapped-template getter calls, while private source222 prepares the Drizzle
+template>=52,439times before its3second cap. Seventy-two complete ordinary/off/on
+qualification runs preserve outputs and repeated semantic counts. The actual
+constructor/template demand boundary is existing `tsr-1yb.16.3.10.4`, linked from
+11.7; no sort cache or runtime fix is retained. [Reduction, counters and replay](docs/architecture/checker-mapped-template-attribution.md).
+Full runtime review, attribution,
+canonical integration and verified equivalent-work TSR/native ratio<=0.50 remain
+unfinished. [Exact replay and measured gates](docs/architecture/checker-owner-performance-qualification.md).
+
+Historical workspace owner continuation:
+
+Selected workspace owner continuation measured after `18d77c9e`, pinned native
+`5b1047d`: historical43-source replay plus four exact continuation patches
+reproduce **1,056 inputs**, with **48 cumulative changed sources** from the prior
+conformance checkpoint and **91 files differing from frozen main**. The final
+private workspace passes **3279/0/19** (passed/failed/existing ignored, 308 result
+blocks), including Checker library **225/0/0**. Strict workspace Clippy, full
+formatting and CLI work-trace compilation pass. The property-valued export alias
+crash is repaired; native six property-target observations, ten diagnostic
+cold/warm observations and eight merged callable observations qualify these new
+boundaries. Existing links propagate type-only markers, and class/function call
+slots coexist with class constructors. No semantic cache is added.
+
+Both unfiltered legacy dumps now complete: **552,533 type assertions/12,238
+diagnostic cases**, with no missing keys. The first completed candidate lost
+**12 previously RIGHT type assertions/10 diagnostic cases**; alias diagnostic
+repair reduces that to12/2, and callable repair to **2/2**, with **124 type gains/9
+diagnostic gains** versus frozen main. Four losses still refuse runtime retention:
+exportDefaultProperty2, type-only generic, recursive-interface diagnostics and
+undefined-subtype class-member diagnostics. The failed(-6)/0row producer and
+historical formatting/lint failures remain recorded. Canonical runtime, full
+native exact corpus, work/allocation attribution and equivalent-work ratio<=0.50
+remain unfinished. [Source, failures and controls](docs/architecture/checker-workspace-owner-continuation.json).
+
+Conformance consumer continuation measured after `124ea18d`, pinned native
+`5b1047d`: exact **34-source** passive replay covers **1,053 inputs**, **1,019
+unchanged**. Actual full Checker library **224/0/0**, selected checker integration
+**23/0**, selected conformance **34/0**; work-trace library compiles. Native **78
+rows** qualify transitive default targets, parenthesized export properties and
+self-import unknown/error across thirteen shapes and two query orders. Native
+import binding and pure-alias admission fixes restore diagnostic/JSX controls.
+Strict library Clippy falls from **141 to 28 errors** after 121 machine suggestions;
+final all-targets keep-going check exposes **25 ownership mismatches in seven
+examples**. This remains a private replay checkpoint: no canonical Rust/runtime
+integration, full corpus/no-RIGHT-loss, performed-work or verified median
+ratio<=0.50 qualification. [Source and controls](docs/architecture/checker-conformance-consumer-continuation.json).
+
+Selected semantic consumer continuation measured after `af503f38`, pinned native
+`5b1047d`: exact **40-source** passive replay covers **1,053 inputs**, **1,013
+unchanged**. Private Checker library ordinary/work-trace and workspace libraries/
+binaries compile. Actual full Checker library: **224 passed, 0 failed, 0 ignored**;
+three selected integration targets: **23 passed**. Fresh pinned native **8 rows**
+qualify prototype sharing, transitive default alias targets, namespace meaning,
+and shared module-copy alias identity. The copy now publishes at AliasTarget,
+matching native; no speed claim. Strict library Clippy reports **141 errors**;
+full workspace test/example consumers remain unmigrated. This is a replay
+checkpoint, with **no canonical Rust integration**, full corpus/no-RIGHT-loss,
+performed-work or equivalent-work median ratio<=0.50 qualification.
+[Source, failures and controls](docs/architecture/checker-semantic-consumer-continuation.json).
+
+
+Selected naming continuation after `b96ed671`, pinned native `5b1047d`: the
+existing best-name/alias/module naming and module property display workers now
+keep selected symbol identity. Exact two-file replay covers 1,053 inputs with
+1051 unchanged. Ordinary/work-trace **34 compile errors**, down from 57;
+full lib-test no-run **90 errors**, down from 113. A bounded actual direct-name
+control passes, rejects a compiling origin-substitution mutation, and passes
+after restoration. Native alias-only table caching remains absent and its cost/
+table publication boundary is tracked in `tsr-1yb.11.5`. Full Checker remains
+uncompilable; no canonical Rust integration or verified speed gain.
+[Replay and limits](docs/architecture/checker-semantic-naming-continuation.json).
+
+
+Private alias-result continuation after `822edfa4`, native `5b1047d`: existing
+import/export/entity result channels and qualified generic reference keys now
+keep selected symbol handles. Shallow namespace/module diagnostics and emit-helper
+signature readers follow the same owner. Exact five-file replay covers 1,053
+inputs/1048 unchanged. Final ordinary/work-trace **57 errors**, down from 71;
+full lib-test no-run **113 errors**, down from 127. Two bounded actual export
+reader controls pass, detect two separate compiling mutations, and pass after
+restoration. Full Checker remains uncompilable; no runtime or speed qualification.
+[Source replay](docs/architecture/checker-alias-result-continuation.json).
+
+
+Selected binding-owner continuation after `bda345a6`, native `5b1047d`:
+existing alias frames, captured conditionals and default/constraint/type-literal
+keys now retain actual selected parameter identity. Delete/callee/heritage/index
+property diagnostics carry selected handles. Exact 19-file replay
+covers 1,053 inputs/1034 unchanged. Final ordinary/work-trace both
+**71 errors**; full lib-test no-run **127 errors**.
+Three bounded extracted actual key controls pass, a compiling origin-projection
+mutant fails two, and restored controls pass three. Full Checker remains
+uncompilable; no canonical runtime, native/corpus/performed-work or speed claim.
+[Replay](docs/architecture/checker-binding-owner-continuation.json).
+
+
+Selected property-owner continuation after evidence delivery `39cdcdd9`, native
+`5b1047d`: existing property/declared/anonymous/export-star results and composite
+constituents now carry selected identities. Instance/static name walks and the
+existing structured-name cache retain actual owner keys. Exact 29-file
+replay covers 1,053 inputs/1024 unchanged. Compiler history is
+198→156→110→88→81→80; final ordinary/work-trace both **80 errors**
+(77 E0308, one E0609, two E0615). One extracted existing actual symbol-store
+copy/member/export test passes; it does not execute the private property producer.
+No canonical Rust, native member runtime/corpus/performed-work or speed claim.
+[Source-bound replay](docs/architecture/checker-property-owner-continuation.json).
+
+
 ### Current parity checkpoint — round 4 cloud boxes (tsr-2zk), session wrap
 
 Measured at integration **`405b55ce`** (`claude/beautiful-shannon-ar5gh0`),
@@ -53,6 +216,112 @@ reported separately.
   `errorType` from the port's gap, but no producer uses the split yet.
   Lane-by-lane outcomes are in `docs/parity/round4.md`, and per-lane notes are
   in `docs/parity/notes/r4-*.md`.
+
+Selected member-origin continuation after evidence delivery `276f3419`, native
+`5b1047d`: the existing origin field and spread/order/widening/inference/printing/
+relation/reporting/JSX/signature readers retain actual selected symbols. Native
+lazy symbol IDs live on the actual bound/private record; bound readers share one
+atomic publication across checkers, while private copies start fresh. Binder
+21 tests and the extracted owner/comparator reader's three tests pass; an actual
+compiling origin mutant fails. Two fresh pinned-native comparator/identity tests
+pass. These controls exclude full member execution. Final ordinary/work-trace
+both retain **84 E0308**; property lookup results and conditional binding keys
+remain raw boundaries. No canonical Rust, full corpus or speed qualification;
+all six tickets and complete-work <=0.50 target remain unfinished.
+[Evidence](docs/architecture/checker-member-origin-continuation.json).
+
+Selected alias-consumer continuation after evidence delivery `c236a387`, native
+`5b1047d`: the existing declared dispatcher, type-parameter owner back-edge,
+constraint/default/inference/recursion/rendering readers and generic-reference
+worker now retain selected handles privately. Homomorphic metadata and callable
+export preparation retain actual owners. Source-stable compiler counts are
+116→93→89→84; final ordinary/work-trace both retain **84 E0308**. Exact
+18-file replay verifies 1,053 inputs/1,035 unchanged; owned formatting passes.
+An unrelated rustfmt test-module traversal change was restored exactly.
+`AnonymousProperty.origin` and conditional binding frames remain explicit raw-ID
+boundaries. The draft cannot execute; no native/runtime/corpus/performance
+qualification or canonical Rust change. All six tickets and complete-work
+<=0.50 target remain unfinished.
+[Evidence](docs/architecture/checker-alias-consumer-continuation.json).
+
+Selected alias-resolver continuation after evidence delivery `c92a8cb0`, native
+`5b1047d`: the existing alias links now retain selected owner/target handles,
+completed-unknown publication and type-only declaration metadata. AliasTarget
+uses the shared resolution stack, publishing before pop; the separate resolving
+bit and bounded cycle walk are removed. Name suggestions use its read-only
+probe. Ten actual generic stack tests pass; two mutants each fail one test.
+These tests exclude Checker-specific code. Widening alias results exposes raw
+consumers: compiler 100→93, with final ordinary/work-trace both at 93 E0308.
+Exact nine-file replay verifies 1,053 inputs/1,044 unchanged. The checker still
+cannot run; no alias runtime/native/corpus/performance qualification or canonical
+Rust change. All six tickets and complete-work <=0.50 target remain unfinished.
+[Evidence](docs/architecture/checker-alias-owner-continuation.json).
+
+Selected value-worker continuation after evidence delivery `640120e4`, native
+`5b1047d`: the existing accessor, callable and variable/property workers now
+retain selected cache/frame owners. Assignment declarations, constructor-flow
+classification and base-property lookup retain the same owner; the existing
+work observer reads selected declarations. Actual compiler counts are
+27→26→25; the final ordinary and work-trace checks each retain 25 E0308.
+Exact ten-file replay verifies 1,053 inputs, with 1,043 unchanged. The draft
+still cannot execute; no canonical Rust or runtime/native/corpus/performance
+result changed. Existing accessor/variable publication policies are retained,
+not certified as the native protocol. All six tickets remain unfinished.
+[Evidence](docs/architecture/checker-value-owner-continuation.json).
+
+Selected index/dispatcher continuation after evidence delivery `472c249f`, native
+`5b1047d`: the existing index memo, visited path, declaration and sibling readers
+now retain selected owners, as do the existing late-name cache and active keys.
+One selected flags dispatcher reuses enum-member and export-marker type links.
+Qualified compiler errors stay at 26: four index mismatches are replaced by four
+downstream accessor, variable/property, function/class/enum/module and alias
+worker mismatches. Step12 also exposed one import and three nonexistent getter
+errors, repaired in step13. Step14 clones only the selected owner handle rather
+than the full type payload and confirms the same 26 mismatches. Exact five-file
+replay verifies all 1,053 inputs,
+with 1,048 unchanged. No canonical Rust changed; the private draft remains
+uncompiled and has no new runtime/native/corpus/performance qualification.
+All six tickets and the equivalent complete-work <=0.50 target remain unfinished.
+[Evidence](docs/architecture/checker-index-owner-continuation.json).
+
+Selected member/enum continuation after evidence delivery `26da4dd0`, native
+`5b1047d`: actual selected owners now survive completeness/signature walks,
+spread/privacy/optional metadata, rest and tuple-relation member iteration,
+enum literal/value interning and fresh/regular ownership, one union worker,
+enum widening/comparison/index access, and completed printing/reuse checks.
+Qualified compiler errors move 38→34→37→26; the intermediate checks retain
+three iterator/name/borrow errors and two move errors exposed during migration.
+Final 26 are `E0308` mismatches. Exact 13-file delta replay verifies all 1,053
+inputs, with 1,040 unchanged. No canonical Rust changed. The private draft
+remains uncompiled; native runtime/factory/alias/member/corpus/performance gates
+have not run. All six tickets remain unfinished; no speed or coverage gain.
+[Evidence](docs/architecture/checker-member-enum-owner-continuation.json).
+
+Selected class/base continuation after verified production delivery `2ae37af8`,
+native `5b1047d`: the full private draft now preserves actual constructor,
+base-list and heritage-reference cache owners, plus their class narrowing,
+nominal/privacy, prototype and own-name consumers. Qualified compiler checks
+move from 51 errors to 48 (including seven exposed borrow/move errors), then
+41 and finally 38 type mismatches. Exact nine-file delta replay verifies all
+1,053 inputs, with 1,044 unchanged. The first sccache launch failed before
+compilation and is retained separately. This draft remains uncompiled; its
+factory/mapper/natural alias controls and runtime/corpus/performance gates
+have not run. All six tickets remain unfinished; no speed or coverage gain.
+[Evidence](docs/architecture/checker-class-base-owner-continuation.json).
+
+Production string-mapping ownership integration, frozen main `189a2c1d` plus
+five Rust overlays in [the evidence](docs/architecture/checker-string-mapping-owner.json):
+existing generic mapping images/cache and their constraint/substitution/inference/
+relation consumers retain actual selected owners. Workspace tests pass 3,245/
+zero failures/19 existing ignores; the private reader passes 212. All 552,533
+eligible type rows and 12,238 diagnostic rows are byte identical to the qualified
+baseline. Four pinned native owner/order/checked-first rows repeat identically;
+a compiling origin mutant fails one control. Strict Clippy reproduces seven
+distinct inherited errors with no new ones; fmt passes. The wider private draft
+now preserves general reference, alias/mapped/union and variance owners, but
+still has 51 compiler mismatches. Full factory/mapper/natural alias controls
+remain unexecuted. No speed or coverage gain; all six goal tickets remain
+unfinished and the <=0.50 equivalent complete-work target remains unverified.
 
 Production template-alias ownership integration, frozen main `835ef559` plus
 the two Rust overlays in the [evidence](docs/architecture/checker-template-alias-owner.json):
@@ -3701,11 +3970,147 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
-Owner continuation at `835ef559`: finish the general reference factory and
-selected alias, member, naming, index and variance consumers from the 60
-compiler mismatches retained in [the template-owner evidence](docs/architecture/checker-template-alias-owner.json).
-Then execute the full factory/mapper and natural alias controls before broader
-integration. The template helper is a shipped ownership prerequisite, not
+`tsr-1yb.35` now retains the keyword-label/named-rest parser and checker
+prerequisite on `daee9552` plus its owned overlay. Continue nearby grammar
+diagnostic fidelity and real API semantic parity before treating that workload
+as an equivalent complete-work speed comparison. The six optimization goal
+tickets remain in progress; this correctness change does not satisfy the
+TSR/native median ratio <=0.50 target.
+
+Continue from the full-corpus-preserving private owner replay at frozen
+`2e47ffaa`. All old selected-owner RIGHT losses are repaired, but ordinary
+runtime retention still fails the main comparison after direct/borrowed naming
+preparation: **+6.647% default wall/+5.855% single** in the latest paired batch.
+The earlier local-Arc-only comparison remains **+20.997%/+16.244%**.
+`tsr-1yb.11.6` owns lifetime-holder
+attribution/controls, and existing `tsr-1yb.11.5` owns native alias-only naming
+table scans. Native direct lookup and borrowed Program alias names under
+`tsr-1yb.33.1.2` pass full preservation but do not finish the main keep gate.
+Native accessible-chain attribution under `tsr-1yb.11.5.1` now supports eager
+presentation separation `tsr-1yb.16.3.10` on generated400: no native requests and
+no repeated private TSR first-scope keys. Real API source158 exceeds120s with
+11.89GB RSS. Fresh attribution under `tsr-1yb.11.7` isolates mapped template
+construction: the Drizzle `any` control completes in native with zero template
+getter requests, while private TSR enters template preparation at least52,439
+times before a three-second cap. Existing `tsr-1yb.16.3.10.4` owns the next
+native declaration/mapper retention and consumer-demand repair. A standalone
+recursive `Simplify` also times out in main; sorting binding keys alone cannot
+resolve this expansion. Preserve meaning/scope/owner, alias stack and publication
+state under `tsr-1yb.4.1.2`. No cache or semantic fix is retained.
+[Mapped-template attribution](docs/architecture/checker-mapped-template-attribution.md).
+Do not retry the
+rejected `Rc` representation.
+All six original goal tickets remain in progress for their full acceptance,
+including complete equivalent-work ratio<=0.50 and canonical integration.
+[Current qualification](docs/architecture/checker-owner-performance-qualification.md).
+
+Historical next steps below refer to their frozen sources:
+
+Continue the selected-owner preservation repairs from frozen `18d77c9e`:
+private workspace3279/0/19 and strict Clippy/formatting/work-trace pass; both
+unfiltered dumps retain all552533 type/12238 diagnostic keys. The remaining
+**2 type/2 diagnostic losses** require selected property type/alias meaning and
+recursive/inherited member repairs before runtime retention. Property admission
+is tracked by `tsr-1yb.7.7.3.2`; diagnostic preservation by `tsr-1yb.7.7.3.3`,
+and callable/member work by `tsr-1yb.4.2.1`. Keep `tsr-1yb.1`, `tsr-1yb.11`,
+`tsr-1yb.4.2.1`, `tsr-1yb.33.1`, `tsr-1yb.7.7.3` and
+`tsr-1yb.16.3.10` in progress. No construction/allocation attribution or equivalent
+complete-work speed proof follows from these correctness repairs.
+[Replay](docs/architecture/checker-workspace-owner-continuation.json).
+
+After `124ea18d`, all selected conformance tests compile and **34 pass** alongside
+**224 library** and **23 selected checker integration** tests. Next: migrate the
+seven conformance examples with **25 observed ownership mismatches**, remove the
+remaining **28 strict library lint diagnostics** while preserving three-state
+publication, then run the full native/corpus and actual-work gates. No completed
+performance ticket or speed gain follows from these correctness fixes.
+
+After `af503f38`, selected semantic consumers and native module-copy AliasTarget
+publication reach **224/224 library tests** and **23 selected integration tests**.
+Next: migrate the conformance test/public query and diagnostic example consumers,
+resolve **141 strict library lint errors**, then run full native alias/recovery,
+combined-symbol, complete corpus/no-RIGHT-loss and performed-work qualification.
+All six goal tickets remain in progress. Current library/native controls do not
+establish member completion, a construction-count reduction or a CLI speed win.
+
+
+After the `b96ed671` selected naming continuation, migrate symbol-chain,
+reference/accessibility/value-name and enum-owner consumers, then the remaining
+semantic readers and full test/conformance query consumers. **34 library errors**
+and **90 full test-target errors** still refuse runtime acceptance. Profiling
+native alias-only table selection is `tsr-1yb.11.5`; no extra cache is retained.
+All six goal tickets remain in progress, with full native/corpus/performed-work
+and equivalent complete-work speed gates outstanding.
+
+
+After the `822edfa4` alias-result continuation, finish semantic naming,
+qualified-alias/heritage/ancestor and remaining JSX/property result channels,
+then every full test-target expectation and the conformance query consumers.
+The recorded native property-augmentation mismatch also needs its correction and
+controls. **57 library errors** still refuse runtime acceptance. All six tasks
+remain in progress; full native/corpus/performed-work and equivalent-work speed
+gates follow compilation. [Replay](docs/architecture/checker-alias-result-continuation.json).
+
+
+Binding-key continuation leaves the actual entity/module/alias/naming and
+ancestor-result consumers as the next compile repairs. Finish all full library
+test expectations, then run the complete private checker/native/corpus gates
+before canonical integration and member-builder cost selection. All six tickets
+remain in progress; 71 library errors still refuse runtime acceptance.
+[Checkpoint](docs/architecture/checker-binding-owner-continuation.json).
+
+
+Property-owner continuation at `39cdcdd9`: complete the remaining selected
+property diagnostic/result consumers, module/entity alias and semantic naming
+channels, then the conditional frame keys. Full test-target expectations and
+actual property/native member controls still need a compiling draft. **80 errors**
+in both compiler modes refuse runtime integration; only the existing extracted
+store-copy control passes. Keep all six tickets in progress until their full
+requirements are verified. [Replay](docs/architecture/checker-property-owner-continuation.json).
+
+
+Member-origin continuation after `276f3419`: migrate the existing property
+lookup result producer and its selected consumers, then conditional binding keys.
+The image's origin field and origin-only readers now retain actual handles;
+sorting IDs belong to the selected record. Binder21/extracted reader3/native2
+controls cover identity and comparator cases, not full member execution.
+**84 E0308** remain in both full compiler modes. Finish those ownership channels
+before native member/alias publication controls, full prior RIGHT/performed-work
+preservation, current cost attribution and equivalent whole-CLI confirmation.
+[Exact replay and bounded controls](docs/architecture/checker-member-origin-continuation.json).
+
+Alias-consumer continuation after `c236a387`: migrate the existing
+`AnonymousProperty.origin` field and its spread/order/inference/reporting/display
+readers together, then selected conditional binding frames. Do not drop private
+origins, project to source IDs or add parallel semantic fields. Remaining naming,
+entity/export/member, grammar, JSX, flow and reuse consumers are exposed by
+**84 E0308** in both compiler modes. The declared dispatcher, type-parameter
+metadata and generic worker now carry selected identity, but have no runtime
+qualification. Native controls, full corpus/performed-work preservation and
+ordinary wall/CPU/RSS confirmation remain required.
+[Exact replay and compiler evidence](docs/architecture/checker-alias-consumer-continuation.json).
+
+Alias continuation after `c92a8cb0`: migrate the selected alias result through
+the remaining declaration/entity, export/member, naming, grammar, JSX, flow and
+reuse consumers exposed by **93 E0308**. Preserve actual private targets and
+the single producer; do not restore a raw return by projecting to the origin.
+Then run the native alias/type-only/cycle/unknown/active/reset/query-order matrix
+and actual worker counts. Ten generic stack passes establish only stack behavior.
+[Exact replay and remaining boundaries](docs/architecture/checker-alias-owner-continuation.json).
+
+Owner continuation after evidence delivery `640120e4`: finish the selected
+alias worker, naming/alias, member/property/ordering and callable-export
+boundaries from the 25 compiler mismatches retained in
+[the value-worker evidence](docs/architecture/checker-value-owner-continuation.json).
+Accessor, variable/property, function/class/enum/module and assignment workers
+now retain selected cache/frame/declaration owners. Their existing publication
+and inference policies still need independent native controls.
+Private general factory, variance, class/base, metadata walks and enum/union
+workers now retain selected owners, but do not compile or qualify the full
+execution path yet. Enum parent preparation and actual member publication remain
+native control requirements, not completed contracts.
+Then execute full factory/mapper, natural alias and member-publication controls
+before broader integration. Shipped owner helpers are prerequisites, not
 completion of `tsr-1yb.7.7.3`, `tsr-1yb.33.1` or the performance goal.
 
 
@@ -7428,6 +7833,214 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+The first tuple-label/parser-consumer patch on `daee9552`'s guarded baseline
+passed **3254 workspace tests** but lost **two previously RIGHT types** among
+552,533 keys: recovered `Opt` and `Trailing` aliases became `any`. It was refused.
+The retained patch adds native optional/named/rest semantic dispatch, restores
+both results, and passes **3255 tests** with **zero previously RIGHT losses** in
+the full type/diagnostic dumps. Workspace success alone did not qualify this AST
+change. Receipts: `step276-parser-gates/comparison.json` and
+`step281-recovered-tuple-gates/comparison.json` under
+`target/native-optimization-goal/module-owner-current-189`.
+
+Current mapped-template attribution at `f8f98157` (runtime `2e47ffaa`) refuses a
+sort-only explanation for the private API slowdown: complete main observes
+408,068 conditional node workers; private observes at least34,685,736 before its
+30-second cap. A dependency-free recursive mapped `Simplify` finishes in native
+but reaches a three-second cap in both main and private TSR. The Drizzle `any`
+control starts at least52,439 private template preparations versus zero native
+template getter requests. These capped counts are incomplete work, not equivalent
+worker or speed ratios. The probes preserve complete outputs/counts on72 eligible
+ordinary/off/on qualification runs, but no mapped-demand implementation is yet
+qualified. Full six-ticket acceptance and verified<=0.50 ratio remain unmet.
+[Sources, reductions and replay](docs/architecture/checker-mapped-template-attribution.md).
+
+Frozen `2e47ffaa` plus the full owner replay passes the no-RIGHT-loss corpus
+gates but fails ordinary CLI retention: **0.639249→1.002839s default** and
+**1.235787→1.447870s single**. The checker-local safe `Arc` holder removes much
+of the concurrent refcount cost, yet a direct independent main comparison still
+fails: **0.597028→0.722384s default**, **1.183679→1.375961s single**. Same options,
+loaded input identities and complete diagnostic/exit fingerprints are preserved;
+verified native ratio remains null because complete performed work is unverified.
+The `Rc` experiment is rejected: Rc/local-Arc ratios **1.001725 default** and
+**0.993764 single** give no meaningful benefit to justify changed `Send`/`Sync`.
+The earlier partial clone count omitted four edge sites and is explicitly a
+lower bound; corrected counts are preserved separately. Broad runtime review
+is incomplete and canonical Rust is unchanged. [Qualified negatives and source](docs/architecture/checker-owner-performance-qualification.md).
+
+The later direct/borrowed preparation preserves both full corpora but still
+refuses integration: borrowed/main **0.645021/0.604817s default** and
+**1.327131/1.253729s single** in one independent paired batch. Copy counters show
+zero primary snapshot name bytes, while 516,704 alias handles and their
+resolutions remain. These improvements do not certify the full six-ticket goal
+or native equivalent-work ratio. The source patches remain passive experiments.
+A fresh API check additionally refuses source158: capped sampled run120.293s,
+471.655s userCPU,11,888,148,480bytes peakRSS and -9 termination; main frozen runtime
+finishes5.816s in one locating run. The generated naming-key counts do not repeat,
+and native there makeszero accessible-chain calls. Do not substitute synthetic
+full-corpus preservation for real-project qualification. [Evidence](docs/architecture/checker-accessible-chain-attribution.md).
+
+The following `18d77c9e` 2/2-loss refusal is historical; the current private
+continuation restores those losses but remains refused by the performance gate.
+
+Selected workspace continuation at frozen `18d77c9e` still refuses runtime
+retention: the latest full legacy comparison loses **2 previously RIGHT type
+assertions/2 diagnostic cases**, although all552533 type/12238 diagnostic keys are
+retained and workspace3279/0/19, strict Clippy, formatting and work-trace compile
+pass. First complete step83 candidate lost12type/10diagnostic; step85 alias
+repairs restore8diagnostic cases, and step87 callable repair restores10type
+assertions. Remaining type losses are exportDefaultProperty2 and type-only generic;
+remaining diagnostic losses are interfaceThatInheritsFromItself and
+undefinedIsSubtypeOfEverything. Full native exact parity, actual performed work/
+allocation and median ratio<=0.50 are unverified.
+
+Historical failures remain source-qualified: step81 diagnostic abort(-6)/0rows
+at resolveAlias; step80 formatting exit1/three differences in two files; step82
+Clippy exit101/two duplicate doc ticks. These are repaired without weakening the
+alias invariant or suppressing lints. Earlier workspace3275/2/19 exposed a stale
+pure-namespace call expectation and actual lost Program merge in Array.find.
+Native20 call rows justify that expectation repair; borrowed Program redirects
+restore the unchanged Array.find expectation. Native parent probe v1 was
+invalidated by its own cloneSymbol publication; its failed source/log remain
+beside12 corrected parent rows and two isolated clone-publication observations.
+[Exact failures](docs/architecture/checker-workspace-owner-continuation.json).
+
+The conformance-consumer candidate after `124ea18d` is still refused for runtime
+retention by **25 observed example ownership mismatches** and **28 strict library
+lint diagnostics**. Initial selected conformance **29/5**, then **31/3** and
+**32/2** runs exposed nameless import-clause traversal, non-alias JSX resolution
+and stale immediate-default expectations. Native **78 rows** qualify the corrected
+expectations; final **34/0** preserves every selected assertion. These narrow
+controls do not replace full workspace/corpus, performed-work or median
+ratio<=0.50 qualification. [Failures and replay](docs/architecture/checker-conformance-consumer-continuation.json).
+
+The selected-consumer candidate after `af503f38` remains refused for canonical
+runtime retention: **141 strict library Clippy errors** and unmigrated conformance
+test/example consumers. Earlier actual library **222/2** failures exposed the
+wrong prototype receiver and stale immediate default-alias expectation; successive
+**223/1** runs exposed namespace admission and raw-target versus module-copy
+publication. These failures are preserved; final actual library **224/0**, selected
+integration **23/0** and native **8 qualified rows** do not replace full workspace,
+corpus/no-RIGHT-loss, performed-work or median wall ratio<=0.50 gates. No weaker
+assertion, filtered suite or correctness prerequisite is accepted as a speed win.
+
+
+The private selected naming continuation after `b96ed671` remains refused by
+**34 ordinary/work-trace library errors** and **90 full lib-test no-run errors**.
+A bounded direct lexical-name test passes, catches a compiling origin mutation,
+and passes restored; alias/export traversal and module serialization remain
+unqualified. Native/corpus/performed-work and complete-work timing gates remain.
+[Exact replay](docs/architecture/checker-semantic-naming-continuation.json).
+
+
+The private alias-result draft after `822edfa4` remains refused by **57 library
+errors** in both ordinary/work-trace modes and **113 lib-test no-run errors**.
+Own-export reader controls are bounded: two pass, each separate compiling
+origin-projection/module-guard mutant fails one, then two restored pass. Initial
+setter/constructor setup failed compilation and is recorded separately. Full
+Checker, external/star graphs, alias/default/type-only publication, native/corpus,
+conformance consumers and speed gates remain unqualified.
+[Exact evidence](docs/architecture/checker-alias-result-continuation.json).
+
+
+The binding-owner draft after `bda345a6` remains refused by **71 library errors**
+in ordinary and work-trace modes and **127 lib-test no-run errors**. Three
+extracted actual key tests pass, detect a compiling origin-projection mutation
+(two failures), and pass after restoration. Full private Checker construction,
+conditional/default/constraint evaluation, scope admission, native/corpus and
+speed qualification remain absent. [Exact evidence](docs/architecture/checker-binding-owner-continuation.json).
+
+
+The property-owner draft after `39cdcdd9` is refused for canonical integration
+by **80 errors** in both ordinary/work-trace modes. Widening actual producer
+results first exposed 198 errors; successive actual reader/cache migrations
+leave 80, without removing private targets or projecting them to origins.
+One extracted actual store table/copy test is green, but full property producer,
+private checker tests, native member runtime, corpus/performed-work and speed
+qualification are absent. Existing synthetic composite and mapped/publication
+policy is retained, not certified by compilation. [Exact checkpoint](docs/architecture/checker-property-owner-continuation.json).
+
+
+The member-origin draft after `276f3419` is refused for canonical runtime
+integration by **84 E0308** in both ordinary and work-trace checks. Its first
+origin-field migration exposed 95 errors; complete origin-only consumer repairs
+restore 84. A checker-local lazy identity slot was rejected because bound symbols
+must share publication across checkers; the actual-record atomic replacement
+passes 21 binder, three extracted reader and two native tests, and an origin
+mutant fails. These are bounded identity controls. Full property producers,
+conditional binding keys, native member/alias semantics, corpus and performed
+work, added storage cost and complete-work <=0.50 remain unqualified. All six
+tickets stay in progress.
+[Source-bound checkpoint](docs/architecture/checker-member-origin-continuation.json).
+
+The alias-consumer private draft after `c236a387` is refused for canonical
+runtime integration by **84 E0308** in both ordinary and work-trace checks.
+Intermediate counts 116→93→89→84 record the actual consumer migration, not
+semantic correctness or faster checking. Callable export preparation exposes
+`AnonymousProperty.origin: Option<SymbolId>` as a real private-image boundary;
+conditional mapper frames still require selected keys. No source-origin
+projection or dropped target is accepted as a compiler repair. Full native
+publication/alias controls, no previously RIGHT losses, equivalent checked work
+and the <=0.50 target remain unverified; all six tickets stay in progress.
+[Source-bound checkpoint](docs/architecture/checker-alias-consumer-continuation.json).
+
+The alias-resolver draft after `c92a8cb0` is refused for canonical runtime
+integration by **93 E0308** in both ordinary and work-trace checks, down from
+100 after widening the result boundary. No private checker execution is possible.
+The ten generic resolution-stack passes and two detected mutants exclude
+Checker-specific code and cannot establish alias target/type-only correctness,
+private member-image identity, native diagnostic parity or a speed gain.
+Existing non-alias publication approximations and target-worker/error recovery
+still require native controls; all six goal tickets remain in progress.
+[Source-bound evidence](docs/architecture/checker-alias-owner-continuation.json).
+
+The value-worker draft after `640120e4` is refused for canonical runtime
+integration by **25 E0308** in both ordinary and work-trace compiler checks.
+The 27→26→25 progression verifies owner migration, not runtime correctness or
+a performance win. Native contextual-parameter publication, accessor failed-pop
+recovery, alias resolution and callable/member images remain unqualified.
+[Replay and actual compiler evidence](docs/architecture/checker-value-owner-continuation.json).
+
+After evidence delivery `472c249f`, the index/dispatcher private continuation is
+refused for production by 26 `E0308` mismatches. The unchanged error count hides
+four resolved index mismatches and four newly exposed raw downstream dispatcher
+branches. Step12's one missing import and three nonexistent getter errors are
+retained, then repaired in step13; step14 confirms the same 26 errors after
+removing the new full-payload clones. No source-stable compiler check passed;
+native full index/late-member/dispatcher publication and runtime/corpus/performance
+checks have not run. The selected dispatcher remains incomplete.
+[Evidence](docs/architecture/checker-index-owner-continuation.json).
+
+After evidence delivery `26da4dd0`, the member/enum private continuation is
+refused for production by 26 `E0308` mismatches. Qualified terminal compiler
+checks retain 34, then 37 and 26 errors; five newly exposed iterator/name/borrow
+and move errors were repaired. This is compiler migration evidence, not a
+runtime test pass. Actual native enum parent/publication, full factories,
+mapper/natural alias and member controls remain unexecuted for this draft.
+No new canonical runtime, corpus or speed claim follows.
+[Evidence](docs/architecture/checker-member-enum-owner-continuation.json).
+
+After delivery `2ae37af8`, the class/base private continuation is still refused
+for production by 38 `E0308` mismatches. Step6 initially failed before
+compilation because sandboxed sccache could not execute `rustc -vV`; that launch
+is not compiler evidence. The qualified checks with `RUSTC_WRAPPER` disabled
+retain 48 errors, then 41 and 38. Seven exposed borrow/move errors were repaired;
+this is not a test pass. Actual native constructor/member slots, full factories,
+mapper order and natural alias controls remain unexecuted for the draft.
+The prior production string-mapping controls do not certify these nine files.
+[Evidence](docs/architecture/checker-class-base-owner-continuation.json).
+
+At `189a2c1d` plus the five string-mapping overlays, the compiling origin mutant
+is refused by one failing owner control while its bound control passes. The
+first short exact test filter ran zero tests and is not proof. An initial
+membership claim about `Lowercase<T>` failed; the correct string-domain control
+uses `Lowercase<string>` and passes. The full private draft remains refused for
+production by 51 compiler mismatches; its factory/mapper/natural alias controls
+are unexecuted. Native direct worker rows, 212 reader passes and unchanged
+corpora do not certify the broader draft. Seven distinct inherited Clippy
+errors remain on both baseline and candidate. No measured performance gain.
+[Evidence](docs/architecture/checker-string-mapping-owner.json).
 
 Owner continuation at `835ef559`: the compiling origin-substitution mutant
 is refused by one failing selected-template-owner control (one bound control
@@ -15405,6 +16018,12 @@ holds only the numbers.
 
 | 2026-10-08 | `835ef559` plus two owned Rust overlays / native `5b1047d` | — | — | **Template alias selected-owner prerequisite.** Existing evaluator/active set migrated to actual SymbolRef; captured syntax-parameter frames preserved. Two focused controls and final 197 library tests pass; compiling origin mutant fails. Four cold/checked-first native owner rows repeat identically with distinct alias links and shared literal identity. Workspace 3,243 passes/19 existing ignores before test relocation; strict Clippy reproduces seven inherited errors, fmt passes. All 552,533 eligible type rows/12,238 diagnostic cases byte identical. Wider private owner draft moves from 69 mismatches through 60 mismatches plus 13 borrow/move errors to 60 mismatches only; exact deltas and diagnostics retained. Full factory/mapper/natural alias controls unexecuted; six goal tickets remain unfinished, no speed/coverage claim. [Evidence](docs/architecture/checker-template-alias-owner.json). |
 
+| 2026-10-08 | `189a2c1d` plus five owned Rust overlays / native `5b1047d` | — | — | **String mapping selected-owner prerequisite and general factory continuation.** Existing mapping stores and consumers retain actual owners; two controls, 3,245 workspace passes/19 existing ignores and 212 private reader passes. Compiling origin mutant fails. Four native fresh/checked-first order rows repeat identically. Full 552,533 type rows/12,238 diagnostic rows byte identical to qualified baseline; seven distinct inherited Clippy errors, no new ones, fmt passes. Private general factory/computed rebuild, alias/mapped/union and variance state preserve owners; 60→84→65→59→51 compile mismatches retained with exact five/16-file replayable deltas. Full factory/mapper/natural alias controls unexecuted. All six tickets unfinished, no speed or coverage gain. [Evidence](docs/architecture/checker-string-mapping-owner.json). |
+
+| 2026-10-08 | `39cdcdd9` / native `5b1047d` | — | — | **Selected property-owner private continuation.** Existing property/export-star producer results, composite constituents, static/instance names and existing structured-name cache carry actual selected identities. Exact 29-file replay across all 1,053 inputs; 1,024 unchanged. Compiler 198→156→110→88→81→80; final ordinary/work-trace 80 errors. One extracted actual existing symbol-store copy/member/export test passes, with opaque TypeId fixture and no private property/runtime qualification. No canonical Rust/corpus/performed-work/speed claim; all six tickets and complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-property-owner-continuation.json). |
+
+| 2026-10-08 | `bda345a6` / native `5b1047d` | — | — | **Selected binding-owner private continuation.** Existing alias/captured-conditional frames and default/constraint/type-literal keys retain selected identity; delete/callee/heritage/index diagnostic consumers read selected metadata. Exact 19-file replay, all 1,053 inputs, 1,034 unchanged. Final ordinary/work-trace 71 errors; full lib-test no-run 127 errors. Three extracted actual key controls pass, compiling origin-projection mutant fails two, restored controls pass three; bounded fixture does not qualify full Checker. No canonical runtime/native/corpus/performed-work/speed claim. All six tickets and complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-binding-owner-continuation.json). |
+
 ## 8. Updating this file
 
 **At the end of every session**, whoever ran it updates §1 (numbers + the
@@ -15644,3 +16263,35 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-06 | `f2325620` / native `5b1047d` | — | — | **Compiling signature-admission handoff, tsr-1yb.27/.28.** Final 189 library/package/strict-Clippy/fmt checks, 204 combined member library checks, four compiling mutants detected and exact restoration. Six parsed native injected-budget controls expose/fix early identity resource bypass; all 4,988 Go files restored. Three public matrices total 360 terminal children; final 20/24 baseline/seam/member-plus-seam case/mode native agreements versus member16, zero bounded agreement losses. Merged and original subtypesOfUnion TS2411 restored; TS2577/thisless still differ. No fresh full corpus, runtime retention, coverage or speed gain; previous18/one remains frozen538. [Replay](docs/architecture/checker-signature-admission-rust.md). |
 
 | 2026-10-06 | `0b18d357` / native `5b1047d` | — | — | **Mapped contextual ownership prerequisite, tsr-1yb.33.1.** Existing semantic contextual reader fixes Partial-wrapped inherited option inference privately; qualified red/green and one compiling raw-reader mutant, exact restoration and 205 library passes. Fresh477970 type rows improve49 and10570 diagnostic cases improve6, zero prior passing losses; all54/6 changed rows kept.344 public children: final66/86 native agreements versus main56, no lost agreement and172 full mode pairs equal;36 additional native contract children qualify explicit old-gap/circular-shortcut test corrections. Corrected full checker package1523pass/3pre-existing ignored over101blocks. Release/full corpus11-source and test-corrected12-source boundaries remain separate. No main runtime, strict-lint, CPU/RSS or speed claim;4.2.1 cost/benefit and PR5 regression34 remain. [Replay and limits](docs/architecture/checker-member-mapped-contextual.md). |
+
+| 2026-10-08 | `2ae37af8` / native `5b1047d` | — | — | **Selected class/base private continuation.** Exact nine-file delta replay verifies 1,053 inputs, 1,044 unchanged. Actual constructor/base/heritage caches and class consumers retain selected owners. Qualified terminal compiler errors 51→48→41→38; seven exposed borrow/move errors repaired. The initial sccache launch failed before compilation and is retained separately. Draft remains uncompiled; no fresh native class/base, runtime, corpus or performance controls. All six tickets and equivalent complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-class-base-owner-continuation.json). |
+
+| 2026-10-08 | `26da4dd0` / native `5b1047d` | — | — | **Selected member/enum private continuation.** Exact13-file replay verifies1,053 inputs/1,040 unchanged. Metadata/completeness walks, rest/tuple iteration, enum literal/value/fresh/regular owners, one union worker and enum/printing consumers retain actual selected handles. Qualified terminal compiler errors38→34→37→26; five exposed iterator/borrow/move errors repaired. Draft remains uncompiled; no canonical Rust/runtime, fresh native enum/parent/member/factory/alias, corpus or performance gates. All six tickets and equivalent complete-work <=0.50 target remain unfinished. [Replay](docs/architecture/checker-member-enum-owner-continuation.json). |
+
+| 2026-10-08 | `472c249f` / native `5b1047d` | — | — | **Selected index/dispatcher private continuation.** Exact five-file replay verifies 1,053 inputs/1,048 unchanged. Existing index memo/visited paths/sibling reads and late-name keys retain selected owners; one flags dispatcher reuses enum/export links. Final compiler count remains 26 E0308: four resolved index boundaries expose four downstream raw workers. Step12 import/getter failures retained then repaired. No canonical Rust, private runtime/native/corpus/performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-index-owner-continuation.json). |
+
+| 2026-10-08 | `640120e4` / native `5b1047d` | — | — | **Selected value-worker private continuation.** Exact ten-file replay verifies 1,053 inputs/1,043 unchanged. Accessor/callable/variable cache and frame owners, assignment constructor-flow classification/base reads, completed callable identity and work observation retain actual selected symbols. Compiler 27→26→25; final ordinary/work-trace builds both retain25 E0308. No canonical Rust or runtime/native/corpus/performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-value-owner-continuation.json). |
+
+| 2026-10-08 | `c92a8cb0` / native `5b1047d` | — | — | **Selected alias resolver private continuation.** Exact nine-file replay verifies 1,053 inputs/1,044 unchanged. Existing alias links retain selected owner/target and type-only metadata, completed-unknown publication and shared AliasTarget stack; separate resolving bit and bounded cycle/suggestion walks removed. Ten actual generic stack passes and two detected mutants exclude Checker-specific code. Widened alias result exposes100 E0308; final ordinary/work-trace each93 after selected suggestion/visibility/truthy migration. No compiling private checker, canonical Rust, alias runtime/native/corpus or performance qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-alias-owner-continuation.json). |
+
+| 2026-10-08 | `c236a387` / native `5b1047d` | — | — | **Selected alias-consumer private continuation.** Existing declared dispatcher and alias link, type-parameter metadata/constraint/default/inference/recursion/render scopes, generic-reference worker, homomorphic variable and callable export/readonly/name reads retain actual selected identities. Exact 18-file replay verifies 1,053 inputs/1,035 unchanged; owned formatting passes and unrelated rustfmt child restored. Compiler 116→93→89→84; final ordinary/work-trace both84 E0308. AnonymousProperty.origin and conditional frame keys are real unresolved boundaries, with no source-ID projection or dropped targets. No compiling private checker, canonical Rust, native/runtime/corpus/performed-work or speed qualification; all six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-alias-consumer-continuation.json). |
+
+| 2026-10-08 | `276f3419` / native `5b1047d` | — | — | **Selected member-origin private continuation.** Exact 19-file replay verifies 1,053 inputs/1034 unchanged. Existing member origins and spread/order/widening/inference/display/relation/report/JSX/signature consumers retain selected identity. Native-style per-record lazy IDs share bound publication across Checkers and give private copies fresh IDs; incorrect intermediate Checker-local slots removed. Binder21 and extracted reader3 pass; one compiling origin mutant detected, restored reader3 pass; two fresh native tests pass. Final ordinary/work-trace both84 E0308. Property-result producer and conditional bindings remain raw boundaries; no canonical Rust, full member runtime/corpus/performed-work or speed qualification. All six tickets and complete-work <=0.50 target unfinished. [Replay](docs/architecture/checker-member-origin-continuation.json). |
+
+| 2026-10-08 | `822edfa4` plus recorded five-file private overlay / native `5b1047d` | — | — | **Alias-result ownership continuation, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Import/export/entity channels and existing generic qualified keys retain selected handles; shallow namespace/module diagnostics and emit-helper signatures use actual selected metadata. Exact1053 inputs/fivechanged/1048unchanged replay. Ordinary/work-trace57 compile errors, full-lib-test113; predecessor71/127. Bounded own-export2pass, compiling origin and module-guard mutations each1fail, restored2pass; setup compile failure preserved separately. No canonical Rust/runtime, full native/corpus/performed-work or speed acceptance; all six tickets in progress. [Replay](docs/architecture/checker-alias-result-continuation.json). |
+
+| 2026-10-08 | `b96ed671` plus exact two-file private overlay / native `5b1047d` | — | — | **Selected naming ownership continuation, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Best-name/alias/module naming and module property display retain actual selected identity; exact1053 inputs/twochanged/1051unchanged replay. Ordinary/work-trace34 compile errors, full-lib-test90; predecessor57/113. Bounded actual direct-name1pass, compiling origin mutation1fail, restored1pass. Native alias-only table scan/copy/publication profiling filed as tsr-1yb.11.5. No canonical Rust/runtime, full native/corpus/performed-work or speed acceptance; all six goals in progress. [Replay](docs/architecture/checker-semantic-naming-continuation.json). |
+
+| 2026-10-08 | `af503f38` plus exact 40-source private overlay / native `5b1047d` | — | — | **Selected semantic consumers and module-copy publication, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Exact 1,053-input replay, 1,013 unchanged. Ordinary/work-trace library and workspace runtime compile; actual library 224/0/0, selected integration 23/0, native 8 rows. Canonical runtime retention refused by 141 strict lint errors and unmigrated conformance tests/examples; full corpus/work and ratio<=0.50 outstanding. [Replay](docs/architecture/checker-semantic-consumer-continuation.json). |
+
+| 2026-10-08 | `124ea18d` plus exact 34-source private overlay / native `5b1047d` | — | — | **Conformance consumers and native alias admission, tsr-1yb.7.7.3 / tsr-1yb.33.1.** Exact 1,053-input replay, 1,019 unchanged. Actual library224/0/0, checker integration23/0, conformance34/0 and native78 rows; work-trace compiles. 121 compiler suggestions reduce strict lint141 to28; keep-going all-targets reports25 mismatches in seven examples. Canonical runtime, full corpus/work and ratio<=0.50 gates remain unfinished. [Replay](docs/architecture/checker-conformance-consumer-continuation.json). |
+
+| 2026-10-08 | `18d77c9e` plus exact48-source cumulative private overlay / native `5b1047d` | — | — | **Selected workspace/alias/callable continuation.** Exact1056-input phase replays;91 files differ from frozen main. Workspace3279/0/19, library225/0/0; strictClippy/fullfmt/work-trace pass. Native20 call/12 parent rows/two clone publications plus6 property,10 diagnostic and8 merged callable observations qualify scoped repairs. Both legacy dumps complete552533types/12238diagnostics: first12type/10diagnostic losses reduced to2/2,124type/9diagnostic gains,0missing. Failed alias abort and lint/formatting probes preserved. Remaining selected property/type-only and inherited-member losses stay under active tickets; no canonical runtime or speed proof. [Replay](docs/architecture/checker-workspace-owner-continuation.json). |
+
+| 2026-10-08 | `2e47ffaa` plus exact private92-file owner replay / native `5b1047d` | — | — | **Full owner preservation and refcount/naming attribution.** Actual full native8275→8303 EXACT,28gains/0losses/0missing; full legacy552533type/12238diag keys,124/9gains/0RIGHTlosses. Workspace3286/0/19,strictClippy/fmt/work-trace pass. Safe localArc230library/strictcheckeralltargets and actual full native8303 with0non-timing payload changes; originalport default+56.88%/single+17.16%main regression reduced by22.43%defaultwall/36.26%CPU, yet directmain comparison remains+20.997%/+16.244%. Rc rejected1.001725default/0.993764single. Corrected21.55M/21.32M ownership counts; naming globals400queries/891600copies/15.2MB/zeroaliases selects newP1 tsr-1yb.33.1.2 native direct/alias-only preparation. Four exact1056-input replays; no canonical Rust retention or verified equivalent-work <=0.50. Six goals remain in progress. [Qualified source and gates](docs/architecture/checker-owner-performance-qualification.md). |
+| 2026-10-08 | `2e47ffaa` runtime plus exact private154/158 naming variants / native `5b1047d` | — | — | **Native direct/borrowed naming preparation verified privately.** Both actual full native14960 rows retain8303EXACT and all non-timing payloads; legacy552533types/12238diag byte-identical to owner111. Borrowed workspace3287/0/19,strictalltargetsClippy/fmt/work-trace pass. Primary copied entries1758304→516704, name payload26759920→7993920→0; exact repeats/default+single and402checkedfiles. Ordinary direct batch0.746497→0.673110s vs localArc; separate borrowed batch0.672601→0.645021s vs direct, but main0.604817s remains faster. Borrowed/main ratios1.066474default/1.058547single; observednative2.058696default is not a verified equivalent-work ratio. Four more1056-input source/probe replays; no runtime retention/full92-file review or six-goal completion. Next tsr-1yb.11.5.1 native accessible-chain owner/scope/meaning completion. [Source, counters and full gates](docs/architecture/checker-owner-performance-qualification.md). |
+
+| 2026-10-08 | `a6b8a68f` canonical / private158 and185 probes / native `5b1047d` | — | — | **Accessible-chain attribution changes priority; API refuses private integration.** Native generated0requests; private TSR2000best-name workers/2000distinct first-legacy-scope keys,1200TYPE-helper declines. Exact two repeats/default+single,402checked,465loaded; native declaration9requests/2walks/7success hits and API42/1/41nil hits with615checked/9861loaded. Source185 feature build/ordinary releasecheck pass; exact private probe replays, all canonical1056 inputs stable. Private API sampled repeat120.293s,471.655suserCPU,11.888GB RSS,-9; frozenmain5.816s locating observation. No timed ratio/cache/runtime retention or goal completion. New P1 tsr-1yb.11.7 attributes type_literal_key frame flatten/sort versus native node/mapper preparation; eager presentation16.3.10 remains. [Counters, source and failures](docs/architecture/checker-accessible-chain-attribution.md). |
+| 2026-10-08 | `f8f98157` canonical/runtime `2e47ffaa`; source193/201/222/223 and native221 probes | — | — | **Mapped constructor demand is the next repair boundary.** API canonical408068conditional nodes/depth16 versus private>=34685736/depth100 at30scap; generated root/node workers match. PgSelect member reads and actual Drizzle fields over any reproduce; standalone recursive Simplify also times out in main. Native constructor-only controls complete with0template getter calls; private Drizzle>=52439template preparations at3scap. Three exact counter replays, Rust feature builds/ordinary checks and native Go1.26build pass;72complete ordinary/off/on runs preserve outputs/repeated semantic counts. Existing16.3.10.4 owns demand, linked11.7. No runtime fix/native ratio/six-goal completion. [Source, standalone red and limits](docs/architecture/checker-mapped-template-attribution.md). |
+
+| 2026-10-08 | `daee9552` plus six-source tuple-label overlay; native `5b1047d` | +1 legacy type assertion | 0 previously RIGHT losses | **Runtime tuple-label prerequisite retained.** Reserved labels and named-rest AST ownership now follow native; checker normalization, signature rendering and recovered optional/rest semantic dispatch consume that shape. Workspace3255/0/19; complete552533type/12238diagnostic keys retained. Initial two-RIGHT-loss candidate refused and repaired. ScopedClippy passes with five preexisting warnings; strict lint does not pass. Four ioredis parser errors removed; semantic parity, full native corpus qualification and speed target remain unfinished under tsr-1yb.35 and the six original goal tickets. [Reasoning](docs/architecture/parser.md#tuple-labels-and-rest-ownership). |

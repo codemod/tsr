@@ -106,6 +106,35 @@ constructor types, conditional types, and `infer`.
 worker can parse a file and hand the result back. See
 [threading.md](threading.md).
 
+## Tuple labels and rest ownership
+
+At native revision `5b1047d`, `parseTupleElementNameOrTupleElementType` scans an
+optional ellipsis followed by an IdentifierName and `:` or `?:`. Reserved words
+are legal labels: ioredis uses `[function: string | Buffer, ...args: RedisValue[]]`.
+This does not make `function` a legal ordinary parameter binding. Tuple-list
+admission is also separate from label lookahead: native accepts a plain `function`
+label, but admits `class` and `return` labels only after an ellipsis. Keep the
+existing `isStartOfType` boundary rather than admitting every keyword to the list.
+
+The named member owns its ellipsis and question token. Its operand uses
+`parseTupleElementType`, including optional/rest recovery; an unnamed rest's
+operand uses `parseType`. Changing the old `RestType(NamedTupleMember)` shape
+therefore requires the checker consumers to read the named member's flags for
+normalization, alias rendering and contextual rest signatures.
+
+The first parser/consumer patch passed all workspace tests but lost two previously
+RIGHT corpus results (`Opt` and `Trailing` in `namedTupleMembersErrors`). The
+missing `OptionalType`, `NamedTupleMember` and `RestType` semantic dispatch workers
+must preserve native recovered types even when grammar reports an error. The
+array-element helper borrows the parsed operand and traverses arrays,
+parenthesized types and single-rest tuples; it performs no semantic resolution
+and publishes no cache entry. The corrected patch retains every previously RIGHT
+type/diagnostic result and gains one type result across the complete legacy dumps.
+
+This is a correctness prerequisite under `tsr-1yb.35`, not a performance result.
+Removing the four ioredis parser errors lets the CLI reach semantic checking;
+the application still exposes checker gaps while native exits successfully.
+
 ## Dialect
 
 `<` means two different things and the readings are mutually exclusive: in `.ts`

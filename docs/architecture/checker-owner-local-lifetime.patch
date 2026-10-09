@@ -1,0 +1,118 @@
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -31,9 +31,14 @@
+ #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+ pub struct SymbolRef(Identity);
+
++/// Checker-local lifetime holder for the same frozen Program stamp.
++/// Equality and hashing delegate to the Program identity, not this allocation.
++#[derive(Clone, Debug, PartialEq, Eq, Hash)]
++struct ProgramDomain(Arc<SymbolStoreIdentity>);
++
+ #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+ enum Identity {
+-    Bound(SymbolStoreIdentity, SymbolId),
++    Bound(ProgramDomain, SymbolId),
+     Private(CheckerIdentity, u32),
+ }
+
+@@ -133,7 +138,7 @@
+ pub struct SymbolView<'s, 'a>(View<'s, 'a>);
+
+ enum View<'s, 'a> {
+-    Bound(&'s Symbol<'a>, &'s SymbolStoreIdentity),
++    Bound(&'s Symbol<'a>, &'s ProgramDomain),
+     Private(&'s PrivateSymbol<'a>),
+ }
+
+@@ -331,6 +336,7 @@
+ /// Private records and redirects for one Checker reading one frozen bound store.
+ pub struct CheckerSymbols<'a> {
+     program: &'a SymbolStore<'a>,
++    program_domain: ProgramDomain,
+     program_bindings: Option<&'a tsr_binder::BindResult<'a>>,
+     domain: CheckerIdentity,
+     records: Vec<PrivateSymbol<'a>>,
+@@ -348,6 +354,7 @@
+         let unknown = SymbolRef(Identity::Private(domain.clone(), 0));
+         Self {
+             program,
++            program_domain: ProgramDomain(Arc::new(program.identity().clone())),
+             program_bindings: None,
+             domain,
+             unknown,
+@@ -382,20 +389,20 @@
+         if id.index() >= self.program.len() {
+             return Err(SymbolAccessError::InvalidIndex);
+         }
+-        Ok(SymbolRef(Identity::Bound(self.program.identity().clone(), id)))
++        Ok(SymbolRef(Identity::Bound(self.program_domain.clone(), id)))
+     }
+
+     /// Validate the domain before indexing either store.
+     pub fn view(&self, symbol: &SymbolRef) -> Result<SymbolView<'_, 'a>, SymbolAccessError> {
+         match &symbol.0 {
+             Identity::Bound(domain, id) => {
+-                if domain != self.program.identity() {
++                if domain.0.as_ref() != self.program.identity() {
+                     return Err(SymbolAccessError::ForeignProgram);
+                 }
+                 if id.index() >= self.program.len() {
+                     return Err(SymbolAccessError::InvalidIndex);
+                 }
+-                Ok(SymbolView(View::Bound(self.program.get(*id), self.program.identity())))
++                Ok(SymbolView(View::Bound(self.program.get(*id), &self.program_domain)))
+             }
+             Identity::Private(domain, index) => {
+                 if domain != &self.domain {
+@@ -1548,6 +1555,15 @@
+         let second = CheckerSymbols::new(&program, unresolved);
+         let a = first.bound(raw).unwrap();
+         let b = second.bound(raw).unwrap();
++        assert_eq!(a, b, "a local lifetime holder does not create a new Program identity");
++        let Identity::Bound(first_domain, _) = &a.0 else { unreachable!() };
++        let Identity::Bound(second_domain, _) = &b.0 else { unreachable!() };
++        assert!(!Arc::ptr_eq(&first_domain.0, &second_domain.0));
++        let mut keyed = FxHashMap::default();
++        keyed.insert(a.clone(), "same bound record");
++        assert_eq!(keyed.get(&b), Some(&"same bound record"));
++        assert_eq!(first.view(&b).unwrap().name(), "same");
++        assert_eq!(second.view(&a).unwrap().name(), "same");
+         let source_id = first.view(&a).unwrap().identity_id();
+         assert_eq!(second.view(&b).unwrap().identity_id(), source_id);
+         let copy = first.clone_module_symbol(&a).unwrap();
+@@ -1560,4 +1576,34 @@
+         assert_eq!(first.view(&copy).unwrap().identity_id(), copy_id);
+         assert_eq!(first.view(&a).unwrap().identity_id(), source_id);
+     }
++
++    #[test]
++    fn retained_bound_handle_preserves_identity_without_borrowing_program_records() {
++        fn assert_send_sync<T: Send + Sync>() {}
++        assert_send_sync::<SymbolRef>();
++        let (handle, weak) = {
++            let mut program = SymbolStore::new();
++            let raw = program.create("retained", SymbolFlags::PROPERTY);
++            let mut types = crate::TypeStore::new();
++            let unresolved = crate::Intrinsics::create(&mut types).unresolved;
++            let checker = CheckerSymbols::new(&program, unresolved);
++            let weak = Arc::downgrade(&checker.program_domain.0);
++            (checker.bound(raw).unwrap(), weak)
++        };
++        assert!(weak.upgrade().is_some(), "the holder survives the records and checker");
++        let transferred = std::thread::spawn(move || handle).join().unwrap();
++        let clone = transferred.clone();
++        drop(transferred);
++        assert!(weak.upgrade().is_some());
++
++        let mut replacement = SymbolStore::new();
++        let reused_index = replacement.create("replacement", SymbolFlags::PROPERTY);
++        let mut types = crate::TypeStore::new();
++        let unresolved = crate::Intrinsics::create(&mut types).unresolved;
++        let checker = CheckerSymbols::new(&replacement, unresolved);
++        assert_ne!(checker.bound(reused_index).unwrap(), clone);
++        assert!(matches!(checker.view(&clone), Err(SymbolAccessError::ForeignProgram)));
++        drop(clone);
++        assert!(weak.upgrade().is_none(), "no global holder registry retains the stamp");
++    }
+ }

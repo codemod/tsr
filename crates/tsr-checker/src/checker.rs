@@ -1089,8 +1089,12 @@ pub struct Checker<'a, 'n> {
     pub(crate) mapped_members_in_progress: rustc_hash::FxHashSet<TypeId>,
     pub(crate) template_alias_in_progress: rustc_hash::FxHashSet<crate::symbol_access::SymbolRef>,
     pub(crate) template_literal_parts: FxHashMap<TypeId, crate::templates::TemplateLiteralParts>,
-    pub(crate) string_mapping_types: FxHashMap<TypeId, (SymbolId, TypeId)>,
-    pub(crate) string_mapping_cache: FxHashMap<(SymbolId, TypeId), TypeId>,
+    /// Native 5b1047d getStringMappingTypeForGenericType owns completed images
+    /// by the actual mapping symbol and target type, even for module clones.
+    /// Both existing stores are Checker-local; literal/union/template results
+    /// can still share structural types. There is no active mapping reservation.
+    pub(crate) string_mapping_types: FxHashMap<TypeId, (crate::symbol_access::SymbolRef, TypeId)>,
+    pub(crate) string_mapping_cache: FxHashMap<(crate::symbol_access::SymbolRef, TypeId), TypeId>,
     pub(crate) template_literal_cache: FxHashMap<crate::templates::TemplateLiteralParts, TypeId>,
     pub(crate) mapped_apparent_types: FxHashMap<TypeId, TypeId>,
     /// `resolvedBaseConstructorType`/`resolvedBaseTypes` per class or

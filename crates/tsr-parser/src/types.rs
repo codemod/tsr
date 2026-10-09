@@ -820,10 +820,36 @@ impl<'a> Parser<'a> {
     fn parse_tuple_element(&mut self) -> TypeNode<'a> {
         let start = self.pos();
 
-        // `...T`
+        // parseTupleElementNameOrTupleElementType/scanStartOfNamedTupleElement
+        // (pinned typescript-go parser.go): labels admit IdentifierName,
+        // including reserved keywords. A named rest element owns its ellipsis;
+        // it is not a RestType wrapped around a NamedTupleMember.
+        if self.next_starts_named_tuple_member() {
+            let dot_dot_dot =
+                if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
+            let name = self.parse_identifier_name();
+            let question =
+                if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };
+            self.expect(SyntaxKind::ColonToken);
+            let inner = self.parse_tuple_element_type();
+            return TypeNode::NamedTupleMember(self.finish_node(
+                NamedTupleMember::new(dot_dot_dot, Some(name), question, Some(inner)),
+                SyntaxKind::NamedTupleMember,
+                start,
+            ));
+        }
+
+        self.parse_tuple_element_type()
+    }
+
+    /// `parseTupleElementType`, also used for a named member's operand.
+    fn parse_tuple_element_type(&mut self) -> TypeNode<'a> {
+        let start = self.pos();
+        // parseTupleElementType: an unnamed rest operand is a type, not another
+        // tuple element. The named form above retains native node ownership.
         if self.at(SyntaxKind::DotDotDotToken) {
             self.next_token();
-            let inner = self.parse_tuple_element();
+            let inner = self.parse_type();
             return TypeNode::RestTypeNode(self.finish_node(
                 RestTypeNode::new(Some(inner)),
                 SyntaxKind::RestType,
@@ -831,28 +857,6 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        // `name: T` and `name?: T` are named members, not annotations.
-        if (self.at(SyntaxKind::Identifier)
-            || crate::statement::is_contextual_keyword(self.token.kind))
-            && self.next_starts_named_tuple_member()
-        {
-            let name = self.parse_identifier();
-            let question =
-                if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };
-            self.expect(SyntaxKind::ColonToken);
-            let inner = self.parse_type();
-            return TypeNode::NamedTupleMember(self.finish_node(
-                NamedTupleMember::new(None, Some(name), question, Some(inner)),
-                SyntaxKind::NamedTupleMember,
-                start,
-            ));
-        }
-
-        self.parse_tuple_element_type_rest(start)
-    }
-
-    /// `parseTupleElementType` after its `...` arm.
-    fn parse_tuple_element_type_rest(&mut self, start: u32) -> TypeNode<'a> {
         let inner = self.parse_type();
         // `parseTupleElementType` (`parser.go:3645`): a postfix `T?` the type
         // grammar read as a JSDoc nullable is the tuple's optional element.
@@ -886,6 +890,12 @@ impl<'a> Parser<'a> {
     fn next_starts_named_tuple_member(&mut self) -> bool {
         let mut matched = false;
         self.try_parse(|p| {
+            if p.at(SyntaxKind::DotDotDotToken) {
+                p.next_token();
+            }
+            if !p.at(SyntaxKind::Identifier) && !p.token.kind.is_keyword() {
+                return None::<()>;
+            }
             p.next_token();
             if p.at(SyntaxKind::QuestionToken) {
                 p.next_token();

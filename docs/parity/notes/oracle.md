@@ -50,6 +50,13 @@ scripts/parity_gate.sh exact-candidate ~/oracle/native ~/oracle/main-<sha> ~/ora
 echo $?
 ```
 
+The overlay keys are the canonical paths of the native checkout (Go resolves
+package directories to real paths and silently ignores a key spelled through a
+symlink, so a symlinked `vendor/typescript-go` used to build a runner without
+the producer: "no tests to run"). Before building, `go list -overlay` must
+place both producer files in the packages Go compiles; otherwise `oracle-native`
+fails naming the package directory and the overlay target.
+
 Workers default to every core (`--workers N` overrides). The native directory
 is refused, not silently reused, once the pinned revisions or the Go producer
 sources change: re-run `oracle-native`. A filtered base (`--filter S`) only
@@ -98,7 +105,7 @@ and reap): `getCompilerFileBasedTest` → `newCompilerTest` →
 TSR, per candidate: `full_oracle::actual` with the native configuration map
 verbatim. Case program = `types_producer::program_and_config_for_case` at
 `/.src`; one configured checker; `compileFilesWithHost` collection (config,
-parse, JS syntax, `bind_and_check_diagnostics` with the program's bind
+program option diagnostics, parse, JS syntax, `bind_and_check_diagnostics` with the program's bind
 diagnostics, include processor, isolated-declaration diagnostics) then
 `sort_and_deduplicate_located_diagnostics`; type rows via
 `types_producer::render_file` through the same checker, `hadErrorBaseline =
@@ -113,6 +120,40 @@ ends the worker, the case is `TSR_FAILED` with that case's stderr, and the slot
 starts a new worker, so no case runs after another case's unwinding.
 `--per-process` runs one process per case; the two modes must publish
 byte-identical artifacts (checked over the full corpus, below).
+
+### Program option diagnostics (`verifyCompilerOptions`)
+
+`tsr_compiler::program_diagnostics::verify_compiler_options` ports
+`Program.verifyCompilerOptions` (`program.go:751`) arm by arm, in order: removed
+options (TS5102/TS5108, `Use '{0}' instead.` chain for `baseUrl`), option
+pairs (TS5052/5053/5069/5051/5091/6304/6379/5074), `paths` patterns, inferred
+`rootDir` (TS5011 with the aka.ms/ts6 chain), JSX factories (with
+`ParseIsolatedEntityName`/`IsIdentifierText`), module and resolution pairs
+(TS5095/5098/5109/5110, TS5096), and the emit-path check
+(TS5055/TS5056 over `outputpaths.GetOutputPathsFor` and the build-info name,
+with the tsconfig-advice chain when the program has no config file). Positions
+follow `createDiagnosticForOption`: the option's key or value in the case's
+`tsconfig.json` compilerOptions (`tsr_tsoptions::syntax`, a port of
+`ForEachTsConfigPropArray`/`ForEachPropertyAssignment` with
+`CreateDiagnosticForNodeInSourceFile` ranges), else the `compilerOptions` key,
+else file-less. No state outlives the call. The harness now applies the emit
+directives the verifier reads (`noEmit`, `emitDeclarationOnly`,
+`declarationMap`, `sourceMap`, `inlineSourceMap`, `inlineSources`, `mapRoot`,
+`sourceRoot`, `downlevelIteration`, `incremental`, `tsBuildInfoFile`,
+`emitDecoratorMetadata`, `rewriteRelativeImportExtensions`; no checker path
+reads them), and `@suppressOutputPathCheck`, which `tsr_core::CompilerOptions`
+has no field for, is passed alongside.
+
+Not produced, each named in the module docs: project-reference checks (no
+references are loaded), the `composite` root-file and `rootDir` membership
+explaining diagnostics (TS6307/TS6059: no file-include reasons), and
+`paths` values of the wrong type / written-empty `lib`/`customConditions`
+(plain vectors in `CompilerOptions`). The CLI (`tsr-execute` `compile.rs`) does
+not call the verifier yet; that caller is outside this lane.
+
+Measured on origin/main `1cea3449`: EXACT 8,165 → 8,260 (95 gained, 0 lost,
+0 missing), including ranked groups 13/22/26 (missing TS5055, TS5110,
+TS5102). No case reports a verifier code native does not.
 
 ## Exactness
 
@@ -219,21 +260,24 @@ case, p99 1.55 s, about 13,200 worker-seconds; 910 s wall at `c4bd3a6d`.
 
 That cost is TSR checking the bundled libraries. The native harness never
 does: `CompileFiles` defaults `SkipDefaultLibCheck` to true
-(`harnessutil.go:99`), and `program_and_config_for_case` does not. With that
-default ported (plus `createProgram`'s `SingleThreaded`) the run takes 125 s
-wall at `c4bd3a6d` (0.1 s per case; serve/per-process byte-identical at the
-previous main), so a 16-core gate fits in 10 minutes. The port is **held**: it
-gains `genericPrototypeProperty2` and `plainJSReservedStrict` but loses
-`compiler/sliceResultCast.ts`, whose EXACT depends on checking `lib.es5.d.ts`
-first. For `x: [number, string] | [number, string, string]`, native prints
-`x.slice` as a union of two distinct instantiated signatures (also with
-`@skipDefaultLibCheck: false`); TSR prints that union only when
-`lib.es5.d.ts` was checked before the case, and one signature otherwise. The
-union projection (`get_type_of_property_with_this_argument`, `members.rs`) must
-keep one instantiation per tuple receiver (`getTypeWithThisArgument`)
-independent of check order; that is a checker fix outside this lane. The
-legacy dumps (`parity_gate.sh compare`) show no transition from the held
-port.
+(`harnessutil.go:99`). `program_and_config_for_case` now applies that default
+before the directives (so `@skipDefaultLibCheck: false` still wins; the
+directive is applied too) together with `createProgram`'s `SingleThreaded`
+(`harnessutil.go:939`, the test default). On origin/main `1cea3449` + this
+lane it cuts the TSR worker time from 6,142 to 2,019 worker-seconds (median
+478 → 119 ms per case, p99 757 → 394 ms) and gains
+`conformance/salsa/plainJSReservedStrict.ts`, with no EXACT loss; the
+`@skipDefaultLibCheck: false` cases (`duplicateNumericIndexers`,
+`libCompileChecks`, `verifyDefaultLib_dom`, ...) keep their `lib.es5.d.ts`
+diagnostics and verdicts. It was held while it lost
+`compiler/sliceResultCast.ts`, whose EXACT depended on checking `lib.es5.d.ts`
+first (`x.slice` on `[number, string] | [number, string, string]`: native
+prints a union of two instantiated signatures, TSR one unless the lib was
+checked first; `get_type_of_property_with_this_argument` must keep one
+instantiation per tuple receiver independent of check order). origin/main
+`1cea3449` already reports that case WRONG with the libraries checked, so
+the port no longer costs an EXACT case; the check-order fix remains the
+checker's.
 
 ## Root causes ranked (`c4bd3a6d` report)
 

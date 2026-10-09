@@ -205,6 +205,49 @@ fn checkouts() -> Result<(PathBuf, PathBuf, PathBuf, String)> {
     Ok((root, native, corpus, corpus_rev))
 }
 
+/// Where the overlay places each [`NATIVE_SOURCES`] file: package directory
+/// (relative to the native checkout) and file name.
+const OVERLAY_TARGETS: [(&str, &str); 2] = [
+    ("internal/testrunner", "full_oracle_test.go"),
+    ("internal/testutil/tsbaseline", "full_oracle.go"),
+];
+
+/// Fail unless `go list` under `overlay` compiles each overlay file into the
+/// package whose directory is the overlay key's directory. Go silently ignores
+/// an overlay key that is not the path it resolves for the package (a symlinked
+/// or differently spelled checkout), and the producer then builds without the
+/// oracle: discovery reports "no tests to run" instead of a cause.
+fn verify_overlay(native: &Path, overlay: &Path) -> Result<()> {
+    let out = Command::new("go")
+        .current_dir(native)
+        .arg("list")
+        .arg(format!("-overlay={}", overlay.display()))
+        .arg("-f")
+        .arg("{{.Dir}}\t{{join .GoFiles \",\"}},{{join .TestGoFiles \",\"}}")
+        .args(OVERLAY_TARGETS.map(|(pkg, _)| format!("./{pkg}")))
+        .output()?;
+    ensure!(
+        out.status.success(),
+        "go list of the native producer packages failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let listed = String::from_utf8(out.stdout)?;
+    let lines: Vec<&str> = listed.lines().collect();
+    ensure!(lines.len() == OVERLAY_TARGETS.len(), "go list printed {listed:?}");
+    for ((pkg, file), line) in OVERLAY_TARGETS.iter().zip(lines) {
+        let (dir, files) = line.split_once('\t').context("go list row")?;
+        let expected = native.join(pkg);
+        ensure!(
+            Path::new(dir) == expected && files.split(',').any(|f| f == *file),
+            "native producer overlay does not apply: go compiles package {pkg} from {dir} \
+             (files {files}), but the overlay places {file} under {}; the overlay target \
+             path must resolve to the compiled package path",
+            expected.display()
+        );
+    }
+    Ok(())
+}
+
 /// Run `body(i)` for every index on `workers` threads, each with its own state.
 fn parallel<S>(
     n: usize,
@@ -267,18 +310,23 @@ fn native(args: &[String]) -> Result<()> {
     id.set("native_filter", &o.filter);
     id.set("native_env", "TS_TEST_PROGRAM_SINGLE_THREADED=true GOMAXPROCS=1");
 
-    // Native producer: the pinned runner plus two overlay files.
+    // Native producer: the pinned runner plus two overlay files. Go matches
+    // overlay keys against the package directories it resolves itself, which
+    // are real paths, so the keys are canonical (a symlinked checkout would
+    // otherwise compile without the producer: "no tests to run").
+    let native = native.canonicalize()?;
     let overlay = dir.join("bin/overlay.json");
     write_atomic(
         &overlay,
         &format!(
             "{{\"Replace\":{{\"{}\":\"{}\",\"{}\":\"{}\"}}}}",
-            native.join("internal/testrunner/full_oracle_test.go").display(),
-            src.join(NATIVE_SOURCES[0]).display(),
-            native.join("internal/testutil/tsbaseline/full_oracle.go").display(),
-            src.join(NATIVE_SOURCES[1]).display()
+            native.join(OVERLAY_TARGETS[0].0).join(OVERLAY_TARGETS[0].1).display(),
+            src.join(NATIVE_SOURCES[0]).canonicalize()?.display(),
+            native.join(OVERLAY_TARGETS[1].0).join(OVERLAY_TARGETS[1].1).display(),
+            src.join(NATIVE_SOURCES[1]).canonicalize()?.display()
         ),
     )?;
+    verify_overlay(&native, &overlay)?;
     let built = dir.join("bin/native-build");
     let status = Command::new("go")
         .current_dir(&native)

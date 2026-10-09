@@ -203,6 +203,26 @@ record capacities on current source before choosing a compact production
 encoding. The layout proves safe ownership, not profitable reuse. `.7.7` must
 measure the integrated change against its unchanged whole-project gates.
 
+The private local-lifetime experiment at frozen `2e47ffaa` (full commit in the
+linked evidence) puts a Checker-local `Arc<SymbolStoreIdentity>` holder around
+that same Program stamp. Its allocation is a lifetime holder, never an identity:
+equality/hash still delegate to the inner Program stamp and bound index. Reads
+validate the original Program identity before indexing. The holder owns no AST
+or records; retained handles preserve the stamp after store/Checker drop. Public
+handles retain `Send + Sync`, and separate holders on the same Program compare
+and hash equally. No cache, publication state or alias/receiver key changes.
+
+Corrected opt-in counts cover all seven bound clone/lift sites: 21,548,677
+events across four Checkers and 21,320,280 single, repeated identically through
+checking/diagnostic projection. These are ownership events, not expensive worker
+executions. The local holder saves 22.43% four-worker wall time relative to the
+original private owner port, but the direct combined-port/main comparison still
+regresses 20.997% default and 16.244% single. Runtime retention remains refused.
+An `Rc` holder has no meaningful CLI benefit and would change standalone handle
+thread safety; it is rejected. [Source, exact replay and measurements](checker-owner-performance-qualification.md)
+track this boundary under `tsr-1yb.11.6`; no compact encoding or completed speed
+claim follows from the representation controls.
+
 ## Current alias-target qualification
 
 The 2026-10-08 audit uses TSR `59f6ce22` and pinned native `5b1047d1`.
@@ -792,7 +812,267 @@ controls remain unexecuted. This ownership prerequisite claims no speed or
 coverage gain; the equivalent complete-work TSR/native median <=0.50 remains
 unverified.
 
+### String mapping owner integration
+
+Frozen main `189a2c1d` plus the five Rust overlays in
+[the evidence](checker-string-mapping-owner.json) carries actual `SymbolRef`
+owners through the existing string-mapping stores, recursion, constraint
+rebuilding, substitution, inference and relations. Genuine bound alias entries
+lift their input and use the same selected worker. There is no origin projection,
+second worker, new cache or cross-Checker state.
+
+Pinned native `5b1047d` `getStringMappingTypeForGenericType` keys its completed
+image by the actual mapping symbol and target type. `getStringMappingType`
+returns an existing image when its mapping symbol is the same; distinct clones
+must remain distinct even with identical spelling and shared declarations.
+Literal/union/template results still use structural reuse. The rejected
+alternative of normalizing a clone to its origin merges generic image identity
+and changes same-owner inference and relation behavior. Native direct-worker
+controls confirm distinct owners/images, repeat reuse, shared completed literals,
+same-owner inference, cross-owner refusal and nested substitution in both query
+orders, before and after checking. All four rows repeat byte identically.
+
+Both mutable maps remain Checker-local, keyed by validated owner and local
+`TypeId`; they publish only completed generic image construction. This operation
+has no active reservation. No captured mapper or alias frame is reused here;
+the actual selected owner survives later target substitution. Generic image
+construction still formats its target as before. Worker counts and allocation
+cost are unmeasured (`tsr-1yb.11`); this correctness prerequisite is not a speed
+win or authorization to memoize another computation.
+
+The workspace passes 3,245 tests with zero failures and 19 existing ignores.
+The isolated reader passes 212 library tests. An actual compiling origin mutant
+fails one owner test while the genuine bound test passes. Unfiltered outputs
+retain all 552,533 eligible type rows and 12,238 diagnostic rows byte for byte
+against the source-qualified baseline. All 779 tracked build inputs match the
+previous qualified baseline and main `189a2c1d`. Strict Clippy has the same seven
+distinct inherited errors on baseline and candidate (seven versus twelve raw
+messages because candidate targets repeat five errors); format checks pass.
+These are expected-driven corpus gates, not a fresh complete native oracle.
+
+The broader private continuation routes computed reference rebuilding through
+the general selected factory and preserves selected alias/mapped/union and
+variance state. Its compiler mismatches move through 60, 84, 65, 59 and 51 as
+the owner boundary exposes further callers. Exact five/16-file continuation
+deltas replay against the preceding artifact and retain all 1,053 input hashes
+per slice. The full draft is still uncompiled; full factory/mapper, natural alias,
+member publication and private variance controls remain unexecuted. The direct
+native string worker controls do not stand in for those gates. All six goal
+tickets remain unfinished; equivalent complete-work wall ratio <=0.50 remains
+unverified.
+
+### Selected class constructor and base owner continuation
+
+After production delivery `2ae37af8`,
+[the private continuation](checker-class-base-owner-continuation.json) carries
+actual selected class owners through the existing constructor slot, base list,
+heritage reference cache and narrowing/nominal/property metadata consumers.
+Pinned native `5b1047d` operations are `resolveAnonymousTypeMembers`,
+`getDefaultConstructSignatures`, `getBaseTypes`, `resolveBaseTypesOfClass`,
+`resolveBaseTypesOfInterface` and `hasBaseType`. A private copy shares syntax
+declarations, not its source's active frame or completed class-owned link.
+
+The constructor placeholder remains the existing `None`; base lists preserve
+partial re-entry and resolved publication. Heritage keys retain location and
+ordered written argument syntax as well as the actual target. Alias-frame
+admission, default substitution and publication guards keep their policy.
+Genuine bound entry points lift Program-owned symbols; no private owner is
+projected to an origin. This is an owner migration, not certification of native
+`__constructor`/structured member publication or a new reuse policy. Expensive
+worker counts and wall/CPU/RSS effects remain unmeasured in `tsr-1yb.11`.
+
+The exact nine-file patch replays against the prior 1,053-input full draft,
+with 1,044 inputs unchanged. Qualified checks retain 48, 41 and 38 errors in
+order; the final 38 are type mismatches at other owner boundaries. The initial
+sccache launch failed before compilation. No runtime, corpus or fresh native
+class/base controls ran for this uncompiled draft. The six goal tickets and
+the equivalent complete-work median TSR/native <=0.50 target remain unfinished.
+
 ## Consumer boundaries
+
+The [member-origin continuation](checker-member-origin-continuation.json) after
+`276f3419` replaces the existing `AnonymousProperty.origin` field with an actual
+selected handle. Genuine syntax writers lift their Program IDs once; callable
+exports retain their actual private edge. Spread, ordering, widening, reverse
+inference, key extraction, relation metadata, excess-property reporting and
+display readers use that record's flags, declarations and value declaration.
+Existing property-type/display slots and publication/forcing policy remain in
+place; no second origin image, member cache or origin-ID projection is added.
+The property lookup result producer still returns raw IDs and is an explicit
+remaining compiler boundary, rather than a reason to drop a private origin.
+
+Pinned native `5b1047d` `compareSymbolsWorker` (`utilities.go:366`) compares the
+selected first declaration and name before `ast.GetSymbolId` (`ast/utilities.go:34`).
+The new identity slot belongs to each actual record: zero is uncomputed, a
+winning atomic publication is stable, bound records share it across checkers,
+and every private copy starts with a fresh slot. A global counter allocates IDs;
+there is no global symbol cache. This replaces an intermediate, incorrect
+checker-local sorting slot. IDs are never Program indexes, semantic cache keys
+or substitutes for validated `SymbolRef` ownership. Selected sorting allocates
+an ID only at a declaration/name tie. Other native identity consumers and the
+historical raw comparator remain outside this bounded qualification.
+
+Twenty-one actual binder tests pass, including concurrent publication and store
+relocation. Three extracted store/comparator tests pass; an actual compiling
+origin-substitution mutant fails the private-copy ordering test, then the
+restored reader passes again. Two fresh pinned-native tests exercise comparator
+identity/name/nil ordering and concurrent publication. The reader excludes full
+Checker construction, member execution and TypeStore semantics. Full ordinary
+and work-trace checks still fail with 84 type mismatches. Complete native member
+behavior, prior RIGHT retention, performed work, expensive-worker counts and
+whole-process wall/CPU/RSS remain unqualified in `tsr-1yb.4.2.1`,
+`tsr-1yb.33.1`, `tsr-1yb.11` and `tsr-1yb.16.3.10`. Conditional binding keys
+and alias consumers remain in `tsr-1yb.7.7.3`; `tsr-1yb.1` still owns the
+equivalent complete-work median TSR/tsgo <=0.50 requirement.
+
+The [alias-consumer private continuation](checker-alias-consumer-continuation.json)
+after `c236a387` extends the existing declared dispatcher to selected symbols.
+Native `5b1047d` `tryGetDeclaredTypeOfSymbol` (23678),
+`getDeclaredTypeOfTypeParameter` (23829) and `getDeclaredTypeOfAlias` (24094)
+provide its operation boundary. Type-parameter mints record the actual selected
+symbol; alias dispatch uses the one resolver and retains the source alias's
+completed declared link. Class/interface, type alias, enum and enum-member
+branches remain in the same dispatcher. This is private implementation progress;
+its current publication policies are not certified native completion.
+
+The existing type-parameter back-edge, homomorphic variable and rendering scope
+retain selected handles. Constraint/default/const/inferred-declaration reads use
+that symbol's own metadata; fresh inference parameters retain its identity,
+matching native `cloneTypeParameter` and `getRecursionIdentity`. Syntax-owned
+shadow candidates and qualified namespace mints lift genuine Program IDs before
+comparison/keying. Generic-reference/default/body work stays in the existing
+worker with the original written site/alias policy. No new semantic cache,
+mapper, producer or origin projection is introduced.
+
+Callable export preparation reads actual selected export edges and declarations,
+then uses the existing selected type getter and readonly/name workers. Its
+`AnonymousProperty.origin` write exposes the remaining raw-ID member-image
+boundary. The existing field and all spread/order/inference/reporting/display
+consumers require one coordinated migration; dropping private origins or storing
+a second parallel field would preserve the wrong owner model. Conditional
+binding maps remain syntax-ID keyed and cannot accept a selected parameter
+without their own boundary migration. These limits are recorded in
+`tsr-1yb.4.2.1` and `tsr-1yb.7.7.3`; actual expensive-worker reuse remains
+unqualified under `tsr-1yb.33.1`.
+
+Exact 18-file replay verifies 1,053 inputs/1,035 unchanged. Source-stable
+compiler counts are 116→93→89→84, with final ordinary/work-trace both84
+E0308. Owned formatting passes; rustfmt's unrelated test-child change is restored
+from the exact predecessor. Existing const/default/constraint/member tests were
+inspected, but the private checker cannot execute them yet. No current native
+matrix, runtime/full-corpus/no-prior-RIGHT-loss/performed-work or whole-CLI
+wall/CPU/RSS qualification ran. All six goal tickets and the equivalent
+complete-work TSR/native <=0.50 target remain unfinished.
+
+The [alias-resolver private continuation](checker-alias-owner-continuation.json)
+after `c92a8cb0` ports the existing alias links to selected owner and target
+identities. Native `5b1047d` `resolveAlias`/`resolveIndirectionAlias`/`tryResolveAlias`
+provide the operation boundary: uncomputed differs from completed unknown,
+AliasTarget frames live in the shared resolution stack, publication precedes
+pop, failed push does not publish, and failed pop reports at the actual alias
+declaration before replacing the target with completed unknown. Type-only
+declaration NodeIds stay in that same checker-local link; a source marker wins
+over the target marker. No process/global state, origin projection, fabricated
+ID, second target cache or second cycle producer is introduced.
+
+The shared cycle search checks publication before identity and respects
+`resolutionStart`; a positive read-only probe records the existing stack
+observation without failing frames. Declaration checking and name suggestions
+use that producer/probe, replacing their bounded walks. Actual syntax-owned
+target APIs still supply Program IDs, explicitly lifted. Private member-image
+producers and raw declaration/entity/export/naming/grammar/JSX/flow/reuse
+consumers are remaining migration boundaries, not permission to demote targets.
+The existing module-clone payload and alias value cache/frame retain selected
+owners. Existing non-alias publication predicates, missing-module/error recovery
+and type-only worker ordering remain unqualified against native behavior.
+
+Exact nine-file replay verifies 1,053 inputs/1,044 unchanged. Widening alias
+results exposes 100 type mismatches; selected suggestion/visibility/truthy
+consumers reduce this to 93 in final ordinary and work-trace checks. Ten actual
+generic stack tests pass and two mutants each fail one test, explicitly excluding
+Checker-specific code. No alias runtime, native controls, full corpus, checked
+scope, expensive-worker counts or wall/CPU/RSS qualification ran. All six tickets
+and the equivalent complete-work TSR/native <=0.50 target remain unfinished.
+
+The [value-worker private continuation](checker-value-owner-continuation.json)
+after `640120e4` carries selected owners into the existing accessor,
+function/class/enum/module and variable/property workers. Their type memo,
+resolution frames and anonymous payloads retain the actual selected symbol.
+The completed callable metadata and initializer/written-return comparisons also
+retain that identity; a private copy cannot qualify by its original declaration.
+Pinned native `5b1047d` supplies the operation boundaries, but this owner
+migration preserves the existing Rust inference and publication policies.
+It does not certify native accessor failed-pop recovery or the variable
+worker's contextual-parameter publication exception.
+
+Assignment-declaration classification keeps the existing `this_expando_kinds`
+cache keyed by selected owner. Constructor-flow and base-property readers use
+selected declarations and parent; the latter consumes the existing selected
+base worker. Property and element-access callers explicitly lift the genuine
+Program property they currently receive. Shared NodeId syntax still selects
+Program symbols; it does not justify demoting a private owner. One existing
+`trace_symbol_work` observes selected declaration files without asking for
+types, and all three existing callers use it. No duplicate producer/cache was
+introduced. Private declaration copying and worker counts still belong to
+`tsr-1yb.11`.
+
+Exact ten-file replay verifies 1,053 inputs with 1,043 unchanged. Actual checks
+move 27→26→25 E0308; final ordinary and work-trace builds report the same 25.
+The signature-result adapter is repaired, while assignment declaration
+migration resolves the downstream variable branch. Naming/alias, callable
+exports/property-origin images and member consumers still need owner migration.
+No private runtime/native/corpus/performance test executed; no canonical Rust
+changed. All six ticket gates remain unfinished.
+
+The [index/dispatcher private continuation](checker-index-owner-continuation.json)
+after `472c249f` carries selected owners in the existing index memo, visited
+path, declaration scan, sibling reads and late-name cache/active marker keys.
+Pinned native `5b1047d` `getIndexInfosOfSymbol` and `getIndexInfosOfIndexSymbol`
+read actual member identities; shared declaration/heritage syntax still supplies
+Program symbols, explicitly lifted at that boundary. Receiver substitution,
+memo frame admission, publication marks and unsupported/error refusals remain
+in their existing workers. This does not certify native `MembersResolved` or
+natural late-member reset/publication. No duplicate cache or producer was added.
+
+The existing `getTypeOfSymbol` flags dispatcher now takes a selected owner;
+the raw public entry lifts a genuine Program symbol. Enum-member value links
+and export-marker links retain selected identity, and exports re-enter that
+same dispatcher. The accessor, variable/property, function/class/enum/module
+and alias workers still need owner migration. Their four compiler mismatches
+replace the four resolved index mismatches: the final error count remains 26.
+Step12 also exposed one import and three assumed nonexistent getter errors;
+step13 repairs these; step14 copies only the selected handle rather than the
+full type payload and confirms the same 26 errors. All three actual compiler
+receipts are retained. Exact five-file
+replay verifies 1,053 inputs with 1,048 unchanged. Existing active-marker tests
+only have key plumbing changed; no private runtime or native/corpus/performance
+control executed. Bound query tracing stays at its public boundary; private
+worker/copy attribution remains `tsr-1yb.11`. All six tickets remain unfinished.
+
+The [member/enum private continuation](checker-member-enum-owner-continuation.json)
+after `26da4dd0` migrates the existing declaration/flag metadata readers and
+completeness paths to actual selected owners. Optionality, spreadability/privacy,
+rest and tuple-relation iteration retain the selected member; bound wrappers
+lift genuine Program symbols into one worker. Visited paths retain private
+identity, while shared heritage syntax still selects actual Program bases.
+
+Pinned native `5b1047d` `getDeclaredTypeOfEnum`, `getDeclaredTypeOfEnumMember`
+and `getUnionTypeEx` keep enum-owned literal and declared-type links distinct.
+The draft carries `SymbolRef` in enum literal payloads, value interning,
+computed/fresh/regular owner links and the existing union worker. Declaration
+syntax selects member symbols as native `getSymbolOfDeclaration` does; a private
+enum copy does not invent a second syntax/member producer. Parent forcing and
+fallback publication use the selected links. Completed printing and source reuse
+compare actual handles, never a private copy's origin. Existing name/refusal,
+recursion, reduction and singleton policies remain; native late parent and
+full enum/member publication are still unqualified.
+
+Exact 13-file replay verifies 1,053 inputs, with 1,040 unchanged. Qualified
+compiler errors move 38→34→37→26, including five exposed iterator/borrow/move
+errors that were repaired. The final 26 are owner mismatches. No private runtime,
+fresh native enum/metadata, full factory/mapper/natural alias, corpus or CLI
+performance control ran. Actual work/copy attribution remains `tsr-1yb.11`;
+all six tickets and the equivalent complete-work <=0.50 target remain unfinished.
 
 | Consumer | Required result and work after static selection |
 |---|---|
@@ -906,3 +1186,240 @@ its 459,549 RIGHT baseline, passes 140 focused tests with one retained ignored
 control and preserves every full diagnostic case. It also covers a native raw
 parent with an empty name. Separate rebase identities are recorded in the
 production evidence; initial timing/storage controls remain attributed to b047.
+
+The [property-owner continuation](checker-property-owner-continuation.json) after
+`39cdcdd9` widens the existing property and export-star result channels,
+composite constituents and static/instance name walks to selected handles.
+The existing structured-name table and path guard use actual selected owners;
+publication marks, cycle/unsettled state and frame policy are retained, with no
+new cache. Genuine bound producer outputs are lifted at their boundaries.
+Final ordinary/work-trace both retain 80 compiler errors. One existing actual
+store-copy/member/export control passes in extraction; it does not execute the
+property producer or certify full member/alias/native/corpus/speed behavior.
+Remaining property diagnostics, entity/module/naming and conditional-frame
+channels still block the six-ticket goal and canonical runtime integration.
+
+The [binding-owner continuation](checker-binding-owner-continuation.json) after
+`bda345a6` carries actual selected handles through existing alias frames,
+captured conditionals and default/constraint/type-literal keys. Genuine AST
+parameter inputs lift at their binder boundary; private mapper symbols retain
+their owner. Flattening preserves inner shadowing, and the existing selected
+symbol comparator normalizes key vectors without an origin projection. Existing
+scope/publication gates remain, with no new memo or broadened completed-state
+claim. Selected delete/callee/heritage/index diagnostics read actual metadata.
+Three bounded extracted key controls pass, catch a compiling origin-projection
+mutation, and pass after restoration. The bounded fixture is explicitly distinct
+from full Checker construction/evaluation. Ordinary/work-trace71 errors and the
+full lib-test no-run refusal keep canonical integration and all six goal tickets
+unfinished; native/corpus/performed-work and equivalent-work speed gates remain.
+
+The [alias-result continuation](checker-alias-result-continuation.json) after
+`822edfa4` carries selected symbols through the existing declaration/import/export
+and entity-name workers. Real binder results lift at the syntax/Program boundary;
+property and star results keep their private identity. Existing qualified generic
+reference keys now use that owner with their written spelling and ordered type
+arguments. Shallow missing-namespace/export diagnostics, spelling tables and
+emit-helper signatures read selected metadata. There is no extra alias/export
+memo; existing AliasTarget links own cycle/unknown completion, so the entity
+reader no longer imposes a 64-hop limit. The separate bound external-module
+lookup keeps its genuine Program contract, while semantic selected-module reads
+can follow a private export-equals edge.
+
+Two bounded extracted actual own-export tests preserve distinct private table
+edges, original/sibling independence, the unchanged bound entry and module guard.
+Separate compiling origin and guard mutations each fail one; restored two pass.
+Actual parser/binder/store and export/star reader bodies are used, but a bounded
+Checker constructor and opaque TypeId replace full Checker setup. External module
+resolution panics and is never entered; no star graph, alias/default/supplemental
+or type-only publication qualification follows. Setter/constructor setup errors
+are retained separately from semantic mutation failures. Final57 ordinary and
+work-trace errors/full-lib-test113 still refuse canonical runtime integration.
+Semantic naming and conformance query consumers remain unfinished, as do the
+native augmentation/combined-symbol gaps and all six goal acceptance gates.
+
+
+The [selected naming continuation](checker-semantic-naming-continuation.json)
+after `b96ed671` migrates the existing best-name, immediate own-name alias, clone,
+module alias and export-equals naming consumers. Bound scope lookups lift at
+their Program boundary; targets, selected parents, export markers and export
+values keep actual `SymbolRef` identity. The native selected comparator orders
+actual candidates. Short-lived views release before recursive forcing. Existing
+AliasTarget links remain the sole publication owner; candidate tables are local
+to the query and introduce no memo. Module property display follows selected
+member edges and existing semantic type forcing, stack and rendering admission.
+
+Native `getSymbolTableAliases` caches alias-only globals/raw/resolved export
+tables by table identity, filters uncached locals and skips members tables.
+TSR still copies full naming tables; `tsr-1yb.11.5` owns actual scan/copy costs,
+table lifetime and mutation/publication controls before any cache implementation.
+The selected property comparator's traversal cost is likewise unmeasured. This
+ownership continuation establishes no allocation or speed benefit.
+
+A bounded extracted actual direct naming control keeps two same-named private
+copies inaccessible through the original class's lexical name. It passes,
+detects a compiling origin-substitution mutation, and passes after exact
+restoration. Actual parser/binder/store/worker are used, but the constructor is
+bounded and alias/qualification paths panic if entered. It does not certify
+alias/export traversal, module sorting/serialization or full Checker evaluation.
+Ordinary/work-trace34 errors and full-lib-test90 still refuse runtime integration.
+All six goals and full native/corpus/performed-work/median ratio<=0.50 gates remain
+unfinished; prior augmentation/combined-symbol and naming admission gaps persist.
+
+
+The [selected semantic consumer continuation](checker-semantic-consumer-continuation.json)
+after `af503f38` migrates the existing diagnostic, JSX, enum, node-reuse,
+heritage/base/member and public conformance type readers to actual selected
+`SymbolRef` targets. Program syntax lookups lift once. Existing heritage memo
+keys, successful-only publication, unresolved retry and alias-active exclusion
+remain unchanged; this does not qualify native completed absence or MembersResolved.
+
+Fresh pinned `5b1047d` controls show that a pure default alias resolves transitively,
+module copies retain the original prototype child/parent/type, and an import-equals
+chain must prove namespace meaning. A class-only chain is rejected; a class with
+namespace meaning shares its namespace import's copied value type. Rust's old
+value-reader clone placement published the raw alias target and yielded a different
+TypeId through that chain. The existing factory now completes the selected copy's
+value link before AliasTarget publication, matching resolveESModuleSymbol and
+cloneTypeAsModuleType. getTypeOfAlias reads that published target. Existing copy
+admission/default/member boundaries stay explicit; no second memo is introduced.
+The synthetic prototype uses the retained source-type edge, without general origin
+recovery or changing other receivers. Generic prototypes retain any instantiation;
+current generic/inherited completeness refusals stay in force.
+
+The actual full library runs progress from 222/2 through 223/1 to 224/0, with no ignored
+or filtered tests. 23 selected integration tests and 8 native control rows pass.
+A failed native setup and a rejected Tail-sharing premise are preserved separately
+from native semantic evidence. Source/binary/fixture receipts and all 1,053 replay
+inputs remain in the artifact. Workspace runtime compiles, but public conformance
+test/example consumers and 141 strict library lint errors still refuse retention.
+No complete corpus, no-RIGHT-loss, work-count/allocation or qualified CLI speed gate
+is satisfied; all six goal tickets remain in progress. Correct identity/publication
+is a prerequisite to measuring reuse, not a speed result.
+
+The [conformance consumer continuation](checker-conformance-consumer-continuation.json)
+after `124ea18d` moves the original module, generic naming and typedef variance
+controls onto selected symbol views and existing semantic workers. Genuine syntax
+lookups lift at the Program boundary. The existing public reference constructor
+now accepts the actual selected owner, and all three in-repo call sites migrate;
+its ordered arguments, checker-local instantiation keys and worker stay unchanged.
+
+The first actual conformance run exposed two callers violating AliasTarget's
+alias-only invariant. Native checkImportDeclaration checks a default clause only
+when it has a name, while the NamespaceImport child owns a namespace alias. TSR
+now follows that traversal rather than relaxing resolveAlias. The JSX factory
+namespace reader follows native resolveSymbolEx's pure-alias test: directly named
+VALUE/TYPE/NAMESPACE owners are retained, and only pure aliases force the existing
+resolver. No new cache, resolution stack, worker or ownership projection is added.
+
+Independent pinned native controls cover thirteen default-chain shapes, three
+alias spellings and both query orders with warm repeats: **78 rows**. Pure aliases
+follow indirection to the original module or local declaration, parenthesized
+exports retain their property and self-imports publish unknown/error. Two stale
+immediate-target assertions were corrected from those rows. All selected type
+and duplicate-aware diagnostic assertions remain; actual conformance progresses
+from **29/5**, **31/3**, **32/2** to **34/0**. The unchanged broad library224/0 and
+selected checker integration23/0 also pass on the final source.
+
+A source-stable Clippy run supplied **121 MachineApplicable edits**, confined to
+unused imports/mut, redundant borrows, implicit string clones, doc ticks, identity
+maps and an equivalent conditional branch inversion. Exact spans and predecessor
+bytes are retained with the replay. No Option<Option> publication state was collapsed,
+no blanket lint suppression added and no public/semantic worker deleted. Strict
+library diagnostics fall from141 to28; final all-targets still reports25 type
+mismatches across seven examples, and later borrow checking can expose more after
+those callers migrate. Canonical runtime acceptance remains refused. Full corpus,
+native recovery/member qualification, actual expensive-worker/allocation attribution
+and equivalent complete-work median ratio<=0.50 remain required for all six goals.
+
+The [selected workspace continuation](checker-workspace-owner-continuation.json)
+after `18d77c9e` closes the seven remaining example compilation gaps without
+replacing their independent naming forecasts with checker answers. `qualname`
+retains its raw comparison; `qualnamep` retains its merged comparison. Actual
+selected owner metadata remains the source for names, declarations and parents.
+The exact43-source delta replays all1056 inputs; three inputs arrive from current
+main's compiler-option work. This is a passive checkpoint, not runtime retention.
+
+The broad test run exposed a missing ownership boundary: array method fallback
+read a stale raw per-file parent after the selected-owner migration. The repair
+borrows the already-frozen `BindResult` in `CheckerSymbols`, resolves its existing
+Program redirects only for genuine bound handles, and leaves raw parent edges
+unchanged. Domain validation precedes access. An explicit checker-private merge
+entry wins as exactly one published redirect; private symbols do not inherit
+Program identity by name or declaration origin. No Program merge map is copied
+into every checker, and no new semantic cache or graph traversal is added.
+
+Pinned5b native12 array-parent observations verify that raw Array/ReadonlyArray
+owners differ from the global identity while their merged references match;
+a separately created same-name/same-declaration symbol remains distinct. The
+first native probe incorrectly used `cloneSymbol` as this distinct control:
+that operation publishes `mergedSymbols[source]=clone` and disturbed subsequent
+queries. Its failed source/log are retained. Two isolated actual clone observations
+now verify that publication separately, rather than denying the native redirect.
+Twenty native module-call rows also show that the certified-empty global Function
+admits calls through pure-namespace transitive aliases. Only those stale Tail/
+Linked expectations change; the other supported/unsupported Function controls
+remain, and the Array.find expected union is unchanged.
+
+Actual private workspace3278/0/19 and Checker library225/0/0 pass; strict workspace
+all-targets Clippy reports zero errors. Existing alias target states are expressed
+as Uncomputed/Unknown/Resolved, preserving published unknown versus uncomputed.
+Tuple index-info outcomes distinguish NotTuple, Unsupported and Complete.
+The56 removed internal wrappers were unused outside36 migrated unit calls; their
+selected workers and native semantics remain. At historical step80, full formatting
+refused three differences in two files. The frozen main legacy corpus completed
+552533 type rows/12238 diagnostic cases; step81 candidate diagnostics aborted
+(-6)/0rows at resolveAlias declaration admission. Filtered exportDefaultProperty reproduces this gap: native
+ExpressionIsAlias permits property entity chains that the Rust declaration
+selector rejects. The assertion remains intact; `tsr-1yb.7.7.3.2` tracks its
+selector/target repair. Full native/corpus/no-RIGHT-loss and actual expensive work/
+allocation attribution remain required. These correctness prerequisites establish
+no whole-CLI speed gain or verified equivalent-work median ratio<=0.50.
+
+
+The continuation through step87 repairs the property-valued alias invariant
+failure without relaxing `resolveAlias`. At pinned5b, `ExpressionIsAlias` admits
+identifier/property entity chains and class expressions. The existing declaration
+selector now admits those shapes; export assignment and CommonJS binary assignment
+share `getTargetOfAliasLikeExpression` behavior. Namespace entity resolution
+retains the terminal alias, then checked value-property fallback retains the
+actual receiver's selected member. Namespace-contained assignments still decline.
+The alternative of reusing the heritage entity cache was rejected: its terminal
+alias resolution changes the immediate target needed for publication. No new
+entity/property memo is added. One actual cross-file regression covers three
+shapes, two check/query orders and warm repeats; six matching native observations
+also distinguish namespace constants from property symbols. The failed native
+Property-bit guess and actual Rust invariant failure are preserved.
+
+The first completed unfiltered legacy comparison exposes12 RIGHT type losses and
+10 diagnostic losses, despite a green workspace. Five false TS2437 diagnostics
+read binder-only flags for an alias; native `checkImportEqualsDeclaration` instead
+uses the existing semantic entity resolver with Value|Namespace and alias
+indirection. Default-target lookup now retains its immediate alias, matching
+native `dontResolveAlias=true`. Ordinary indirection and namespace imports share
+one `resolveIndirectionAlias` worker: existing source-owned AliasTarget links
+propagate the first type-only declaration before completion, with the source's
+own marker taking precedence. The value diagnostic's
+`getTypeOnlyAliasDeclarationEx` follows mixed aliases until Value meaning; the
+non-transitive member-admission reader remains separate. Reusing one reader for
+both would erase a native semantic distinction. No second stack/cache or arbitrary
+hop bound is added. Ten independent native cold/warm diagnostic observations
+qualify namespace chains and default/namespace/mixed type-only imports. These
+repairs reduce diagnostic losses from10 to2; `tsr-1yb.7.7.3.3` owns preservation.
+
+Pinned `resolveAnonymousTypeMembers` resolves FUNCTION/METHOD calls and CLASS
+constructors independently. The existing selected signature reader now preserves
+both for merged class/function symbols; the diagnostic head's former refusal is
+removed after that shared reader is repaired. Plain classes remain non-callable.
+Eight actual native shape/query-order observations preserve call/construct counts,
+return types and warm stability. This fixes10 of12 type losses without adding a
+member image or signature cache. It does not certify the broader unified member
+publication contract under `tsr-1yb.4.2.1`.
+
+Final private workspace3279/0/19, strict workspace Clippy0, full formatting0 and
+work-trace compile0 are source-qualified. All552533 type assertions and12238
+legacy diagnostic keys remain, but **2 type/2 diagnostic losses** still refuse
+runtime retention. Native exact full-corpus parity, actual construction/allocation
+counts, eager-rendering handoff and equivalent complete-work median ratio<=0.50
+remain outstanding. Four exact continuation patches reproduce all1056 latest
+inputs, separately from the historical step80 patch; no later evidence is assigned
+to an earlier source. Canonical Rust remains unchanged.

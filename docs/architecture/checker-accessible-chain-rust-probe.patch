@@ -1,0 +1,101 @@
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -4088,0 +4089,13 @@
++        #[cfg(feature = "work-trace")]
++        crate::symbol_access::chain_probe_begin(1, target, reference);
++        let result = self.chain_probe_type_worker(target, reference);
++        #[cfg(feature = "work-trace")]
++        crate::symbol_access::chain_probe_end(1, target, reference, result.is_some());
++        result
++    }
++
++    fn chain_probe_type_worker(
++        &mut self,
++        target: &crate::symbol_access::SymbolRef,
++        reference: NodeId,
++    ) -> Option<Vec<crate::symbol_access::SymbolRef>> {
+@@ -4187,0 +4201,2 @@
++            #[cfg(feature = "work-trace")]
++        crate::symbol_access::chain_probe_table(1);
+@@ -4433,0 +4449,13 @@
++        #[cfg(feature = "work-trace")]
++        crate::symbol_access::chain_probe_begin(0, symbol, reference);
++        let result = self.chain_probe_best_name_worker(symbol, reference);
++        #[cfg(feature = "work-trace")]
++        crate::symbol_access::chain_probe_end(0, symbol, reference, result.is_some());
++        result
++    }
++
++    fn chain_probe_best_name_worker(
++        &mut self,
++        symbol: &crate::symbol_access::SymbolRef,
++        reference: NodeId,
++    ) -> Option<String> {
+@@ -4482,0 +4511,10 @@
++        #[cfg(feature = "work-trace")]
++        {
++        let first = match &tables[0] {
++            Table::Locals(node) => crate::symbol_access::NamingProbeKey::Locals(*node),
++            Table::Exports(owner) => crate::symbol_access::NamingProbeKey::Exports(owner.clone()),
++            Table::ClassName(_, owner) => crate::symbol_access::NamingProbeKey::ClassName(owner.clone()),
++            Table::Globals => crate::symbol_access::NamingProbeKey::Globals,
++        };
++        crate::symbol_access::chain_probe_scope(symbol, first);
++        }
+@@ -4486,0 +4525 @@
++                crate::symbol_access::chain_probe_table(0);
+--- a/crates/tsr-checker/src/symbol_access.rs
++++ b/crates/tsr-checker/src/symbol_access.rs
+@@ -84,0 +85,44 @@
++}
++
++// Private measurement of actual worker requests. Site keys are not native cache keys:
++// best_name_ref has no explicit meaning, and its scope walker differs from native.
++#[cfg(feature = "work-trace")]
++#[derive(Default)]
++struct ChainProbeData {
++    counts: [[u64; 7]; 2],
++    sites: FxHashMap<(u8, SymbolRef, NodeId), u64>,
++    active: FxHashMap<(u8, SymbolRef, NodeId), u64>,
++    owners: rustc_hash::FxHashSet<(u8, SymbolRef)>,
++    scopes: FxHashMap<(SymbolRef, NamingProbeKey), u64>,
++}
++#[cfg(feature = "work-trace")]
++thread_local! { static CHAIN_PROBE: std::cell::RefCell<ChainProbeData> = std::cell::RefCell::new(ChainProbeData::default()); }
++#[cfg(feature = "work-trace")]
++pub fn chain_probe_reset() { CHAIN_PROBE.with(|d| *d.borrow_mut() = ChainProbeData::default()); }
++#[cfg(feature = "work-trace")]
++pub fn chain_probe_begin(route: u8, symbol: &SymbolRef, site: NodeId) {
++    CHAIN_PROBE.with(|d| {
++        let mut d = d.borrow_mut(); let i = usize::from(route); let key = (route, symbol.clone(), site);
++        d.counts[i][0] += 1;
++        if d.sites.insert(key.clone(), 1).is_none() { d.counts[i][1] += 1; }
++        if d.owners.insert((route, symbol.clone())) { d.counts[i][2] += 1; }
++        let depth = d.active.entry(key).or_default(); let repeat = *depth > 0; *depth += 1;
++        d.counts[i][3] += u64::from(repeat);
++    });
++}
++#[cfg(feature = "work-trace")]
++pub fn chain_probe_end(route: u8, symbol: &SymbolRef, site: NodeId, success: bool) {
++    CHAIN_PROBE.with(|d| { let mut d = d.borrow_mut();
++        *d.active.get_mut(&(route, symbol.clone(), site)).unwrap() -= 1;
++        d.counts[usize::from(route)][if success { 4 } else { 5 }] += 1;
++    });
++}
++#[cfg(feature = "work-trace")]
++pub fn chain_probe_scope(symbol: &SymbolRef, scope: NamingProbeKey) {
++    CHAIN_PROBE.with(|d| *d.borrow_mut().scopes.entry((symbol.clone(), scope)).or_default() += 1);
++}
++#[cfg(feature = "work-trace")]
++pub fn chain_probe_table(route: u8) { CHAIN_PROBE.with(|d| d.borrow_mut().counts[usize::from(route)][6] += 1); }
++#[cfg(feature = "work-trace")]
++pub fn chain_probe_counts() -> ([[u64; 7]; 2], usize) {
++    CHAIN_PROBE.with(|d| { let d = d.borrow(); assert!(d.active.values().all(|v| *v == 0)); (d.counts, d.scopes.len()) })
+--- a/crates/tsr-execute/src/checker_pool.rs
++++ b/crates/tsr-execute/src/checker_pool.rs
+@@ -114 +114 @@
+-        tsr_checker::symbol_access::naming_probe_reset();
++        { tsr_checker::symbol_access::naming_probe_reset(); tsr_checker::symbol_access::chain_probe_reset(); }
+@@ -179,0 +180,2 @@
++        #[cfg(feature = "work-trace")]
++        eprintln!("TSR_CHAIN_PROBE owner={owner} checked={checked_count} counts={:?}", tsr_checker::symbol_access::chain_probe_counts());

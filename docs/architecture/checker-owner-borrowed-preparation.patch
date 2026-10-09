@@ -1,0 +1,137 @@
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -4527,62 +4527,71 @@
+                         })
+                 })
+                 .map(|_| (own.clone(), symbol.clone()));
+-            let aliases: Vec<(String, crate::symbol_access::SymbolRef)> = match table {
+-                Table::Locals(node) => binder
+-                    .locals(node)
+-                    .into_iter()
+-                    .flat_map(|locals| locals.iter())
+-                    .filter(|(_, id)| {
+-                        binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
+-                    })
+-                    .map(|(&name, &id)| {
+-                        (
+-                            name.to_owned(),
+-                            self.symbols.bound(id).expect("syntax local belongs to this Program"),
+-                        )
+-                    })
+-                    .collect(),
+-                Table::Exports(module) => {
+-                    let view = self.symbols.view(&module).expect("selected namespace table");
+-                    view.export_names()
+-                        .filter_map(|name| {
+-                            let symbol = view.export(name).expect("existing export edge");
+-                            self.symbols
+-                                .view(&symbol)
+-                                .expect("selected naming candidate")
+-                                .flags()
+-                                .intersects(SymbolFlags::ALIAS)
+-                                .then(|| (name.to_owned(), symbol))
++            // Native `getSymbolTableAliases` retains symbol names instead of
++            // copying table strings (`symbolaccessibility.go:513`). Program
++            // local/global keys live through this mutable alias-resolution
++            // walk; exports and class display names remain owned. Keep the
++            // table key's spelling, including aliases, rather than re-reading
++            // a resolved symbol's name.
++            let aliases: Vec<(std::borrow::Cow<'_, str>, crate::symbol_access::SymbolRef)> =
++                match table {
++                    Table::Locals(node) => binder
++                        .locals(node)
++                        .into_iter()
++                        .flat_map(|locals| locals.iter())
++                        .filter(|(_, id)| {
++                            binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
+                         })
+-                        .collect()
+-                }
+-                Table::ClassName(name, symbol) => {
+-                    if self
+-                        .symbols
+-                        .view(&symbol)
+-                        .expect("selected naming candidate")
+-                        .flags()
+-                        .intersects(SymbolFlags::ALIAS)
+-                    {
+-                        vec![(name, symbol)]
+-                    } else {
+-                        Vec::new()
++                        .map(|(&name, &id)| {
++                            (
++                                std::borrow::Cow::Borrowed(name),
++                                self.symbols
++                                    .bound(id)
++                                    .expect("syntax local belongs to this Program"),
++                            )
++                        })
++                        .collect(),
++                    Table::Exports(module) => {
++                        let view = self.symbols.view(&module).expect("selected namespace table");
++                        view.export_names()
++                            .filter_map(|name| {
++                                let symbol = view.export(name).expect("existing export edge");
++                                self.symbols
++                                    .view(&symbol)
++                                    .expect("selected naming candidate")
++                                    .flags()
++                                    .intersects(SymbolFlags::ALIAS)
++                                    .then(|| (std::borrow::Cow::Owned(name.to_owned()), symbol))
++                            })
++                            .collect()
+                     }
+-                }
+-                Table::Globals => binder
+-                    .globals()
+-                    .iter()
+-                    .filter(|(_, id)| {
+-                        binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
+-                    })
+-                    .map(|(&name, &id)| {
+-                        (
+-                            name.to_owned(),
+-                            self.symbols.bound(id).expect("global belongs to this Program"),
+-                        )
+-                    })
+-                    .collect(),
+-            };
++                    Table::ClassName(name, symbol) => {
++                        if self
++                            .symbols
++                            .view(&symbol)
++                            .expect("selected naming candidate")
++                            .flags()
++                            .intersects(SymbolFlags::ALIAS)
++                        {
++                            vec![(std::borrow::Cow::Owned(name), symbol)]
++                        } else {
++                            Vec::new()
++                        }
++                    }
++                    Table::Globals => binder
++                        .globals()
++                        .iter()
++                        .filter(|(_, id)| {
++                            binder.symbols().get(**id).flags.intersects(SymbolFlags::ALIAS)
++                        })
++                        .map(|(&name, &id)| {
++                            (
++                                std::borrow::Cow::Borrowed(name),
++                                self.symbols.bound(id).expect("global belongs to this Program"),
++                            )
++                        })
++                        .collect(),
++                };
+             let mut qualified = Vec::new();
+             for (name, candidate) in aliases {
+                 // Upstream's own alias exclusions (`trySymbolTable`,
+@@ -4643,7 +4652,7 @@
+                         .as_ref()
+                         .is_none_or(|(_, best)| self.compare_symbols_ref(&candidate, best).is_lt())
+                 {
+-                    found = Some((name.clone(), candidate.clone()));
++                    found = Some((name.to_string(), candidate.clone()));
+                 }
+                 // getCandidateListForSymbol looks through an alias's exports
+                 // before consulting the outer scope (symbolaccessibility.go:630).

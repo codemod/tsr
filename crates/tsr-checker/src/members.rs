@@ -1824,10 +1824,25 @@ impl Checker<'_, '_> {
         if visiting.contains(&owner) {
             return None;
         }
+        // The binder outlives this borrow of `self`; no copy of the list.
+        let binder = self.binder;
+        let declarations = &binder.symbols().get(owner).declarations;
+        // Without an `extends` clause there is nothing to walk, and an owner
+        // that cannot recurse needs no entry on the path guard.
+        let extends_anything = declarations.iter().any(|&declaration| {
+            let clauses = match self.node_map.get(declaration) {
+                Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
+                Some(Node::ClassExpression(node)) => node.heritage_clauses,
+                Some(Node::InterfaceDeclaration(node)) => node.heritage_clauses,
+                _ => return false,
+            };
+            clauses.iter().any(|clause| clause.token.kind == tsr_ast::SyntaxKind::ExtendsKeyword)
+        });
+        if !extends_anything {
+            return None;
+        }
         visiting.push(owner);
-        let declarations: Vec<tsr_ast::NodeId> =
-            self.binder.symbols().get(owner).declarations.iter().copied().collect();
-        for declaration in declarations {
+        for &declaration in declarations {
             let clauses = match self.node_map.get(declaration) {
                 Some(Node::ClassDeclaration(node)) => node.heritage_clauses,
                 Some(Node::ClassExpression(node)) => node.heritage_clauses,

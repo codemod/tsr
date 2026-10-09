@@ -477,6 +477,7 @@ pub fn apply_test_directives(
         no_implicit_this: tristate("noimplicitthis", base.no_implicit_this),
         // §648's group probe — the four §647 named, priced together.
         skip_lib_check: tristate("skiplibcheck", base.skip_lib_check),
+        skip_default_lib_check: tristate("skipdefaultlibcheck", base.skip_default_lib_check),
         use_define_for_class_fields: tristate(
             "usedefineforclassfields",
             base.use_define_for_class_fields,
@@ -574,6 +575,25 @@ pub fn apply_test_directives(
             base.allow_importing_ts_extensions,
         ),
         out_dir: absolute("outdir", base.out_dir),
+        // The emit options `verifyCompilerOptions` reads (`program.go:751`):
+        // directives upstream's harness applies like any other declared option.
+        // No checker path reads them.
+        no_emit: tristate("noemit", base.no_emit),
+        emit_declaration_only: tristate("emitdeclarationonly", base.emit_declaration_only),
+        declaration_map: tristate("declarationmap", base.declaration_map),
+        source_map: tristate("sourcemap", base.source_map),
+        inline_source_map: tristate("inlinesourcemap", base.inline_source_map),
+        inline_sources: tristate("inlinesources", base.inline_sources),
+        map_root: get("maproot").map_or(base.map_root, str::to_string),
+        source_root: get("sourceroot").map_or(base.source_root, str::to_string),
+        downlevel_iteration: tristate("downleveliteration", base.downlevel_iteration),
+        incremental: tristate("incremental", base.incremental),
+        ts_build_info_file: absolute("tsbuildinfofile", base.ts_build_info_file),
+        emit_decorator_metadata: tristate("emitdecoratormetadata", base.emit_decorator_metadata),
+        rewrite_relative_import_extensions: tristate(
+            "rewriterelativeimportextensions",
+            base.rewrite_relative_import_extensions,
+        ),
         declaration_dir: absolute("declarationdir", base.declaration_dir),
         jsx_import_source: get("jsximportsource").map_or(base.jsx_import_source, str::to_string),
         max_node_module_js_depth: get("maxnodemodulejsdepth")
