@@ -2727,15 +2727,12 @@ impl Checker<'_, '_> {
             self.qualified_reference_types.insert(key, minted);
             minted
         };
-        // `:8309`: `getTypeWithSyntheticDefaultImportType` of the module type.
-        // Only a module without `export =` is asked: `namespace` stands for
-        // the module symbol's type, which is not the `export =` target's
-        // (`docs/parity/notes/r5-modexports.md` §3).
+        // `:8305`-`:8310`: `getTypeWithSyntheticDefaultImportType` of
+        // `getTypeOfSymbol(resolveExternalModuleSymbol(m))` — for an
+        // `export =` module, its target's type (r5-modules2 §5).
         let namespace = match tsr_ast::Node::from(specifier).node_id() {
-            Some(specifier_id) if self.resolve_external_module_symbol(module) == module => {
-                self.get_type_with_synthetic_default_import_type(namespace, module, specifier_id)
-            }
-            _ => namespace,
+            Some(specifier_id) => self.import_call_module_type(module, namespace, specifier_id),
+            None => namespace,
         };
         let promise = self.global_type_symbol_with_arity("Promise", 1)?;
         Some(self.create_type_reference(promise, vec![namespace]))
