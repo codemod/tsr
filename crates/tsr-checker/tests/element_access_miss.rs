@@ -109,13 +109,13 @@ fn a_readonly_tuple_write_splits_by_index_road() {
     assert_eq!(last_element_access(indexed), Identity::Any);
 }
 
-/// A function's late-bound assignment members are unbound in this port
-/// (`binder.go:1002`), so a miss on a function's type is the port's gap,
-/// not a claim about the receiver.
+/// A function's late-bound assignment members are bound
+/// (`binder.go:1002`, `docs/parity/notes/r6-errorsplit.md` §6), so a miss on
+/// a function's type is a claim about the receiver: `errorType`.
 #[test]
-fn a_miss_on_a_function_receiver_stays_the_gap() {
+fn a_miss_on_a_function_receiver_is_error_type() {
     let source = "function foo() {}\ndeclare const s: \"x\";\nfoo[s];\n";
-    assert_eq!(last_element_access(source), Identity::Gap);
+    assert_eq!(last_element_access(source), Identity::NativeError);
 }
 
 /// `createUnionOrIntersectionProperty`'s object-literal arm is ported

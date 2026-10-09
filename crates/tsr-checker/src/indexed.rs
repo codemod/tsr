@@ -774,9 +774,6 @@ impl Checker<'_, '_> {
     ///   a key it can admit (20 false claims);
     /// - a mapped receiver: the port's member image misses enum-keyed and
     ///   other unresolved mapped members (2);
-    /// - a function's type: its late-bound assignment members
-    ///   (`InternalSymbolNameAssignmentDeclaration`, `binder.go:1002`, read by
-    ///   `getResolvedMembersOrExportsOfSymbol`) are unbound (24);
     /// - a named reference without a members table, which the type's own
     ///   contract marks as a lookup that would be wrong, or whose members
     ///   symbol is an unexpanded type alias (`constr<{}, …>`; 2). `typeof
@@ -786,6 +783,11 @@ impl Checker<'_, '_> {
     ///   [`Checker::get_index_infos_of_type`], a cycle in the base graph):
     ///   upstream empties the bases and still reads the receiver's own
     ///   signatures (no corpus line; `tests/types.rs` pins it).
+    ///
+    /// A function's type was excluded until its late-bound assignment
+    /// members were bound (`InternalSymbolNameAssignmentDeclaration`,
+    /// `binder.go:1002`, read by `getResolvedMembersOrExportsOfSymbol`;
+    /// `docs/parity/notes/r6-errorsplit.md` §6).
     ///
     /// A union with an object-literal constituent was excluded until
     /// `createUnionOrIntersectionProperty`'s object-literal `undefined` arm
@@ -815,12 +817,6 @@ impl Checker<'_, '_> {
             return true;
         }
         match self.store.get(object_type).data.clone() {
-            TypeData::Anonymous { symbol, .. } => !self
-                .binder
-                .symbols()
-                .get(symbol)
-                .flags
-                .intersects(tsr_binder::SymbolFlags::FUNCTION),
             TypeData::Named { members, .. } => members.is_some_and(|members| {
                 !self
                     .binder

@@ -4015,8 +4015,21 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
             _ => None,
         };
-        // A computed name is late-bound; see `lib.rs`.
-        let name = name?;
+        // A dynamic name is late-bound (`ast.HasDynamicName`): upstream binds
+        // an anonymous `__computed` property (`bindAnonymousDeclaration`) and
+        // files the assignment under the target's
+        // `InternalSymbolNameAssignmentDeclaration` export
+        // (`addLateBoundAssignmentDeclarationToSymbol`, `binder.go:1000`),
+        // which `getResolvedMembersOrExportsOfSymbol` late-binds
+        // (`checker.go:15963`).
+        let Some(name) = name else {
+            if let Node::BinaryExpression(binary) = node
+                && matches!(binary.left, Some(Expression::ElementAccessExpression(_)))
+            {
+                self.bind_late_bound_assignment_declaration(id, symbol);
+            }
+            return None;
+        };
 
         // "We declare expandos only when there are no non-expando declarations
         // for that name": a real `class F { x }` wins, and the assignment adds
@@ -4037,6 +4050,32 @@ impl<'a, 'n> Binder<'a, 'n> {
         );
         self.node_symbols[id.index() - self.node_base] = Some(declared);
         Some(())
+    }
+
+    /// `foo[k] = v` on an expando target whose key is no literal: an
+    /// anonymous `__computed` property symbol for the assignment
+    /// (`bindAnonymousDeclaration`, which parents a class member to the
+    /// container's symbol), and the assignment appended to the declarations
+    /// of the target's `__assignment` export, created flagless on first use
+    /// (`addLateBoundAssignmentDeclarationToSymbol`, `binder.go:1000`).
+    fn bind_late_bound_assignment_declaration(&mut self, id: NodeId, target: SymbolId) {
+        let flags = SymbolFlags::PROPERTY | SymbolFlags::ASSIGNMENT;
+        let computed = self.symbols.create(INTERNAL_COMPUTED, flags);
+        self.symbols.get_mut(computed).declarations.push(id);
+        self.symbols.get_mut(computed).value_declaration = Some(id);
+        self.symbols.get_mut(computed).parent =
+            self.node_symbols[self.container.index() - self.node_base];
+        self.node_symbols[id.index() - self.node_base] = Some(computed);
+        let existing =
+            self.symbols.get(target).exports.get(INTERNAL_ASSIGNMENT_DECLARATION).copied();
+        let table = if let Some(table) = existing {
+            table
+        } else {
+            let table = self.symbols.create(INTERNAL_ASSIGNMENT_DECLARATION, SymbolFlags::empty());
+            self.symbols.get_mut(target).exports.insert(INTERNAL_ASSIGNMENT_DECLARATION, table);
+            table
+        };
+        self.symbols.get_mut(table).declarations.push(id);
     }
 
     /// Resolve a name, or a dotted chain of them, against one container.
@@ -5005,6 +5044,10 @@ pub(crate) const INTERNAL_INDEX: &str = "__index";
 /// deliberately *not* a key in any symbol table: two `[k]`s in one class are two
 /// symbols, and which — if either — ends up reachable is the checker's answer.
 pub(crate) const INTERNAL_COMPUTED: &str = "__computed";
+/// `ast.InternalSymbolNameAssignmentDeclaration`: the export under which an
+/// expando target files its late-bound assignment declarations
+/// (`foo[k] = v`), read by the checker's late binding.
+pub(crate) const INTERNAL_ASSIGNMENT_DECLARATION: &str = "__assignment";
 /// The name a declaration gets when the parser could not read one
 /// (`ast.InternalSymbolNameMissing`). Like `__computed`, it is in no symbol
 /// table: two unreadable names are two declarations, not one symbol.
