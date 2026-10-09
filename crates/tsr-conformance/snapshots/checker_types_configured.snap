@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1679/1928 (87.09%)
-Assertion lines: 76765/78552 (97.73%)  — a gradient, not a pass rate
-Failed         : 249
+Passed         : 1683/1928 (87.29%)
+Assertion lines: 76769/78552 (97.73%)  — a gradient, not a pass rate
+Failed         : 245
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,15 +27,11 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 249 failures:
+First 100 of 245 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
   accessorWithRestParam.ts: >v : any — expected >v : any[]
-compiler/ambientRequireFunction(module=commonjs)
-  app.js: >require("fs") : any — expected >require("fs") : typeof fs
-compiler/ambientRequireFunction(module=preserve)
-  app.js: >require("fs") : any — expected >require("fs") : typeof fs
 compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)
   argumentsBindsToFunctionScopeArgumentList.ts: >arguments : number — expected >arguments : IArguments
 compiler/argumentsSpreadRestIterables(target=esnext)
@@ -228,3 +224,7 @@ conformance/asyncFunctionDeclaration15_es5(target=es2015)
   asyncFunctionDeclaration15_es5.ts: >fn13 : any — expected >fn13 : () => Promise<any>
 conformance/asyncGetter_es5(target=es2015)
   asyncGetter_es5.ts: >foo : any — expected >foo : void
+conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=false)
+  builtinIteratorReturn.ts: >i13 : IterableIterator<number, any> — expected >i13 : IterableIterator<number>
+conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=true)
+  builtinIteratorReturn.ts: >i13 : IterableIterator<number, any> — expected >i13 : IterableIterator<number>
