@@ -1,0 +1,47 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 2895651..3a95183 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -3717,13 +3717,36 @@ impl Checker<'_, '_> {
+             return Some(found);
+         }
+         // getPropertyOfType searches the resolved member table for every
+-        // semantic key, including string and numeric late-bound names.
+-        for (key, member) in self.late_bound_members_of(owner, false) {
+-            if key == name
+-                && let Some(symbol) = self.binder.symbol_of(member)
+-            {
+-                return Some(symbol);
++        // semantic key, including string and numeric late-bound names. A
++        // published list is searched in place rather than copied per step
++        // (`r5-checkperf.md` §11).
++        let late_bound = |members: &[(String, tsr_ast::NodeId)],
++                          binder: &tsr_binder::BindResult<'_>| {
++            members.iter().find_map(
++                |(key, member)| if key == name { binder.symbol_of(*member) } else { None },
++            )
++        };
++        let binder = self.binder;
++        let found = match self.late_bound_member_names.get(&(owner, false)) {
++            Some(members) => late_bound(members, binder),
++            None => late_bound(&self.late_bound_members_of(owner, false), binder),
++        };
++        if found.is_some() {
++            return found;
++        }
++        // A published base list never changes once stored, so it is read by
++        // index instead of copied per step; an unpublished one is computed
++        // as before (`r5-checkperf.md` §11).
++        let key = (owner, true);
++        if self.base_symbols.contains_key(&key) {
++            let mut index = 0;
++            while let Some(&base) = self.base_symbols.get(&key).and_then(|bases| bases.get(index)) {
++                if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {
++                    return Some(found);
++                }
++                index += 1;
+             }
++            return None;
+         }
+         for base in self.base_symbols_of(owner)? {
+             if let Some(found) = self.get_property_of_declared_symbol(base, name, visiting) {

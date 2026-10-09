@@ -1,0 +1,33 @@
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index a144b55..14b41c7 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -5266,9 +5266,12 @@ impl Checker<'_, '_> {
+         let TypeData::EnumLiteral { owner, value, .. } = &self.store.get(regular).data else {
+             return None;
+         };
++        // Concatenated rather than `format!`ed: the relater asks this for both
++        // sides of every simple relation, 29.7 M times on jsTyping, where the
++        // formatting machinery was 13.1 G Ir (`r5-checkperf.md` §9).
+         let key = match value {
+-            crate::types::EnumLiteralValue::Number(value) => format!("n:{value}"),
+-            crate::types::EnumLiteralValue::String(value) => format!("s:{value}"),
++            crate::types::EnumLiteralValue::Number(value) => enum_value_key("n:", value),
++            crate::types::EnumLiteralValue::String(value) => enum_value_key("s:", value),
+         };
+         Some((*owner, key))
+     }
+@@ -9068,3 +9071,13 @@ mod object_facts_tests;
+ #[cfg(test)]
+ #[path = "flow_effects_completion_tests.rs"]
+ mod effects_completion_tests;
++
++/// [`Checker::enum_member_value`]'s key: `prefix` then `value`. Out of line so
++/// the common non-member early return stays as light as before.
++#[inline(never)]
++fn enum_value_key(prefix: &str, value: &str) -> String {
++    let mut key = String::with_capacity(prefix.len() + value.len());
++    key.push_str(prefix);
++    key.push_str(value);
++    key
++}
