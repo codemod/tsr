@@ -235,7 +235,7 @@ impl<'a> Parser<'a> {
     /// Precedence-climbing loop over binary operators.
     fn parse_binary_expression(&mut self, min_precedence: u8) -> Expression<'a> {
         let start = self.pos();
-        let Some(mut left) = self.descend(Parser::parse_unary_expression) else {
+        let Some(mut left) = self.descend(Parser::parse_unary_expression_or_higher) else {
             self.error_at_current(&messages::EXPRESSION_EXPECTED);
             return Expression::Identifier(self.missing_identifier());
         };
@@ -326,6 +326,54 @@ impl<'a> Parser<'a> {
             start,
         );
         Expression::YieldExpression(node)
+    }
+
+    /// `parseUnaryExpressionOrHigher` (`parser.go:4660`): the binary
+    /// operand, with its report on a simple unary expression written as the
+    /// left operand of `**`.
+    ///
+    /// An update expression (`isUpdateExpression`) may be followed by `**`;
+    /// a prefix `+ - ~ ! delete typeof void await` expression or a type
+    /// assertion may not, and the report spans it from its first token to
+    /// its end (`SkipTrivia(pos)`, `End()`). The tree is the same either way:
+    /// the binary loop takes the `**` next. Only this outermost entry
+    /// reports, as only upstream's `…OrHigher` does; an operand of a prefix
+    /// operator goes through `parseSimpleUnaryExpression`.
+    fn parse_unary_expression_or_higher(&mut self) -> Expression<'a> {
+        let start = self.pos();
+        let operator = self.token_text();
+        let is_update_expression = match self.token.kind {
+            SyntaxKind::PlusToken
+            | SyntaxKind::MinusToken
+            | SyntaxKind::TildeToken
+            | SyntaxKind::ExclamationToken
+            | SyntaxKind::DeleteKeyword
+            | SyntaxKind::TypeOfKeyword
+            | SyntaxKind::VoidKeyword
+            | SyntaxKind::AwaitKeyword => false,
+            SyntaxKind::LessThanToken => self.script_kind.allows_jsx(),
+            _ => true,
+        };
+        let expression = self.parse_unary_expression();
+        if !is_update_expression && self.at(SyntaxKind::AsteriskAsteriskToken) {
+            let span = Span::new(start, self.node_end());
+            if !self.would_repeat_last_error(span) {
+                let diagnostic = if matches!(expression, Expression::TypeAssertion(_)) {
+                    Diagnostic::new(
+                        &messages::A_TYPE_ASSERTION_EXPRESSION_IS_NOT_ALLOWED_IN_THE_LEFT_HAND_SIDE_OF_AN_EXPONENTIATION_EXPRESSION_CONSIDER_ENCLOSING_THE_EXPRESSION_IN_PARENTHESES,
+                        span,
+                    )
+                } else {
+                    Diagnostic::with_args(
+                        &messages::AN_UNARY_EXPRESSION_WITH_THE_0_OPERATOR_IS_NOT_ALLOWED_IN_THE_LEFT_HAND_SIDE_OF_AN_EXPONENTIATION_EXPRESSION_CONSIDER_ENCLOSING_THE_EXPRESSION_IN_PARENTHESES,
+                        span,
+                        [operator.to_string()],
+                    )
+                };
+                self.diagnostics.push(diagnostic);
+            }
+        }
+        expression
     }
 
     /// Parse prefix operators and `await`, then a postfix expression.
