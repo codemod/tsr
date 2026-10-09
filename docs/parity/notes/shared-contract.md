@@ -201,3 +201,18 @@ existing `deferred_alias_references[(alias, canonical)]`, published after both
 channels are installed. A reduced (non-intersection) result keeps no alias.
 Known gap (out of lane): the site-aware relation-report printer still spells
 the target alias (`Nominal<"A", string>` in TS2322 heads).
+
+## Cross-product unions of an intersection alias carry the alias (tsr-2zk.16.57)
+
+`getIntersectionTypeEx`'s cross-product arm (checker.go:26213) hands its
+alias to `getUnionTypeEx`, so `NonNullable<string | number | undefined>` (body
+`T & {}`) is a union aliased `NonNullable<..>`, and with a declaring
+non-generic alias (`newAliasSymbol`) `type T04 = NonNullable<..>` prints `T04`.
+`get_global_non_nullable_type_instantiation` now attaches the alias to a
+distributed union (through `attach_intersection_alias`), except for a
+`boolean` or enum-union operand: those carry DefinitelyNonNullable flags, so
+`{}` is removed before distribution and the operand returns unaliased
+(`PropTypes.Validator<boolean>` stays). The reference road's re-alias of an
+aliased union (previously indexed-access bodies only) also covers
+intersection bodies. No new cache: `instantiations[(NonNullable, [t])]`.
+Known gap (out of lane): relation-report heads print the expansion.
