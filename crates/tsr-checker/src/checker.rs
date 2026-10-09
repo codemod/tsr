@@ -1229,6 +1229,10 @@ pub struct Checker<'a, 'n> {
     /// `getExportsOfModuleWorker` (`checker.go:16148`). Owned by that function;
     /// `docs/parity/notes/perf.md` §17.
     pub(crate) type_only_export_stars: FxHashMap<(SymbolId, &'a str), Option<NodeId>>,
+    /// `(union, candidate, assume_true, check_derived) -> narrowed type`:
+    /// native `c.narrowedTypes` (`getNarrowedType`, `flow.go:846`). Owned by
+    /// `Checker::get_narrowed_type`; `docs/parity/notes/perf.md` §19.
+    pub(crate) narrowed_types: FxHashMap<(TypeId, TypeId, bool, bool), TypeId>,
     /// `(baked signature type, substitution map) -> the instantiated type`,
     /// upstream's per-mapper instantiation cache (`checker.go:22125`) reduced
     /// to the one key this port can build.
@@ -1687,6 +1691,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             class_construct_signatures: FxHashMap::default(),
             perf_links: crate::perf_links::PerfLinks::default(),
             type_only_export_stars: FxHashMap::default(),
+            narrowed_types: FxHashMap::default(),
             instantiated_signatures: FxHashMap::default(),
             instantiated_signature_mappers: FxHashMap::default(),
             composite_signature_types: FxHashMap::default(),

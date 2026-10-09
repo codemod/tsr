@@ -687,3 +687,29 @@ key mapped to itself, which the fall-through answers too.
 jsTyping Ir (callgrind, `--singleThreaded`, whole process) 66,899,626,033 →
 65,114,781,507 (−2.7%); domain-model, domain-model-large, generic-imports
 within ±0.02%. CLI output `cmp`-identical; dumps byte-identical.
+
+## §19 `getNarrowedType` keeps a union's answer
+
+Native op (pinned `5b1047d`): `getNarrowedType` (`flow.go:846`) keeps
+`c.narrowedTypes[{t, candidate, assumeTrue, checkDerived}]` for a union `t`
+and runs `getNarrowedTypeWorker` otherwise; its callers are the type-predicate,
+`instanceof` and `Symbol.hasInstance` narrowings and the worker's own
+false-branch recursion. This port called `narrowed_type_worker` directly from
+all five sites (`flow.rs`), so every flow-node visit of a guard such as
+`isIdentifier(node)` on a union re-ran the per-constituent relation ladder.
+`get_narrowed_type` now sits where native's does.
+
+- **Key and owner**: `(t, candidate, assume_true, check_derived)`, union `t`
+  only, private to one `Checker` (`Checker::narrowed_types`).
+- **Publication**: only a decided (`Some`) answer; the worker's `None` (a
+  relation the port cannot decide) is recomputed. Published when no
+  alias-evaluation, mapped-template or identity-unmapped frame is open (the
+  frames the relater reads member types through) and `publishable_since`
+  holds: no flow loop and no active resolution observed, so a provisional
+  answer is not kept. Native publishes unconditionally; this is narrower.
+- **Context**: no receiver or diagnostic; the reference being narrowed does
+  not enter the answer, as in native.
+- **Work boundary**: one ladder per key instead of one per flow visit.
+
+jsTyping Ir 65,114,781,507 → 62,964,317,814 (−3.3%); bench projects within
+±0.01%. CLI output `cmp`-identical; dumps byte-identical.

@@ -5735,7 +5735,7 @@ impl Checker<'_, '_> {
                     // the §83 structural road below.
                     if let Some(predicate_type) = self.has_instance_predicate_type(callee_type) {
                         return self
-                            .narrowed_type_worker(t, predicate_type, assume_true, true)
+                            .get_narrowed_type(t, predicate_type, assume_true, true)
                             .unwrap_or(t);
                     }
                     // §126 iteration 2: the false arm holds for TOP-LEVEL
@@ -5855,7 +5855,7 @@ impl Checker<'_, '_> {
                             return t;
                         }
                         if let Some(narrowed) =
-                            self.narrowed_type_worker(t, instance, assume_true, true)
+                            self.get_narrowed_type(t, instance, assume_true, true)
                         {
                             return narrowed;
                         }
@@ -5899,7 +5899,7 @@ impl Checker<'_, '_> {
                     // decidable domain; any undecidable rung falls through
                     // to the SS83/SS126 roads unchanged.
                     if let Some(narrowed) =
-                        self.narrowed_type_worker(t, instance, assume_true, true)
+                        self.get_narrowed_type(t, instance, assume_true, true)
                     {
                         return narrowed;
                     }
@@ -7488,7 +7488,43 @@ impl Checker<'_, '_> {
             }
             return t;
         }
-        self.narrowed_type_worker(t, predicate_type, assume_true, false).unwrap_or(t)
+        self.get_narrowed_type(t, predicate_type, assume_true, false).unwrap_or(t)
+    }
+
+    /// `getNarrowedType` (`flow.go:846`, pinned `5b1047d`): a union `t`'s
+    /// answer is kept per `(t, candidate, assume_true, check_derived)` in
+    /// [`Checker::narrowed_types`], native's `c.narrowedTypes`; anything else
+    /// runs the worker. Convention record (`docs/parity/notes/perf.md` §19):
+    /// owned by this function, private to one `Checker`; only a decided
+    /// (`Some`) answer is published, and only when no mapper frame (alias
+    /// evaluation, mapped template, identity-unmapped parameters) was open and
+    /// [`Self::publishable_since`] holds, so an answer that read an active
+    /// resolution or a flow loop's provisional state stays unpublished. A
+    /// miss does exactly the worker's work.
+    fn get_narrowed_type(
+        &mut self,
+        t: TypeId,
+        candidate: TypeId,
+        assume_true: bool,
+        check_derived: bool,
+    ) -> Option<TypeId> {
+        if !self.store.get(t).flags.contains(TypeFlags::UNION)
+            || self.mapped_template_depth > 0
+            || self.identity_unmapped_type_parameters
+            || !self.alias_evaluation_bindings.iter().all(|frame| frame.is_empty())
+        {
+            return self.narrowed_type_worker(t, candidate, assume_true, check_derived);
+        }
+        let key = (t, candidate, assume_true, check_derived);
+        if let Some(&narrowed) = self.narrowed_types.get(&key) {
+            return Some(narrowed);
+        }
+        let mark = self.publication_mark();
+        let narrowed = self.narrowed_type_worker(t, candidate, assume_true, check_derived)?;
+        if self.publishable_since(mark) {
+            self.narrowed_types.insert(key, narrowed);
+        }
+        Some(narrowed)
     }
 
     /// getNarrowedTypeWorker (internal/checker/flow.go:859).
@@ -7522,7 +7558,7 @@ impl Checker<'_, '_> {
             if self.store.get(t).flags.contains(TypeFlags::UNKNOWN) {
                 t = self.intrinsics.unknown_union;
             }
-            let true_type = self.narrowed_type_worker(t, candidate, true, false)?;
+            let true_type = self.get_narrowed_type(t, candidate, true, false)?;
             let parts = match self.store.get(t).data.clone() {
                 TypeData::Union { types, .. } => types,
                 _ => vec![t],
