@@ -170,3 +170,40 @@ declaration and carries `CheckFlagsReadonly` from the mapped modifiers
 (`checker.go:20930-20937`). Reopens when `is_readonly_property_of_type`
 reads the mapped member image's `readonly` (members.rs, r7-shared) — the
 same root as the routed `Mutable<A>|Mutable<B>` TS2540 (§5).
+
+## §5 `getTypeOfDottedName`'s private-identifier arm (routed from r7-calls)
+
+`getTypeOfDottedName` (`flow.go:2137`) looks a private name up as
+`getPropertyOfType(t, GetSymbolNameForPrivateIdentifier(t.symbol, name))`;
+the port declined every private name, so `this.#p1(v)` had no effects
+signature (no narrowing, and r7-calls' TS2775 port reported a false TS2775).
+This port keys private members by text (`crate::private_name_identity`), so
+`private_property_of_dotted_type` takes the text lookup restricted to a
+member declared by `t`'s own class symbol — what the mangled name finds.
+`t` without a symbol answers nothing, as natively.
+
+Measured on `e7ca1519`: types **+4** (`privateNamesAssertion` es2022/esnext,
+2 each), diagnostics unchanged, 0 lost.
+
+The other two TS2775 gaps r7-calls named:
+
+- `assertionTypePredicates1` 150:9/192:9 (`for (let item of items)`) were
+  already closed by §1's for-of arm on this branch; with r7-calls'
+  `r7-calls-assertion-target.diff` applied on `e7ca1519`, `diagcase` shows the
+  case's 16 diagnostics identical to native.
+- `requireAssertsFromTypescript` (`const { art } = require('./ex')`) is a
+  binder gap, not flow: native binds a binding element of a JS
+  require-initialized declaration as an **Alias**
+  (`bindVariableDeclarationOrBindingElement`, `binder.go:1168`, through
+  `IsVariableDeclarationInitializedToRequire`, `ast/utilities.go:2825`, which
+  climbs a binding element to its declaration). TSR's
+  `is_require_alias_variable` (`tsr-binder/src/binder.rs`) admits only a
+  `VariableDeclaration` with an identifier name, so `art` is a plain
+  variable without an annotation and `getExplicitTypeOfSymbol` answers
+  nothing. Needs the binder arm plus the checker's alias target for it
+  (`getTargetOfAliasDeclaration`'s binding-element arm, `symbols.rs`
+  `declaration_of_alias_symbol` lists it as unported). r7-shared's files.
+
+The `Mutable<A>|Mutable<B>` TS2540 (r7-declared's
+`r7-declared-readonly-union-mapped-member.diff`) is the same mapped-symbol
+root as held diff R (§4).
