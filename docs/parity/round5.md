@@ -1885,3 +1885,20 @@ authoritative here.
 
 `tsr-2zk.1149` is reopened unassigned. The remainder is in the box's notes
 §4–5.
+
+### Checkpoint wrap-up: r6-relater3 (batch CD)
+
+Batch CD lands r6-relater3's two lane commits and two diffs:
+- JS return checks read @returns and @type;
+- the new-alias variance skip (relater.go:3392);
+- the `||`/`??` type-parameter arm. Its stack overflow was a JSX discriminant
+  cycle, which native ends with getContextFreeTypeOfExpression's
+  pushContextualType; that is ported. No depth guard is added.
+- calls.rs reports hasExcessProperties before the literal gate.
+
+Measured by the box: +6 diagnostics cases and +19 type lines across bases,
+0 lost.
+
+The binding-pattern-image diff is WIP and unmeasured, so it is not landed.
+Items 4–8 were not started. `tsr-2zk.1148` is reopened unassigned. The 112-row
+triage table is in the box's notes §1.
