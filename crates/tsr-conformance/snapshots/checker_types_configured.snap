@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1748/1928 (90.66%)
-Assertion lines: 77051/78552 (98.09%)  — a gradient, not a pass rate
-Failed         : 180
+Passed         : 1750/1928 (90.77%)
+Assertion lines: 77057/78552 (98.10%)  — a gradient, not a pass rate
+Failed         : 178
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 180 failures:
+First 100 of 178 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -91,9 +91,9 @@ compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)
 compiler/duplicateObjectLiteralProperty(target=es2015)
   duplicateObjectLiteralProperty.ts: >y : { a: number; } — expected >y : { readonly a: number; }
 compiler/emitDecoratorMetadata_isolatedModules(module=commonjs)
-  index.ts: >event : error — expected >event : T1
+  index.ts: >p1_ns : t1.T1 — expected >p1_ns : T1
 compiler/emitDecoratorMetadata_isolatedModules(module=esnext)
-  index.ts: >event : any — expected >event : T1
+  index.ts: >p1_ns : t1.T1 — expected >p1_ns : T1
 compiler/es5-yieldFunctionObjectLiterals(target=es2015)
   es5-yieldFunctionObjectLiterals.ts: >objectLiteral1 : error — expected >objectLiteral1 : () => Generator<number, void, unknown>
 compiler/es5ExportDefaultClassDeclaration3(target=es2015)
@@ -226,5 +226,5 @@ conformance/exportAsNamespace3(module=es2015)
   2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
 conformance/exportAsNamespace3(module=esnext)
   2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportDeclaration(isolatedmodules=false)
-  /b.ts: >a : any — expected >a : A
+conformance/exportsAndImports4(target=es2015)
+  t3.ts: >c : typeof a — expected >c : typeof c
