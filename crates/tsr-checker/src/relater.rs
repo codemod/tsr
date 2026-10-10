@@ -1661,16 +1661,50 @@ impl Relater<'_, '_, '_> {
                     // propertiesRelatedTo needs only the target's names: an
                     // enum object (`typeof E`, which carries a reverse-mapping
                     // index) has no member table here but enumerates them.
-                    return if self.has_members(apparent)
-                        && (self.has_members(target)
+                    if !self.has_members(apparent)
+                        || !(self.has_members(target)
                             || self.checker.get_property_names_of_type(target).is_some())
-                        && self.properties_related_to(apparent, target)
-                            == RelationResult::NotRelated
                     {
-                        RelationResult::NotRelated
+                        return RelationResult::Unknown;
+                    }
+                    let properties = self.properties_related_to(apparent, target);
+                    if properties == RelationResult::NotRelated {
+                        return properties;
+                    }
+                    // A mapped target keeps its own arms ahead of the
+                    // structural one (relater.go:3593); only the
+                    // properties' rejection is decided for it here.
+                    if self.checker.mapped_types.contains_key(&target)
+                        || self.is_generic_mapped_target(target)
+                    {
+                        return RelationResult::Unknown;
+                    }
+                    // structuredTypeRelatedToWorker's structural arm
+                    // (relater.go:3864) over the apparent source, with
+                    // `sourceIsPrimitive` threaded into
+                    // indexSignaturesRelatedTo: a primitive's wrapper never
+                    // takes the `any`-valued string-index shortcut
+                    // (relater.go:4588), so `"foo"` is not assignable to
+                    // `{ [k: string]: any }` while `String` is. Decided here
+                    // rather than through `is_related_to(apparent, target)`,
+                    // whose result would be published under the wrapper's
+                    // pair, where the shortcut does apply; upstream keys this
+                    // answer by the primitive source.
+                    let signatures = if self.call_or_construct_bearing(target) {
+                        self.related_signatures(apparent, target).unwrap_or_else(|| {
+                            reasons::note(reasons::Site::SignatureBearing);
+                            RelationResult::Unknown
+                        })
                     } else {
-                        RelationResult::Unknown
+                        RelationResult::Related
                     };
+                    if signatures == RelationResult::NotRelated {
+                        return signatures;
+                    }
+                    let indexes = self
+                        .related_index_signatures_ex(apparent, target, true)
+                        .unwrap_or(RelationResult::Unknown);
+                    return RelationResult::all([properties, signatures, indexes]);
                 }
                 return self.is_related_to(apparent, target);
             }
@@ -4009,6 +4043,18 @@ impl Relater<'_, '_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<RelationResult> {
+        self.related_index_signatures_ex(source, target, false)
+    }
+
+    /// indexSignaturesRelatedTo (relater.go:4578) with its
+    /// `sourceIsPrimitive`: the apparent wrapper of a primitive source does
+    /// not take the `any`-valued string-index shortcut.
+    fn related_index_signatures_ex(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        source_is_primitive: bool,
+    ) -> Option<RelationResult> {
         let target_infos = self.checker.get_index_infos_of_type(target)?;
         if target_infos.is_empty() {
             return Some(RelationResult::Related);
@@ -4018,6 +4064,7 @@ impl Relater<'_, '_, '_> {
         let mut parts = Vec::with_capacity(target_infos.len());
         for info in &target_infos {
             if self.relation != Relation::StrictSubtype
+                && !source_is_primitive
                 && target_has_string
                 && self.checker.type_of(info.value).flags.contains(TypeFlags::ANY)
             {

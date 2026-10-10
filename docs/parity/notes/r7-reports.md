@@ -225,3 +225,49 @@ Gen2<ABC.A>`): the source answers a type for `a`, which upstream's
 `Gen2<ABC.B>` lacks. The mapped type's key set over
 `keyof (… & ({ v: A, a } | { v: B, b }))` is the declared-type lane's
 (`mapped.rs`).
+
+## 6. `indexSignaturesRelatedTo`'s `sourceIsPrimitive`
+
+**Forcing fact.** `assignmentCompat1` expects TS2322 for `y = "foo"` with
+`y: { [index: string]: any }` and for `z = false` with
+`z: { [index: number]: any }`. TSR reported nothing, because the relation
+answered Unknown.
+
+**Upstream.** `structuredTypeRelatedToWorker` (`relater.go:3814`) records
+`sourceIsPrimitive` and then relates the apparent wrapper (`String`,
+`Boolean`) through the structural arm (`:3864`): properties, call and
+construct signatures, then `indexSignaturesRelatedTo(source, target,
+sourceIsPrimitive, …)` (`:4578`). With `sourceIsPrimitive` the
+`any`-valued string-index shortcut (`:4588`) is skipped, so each target
+index goes to `typeRelatedToIndexInfo`. `String` has no applicable string
+index (its index is numeric), and an interface has no inferable index
+(`isObjectTypeWithInferableIndex`), so the answer is False. `Boolean` fails
+the same way against a number index.
+
+**Port** (`relater.rs`). The primitive-source arm of
+`is_related_to_with_flags` declined everything against an indexed target
+except a property rejection. It now runs the structural trio over the
+apparent type, threading `source_is_primitive` into
+`related_index_signatures_ex`. The trio is computed in place rather than
+through `is_related_to(apparent, target)`, because that result would be
+published under the wrapper's own pair, where the shortcut does apply
+(`String` *is* assignable to `{ [k: string]: any }`). Upstream keys the
+answer by the primitive source. The member relations inside the trio are
+ordinary pairs and publish as before. A mapped or generic mapped target
+keeps the old decline after the property conjunct: its own arms precede the
+structural one upstream (`relater.go:3593`).
+
+**Not a new cache.** No table is added. The only publication change is that
+this arm no longer publishes a wrapper-keyed pair, which it never did
+before either (it returned Unknown).
+
+**Measured** (unfiltered, on top of §5): WRONG → RIGHT `assignmentCompat1`
+and `indexTypeCheck`; one row fixed in `unknownType1`; no other row changed.
+Types: +5 RIGHT lines (`deeplyNestedConstraints` 0:6–0:8,
+`typeGuardConstructorNarrowPrimitivesInUnion` 0:14,
+`typeGuardConstructorPrimitiveTypes` 0:6: the relation now rejects a
+primitive against an indexed constituent during narrowing), none lost.
+
+**Falsifier.** A primitive assigned to a type with an `any` string index
+that TSR now rejects while tsgo accepts would show a target arm ahead of the
+structural one that this arm skips.
