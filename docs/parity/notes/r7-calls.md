@@ -155,3 +155,49 @@ typeArgumentInferenceConstructSignatures.
 
 Coverage bin on the commit: `diagnostics` 4,811/5,502 (+7); type suites
 unchanged.
+
+## 4. TS2775 / TS2776 — assertion call targets (`checker.go:8353`)
+
+Routed by the integrator from r7-flow.
+
+**Native.** After resolution, `checkCallExpression` checks a call statement
+(parent `ExpressionStatement`, no `?.`) whose signature returns `void` and has
+a type predicate (an `asserts` signature): a callee that is not
+`IsDottedName` is TS2776; otherwise, when `getEffectsSignature(node)` is nil
+(some name in the dotted target has no explicit type, so
+`getTypeOfDottedName` cannot reach the signature without flow analysis),
+TS2775 at the callee, with `getTypeOfDottedName`'s TS2782 related
+information.
+
+**Port.** `check_assertion_call_target` on the diagnostic walk, after the
+resolution reports. It reads the resolved signature the way this port's
+`getEffectsSignature` does (the non-nullable callee's sole non-generic call
+signature, else `resolve_call_signature_at`), answering before any resolution
+when no call signature of the callee has a predicate, and calls `flow.rs`'s
+`get_effects_signature` for the TS2775 test. The integrator approved one
+visibility-only change in `flow.rs`: `get_effects_signature` is `pub(crate)`.
+
+**Accepted:** the TS2782 related information is not attached (the
+diagnostics suite compares code and position).
+
+**Held, not committed.** Measured against `41ba17fa`: +1
+(assertionTypePredicates2), 3 lost (EMPTY_RIGHT → EMPTY_WRONG):
+`privateNamesAssertion` (both targets) and `requireAssertsFromTypescript`.
+assertionTypePredicates1 gains its four reports but also gets two false ones
+(150:9, 192:9), so it stays WRONG. Each false TS2775 is a gap in `flow.rs`'s
+`getTypeOfDottedName` / `getExplicitTypeOfSymbol` (`flow.go:2122`, `:2155`),
+which the check now exposes:
+
+- the for-of arm (`flow.go:2176`): a `for (let item of items)` variable has
+  the explicit iterated type of `getTypeOfDottedName(items)`
+  (assertionTypePredicates1 150:9 and 192:9). The same gap leaves
+  `item.assertIsTest2(); item.z` un-narrowed, the extra TS2339 at 151:14;
+- the private-identifier arm (`flow.go:2137`): `this.#p1(v)` looks up
+  `GetSymbolNameForPrivateIdentifier` (privateNamesAssertion);
+- a JS `const { art } = require('./ex')` binding is an alias that
+  `resolveSymbol` follows to the declared function
+  (requireAssertsFromTypescript 4:1).
+
+The port is kept as
+[`r7-calls-assertion-target.diff`](r7-calls-assertion-target.diff) until those
+arms land in `flow.rs` (routed).
