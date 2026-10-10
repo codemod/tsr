@@ -303,17 +303,18 @@ the flag the function reads.
   `check_module_format`'s `module: none` return: the grammar is not a
   module-format check, and the top-level arm reads the module kind itself.
 
-**Held: `binder.go:1311`'s TS1359 arm** (`await` as an identifier in an
-`AwaitContext`, `strict_mode.rs`'s `check_contextual_identifier`). Ported and
-measured on this base at 15 cases gained and 8 lost: `var v: await;` inside an
-async function (`asyncFunctionDeclaration13`, `asyncArrowFunction10`,
-`parser.asyncGenerators.*`, `awaitAsTypeIsOk`) drew TS1359 because this
-parser's `parse_type` does not clear the await and yield contexts
-(`parseType`'s `setContextFlags(NodeFlagsTypeExcludesFlags, false)`,
-`parser.go:2608`), so a type's identifiers carry `AWAIT_CONTEXT`. Routed to
-r7-parser; the arm lands once types are parsed outside the contexts. The
-`yield` arm and `checkGrammarYieldExpression`'s TS1163 read
-`NodeFlagsYieldContext`, which the parser now stamps, and wait on the same fix.
+**`binder.go:1311`'s TS1359 arm** (`await` as an identifier in an
+`AwaitContext`, `strict_mode.rs`'s `check_contextual_identifier`) was held
+at first: measured on `d3a34908` at 15 cases gained and 8 lost, because this
+parser's `parse_type` kept the await and yield contexts (`parseType`'s
+`setContextFlags(NodeFlagsTypeExcludesFlags, false)`, `parser.go:2608`), so
+`var v: await` inside an async function drew TS1359
+(`asyncFunctionDeclaration13`, `asyncArrowFunction10`,
+`parser.asyncGenerators.*`). r7-parser `c83bb41b` clears them in types;
+re-measured on `cd4afbcb` plus this lane's commits it is +2
+(`classStaticBlock22` es2022, esnext), 0 lost, and lands. The `yield` arm
+after it is unreachable upstream: `yield` is the last future reserved word
+(`KindLastFutureReservedWord`), so the strict-mode arm before it takes it.
 
 `topLevelAwaitErrors.1`'s TS2863 on `string` in `class C extends await<string>`
 was first read as a `check.rs` decline; r7-parser's dump of native's tree shows
