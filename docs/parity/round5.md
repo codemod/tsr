@@ -1951,3 +1951,22 @@ was not measured by the box, so this batch's gate supplies it.
 The multi-thread diagnostic drop (`tsr-2zk.1258`) is still neither
 reproduced nor refuted. Its corpus diff is prepared in the box's notes. The
 module and alias clusters are reopened unassigned.
+
+### Checkpoint wrap-up: r6-typesroots3 (batch CH)
+
+Batch CH lands r6-typesroots3's import_type_meaning.rs commit and seven
+diffs:
+- mapped alias-reference keys, member names and optional type (mapped.rs);
+- intersection new alias (declared.rs);
+- overload object-literal context (calls.rs);
+- intersection indexed-access inference (inference.rs);
+- the import-type qualifier alias.
+
+Measured by the box: about +107 type lines and +1 diagnostics case, 0 lost.
+Ir ×1.001 on domain-model. The last diff's Ir was unmeasured, so the gate is
+authoritative.
+
+Refused: evicting array-literal arguments per candidate (+38/−16 types, −1
+diag). The held conditional-node diff's real blocker is
+getLowerBoundOfKeyType's conditional arm in mapped.rs, not reverse-mapped
+inference. `.1151`, `.16.69`, `.16.74` and `.1188` are reopened unassigned.
