@@ -1699,9 +1699,23 @@ impl Checker<'_, '_> {
                 && !self.is_context_sensitive_argument(argument)
             {
                 if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
-                    || self.head_could_contain_type_variables(source, 3)
-                    || self.head_could_contain_type_variables(target, 3)
-                    || self.type_mentions_literal(target, 3)
+                {
+                    return;
+                }
+                // hasExcessProperties (relater.go:2714) runs on the fresh
+                // literal before any structural comparison. Against a
+                // non-union target it reads only the literal's property
+                // names, which the instantiated context's literal
+                // preservation does not change, so its report needs no
+                // re-check under the instantiated parameter. A union target's
+                // discriminant reduction reads the members' types, which do
+                // change, and stays behind the literal gate below.
+                if !matches!(self.store.get(target).data, TypeData::Union { .. })
+                    && self.report_fresh_literal_excess_property(argument_id, source, target)
+                {
+                    return;
+                }
+                if self.type_mentions_literal(target, 3)
                     || self.absent_member_flags_unreadable(source, target)
                 {
                     return;
