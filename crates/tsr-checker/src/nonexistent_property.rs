@@ -89,6 +89,9 @@ impl Checker<'_, '_> {
             Some(Node::ElementAccessExpression(access)) => {
                 // Malformed element access is not part of this proven property
                 // recovery boundary; retain its existing parse-error decline.
+                if self.file_has_parse_errors {
+                    return;
+                }
                 let (Some(receiver), Some(argument)) =
                     (access.expression, access.argument_expression)
                 else {
@@ -113,6 +116,36 @@ impl Checker<'_, '_> {
         }
 
         let Some(receiver_id) = receiver.node_id() else { return };
+        if self.file_has_parse_errors {
+            // Constructor recovery can leave `this.x = ...` as a statement
+            // where native ended the body and owns class property declarations.
+            // This port cannot certify that recovered write's receiver image.
+            if self.nodes.kind(receiver_id) == SyntaxKind::ThisKeyword
+                && self.is_write_only_access(node)
+                && self
+                    .get_this_container(node, false)
+                    .is_some_and(|container| self.nodes.kind(container) == SyntaxKind::Constructor)
+            {
+                return;
+            }
+            if let Some(Node::Identifier(identifier)) = self.node_map.get(receiver_id) {
+                let Some(symbol) = self.binder.resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    receiver_id,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                ) else {
+                    return;
+                };
+                // `getExplicitTypeOfSymbol` (pinned flow.go:2155) is also the
+                // assertion-effect supplier. Its unsupported for-of/mapped
+                // origins cannot certify a miss merely by flowed == declared.
+                if self.get_explicit_type_of_symbol(symbol).is_none() {
+                    return;
+                }
+            }
+        }
         let receiver_type = self.check_expression(receiver);
         if self.global_this_member_is_not_reported(receiver_type, name_text) {
             return;

@@ -168,7 +168,7 @@ impl<'a> Checker<'a, '_> {
     /// the symbol's first interface declaration, which is the one a file-order
     /// check reaches first.
     pub(crate) fn check_index_constraints(&mut self, node: NodeId) {
-        if self.in_js_file(node) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let Some(symbol) = self.binder.symbol_of(node) else { return };

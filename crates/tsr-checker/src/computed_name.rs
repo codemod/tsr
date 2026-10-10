@@ -45,7 +45,7 @@ impl Checker<'_, '_> {
         // and `FunctionDeclaration` and nowhere else, so a **member's own**
         // `declare` is invisible to it. §134 hit this in the type-only alias
         // rule; this is the sweep for it. §135.
-        if ambient || self.in_js_file(node) {
+        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         if self.nodes.parent(node).is_some_and(|member| self.member_has_declare_modifier(member)) {
@@ -289,7 +289,7 @@ impl Checker<'_, '_> {
     /// evaluated once per declaration and the containing type's parameter has
     /// no value there, so it is the reference that is illegal. §1027.
     fn check_computed_name_type_parameter_reference(&mut self, node: NodeId) {
-        if self.in_js_file(node) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let Some(owner) = self.nodes.parent(node).and_then(|member| self.nodes.parent(member))

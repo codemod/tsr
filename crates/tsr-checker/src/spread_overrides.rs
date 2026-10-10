@@ -20,7 +20,7 @@ impl Checker<'_, '_> {
     /// runs `checkSpreadPropOverrides` (`checker.go:13371`) against the table
     /// as filled so far.
     pub(crate) fn check_spread_property_overrides(&mut self, node: NodeId) {
-        if self.in_js_file(node) || !self.strict_null_checks {
+        if self.file_has_parse_errors || self.in_js_file(node) || !self.strict_null_checks {
             return;
         }
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
@@ -126,7 +126,7 @@ impl Checker<'_, '_> {
     /// (`checker.go:17723`): an `unknown` or non-spreadable parent reports on
     /// the rest element. An `any` parent returns before it.
     pub(crate) fn check_object_rest_of_non_object_type(&mut self, node: NodeId) {
-        if self.in_js_file(node) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
@@ -193,7 +193,7 @@ impl Checker<'_, '_> {
     /// type must pass `isValidSpreadType` (`checker.go:13304`), reported on
     /// the spread assignment.
     pub(crate) fn check_spread_of_non_object_type(&mut self, node: NodeId) {
-        if self.in_js_file(node) {
+        if self.file_has_parse_errors || self.in_js_file(node) {
             return;
         }
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
