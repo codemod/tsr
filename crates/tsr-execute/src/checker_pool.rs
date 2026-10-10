@@ -89,6 +89,7 @@ pub fn check_program_files(
     program: &tsr_compiler::Program<'_>,
     options: &CompilerOptions,
     count: usize,
+    process_exits: bool,
     #[cfg(feature = "work-trace")] trace: Option<&std::sync::Arc<crate::work_trace::WorkTrace>>,
 ) -> PoolOutcome {
     let started = Instant::now();
@@ -173,6 +174,12 @@ pub fn check_program_files(
                 (index % count == owner).then(|| (index, diagnostic.clone()))
             })
             .collect();
+        if process_exits {
+            // A checker's tables are reclaimed by the process exit rather
+            // than dropped on the worker before the pool joins
+            // (`System::exits_after_command`, `r7-perf.md` §8).
+            std::mem::forget(checker);
+        }
         (diagnostics, js_syntax, checked_count, constructed)
     };
 

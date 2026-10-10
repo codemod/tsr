@@ -47,6 +47,17 @@ pub trait System {
     /// opt-in statistics report remains deterministic in virtual-filesystem tests.
     fn since_start(&self) -> Duration;
 
+    /// Whether the process ends when the command returns.
+    ///
+    /// When it does, the driver skips tearing down the program and its
+    /// checkers: the operating system reclaims the memory at exit, as it does
+    /// for native `tsc`, which exits without a final collection. A host that
+    /// runs many commands in one process (the baseline runner, tests) keeps
+    /// the default, and everything is dropped normally. `r7-perf.md` §8.
+    fn exits_after_command(&self) -> bool {
+        false
+    }
+
     /// An independent opt-in work sink. Baseline hosts remain uninstrumented.
     #[cfg(feature = "work-trace")]
     fn work_trace(&self) -> Option<std::sync::Arc<crate::work_trace::WorkTrace>> {
