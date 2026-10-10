@@ -329,3 +329,39 @@ the native baseline.
 resolution, r7-shared), and `augmentExportEquals7` 1:0 wants `{ default:
 () => void; }` for a namespace import of an `export =` function (the clone's
 synthetic `default`, r7-shared §1's remaining).
+
+## 4. A merged `default` symbol is written by its first named declaration
+
+Routed from r7-shared (DEFAULT-EXPORT-ALIAS-CLASS-MERGE, the printer half).
+
+**Forcing constraint.** `exportDefault{Class,Interface,Type}ClassAndValue`:
+
+```ts
+const foo = 1
+export default foo
+export default class Foo {}     // >Foo : foo   (native)   >Foo : Foo   (port)
+```
+
+Both statements declare the file's `default` export, which merges into one
+symbol whose first declaration is the export assignment (the binder matches
+native: the class node's symbol is that export symbol). Native names the
+class's instance type with `getNameOfSymbolAsWritten`
+(`nodebuilderimpl.go:973`): a symbol named `default`, written as the first
+segment of an entity name inside its first declaration's binding context
+(`isDefaultBindingContext`: the file or an ambient module), takes the name
+of its first named declaration (`ast.GetNameOfDeclaration`, whose
+export-assignment arm is the identifier `foo`). The port baked the class's
+own name and `qualified_name_at` split the print on the binder name
+`default`, so nothing re-spelled it.
+
+**The port.** `default_symbol_text_as_written` (checker.rs) applies that arm
+in `qualified_name_at`: in the same binding context, it replaces the baked
+name of another declaration of the symbol with the first declaration's
+name. Outside the binding context native writes `default` (the chain then
+roots at the module); the existing roads keep deciding there, unchanged. No
+cache or table.
+
+**Measured** against §3's commit (`eacaa674`), both dumps unfiltered: types
+**+3 / −0** (the three cases), diagnostics unchanged. Coverage:
+`checker_types` 8,742 → 8,745. CPU new/old, 21 samples: domain-model 0.989,
+generic-imports 0.990. Test: `tests/default_symbol_written_name.rs`.
