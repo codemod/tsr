@@ -175,3 +175,68 @@ function f(wrap) {
     );
     assert_has(&lines, &["wrap : ex.Crunch"]);
 }
+
+/// `getSymbolChain` over a module object: no alias in scope names module
+/// `0`, but `trySymbolTable`'s `getCandidateListForSymbol` reaches it through
+/// `foo`'s exports, where `export * as ns` re-exports it
+/// (`exportAsNamespace1`'s native baseline).
+#[test]
+fn a_module_reached_through_an_alias_export_is_named_by_that_route() {
+    let lines = assertions(
+        "probe/module_rooted_namespace_reexport",
+        r"// @target: es2015
+// @module: esnext
+// @filename: 0.ts
+export const a = 1;
+export const b = 2;
+// @filename: 1.ts
+export * as ns from './0';
+// @filename: 2.ts
+import * as foo from './1'
+foo.ns.a;
+",
+    );
+    assert_has(&lines, &["foo.ns : typeof foo.ns"]);
+}
+
+/// A baked import type (`import("pkg").ImportInterface`, as written with a
+/// `resolution-mode` attribute) is re-spelled from the chain's module root:
+/// under the `CommonJS` importing file's conditions, `pkg`'s `exports` block
+/// the `import` file, so the specifier is the relative path through
+/// `node_modules` (`nodeModulesImportAttributesTypeModeDeclarationEmit`'s
+/// native baseline).
+#[test]
+fn a_baked_import_type_is_respelled_from_the_module_root() {
+    let lines = assertions(
+        "probe/module_rooted_import_type",
+        r#"// @target: es2022
+// @noImplicitReferences: true
+// @module: node16
+// @declaration: true
+// @outDir: out
+// @filename: /node_modules/pkg/package.json
+{
+    "name": "pkg",
+    "version": "0.0.1",
+    "exports": {
+        "import": "./import.js",
+        "require": "./require.js"
+    }
+}
+// @filename: /node_modules/pkg/import.d.ts
+export interface ImportInterface {}
+// @filename: /node_modules/pkg/require.d.ts
+export interface RequireInterface {}
+// @filename: /index.ts
+export const a = (null as any as import("pkg", { with: {"resolution-mode": "require"} }).RequireInterface);
+export const b = (null as any as import("pkg", { with: {"resolution-mode": "import"} }).ImportInterface);
+"#,
+    );
+    assert_has(
+        &lines,
+        &[
+            "a : import(\"pkg\").RequireInterface",
+            "b : import(\"./node_modules/pkg/import\").ImportInterface",
+        ],
+    );
+}
