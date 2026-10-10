@@ -340,3 +340,24 @@ comparison and the string/unknown arms were already upstream's.
 containers that tsgo relates and TSR now rejects would show a member-table
 difference (merged declarations across files read through
 `merged_symbol`, not the declaration's own symbol).
+
+## 9. TS7008 is not reported on a static `prototype` property
+
+**Forcing fact.** `staticPrototypeProperty` reports only TS2699 for `class
+C2 { static prototype; }`. TSR added TS7008 at (6,11).
+
+**Upstream.** `bindClassLikeDeclaration` (`binder.go:962`) seeds every
+class's exports with a `Property | Prototype` symbol named `prototype`
+before the members are bound. A static property of that name merges into
+it, because `PropertyExcludes` is none. The method form collides and is
+TS2300, as the same case shows at (2,11). The merged symbol's type is
+`getTypeOfPrototypeProperty` (`checker.go:16580`), the instance type, so
+the implicit-`any` fallback never runs for it.
+
+**Port** (`implicit_any.rs`, `check_implicit_any_member`). A static class
+member named `prototype` is skipped. This binder does not create the
+prototype symbol (`SymbolFlags::PROTOTYPE` is declared and never set), so
+the test reads the declaration that would have merged into it.
+
+**Measured** (unfiltered diagnostics against `660718af` plus §5–§8): WRONG
+→ RIGHT `staticPrototypeProperty`; no other row changed.
