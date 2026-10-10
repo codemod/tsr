@@ -164,3 +164,55 @@ parser's (§3).
   in `check_node_worker` (the new kind test runs once per node, about 1 M Ir
   over the program) and code layout; CLI output is byte-identical on both
   projects.
+
+## 3. The parser half of row 23 (diff and routed)
+
+### Keyword escapes, TS1260 (diff)
+
+`Parser.nextToken` (`parser.go:381`) reports `Keywords cannot contain escape
+characters` on the token it is about to leave when that token is a keyword
+whose scan saw an escape (`HasUnicodeEscape || HasExtendedUnicodeEscape`).
+`createIdentifier` (`parser.go:5850`) and one async-arrow look-ahead consume
+with `nextTokenWithoutCheck` instead, so a keyword written with an escape is
+silent wherever it is parsed as a name (`var await`, `{ default: 1
+}`, `type type = 1`). The scanner already marks such a keyword
+(`TokenFlags::UNICODE_ESCAPE`, §302 of the scanner notes); nothing read it.
+
+[`r6-printer5-keyword-escapes.diff`](r6-printer5-keyword-escapes.diff)
+(parser.rs, expression.rs, module.rs: main's; new test
+`crates/tsr-parser/tests/keyword_escapes.rs`): `next_token` reports, the new
+`next_token_without_check` is the old body, and `parse_identifier`,
+`parse_identifier_name` and `declare global`'s name consume with it. The flag
+is tested first and the report is out of line (`#[cold]`), so an ordinary
+token pays one bit test.
+
+Measured on top of §2's diff (`/tmp/box/c2`): diagnostics **+3 / −0**
+(`scannerUnicodeEscapeInKeyword1`, `scannerUnicodeEscapeInKeyword2`,
+`switchStatementsWithMultipleDefaults`), types +0 / −0, slowcases clean, CLI
+identical. Ir against §2's stack: domain-model 1,093,526,503 →
+1,093,911,730 (+0.035%), generic-imports 342,864,605 → 343,667,876
+(+0.23%). Against the frozen base the three together are +0.13% and −0.01%:
+generic-imports moves by about ±0.25% from code layout alone (§2's binary,
+whose new code never runs there, measured −0.24%). The first build, with the
+keyword test before the flag test and no `#[cold]`, measured +0.13% / +0.33%
+over §2; the shape above is the cheaper one.
+
+### Regex-vs-divide recovery, TS1134 vs TS1161 (routed, main's parser)
+
+`parser645086_1` / `_2` (`var v = /[]/]/`): native reports TS1005 at the
+`]`, then TS1134 `Variable declaration expected` at the last `/`; the next
+statement's `reScanSlashToken` then finds an unterminated literal at the same
+`/`, and `parseErrorAtRange`'s same-start guard drops that TS1161 because it
+came **second**. The port keeps the scanner's diagnostics in their own list
+and merges them in `Parser::finish` scanner-first at an equal start
+(`parser.rs`, §195 of the parser notes: "the scanner reports while scanning
+the token, before the parser can say anything about it"). That holds for a
+token's first scan and fails for a **rescan**, which the parser asks for
+after it has reported at that position. The faithful fix is the sink, not
+the scanner: scanner reports must reach `would_repeat_last_error` in emission
+order (drain `Scanner::take_diagnostics` into the parser's list after each
+scan and rescan, with `restore` truncating both). That is main's parser;
+not built here.
+
+`parserRegularExpressionDivideAmbiguity4`'s extra TS1005 is the same
+family's recovery after the unterminated literal (parser).

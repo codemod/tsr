@@ -1,0 +1,101 @@
+diff --git a/crates/tsr-parser/src/expression.rs b/crates/tsr-parser/src/expression.rs
+index a73f88f..261837e 100644
+--- a/crates/tsr-parser/src/expression.rs
++++ b/crates/tsr-parser/src/expression.rs
+@@ -2706,7 +2706,7 @@ impl<'a> Parser<'a> {
+         let start = self.pos();
+         if self.is_binding_identifier() {
+             let text = self.token_value();
+-            self.next_token();
++            self.next_token_without_check();
+             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
+         }
+         self.report_missing_identifier()
+@@ -2719,7 +2719,7 @@ impl<'a> Parser<'a> {
+         let start = self.pos();
+         if self.at(SyntaxKind::Identifier) || self.token.kind.is_keyword() {
+             let text = self.token_value();
+-            self.next_token();
++            self.next_token_without_check();
+             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
+         }
+         self.report_missing_identifier()
+diff --git a/crates/tsr-parser/src/module.rs b/crates/tsr-parser/src/module.rs
+index 0774442..e56c3f6 100644
+--- a/crates/tsr-parser/src/module.rs
++++ b/crates/tsr-parser/src/module.rs
+@@ -434,7 +434,10 @@ impl<'a> Parser<'a> {
+         // `parseAmbientExternalModuleDeclaration`'s global arm (`parser.go`).
+         if self.at(SyntaxKind::GlobalKeyword) {
+             let keyword_start = self.pos();
+-            let keyword = self.take_token();
++            // `parseIdentifier` → `createIdentifier`: `nextTokenWithoutCheck`.
++            let keyword = self.token;
++            self.next_token_without_check();
++            let keyword = self.alloc_token(keyword.kind, keyword.span);
+             let name = ModuleName::Identifier(self.finish_node(
+                 Identifier::new("global"),
+                 SyntaxKind::Identifier,
+diff --git a/crates/tsr-parser/src/parser.rs b/crates/tsr-parser/src/parser.rs
+index 18ed17c..ab6d55e 100644
+--- a/crates/tsr-parser/src/parser.rs
++++ b/crates/tsr-parser/src/parser.rs
+@@ -394,7 +394,30 @@ impl<'a> Parser<'a> {
+     // ---- token cursor ---------------------------------------------------
+ 
+     /// Advance to the next token, returning the one just consumed.
++    #[inline]
+     pub(crate) fn next_token(&mut self) -> Token {
++        // `Parser.nextToken` (`parser.go:381`): a keyword spelled with an
++        // escape is reported as it is consumed. Identifier creation consumes
++        // with `nextTokenWithoutCheck` instead ([`Self::next_token_without_check`]),
++        // so `var \u0061wait` and `{ def\u0061ult: 1 }` stay silent.
++        // The flag first: it is almost never set, so the common token pays
++        // one test and the report stays out of line.
++        if self.token.flags.contains(tsr_scanner::TokenFlags::UNICODE_ESCAPE) {
++            self.report_escaped_keyword();
++        }
++        self.next_token_without_check()
++    }
++
++    #[cold]
++    #[inline(never)]
++    fn report_escaped_keyword(&mut self) {
++        if self.token.kind.is_keyword() {
++            self.error_at_current(&messages::KEYWORDS_CANNOT_CONTAIN_ESCAPE_CHARACTERS);
++        }
++    }
++
++    /// `Parser.nextTokenWithoutCheck` (`parser.go:391`).
++    pub(crate) fn next_token_without_check(&mut self) -> Token {
+         let previous = self.token;
+         self.token = self.scanner.scan();
+         self.token_value = capture_value(&self.scanner);
+diff --git a/crates/tsr-parser/tests/keyword_escapes.rs b/crates/tsr-parser/tests/keyword_escapes.rs
+new file mode 100644
+index 0000000..560cd03
+--- /dev/null
++++ b/crates/tsr-parser/tests/keyword_escapes.rs
+@@ -0,0 +1,22 @@
++//! `Parser.nextToken`'s escaped-keyword report (`parser.go:381`) and
++//! `nextTokenWithoutCheck` at identifier creation (r6-printer5 §3). The
++//! expectations are the pinned tsgo's for `scannerUnicodeEscapeInKeyword2`.
++
++fn codes(source: &str) -> Vec<(u32, u32)> {
++    let arena = tsr_core::Arena::new();
++    let parsed = tsr_parser::parse(&arena, source);
++    parsed.diagnostics.iter().map(|d| (d.message.code(), d.span.start)).collect()
++}
++
++#[test]
++fn a_keyword_spelled_with_an_escape_is_reported_where_it_is_a_keyword() {
++    assert_eq!(codes(r#"\u{0076}ar x = "hello";"#), vec![(1260, 0)]);
++    assert_eq!(codes("typ\\u0065 notok = 0;"), vec![(1260, 0)]);
++}
++
++#[test]
++fn an_escaped_keyword_used_as_a_name_is_not() {
++    assert!(codes("var \\u0061wait = 12;").is_empty());
++    assert!(codes("const a = {def\\u0061ult: 12};").is_empty());
++    assert!(codes("type typ\\u0065 = 12;").is_empty());
++}
