@@ -338,3 +338,47 @@ Coverage: `checker_types` 8,739/9,538, `checker_types_configured`
 1,771/1,928, `diagnostics` 4,849/5,502, `diagnostics_configured` 968/1,091.
 Median child-CPU new/old (21 samples): domain-model 1.0058,
 generic-imports 0.9953. Workspace clippy clean; tests pass.
+
+## 7. `resolveESModuleSymbol`'s `hasSignatures` arm for a callable variable `export =`
+
+### Cause
+
+`resolveESModuleSymbol` (`checker.go:15610`) clones a namespace import when
+`hasSignatures(typ)` — a property of the module's *type*, whatever declares
+it. `module_clone_type` dispatched on the target's declaration kind: class →
+construct signatures, function → call signatures, an ESM-to-CJS module, and
+everything else to `namespace_import_default_member_type`, which admitted
+only a type with a `default` property. `declare module "bluebird" { const
+Bluebird: typeof Promise; export = Bluebird }` is a variable with construct
+signatures, so `import * as Bluebird` kept `PromiseConstructor` itself where
+native answers the synthetic-default spread with no signatures, `{ all…;
+[Symbol.species]: PromiseConstructor; default: PromiseConstructor; }`.
+
+### The port
+
+`namespace_import_default_member_type`'s gate is native's: call or construct
+signatures, or a `default` property. The rest of the arm is unchanged
+(`getTypeWithSyntheticDefaultImportType`, or §1's clone of the unchanged
+type, which carries no signatures). A synthetic type this port answers as
+the gap — the spread of a `const Foo = class …` constructor value's static
+side — declines to the uncloned value, as before, rather than introduce a gap
+(`symbol_chain.rs`' `module_class_clone_boundary_does_not_admit_other_export_meanings`
+pins that boundary; natively that import is cloned too). No new cache.
+
+`symbol_chain.rs`' `const Foo = function …; export = Foo` fixture pinned the
+old boundary (`Head` equal to `Raw`'s function type); natively the namespace
+import is the signature-less synthetic-default object, which it now asserts.
+
+### Measured (against `2fd5c9f4`)
+
++3 type lines, zero losses, diagnostics unchanged:
+`transformNestedGeneratorsWithTry` 0:0/0:8 and `augmentExportEquals7` 1:0
+(`{ default: () => void; }`, the same arm for a callable `var` `export =`),
+which converts that case. Coverage: `checker_types` 8,801/9,538,
+`checker_types_configured` 1,787/1,928, `diagnostics` 4,896/5,502,
+`diagnostics_configured` 981/1,091. Median child-CPU new/old: a 21-sample
+run read domain-model 1.0633 / 0.9252 on two runs; the 41-sample rerun is
+domain-model 0.9810, generic-imports 0.9701. Workspace clippy clean; tests
+pass. Remaining in `transformNestedGeneratorsWithTry`: `b()` / `await b()`
+read `any` (a call of an async function annotated `Bluebird<void>`), a
+separate root.
