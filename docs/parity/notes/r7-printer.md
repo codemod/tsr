@@ -428,3 +428,24 @@ it is in this commit because §5 exposes it.
 `checker_types` 8,745 → 8,755, `checker_types_configured` 1,771 → 1,774.
 CPU new/old, 21 samples: domain-model 0.991, generic-imports 0.995. Tests:
 `tests/module_rooted_symbol_chain.rs`' fourth and fifth cases.
+
+## 6. The file-module arm asks only the resolver (r7-printer §1.3 retired)
+
+r7-shared's `f11e37b8` resolves `import EnumA = Enum.A` beside
+`export type EnumA` (`importedEnumMemberMergedWithExportedAliasIsError`),
+which was §1.3's reason to keep the flat same-file arm. Measured on the
+batch-6 base against §5's commit, both dumps unfiltered, each step
+**+0 / −0** on types and diagnostics:
+
+1. the same-file case goes to the resolver, keeping the `unresolved_export`
+   decline;
+2. the `unresolved_export` decline goes too (its history: §106's "chain1"
+   217 losses, measured before the resolver existed);
+3. the stem/directory computation and the `same_file`/`held_by_exports`
+   tests, now read by nothing, are deleted.
+
+So `symbol_chain`'s file-module arm is native's question alone: the
+resolver's `getSymbolChain` rooted at a file module spells
+`import(<specifier>)`. A refusal (a bare name where native qualifies) can
+now only come from the resolver's walk or from `getSpecifierForModuleSymbol`,
+not from a port-only gate.
