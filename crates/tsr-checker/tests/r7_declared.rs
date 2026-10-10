@@ -176,3 +176,15 @@ fn a_union_alias_instance_is_a_union_for_contextual_typing() {
          const r: R<number> = w => w;\n";
     assert_eq!(type_of_last_initializer(source), "(w: number) => number");
 }
+
+/// §10: a non-generic alias whose body is a reference to a union-bodied
+/// alias declares that union under its own name (getUnionType with the new
+/// alias; tsgo: `xx : X`).
+#[test]
+fn a_union_alias_reference_body_takes_the_declaring_alias() {
+    let source = "type R<T> = string | ((i: T) => any);\n\
+         type X = R<number>;\n\
+         declare const x: X;\n\
+         const xx = x;\n";
+    assert_eq!(type_of_last_initializer(source), "X");
+}
