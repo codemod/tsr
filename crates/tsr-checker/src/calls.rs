@@ -539,7 +539,7 @@ impl<'a> Checker<'a, '_> {
     /// instantiated through `getSignatureInstantiation` with the written
     /// arguments and `fillMissingTypeArguments`' defaults (`unknown` without
     /// one). `None` when a signature list or an instantiation is unresolved.
-    fn instantiated_constructors_for_type_arguments(
+    pub(crate) fn instantiated_constructors_for_type_arguments(
         &mut self,
         constructor: TypeId,
         type_arguments: &[tsr_ast::TypeNode<'a>],

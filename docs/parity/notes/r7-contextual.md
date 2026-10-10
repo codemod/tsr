@@ -471,3 +471,25 @@ else keeps the gap.
 Result (commit 10): types +21 RIGHT (`computedPropertiesInDestructuring1` 10,
 `computedPropertiesInDestructuring1_ES6` 10, `objectRest` 1), 0 lost;
 diagnostics unchanged; jsTyping unchanged.
+
+## 12. CONTEXTUAL-ARG-SUPER-CALL: `super(...)` arguments read the instantiated base constructors
+
+In resolveCallExpression's `super` arm (`checker.go:8471`), a super call
+resolves against the base constructor type's construct signatures,
+instantiated with the `extends` clause's type arguments
+(`getInstantiatedConstructorsForTypeArguments`). An `any` super type is
+`resolveUntypedCall`, every argument `any`. The argument's contextual type
+reads that resolution (`getContextualTypeForArgumentAtIndex`), so
+`super(value => String(value<string>()))` under `extends A<number, string>`
+types `value` as `number`, and the TS2349 for calling it follows. TSR's
+resolving road asked the `super` expression's type for *call* signatures and
+found none. `super_call_argument_context` (contextual.rs) now takes the
+candidates from `calls.rs::instantiated_constructors_for_type_arguments`
+(made `pub(crate)`, granted, visibility only). It reads a single candidate's
+parameter, or the overload set through the road's existing arity/agreement
+step (factored as `agreed_candidate_argument_type`).
+
+Result (commit 11): types +18 RIGHT (`superCallParameterContextualTyping1` 6,
+`…3` 6, `…2` 3, `targetTypeBaseCalls` 3), diagnostics +2
+(`targetTypeBaseCalls`, `superCallParameterContextualTyping2`), 0 lost;
+jsTyping unchanged.
