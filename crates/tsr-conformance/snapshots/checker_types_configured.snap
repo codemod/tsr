@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1750/1928 (90.77%)
-Assertion lines: 77057/78552 (98.10%)  — a gradient, not a pass rate
-Failed         : 178
+Passed         : 1751/1928 (90.82%)
+Assertion lines: 77059/78552 (98.10%)  — a gradient, not a pass rate
+Failed         : 177
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 178 failures:
+First 100 of 177 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -100,8 +100,6 @@ compiler/es5ExportDefaultClassDeclaration3(target=es2015)
   es5ExportDefaultClassDeclaration3.ts: >C : any — expected >C : typeof C
 compiler/es5ExportDefaultClassDeclaration4(target=es2015)
   es5ExportDefaultClassDeclaration4.ts: >t : error — expected >t : typeof C
-compiler/es5ModuleInternalNamedImports(target=es2015)
-  es5ModuleInternalNamedImports.ts: >M_A : any — expected >M_A : typeof M_M
 compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)
   client.ts: >c : typeof c — expected >c : typeof import("./server").c
 compiler/importHelpers(target=es2015)
@@ -228,3 +226,5 @@ conformance/exportAsNamespace3(module=esnext)
   2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
 conformance/exportsAndImports4(target=es2015)
   t3.ts: >c : typeof a — expected >c : typeof c
+conformance/importAssertion3(module=es2015)
+  1.ts: >I : I — expected >I : import("./0").I

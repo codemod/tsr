@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4747/5502 (86.28%)
-Failed         : 755
+Passed         : 4764/5502 (86.59%)
+Failed         : 738
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 755 failures:
+First 100 of 738 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -26,8 +26,6 @@ compiler/aliasDoesNotDuplicateSignatures
   1 missing (first TS2322 at user.ts(4,5))
 compiler/aliasErrors
   1 missing (first TS2694 at aliasErrors.ts(26,15))
-compiler/allowImportClausesToMergeWithTypes
-  1 unexpected (first TS2749 at index.ts(3,10)), 0 missing
 compiler/ambientExternalModuleWithRelativeExternalImportDeclaration
   1 missing (first TS2439 at ambientExternalModuleWithRelativeExternalImportDeclaration.ts(2,5))
 compiler/anyMappedTypesError
@@ -81,7 +79,7 @@ compiler/betterErrorForUnionCall
 compiler/bigintArbirtraryIdentifier
   1 unexpected (first TS2304 at badImport.ts(1,16)), 0 missing
 compiler/bigintPropertyName
-  3 unexpected (first TS2322 at g.ts(26,18)), 22 missing
+  1 unexpected (first TS2322 at g.ts(26,18)), 21 missing
 compiler/bigintWithLib
   6 missing (first TS2769 at bigintWithLib.ts(19,34))
 compiler/bindingPatternCannotBeOnlyInferenceSource
@@ -212,3 +210,5 @@ compiler/declareModifierOnImport1
   1 missing (first TS1079 at declareModifierOnImport1.ts(1,1))
 compiler/deepComparisons
   1 missing (first TS2322 at deepComparisons.ts(4,9))
+compiler/destructuringControlFlowNoCrash
+  2 missing (first TS2339 at destructuringControlFlowNoCrash.ts(3,3))

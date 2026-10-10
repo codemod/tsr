@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 943/1091 (86.43%)
-Failed         : 148
+Passed         : 953/1091 (87.35%)
+Failed         : 138
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 148 failures:
+First 100 of 138 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -106,16 +106,6 @@ compiler/noImplicitAnyMissingGetAccessor(target=es2015)
   4 missing (first TS7032 at noImplicitAnyMissingGetAccessor.ts(3,25))
 compiler/noImplicitAnyMissingSetAccessor(target=es2015)
   1 missing (first TS7033 at noImplicitAnyMissingSetAccessor.ts(3,25))
-compiler/regExpWithOpenBracketInCharClass(target=es2015)
-  2 missing (first TS1005 at regExpWithOpenBracketInCharClass.ts(4,7))
-compiler/regExpWithOpenBracketInCharClass(target=esnext)
-  1 missing (first TS1005 at regExpWithOpenBracketInCharClass.ts(4,7))
-compiler/regularExpressionScanning(target=es2015)
-  219 missing (first TS1501 at regularExpressionScanning.ts(3,7))
-compiler/regularExpressionScanning(target=esnext)
-  193 missing (first TS1502 at regularExpressionScanning.ts(3,10))
-compiler/regularExpressionUnicodePropertyValueExpressionSuggestions(target=es2015)
-  5 missing (first TS1529 at regularExpressionUnicodePropertyValueExpressionSuggestions.ts(1,19))
 compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)
   1 unexpected (first TS18004 at shorthandPropertyAssignmentsInDestructuring.ts(111,12)), 1 missing
 compiler/sourceMapValidationDecorators(target=es2015)
@@ -226,3 +216,13 @@ conformance/nodeModulesCJSEmit1(module=node20)
   1 missing (first TS1192 at /5.cjs(2,8))
 conformance/nodeModulesCJSEmit1(module=nodenext)
   1 missing (first TS1192 at /5.cjs(2,8))
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node16)
+  22 missing (first TS1340 at /other.ts(3,7))
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node18)
+  22 missing (first TS1340 at /other.ts(3,7))
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node20)
+  22 missing (first TS1340 at /other.ts(3,7))
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=nodenext)
+  22 missing (first TS1340 at /other.ts(3,7))
+conformance/nodeModulesJson(module=node16)
+  3 missing (first TS2339 at /loosey.cts(6,9))

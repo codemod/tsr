@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8655/9538 (90.74%)
-Assertion lines: 473928/478853 (98.97%)  — a gradient, not a pass rate
-Failed         : 883
+Passed         : 8670/9538 (90.90%)
+Assertion lines: 474053/478853 (99.00%)  — a gradient, not a pass rate
+Failed         : 868
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 883 failures:
+First 100 of 868 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -29,8 +29,6 @@ compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
   aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a2 : ExtendedMapper2<any, any, [any]> — expected >a2 : a2
 compiler/aliasOnMergedModuleInterface
   aliasOnMergedModuleInterface_1.ts: >z.bar("hello") : B.A — expected >z.bar("hello") : foo.A
-compiler/allowImportClausesToMergeWithTypes
-  index.ts: >x : any — expected >x : zzz
 compiler/allowJscheckJsTypeParameterNoCrash
   app.js: >this.data2 : WatchHandler<any> — expected >this.data2 : (val: any) => void
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
@@ -213,3 +211,5 @@ compiler/contextuallyTypedJsxChildren2
   contextuallyTypedJsxChildren2.tsx: >selector : (state: NoInfer<{ foo: number; }>) => any — expected >selector : (state: NoInfer<{ foo: number; }>) => number
 compiler/contextuallyTypedParametersWithInitializers1
   contextuallyTypedParametersWithInitializers1.ts: >f11 : any — expected >f11 : ({ foo }: { foo?: number | undefined; }) => number
+compiler/contextuallyTypedSymbolNamedProperties
+  contextuallyTypedSymbolNamedProperties.ts: >{    [A]: ap => { ap.description },    [B]: bp => { bp.description },} : error — expected >{    [A]: ap => { ap.description },    [B]: bp => { bp.description },} : { [A]: (ap: unique symbol) => void; [B]: (bp: unique symbol) => void; }
