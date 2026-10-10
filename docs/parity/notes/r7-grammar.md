@@ -144,3 +144,37 @@ WRONG on that extra line. The faithful hook is a third arm in
 `names_in_unchecked_region` (`name_slots.rs`, not this lane's): a
 `ComputedPropertyName` whose parent is an `EnumMember` is a region native never
 checks. Routed in the report.
+
+## §4 `tsr-2zk.1258`: two diagnostics reported from the wrong checker
+
+r7-perf's materialised multi-file run (`docs/parity/notes/r7-perf.md` §3 on
+`box/r7-perf`) found two cases whose diagnostics drop under `--checkers 4`,
+because a checker that does not own the target file reported them and the
+owner never did. Both score RIGHT in the single-checker harness.
+
+- **TS2300 `prototype`** (`mergedClassWithNamespacePrototype`). Upstream has
+  two producers: the binder when the class and the namespace are in one file
+  (`bindClassLikeDeclaration`, `binder.go:962`-`:965`), and
+  `mergeSymbolTable` → `reportMergeSymbolError` (`checker.go:14201`) when the
+  merge crosses files, which every checker runs from `initializeChecker`. The
+  port reported both from the class's check. The cross-file arm is now
+  `report_class_prototype_merge_conflicts` (`merge_conflicts.rs`), which runs
+  in every checker's merge report; the binder neither mints the synthetic
+  `prototype` property nor records the pair, so it scans the global table for
+  a class symbol whose exported `prototype` is declared in a file none of the
+  class's declarations is in (one pass per checker). It takes
+  `reportMergeSymbolError`'s message choice from the source's flags (the
+  synthetic target is `Property | Prototype`). The same-file arm stays at the
+  class (`check_merged_namespace_prototype`).
+- **TS2813/TS2814** (`duplicateIdentifiersAcrossFileBoundaries`).
+  `checkFunctionOrConstructorSymbolWorker` runs once per symbol per checker
+  from whichever declaration that checker reaches first
+  (`links.functionOrConstructorChecked`, `checker.go:3463`); the port ran the
+  class-merge arm only from the symbol's first declaration. The link is now
+  `class_function_merge_checked` (a `Checker` field keyed by merged
+  `SymbolId`, set on first visit).
+
+**Evidence.** Both cases materialised under `/tmp/mt` and run through the
+release CLI: `--singleThreaded` and `--checkers 4` now print the same
+diagnostics, identical to `target/tsgo-pinned`'s; the base binary drops
+`file2.ts(3,10)` TS2814 and `file2.ts(4,7)` TS2813 under `--checkers 4`.

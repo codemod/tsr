@@ -7677,6 +7677,15 @@ impl Checker<'_, '_> {
         };
         let declarations = self.binder.symbols().get(exported).declarations.clone();
         let Some(&declaration) = declarations.first() else { return };
+        // Only the same-file collision, which upstream's binder reports
+        // (`bindClassLikeDeclaration`, `binder.go:965`). Across files it is
+        // `mergeSymbolTable`'s, reported by every checker from
+        // `report_class_prototype_merge_conflicts` (`merge_conflicts.rs`).
+        if self.source_file_of_for_diagnostics(declaration)
+            != self.source_file_of_for_diagnostics(node)
+        {
+            return;
+        }
         // This port keeps a class's **static members** in the same `exports`
         // table. Upstream binds them after `bindClassLikeDeclaration`'s check,
         // into the class's own table, so a `static prototype` is not this

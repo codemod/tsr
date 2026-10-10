@@ -1041,6 +1041,12 @@ pub struct Checker<'a, 'n> {
     /// function reports three times and the `diagnostics` suite compares
     /// multisets.
     pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    /// Merged symbols whose class-merge arm of
+    /// `checkFunctionOrConstructorSymbolWorker` this checker has run
+    /// (`class_function_merge.rs`): upstream's
+    /// `links.functionOrConstructorChecked` (`checker.go:3463`), per checker,
+    /// for the arm this port keeps apart from `function_symbol_checked`'s.
+    pub(crate) class_function_merge_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Nodes for which `check_grammar_modifiers` (upstream's
     /// `checkGrammarModifiers`, `grammar.rs`) answered `true`. Upstream's
     /// callers are gated on `!c.checkGrammarModifiers(node)`.
@@ -1679,6 +1685,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_checked: rustc_hash::FxHashSet::default(),
             merged_spaces_checked: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
+            class_function_merge_checked: rustc_hash::FxHashSet::default(),
             modifier_chain_reported: rustc_hash::FxHashSet::default(),
             modifier_chain_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
