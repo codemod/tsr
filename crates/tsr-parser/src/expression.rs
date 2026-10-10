@@ -128,7 +128,17 @@ fn is_assignment_operator(kind: SyntaxKind) -> bool {
 
 impl<'a> Parser<'a> {
     /// Parse a comma expression.
+    ///
+    /// `parseExpression` (`parser.go:4052`) clears the decorator context: a
+    /// comma expression is unambiguous inside a decorator.
     pub(crate) fn parse_expression(&mut self) -> Expression<'a> {
+        let saved_decorator = std::mem::replace(&mut self.in_decorator_context, false);
+        let expression = self.parse_expression_worker();
+        self.in_decorator_context = saved_decorator;
+        expression
+    }
+
+    fn parse_expression_worker(&mut self) -> Expression<'a> {
         let start = self.pos();
         let mut expression = self.parse_assignment_expression();
         while self.at(SyntaxKind::CommaToken) {
@@ -464,6 +474,11 @@ impl<'a> Parser<'a> {
             {
                 self.parse_jsx_element_or_self_closing_element_or_fragment(true, None, false)
             }
+            // `parseSimpleUnaryExpression`'s `KindLessThanToken` arm
+            // (`parser.go:5070`): outside JSX, `< type > UnaryExpression`.
+            SyntaxKind::LessThanToken if !self.script_kind.allows_jsx() => {
+                self.parse_type_assertion()
+            }
             _ => self.parse_postfix_expression(),
         }
     }
@@ -515,7 +530,7 @@ impl<'a> Parser<'a> {
     /// Parse a primary expression followed by any chain of calls and accesses.
     fn parse_call_or_member_expression(&mut self) -> Expression<'a> {
         let start = self.pos();
-        let mut expression = if self.at(SyntaxKind::NewKeyword) {
+        let expression = if self.at(SyntaxKind::NewKeyword) {
             self.parse_new_expression()
         } else if self.at(SyntaxKind::SuperKeyword) {
             self.parse_super_expression()
@@ -548,6 +563,18 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_primary_expression()
         };
+        self.parse_call_or_member_rest(start, expression)
+    }
+
+    /// `parseCallExpressionRest` over `parseMemberExpressionRest`
+    /// (`parser.go:5342`, `:5524`): the chain of accesses, calls, tagged
+    /// templates and non-null assertions after `expression`.
+    #[allow(clippy::too_many_lines)]
+    fn parse_call_or_member_rest(
+        &mut self,
+        start: u32,
+        mut expression: Expression<'a>,
+    ) -> Expression<'a> {
         // The `<`…`>` range of the instantiation expression `expression` is,
         // while it is one: `parsePropertyAccessExpressionRest`'s TS1477 spans
         // `typeArguments.Pos()-1` to `SkipTrivia(typeArguments.End())+1`, and
@@ -636,7 +663,10 @@ impl<'a> Parser<'a> {
                         expression = Expression::PropertyAccessExpression(node);
                     }
                 }
-                SyntaxKind::OpenBracketToken => {
+                // In the decorator context `[` is not an element access: it
+                // may start the decorated member's computed name
+                // (`parser.go:5357`).
+                SyntaxKind::OpenBracketToken if !self.in_decorator_context => {
                     self.next_token();
                     let argument = self.parse_expression();
                     self.expect(SyntaxKind::CloseBracketToken);
@@ -1075,11 +1105,13 @@ impl<'a> Parser<'a> {
     /// now the real `isInSomeParsingContext`).
     pub(crate) fn parse_arguments(&mut self) -> Vec<Expression<'a>> {
         self.expect(SyntaxKind::OpenParenToken);
-        // `parseArgumentExpression`: arguments are never in a disallow-in
-        // context.
+        // `parseArgumentExpression` (`parser.go:5492`): arguments are never in
+        // a disallow-in or decorator context.
         let saved_no_in = std::mem::take(&mut self.no_in);
+        let saved_decorator = std::mem::replace(&mut self.in_decorator_context, false);
         let (arguments, _) =
             self.parse_delimited_list(ParsingContext::ArgumentExpressions, Self::parse_argument);
+        self.in_decorator_context = saved_decorator;
         self.no_in = saved_no_in;
         self.expect(SyntaxKind::CloseParenToken);
         arguments
@@ -1173,16 +1205,11 @@ impl<'a> Parser<'a> {
                 self.rescan_template(false);
                 self.parse_template_expression()
             }
-            // `<` is a type assertion in `.ts` and a JSX element in `.tsx`. The
-            // two readings are mutually exclusive, which is why TypeScript ties
-            // them to the file extension rather than to a lookahead.
-            // In `.tsx` a `<` never reaches here as JSX: upstream parses JSX
-            // in `parseUpdateExpression`/`parseSimpleUnaryExpression` (see
-            // [`Self::parse_unary_expression`]), and `parsePrimaryExpression`
-            // has no `<` arm, so it falls to the missing-expression default.
-            SyntaxKind::LessThanToken if !self.script_kind.allows_jsx() => {
-                self.parse_type_assertion()
-            }
+            // `parsePrimaryExpression` has no `<` arm: a type assertion is a
+            // unary expression (`parseSimpleUnaryExpression`, `parser.go:5070`;
+            // see [`Self::parse_unary_expression`]) and JSX an update
+            // expression, so a `<` that reaches a primary position — after
+            // `@`, `new` or `++` — is the missing-expression default.
             SyntaxKind::FunctionKeyword => {
                 let jsdoc = self.leading_jsdoc_marker();
                 self.parse_function_expression(None, None, jsdoc)
@@ -1195,9 +1222,22 @@ impl<'a> Parser<'a> {
                 self.parse_function_expression(Some(modifier), Some(modifier_start), jsdoc)
             }
             SyntaxKind::ClassKeyword => self.parse_class_expression(),
-            // `(@dec class C {})` — a decorated class expression.
+            // `parseDecoratedExpression` (`parser.go:5723`): `(@dec class C {})`
+            // is a decorated class expression; decorators before anything
+            // else are `Expression expected` at the next token's full start.
             SyntaxKind::AtToken => {
                 let modifiers = self.parse_modifiers();
+                if !self.at(SyntaxKind::ClassKeyword) {
+                    let at = self.node_end();
+                    self.error_at(&messages::EXPRESSION_EXPECTED, Span::at(at));
+                    // Native returns `MissingDeclaration(modifiers)` as the
+                    // expression; this AST's `Expression` has no such member,
+                    // so the expression is a missing identifier and the
+                    // decorators are left out of the tree. The checker visits
+                    // neither: `checkExpression` has no arm for a missing
+                    // declaration. docs/parity/notes/r7-parser.md §1.
+                    return Expression::Identifier(self.missing_identifier());
+                }
                 let modifiers = self.arena.alloc_slice(&modifiers);
                 let Expression::ClassExpression(class) = self.parse_class_expression() else {
                     unreachable!("parse_class_expression yields a class")
@@ -1385,7 +1425,7 @@ impl<'a> Parser<'a> {
             // or ASI means no body; a missing `{` instead owns an empty Block.
             // Neither recovery may consume the next object member as a body.
             let body = if self.at(SyntaxKind::OpenBraceToken) {
-                Some(FunctionBody::Block(self.parse_block()))
+                Some(FunctionBody::Block(self.parse_function_block()))
             } else if self.can_parse_semicolon() {
                 self.parse_semicolon();
                 None
@@ -1492,7 +1532,7 @@ impl<'a> Parser<'a> {
             let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
                 let parameters = parser.parse_parameter_list();
                 let return_type = parser.parse_return_type_annotation();
-                let body = FunctionBody::Block(parser.parse_block());
+                let body = FunctionBody::Block(parser.parse_function_block());
                 (parameters, return_type, Some(body))
             });
             let modifiers = self.arena.alloc_slice(&modifiers);
@@ -2110,7 +2150,7 @@ impl<'a> Parser<'a> {
     /// typescript-go's `Parser.parseArrowFunctionExpressionBody` (`parser.go`).
     fn parse_arrow_body(&mut self, allow_return_type_in_arrow_function: bool) -> ConciseBody<'a> {
         if self.at(SyntaxKind::OpenBraceToken) {
-            return ConciseBody::Block(self.parse_block());
+            return ConciseBody::Block(self.parse_function_block());
         }
         // A plain statement (no expression statement, no function or class)
         // where a body belongs: the user probably left out the `{`, as in
@@ -2255,121 +2295,29 @@ impl<'a> Parser<'a> {
         Expression::TemplateExpression(node)
     }
 
-    /// The expression after `@` in a decorator.
+    /// The expression after `@` in a decorator: `tryParseDecorator`'s
+    /// `doInContext(DecoratorContext, true, parseDecoratorExpression)`
+    /// (`parser.go:3902`, `:3906`).
     ///
-    /// Restricted to a call/member chain: parsing a full expression would let a
-    /// following `class` or member be swallowed as an operand.
+    /// A left-hand-side expression, parsed with the decorator context set so
+    /// that `[` after the expression is left to the decorated member's
+    /// computed name. `@await` inside an await context is a missing
+    /// identifier (TS1109) followed by whatever member and call chain comes
+    /// after the skipped `await`.
     pub(crate) fn parse_decorator_expression(&mut self) -> LeftHandSideExpression<'a> {
-        let start = self.pos();
-        let mut expression = if self.at(SyntaxKind::OpenParenToken) {
-            // `@(expr)` — the parenthesised form takes an arbitrary expression.
+        let saved = std::mem::replace(&mut self.in_decorator_context, true);
+        let expression = if self.in_await_context && self.at(SyntaxKind::AwaitKeyword) {
+            let start = self.pos();
+            // `parseIdentifierWithDiagnostic(Expression_expected, nil)`: not an
+            // identifier in an await context, so a missing one.
+            self.error_at_current(&messages::EXPRESSION_EXPECTED);
+            let await_expression = Expression::Identifier(self.missing_identifier());
             self.next_token();
-            let inner = self.parse_expression();
-            self.expect(SyntaxKind::CloseParenToken);
-            Expression::ParenthesizedExpression(self.finish_node(
-                ParenthesizedExpression::new(Some(inner)),
-                SyntaxKind::ParenthesizedExpression,
-                start,
-            ))
+            self.parse_call_or_member_rest(start, await_expression)
         } else {
-            Expression::Identifier(self.parse_identifier())
+            self.parse_left_hand_side_expression_or_higher()
         };
-        loop {
-            match self.token.kind {
-                SyntaxKind::DotToken => {
-                    self.next_token();
-                    let name = if self.right_side_of_dot_is_missing() {
-                        self.report_missing_right_side_of_dot();
-                        self.missing_identifier()
-                    } else {
-                        self.parse_identifier_name()
-                    };
-                    let node = self.finish_node(
-                        PropertyAccessExpression::new(
-                            Some(expression),
-                            None,
-                            Some(MemberName::Identifier(name)),
-                        ),
-                        SyntaxKind::PropertyAccessExpression,
-                        start,
-                    );
-                    expression = Expression::PropertyAccessExpression(node);
-                }
-                SyntaxKind::OpenParenToken => {
-                    let arguments = self.parse_arguments();
-                    let arguments = self.arena.alloc_slice(&arguments);
-                    let node = self.finish_node(
-                        CallExpression::new(Some(expression), None, &[], arguments),
-                        SyntaxKind::CallExpression,
-                        start,
-                    );
-                    expression = Expression::CallExpression(node);
-                }
-                SyntaxKind::ExclamationToken if !self.token.has_preceding_line_break() => {
-                    self.next_token();
-                    let node = self.finish_node(
-                        NonNullExpression::new(Some(expression)),
-                        SyntaxKind::NonNullExpression,
-                        start,
-                    );
-                    expression = Expression::NonNullExpression(node);
-                }
-                SyntaxKind::LessThanToken => {
-                    let Some(type_arguments) =
-                        self.try_parse(Parser::parse_type_arguments_for_call)
-                    else {
-                        break;
-                    };
-                    let type_arguments = self.arena.alloc_slice(&type_arguments);
-                    if self.at(SyntaxKind::OpenParenToken) {
-                        let arguments = self.parse_arguments();
-                        let arguments = self.arena.alloc_slice(&arguments);
-                        let node = self.finish_node(
-                            CallExpression::new(Some(expression), None, type_arguments, arguments),
-                            SyntaxKind::CallExpression,
-                            start,
-                        );
-                        expression = Expression::CallExpression(node);
-                    } else {
-                        let node = self.finish_node(
-                            ExpressionWithTypeArguments::new(Some(expression), type_arguments),
-                            SyntaxKind::ExpressionWithTypeArguments,
-                            start,
-                        );
-                        expression = Expression::ExpressionWithTypeArguments(node);
-                    }
-                }
-                SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead => {
-                    let template = self.parse_template_literal(true);
-                    // Type arguments belong to the tagged-template node, not
-                    // to an `ExpressionWithTypeArguments` wrapper around its
-                    // tag (`parseMemberExpressionRest` upstream).
-                    let (tag, type_arguments) = match expression {
-                        Expression::ExpressionWithTypeArguments(instantiation) => (
-                            instantiation.expression.unwrap_or(expression),
-                            instantiation.type_arguments,
-                        ),
-                        _ => (expression, &[] as &[TypeNode<'a>]),
-                    };
-                    let node = self.finish_node(
-                        TaggedTemplateExpression::new(
-                            Some(tag),
-                            None,
-                            type_arguments,
-                            Some(template),
-                        ),
-                        SyntaxKind::TaggedTemplateExpression,
-                        start,
-                    );
-                    expression = Expression::TaggedTemplateExpression(node);
-                }
-                // Deliberately not `[`: an unparenthesised decorator takes a
-                // dotted name with an optional call, so in `@dec ["1"]() {}` the
-                // brackets are the *member's* computed name. Use `@(a["b"])` for
-                // element access.
-                _ => break,
-            }
-        }
+        self.in_decorator_context = saved;
         LeftHandSideExpression::try_from(tsr_ast::Node::from(expression))
             .unwrap_or_else(|_| LeftHandSideExpression::Identifier(self.missing_identifier()))
     }
@@ -2408,6 +2356,9 @@ impl<'a> Parser<'a> {
         // already consumed. Without it the node's span begins at `function`
         // and the `.types` walker prints the expression without its modifier.
         let start = modifier_start.unwrap_or_else(|| self.pos());
+        // `parseFunctionExpression` (`parser.go:5684`) leaves the decorator
+        // context.
+        let saved_decorator = std::mem::replace(&mut self.in_decorator_context, false);
         self.expect(SyntaxKind::FunctionKeyword);
         let asterisk =
             if self.at(SyntaxKind::AsteriskToken) { Some(self.take_token()) } else { None };
@@ -2423,8 +2374,9 @@ impl<'a> Parser<'a> {
         let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
             let parameters = parser.parse_parameter_list();
             let return_type = parser.parse_return_type_annotation();
-            (parameters, return_type, FunctionBody::Block(parser.parse_block()))
+            (parameters, return_type, FunctionBody::Block(parser.parse_function_block()))
         });
+        self.in_decorator_context = saved_decorator;
 
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let parameters = self.arena.alloc_slice(&parameters);

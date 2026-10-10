@@ -547,7 +547,7 @@ impl<'a> Parser<'a> {
             }
             return None;
         }
-        Some(FunctionBody::Block(self.parse_block()))
+        Some(FunctionBody::Block(self.parse_function_block()))
     }
 
     /// typescript-go's `Parser.parseTypeMemberSemicolon` (`parser.go`): type
