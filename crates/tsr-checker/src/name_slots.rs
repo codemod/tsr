@@ -51,7 +51,7 @@ pub(crate) fn value_reference_slot(node: NodeId, parent: Node<'_>) -> bool {
 impl Checker<'_, '_> {
     /// Is `node` inside a region native never checks?
     ///
-    /// Two native checks skip a whole subtree, so no identifier in it is ever
+    /// Three native checks skip a whole subtree, so no identifier in it is ever
     /// resolved or reported:
     ///
     /// - **An empty `for…of` declaration list.** `checkForOfStatement`
@@ -70,8 +70,13 @@ impl Checker<'_, '_> {
     ///   (TS1206, `checkGrammarModifiers`): `var v = @decorate class C {}`
     ///   under `experimentalDecorators` reports TS1206 and nothing on
     ///   `decorate` (`classExpressionWithDecorator1`).
+    /// - **An enum member's computed name.** `checkEnumMember`
+    ///   (`checker.go:5121`) checks the initializer and never the name;
+    ///   `computeEnumMemberValue` reports TS1164 on a non-literal one without
+    ///   checking its expression (`parserComputedPropertyName16`; r7-grammar
+    ///   §3).
     ///
-    /// One walk answers both, testing the kind column before building a typed
+    /// One walk answers all three, testing the kind column before building a typed
     /// node: it runs for every value identifier, and a typed node per ancestor
     /// was most of its cost (`docs/parity/notes/r6-names.md` §12).
     pub(crate) fn names_in_unchecked_region(&self, node: NodeId) -> bool {
@@ -91,6 +96,13 @@ impl Checker<'_, '_> {
                         .nodes
                         .parent(parent)
                         .is_some_and(|decorated| !self.names_decorators_are_checked(decorated)) =>
+                {
+                    return true;
+                }
+                SyntaxKind::ComputedPropertyName
+                    if self.nodes.parent(parent).is_some_and(|member| {
+                        self.nodes.kind(member) == SyntaxKind::EnumMember
+                    }) =>
                 {
                     return true;
                 }

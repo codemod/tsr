@@ -355,6 +355,7 @@ impl Checker<'_, '_> {
         // exactly what `is_write_only_access` already answers for the local
         // rule (§329). §383.
         if self.is_write_only_access(node) {
+            self.note_member_write_at(node);
             return;
         }
         // **A private `static` member is reached by exactly one syntax**, so
@@ -442,6 +443,18 @@ impl Checker<'_, '_> {
                 .property_name
                 .and_then(|n| n.node_id())
                 .or_else(|| element.name.and_then(|n| n.node_id())),
+            // `#x in obj`: `checkPrivateIdentifierExpression`
+            // (`checker.go:7837`) marks the private member referenced, with
+            // no self-access exemption (`isSelfTypeAccess` is false).
+            Some(Node::PrivateIdentifier(identifier))
+                if self.nodes.parent(node).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::BinaryExpression
+                }) =>
+            {
+                let text = identifier.text.to_string();
+                self.note_member_name(&text);
+                return;
+            }
             _ => None,
         };
         let Some(named) = named else { return };
@@ -451,6 +464,47 @@ impl Checker<'_, '_> {
             return;
         }
         self.note_member_name(&text);
+    }
+
+    /// A write-only `a.x` / `a["x"]`. `markPropertyAsReferenced`
+    /// (`checker.go:27718`) skips a write-only access *unless the property is
+    /// a set accessor* (`prop.Flags&ast.SymbolFlagsSetAccessor == 0`), so a
+    /// write keeps a private setter used. Recorded under
+    /// [`member_write_key`], read only by the set-accessor arm of
+    /// [`Checker::check_unused_class_members`].
+    fn note_member_write_at(&mut self, node: NodeId) {
+        let (member, receiver) = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => (
+                access.name.and_then(|n| n.node_id()).and_then(|n| self.identifier_text_of(n)),
+                access.expression.and_then(|e| e.node_id()),
+            ),
+            Some(Node::ElementAccessExpression(access)) => (
+                access.argument_expression.and_then(|a| a.node_id()).and_then(|a| {
+                    match self.node_map.get(a) {
+                        Some(Node::StringLiteral(literal)) => Some(literal.text),
+                        _ => None,
+                    }
+                }),
+                access.expression.and_then(|e| e.node_id()),
+            ),
+            _ => return,
+        };
+        let Some(member) = member.map(str::to_string) else { return };
+        if self.is_self_this_member_access(node, &member) {
+            return;
+        }
+        if let Some(receiver) = receiver {
+            let receiver_text = match self.nodes.kind(receiver) {
+                SyntaxKind::ThisKeyword => Some("this".to_string()),
+                SyntaxKind::Identifier => self.identifier_text_of(receiver).map(str::to_string),
+                _ => None,
+            };
+            if let Some(receiver_text) = receiver_text {
+                self.referenced_member_names
+                    .insert(member_write_key(&format!("{receiver_text}.{member}")));
+            }
+        }
+        self.referenced_member_names.insert(member_write_key(&member));
     }
 
     /// The `isSelfTypeAccess` arm of `markPropertyAsReferenced`
@@ -1038,12 +1092,21 @@ impl Checker<'_, '_> {
                 | ClassElement::PropertyDeclaration(_)
                 | ClassElement::GetAccessorDeclaration(_)
                 | ClassElement::SetAccessorDeclaration(_) => {
+                    let Some(id) = member.node_id() else { continue };
                     // A set accessor whose getter already reported is skipped
-                    // (`checker.go:7119`).
-                    if matches!(member, ClassElement::SetAccessorDeclaration(_)) {
+                    // (`checker.go:7119`): its symbol has `GetAccessor`.
+                    let is_setter = matches!(member, ClassElement::SetAccessorDeclaration(_));
+                    if is_setter
+                        && self.binder.symbol_of(id).is_some_and(|symbol| {
+                            self.binder
+                                .symbols()
+                                .get(symbol)
+                                .flags
+                                .intersects(tsr_binder::SymbolFlags::GET_ACCESSOR)
+                        })
+                    {
                         continue;
                     }
-                    let Some(id) = member.node_id() else { continue };
                     let Some(name) = self.name_node_of(id) else { continue };
                     let private = self
                         .member_modifiers(id)
@@ -1085,14 +1148,20 @@ impl Checker<'_, '_> {
                     let is_static = self
                         .member_modifiers(id)
                         .is_some_and(|m| has_keyword(m, SyntaxKind::StaticKeyword));
+                    // A write reaches a setter (`note_member_write_at`).
+                    let key = |name: String| if is_setter { member_write_key(&name) } else { name };
+                    let read_or_written = |this: &Self, name: String| {
+                        this.referenced_member_names.contains(&name)
+                            || (is_setter && this.referenced_member_names.contains(&key(name)))
+                    };
                     let referenced = if is_static {
                         let owner = self.class_name_text_of(node);
-                        self.referenced_member_names.contains(&format!("this.{text}"))
+                        read_or_written(self, format!("this.{text}"))
                             || owner.is_some_and(|owner| {
-                                self.referenced_member_names.contains(&format!("{owner}.{text}"))
+                                read_or_written(self, format!("{owner}.{text}"))
                             })
                     } else {
-                        self.referenced_member_names.contains(text)
+                        read_or_written(self, text.to_string())
                     };
                     if referenced {
                         continue;
@@ -1595,6 +1664,13 @@ fn has_keyword(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
 /// The set of member names seen in the file, for the by-name marking private
 /// class members need. Named here so the field's type has one home.
 pub(crate) type MemberNames = FxHashSet<String>;
+
+/// The key a write-only member access is recorded under in
+/// `referenced_member_names`, apart from the read names: only a set accessor
+/// counts a write as a reference (`markPropertyAsReferenced`).
+fn member_write_key(name: &str) -> String {
+    format!("\u{1}set:{name}")
+}
 
 #[cfg(test)]
 mod tests {
