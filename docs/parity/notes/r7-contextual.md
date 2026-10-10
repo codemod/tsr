@@ -299,3 +299,25 @@ native has the `any` candidate.
 
 They wait on the four rows above. A shape-by-shape certification, like this
 one, is the way to take more of them without the losses.
+
+## 5. `getIntersectedSignatures`: non-identical type-parameter lists give no contextual signature (routed from r7-reports)
+
+`getContextualCallSignature` (`checker.go:10305`) keeps the call signatures
+that are not arity-smaller than the function. When more than one survives,
+`getIntersectedSignatures` (`:10314`) folds them only while
+`compareTypeParametersIdentical` holds, which first requires lists of equal
+length. Otherwise the answer is nil and the function is uncontextual, so
+`noImplicitAny` reports TS7006 on its parameters. In
+`contextual_call_signature`, `combine_contextual_overload_signatures`
+declined (`None`, unknown) on any generic member, so a generic overload next
+to a non-generic one answered "unknown" where native answers "absent". Now
+lists of different lengths answer `Absent`. Equal non-empty lists, which
+native unifies through `combineUnionOrIntersectionMemberSignatures`, stay a
+decline.
+
+Result (commit 5), against the `249f9754` freeze: types +10 RIGHT
+(`contextualTypeCaching` 6, `contextualTypingWithGenericAndNonGenericSignature`
+4), diagnostics +1 (`contextualTypingWithGenericAndNonGenericSignature`, TS7006
+×4), 0 lost. Falsifier: two generic overloads with *different* type-parameter
+counts where native still finds a contextual signature. It cannot, since
+`compareTypeParametersIdentical` returns false on the length check.

@@ -1072,6 +1072,16 @@ impl<'a> Checker<'a, '_> {
             if !self.no_implicit_any {
                 return Some(ContextualSignature::Absent);
             }
+            // getIntersectedSignatures (`checker.go:10314`): a pair whose type
+            // parameter lists are not identical (`compareTypeParametersIdentical`,
+            // which first compares their lengths) gives no contextual
+            // signature, so a generic and a non-generic overload that both
+            // accept the function's arity leave it uncontextual. Equal
+            // non-empty lists combine natively; that unification stays a
+            // decline in `combine_contextual_overload_signatures`.
+            if combined.type_parameters.len() != signature.type_parameters.len() {
+                return Some(ContextualSignature::Absent);
+            }
             let left = self.expand_contextual_tuple_rest(combined);
             let right = self.expand_contextual_tuple_rest(signature);
             combined = self.combine_contextual_overload_signatures(left, right)?;
