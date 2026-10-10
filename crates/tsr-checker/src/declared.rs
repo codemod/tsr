@@ -8887,7 +8887,42 @@ impl<'a> Checker<'a, '_> {
             // partial one.
             return self.report_type_alias_circularity(symbol);
         }
+        self.complete_alias_placeholder(symbol, resolved);
         resolved
+    }
+
+    /// §29's NAME placeholder for a mention of a type-literal alias inside
+    /// its own body (`type F = { kind: "foo"; children: N }; type N = F |
+    /// B`) is native's type itself: getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode
+    /// (checker.go:24210) creates the anonymous type once, with the alias,
+    /// and resolves its members lazily, so `N`'s constituent IS `F`. This
+    /// port minted the placeholder with no members table, which every
+    /// structural reader answered `Unknown` on (`isNode(d)` narrowing `B |
+    /// { kind: "document" }` by `N` stayed whole). Once the declared type is
+    /// published, the placeholder is completed in place with it
+    /// (`TypeStore::complete_object`): same printed name, same members
+    /// symbol, so it reads as the declared type wherever it was stored. Only
+    /// a members-symbol type (`Named` with the body literal's symbol) is
+    /// copied, since its members live in the binder table and need no
+    /// side-table entry keyed by the declared type's own id. Key: the alias
+    /// symbol (`alias_placeholders`, owner `get_declared_type_of_type_alias`);
+    /// written once, when the declared type completes (r7-declared §7).
+    fn complete_alias_placeholder(&mut self, symbol: SymbolId, resolved: TypeId) {
+        let Some(&placeholder) = self.alias_placeholders.get(&symbol) else { return };
+        if placeholder == resolved
+            || !matches!(
+                self.store.get(placeholder).data,
+                crate::types::TypeData::Named { members: None, .. }
+            )
+        {
+            return;
+        }
+        let Some(literal) = self.alias_body_literal_symbol(symbol) else { return };
+        if matches!(self.store.get(resolved).data,
+            crate::types::TypeData::Named { members: Some(members), .. } if members == literal)
+        {
+            self.store.complete_object(placeholder, resolved);
+        }
     }
 
     /// getDeclaredTypeOfTypeAlias's failed-pop arm (`checker.go:23837`):
