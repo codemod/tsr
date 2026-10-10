@@ -6062,13 +6062,30 @@ impl<'a> Checker<'a, '_> {
         symbol: SymbolId,
         alias: SymbolId,
     ) -> Option<TypeId> {
-        let crate::types::TypeData::Union { types, symbol: Some(owner), .. } =
+        let crate::types::TypeData::Union { types, symbol: owner, .. } =
             self.store.get(result).data.clone()
         else {
             return None;
         };
+        if !self.local_type_parameters_of(alias).is_empty() {
+            return None;
+        }
+        // An unaliased union instantiated from a declared type that is itself
+        // a union, whatever its syntax: `type T02<T> = keyof (T & B)` declares
+        // `"b" | keyof T`, so `type T05 = T02<A>` hands T05 to getUnionTypeEx
+        // in instantiateTypeWorker's union arm (`checker.go:22261`). The arm is
+        // chosen by the declared TYPE's flags, not the body node (r6-declared3
+        // §2's `.1184`).
+        let Some(owner) = owner else {
+            let declared = self.get_declared_type_of_symbol(symbol);
+            if !matches!(self.store.get(declared).data, crate::types::TypeData::Union { .. }) {
+                return None;
+            }
+            return Some(self.get_named_union_type(&types, TypeFlags::empty(), alias));
+        };
+        // The target's own aliased union (the union arm of
+        // `create_type_reference`).
         if owner != symbol
-            || !self.local_type_parameters_of(alias).is_empty()
             || !matches!(
                 self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
                 Some(TypeNode::UnionTypeNode(_))
