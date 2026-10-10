@@ -673,6 +673,28 @@ impl<'a> Parser<'a> {
                         );
                         self.mark_optional_chain(node.node_id(), true);
                         expression = Expression::ElementAccessExpression(node);
+                    } else if matches!(
+                        self.token.kind,
+                        SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead
+                    ) {
+                        // ``a?.`b` ``: `isStartOfOptionalPropertyOrElementAccessChain`
+                        // admits a template after `?.`, and
+                        // `parseMemberExpressionRest` makes it a tagged template
+                        // carrying the `?.` (`parseTaggedTemplateRest`,
+                        // `parser.go:5512`); the checker reports TS1358.
+                        let template = self.parse_template_literal(true);
+                        let node = self.finish_node(
+                            TaggedTemplateExpression::new(
+                                Some(expression),
+                                Some(question_dot),
+                                &[],
+                                Some(template),
+                            ),
+                            SyntaxKind::TaggedTemplateExpression,
+                            start,
+                        );
+                        self.mark_optional_chain(node.node_id(), true);
+                        expression = Expression::TaggedTemplateExpression(node);
                     } else {
                         let name = self.parse_member_name();
                         self.report_private_identifier_in_optional_chain(name);
