@@ -117,6 +117,11 @@ impl Checker<'_, '_> {
     /// `checkElementAccessExpression` (`checker.go:8146`): the access node is
     /// the element access, its index node the argument expression. An error
     /// object type or a const enum object returns before indexing.
+    ///
+    /// The const enum exit reports first (`:8157`): TS2476 at the index
+    /// unless it is `IsStringLiteralLike` (r6-modules3 §2). It shares the
+    /// rule's JS-file gate, so a JS file's access to a TypeScript const enum
+    /// does not report it.
     pub(crate) fn check_element_access_index_type(&mut self, node: NodeId) {
         if self.file_has_parse_errors || self.in_js_file(node) {
             return;
@@ -130,6 +135,21 @@ impl Checker<'_, '_> {
         let object_type = self.check_expression(expression);
         let index_type = self.check_expression(argument);
         if self.is_const_enum_object_type(object_type) {
+            if !matches!(
+                argument,
+                tsr_ast::Expression::StringLiteral(_)
+                    | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
+            ) && let Some(file) = self.source_file_of_for_diagnostics(argument_id)
+            {
+                let span = self.error_span(argument_id);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::A_CONST_ENUM_MEMBER_CAN_ONLY_BE_ACCESSED_USING_A_STRING_LITERAL,
+                        span,
+                    ),
+                );
+            }
             return;
         }
         self.report_invalid_index_types(object_type, index_type, argument_id);
