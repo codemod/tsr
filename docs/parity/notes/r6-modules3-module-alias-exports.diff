@@ -1,0 +1,36 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index 73d7572..0b42a63 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -3857,10 +3857,14 @@ impl<'a, 'n> Checker<'a, 'n> {
+             }
+             // Pinned 5b1047d someSymbolTableInScope (:746-775) visits raw
+             // exports after locals. The original Program owns these symbols;
+-            // only sole external import-equals declarations extend this view.
++            // only sole import-equals declarations extend this view.
+             // Existing alias resolution, meaning/shadow checks and per-table
+             // native ordering below own selection. No completion/publication
+-            // or new cache; re-export/default/internal aliases stay excluded.
++            // or new cache; re-export/default aliases stay excluded. An
++            // internal `export import C = r` is one of `trySymbolTable`'s
++            // aliases like an external one (`symbolaccessibility.go:562`):
++            // inside `namespace m_private` it names `r`'s module `typeof C`
++            // (r6-modules3 §5).
+             if matches!(
+                 self.nodes.kind(node),
+                 SyntaxKind::SourceFile | SyntaxKind::ModuleDeclaration
+@@ -3880,10 +3884,10 @@ impl<'a, 'n> Checker<'a, 'n> {
+                             else {
+                                 return false;
+                             };
+-                            matches!(self.node_map.get(*declaration),
+-                                Some(Node::ImportEqualsDeclaration(alias))
+-                                    if matches!(alias.module_reference,
+-                                        Some(tsr_ast::ModuleReference::ExternalModuleReference(_))))
++                            matches!(
++                                self.node_map.get(*declaration),
++                                Some(Node::ImportEqualsDeclaration(_))
++                            )
+                         })
+                         .collect(),
+                 );

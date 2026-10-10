@@ -1,0 +1,28 @@
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -3380,6 +3380,12 @@
+             }
+             return self.binder.pattern_ambient_module(text);
+         };
++        // `sourceFile` is nil under a resolution diagnostic other than TS6142
++        // (`checker.go:15214`, `isolated_alias.rs`): TS6263's arbitrary
++        // extension is in the program and still answers no module.
++        if !self.resolution_keeps_source_file(importing_file, text, mode, target) {
++            return None;
++        }
+         // `sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file
+         // that is not an external module — upstream's `File_0_is_not_a_module` —
+         // and it is the reason the host answers a *file* rather than a symbol:
+--- a/crates/tsr-checker/src/isolated_alias.rs
++++ b/crates/tsr-checker/src/isolated_alias.rs
+@@ -802,10 +802,6 @@
+     /// JavaScript or JSON file (both stamped `JAVASCRIPT_FILE`) or a
+     /// declaration file asks the host for the resolver's extension, and the
+     /// common import stops at a flag read (r6-modules3 §4).
+-    #[allow(
+-        dead_code,
+-        reason = "called by the held hook docs/parity/notes/r6-modules3-resolution-source-file.diff"
+-    )]
+     pub(crate) fn resolution_keeps_source_file(
+         &self,
+         importing_file: NodeId,

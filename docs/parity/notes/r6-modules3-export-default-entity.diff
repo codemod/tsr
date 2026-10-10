@@ -1,0 +1,165 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 769421d..0b468bd 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -7347,14 +7347,27 @@ impl<'a> Checker<'a, '_> {
+     /// §493: the name a TYPE-side declaration writes for itself — what the
+     /// declared type's minted text carries, and therefore what a local alias
+     /// must equal for the §491/§493 road to print truthfully.
++    ///
++    /// It is the name the declared type's mint prints (the class or interface
++    /// arm below, `getNameOfSymbolAsWritten`, `nodebuilderimpl.go:988`):
++    /// `core.FirstNonNil(symbol.Declarations, ast.GetNameOfDeclaration)`, the
++    /// first declaration **with a name**, of any kind. It read only
++    /// `Declarations[0]`, and only for a class, interface or enum, so a
++    /// merged `Property|Interface` target (`class C { static B }` beside
++    /// `namespace C { export interface B }`, reached by `import B from` over
++    /// `export default C.B`) answered `None` and the road declined
++    /// (r6-modules3 §1).
+     fn declaration_written_name(&self, symbol: SymbolId) -> Option<&str> {
+-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
+-        match self.node_map.get(declaration)? {
+-            Node::ClassDeclaration(node) => node.name.map(|identifier| identifier.text),
+-            Node::InterfaceDeclaration(node) => node.name.map(|identifier| identifier.text),
+-            Node::EnumDeclaration(node) => node.name.map(|identifier| identifier.text),
+-            _ => None,
+-        }
++        self.binder
++            .symbols()
++            .get(symbol)
++            .declarations
++            .iter()
++            .find_map(|&declaration| self.node_map.get(declaration)?.name_id())
++            .and_then(|id| match self.node_map.get(id)? {
++                Node::Identifier(identifier) => Some(identifier.text),
++                _ => None,
++            })
+     }
+ 
+     /// Ported from `Checker.getDeclaredTypeOfEnum` (`checker.go:23874`).
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index ace5478..62a4a6a 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -1615,19 +1615,19 @@ impl<'a> Checker<'a, '_> {
+                 //
+                 // `IsPropertyAccessEntityNameExpression` (`:1624`), the
+                 // dotted half of `IsEntityNameExpression`, resolves through
+-                // `export_assignment_property_access_target` for `export =`
+-                // only (r6-modules2 §5). `export default C.B` is the same
+-                // alias upstream, and declines here: resolved, its default
+-                // import's type reference lost `exportDefaultProperty2`'s
+-                // `x : B`, because the declared type of a merged
+-                // `Property|Interface` target is not read by its flags.
++                // `export_assignment_property_access_target` (r6-modules2 §5),
++                // for `export =` and `export default` alike. `export default
++                // C.B` was declined until the default import's type road named
++                // a merged `Property|Interface` target by its first named
++                // declaration, as `getNameOfSymbolAsWritten` does
++                // (`declaration_written_name`, r6-modules3 §1).
+                 SyntaxKind::ExportAssignment => matches!(
+                     self.node_map.get(declaration),
+                     Some(Node::ExportAssignment(node))
+                         if matches!(
+                             node.expression,
+                             Some(tsr_ast::Expression::Identifier(_) | tsr_ast::Expression::ClassExpression(_))
+-                        ) || node.is_export_equals && node.expression.is_some_and(|mut expression| {
++                        ) || node.expression.is_some_and(|mut expression| {
+                             while let Expression::PropertyAccessExpression(access) = expression {
+                                 if !matches!(access.name, Some(tsr_ast::MemberName::Identifier(_))) {
+                                     return false;
+diff --git a/crates/tsr-compiler/tests/r6_modules3_export_default_entity.rs b/crates/tsr-compiler/tests/r6_modules3_export_default_entity.rs
+new file mode 100644
+index 0000000..8c94e45
+--- /dev/null
++++ b/crates/tsr-compiler/tests/r6_modules3_export_default_entity.rs
+@@ -0,0 +1,89 @@
++//! r6-modules3's export-default entity diff (`docs/parity/notes/r6-modules3.md`
++//! §1): `export default a.b` is the alias upstream makes, and the default
++//! import names a merged `Property|Interface` target by its first named
++//! declaration (`getNameOfSymbolAsWritten`).
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ModuleKind, ScriptTarget};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// The `(line, code)` pairs the checker reports in `file`, sorted.
++fn reported(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<(u32, u32)> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: options,
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let text = files.iter().find(|(name, _)| *name == file).expect("listed").1;
++    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    let mut reported: Vec<(u32, u32)> = checker
++        .diagnostics()
++        .iter()
++        .filter(|(at, _)| *at == id)
++        .map(|(_, diagnostic)| {
++            let line = text[..diagnostic.span.start as usize].matches('\n').count() as u32 + 1;
++            (line, diagnostic.message.code())
++        })
++        .collect();
++    reported.sort_unstable();
++    reported
++}
++
++fn commonjs() -> CompilerOptions {
++    CompilerOptions {
++        module: ModuleKind::CommonJS,
++        target: ScriptTarget::ES2015,
++        ..Default::default()
++    }
++}
++
++#[test]
++fn export_default_of_a_dotted_name_carries_both_meanings() {
++    // `compiler/exportDefaultProperty2` plus two uses. Native reports both
++    // TS2322s: `x: B` is the interface and `B` the static's `number`.
++    let files = [
++        (
++            "/a.ts",
++            "class C {\n    static B: number;\n}\nnamespace C {\n    export interface B { c: number }\n}\nexport default C.B;\n",
++        ),
++        (
++            "/b.ts",
++            "import B from \"./a\";\nconst x: B = { c: B };\nconst y: number = x;\nconst z: string = B;\n",
++        ),
++    ];
++    assert_eq!(reported(&files, commonjs(), "/b.ts"), [(3, 2322), (4, 2322)]);
++}

@@ -785,6 +785,57 @@ impl Checker<'_, '_> {
         flags.intersects(SymbolFlags::CONST_ENUM)
     }
 
+    /// `resolveExternalModule`'s `sourceFile` condition (pinned
+    /// `checker.go:15214`): a resolved module whose resolution diagnostic is
+    /// anything but TS6142 (`Module_0_was_resolved_to_1_but_jsx_is_not_set`)
+    /// leaves `sourceFile` nil, so the import answers no module symbol
+    /// (`unknownSymbol` at the alias) even when the file is in the program.
+    /// That is TS6263's `.d.<ext>.ts` under `allowArbitraryExtensions: false`;
+    /// a `.js` or `.json` resolution with its diagnostic is not in the
+    /// program in the first place. The caller is
+    /// `symbols.rs::resolve_external_module_name`, after the host answered a
+    /// file (r6-modules3 §4).
+    ///
+    /// `target` is the file the host resolved the specifier to. A TypeScript
+    /// file that is not a declaration file has a `.ts`, `.tsx`, `.mts` or
+    /// `.cts` extension, whose diagnostic is none or TS6142, so only a
+    /// JavaScript or JSON file (both stamped `JAVASCRIPT_FILE`) or a
+    /// declaration file asks the host for the resolver's extension, and the
+    /// common import stops at a flag read (r6-modules3 §4).
+    #[allow(
+        dead_code,
+        reason = "called by the held hook docs/parity/notes/r6-modules3-resolution-source-file.diff"
+    )]
+    pub(crate) fn resolution_keeps_source_file(
+        &self,
+        importing_file: NodeId,
+        specifier: &str,
+        mode: tsr_core::ResolutionMode,
+        target: NodeId,
+    ) -> bool {
+        let Some(host) = self.module_host else { return true };
+        if !self.nodes.flags(target).contains(tsr_ast::NodeFlags::JAVASCRIPT_FILE)
+            && !host.is_declaration_file(target)
+        {
+            return true;
+        }
+        let Some((extension, _, _)) =
+            host.resolved_module_extension(importing_file, specifier, Some(mode))
+        else {
+            return true;
+        };
+        resolution_diagnostic(
+            extension,
+            || host.is_declaration_file(importing_file),
+            self.jsx_emit == tsr_core::JsxEmit::None,
+            self.no_implicit_any,
+            self.resolution_diagnostic_options,
+        )
+        .is_none_or(|message| {
+            message.code() == messages::MODULE_0_WAS_RESOLVED_TO_1_BUT_JSX_IS_NOT_SET.code()
+        })
+    }
+
     /// `resolveExternalModule`'s resolution-diagnostic branch (pinned
     /// `checker.go:15209`–`15260`, `:15388`), for an import whose specifier
     /// the program resolved to a file: `module.GetResolutionDiagnostic`
