@@ -637,10 +637,12 @@ impl Checker<'_, '_> {
             return;
         }
         // `checkSourceFile` (`checker.go:2221`): declaration files are exempt.
-        // A file the parser recovered stands in for upstream's
-        // `NodeFlagsThisNodeOrAnySubNodesHasError`, which `reportUnused`
-        // (`checker.go:7092`) tests on every location.
-        if self.file_is_ambient || self.file_has_parse_errors {
+        // `reportUnused` (`checker.go:7092`) also tests
+        // `NodeFlagsThisNodeOrAnySubNodesHasError` on every location, but no
+        // writer of that flag exists at the pin (`ast/nodeflags.go:24`; the
+        // parser sets only `ThisNodeHasError`, `parser.go:5908`), so a file
+        // with parse errors still reports (r7-grammar §7).
+        if self.file_is_ambient {
             self.unused_check_nodes.clear();
             return;
         }

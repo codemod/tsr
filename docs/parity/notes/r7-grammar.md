@@ -234,3 +234,17 @@ the report is a subset of upstream's, never a superset.
 Converted: `typeParameterAsBaseType`. `interfaceExtendsObjectIntersectionErrors`
 gains its two TS2312 lines and stays WRONG on the heritage relation
 (TS2430/TS2416/TS2411/TS2413 against alias and intersection bases).
+
+## §7 `reportUnused` has no parse-error gate
+
+`check_unused_identifiers` dropped every unused-identifier report in a file
+with parse diagnostics, as a stand-in for `reportUnused`'s
+`location.Flags & NodeFlagsThisNodeOrAnySubNodesHasError` test
+(`checker.go:7092`). At the pin nothing writes that flag
+(`ast/nodeflags.go:24` declares it; the parser sets only
+`NodeFlagsThisNodeHasError`, `parser.go:5908`), so upstream reports unused
+identifiers in a file with parse errors. The gate is removed; the declaration
+file exemption (`checkSourceFile`, `checker.go:2221`) stays.
+`unusedLocalsAndParameters` now matches its 21 TS6133/TS6196 lines and stays
+WRONG on one extra TS6133 inside the parser-recovered `for (let x: y)`, whose
+recovery differs from upstream's (the parser lane's).
