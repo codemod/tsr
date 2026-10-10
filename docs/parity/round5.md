@@ -1869,3 +1869,19 @@ r6-printer5 takes three r6-triage printer clusters:
 - SCANNER-NUMERIC-AND-ESCAPE-DIAGNOSTICS (`.1174`);
 - REGEXP-SCANNER-VALIDATION (`.1192`).
 It also takes the remainder in `tsr-2zk.1260`.
+
+### Checkpoint wrap-up: r6-specifiers2 (batch CC)
+
+Batch CC lands r6-specifiers2's lane commit (ModuleHost::any_file_from_path)
+and four diffs:
+1. the pure-alias import-type road;
+2. the UMD global type reference;
+3. a reused module member named through symbol_chain;
+4. the program half of tryGetAnyFileFromPath.
+
+Measured by the box on older bases: +49 type lines and +4 diagnostics cases,
+0 lost. Diffs 1–3 were not re-measured on the box's final base, so the gate is
+authoritative here.
+
+`tsr-2zk.1149` is reopened unassigned. The remainder is in the box's notes
+§4–5.
