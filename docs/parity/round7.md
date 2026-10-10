@@ -220,3 +220,20 @@ suite here (TS5090/TS5011/TS5069).
 
 Function grant: r7-reports owns `signatures.rs`'s `has_no_contextual_type`
 arms for TS7057.
+
+### Batch 8 — r7-declared `4cf4796e`, r7-flow `1161ce84`, r7-reports `15995777`
+
+Merged onto main `2c34a50e`. Gate against the batch-7 freeze: types +5
+RIGHT / 0 lost / 0 missing, diagnostics +5 cases / 0 lost / 0 missing;
+tests, fmt and strict clippy green. Perf child-CPU new/old at 21 samples:
+domain-model 1.024, generic-imports 0.954, diagnostics identical.
+
+| Suite | Batch 7 | Batch 8 |
+|---|---|---|
+| `checker_types` | 8,765 | 8,768 |
+| `checker_types_configured` | 1,783 | 1,783 |
+| `diagnostics` | 4,872 | 4,877 |
+| `diagnostics_configured` | 972 | 972 |
+
+Grant: r7-flow adds `Intrinsics::auto` (native `autoType`, distinct from
+`anyType`) in `intrinsics.rs`, which must not escape the flow walk.
