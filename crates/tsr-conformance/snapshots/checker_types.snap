@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8708/9538 (91.30%)
-Assertion lines: 474569/478853 (99.11%)  — a gradient, not a pass rate
-Failed         : 830
+Passed         : 8736/9538 (91.59%)
+Assertion lines: 474683/478853 (99.13%)  — a gradient, not a pass rate
+Failed         : 802
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 830 failures:
+First 100 of 802 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -167,10 +167,6 @@ compiler/conflictingDeclarationsImportFromNamespace1
   node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
 compiler/conflictingDeclarationsImportFromNamespace2
   node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
-compiler/constEnumNoEmitReexport
-  ReExportDefault.ts: >MyConstEnum : typeof MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
-compiler/constEnumPreserveEmitReexport
-  ReExport.ts: >MyConstEnum : typeof MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
 compiler/constEnums
   constEnums.ts: >e : I — expected >e : I.V2 | I.V3 | I.V4
 compiler/contextualOuterTypeParameters
@@ -213,3 +209,7 @@ compiler/contextuallyTypedParametersWithInitializers1
   contextuallyTypedParametersWithInitializers1.ts: >f11 : any — expected >f11 : ({ foo }: { foo?: number | undefined; }) => number
 compiler/contextuallyTypedSymbolNamedProperties
   contextuallyTypedSymbolNamedProperties.ts: >{    [A]: ap => { ap.description },    [B]: bp => { bp.description },} : error — expected >{    [A]: ap => { ap.description },    [B]: bp => { bp.description },} : { [A]: (ap: unique symbol) => void; [B]: (bp: unique symbol) => void; }
+compiler/contravariantOnlyInferenceFromAnnotatedFunction
+  contravariantOnlyInferenceFromAnnotatedFunction.ts: >result : error — expected >result : [string, { bar: string; }]
+compiler/contravariantOnlyInferenceFromAnnotatedFunctionJs
+  index.js: >result : error — expected >result : [string, { bar: string; }]

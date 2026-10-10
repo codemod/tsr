@@ -139,3 +139,25 @@ and `meaning_mismatch.rs`; r7-parser is granted the three
 `NodeIsMissing(body)` readers (return type and TS7010 in `signatures.rs`,
 `checkFunctionOrConstructorSymbol` in `check.rs`) for the missing-block
 recovery, in one commit with its parser half.
+
+### Batch 4 — integ lint `a29e996c`, r7-calls `332d624d`, r7-contextual `3c301c08`, r7-declared `12b2c034`, r7-printer `843832ef`, r7-reports `35e1af5f`
+
+Merged onto main `7e9f37eb`. r7-parser and r7-perf conflicted (their rebased
+copies of already-merged commits) and were returned for a rebase. Gate
+against the batch-3 freeze: types +320 RIGHT / 0 lost / 0 missing,
+diagnostics +10 cases / 0 lost / 0 missing; workspace tests pass; fmt clean.
+**Strict clippy is green for the first time this round**: the lint commit
+clears main's pre-existing errors, and one new raw-pointer borrow from
+r7-reports' TS2820 head is fixed in the batch. Perf child-CPU new/old:
+domain-model 0.984 (21) / 1.009 (41), generic-imports 1.029 (21) / 0.960
+(41), diagnostics identical.
+
+| Suite | Batch 3 | Batch 4 |
+|---|---|---|
+| `checker_types` | 8,708 | 8,736 |
+| `checker_types_configured` | 1,757 | 1,771 |
+| `diagnostics` | 4,839 | 4,849 |
+| `diagnostics_configured` | 968 | 968 |
+
+Ownership changes: r7-contextual owns `const_inference.rs`; r7-perf owns the
+program-diagnostics wiring in `tsr-conformance/src/diagnostics_suite.rs`.
