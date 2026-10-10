@@ -118,3 +118,24 @@ Ownership changes: r7-contextual also owns `widening.rs` (const-context
 literal candidates, `tsr-2zk.1275.1`); r7-calls may make
 `flow.rs::get_effects_signature`/`get_type_of_dotted_name` `pub(crate)` for
 TS2775/TS2776.
+
+### Batch 3 — r7-calls `2745f162`, r7-contextual `dcd22416`, r7-declared `2f46ba40`, r7-flow `0633293e`, r7-grammar `f298083c`, r7-parser `dd6f9d88`, r7-reports `3d2cfdfa`
+
+Merged onto main `1b466dc8`. Gate against the batch-2 freeze: types +453
+RIGHT / 0 lost / 0 missing, diagnostics +33 cases / 0 lost / 0 missing;
+workspace tests pass; fmt clean; strict clippy unchanged (pre-existing errors
+only). Perf child-CPU new/old at 21 samples: domain-model 1.006,
+generic-imports 0.996, diagnostics identical.
+
+| Suite | Batch 2 | Batch 3 |
+|---|---|---|
+| `checker_types` | 8,682 | 8,708 |
+| `checker_types_configured` | 1,753 | 1,757 |
+| `diagnostics` | 4,816 | 4,839 |
+| `diagnostics_configured` | 958 | 968 |
+
+Ownership changes: r7-grammar also owns `module_format.rs`, `strict_mode.rs`
+and `meaning_mismatch.rs`; r7-parser is granted the three
+`NodeIsMissing(body)` readers (return type and TS7010 in `signatures.rs`,
+`checkFunctionOrConstructorSymbol` in `check.rs`) for the missing-block
+recovery, in one commit with its parser half.

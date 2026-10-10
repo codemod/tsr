@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4816/5502 (87.53%)
-Failed         : 686
+Passed         : 4839/5502 (87.95%)
+Failed         : 663
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 686 failures:
+First 100 of 663 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -166,8 +166,6 @@ compiler/controlFlowArrayErrors
   8 missing (first TS7034 at controlFlowArrayErrors.ts(4,9))
 compiler/controlFlowFunctionLikeCircular1
   2 unexpected (first TS2456 at controlFlowFunctionLikeCircular_8.ts(5,10)), 11 missing
-compiler/controlFlowInstanceof
-  1 missing (first TS2339 at uglify.js(9,7))
 compiler/controlFlowNoImplicitAny
   4 missing (first TS7034 at controlFlowNoImplicitAny.ts(101,9))
 compiler/correctOrderOfPromiseMethod
@@ -196,8 +194,6 @@ compiler/declarationEmitToDeclarationDirWithoutCompositeAndDeclarationOptions
   1 missing (first TS5069 at /foo/tsconfig.json(2,26))
 compiler/declarationEmitUsingTypeAlias1
   2 missing (first TS2883 at src/index.ts(3,14))
-compiler/declareModifierOnImport1
-  1 missing (first TS1079 at declareModifierOnImport1.ts(1,1))
 compiler/deepComparisons
   1 missing (first TS2322 at deepComparisons.ts(4,9))
 compiler/destructuringControlFlowNoCrash
@@ -212,3 +208,7 @@ compiler/disallowedBlockScopedInPresenceOfParseErrors1
   4 missing (first TS2454 at disallowedBlockScopedInPresenceOfParseErrors1.ts(6,17))
 compiler/dissallowSymbolAsWeakType
   5 missing (first TS2769 at dissallowSymbolAsWeakType.ts(3,25))
+compiler/divergentAccessorsTypes8
+  5 unexpected (first TS2322 at divergentAccessorsTypes8.ts(65,1)), 0 missing
+compiler/divergentAccessorsVisibility1
+  6 missing (first TS2808 at divergentAccessorsVisibility1.ts(11,19))
