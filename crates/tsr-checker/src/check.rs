@@ -1461,9 +1461,6 @@ impl Checker<'_, '_> {
     /// `#name` property is a grammar error wherever it appears — the error node
     /// is the name. §388.
     fn check_private_name_in_object_literal(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         // A **type literal** and an **interface body** are no more class bodies
         // than an object literal is, and upstream reports the same code for a
         // `#name` member of either. §390.
@@ -1492,6 +1489,13 @@ impl Checker<'_, '_> {
                     ),
                 );
             }
+            return;
+        }
+        // The object-literal arm is `grammarErrorOnNode`, silent in a file with
+        // parse diagnostics (`grammarchecks.go:38`); the member arms above are
+        // `checkPropertySignature`'s and `checkMethodDeclaration`'s `c.error`
+        // (`checker.go:2718`, `:2813`).
+        if self.file_has_parse_errors {
             return;
         }
         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else { return };
@@ -1654,16 +1658,16 @@ impl Checker<'_, '_> {
             }
             return;
         }
-        if self.file_has_parse_errors {
-            return;
-        }
         // TS1120 — `An export assignment cannot have modifiers.`
         // `checkExportAssignment` (`checker.go:5607`), on the **first token**:
         // `declare export = x` errors at `declare`, column 1. §481 measured this
         // at `+0` because the parser handed the node an empty modifier slice;
         // §511 threads the caller's modifiers through, so the list is real now.
         // Upstream tests `IsExportAssignment`, covering both spellings. §512.
-        if let Some(tsr_ast::ModifierLike::Token(first)) = assignment.modifiers.first()
+        // `grammarErrorOnFirstToken`, silent in a file with parse diagnostics
+        // (`grammarchecks.go:19`); the isolated-module arms below are `c.error`.
+        if !self.file_has_parse_errors
+            && let Some(tsr_ast::ModifierLike::Token(first)) = assignment.modifiers.first()
             && let Some(id) = first.node_id
             && let Some(file) = self.source_file_of_for_diagnostics(id)
         {
@@ -1679,7 +1683,9 @@ impl Checker<'_, '_> {
         // (`internal/checker/checker.go:5666`, pinned `5b1047d`): ambient
         // assignment expressions must be entity-name expressions. The caller
         // carries the parser's Ambient context through the existing walk.
+        // `grammarErrorOnNode`: silent in a file with parse diagnostics.
         if ambient
+            && !self.file_has_parse_errors
             && self.nodes.parent(node).is_some_and(|parent| {
                 matches!(
                     self.nodes.kind(parent),
@@ -3229,9 +3235,6 @@ impl Checker<'_, '_> {
     /// Shipped together per §230 — one branch of a multi-branch guard gives a
     /// case the wrong code at the right position. §491.
     fn check_for_in_or_of_declarations(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
         let for_in = self.nodes.kind(node) == SyntaxKind::ForInStatement;
         let Some(initializer) = statement.initializer else { return };
@@ -3268,6 +3271,12 @@ impl Checker<'_, '_> {
                 );
                 return;
             }
+        }
+        // TS2491 above is `c.error`; the declaration-list arms below are
+        // `grammarErrorOnFirstToken`/`grammarErrorOnNode`, silent in a file
+        // with parse diagnostics (`grammarchecks.go:1273`, `:1283`, `:1291`).
+        if self.file_has_parse_errors {
+            return;
         }
         let Some(Node::VariableDeclarationList(declarations)) = self.node_map.get(list) else {
             return;
@@ -3619,9 +3628,6 @@ impl Checker<'_, '_> {
     /// reports TS1184 and not TS1156. The type alias and interface sites are
     /// not gated that way (`checker.go:6878`, `:4996`). `r5-smallcodes2.md` §2.1.
     fn check_declaration_statement_container(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let keyword = match typed {
             Node::TypeAliasDeclaration(_) => "type",
             Node::InterfaceDeclaration(_) => "interface",
@@ -3633,6 +3639,13 @@ impl Checker<'_, '_> {
             }
             _ => return,
         };
+        // The type alias and interface sites are `grammarErrorOnNode`, silent
+        // in a file with parse diagnostics; the variable form is
+        // `checkGrammarForDisallowedBlockScopedVariableStatement`'s `c.error`
+        // (`grammarchecks.go:1807`).
+        if self.file_has_parse_errors {
+            return;
+        }
         // See `check_block_scoped_statement_container`: a `with` body is never
         // checked.
         if self.is_inside_with_statement(node) {
@@ -3848,11 +3861,13 @@ impl Checker<'_, '_> {
     /// `checkSwitchStatement`'s per-clause checks: TS1113 here, TS2678 in
     /// `crate::comparison_overlap`.
     fn check_switch_case_comparable(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::SwitchStatement(statement)) = self.node_map.get(node) else { return };
-        self.check_duplicate_default_clause(statement);
+        // TS1113 is `grammarErrorOnNode` (`checker.go:4184`), silent in a file
+        // with parse diagnostics; TS2678's `checkTypeComparableTo` (`:4189`)
+        // is not.
+        if !self.file_has_parse_errors {
+            self.check_duplicate_default_clause(statement);
+        }
         self.check_switch_case_comparability(statement);
     }
 
@@ -12353,10 +12368,12 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §608.
     fn check_rest_element_is_last(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let offenders: Vec<NodeId> = match typed {
+            // The binding-pattern form is `checkGrammarBindingElement`'s
+            // `grammarErrorOnNode` (`grammarchecks.go:1540`), silent in a file
+            // with parse diagnostics; the destructuring-assignment forms are
+            // `c.error` (`checker.go:12621`, `:12684`).
+            Node::BindingPattern(_) if self.file_has_parse_errors => return,
             // Both binding patterns take the same shape; only the `kind`
             // token differs. An object pattern reports on the **first**
             // offender alone, matching upstream's `return` after the error at

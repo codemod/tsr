@@ -728,10 +728,15 @@ impl Checker<'_, '_> {
     /// TS2341/TS2445/TS2446 — `checkPropertyAccessibility` for a dotted
     /// access, instance or static; see [`Checker::inaccessible_property`].
     pub(crate) fn check_private_property_access(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+        if ambient {
             return;
         }
-        self.check_private_method_assignment(node);
+        // TS2803 and the any-like receiver's TS18016 are `grammarErrorOnNode`
+        // (`checker.go:11281`, `:11291`), silent in a file with parse
+        // diagnostics; TS18013 and the accessibility reports are `c.error`.
+        if !self.file_has_parse_errors {
+            self.check_private_method_assignment(node);
+        }
         // The `#name` arm keeps its JS decline (`privateIdentifierExpando`);
         // the accessibility arm below reads JSDoc `@private`/`@protected`.
         if !self.in_js_file(node) {
@@ -846,11 +851,13 @@ impl Checker<'_, '_> {
                 return;
             }
             if self.containing_class_excluding_class_decorators(at).is_none() {
-                self.report_at_name(
-                    at,
-                    &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_OUTSIDE_CLASS_BODIES,
-                    Vec::new(),
-                );
+                if !self.file_has_parse_errors {
+                    self.report_at_name(
+                        at,
+                        &messages::PRIVATE_IDENTIFIERS_ARE_NOT_ALLOWED_OUTSIDE_CLASS_BODIES,
+                        Vec::new(),
+                    );
+                }
                 return;
             }
         }

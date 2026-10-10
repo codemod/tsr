@@ -86,15 +86,16 @@ impl Checker<'_, '_> {
         } else {
             &messages::DECORATORS_ARE_NOT_VALID_HERE
         };
+        // `return grammarErrorOnFirstToken(node, …)`: silent in a file with
+        // parse diagnostics (the parser already reported TS1433 on a `this`
+        // parameter, `parser.go:3334`), and then `false`, so the callers'
+        // `!checkGrammarModifiers(node)` rules still run; the node starts at
+        // its first decorator or modifier.
+        if self.file_has_parse_errors {
+            return false;
+        }
         self.modifier_chain_reported.insert(node);
         self.decorator_error_reported.insert(node);
-        // `grammarErrorOnFirstToken(node, …)`: silent in a file with parse
-        // diagnostics (the parser already reported TS1433 on a `this`
-        // parameter, `parser.go:3334`); the node starts at its first decorator
-        // or modifier.
-        if self.file_has_parse_errors {
-            return true;
-        }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
         let start = self.nodes.span(node).start;
         self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, start + 1)));
@@ -314,10 +315,12 @@ impl Checker<'_, '_> {
     /// a file with parse errors, which is where the corpus has it
     /// (`import * from Zero from "./0"` reads `Zero` as the specifier).
     ///
-    /// Upstream reaches it after `checkGrammarModuleElementContext`, whose
-    /// report returns first; that grammar error needs a declaration outside a
-    /// source file or module block, so the bound is the parent's kind unless
-    /// the file's parse errors silence the grammar report.
+    /// Upstream reaches it after `checkGrammarModuleElementContext`
+    /// (`grammarchecks.go:206`), whose caller returns on any parent other than
+    /// a source file, module block or module declaration, **whether or not**
+    /// its first-token report was silenced by the file's parse diagnostics:
+    /// the function returns `!isInAppropriateContext`, not the report's
+    /// result. `docs/parity/notes/r6-parsegate.md` §3.
     fn check_external_module_name_is_string_literal(&mut self, module_name: NodeId) {
         if self.nodes.kind(module_name) == SyntaxKind::StringLiteral {
             return;
@@ -338,9 +341,12 @@ impl Checker<'_, '_> {
             return;
         };
         let at_module_level = self.nodes.parent(declaration).is_some_and(|parent| {
-            matches!(self.nodes.kind(parent), SyntaxKind::SourceFile | SyntaxKind::ModuleBlock)
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
+            )
         });
-        if !at_module_level && !self.file_has_parse_errors {
+        if !at_module_level {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(module_name) else { return };
