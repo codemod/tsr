@@ -1479,13 +1479,12 @@ impl<'a> Checker<'a, '_> {
         if property.readonly {
             budget.approximate_length += 9;
         }
-        let name = match budget.site {
-            Some(site)
-                if let Some(symbol) = self.symbol_of_unique_property_name(&property.name) =>
-            {
-                self.unique_symbol_property_name_at(symbol, Some(site))
-            }
-            _ => property.printed_name.clone(),
+        let name = if let Some(site) = budget.site
+            && let Some(symbol) = self.symbol_of_unique_property_name(&property.name)
+        {
+            self.unique_symbol_property_name_at(symbol, Some(site))
+        } else {
+            property.printed_name.clone()
         };
         crate::objects::Member::Property {
             name,

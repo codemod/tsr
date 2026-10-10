@@ -1,5 +1,21 @@
 # Conventions
 
+## Select the toolchain when invoking Cargo from another project
+
+Rustup selects `rust-toolchain.toml` from the working directory, not from Cargo's
+`--manifest-path`. A CLI build launched inside an application can therefore use
+the application's or user's compiler instead of TSR's pinned compiler. Invoke
+`cargo +1.96.0 run --release --manifest-path /path/to/tsr/Cargo.toml --bin tsr`
+to select TSR's pin explicitly while checking that application's configuration.
+
+The `tsr-qwb` failure demonstrated the distinction: main `f55a2585` built with
+Rust 1.96, while the same source rejected three match-arm `if let` guards with
+E0658 on the user's Rust 1.89. Those guards now use tuple patterns or ordinary
+`if let` control flow. Preserve short-circuit evaluation and fallback behavior
+when rewriting a guard; a unique-symbol lookup without a print site, a repeated
+mapped evaluation, or consuming a character after an invalid surrogate sentinel
+would change checker behavior rather than merely restore compiler compatibility.
+
 ## Anchor ported code to upstream
 
 Every ported item names its typescript-go counterpart in a doc comment:

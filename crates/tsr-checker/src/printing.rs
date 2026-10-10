@@ -1471,13 +1471,16 @@ pub(crate) fn quote(value: &str) -> String {
             // escapeStringWorker's surrogate arm (`printer/utilities.go:84`,
             // `:148`): a lone surrogate is always escaped, uppercase. The
             // value holds it as the ADR-0051 sentinel.
-            '\u{10FFFF}'
+            '\u{10FFFF}' => {
                 if let Some((surrogate, _)) =
-                    tsr_scanner::decode_lone_surrogate_sentinel(&value[index..]) =>
-            {
-                use std::fmt::Write as _;
-                let _ = write!(out, "\\u{surrogate:04X}");
-                chars.next();
+                    tsr_scanner::decode_lone_surrogate_sentinel(&value[index..])
+                {
+                    use std::fmt::Write as _;
+                    let _ = write!(out, "\\u{surrogate:04X}");
+                    chars.next();
+                } else {
+                    out.push('\u{10FFFF}');
+                }
             }
             c => out.push(c),
         }

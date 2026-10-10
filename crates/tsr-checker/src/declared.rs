@@ -805,7 +805,7 @@ impl<'a> Checker<'a, '_> {
                 }
                 let mut single_quoted = false;
                 let mut array_headed = false;
-                match Self::written_type_text(node, &mut single_quoted, &mut array_headed) {
+                match (Self::written_type_text(node, &mut single_quoted, &mut array_headed), node) {
                     // §905.1: a RECURSIVE mapped alias answers `any` upstream,
                     // not the mapped form — `type Recurse = { [K in keyof
                     // Recurse]: Recurse[K] }` records `>Recurse : any`, its
@@ -822,7 +822,7 @@ impl<'a> Checker<'a, '_> {
                     // evaluated once: a declined build's parts go on the
                     // written-text image, as `capture_mapped_type` would
                     // have evaluated them again (r5-mapped6.md §1).
-                    Some(text) if let TypeNode::MappedTypeNode(mapped) = node => {
+                    (Some(text), TypeNode::MappedTypeNode(mapped)) => {
                         match self.evaluate_mapped_type_node(mapped) {
                             crate::mapped::MappedNodeType::Built(id) => id,
                             crate::mapped::MappedNodeType::Declined(info) => {
@@ -834,7 +834,7 @@ impl<'a> Checker<'a, '_> {
                             }
                         }
                     }
-                    Some(text) => {
+                    (Some(text), _) => {
                         // getConditionalType's deferred result carries
                         // TypeFlagsConditional inside a mapped template or
                         // not; a deferred conditional is never an object type.
@@ -890,7 +890,7 @@ impl<'a> Checker<'a, '_> {
                         }
                         id
                     }
-                    None => match node {
+                    (None, _) => match node {
                         TypeNode::MappedTypeNode(mapped) => self
                             .create_semantic_mapped_type(mapped)
                             .unwrap_or(self.intrinsics.error),

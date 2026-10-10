@@ -22,6 +22,15 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+CLI build compatibility (`tsr-qwb`), measured on `f55a2585` plus the three-source
+guard rewrite: Rust **1.89 and 1.96** release CLI builds pass, as do **225 checker
+library tests** (zero failures). Cargo launched from the real Next.js working directory
+with TSR's manifest also builds and runs `--version` successfully. That directory
+selects Rust 1.89; the repository pin selects 1.96. The original source built on
+1.96 but failed on 1.89 with three E0658 diagnostics. The rewrite preserves
+evaluation order and fallbacks; this is a build fix, with no new coverage or
+performance claim. [Invocation boundary](docs/conventions.md#select-the-toolchain-when-invoking-cargo-from-another-project).
+
 Round 6 (`tsr-2zk`, cloud boxes), integration branch
 `claude/beautiful-shannon-ar5gh0` at `83c6f58d`, pinned native `5b1047d`.
 origin/main `81be45d5` is merged in (batch BV), but main itself has not
@@ -4019,6 +4028,10 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+`tsr-qwb` removes the three Rust 1.89 match-guard build errors. The CLI can again
+be built from the user's application directory. Checker fidelity and the
+TSR/tsgo wall target remain separate unfinished work.
+
 Round 6 handoff (`83c6f58d`). All ten round-6 boxes were wrapped up at the
 usage checkpoint, and their claims are released. Their unmeasured WIP diffs
 sit on their own branches. Each `r6-<lane>.md` note names the WIP and the
@@ -7931,6 +7944,11 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Toolchain qualification at `f55a2585`: one successful Rust 1.96 release build did
+not certify an application-directory Cargo invocation. Rust 1.89 rejected the
+same source with **three E0658 errors**. `--manifest-path` did not select TSR's
+toolchain pin. The guard rewrite restores that build without changing semantics.
 
 Round 6 (`tsr-2zk`). Each item was refused by the gate that measured it, and
 backed out on the integration branch:
@@ -16437,3 +16455,5 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-08 | `daee9552` plus six-source tuple-label overlay; native `5b1047d` | +1 legacy type assertion | 0 previously RIGHT losses | **Runtime tuple-label prerequisite retained.** Reserved labels and named-rest AST ownership now follow native; checker normalization, signature rendering and recovered optional/rest semantic dispatch consume that shape. Workspace3255/0/19; complete552533type/12238diagnostic keys retained. Initial two-RIGHT-loss candidate refused and repaired. ScopedClippy passes with five preexisting warnings; strict lint does not pass. Four ioredis parser errors removed; semantic parity, full native corpus qualification and speed target remain unfinished under tsr-1yb.35 and the six original goal tickets. [Reasoning](docs/architecture/parser.md#tuple-labels-and-rest-ownership). |
 | 2026-10-09 | `50cc3a05` (round-5 integration with origin/main `2103e539` merged) / native `5b1047d` | +313 checker_types cases, +242 diagnostics cases since round-5 start | 0 previously RIGHT losses (every batch gated) | **Round 5 closed and merged to main.** checker_types 8,489/9,538 (89.00%), diagnostics 4,636/5,502 (84.26%), configured 1,716/1,928 and 894/1,091. Two diffs backed out by their gates (property-slot, nodereuse2). TSR/tsgo wall dm 0.708, dml 0.666, gi 0.817, jsTyping 3.203; the 0.50 target is not met. |
 | 2026-10-10 | `83c6f58d` (round-6 integration, origin/main `81be45d5` merged in) / native `5b1047d` | +188 checker_types, +150 diagnostics cases since round-5 close | 0 previously RIGHT losses (every batch gated; five refusals backed out) | **Round 6 checkpointed at the usage limit.** checker_types 8,677/9,538 (90.97%), diagnostics 4,786/5,502 (86.99%), configured 1,752/1,928 and 955/1,091. Ten boxes wrapped up; r6-triage filed 102 ranked clusters. Held: `tsr-2zk.1264`–`.1267`. The 0.50 wall target is not met; the lazy-JSDoc perf lever (`tsr-2zk.17.1`) is still claimed by main. Not pushed to main. |
+
+| 2026-10-09 | `f55a2585` plus three-source guard rewrite | — | — | **CLI build compatibility restored (`tsr-qwb`).** Original source passes Rust1.96 but fails Rust1.89 with three E0658 match-guard diagnostics; Next.js working directory selects1.89 despite manifest path. Equivalent tuple patterns/ordinary control flow retain evaluation order and surrogate fallbacks. Rust1.89 release CLI build, actual application-directory version launch and225 checker library tests pass. No new semantic coverage or speed claim. [Toolchain selection](docs/conventions.md#select-the-toolchain-when-invoking-cargo-from-another-project). |
