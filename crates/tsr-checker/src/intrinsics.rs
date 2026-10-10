@@ -131,6 +131,15 @@ pub struct Intrinsics {
     /// intersection only by conflicting with a literal. Created last, so
     /// every earlier intrinsic keeps its identity order.
     pub unique_literal: TypeId,
+    /// `autoType` — `checker.go:976`: the declared type of an unannotated,
+    /// uninitialized variable, an `any` with its own identity. Only the flow
+    /// walk's auto query ([`Checker::identifier_flow_type_is_auto`](crate::Checker))
+    /// mints it as a walk's declared/initial type and compares the answer
+    /// by identity; it never leaves that query. The query road still spells
+    /// auto as [`Intrinsics::any`] (`docs/parity/notes/r7-flow.md` §8).
+    /// Created after `unique_literal`, so every earlier intrinsic keeps its
+    /// identity order.
+    pub auto: TypeId,
     /// `trueType` — the **fresh** `true`, which is what a `true` *expression*
     /// has. Upstream creates `regularTrueType` first and `trueType` as its fresh
     /// twin; that pair is what makes `let b = true` widen to `boolean` while
@@ -238,6 +247,7 @@ impl Intrinsics {
             unreachable_never: store.new_intrinsic(TypeFlags::NEVER, "never"),
             non_primitive: store.new_intrinsic(TypeFlags::NON_PRIMITIVE, "object"),
             unique_literal: store.new_intrinsic(TypeFlags::NEVER, "never"),
+            auto: store.new_intrinsic(TypeFlags::ANY, "any"),
             regular_true,
             regular_false,
             true_type,

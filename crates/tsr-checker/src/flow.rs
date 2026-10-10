@@ -720,6 +720,102 @@ impl Checker<'_, '_> {
         if result == self.intrinsics.unreachable_never { declared_type } else { result }
     }
 
+    /// `!isNeverInitialized` for an outer reference (`checker.go:11147`), the
+    /// half of `assumeInitialized` the START arm's declared-type exit and the
+    /// auto query's initial type share.
+    fn outer_auto_reference_is_initialized(&mut self, symbol: SymbolId) -> bool {
+        // `isNeverInitialized` asks for a DEFINITE assignment
+        // (`checker.go:11147`): an outer `let i: number`
+        // touched only by `i++` keeps `undefined`.
+        self.symbol_has_any_assignment(symbol) && !self.is_never_initialized(symbol)
+            // `isNeverInitialized` requires a mutable LOCAL
+            // (`checker.go:11147`, `isMutableLocalVariableDeclaration`):
+            // a file-level declaration referenced inside a
+            // function is assumed initialized whatever its
+            // initializer says — the jsxEsprima half of the §9.7
+            // population, 48 lines the first refinement dropped.
+            || self.declaration_is_file_level(symbol)
+    }
+
+    /// `checkIdentifier`'s implicit-any test (`checker.go:11182`): whether the
+    /// flow type of `reference`, an identifier read of the auto-typed
+    /// `symbol`, is `autoType` itself — every path reaching the top of the
+    /// graph with the auto initial type unchanged, no assignment and no
+    /// union with anything else. Native then reports TS7034 at the
+    /// declaration and TS7005 at the reference (under `noImplicitAny`) and
+    /// answers `convertAutoToAny`; this answers only the test, for the
+    /// reporter in `implicit_any.rs`.
+    ///
+    /// The query road spells `autoType` as `anyType`, so `auto ∪ string`
+    /// (native `anyType`) and `auto` alone are one answer there. This walks
+    /// the same graph once more with [`Intrinsics::auto`](crate::intrinsics::Intrinsics)
+    /// as the declared type, where `getUnionType`'s any collapse
+    /// (`includes.error.unwrap_or(any)`) and member dedupe separate them as
+    /// native's identity does. The initial type is native's for an
+    /// automatic type: `undefinedType` unless `assumeInitialized`, whose
+    /// outer-variable disjunct is the START arm's declared-type exit.
+    ///
+    /// **Boundary.** `intrinsics.auto` never leaves this function: it is the
+    /// walk's declared type, the UNREACHABLE arm converts it to `any` as
+    /// `convertAutoToAny` does, loop-cache keys carry an auto bit so no
+    /// result crosses between this walk and the query road, and the answer
+    /// is a `bool`. Not covered: the auto-array track (`autoArrayType`,
+    /// `any[]`), and `assumeInitialized`'s module-exports, spread-target and
+    /// same-scoped-binding disjuncts. Cost: one extra walk per auto-typed
+    /// identifier read the reporter asks about (`noImplicitAny` only).
+    // Its caller is r7-reports' TS7034/TS7005 reporter in `implicit_any.rs`
+    // (`docs/parity/notes/r7-flow.md` §8).
+    #[allow(dead_code)]
+    pub(crate) fn identifier_flow_type_is_auto(
+        &mut self,
+        reference: NodeId,
+        symbol: SymbolId,
+    ) -> bool {
+        if !self.is_auto_typed_declaration(symbol)
+            || self.is_auto_array_declaration(symbol)
+            || self.is_evolving_array_operation_target(reference)
+        {
+            return false;
+        }
+        if self.flow_analysis_disabled {
+            return false;
+        }
+        // `getFlowTypeOfReferenceEx` answers the declared type without a
+        // flow node.
+        let Some(flow) = self.binder.flow_of(reference) else { return true };
+        let auto = self.intrinsics.auto;
+        let outer_reference = self.is_outer_reference(reference, Some(symbol));
+        // `assumeInitialized` (`checker.go:11150`) for an automatic type is
+        // its outer-variable disjunct, the condition of the START arm's
+        // declared-type exit; then the initial type is `autoType` itself.
+        let initial_type = if outer_reference && self.outer_auto_reference_is_initialized(symbol) {
+            auto
+        } else {
+            self.intrinsics.undefined
+        };
+        let mut state = FlowState {
+            array_elements: Vec::new(),
+            reduce_labels: Vec::new(),
+            reference,
+            symbol: Some(symbol),
+            declared_type: auto,
+            initial_type,
+            is_auto: true,
+            discriminant_pattern: None,
+            is_auto_array: false,
+            outer_reference,
+            flow_container: self.extended_flow_container(reference, Some(symbol)),
+            shared_flow_start: self.shared_flows.len(),
+            element_dedupe_mark: 0,
+            depth: 0,
+            synthetic: None,
+        };
+        let answer = self.get_type_at_flow_node(&mut state, flow);
+        self.shared_flows.truncate(state.shared_flow_start);
+        // `flow.go:111`: an unreachable read answers the declared type.
+        answer.t == auto || answer.t == self.intrinsics.unreachable_never
+    }
+
     /// `getSyntheticElementAccess` (`checker.go:17857`): the root and names
     /// of `node`'s synthetic access, when its parent access has a flow node
     /// and `node` has a literal destructuring name.
@@ -1073,19 +1169,7 @@ impl Checker<'_, '_> {
                     continue;
                 }
                 if state.outer_reference
-                    && (state.symbol.is_some_and(|s| {
-                        // `isNeverInitialized` asks for a DEFINITE assignment
-                        // (`checker.go:11147`): an outer `let i: number`
-                        // touched only by `i++` keeps `undefined`.
-                        self.symbol_has_any_assignment(s) && !self.is_never_initialized(s)
-                    })
-                        // `isNeverInitialized` requires a mutable LOCAL
-                        // (`checker.go:11147`, `isMutableLocalVariableDeclaration`):
-                        // a file-level declaration referenced inside a
-                        // function is assumed initialized whatever its
-                        // initializer says — the jsxEsprima half of the §9.7
-                        // population, 48 lines the first refinement dropped.
-                        || state.symbol.is_some_and(|s| self.declaration_is_file_level(s)))
+                    && state.symbol.is_some_and(|s| self.outer_auto_reference_is_initialized(s))
                 {
                     break FlowType { t: state.declared_type, incomplete: false };
                 }
@@ -1115,11 +1199,20 @@ impl Checker<'_, '_> {
                 // Upstream's default arm: unreachable-code errors belong to the
                 // binder, and the checker returns the declared type to avoid
                 // follow-on noise. `convertAutoToAny` (`checker.go:11186`) is
-                // upstream's follow-up here and needs no code: it maps
-                // `autoType` to `anyType`, and an automatic declaration's
-                // `declared_type` in this port already *is* `anyType` — the two
-                // are one intrinsic here rather than two.
-                break FlowType { t: state.declared_type, incomplete: false };
+                // upstream's follow-up here: it maps `autoType` to `anyType`.
+                // An automatic declaration's `declared_type` on the query road
+                // already *is* `anyType`; only the auto query
+                // ([`Checker::identifier_flow_type_is_auto`]) walks with
+                // `intrinsics.auto`, and converts here as native does.
+                let declared = state.declared_type;
+                break FlowType {
+                    t: if declared == self.intrinsics.auto {
+                        self.intrinsics.any
+                    } else {
+                        declared
+                    },
+                    incomplete: false,
+                };
             } else {
                 // §14: an ARRAY_MUTATION node against an auto-array
                 // reference is a RECURSION upstream (`flow.go:1404` calls
@@ -3712,19 +3805,27 @@ impl Checker<'_, '_> {
         // `var parent: ParseNode;`: the walk seeded with `| undefined` cached
         // the loop, the type query replayed it, and `parent` answered `any` at
         // nine sites plus one enclosing condition.
+        // The auto query walks with `intrinsics.auto` as its declared type:
+        // its loop results never replay into, or from, the query road's.
+        let auto_query = u64::from(state.declared_type == self.intrinsics.auto) << 62;
         let key = (
             tsr_core::index::Idx::index(flow),
-            match state.symbol {
-                Some(symbol) => symbol.index() as u64,
-                // A synthetic access is keyed by its destructuring node, the
-                // fresh node's stand-in (no real reference shares that id).
-                None => {
-                    (1 << 63)
-                        | u64::from(
-                            state.synthetic.as_ref().map_or(state.reference, |s| s.owner).as_u32(),
-                        )
-                }
-            },
+            auto_query
+                | match state.symbol {
+                    Some(symbol) => symbol.index() as u64,
+                    // A synthetic access is keyed by its destructuring node, the
+                    // fresh node's stand-in (no real reference shares that id).
+                    None => {
+                        (1 << 63)
+                            | u64::from(
+                                state
+                                    .synthetic
+                                    .as_ref()
+                                    .map_or(state.reference, |s| s.owner)
+                                    .as_u32(),
+                            )
+                    }
+                },
             state.initial_type,
         );
         if let Some((cached, elements)) = self.flow_loop_cache.get(&key) {
@@ -3925,6 +4026,19 @@ impl Checker<'_, '_> {
                 continue;
             }
             let t = self.get_type_at_flow_node(state, antecedent).t;
+            // `flow.go:1270`: a path answering the declared type, when the
+            // reference is always assigned (declared == initial), decides the
+            // join — the rest could only add subtypes. Only the auto query
+            // (`identifier_flow_type_is_auto`) takes it: there the identity
+            // is the answer, and its initial type is native's. The query road
+            // keeps its own initial (the declared type even where native's
+            // `assumeInitialized` is false and its initial is
+            // `getOptionalType(declared)`), so `declared == initial` there is
+            // not native's test: `typeGuardsWithInstanceOf` lost 8 lines
+            // (`r7-flow.md` §8).
+            if t == self.intrinsics.auto && state.initial_type == t {
+                return FlowType { t, incomplete: false };
+            }
             // `never` from a path means that path cannot reach here, so it
             // contributes nothing — which is what makes `if (x) {} else { throw }`
             // narrow after the `if`.
@@ -3967,6 +4081,10 @@ impl Checker<'_, '_> {
                 && !types.contains(&t)
                 && !self.bypass_of_exhaustive_switch(bypass)
             {
+                // `flow.go:1293`, the same declared-type shortcut.
+                if t == self.intrinsics.auto && state.initial_type == t {
+                    return FlowType { t, incomplete: false };
+                }
                 types.push(t);
                 if !self.is_type_subset_of(t, state.initial_type) {
                     subtype_reduction = true;
