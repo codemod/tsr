@@ -360,3 +360,35 @@ Result (commit 7), against the `63a147ac` freeze: types +5 RIGHT
 unchanged. Falsifier: a tuple pair the predicate calls unrelated while
 native's `TargetTupleType` flags disagree. Optional and rest elements are
 the place to look, since `minLength` counts required elements only.
+
+## 8. Held: re-checking literals that contain calls (ARRAY-LITERAL-TUPLE-CONTEXT)
+
+`Promise.all([fa(), fb()])` prints `Promise<A[][]>` where native prints
+`Promise<[A[], B[]]>`. §1's boundary skips a literal holding a call, so the
+generic tuple overload infers from a check an earlier candidate left in
+`node_types` (no tuple context). Native re-checks the literal per candidate
+and reuses the nested call through its cached `links.resolvedSignature`.
+
+[`r7-contextual-HELD-literal-call-boundary.diff`](r7-contextual-HELD-literal-call-boundary.diff)
+admits such literals. Its eviction stops at a call, `new` or tagged template,
+so their answers are reused. Literals holding a function, method, accessor or
+class stay excluded. Admitting those too lost `reverseMappedContravariantInference`
+(3 lines): a re-checked member's function type is re-derived here, and its
+return widening follows the new context.
+
+Measured against the freeze of commit 7 (`1c0a98d9`): types +20
+(`mappedTypesGenericTuples2` 10, `correctOrderOfPromiseMethod` 5,
+`awaitedType` 4, `deeplyNestedMappedTypes` 1), diagnostics +1
+(`correctOrderOfPromiseMethod`), but **−6 types / −1 diagnostics**, so the
+diff is not landed:
+
+- `mappedTypesGenericTuples2` 0:20-27: `result` is now native's
+  `[string, ...any[]]`, and `result.slice(1)` on that rest tuple answers
+  `error`. That is a tuple member gap (Array methods of a variadic-rest
+  tuple), not this lane's file.
+- `deeplyNestedMappedTypes` TS2322 at (69,5) and (77,5): `Static<typeof
+  Output>` changes from one wrong answer (`PropertiesReduce<…, unknown[] & []>`)
+  to another (`{}`), which relates, so the TS2322 is lost. The root is the
+  deep conditional/mapped evaluation of `PropertiesReduce` (r7-declared).
+
+It lands once either root is fixed and its re-measurement shows no loss.
