@@ -573,6 +573,27 @@ impl<'a> BindResult<'a> {
         node_map: &NodeMap<'a>,
         mut resolve: impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
     ) -> Self {
+        // `initializeChecker` merges the global augmentations before the
+        // module ones (`checker.go:1335-1349`), so a global augmentation of a
+        // UMD alias lands in the module first.
+        let umd_merges = self.umd_alias_merges(nodes, node_map);
+        if !umd_merges.is_empty() {
+            self.alias_merges.retain(|&(alias, source)| {
+                !umd_merges.iter().any(|m| (m.0, m.2) == (alias, source))
+            });
+            let pairs: Vec<_> =
+                umd_merges.iter().map(|&(_, module, source)| (module, source)).collect();
+            self = binder::Binder::resuming(arena, nodes, self).merge_pairs(&pairs);
+            // `mergeSymbolTable` stores what `mergeSymbol` returns
+            // (`checker.go:14109-14126`): the merged module replaces the
+            // alias in the globals table.
+            for &(alias, module, _) in &umd_merges {
+                let name = self.symbols.get(alias).name;
+                if self.globals.get(name) == Some(&alias) {
+                    self.globals.insert(name, module);
+                }
+            }
+        }
         let augmentations = std::mem::take(&mut self.module_augmentations);
         for augmentation in augmentations {
             if let Some(pattern) =
@@ -598,6 +619,50 @@ impl<'a> BindResult<'a> {
             }
         }
         self
+    }
+
+    /// The declined `(alias, module, source)` merges whose alias is a UMD global
+    /// (`export as namespace N`) and whose source merges into the module the
+    /// alias names. `mergeSymbol` resolves a non-transient target
+    /// (`checker.go:14153-14164`): the UMD alias resolves through
+    /// `getTargetOfNamespaceExportDeclaration` to its file's module
+    /// (`resolveExternalModuleSymbol(node.Parent.Symbol())`), and the source
+    /// merges into that module when its excludes miss the module's flags.
+    /// A pair they hit stays declined, for
+    /// `Checker::report_merge_conflicts`' `reportMergeSymbolError`.
+    fn umd_alias_merges(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+    ) -> Vec<(SymbolId, SymbolId, SymbolId)> {
+        self.alias_merges
+            .iter()
+            .filter_map(|&(alias, source)| {
+                let module = self.umd_alias_module(nodes, node_map, alias)?;
+                let source_flags = self.symbols.get(source).flags;
+                let module_flags = self.symbols.get(module).flags;
+                (!module_flags.intersects(SymbolFlags::ALIAS)
+                    && ((source_flags | module_flags).intersects(SymbolFlags::ASSIGNMENT)
+                        || !source_flags.excludes().intersects(module_flags)))
+                .then_some((alias, module, source))
+            })
+            .collect()
+    }
+
+    /// The module a UMD alias (`export as namespace N`) resolves to.
+    fn umd_alias_module(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        alias: SymbolId,
+    ) -> Option<SymbolId> {
+        let declaration = *self.symbols.get(alias).declarations.first()?;
+        if nodes.kind(declaration) != tsr_ast::SyntaxKind::NamespaceExportDeclaration {
+            return None;
+        }
+        let file = nodes.parent(declaration)?;
+        let module = self.merged_symbol(self.symbol_of(file)?);
+        self.resolve_external_module_symbol(nodes, node_map, module)
     }
 
     /// The pattern ambient module an augmentation's name resolves to, when it
