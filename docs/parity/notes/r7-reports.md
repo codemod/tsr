@@ -134,3 +134,44 @@ cases above; no other row changed; type lines byte-identical.
 merged declaration TSR's `merged_symbol` does not reach (an interface and a
 class, say) would show the pair lookup is narrower than
 `GetDeclarationOfKind` over the merged symbol.
+
+## 4. TS2820: `reportRelationError`'s string-literal suggestion
+
+**Forcing fact.** `didYouMeanStringLiteral` and
+`errorsForCallAndAssignmentAreSimilar` expect `Type '"strong"' is not
+assignable to type 'T1'. Did you mean '"string"'?` (TS2820) where TSR
+printed TS2322 at the same position.
+
+**Upstream.** `reportRelationError` (`relater.go:4751`), with no head
+message, after the comparable, same-name and exact-optional arms: a source
+with `TypeFlagsStringLiteral` against a union target asks
+`getSuggestedTypeForNonexistentStringLiteralType` (`checker.go:27252`), the
+spelling suggestion over the union's string-literal members, at most 1,000
+of them. A suggestion reports TS2820 and returns. It skips the
+type-parameter explanation and the excess/missing-property suppressions
+below it.
+
+**Port** (`assignreport.rs`, `report_relation_head` and
+`suggested_type_for_nonexistent_string_literal_type`). The arm runs only
+where the head resolved to plain TS2322, which is upstream's default arm. A
+caller head, or an exact-optional head, keeps its message, as upstream's
+earlier arms do. The 1,000-candidate cap is checked before the search.
+`tsr_core::spelling` has no count parameter, and native returns nil on the
+1,001st candidate, which is the same answer. Ties keep the earlier member in
+union order (`CompareTypes` order).
+
+**Not ported:** the same-name arm (TS2719,
+`incompatibleAssignmentOfIdenticallyNamedTypes`). It compares
+`getTypeNamesForErrorDisplay`, which re-prints both sides with
+`TypeFormatFlagsUseFullyQualifiedType` when the plain names collide, and
+this printer has no fully-qualified mode. Equal plain names are not equal
+qualified names (`A.T` vs `B.T`), so the arm waits on that printer flag.
+
+**Measured** (unfiltered, on top of §3): WRONG → RIGHT the two cases above;
+no other row changed. `thislessFunctionsNotContextSensitive1` (176,3) is
+missing TS2820 because no relation is reported there at all (a call-site
+argument check), not because of the head.
+
+**Falsifier.** A TS2820 TSR emits where the baseline has TS2322 would show
+the suggestion's candidate set or distance differs from
+`GetSpellingSuggestionWithMaxCandidateCount`.

@@ -4,7 +4,7 @@
 //! tsgo 5b1047d.
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
 
-const SOURCE: &str = r#"// @strict: true
+const SOURCE: &str = r"// @strict: true
 // @filename: a.ts
 export {};
 declare global {
@@ -15,7 +15,7 @@ declare global {
 function g(): Pair<number> { return null as any; }
 function h(p: Outer.Inner<string>) { return p; }
 declare const d: Pair<string>;
-"#;
+";
 
 fn assertions(source: &str) -> Vec<String> {
     let case = TestCase::parse("probe/global_augmentation_reuse", "a.ts", source);

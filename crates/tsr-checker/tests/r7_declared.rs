@@ -74,3 +74,28 @@ fn a_generic_mapped_check_defers() {
          function f<T>(b: Box<T>) { const q = b.v; }\n";
     assert_eq!(type_of_last_initializer(source), "IsP<T>");
 }
+
+/// §3: a check type that mentions only the type parameter its own signature
+/// binds is not generic (getGenericObjectFlags), so getConditionalType relates
+/// its permissive and restrictive instantiations and takes the false branch
+/// (tsgo: `r : { isAny: <T>(obj: any) => obj is T; }`).
+#[test]
+fn a_signature_bound_parameter_does_not_defer_the_check() {
+    let source = "type Ex<T, U> = T extends U ? never : T;\n\
+         type Outer<P> = { v: Ex<P, null> };\n\
+         declare const o: Outer<{ isAny: <T>(obj: any) => obj is T }>;\n\
+         const r = o.v;\n";
+    assert_eq!(type_of_last_initializer(source), "{ isAny: <T>(obj: any) => obj is T; }");
+}
+
+/// §3: a non-generic check that mentions a type parameter is decided when
+/// even its permissive instantiation is unrelated (checker.go:24377): `{ a:
+/// T }` against `{ b: string }` is the false branch whatever `T` is (tsgo:
+/// `q : 0`).
+#[test]
+fn a_definitely_false_check_mentioning_a_parameter_takes_the_false_branch() {
+    let source = "type Has<T> = { a: T } extends { b: string } ? 1 : 0;\n\
+         type Box<T> = { v: Has<T> };\n\
+         function f<T>(b: Box<T>) { const q = b.v; }\n";
+    assert_eq!(type_of_last_initializer(source), "0");
+}

@@ -36,7 +36,7 @@ fn codes(source: &str) -> Vec<String> {
     );
     let mut checker = Checker::new(&bound, &nodes, &node_map);
     checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
-    checker.diagnostics().iter().map(|(_, d)| d.code().to_string()).collect()
+    checker.diagnostics().iter().map(|(_, d)| d.code().clone()).collect()
 }
 
 /// getConstraintOfDistributiveConditionalType (checker.go:17286) for an

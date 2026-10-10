@@ -244,6 +244,7 @@ impl<'a> Checker<'a, '_> {
     /// them would be the confident wrong answer this function used to give
     /// every tuple. No cache or side table: the element lists are the
     /// existing tuple tables, read per call. `docs/parity/notes/r4-index2.md` §3.
+    #[allow(clippy::option_option, reason = "three states: not a tuple, a gap, an answer")]
     fn tuple_index_infos(&mut self, id: TypeId) -> Option<Option<Vec<IndexInfo>>> {
         let readonly;
         let value = if let Some((elements, is_readonly)) = self.tuple_element_lists.get(&id) {

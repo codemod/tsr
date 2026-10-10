@@ -28,9 +28,12 @@
 //!   any other symbol's raw `exports`. Late-bound class statics are not read.
 //! - `getAlternativeContainingModules` reads the enclosing file's
 //!   statement-level import/export specifiers; dynamic `import()`, `require`
-//!   and import types are not collected, and the all-files fallback
-//!   (`extendedContainers`) needs a program file list the checker does not
-//!   hold.
+//!   and import types are not collected. Its all-files fallback
+//!   (`extendedContainers`) reads the program's `SourceFile` rows
+//!   (r7-printer §1.2). The caches are the checker's, as native's
+//!   checker-lifetime symbol links: a file whose first query resolved one of
+//!   its imports keeps that answer for every later query in the file
+//!   (r7-printer §1.4).
 //! - `getContainersOfSymbol`'s JavaScript `exports.A = class {}` arm.
 //! - The port has no `globalThis` symbol (binder `merge_into_globals`); the
 //!   globals arm of `trySymbolTable` is answered by
@@ -127,27 +130,42 @@ struct ChainContext {
 /// Checker port convention record (`docs/conventions.md`):
 ///
 /// - **Native operation**: `symbolContainerLinks.accessibleChainCache`,
-///   `symbolContainerLinks.extendedContainersByFile` and
+///   `symbolContainerLinks.extendedContainersByFile`,
+///   `symbolContainerLinks.extendedContainers` and
 ///   `Checker.symbolTableAliasCache`.
 /// - **Key identity and owner**: the chain cache is keyed like native's
 ///   (`symbol`, `useOnlyExternalAliasing`, first relevant scope location,
 ///   `meaning`); the alias cache by table identity (globals and export
 ///   tables only, as native); the containing-modules cache by (`symbol`,
-///   enclosing file). Owned by the [`DeclarationEmitResolver`] value, i.e.
-///   one declaration-diagnostics run over one checker — native's live as
-///   long as the checker, and no other consumer reads them here.
+///   enclosing file), written only when the file's imports found a module;
+///   the extended-containers cache by `symbol` alone, as native's; the
+///   program's external-module list once; `getExportsOfSymbol` by symbol.
+///   Owned by the checker (`Checker::accessibility_links`), as native's
+///   links, and lent to each [`DeclarationEmitResolver`] for its life
+///   (r7-printer §1.4).
 /// - **Publication states**: absent = not computed; present = final.
 ///   Native publishes a chain even when the per-call `visitedSymbolTablesMap`
 ///   cut a recursive route short, and so does this port.
 /// - **Receiver/alias context**: the enclosing declaration enters only
 ///   through the scope location in the key.
 /// - **Expensive work**: alias resolution (`resolve_alias`, the checker's
-///   memo) and `getExportsOfSymbol` per alias candidate.
+///   memo) and `getExportsOfSymbol` per alias candidate; on the
+///   `extendedContainers` fallback, one pass over the node table's kinds and
+///   `getAliasForSymbolInContainer` per external module.
 #[derive(Default)]
 pub(crate) struct AccessibilityCache {
     chains: FxHashMap<(SymbolId, bool, Option<NodeId>, SymbolFlags), Vec<SymbolId>>,
     aliases: FxHashMap<TableId, Vec<SymbolId>>,
     containing_modules: FxHashMap<(SymbolId, NodeId), Vec<SymbolId>>,
+    /// `symbolContainerLinks.extendedContainers`: the program-wide fallback
+    /// of `getAlternativeContainingModules`, keyed by symbol alone (native's
+    /// is not location-specific either).
+    extended_containers: FxHashMap<SymbolId, Vec<SymbolId>>,
+    /// The program's external-module file symbols, in program order; built
+    /// on the first fallback.
+    program_external_modules: Option<Vec<SymbolId>>,
+    /// `getExportsOfSymbol` per symbol (native's `resolvedExports` link).
+    resolved_exports: FxHashMap<SymbolId, std::rc::Rc<[(String, SymbolId)]>>,
 }
 
 /// `modulespecifiers.CountPathComponents` (`modulespecifiers/compare.go:7`).
@@ -542,8 +560,54 @@ impl DeclarationEmitResolver<'_, '_, '_> {
                 results.push(module);
             }
         }
-        self.accessibility.containing_modules.insert((symbol, file), results.clone());
+        if !results.is_empty() {
+            self.accessibility.containing_modules.insert((symbol, file), results.clone());
+            return results;
+        }
+        // No results from files already imported by this one: every external
+        // module of the program (`extendedContainers`, `:217`), not
+        // location-specific, so cached per symbol.
+        if let Some(cached) = self.accessibility.extended_containers.get(&symbol) {
+            return cached.clone();
+        }
+        for module in self.program_external_modules() {
+            if self.alias_for_symbol_in_container(module, symbol).is_some() {
+                results.push(module);
+            }
+        }
+        self.accessibility.extended_containers.insert(symbol, results.clone());
         results
+    }
+
+    /// `c.program.SourceFiles()` filtered to `ast.IsExternalModule`, as
+    /// their merged module symbols, in program order. The checker holds no
+    /// file list; the node table's `SourceFile` rows are exactly the
+    /// program's files, allocated in program order (the order
+    /// [`Checker::compare_symbols_key`] already reads). Computed once per
+    /// checker, only when `getAlternativeContainingModules` first falls back.
+    fn program_external_modules(&mut self) -> Vec<SymbolId> {
+        if let Some(modules) = &self.accessibility.program_external_modules {
+            return modules.clone();
+        }
+        let nodes = self.checker.nodes;
+        let modules: Vec<SymbolId> = (0..nodes.len())
+            .filter_map(|index| {
+                let file = NodeId::new(u32::try_from(index).ok()?);
+                if nodes.kind(file) != K::SourceFile {
+                    return None;
+                }
+                let Some(Node::SourceFile(source)) = self.checker.node_map.get(file) else {
+                    return None;
+                };
+                if !tsr_binder::is_external_module(source) {
+                    return None;
+                }
+                let module = self.checker.binder.symbol_of(file)?;
+                Some(self.checker.binder.merged_symbol(module))
+            })
+            .collect();
+        self.accessibility.program_external_modules = Some(modules.clone());
+        modules
     }
 
     /// `getVariableDeclarationOfObjectLiteral` (`:226`).
@@ -572,9 +636,18 @@ impl DeclarationEmitResolver<'_, '_, '_> {
 
     /// `getExportsOfSymbol`, as the module docs scope it: a module's exports
     /// with its `export *` targets', any other symbol's raw exports.
-    fn exports_of_symbol(&mut self, symbol: SymbolId) -> Vec<(String, SymbolId)> {
+    /// Memoized per symbol for the checker's lifetime, as native's
+    /// `resolvedExports` link is: the binder's tables do not change once
+    /// checking starts.
+    fn exports_of_symbol(&mut self, symbol: SymbolId) -> std::rc::Rc<[(String, SymbolId)]> {
+        if let Some(exports) = self.accessibility.resolved_exports.get(&symbol) {
+            return exports.clone();
+        }
         let mut visited = Vec::new();
-        self.exports_with_stars(symbol, &mut visited)
+        let exports: std::rc::Rc<[(String, SymbolId)]> =
+            self.exports_with_stars(symbol, &mut visited).into();
+        self.accessibility.resolved_exports.insert(symbol, exports.clone());
+        exports
     }
 
     fn exports_with_stars(
@@ -655,7 +728,7 @@ impl DeclarationEmitResolver<'_, '_, '_> {
             return Some(quick);
         }
         let mut candidates: Vec<SymbolId> = Vec::new();
-        for (_, exported) in exports {
+        for &(_, exported) in exports.iter() {
             if self.same_reference(exported, symbol) {
                 candidates.push(exported);
             }
@@ -1214,10 +1287,9 @@ impl DeclarationEmitResolver<'_, '_, '_> {
                 .copied()
                 .filter(|&s| self.is_type_member(s)),
             TableId::Globals => binder.globals().get(name).copied(),
-            TableId::ResolvedExports(owner) => self
-                .exports_of_symbol(owner)
-                .into_iter()
-                .find_map(|(n, s)| (n == name).then_some(s)),
+            TableId::ResolvedExports(owner) => {
+                self.exports_of_symbol(owner).iter().find_map(|(n, s)| (n == name).then_some(*s))
+            }
             TableId::ClassExpressionName(node) => {
                 let Some(Node::ClassExpression(class)) = self.checker.node_map.get(node) else {
                     return None;
@@ -1251,7 +1323,7 @@ impl DeclarationEmitResolver<'_, '_, '_> {
                 .collect(),
             TableId::Globals => binder.globals().values().copied().collect(),
             TableId::ResolvedExports(owner) => {
-                self.exports_of_symbol(owner).into_iter().map(|(_, s)| s).collect()
+                self.exports_of_symbol(owner).iter().map(|&(_, s)| s).collect()
             }
             TableId::ClassExpressionName(node) => {
                 binder.symbol_of(node).map(|s| vec![binder.merged_symbol(s)]).unwrap_or_default()

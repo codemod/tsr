@@ -94,19 +94,20 @@ impl Checker<'_, '_> {
     /// printers port the rule (`docs/parity/notes/r5-instexpr.md` §3.3), these
     /// slots keep the previous per-node mint. A default (`<T = unique
     /// symbol>`) is not reused upstream and is not exempt.
+    #[allow(clippy::match_same_arms, reason = "arms follow native's separate stop conditions")]
     fn unique_symbol_awaits_printer_reuse(&self, operator: NodeId) -> bool {
         let mut child = operator;
         let mut current = self.nodes.parent(operator);
         while let Some(node) = current {
             match self.nodes.kind(node) {
                 SyntaxKind::TypePredicate => return true,
-                SyntaxKind::Parameter => return false,
                 SyntaxKind::TypeParameter => {
                     return matches!(self.node_map.get(node),
                         Some(Node::TypeParameterDeclaration(parameter))
                             if parameter.constraint.and_then(|c| c.node_id()) == Some(child));
                 }
-                SyntaxKind::FunctionDeclaration
+                SyntaxKind::Parameter
+                | SyntaxKind::FunctionDeclaration
                 | SyntaxKind::FunctionExpression
                 | SyntaxKind::ArrowFunction
                 | SyntaxKind::MethodDeclaration

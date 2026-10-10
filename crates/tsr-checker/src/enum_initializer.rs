@@ -461,8 +461,8 @@ impl Checker<'_, '_> {
             let Some(inner) = wrapper.expression.and_then(|e| e.node_id()) else { return none };
             expr = inner;
         }
-        let Some(node) = self.node_map.get(expr) else { return none };
-        match node {
+        let Some(expression_node) = self.node_map.get(expr) else { return none };
+        match expression_node {
             Node::PrefixUnaryExpression(unary) => {
                 let Some(operand) = unary.operand.and_then(|e| e.node_id()) else { return none };
                 let result = self.evaluate_enum_constant(operand, location, depth + 1, sink);

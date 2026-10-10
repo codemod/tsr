@@ -124,7 +124,7 @@ fn a_write_to_a_generic_intersection_object_is_not_related_through_a_constraint(
     // `Errors<T>` is an intersection holding a generic mapped type, so
     // isGenericObjectType skips the write-constraint step and `S -> T[K]`
     // fails.
-    let source = r#"type Errors<T> = { [P in keyof T]: string | undefined } & { all: string | undefined };
+    let source = r"type Errors<T> = { [P in keyof T]: string | undefined } & { all: string | undefined };
 function foo<T>() {
     let obj!: Errors<T>;
     let x!: keyof T;
@@ -134,7 +134,7 @@ type Plain = { a: string | undefined } & { b: string | undefined };
 function bar(obj: Plain, k: keyof Plain) {
     obj[k] = undefined;
 }
-"#;
+";
     assert_eq!(ts2322_lines(source), marked(source));
 }
 
@@ -144,7 +144,7 @@ fn an_alias_written_as_a_tuple_relates_as_that_tuple() {
     // alias's empty member table and relate vacuously. The recursive pair
     // `T1<U> -> T2<U>` is cut through the tuple node's recursion identity,
     // not walked to TS2321.
-    let source = r#"type S1<T> = [number, T];
+    let source = r"type S1<T> = [number, T];
 type S2<T> = [42, T];
 declare let a: S1<string>, b: S2<string>;
 b = a; // error
@@ -158,7 +158,7 @@ function qq<U>(x: T1<U>, y: T2<U>) {
     x = y;
     y = x; // error
 }
-"#;
+";
     assert_eq!(ts2322_lines(source), marked(source));
 }
 
@@ -167,7 +167,7 @@ fn an_intersection_bodied_alias_is_measured_and_falls_back_on_unreliable() {
     // `unionTypeInference` 62: `DeepPromised`'s intersection body is
     // measured; its mapped constituent reports Unreliable, so the failed
     // covariant `T -> { [name: string]: ... }` falls back to the structure.
-    let source = r#"type DP<T> = { tag?: true } & { [K in keyof T]: T[K] | DP<T[K]> };
+    let source = r"type DP<T> = { tag?: true } & { [K in keyof T]: T[K] | DP<T[K]> };
 function fun<T>(d: DP<T>) {
     const w: DP<{ [name: string]: {} | null | undefined }> = d;
 }
@@ -175,7 +175,7 @@ type I<T> = { a: T } & { b: string };
 declare let x: I<number>;
 const y: I<string> = x; // error
 const z: I<number | string> = x;
-"#;
+";
     assert_eq!(ts2322_lines(source), marked(source));
 }
 

@@ -1,6 +1,10 @@
 //! r6-modules2's global-script diff (`docs/parity/notes/r6-modules2.md` §2):
 //! TS1280 (`checkModuleDeclaration`) and TS1281 (`resolveNameHelper`'s enum
 //! arm) under `isolatedModules`, over a real program so files merge.
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_checker::check::FileContext;
 use tsr_compiler::{LoadOptions, Program};

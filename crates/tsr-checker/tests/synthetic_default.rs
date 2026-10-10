@@ -9,6 +9,10 @@
 //! | `get_type_with_synthetic_default_only` answers `None` | [`an_es_namespace_import_of_json_has_only_a_default`] **only** |
 //! | `namespace_import_default_member_type` answers `None` | [`a_commonjs_namespace_import_of_json_with_a_default_member_is_spread`] **only** |
 //! | `namespace_import_default_member_type` skips the `default`-member test | [`a_commonjs_namespace_import_of_json_without_a_default_member_is_the_json`] **only** |
+#![allow(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "test file names are lowercase literals"
+)]
 
 use tsr_ast::{NodeId, NodeMap, NodeTable, SyntaxKind};
 use tsr_binder::BindResult;
@@ -16,7 +20,7 @@ use tsr_checker::{Checker, resolution::ModuleHost};
 use tsr_core::{Arena, ModuleKind};
 
 /// `"./x"` names the fixture `x`; usages emit as ESM from `.mts` files and as
-/// CommonJS from `.cts` files (`GetEmitSyntaxForUsageLocation`).
+/// `CommonJS` from `.cts` files (`GetEmitSyntaxForUsageLocation`).
 struct Fixtures {
     files: Vec<(&'static str, NodeId)>,
 }

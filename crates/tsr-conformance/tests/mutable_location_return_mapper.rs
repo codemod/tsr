@@ -3,13 +3,13 @@
 //! Expectations from pinned native tsgo 5b1047d.
 use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
 
-const SOURCE: &str = r#"// @strict: true
+const SOURCE: &str = r"// @strict: true
 // @target: es2015
 enum E { A = 'A', B = 'B', C = 'C' }
 const m: Map<E, number> = new Map([[E.A, 1], [E.B, 2]]);
 declare function pair<K, V>(entries: [K, V][]): Map<K, V>;
 const p: Map<E, number> = pair([[E.C, 3]]);
-"#;
+";
 
 fn assertions(source: &str) -> Vec<String> {
     let case = TestCase::parse("probe/mutable_location_return_mapper", "a.ts", source);

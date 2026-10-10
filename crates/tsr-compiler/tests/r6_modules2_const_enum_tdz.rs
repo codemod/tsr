@@ -1,5 +1,9 @@
 //! r6-modules2's const-enum TDZ diff (`docs/parity/notes/r6-modules2.md` §4):
 //! `checkResolvedBlockScopedVariable`'s const-enum arm (`checker.go:1911`).
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_checker::check::FileContext;
 use tsr_compiler::{LoadOptions, Program};

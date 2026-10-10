@@ -4739,12 +4739,12 @@ mod property_name_tests {
             }
         }
 
-        let own = r#"static field = 11; static arrow = (n: number): string => 'field';
+        let own = r"static field = 11; static arrow = (n: number): string => 'field';
 static opaque = function({ [a + b]: value }: { value: number }): number { return value; };
 static own(n: number): string { return 'method'; }
 static get getter(): number { return 13; } static set setter(n: number) {}
 private static hidden = 19; protected static guarded = 23;
-static readonly fixed = 29; static optional?: number; static #secret = 31;"#;
+static readonly fixed = 29; static optional?: number; static #secret = 31;";
         let base = "class Base { static baseField = 101; static baseArrow = (n: number): string => 'base'; static baseMethod(n: number): string { return 'base-method'; } static dropShadow = (n: number): string => 'base-field'; static keepShadow(n: number): string { return 'base-method'; } }";
         let overrides = "static dropShadow(n: number): string { return 'derived-method'; } static keepShadow = (n: number): string => 'derived-field';";
         let merged = "namespace Foo { export const mergedField = 'merged'; export function mergedFn(n: number): string { return 'merged'; } export class Box {} export namespace Inner { export const field = 37; } export interface OnlyType { field: number; } export import aliasOwn = Foo.own; }";

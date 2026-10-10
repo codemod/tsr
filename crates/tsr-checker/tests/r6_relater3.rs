@@ -159,7 +159,7 @@ fn a_new_non_generic_alias_relates_structurally_not_by_alias_variance() {
     // structurally (`{ x: string }` both ways); `b = a` keeps `T`'s
     // variances. An alias written as an interface reference keeps the
     // reference's variances.
-    let source = r#"class A { x: string = 'A'; y: number = 0; }
+    let source = r"class A { x: string = 'A'; y: number = 0; }
 class B { x: string = 'B'; z: boolean = true; }
 type T<X extends { x: any }> = Pick<X, 'x'>;
 type C = T<A>;
@@ -175,6 +175,6 @@ type FooArray = FooBase[];
 declare let fa: FooArray;
 declare let ba: boolean[];
 ba = fa; // error
-"#;
+";
     assert_eq!(lines_of(source, &[2322]), marked(source));
 }

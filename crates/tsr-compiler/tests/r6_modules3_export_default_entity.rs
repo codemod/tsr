@@ -2,6 +2,10 @@
 //! §1): `export default a.b` is the alias upstream makes, and the default
 //! import names a merged `Property|Interface` target by its first named
 //! declaration (`getNameOfSymbolAsWritten`).
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_checker::check::FileContext;
 use tsr_compiler::{LoadOptions, Program};

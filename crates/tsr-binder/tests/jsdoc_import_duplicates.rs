@@ -27,7 +27,7 @@ fn codes(source: &str) -> Vec<(String, u32)> {
         &docs,
     );
     let mut codes: Vec<(String, u32)> =
-        bound.diagnostics().iter().map(|d| (d.code().to_string(), d.span.start)).collect();
+        bound.diagnostics().iter().map(|d| (d.code().clone(), d.span.start)).collect();
     codes.sort();
     codes
 }

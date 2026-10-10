@@ -4510,6 +4510,10 @@ impl<'a> Checker<'a, '_> {
             // `isPossiblyDiscriminantValue` (`checker.go`) admits an entity
             // name expression too: an enum member `E.A` (and a dotted
             // namespace path to one) is read context-free like a literal.
+            #[allow(
+                clippy::items_after_statements,
+                reason = "local to this loop's discriminant test"
+            )]
             fn entity_name_expression(expression: tsr_ast::Expression<'_>) -> bool {
                 match expression {
                     tsr_ast::Expression::Identifier(_) => true,

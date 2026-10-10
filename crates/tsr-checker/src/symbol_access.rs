@@ -740,14 +740,27 @@ pub struct DeclarationEmitResolver<'c, 'a, 'n> {
     pub(crate) accessibility: crate::symbol_accessibility::AccessibilityCache,
 }
 
+/// Hands the borrowed accessibility caches back to the checker. A resolver
+/// nested inside another (one built from a checker the outer one holds)
+/// borrowed an empty cache; the outer one's return, last, wins, so nothing
+/// is ever corrupted, only the inner one's additions are dropped.
+impl Drop for DeclarationEmitResolver<'_, '_, '_> {
+    fn drop(&mut self) {
+        self.checker.accessibility_links = std::mem::take(&mut self.accessibility);
+    }
+}
+
 impl<'c, 'a, 'n> DeclarationEmitResolver<'c, 'a, 'n> {
-    /// A resolver with no visibility decided yet.
+    /// A resolver with no visibility decided yet. It borrows the checker's
+    /// accessibility caches (native's `symbolContainerLinks`, which live as
+    /// long as the checker) and returns them when dropped.
     pub fn new(checker: &'c mut crate::checker::Checker<'a, 'n>) -> Self {
+        let accessibility = std::mem::take(&mut checker.accessibility_links);
         Self {
             checker,
             is_visible: FxHashMap::default(),
             aliases_marked: rustc_hash::FxHashSet::default(),
-            accessibility: crate::symbol_accessibility::AccessibilityCache::default(),
+            accessibility,
         }
     }
 

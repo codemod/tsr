@@ -30,7 +30,7 @@ impl AccessibilityResolver for Stub<'_, '_> {
         loop {
             match self.map.get(node) {
                 Some(Node::QualifiedName(name)) => {
-                    node = name.left.and_then(|l| l.node_id()).unwrap()
+                    node = name.left.and_then(|l| l.node_id()).unwrap();
                 }
                 Some(Node::PropertyAccessExpression(access)) => {
                     node = access.expression.and_then(|e| e.node_id()).unwrap();
@@ -56,7 +56,13 @@ fn diagnostics(source: &str) -> Vec<(u32, u32)> {
     let arena = tsr_core::Arena::new();
     let mut nodes = NodeTable::new();
     let mut map = NodeMap::new();
-    let parsed = tsr_parser::parse_into(&arena, source, Default::default(), &mut nodes, &mut map);
+    let parsed = tsr_parser::parse_into(
+        &arena,
+        source,
+        tsr_parser::ParseOptions::default(),
+        &mut nodes,
+        &mut map,
+    );
     let file = parsed.source_file.node_id.unwrap();
     let mut stub = Stub { map: &map };
     let mut out: Vec<(u32, u32)> = written_name_diagnostics(file, &nodes, &map, source, &mut stub)
@@ -139,7 +145,13 @@ fn tracked(source: &str, isolated_declarations: bool) -> Vec<(u32, u32)> {
     let arena = tsr_core::Arena::new();
     let mut nodes = NodeTable::new();
     let mut map = NodeMap::new();
-    let parsed = tsr_parser::parse_into(&arena, source, Default::default(), &mut nodes, &mut map);
+    let parsed = tsr_parser::parse_into(
+        &arena,
+        source,
+        tsr_parser::ParseOptions::default(),
+        &mut nodes,
+        &mut map,
+    );
     let file = parsed.source_file.node_id.unwrap();
     let mut resolver = Tracking { map: &map };
     let options = WalkOptions { isolated_declarations };

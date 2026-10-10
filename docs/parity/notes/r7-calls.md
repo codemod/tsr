@@ -127,3 +127,77 @@ missing a report at a TS2722-class location (`mappedTypeIndexedAccessConstraint`
 Coverage bin on the commit: `checker_types` 8,678/9,538 (+1),
 `checker_types_configured` 1,756/1,928 (+4), `diagnostics` 4,804/5,502
 (unchanged).
+
+## 3. A single generic construct signature reports (`.1153`, `.1158`, `.1172`)
+
+r6-callreport's diff 3 ([r6-callreport.md](r6-callreport.md) §4,
+[`r6-callreport-3-generic-new.diff`](r6-callreport-3-generic-new.diff)),
+applied unchanged on `2745f162`. `chooseOverload`'s generic arm
+(`checker.go:9046`) runs for a `new` whose single candidate is generic: its
+written type arguments are checked against their constraints, and the
+instantiation is checked with `reportErrors`. The instantiation is the one the
+`new` type road published (`signatureLinks.resolvedSignature`); only when
+none was published does the report run `check_generic_call_with`. A `new`
+with no arguments and no generic rest needs no instantiation.
+
+Round 6 held this diff for a +0.09% domain-model Ir cost over its diff 2.
+Valgrind is not installed in this orb, so this gate's measure is the
+protocol's median child CPU against the frozen `2745f162` binary at 41
+samples: domain-model 0.979, generic-imports 1.000. The remaining cost r6
+named (the published-signature reuse plus one argument relation on a
+successful generic `new`) is the cost calls already pay on the same path.
+
+**Measured** against `2745f162`: diagnostics +7, 0 lost; types 0 gained,
+0 lost. Converted: classTypeParametersInStatics, dataViewConstructor,
+genericClassWithStaticFactory, overloadresolutionWithConstraintCheckingDeferred,
+exportAssignmentConstrainedGenericType, overloadResolutionClassConstructors,
+typeArgumentInferenceConstructSignatures.
+
+Coverage bin on the commit: `diagnostics` 4,811/5,502 (+7); type suites
+unchanged.
+
+## 4. TS2775 / TS2776 — assertion call targets (`checker.go:8353`)
+
+Routed by the integrator from r7-flow.
+
+**Native.** After resolution, `checkCallExpression` checks a call statement
+(parent `ExpressionStatement`, no `?.`) whose signature returns `void` and has
+a type predicate (an `asserts` signature): a callee that is not
+`IsDottedName` is TS2776; otherwise, when `getEffectsSignature(node)` is nil
+(some name in the dotted target has no explicit type, so
+`getTypeOfDottedName` cannot reach the signature without flow analysis),
+TS2775 at the callee, with `getTypeOfDottedName`'s TS2782 related
+information.
+
+**Port.** `check_assertion_call_target` on the diagnostic walk, after the
+resolution reports. It reads the resolved signature the way this port's
+`getEffectsSignature` does (the non-nullable callee's sole non-generic call
+signature, else `resolve_call_signature_at`), answering before any resolution
+when no call signature of the callee has a predicate, and calls `flow.rs`'s
+`get_effects_signature` for the TS2775 test. The integrator approved one
+visibility-only change in `flow.rs`: `get_effects_signature` is `pub(crate)`.
+
+**Accepted:** the TS2782 related information is not attached (the
+diagnostics suite compares code and position).
+
+**Held, not committed.** Measured against `41ba17fa`: +1
+(assertionTypePredicates2), 3 lost (EMPTY_RIGHT → EMPTY_WRONG):
+`privateNamesAssertion` (both targets) and `requireAssertsFromTypescript`.
+assertionTypePredicates1 gains its four reports but also gets two false ones
+(150:9, 192:9), so it stays WRONG. Each false TS2775 is a gap in `flow.rs`'s
+`getTypeOfDottedName` / `getExplicitTypeOfSymbol` (`flow.go:2122`, `:2155`),
+which the check now exposes:
+
+- the for-of arm (`flow.go:2176`): a `for (let item of items)` variable has
+  the explicit iterated type of `getTypeOfDottedName(items)`
+  (assertionTypePredicates1 150:9 and 192:9). The same gap leaves
+  `item.assertIsTest2(); item.z` un-narrowed, the extra TS2339 at 151:14;
+- the private-identifier arm (`flow.go:2137`): `this.#p1(v)` looks up
+  `GetSymbolNameForPrivateIdentifier` (privateNamesAssertion);
+- a JS `const { art } = require('./ex')` binding is an alias that
+  `resolveSymbol` follows to the declared function
+  (requireAssertsFromTypescript 4:1).
+
+The port is kept as
+[`r7-calls-assertion-target.diff`](r7-calls-assertion-target.diff) until those
+arms land in `flow.rs` (routed).

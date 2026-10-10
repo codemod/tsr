@@ -1,6 +1,10 @@
 //! r6-modules2's import-equals diff (`docs/parity/notes/r6-modules2.md` §1):
 //! `import X = Y` resolves when `Y` is itself an import alias whose chain
 //! carries the namespace meaning (`getSymbol`'s alias rule).
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_checker::check::FileContext;
 use tsr_compiler::{LoadOptions, Program};

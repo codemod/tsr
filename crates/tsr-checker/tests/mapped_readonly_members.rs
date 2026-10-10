@@ -87,7 +87,7 @@ fn marked(source: &str) -> Vec<usize> {
 
 #[test]
 fn mapped_members_keep_their_modifiers_property_readonly() {
-    let source = r#"type A = { a: number; readonly c: boolean };
+    let source = r"type A = { a: number; readonly c: boolean };
 interface I { a: number; readonly c: boolean }
 type Pick<T, K extends keyof T> = { [P in K]: T[P] };
 type Exclude<T, U> = T extends U ? never : T;
@@ -106,6 +106,6 @@ declare let p6: { [P in 'c']: A[P] };
 p6.c = true;
 type B = Omit<A, 'a'>;
 function f(x: B) { x.c = true; } // error
-"#;
+";
     assert_eq!(ts2540_lines(source), marked(source));
 }

@@ -12,7 +12,7 @@ fn reports(source: &str) -> Vec<(String, u32, u32)> {
     tsr_parser::parse(&arena, source)
         .diagnostics
         .iter()
-        .map(|d| (d.code().to_string(), d.span.start, d.span.end))
+        .map(|d| (d.code().clone(), d.span.start, d.span.end))
         .collect()
 }
 

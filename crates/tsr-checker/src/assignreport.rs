@@ -2631,6 +2631,30 @@ impl<'a> Checker<'a, '_> {
         } else {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1
         };
+        // `reportRelationError`'s default arm (`relater.go:4790`): a string
+        // literal source against a union target whose string-literal members
+        // hold a spelling suggestion is TS2820 instead, and the report ends
+        // there — before the type-parameter elaboration and the chain
+        // suppressions below it.
+        if head.is_none()
+            && std::ptr::eq(message, &raw const messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1)
+            && let Some(suggestion) =
+                self.suggested_type_for_nonexistent_string_literal_type(source, target)
+        {
+            let suggestion = self.type_to_string(suggestion);
+            let mut diagnostic = Diagnostic::with_args(
+                &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_DID_YOU_MEAN_2,
+                span,
+                [source_text, target_text, suggestion],
+            );
+            if let Some(mut signature_error) = signature_error {
+                signature_error.span = span;
+                diagnostic.add_message_chain(Some(signature_error));
+            }
+            diagnostic.add_message_chain(chain);
+            self.report(file, diagnostic);
+            return;
+        }
         let mut diagnostic =
             self.relation_diagnostic(span, source, target, message, source_text, target_text);
         if let Some(mut signature_error) = signature_error {
@@ -2639,6 +2663,52 @@ impl<'a> Checker<'a, '_> {
         }
         diagnostic.add_message_chain(chain);
         self.report(file, diagnostic);
+    }
+
+    /// `getSuggestedTypeForNonexistentStringLiteralType` (`checker.go:27252`):
+    /// the target union's string-literal member closest in spelling to a
+    /// string-literal source, `GetSpellingSuggestionWithMaxCandidateCount`
+    /// with at most 1,000 candidates (more answers nil). Ties keep the
+    /// earlier member in union order, which is `CompareTypes` order.
+    fn suggested_type_for_nonexistent_string_literal_type(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<TypeId> {
+        let source_type = self.type_of(source);
+        if !source_type.flags.contains(TypeFlags::STRING_LITERAL)
+            || !self.type_of(target).flags.contains(TypeFlags::UNION)
+        {
+            return None;
+        }
+        let literal_text = |data: &TypeData| match data {
+            TypeData::StringLiteral(text)
+            | TypeData::EnumLiteral {
+                value: crate::types::EnumLiteralValue::String(text), ..
+            } => Some(text.clone()),
+            _ => None,
+        };
+        let name = literal_text(&source_type.data)?;
+        let TypeData::Union { types, .. } = &self.type_of(target).data else { return None };
+        let candidates: Vec<(usize, TypeId, String)> = types
+            .iter()
+            .filter(|&&member| self.type_of(member).flags.contains(TypeFlags::STRING_LITERAL))
+            .filter_map(|&member| {
+                literal_text(&self.type_of(member).data).map(|text| (member, text))
+            })
+            .enumerate()
+            .map(|(index, (member, text))| (index, member, text))
+            .collect();
+        if candidates.len() > 1000 {
+            return None;
+        }
+        tsr_core::spelling::get_spelling_suggestion(
+            &name,
+            candidates.iter(),
+            |(_, _, text)| text.as_str(),
+            |(left, _, _), (right, _, _)| left.cmp(right),
+        )
+        .map(|(_, member, _)| *member)
     }
 
     /// [`Checker::report_relation_failure`] for a JSX attributes source
