@@ -620,3 +620,10 @@ the tree, including a histogram of optional-token kinds (`printer_suite.rs`).
    recovery, and the checker reports them. `emitMappedType`
    (`printer.go:2137`) writes them after a line break (a space on one
    line) as an `LFPreserveLines` list; ported.
+2. **`TaggedTemplateExpression.question_dot_token`** (`taggedTemplateChain`):
+   ``a?.`b` `` now parses as a tagged template carrying the `?.`
+   (`parseTaggedTemplateRest`), and the checker reports TS1358.
+   Native's `emitTaggedTemplateExpression` (`printer.go:2601`) writes no
+   `?.`, which would reparse as a plain tagged template; the printer writes
+   the token. A deliberate deviation for tree preservation, as §405's
+   recovery `?`.
