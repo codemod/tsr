@@ -2027,3 +2027,27 @@ Refused by the box:
 - re-inferring every generic new (+0.9% Ir).
 
 The calls clusters are reopened unassigned.
+
+### Checkpoint wrap-up: r6-parsegate (batch CK)
+
+r6-parsegate classified all 168 `file_has_parse_errors` sites against
+native's hasParseDiagnostics contract:
+- 64 kept, each anchored to a native test;
+- 91 lifted;
+- 7 split;
+- 2 contradicted native and are corrected.
+
+None of the losses from lifting every gate was a parser-recovery divergence.
+Each was one of four native tests the gates had been standing in for:
+- `!isSuperCall` in resolveCall;
+- the tagged template's callIsIncomplete;
+- TS1141 before TS1194;
+- `NodeIsPresent(body)` for TS2378.
+
+Batch CK lands those four tests, the partial splits, and the call and access
+lifts (diffs 1–4). Measured by the box: +24 diagnostics cases, 0 lost, types
+byte-identical. Ir was unmeasured by the box; the gate measures it.
+
+The declarations/relations WIP lift (58 sites) is filed as `tsr-2zk.1264`.
+The parser node-error flags are `.1262`, and call/new callIsIncomplete is
+`.1263`.
