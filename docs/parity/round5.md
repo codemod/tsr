@@ -1917,3 +1917,23 @@ lines, 0 lost. Ir −0.07% on domain-model.
 The js-return-check WIP diff (+2/−2) is not landed. One of its losses traces
 to a JSDoc @template constraint lost in relations. `.1165`, `.1178` and
 `.1254` are reopened unassigned.
+
+### Checkpoint wrap-up: r6-declared3 (batch CF)
+
+Batch CF lands r6-declared3's 219e7d1: getPermissiveInstantiation and
+getRestrictiveInstantiation without the type-parameter registry bisection.
+It makes three changes:
+- one walk collects the mentioned type parameters;
+- getRestrictiveTypeParameter gets its per-parameter clone cache, whose
+  absence was defeating every downstream cache;
+- the restrictive instantiation is made only after the permissive relation
+  holds, as native does.
+
+Measured by the box: both dumps byte-identical, and Ir flat on the bench
+projects. ramdaToolsNoInfinite2 with the held binder diff drops from 45.36G to
+12.88G Ir (−71.6%).
+
+The remaining ramda cost is filed as `tsr-2zk.1261`: indexed.rs, and
+members.rs's per-call alias-frame map. The alias-reference-body WIP is not
+landed. The declared clusters `.1154`, `.1184`, `.1190`, `.1209`, `.1240` and
+`.1255` are reopened unassigned, with causes in the box's notes §2–§3.
