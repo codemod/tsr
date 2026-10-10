@@ -179,3 +179,66 @@ code): diagnostics **5,637 → 5,640 RIGHT (+3 cases)** — TS2703:
 zero losses on both dumps; `slowcases` clean. Ir domain-model
 1,092,012,508, generic-imports 343,092,233 (noise). The diffs apply in
 either order and independently of §2.1's.
+
+## 3. WIP at the round-6 usage checkpoint (not for landing)
+
+[`r6-jsdoc2-WIP-js-return-check.diff`](r6-jsdoc2-WIP-js-return-check.diff)
+holds two unrelated hunks, **measured together and NOT zero-loss**:
+
+- `assignreport.rs`: `check_return_statement`'s and
+  `check_arrow_expression_body`'s JS declines go; `return_type_from_annotation`
+  reads the reparsed `@returns` and, last, `getReturnTypeOfFullSignature`
+  (`checker.go:20058`).
+- `check.rs` `check_optional_binding_pattern_parameter`: TS2463 also for the
+  `?` `makeQuestionIfOptional` reparses from `@param [x]`
+  (`isOptionalDeclaration` is `HasQuestionToken`).
+
+Measured on `2e26f22`: diagnostics **+2** (`importTag24`,
+`optionalBindingParameters3` — the latter is the TS2463 hunk alone) and
+**−2**:
+
+- `returnConditionalExpressionJSDocCast` EMPTY_RIGHT→EMPTY_WRONG:
+  `check_return_expression`'s `skip_outer_parentheses` looks through a
+  reparsed `@type` cast into a conditional; native's cast is an
+  `AsExpression`, which `SkipParentheses` stops at. Fix: stop at
+  `is_jsdoc_type_assertion` parentheses.
+- `extendsTag5` RIGHT→WRONG: a constructor's `return a` (`@param {T} a`,
+  `@template {Foo} T`) reports TS2322/TS2409 because a JSDoc `@template`
+  type parameter has **no constraint in relations**. Traced: for the
+  type parameter's symbol, `type_parameter_constraint` (`members.rs`) asks
+  `jsdoc_template_constraint(declaration)`, whose
+  `self.node_map.get(tag)` does not answer the `JSDocTemplateTag` (the
+  probe never reached the tag arm), so `T` relates as unconstrained
+  (`/** @template {{a: number}} T @param {T} a */ function r(a) {
+  /** @type {{}} */ const g = a; }` is a false TS2322; the TypeScript twin
+  is clean). Separately, two functions' `@template T` in one file bind to
+  **one** symbol (declarations `[T of q, T of r]`), where native's
+  reparse makes each function's own type parameter. Both are this lane's
+  next items; the TS2463 hunk can be split out and landed alone once
+  measured alone.
+
+## 4. Remaining (handoff)
+
+- `tsr-2zk.1165`: §2's table — the r6-callreport cases (TS2554 ×5 cases,
+  TS2345 ×2), `controlFlowInstanceof` (`flow.rs`, main),
+  `classFieldSuperAccessibleJs1` (`members.rs` TS2565, main),
+  `checkJsdocSatisfiesTag10` (relater), `asyncArrowFunction_allowJs`
+  (contextual signature `Absent` producer).
+- `tsr-2zk.1178` (13 cases), split per operation: `jsDeclarationsDefaultsErr`,
+  `typedefCrossModule5` and `overloadTag2`'s TS2394 wait on batch BX
+  (r6-jsdoc §7/§8/§2); `overloadTag2` TS2554, `typeTagNoErasure` TS2345 and
+  `jsdocPostfixEqualsAddsOptionality` TS2345 are r6-callreport's JS call
+  gates; `importTag24` and `optionalBindingParameters3` are §3's WIP;
+  `jsdocCatchClauseWithTypeAnnotation` is TS18046/TS2339 on an `unknown`
+  receiver, unported in TypeScript too (`u.foo` with `u: unknown` is
+  silent; main's property-access path); `typedefScope1` is
+  `check_type_reference_name`'s JSDoc-name decline (`check.rs`; r5-jsdoc4
+  §4.1 measured +1/−6, not re-measured); `jsdocTemplateTagNameResolution`,
+  `recursiveTypeReferences2`, `jsdocImportType` (TS2454 vs TS18048) and
+  `jsDeclarationsTypeReassignmentFromDeclaration2` (TS4023, declaration
+  emit) not started.
+- `tsr-2zk.1254`: not started (`Object.<K,V>`, `callbackTagNamespace`,
+  alias-vs-target print, JS element-access context, `checkJsdocSatisfiesTag15`
+  (9,20), `overloadTag3`). Routed and untouched: `jsdocTemplateTag8`'s
+  in/out slot (r6-printer4), `typeTagNoErasure`'s relater TS2322
+  (r6-relater3), spread of `T|undefined` (r6-errorsplit3).
