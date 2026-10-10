@@ -1,0 +1,73 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 88c94338..92df7694 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -971,33 +971,41 @@ impl Checker<'_, '_> {
+         //
+         // One walk over all minted this-types decides whether any is mentioned;
+         // only then is the first mentioned one (table order) looked for.
+-        let property_type =
+-            if property_type != this_argument && self.is_minted_this_type(property_type) {
+-                this_argument
+-            } else if property_type != this_argument
+-                && self.mentions_this_type(property_type)
+-                && let Some(minted) = self
+-                    .this_types
+-                    .values()
+-                    .chain(self.this_type_nodes.values())
+-                    .copied()
+-                    .find(|&minted| self.mentions_type_parameter(property_type, &[minted], &[]))
+-            {
+-                // §165 (`checker-notes-narrow.md`), §164's embedded half: where
+-                // the this-type sits INSIDE the member's type — `fn(): this`
+-                // read off `c` wants `() => C` — the same
+-                // `getTypeWithThisArgument` substitution runs through
+-                // `instantiate_type`, which already handles it: a this-type is
+-                // TYPE_PARAMETER-flagged, so arm 1 maps it and the signature
+-                // text is REBUILT rather than reused. An instantiation that
+-                // gaps keeps the original rather than answering error.
+-                let map = [(minted, this_argument)];
+-                let names = ["this"];
+-                let image = self.instantiate_type(property_type, &map, &[minted], &names);
+-                if image == self.intrinsics.error { property_type } else { image }
+-            } else {
+-                property_type
+-            };
++        //
++        // A mapped receiver takes no this-argument: resolveMappedTypeMembers
++        // (checker.go:20894) instantiates the template with the key alone,
++        // so a `this` its template mentions is the enclosing class's, kept
++        // as written (`Omit<this, "m">`'s `publicProp` is `this["publicProp"]`,
++        // destructuringUnspreadableIntoRest).
++        let takes_this_argument = !self.mapped_types.contains_key(&receiver_type);
++        let property_type = if !takes_this_argument {
++            property_type
++        } else if property_type != this_argument && self.is_minted_this_type(property_type) {
++            this_argument
++        } else if property_type != this_argument
++            && self.mentions_this_type(property_type)
++            && let Some(minted) = self
++                .this_types
++                .values()
++                .chain(self.this_type_nodes.values())
++                .copied()
++                .find(|&minted| self.mentions_type_parameter(property_type, &[minted], &[]))
++        {
++            // §165 (`checker-notes-narrow.md`), §164's embedded half: where
++            // the this-type sits INSIDE the member's type — `fn(): this`
++            // read off `c` wants `() => C` — the same
++            // `getTypeWithThisArgument` substitution runs through
++            // `instantiate_type`, which already handles it: a this-type is
++            // TYPE_PARAMETER-flagged, so arm 1 maps it and the signature
++            // text is REBUILT rather than reused. An instantiation that
++            // gaps keeps the original rather than answering error.
++            let map = [(minted, this_argument)];
++            let names = ["this"];
++            let image = self.instantiate_type(property_type, &map, &[minted], &names);
++            if image == self.intrinsics.error { property_type } else { image }
++        } else {
++            property_type
++        };
+         // `checkPropertyAccessExpressionOrQualifiedName` ends by narrowing the
+         // property's declared type by the flow reaching this access
+         // (`getFlowTypeOfReference`, `checker.go:11430`) — `bd tsr-6ka`. Until
