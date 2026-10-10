@@ -2518,19 +2518,25 @@ impl Checker<'_, '_> {
         if optional {
             bump(&COUNTERS.optional_chain);
         }
-        let (callee_type, chain_stripped) = if optional
+        let (non_optional, chain_stripped) = if optional
             || callee.node_id().is_some_and(|id| self.expression_is_optional_chain(id))
         {
             let non_optional =
                 self.get_optional_expression_type(raw_callee_type, callee.node_id(), optional);
-            let stripped = self.check_non_null_type(non_optional);
-            if stripped == error {
-                return error;
-            }
-            (stripped, non_optional != raw_callee_type)
+            (non_optional, non_optional != raw_callee_type)
         } else {
             (raw_callee_type, false)
         };
+        // `resolveCallExpression` (`checker.go:8511`): every callee, chained
+        // or not, passes `checkNonNullTypeWithReporter` and the call resolves
+        // against its non-nullable type; a callee that is `unknown`, or
+        // nullable through and through, is `errorType` and the call is
+        // `resolveErrorCall`'s. The reports (TS2721/TS2722/TS2723, TS2571,
+        // TS18046) are the diagnostic walk's (`check_non_null_callee`).
+        let callee_type = self.check_non_null_type(non_optional);
+        if callee_type == error {
+            return error;
+        }
         let result = self.check_call_expression_worker(node, callee, callee_type);
         // checkCallExpression (native 5b1047d1): a CommonJS require in JS
         // returns the resolved module value, not the ambient call signature's

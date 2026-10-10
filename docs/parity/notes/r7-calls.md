@@ -90,3 +90,40 @@ read; it is read once `getSpreadArgumentType` is ported
 
 Coverage bin on the commit: `checker_types` 8,677/9,538 (unchanged),
 `diagnostics` 4,804/5,502 (4,786 at base).
+
+## 2. CHECK-NON-NULL-CALLEE — the call resolves against the non-nullable callee
+
+Routed by the integrator from r7-declared (their measured diff
+`r7-declared-calls-nonnull-callee.diff` on `box/r7-declared`).
+
+**Native.** `resolveCallExpression` (`checker.go:8495-8511`) strips an
+optional chain (`getOptionalExpressionType`) and then passes every callee,
+chained or not, through `checkNonNullTypeWithReporter`
+(`checker.go:7413`, reporter `reportCannotInvokePossiblyNullOrUndefinedError`):
+`unknown` under `strictNullChecks`, or a type whose non-nullable part is
+nullable or `never`, becomes `errorType` and the call is `resolveErrorCall`'s;
+otherwise the call resolves against `GetNonNullableType(funcType)`.
+
+**Before.** `check_call_expression` applied `check_non_null_type` only on the
+optional-chain arm; a plain call of `((o: number) => string) | undefined`
+resolved against the union and typed as `error` where native gives `string`.
+The reports (TS2721/TS2722/TS2723, TS18046/TS2571) were already the
+diagnostic walk's (`check_non_null_callee`), so only the type road changes.
+
+**Measured** against `5ea8f7e4`: types +11, 0 lost; diagnostics 0 gained,
+0 lost (both dumps unfiltered). Perf (median child CPU, new/old): 21 samples
+domain-model 0.981, generic-imports 1.250; at 41: 1.017 and 0.972.
+generic-imports runs ~65 ms, so a 21-sample median there moves by ±25%
+between runs; the 41-sample re-run is the measurement.
+
+**Not ported here.** Native reports TS18048 ("'g' is possibly 'undefined'")
+at the same callee as TS2722 for `const a = g(1)`: `getQuickTypeOfExpression`
+(`checker.go:7376`, the variable initializer's quick type) and
+`getEffectsSignature` (`flow.go:2065`) call `checkNonNullExpression` with the
+default reporter. No corpus case misses such a TS18048 today; the one case
+missing a report at a TS2722-class location (`mappedTypeIndexedAccessConstraint`
+53:34) misses the TS2722 itself, not yet diagnosed.
+
+Coverage bin on the commit: `checker_types` 8,678/9,538 (+1),
+`checker_types_configured` 1,756/1,928 (+4), `diagnostics` 4,804/5,502
+(unchanged).
