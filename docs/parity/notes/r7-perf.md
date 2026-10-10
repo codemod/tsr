@@ -749,9 +749,20 @@ lanes that own lazy returns. This cut does not change it.
 its type holds **no anonymous object type**, itself or as a
 union/intersection constituent (`holds_anonymous_object`). Anonymous object
 types are functions, methods, class, module and namespace values, which
-covers both findings. Named types (interfaces, classes, aliases with
-arguments), literals and primitives defer. `main.ts`'s `item: Model000` is
-the case §14 measured.
+covers both findings. **Nor may it hold an instantiable type** (a type
+parameter, indexed access, conditional or substitution type). Rebased onto
+batch-15 main `4bdd575d`, the anonymous-only rule added one jsTyping
+new_false: `debug.ts(189,13)` TS2322 on `assertionCache[name] = { level,
+assertion: Debug[name] }`. The deferred render of `Debug[name]` no longer
+asked for its constraint at the mint, and the relation's verdict changed
+with it. `804c649f` (anonymous-only) had already landed in batch 17. On
+`9acf69d7` jsTyping no longer reports that line under either rule, because
+r7-flow's `52706f75`/`02fb65bb` fixed the evaluation the render order
+exposed. The instantiable exclusion lands as a fidelity follow-up on top of
+it: native renders nothing at the mint, and the member whose render reads
+constraints keeps today's order. Named types
+(interfaces, classes, aliases with arguments), literals and primitives
+defer. `main.ts`'s `item: Model000` is the case §14 measured.
 
 **Measured** (against main `cd4afbcb`, frozen as `/tmp/box/base10`):
 
