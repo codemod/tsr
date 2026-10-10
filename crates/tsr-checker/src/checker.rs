@@ -3471,6 +3471,30 @@ impl<'a, 'n> Checker<'a, 'n> {
             return None;
         }
         let Some(container) = self.binder.symbols().get(symbol).parent else {
+            // r7-printer §10: `getContainersOfSymbol`'s fallback
+            // (`symbolaccessibility.go:288`) offers the module of a
+            // declaration that is a direct child of it when the module
+            // exports an alias of the symbol (`class C {}` then
+            // `export { C }`), so the chain is `[t1, C]`. The resolver ports
+            // that fallback; ask it for a symbol declared at a module's top
+            // level that no in-scope name reaches (`best_name`, the port's
+            // `trySymbolTable` walk, which also sees a destructured
+            // `const { K } = require(…)` the binder does not flag `ALIAS`).
+            if self.module_host.is_some()
+                && self.best_name(symbol, reference).is_none()
+                && self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+                    self.nodes.parent(declaration).is_some_and(|parent| {
+                        self.nodes.kind(parent) == SyntaxKind::SourceFile
+                            && self.is_external_or_common_js_module(parent)
+                    })
+                })
+                && let Some((root, leaf)) = self.module_rooted_chain_at(symbol, reference, meaning)
+                && self.binder.symbols().get(leaf).name == name
+            {
+                let specifier = self.module_specifier_for_symbol(root, reference)?;
+                self.track_unsafe_import(&specifier, symbol, root);
+                return Some(format!("import({specifier})."));
+            }
             // No container — for a symbol that lives in `c.globals` this is not
             // the end of the road upstream, it is `trySymbolTable`'s LAST arm.
             return self.global_this_chain(symbol, name, reference, meaning);
