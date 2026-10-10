@@ -338,3 +338,102 @@ Coverage: `checker_types` 8,739/9,538, `checker_types_configured`
 1,771/1,928, `diagnostics` 4,849/5,502, `diagnostics_configured` 968/1,091.
 Median child-CPU new/old (21 samples): domain-model 1.0058,
 generic-imports 0.9953. Workspace clippy clean; tests pass.
+
+## 7. `resolveESModuleSymbol`'s `hasSignatures` arm for a callable variable `export =`
+
+### Cause
+
+`resolveESModuleSymbol` (`checker.go:15610`) clones a namespace import when
+`hasSignatures(typ)` — a property of the module's *type*, whatever declares
+it. `module_clone_type` dispatched on the target's declaration kind: class →
+construct signatures, function → call signatures, an ESM-to-CJS module, and
+everything else to `namespace_import_default_member_type`, which admitted
+only a type with a `default` property. `declare module "bluebird" { const
+Bluebird: typeof Promise; export = Bluebird }` is a variable with construct
+signatures, so `import * as Bluebird` kept `PromiseConstructor` itself where
+native answers the synthetic-default spread with no signatures, `{ all…;
+[Symbol.species]: PromiseConstructor; default: PromiseConstructor; }`.
+
+### The port
+
+`namespace_import_default_member_type`'s gate is native's: call or construct
+signatures, or a `default` property. The rest of the arm is unchanged
+(`getTypeWithSyntheticDefaultImportType`, or §1's clone of the unchanged
+type, which carries no signatures). A synthetic type this port answers as
+the gap — the spread of a `const Foo = class …` constructor value's static
+side — declines to the uncloned value, as before, rather than introduce a gap
+(`symbol_chain.rs`' `module_class_clone_boundary_does_not_admit_other_export_meanings`
+pins that boundary; natively that import is cloned too). No new cache.
+
+`symbol_chain.rs`' `const Foo = function …; export = Foo` fixture pinned the
+old boundary (`Head` equal to `Raw`'s function type); natively the namespace
+import is the signature-less synthetic-default object, which it now asserts.
+
+### Measured (against `2fd5c9f4`)
+
++3 type lines, zero losses, diagnostics unchanged:
+`transformNestedGeneratorsWithTry` 0:0/0:8 and `augmentExportEquals7` 1:0
+(`{ default: () => void; }`, the same arm for a callable `var` `export =`),
+which converts that case. Coverage: `checker_types` 8,801/9,538,
+`checker_types_configured` 1,787/1,928, `diagnostics` 4,896/5,502,
+`diagnostics_configured` 981/1,091. Median child-CPU new/old: a 21-sample
+run read domain-model 1.0633 / 0.9252 on two runs; the 41-sample rerun is
+domain-model 0.9810, generic-imports 0.9701. Workspace clippy clean; tests
+pass. Remaining in `transformNestedGeneratorsWithTry`: `b()` / `await b()`
+read `any` (a call of an async function annotated `Bluebird<void>`), a
+separate root.
+
+## C. The rejected alias/mapper cutover (strand 2, `tsr-2zk.16.56.1.4`)
+
+### What the branch is
+
+`origin/recovery/rejected-alias-shared-20261007` is 41 commits on
+`db726c9c`, which was 1,581 commits behind round 7's base. None of the 41
+exists on main by patch-id or subject. The last two (`42779636`,
+`f7faed0c`) are a 55-file / +3,530-line WIP snapshot (SymbolRef require
+symbol, pending-callable displays, `find_cycle_start`, alias links, a
+singular `instantiation_expression.rs` beside main's
+`instantiation_expressions.rs`); the 39 before them are calls, inference,
+parser and property-view commits. A squash merge onto main conflicts in 27
+files (~90 hunks); the first commit already conflicts semantically (main
+caches interface signatures by `(SymbolRef, kind)`, the cutover threads a
+`this_argument` that would have to join that key). The recovery head does
+not build every example (`infergen`), and its `diagverdictdump`
+exhausts the orb's 7 GB (OOM-killed twice with the box otherwise idle).
+
+### Measured in its own era (types; diagnostics could not run)
+
+Unfiltered `verdictdump`, `db726c9c` vs the recovery head: **+587 / −94**
+RIGHT type lines (base 469,826 RIGHT of 477,970; head 470,319 of 478,047).
+Against current main (`f51103ba`, batch 13):
+
+- **410 of the 587 gains are already RIGHT on main**, landed by other lanes'
+  ports since; **177 remain**, concentrated in about 40 cases — the largest:
+  `expressionWithJSDocTypeArguments` 34, `controlFlowAliasing` 16,
+  `emptyObjectNotSubtypeOfIndexSignatureContainingObject1/2` 25,
+  `chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2` 16,
+  `inferenceContextualReturnTypeUnion2` 6, `keyofIntersection` 5,
+  `selfReferentialFunctionType` 5, `emptyTypeArgumentList(WithNew)` 10.
+- **All 94 of its losses are RIGHT on main**, so each would be a main loss
+  (`ramdaToolsNoInfinite2` 12, `reverseMappedTypeInferenceWidening1` 8,
+  `recursiveTypeReferences1` 5, `genericRestParameters1` 5, …).
+
+Of the cutover's 11 new test files run on main: 2 pass, 5 fail (concrete
+`this` in inherited call signatures, construct-only types not callable,
+native rest arity, instantiation-expression aliases and views), 4 do not
+compile (`skip_trivia`, `type_argument_list_span`,
+`InstantiationExpressionSignature` absent).
+
+### Decision
+
+Rebasing the line would buy at most 177 lines while carrying 94 repairs, an
+OOM and 90 conflict hunks against code main has since rewritten. The
+alternative taken: treat the 177 still-missing lines and the five failing
+tests as a work list, port each behavior directly on main in its owning
+lane, and keep the branch as the record it is. That changes the strand from
+"rebase and repair" to "harvest"; it is the integrator's call
+(`docs/parity/round7.md`). What would make the rebase win: a later main
+where the 94 losses' cases are already covered by tests that would catch
+them, and the conflict count dropping below a few hunks.
+
+Still-missing gain cases (lines): compiler/expressionWithJSDocTypeArguments 34; conformance/controlFlowAliasing 16; compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject2 16; compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2 16; compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject1 9; compiler/inferenceContextualReturnTypeUnion2 6; conformance/keyofIntersection 5; compiler/selfReferentialFunctionType 5; compiler/emptyTypeArgumentListWithNew 5; compiler/emptyTypeArgumentList 5; conformance/genericRestParameters1 4; conformance/strictBindCallApply1 3; conformance/importCallExpressionWithTypeArgument 3; conformance/conditionalTypes1 3; compiler/selfReferentialDefaultNoStackOverflow 3; compiler/ramdaToolsNoInfinite 3; compiler/circularInstantiationExpression 3; compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1 3; conformance/mappedTypeRelationships 2; conformance/arbitraryModuleNamespaceIdentifiers_importEmpty 2; compiler/promiseChaining2 2; compiler/promiseChaining1 2; compiler/promiseChaining 2; compiler/missingCommaInTemplateStringsArray 2; compiler/excessPropertyCheckIntersectionWithRecursiveType 2; compiler/enumAssignmentCompat4 2; compiler/deferredConditionalTypes 2; compiler/arrayFlatNoCrashInferenceDeclarations 2; compiler/arrayFlatNoCrashInference 2; compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased 2; conformance/thisTypeErrors 1; conformance/readonlyArraysAndTuples 1; conformance/genericRestParameters2 1; compiler/unusedTypeParametersNotCheckedByNoUnusedLocals 1; compiler/unusedTypeParametersCheckedByNoUnusedParameters 1; compiler/ramdaToolsNoInfinite2 1; compiler/parserPrivateIdentifierInArrayAssignment 1; compiler/keyRemappingKeyofResult 1; compiler/inferredRestTypeFixedOnce 1; compiler/conditionalTypeGenericInSignatureTypeParameterConstraint 1; compiler/circularlyReferentialInterfaceAccessNoCrash 1; 
