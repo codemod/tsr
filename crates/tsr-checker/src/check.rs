@@ -1167,6 +1167,7 @@ impl Checker<'_, '_> {
         self.check_jsdoc_satisfies_tags(node, ambient);
         if self.file_is_js {
             self.check_jsdoc_reparsed_this_parameter(node);
+            self.check_jsdoc_overload_declarations(node);
             for reparsed in self.jsdoc_reparsed_type_nodes(node) {
                 self.check_node(reparsed, ambient, depth + 1);
             }
@@ -13159,6 +13160,8 @@ impl Checker<'_, '_> {
     /// the file being checked reads the walk's ambient state; one of another
     /// file asks [`Self::is_ambient_declaration`].
     fn overload_effective_flags(&self, declaration: NodeId, current_file: NodeId) -> u8 {
+        // A JS `@overload` declaration copies its host's modifiers.
+        let declaration = self.jsdoc_overload_host(declaration).unwrap_or(declaration);
         let modifiers = self.node_map.get(declaration).and_then(modifiers_of);
         let has = |kind| modifiers.is_some_and(|modifiers| has_modifier(modifiers, kind));
         let mut flags = 0;
@@ -13278,7 +13281,16 @@ impl Checker<'_, '_> {
                 .map(str::to_string)
                 .and_then(|name| self.export_merge_local_symbol(node, own, &name))
                 .filter(|&local| local != own && local != symbol);
+            // `checkFunctionOrMethodDeclaration` (`checker.go:3430`): a JS
+            // file never checks the local symbol, and checks the symbol
+            // itself only when it has a parent (an export or a member).
             for checked in local.into_iter().chain(std::iter::once(symbol)) {
+                if self.file_is_js
+                    && (Some(checked) == local
+                        || self.binder.symbols().get(checked).parent.is_none())
+                {
+                    continue;
+                }
                 if self.function_symbol_checked.insert(checked) {
                     lists.push(
                         self.binder.symbols().get(checked).declarations.iter().copied().collect(),
@@ -13287,7 +13299,9 @@ impl Checker<'_, '_> {
             }
         } else {
             let siblings = self.constructor_siblings_of(node);
-            if siblings.first() == Some(&node) {
+            if siblings.iter().find(|&&sibling| self.jsdoc_overload_host(sibling).is_none())
+                == Some(&node)
+            {
                 lists.push(siblings);
             }
         }
@@ -13380,7 +13394,10 @@ impl Checker<'_, '_> {
         // silence where upstream says something else, and it was 18 of the 21
         // wrong lines left after the class-merge decline above.
         let parents_agree = {
-            let mut parents = declarations.iter().filter_map(|&d| self.nodes.parent(d));
+            // A JS `@overload` declaration sits beside its host.
+            let mut parents = declarations
+                .iter()
+                .filter_map(|&d| self.nodes.parent(self.jsdoc_overload_host(d).unwrap_or(d)));
             let first = parents.next();
             parents.all(|parent| Some(parent) == first)
         };
@@ -13421,6 +13438,7 @@ impl Checker<'_, '_> {
                     duplicate_function_implementation = true;
                 }
             } else if let Some(earlier) = previous
+                && self.jsdoc_overload_host(earlier).is_none()
                 && self.nodes.parent(earlier) == self.nodes.parent(declaration)
                 && !self.declaration_follows_immediately(earlier, declaration)
             {
@@ -13536,16 +13554,20 @@ impl Checker<'_, '_> {
         let Some(implementation) = self.get_signature_from_declaration(body) else { return };
         let Some(implementation) = self.complete_signature_return(implementation) else { return };
         for &declaration in overloads {
-            let Some(overload) = self.get_signature_from_declaration(declaration) else {
-                continue;
+            let overload = match self.jsdoc_overload_host(declaration) {
+                Some(_) => self.jsdoc_overload_signature(declaration),
+                None => self.get_signature_from_declaration(declaration),
             };
+            let Some(overload) = overload else { continue };
             let Some(overload) = self.complete_signature_return(overload) else { continue };
             if self.implementation_compatible_with_overload(&implementation, &overload)
                 != Ternary::NotRelated
             {
                 continue;
             }
-            let span = self.error_span(declaration);
+            let span = self
+                .jsdoc_overload_error_span(declaration)
+                .unwrap_or_else(|| self.error_span(declaration));
             self.report(
                 file,
                 Diagnostic::new(
@@ -13903,6 +13925,12 @@ impl Checker<'_, '_> {
                 ClassElement::ConstructorDeclaration(constructor) => constructor.node_id,
                 _ => None,
             })
+            // A JS constructor's `@overload` declarations precede it.
+            .flat_map(|constructor| {
+                let mut declarations = self.jsdoc_overload_tags(constructor);
+                declarations.push(constructor);
+                declarations
+            })
             .collect()
     }
 
@@ -13983,7 +14011,7 @@ impl Checker<'_, '_> {
                 | SyntaxKind::MethodDeclaration
                 | SyntaxKind::MethodSignature
                 | SyntaxKind::Constructor
-        )
+        ) || self.jsdoc_overload_host(node).is_some()
     }
 
     /// `ast.NodeIsPresent(node.Body())`.

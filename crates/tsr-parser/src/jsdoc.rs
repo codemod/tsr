@@ -452,13 +452,32 @@ impl<'a> Parser<'a> {
             "import" => self.parse_import_tag(start, tag_name, margin, indent_text),
             "typedef" => self.parse_typedef_tag(start, tag_name, margin, indent_text),
             "callback" => self.parse_callback_tag(start, tag_name, margin, indent_text),
+            // `parseOverloadTag` (`parser/jsdoc.go:1157`): the tag's own
+            // comment, then the `@param`/`@this`/`@return` run as one
+            // signature, stored as the parameters and return type
+            // `reparseJSDocSignature` (`parser/reparser.go:142`) gives the
+            // overload declaration it emits.
             "overload" => {
-                let type_expression = self.try_parse_type_expression();
-                let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
-                tsr_ast::JSDocTag::JSDocOverloadTag(self.finish_jsdoc_node(
-                    JSDocOverloadTag::new(tag_name, type_expression, comment),
+                self.skip_whitespace();
+                let mut comment = self.parse_tag_comments(margin);
+                let signature = self.parse_jsdoc_signature(start, margin, false);
+                if comment.is_empty() {
+                    comment = self.parse_trailing_tag_comments(start, margin, indent_text);
+                }
+                let end = if comment.is_empty() {
+                    self.span_of(signature.node_id).end
+                } else {
+                    self.pos()
+                };
+                tsr_ast::JSDocTag::JSDocOverloadTag(self.finish_node_with_end(
+                    JSDocOverloadTag::new(
+                        tag_name,
+                        Some(TypeNode::FunctionTypeNode(signature)),
+                        comment,
+                    ),
                     SyntaxKind::JSDocOverloadTag,
                     start,
+                    end,
                 ))
             }
             "see" => {
@@ -875,7 +894,7 @@ impl<'a> Parser<'a> {
         self.skip_whitespace();
         let mut comment = self.parse_tag_comments(margin);
         let signature_start = self.pos();
-        let signature = self.parse_jsdoc_signature(signature_start, margin);
+        let signature = self.parse_jsdoc_signature(signature_start, margin, true);
         if comment.is_empty() {
             comment = self.parse_trailing_tag_comments(start, margin, indent_text);
         }
@@ -898,13 +917,17 @@ impl<'a> Parser<'a> {
     /// (`parser/reparser.go:142`): the callback parameters, then one
     /// optional `@return`, as a function type.
     ///
-    /// `@overload` still parses flat: its reparse is an overload declaration
-    /// of the host function, which needs the checker's overload-signature arm
-    /// before the children can move.
+    /// An `@overload`'s signature (`callback: false`) is the same function
+    /// type, except that a missing `@return` leaves the return type unset:
+    /// its reparse is a body-less declaration, not `NewFunctionTypeNode(…,
+    /// any)`. The checker answers the declaration's other parts — its kind,
+    /// name, modifiers and `gatherTypeParameters` list — from the host
+    /// (`jsdoc_overloads.rs`).
     fn parse_jsdoc_signature(
         &mut self,
         start: u32,
         indent: u32,
+        callback: bool,
     ) -> &'a tsr_ast::FunctionTypeNode<'a> {
         // parseCallbackTagParameters (`parser/jsdoc.go:1101`).
         let mut parameters: Vec<tsr_ast::JSDocTag<'a>> = Vec::new();
@@ -1001,16 +1024,18 @@ impl<'a> Parser<'a> {
             .and_then(|expression| jsdoc_type_expression_type(Node::from(expression)));
         // A callback's reparse starts from `NewFunctionTypeNode(nil, nil,
         // NewKeywordTypeNode(AnyKeyword))`.
-        let return_type = return_type.unwrap_or_else(|| {
-            TypeNode::KeywordTypeNode(self.finish_node_with_end(
-                tsr_ast::KeywordTypeNode::new(SyntaxKind::AnyKeyword),
-                SyntaxKind::AnyKeyword,
-                end,
-                end,
-            ))
+        let return_type = return_type.or_else(|| {
+            callback.then(|| {
+                TypeNode::KeywordTypeNode(self.finish_node_with_end(
+                    tsr_ast::KeywordTypeNode::new(SyntaxKind::AnyKeyword),
+                    SyntaxKind::AnyKeyword,
+                    end,
+                    end,
+                ))
+            })
         });
         self.finish_node_with_end(
-            tsr_ast::FunctionTypeNode::new(&[], parameters, Some(return_type), &[], None),
+            tsr_ast::FunctionTypeNode::new(&[], parameters, return_type, &[], None),
             SyntaxKind::FunctionType,
             start,
             end,

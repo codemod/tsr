@@ -814,6 +814,11 @@ impl<'a> Checker<'a, '_> {
             self.binder.symbols().get(symbol).declarations.iter().copied().collect();
         let mut result = Vec::new();
         for (index, &declaration) in declarations.iter().enumerate() {
+            // A JS `@overload` is a reparsed declaration (`jsdoc_overloads.rs`).
+            if self.jsdoc_overload_host(declaration).is_some() {
+                result.push(self.jsdoc_overload_signature(declaration)?);
+                continue;
+            }
             if self.signature_parts_of(declaration).is_none() {
                 continue;
             }
@@ -1002,13 +1007,27 @@ impl<'a> Checker<'a, '_> {
                 tsr_ast::ClassElement::ConstructorDeclaration(node) => node.node_id,
                 _ => None,
             })
+            // The `__constructor` symbol's declarations: a JS constructor's
+            // `@overload` declarations precede it (`jsdoc_overloads.rs`).
+            .flat_map(|constructor| {
+                let mut declarations = self.jsdoc_overload_tags(constructor);
+                declarations.push(constructor);
+                declarations
+            })
             .collect();
         let mut signatures = Vec::new();
         for (index, &constructor) in constructors.iter().enumerate() {
             if index > 0 && self.is_overload_implementation(constructor, constructors[index - 1]) {
                 continue;
             }
-            let mut signature = self.get_signature_from_declaration(constructor)?;
+            let mut signature = match self.jsdoc_overload_host(constructor) {
+                Some(_) => {
+                    let mut signature = self.jsdoc_overload_signature(constructor)?;
+                    signature.type_parameters.clone_from(&type_parameters);
+                    signature
+                }
+                None => self.get_signature_from_declaration(constructor)?,
+            };
             signature.kind = kind;
             signature.r#type = instance;
             signatures.push(signature);
@@ -1370,6 +1389,11 @@ impl<'a> Checker<'a, '_> {
     /// next child of the shared parent answers the same question from the data
     /// this port does have.
     pub(crate) fn is_overload_implementation(&self, declaration: NodeId, previous: NodeId) -> bool {
+        if let Some(implementation) =
+            self.jsdoc_overload_precedes_implementation(declaration, previous)
+        {
+            return implementation;
+        }
         if self.signature_parts_of(declaration).and_then(|parts| parts.body).is_none()
             || self.nodes.kind(declaration) != self.nodes.kind(previous)
         {
@@ -6349,7 +6373,10 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// One type parameter, or `None` for a form this port cannot print exactly.
-    fn type_parameter_of(&mut self, node: &TypeParameterDeclaration<'a>) -> Option<TypeParameter> {
+    pub(crate) fn type_parameter_of(
+        &mut self,
+        node: &TypeParameterDeclaration<'a>,
+    ) -> Option<TypeParameter> {
         // §33: exactly the `const` modifier is admitted (and printed);
         // variance modifiers still decline the signature whole.
         let mut is_const = false;

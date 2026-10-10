@@ -6929,42 +6929,6 @@ impl<'a> Checker<'a, '_> {
             return Some((annotation, false));
         }
         let function = self.nodes.parent(parameter)?;
-        let mut hosts = vec![function];
-        let mut current = self.nodes.parent(function);
-        for _ in 0..4 {
-            let Some(id) = current else { break };
-            match self.nodes.kind(id) {
-                SyntaxKind::VariableDeclaration
-                | SyntaxKind::VariableDeclarationList
-                | SyntaxKind::VariableStatement
-                | SyntaxKind::PropertyAssignment
-                | SyntaxKind::PropertyDeclaration
-                | SyntaxKind::ExpressionStatement
-                | SyntaxKind::ParenthesizedExpression
-                | SyntaxKind::ExportAssignment
-                | SyntaxKind::BinaryExpression => {
-                    hosts.push(id);
-                    current = self.nodes.parent(id);
-                }
-                _ => break,
-            }
-        }
-        // An `@overload`-documented implementation is a different regime: its
-        // parameters aggregate the UNION of the overload signatures' types
-        // (`overloadTag1` wants `a : string | number`), which the existing
-        // signature machinery already answers. A first-match read here
-        // overrode it with the first overload's slot — 11 lines RIGHT→WRONG
-        // on the first draft's pair, so the whole road declines when any doc
-        // in scope carries an `@overload`.
-        for host in &hosts {
-            if let Some(docs) = self.jsdoc_entries.get(host)
-                && docs.iter().any(|doc| {
-                    doc.tags.iter().any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocOverloadTag(_)))
-                })
-            {
-                return None;
-            }
-        }
         // `getEffectiveTypeAnnotationNode`'s JSDoc arm reads the reparsed
         // `param.Type`: the `@param` `findMatchingParameter` chose for this
         // position in the host's last comment (ADR-0046's one replay).

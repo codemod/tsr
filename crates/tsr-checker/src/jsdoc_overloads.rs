@@ -36,15 +36,13 @@ use tsr_core::Span;
 use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::checker::Checker;
+use crate::jsdoc_params::top_level_tags;
+use crate::signatures::Signature;
 
-impl Checker<'_, '_> {
+impl<'a> Checker<'a, '_> {
     /// The host whose comment holds `tag`, when `tag` is an `@overload` that
     /// `reparseUnhosted` makes a declaration of (a function, method or
     /// constructor declaration outside every object literal).
-    #[expect(
-        dead_code,
-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
-    )]
     pub(crate) fn jsdoc_overload_host(&self, tag: NodeId) -> Option<NodeId> {
         if self.nodes.kind(tag) != SyntaxKind::JSDocOverloadTag {
             return None;
@@ -59,10 +57,6 @@ impl Checker<'_, '_> {
 
     /// The `@overload` tags whose declarations `reparseUnhosted` puts before
     /// `host`, in source order: every comment's, not only the last one's.
-    #[expect(
-        dead_code,
-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
-    )]
     pub(crate) fn jsdoc_overload_tags(&self, host: NodeId) -> Vec<NodeId> {
         let Some(docs) = self.jsdoc_entries.get(&host) else { return Vec::new() };
         if !self.jsdoc_hosts_overloads(host) || !self.in_js_file(host) {
@@ -83,10 +77,6 @@ impl Checker<'_, '_> {
     /// and parent — upstream's `decl.Parent == previous.Parent && decl.Kind ==
     /// previous.Kind`, with the reparsed flag standing in for adjacency.
     /// `None` when `previous` is not an `@overload` declaration.
-    #[expect(
-        dead_code,
-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
-    )]
     pub(crate) fn jsdoc_overload_precedes_implementation(
         &self,
         declaration: NodeId,
@@ -109,10 +99,6 @@ impl Checker<'_, '_> {
     /// Where an error on the reparsed declaration lands:
     /// `reparseJSDocSignature` finishes it at the tag's name
     /// (`finishReparsedNode(signature, tag.TagName())`).
-    #[expect(
-        dead_code,
-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
-    )]
     pub(crate) fn jsdoc_overload_error_span(&self, tag: NodeId) -> Option<Span> {
         self.jsdoc_overload_host(tag)?;
         let Some(Node::JSDocOverloadTag(overload)) = self.node_map.get(tag) else { return None };
@@ -126,10 +112,6 @@ impl Checker<'_, '_> {
     /// reports implicit any, which `reportImplicitAny` words as TS7012 for a
     /// reparsed one (`checker.go:18332`). The signature-set checks run once
     /// per symbol from the host (`check_function_or_constructor_symbol`).
-    #[expect(
-        dead_code,
-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-overload.diff"
-    )]
     pub(crate) fn check_jsdoc_overload_declarations(&mut self, host: NodeId) {
         if !self.no_implicit_any {
             return;
@@ -156,6 +138,53 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// The signature of the declaration `reparseJSDocSignature` makes of an
+    /// `@overload` tag: `getSignatureFromDeclaration` over its reparsed
+    /// parameters and return type, with the type parameters
+    /// `gatherTypeParameters(jsDoc, false)` gives it — or, for a
+    /// constructor, the class's (`checker.go:19891`), which the constructor
+    /// list's caller sets with the kind and return type.
+    /// `None` when `tag` is not an `@overload` declaration or a part does
+    /// not compute.
+    pub(crate) fn jsdoc_overload_signature(&mut self, tag: NodeId) -> Option<Signature> {
+        let host = self.jsdoc_overload_host(tag)?;
+        let Some(Node::JSDocOverloadTag(overload)) = self.node_map.get(tag) else { return None };
+        let Some(TypeNode::FunctionTypeNode(function)) = overload.type_expression else {
+            return None;
+        };
+        let mut signature = self.get_signature_from_declaration(function.node_id?)?;
+        if self.nodes.kind(host) != SyntaxKind::Constructor {
+            let doc = self.nodes.parent(tag)?;
+            let mut type_parameters = Vec::new();
+            for node in self.jsdoc_gathered_type_parameters(doc) {
+                type_parameters.push(self.type_parameter_of(node)?);
+            }
+            signature.type_parameters = type_parameters;
+        }
+        Some(signature)
+    }
+
+    /// `gatherTypeParameters(jsDoc, false)` (`parser/reparser.go:293`): the
+    /// parameters of every top-level `@template` tag of the comment, or none
+    /// when the comment declares a `@typedef` or `@callback`.
+    fn jsdoc_gathered_type_parameters(
+        &self,
+        doc: NodeId,
+    ) -> Vec<&'a tsr_ast::TypeParameterDeclaration<'a>> {
+        let Some(Node::JSDoc(doc)) = self.node_map.get(doc) else { return Vec::new() };
+        let mut out = Vec::new();
+        for tag in top_level_tags(doc.tags) {
+            match tag {
+                JSDocTag::JSDocTypedefTag(_) | JSDocTag::JSDocCallbackTag(_) => return Vec::new(),
+                JSDocTag::JSDocTemplateTag(template) => {
+                    out.extend(template.type_parameters.iter().copied());
+                }
+                _ => {}
+            }
+        }
+        out
     }
 
     /// Whether `reparseUnhosted`'s `KindJSDocOverloadTag` arm

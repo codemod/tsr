@@ -3645,10 +3645,30 @@ impl<'a, 'n> Binder<'a, 'n> {
                                 self.bind(tsr_ast::Node::from(*argument));
                             }
                         }
+                        // `reparseUnhosted`'s `KindJSDocOverloadTag` arm
+                        // (`parser/reparser.go:134`): a function, method or
+                        // constructor declaration outside every object
+                        // literal gets a body-less declaration per tag, which
+                        // `parseListIndex` (`parser/parser.go:619`) puts
+                        // *before* the host, so the binder files it ahead of
+                        // the host in the shared symbol's declarations — the
+                        // order `getSignaturesOfSymbol`'s implementation rule
+                        // reads. Its parameters bind like a written
+                        // signature's.
                         JSDocTag::JSDocOverloadTag(overload) => {
                             let Some(id) = overload.node_id else { continue };
+                            if !self.jsdoc_hosts_overloads(*host) {
+                                continue;
+                            }
+                            if let Some(signature) = overload.type_expression {
+                                self.bind(tsr_ast::Node::from(signature));
+                            }
                             if let Some(symbol) = self.node_symbols[host.index() - self.node_base] {
-                                self.symbols.get_mut(symbol).declarations.push(id);
+                                let declarations = &mut self.symbols.get_mut(symbol).declarations;
+                                match declarations.iter().position(|&d| d == *host) {
+                                    Some(at) => declarations.insert(at, id),
+                                    None => declarations.push(id),
+                                }
                             }
                         }
                         _ => {}
@@ -3656,6 +3676,29 @@ impl<'a, 'n> Binder<'a, 'n> {
                 }
             }
         }
+    }
+
+    /// Whether `reparseUnhosted` makes overload declarations from `host`'s
+    /// comments: a function, method or constructor declaration parsed
+    /// outside every object literal's member list (`parsingContexts` keeps
+    /// `PCObjectLiteralMembers` through every list nested in one).
+    fn jsdoc_hosts_overloads(&self, host: NodeId) -> bool {
+        if !matches!(
+            self.nodes.kind(host),
+            SyntaxKind::FunctionDeclaration
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::Constructor
+        ) {
+            return false;
+        }
+        let mut current = self.nodes.parent(host);
+        while let Some(id) = current {
+            if self.nodes.kind(id) == SyntaxKind::ObjectLiteralExpression {
+                return false;
+            }
+            current = self.nodes.parent(id);
+        }
+        true
     }
 
     /// The locals a `@typedef`/`@callback` alias documented on `host` is
