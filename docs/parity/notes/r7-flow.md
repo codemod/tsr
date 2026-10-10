@@ -350,3 +350,19 @@ Measured on `e65ec3bf`: types **+32** (`privateNameInInExpression` es2022 and
 esnext 14 each, `privateNameInInExpressionTransform` ×3, `importHelpersES6`),
 diagnostics unchanged, 0 lost. No cache or traversal: one class-member scan
 per narrowing.
+
+## §10 `getUnionOrEvolvingArrayType`'s declared-union arm (routed from r7-declared)
+
+`getUnionOrEvolvingArrayType` (`flow.go:1314`) ends every branch and loop
+junction: when the union it built has exactly the declared union's
+constituents, it answers the declared type itself (`flow.go:1319`,
+`slices.Equal(result.types, declaredType.types)`), so the alias and origin
+survive for printing. The port answered the rebuilt union; its §58 arm only
+recovered a *named* union through `named_union_by_members`.
+`declared_if_same_union` runs at both junctions after `recombineUnknownType`,
+as native's does.
+
+Measured on `8f08f3a2`: corpus-neutral (types text and diagnostics verdicts
+identical) and jsTyping identical. It is r7-declared's prerequisite: once
+every union-bodied alias is admitted, `typeGuardsAsAssertions` 0:23/0:31
+print `Optional<r>` through this arm instead of `None | Some<r>`.

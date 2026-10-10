@@ -3947,6 +3947,7 @@ impl Checker<'_, '_> {
             self.get_union_type(&types)
         };
         let result = self.recombine_unknown_type(result);
+        let result = self.declared_if_same_union(state, result);
         let incomplete = first.is_some_and(|f| f.incomplete);
         if crate::debug_env::is_set("TSR_TRACE_LOOP") {
             eprintln!(
@@ -4161,7 +4162,23 @@ impl Checker<'_, '_> {
             }
         };
         let t = self.recombine_unknown_type(t);
-        FlowType { t, incomplete: false }
+        FlowType { t: self.declared_if_same_union(state, t), incomplete: false }
+    }
+
+    /// `getUnionOrEvolvingArrayType`'s last arm (`flow.go:1319`): a junction
+    /// union with exactly the declared union's constituents answers the
+    /// declared type itself, keeping its alias and origin for printing
+    /// (`Optional<r>`, not `None | Some<r>`).
+    fn declared_if_same_union(&self, state: &FlowState, result: TypeId) -> TypeId {
+        let declared = state.declared_type;
+        if result != declared
+            && let TypeData::Union { types: members, .. } = &self.store.get(result).data
+            && let TypeData::Union { types: declared_members, .. } = &self.store.get(declared).data
+            && members == declared_members
+        {
+            return declared;
+        }
+        result
     }
 
     /// `isPostSuperFlowNode` (`flow.go:2604`): does every flow path that
