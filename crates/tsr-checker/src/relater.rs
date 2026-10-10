@@ -1045,8 +1045,12 @@ impl Checker<'_, '_> {
         }
         // A fresh object literal first meets hasExcessProperties (relater.go:
         // 2714), whose unported arms could own the failure; the reporter's
-        // written-key guard (`missing_required_property`) decides those.
-        if self.fresh_object_literal_types.contains(&source) {
+        // written-key guard (`missing_required_property`) decides those. An
+        // empty literal has no member for hasExcessProperties to report, so
+        // its failure is propertiesRelatedTo's (r7-reports §5).
+        if self.fresh_object_literal_types.contains(&source)
+            && self.get_property_names_of_type(source).is_none_or(|names| !names.is_empty())
+        {
             return None;
         }
         // reportErrorResults (relater.go:4705) appends "The 'Object' type is
@@ -1060,17 +1064,22 @@ impl Checker<'_, '_> {
         // reportErrorResults displays an aliased or single-base original type,
         // while the missing-property message names the normalized structure;
         // chainArgsMatch then fails and the head message stays. An alias image
-        // or a generic class/interface reference that may normalize to its
-        // single base (getSingleBaseForNonAugmentingSubtype) is left there.
+        // that normalization may rewrite, or a generic class/interface
+        // reference that may normalize to its single base
+        // (getSingleBaseForNonAugmentingSubtype), is left there; an alias of a
+        // type literal or mapped type is its own normal form (r7-reports §5).
         for side in [source, target] {
             if let TypeData::Named { members: Some(owner), .. } = self.type_of(side).data
                 && self.binder.symbols().get(owner).flags.intersects(SymbolFlags::TYPE_ALIAS)
+                && !self.alias_object_body_is_its_own_normal_form(side, owner)
             {
                 return None;
             }
             if let Some(&(owner, _)) = self.type_reference_targets.get(&side) {
                 let flags = self.binder.symbols().get(owner).flags;
-                if flags.intersects(SymbolFlags::TYPE_ALIAS) {
+                if flags.intersects(SymbolFlags::TYPE_ALIAS)
+                    && !self.alias_object_body_is_its_own_normal_form(side, owner)
+                {
                     return None;
                 }
                 if flags.intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
@@ -1150,6 +1159,36 @@ impl Checker<'_, '_> {
         }
         let (elaborates, _) = self.try_elaborate_array_like_errors(source, target);
         elaborates.then_some(missing)
+    }
+
+    /// Is `side`, an instantiation of the type alias `alias`, a type that
+    /// `getNormalizedType` (`relater.go:2619`) returns unchanged?
+    ///
+    /// An alias whose body is a **type literal or a mapped type** denotes an
+    /// anonymous or mapped object type carrying the alias; normalization only
+    /// rewrites fresh literals, type references (deferred, tuple, single
+    /// base), unions, intersections, substitutions and simplifiable types, so
+    /// the object type is its own normal form and prints with its alias in
+    /// both the head and `reportUnmatchedProperty`'s message. A homomorphic
+    /// mapped type over an array or tuple instantiates to an array or tuple
+    /// reference (`instantiateMappedArrayType`), which is excluded.
+    fn alias_object_body_is_its_own_normal_form(&self, side: TypeId, alias: SymbolId) -> bool {
+        if self.array_reference_readonly(side).is_some()
+            || self.tuple_element_lists.contains_key(&side)
+            || self.variadic_tuple_elements.contains_key(&side)
+        {
+            return false;
+        }
+        self.binder.symbols().get(alias).declarations.iter().all(|&declaration| {
+            matches!(
+                self.node_map.get(declaration),
+                Some(tsr_ast::Node::TypeAliasDeclaration(declaration))
+                    if matches!(
+                        declaration.r#type,
+                        Some(tsr_ast::TypeNode::TypeLiteralNode(_) | tsr_ast::TypeNode::MappedTypeNode(_))
+                    )
+            )
+        })
     }
 
     /// `tryElaborateArrayLikeErrors` (`relater.go:4379`): its answer, and
