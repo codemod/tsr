@@ -3497,9 +3497,6 @@ impl<'a> Checker<'a, '_> {
                 // reduction, wired alone under `checker-notes-assign.md` §12
                 // with §11.2's JS decline; an undecidable set stays a gap.
                 many => {
-                    if self.in_js_file(declaration) {
-                        return None;
-                    }
                     let candidates = many.to_vec();
                     let reduced = self.union_with_subtype_reduction(&candidates)?;
                     // §357: under no-strict the union mint DROPS a nullable
@@ -3536,9 +3533,6 @@ impl<'a> Checker<'a, '_> {
                 [] => self.intrinsics.void,
                 [single] => self.get_widened_literal_type(*single),
                 many => {
-                    if self.in_js_file(declaration) {
-                        return None;
-                    }
                     let candidates = many.to_vec();
                     self.union_with_subtype_reduction(&candidates)?
                 }
@@ -3764,9 +3758,6 @@ impl<'a> Checker<'a, '_> {
                 // collapse to a lone fresh literal (`{1, error-never}` in
                 // `promiseType`'s F is `1`, and the want is `number`).
                 many => {
-                    if self.in_js_file(declaration) {
-                        return None;
-                    }
                     let candidates = many.to_vec();
                     let reduced = self.union_with_subtype_reduction(&candidates)?;
                     self.inferred_return_type(declaration, reduced)?
@@ -3925,9 +3916,6 @@ impl<'a> Checker<'a, '_> {
             // §11.1's 26 wrong lines, excludable only once `JAVASCRIPT_FILE`
             // was actually set by something.
             many => {
-                if self.in_js_file(declaration) {
-                    return None;
-                }
                 let candidates = many.to_vec();
                 let reduced = self.union_with_subtype_reduction(&candidates)?;
                 return self.inferred_return_type(declaration, reduced);
