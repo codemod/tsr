@@ -561,3 +561,33 @@ the same command (`tsconfig.perf.json --noEmit --incremental false
 builds, where they had already gone. So a batch-2 regression was fixed by
 batch 3 or 4, and there is nothing left to route. jsTyping now reports 259
 against tsgo's 86 on `c36a7706`.
+
+## §12 The design record for `tsr-2zk.17.4`/`.17.5` (ADR-0056, proposed)
+
+The integrator asked for it on 2026-10-10.
+[ADR-0056](../../adr/0056-rebasable-node-ids-and-per-file-bind-for-a-zero-copy-front-end.md)
+proposes rebasable node ids: an `AtomicU32`-backed `node_id`, a rebase
+pass at publication, and per-file arenas kept in a program-owned pool. It
+pairs them with the existing per-file bind and id-offset merge. The
+measured input comes from `crates/tsr-compiler/examples/front_end_ceiling.rs`
+(new; release, minimum of 7 rounds per file, 4 workers). Today's path to
+zero-copy saves generic-imports 2.8–5.1 ms, domain-model 12.3–15.1 ms
+and domain-model-large 22–30 ms per process. The floor on every bench is
+`lib.dom.d.ts`'s single-threaded parse and bind, about 22 ms. Not built;
+funding is the integrator's decision.
+
+## §13 Where the ratios stand after §10
+
+TSR/tsgo, `whole_project_perf.py`, 21 samples, one session, the binary at
+`4c765057` (mimalloc). This session's absolute times ran 10–25% above the
+§10 A/B session's; the ratios are within one run.
+
+| project | release wall · CPU | **dist wall · CPU** |
+|---|---:|---:|
+| domain-model | 0.616 · 0.438 | **0.540** · 0.416 |
+| domain-model-large | 0.745 · 0.526 | **0.716** · 0.479 |
+| generic-imports | 0.665 · 0.330 | **0.598** · 0.303 |
+
+jsTyping is still not equivalent work (259 diagnostics against 86 on
+`c36a7706`). The 0.50 target is not met. domain-model-large is furthest
+off, and its remainder is the check phase.
