@@ -1005,6 +1005,11 @@ impl Checker<'_, '_> {
         }
         self.check_parser_lane_statement(typed);
         self.check_grammar_jsx_element(typed);
+        // `checkRegularExpressionLiteral` (`checker.go:8012`) runs the
+        // regular-expression grammar check once per literal (literals.rs).
+        if matches!(typed, Node::RegularExpressionLiteral(_)) {
+            self.check_grammar_regular_expression_literal(node);
+        }
         self.check_jsx_intrinsic_element(node, typed);
         self.check_jsx_intrinsic_tag_exists(node, typed);
         self.mark_jsx_alias_referenced(node, typed);
