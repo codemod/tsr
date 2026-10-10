@@ -5100,26 +5100,22 @@ impl Checker<'_, '_> {
                 if with_arguments.expression.and_then(|e| e.node_id()) != Some(node) {
                     return;
                 }
-                // `checkClassLikeDeclaration` checks `implements` types with
-                // `checkTypeReferenceNode`, and `checkInterfaceDeclaration`
-                // (`checker.go:5023`) its `extends` elements; an interface's
-                // `implements` clause is only TS1176 and a class's `extends`
-                // is a value.
-                let resolved_as_type = self.nodes.parent(parent).is_some_and(|clause| {
-                    let Some(Node::HeritageClause(heritage)) = self.node_map.get(clause) else {
-                        return false;
-                    };
-                    self.nodes.parent(clause).is_some_and(|owner| match self.nodes.kind(owner) {
-                        SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
-                            heritage.token.kind == SyntaxKind::ImplementsKeyword
-                        }
-                        SyntaxKind::InterfaceDeclaration => {
-                            heritage.token.kind == SyntaxKind::ExtendsKeyword
-                        }
-                        _ => false,
+                // `checkClassLikeDeclaration` checks `implements` types; an
+                // interface's `implements` clause is only TS1176 and
+                // `checkInterfaceDeclaration` never resolves it.
+                let is_implements = self.nodes.parent(parent).is_some_and(|clause| {
+                    matches!(
+                        self.node_map.get(clause),
+                        Some(Node::HeritageClause(heritage))
+                            if heritage.token.kind == SyntaxKind::ImplementsKeyword
+                    ) && self.nodes.parent(clause).is_some_and(|owner| {
+                        matches!(
+                            self.nodes.kind(owner),
+                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                        )
                     })
                 });
-                if !resolved_as_type {
+                if !is_implements {
                     return;
                 }
             }
