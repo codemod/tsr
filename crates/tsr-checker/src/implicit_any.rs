@@ -182,6 +182,25 @@ impl Checker<'_, '_> {
         if !is_static && self.constructor_assigns_this_member(node, text) {
             return;
         }
+        // **A static `prototype` property is the class's prototype symbol.**
+        // `bindClassLikeDeclaration` (`binder.go:962`) seeds every class's
+        // exports with a `Property | Prototype` symbol named `prototype`
+        // before its members are bound, and a static property declaration of
+        // that name merges into it (`PropertyExcludes` is none). Its type is
+        // `getTypeOfPrototypeProperty` (`checker.go:16580`), the instance
+        // type, so it is never the implicit `any` (`staticPrototypeProperty`,
+        // which reports only TS2699 there).
+        if is_static
+            && text == "prototype"
+            && self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            })
+        {
+            return;
+        }
         if is_static && self.static_block_assigns_this_member(node, text) {
             return;
         }
