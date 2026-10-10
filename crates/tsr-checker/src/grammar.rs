@@ -2769,3 +2769,134 @@ impl Checker<'_, '_> {
         false
     }
 }
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarImportClause` (`grammarchecks.go:2118`), from
+    /// `checkImportDeclaration` (`checker.go:5285`). Answers whether it
+    /// reported.
+    ///
+    /// - `import type`: TS1363 when the clause has both a default and named
+    ///   bindings (outside JSDoc), else the named imports'
+    ///   `checkGrammarTypeOnlyNamedImportsOrExports`;
+    /// - `import defer`: TS18058 / TS18059 / TS18060, exclusive, in order.
+    ///
+    /// Upstream reaches it only when `checkExternalImportOrExportDeclaration`
+    /// passed; this port's arms of that function report from their own
+    /// dispatch, so the clause is checked unconditionally, as the deferred arm
+    /// already was.
+    pub(crate) fn check_grammar_import_clause(&mut self, declaration: NodeId) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(Node::ImportDeclaration(import)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        let Some(clause) = import.import_clause else { return false };
+        let Some(phase) = clause.phase_modifier else { return false };
+        let Some(at) = clause.node_id else { return false };
+        let message = match phase.kind {
+            SyntaxKind::TypeKeyword => {
+                if clause.name.is_some() && clause.named_bindings.is_some() {
+                    &messages::A_TYPE_ONLY_IMPORT_CAN_SPECIFY_A_DEFAULT_IMPORT_OR_NAMED_BINDINGS_BUT_NOT_BOTH
+                } else if let Some(tsr_ast::NamedImportBindings::NamedImports(named)) =
+                    clause.named_bindings
+                {
+                    let specifiers: Vec<(bool, Option<NodeId>)> =
+                        named.elements.iter().map(|s| (s.is_type_only, s.node_id)).collect();
+                    return self.check_grammar_type_only_named_imports_or_exports(
+                        &specifiers,
+                        &messages::THE_TYPE_MODIFIER_CANNOT_BE_USED_ON_A_NAMED_IMPORT_WHEN_IMPORT_TYPE_IS_USED_ON_ITS_IMPORT_STATEMENT,
+                    );
+                } else {
+                    return false;
+                }
+            }
+            SyntaxKind::DeferKeyword => {
+                if clause.name.is_some() {
+                    &messages::DEFAULT_IMPORTS_ARE_NOT_ALLOWED_IN_A_DEFERRED_IMPORT
+                } else if matches!(
+                    clause.named_bindings,
+                    Some(tsr_ast::NamedImportBindings::NamedImports(_))
+                ) {
+                    &messages::NAMED_IMPORTS_ARE_NOT_ALLOWED_IN_A_DEFERRED_IMPORT
+                } else if !matches!(
+                    self.module_kind,
+                    tsr_core::ModuleKind::ESNext | tsr_core::ModuleKind::Preserve
+                ) {
+                    &messages::DEFERRED_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ESNEXT_OR_PRESERVE
+                } else {
+                    return false;
+                }
+            }
+            _ => return false,
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return true };
+        // `grammarErrorOnNode(&node.Node)`: the clause's range, which upstream
+        // starts at the phase modifier. This parser leaves the modifier
+        // outside the clause's span, so the range is rebuilt from it.
+        let end = self.nodes.span(at).end;
+        let start =
+            phase.node_id.map_or_else(|| self.nodes.span(at).start, |m| self.nodes.span(m).start);
+        self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, end.max(start))));
+        true
+    }
+
+    /// `Checker.checkGrammarExportDeclaration` (`grammarchecks.go:196`):
+    /// `export type { … }` takes no `type` on a specifier (TS2207).
+    pub(crate) fn check_grammar_export_declaration(&mut self, declaration: NodeId) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(Node::ExportDeclaration(export)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        if !export.is_type_only {
+            return false;
+        }
+        let Some(tsr_ast::NamedExportBindings::NamedExports(named)) = export.export_clause else {
+            return false;
+        };
+        let specifiers: Vec<(bool, Option<NodeId>)> =
+            named.elements.iter().map(|s| (s.is_type_only, s.node_id)).collect();
+        self.check_grammar_type_only_named_imports_or_exports(
+            &specifiers,
+            &messages::THE_TYPE_MODIFIER_CANNOT_BE_USED_ON_A_NAMED_EXPORT_WHEN_EXPORT_TYPE_IS_USED_ON_ITS_EXPORT_STATEMENT,
+        )
+    }
+
+    /// `Checker.checkGrammarTypeOnlyNamedImportsOrExports`
+    /// (`grammarchecks.go:2141`): the first specifier with its own `type`, on
+    /// its first token.
+    fn check_grammar_type_only_named_imports_or_exports(
+        &mut self,
+        specifiers: &[(bool, Option<NodeId>)],
+        message: &'static tsr_diagnostics::Message,
+    ) -> bool {
+        let Some(&(_, Some(specifier))) = specifiers.iter().find(|(type_only, _)| *type_only)
+        else {
+            return false;
+        };
+        self.grammar_error_on_first_token(specifier, message)
+    }
+
+    /// `checkImportEqualsDeclaration`'s grammar arm (`checker.go:5491`): an
+    /// entity-name alias (`IsInternalModuleImportEqualsDeclaration`) written
+    /// `import type` is TS1392, on the declaration.
+    pub(crate) fn check_grammar_import_equals_type_only(&mut self, declaration: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ImportEqualsDeclaration(import)) = self.node_map.get(declaration) else {
+            return;
+        };
+        if !import.is_type_only
+            || matches!(
+                import.module_reference,
+                Some(tsr_ast::ModuleReference::ExternalModuleReference(_)) | None
+            )
+        {
+            return;
+        }
+        self.grammar_error_on_node(declaration, &messages::AN_IMPORT_ALIAS_CANNOT_USE_IMPORT_TYPE);
+    }
+}

@@ -890,6 +890,7 @@ impl Checker<'_, '_> {
             Node::ImportEqualsDeclaration(_) => {
                 self.check_alias_symbol(node);
                 self.check_module_hidden_by_local(node);
+                self.check_grammar_import_equals_type_only(node);
             }
             Node::ImportDeclaration(n) => {
                 // `!checkGrammarModifiers(node) && node.Modifiers() != nil`
@@ -909,6 +910,7 @@ impl Checker<'_, '_> {
                         &messages::AN_EXPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
                     );
                 }
+                self.check_grammar_export_declaration(node);
             }
             Node::ConstructorDeclaration(n) => {
                 self.check_constructor_type_parameters(n);
@@ -1085,7 +1087,7 @@ impl Checker<'_, '_> {
             self.check_export_declaration_in_namespace(node, typed);
         }
         if matches!(typed, Node::ImportDeclaration(_)) {
-            self.check_deferred_import_clause(typed);
+            self.check_grammar_import_clause(node);
         }
         if matches!(typed, Node::IndexSignatureDeclaration(_)) {
             self.check_index_signature_key_type(node);
@@ -11284,54 +11286,6 @@ impl Checker<'_, '_> {
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
                     && binary.left.and_then(|left| left.node_id()) == Some(node)
         )
-    }
-
-    /// TS18058 / TS18059 / TS18060 — the deferred-import clause.
-    ///
-    /// `checkGrammarImportClause`'s `KindDeferKeyword` case
-    /// (`grammarchecks.go:2127`): one guard, three exclusive arms in order,
-    /// each reporting on the **clause**. A namespace import is the only legal
-    /// deferred form.
-    ///
-    /// `module_kind` comes from §478. `docs/architecture/checker-notes-diag2.md` §615.
-    fn check_deferred_import_clause(&mut self, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Node::ImportDeclaration(declaration) = typed else { return };
-        let Some(clause) = declaration.import_clause else { return };
-        if clause.phase_modifier.is_none_or(|m| m.kind != SyntaxKind::DeferKeyword) {
-            return;
-        }
-        let Some(at) = clause.node_id else { return };
-        let message = if clause.name.is_some() {
-            &messages::DEFAULT_IMPORTS_ARE_NOT_ALLOWED_IN_A_DEFERRED_IMPORT
-        } else if matches!(
-            clause.named_bindings,
-            Some(tsr_ast::NamedImportBindings::NamedImports(_))
-        ) {
-            &messages::NAMED_IMPORTS_ARE_NOT_ALLOWED_IN_A_DEFERRED_IMPORT
-        } else if !matches!(
-            self.module_kind,
-            tsr_core::ModuleKind::ESNext | tsr_core::ModuleKind::Preserve
-        ) {
-            &messages::DEFERRED_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ESNEXT_OR_PRESERVE
-        } else {
-            return;
-        };
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        // `grammarErrorOnNode(&node.Node)` — the **clause's** range, which
-        // upstream starts at the phase modifier. This parser puts the modifier
-        // outside the clause's span, so the clause alone reports at the `foo`
-        // of `import defer foo` and upstream reports at the `defer`. Taking
-        // the modifier's span reproduces upstream's column exactly; widening
-        // the clause's span is the faithful fix and belongs to `tsr-parser`.
-        // §615.
-        let span = clause
-            .phase_modifier
-            .and_then(|m| m.node_id)
-            .map_or_else(|| self.nodes.span(at), |m| self.nodes.span(m));
-        self.report(file, Diagnostic::new(message, span));
     }
 
     /// TS1194 — `Export declarations are not permitted in a namespace.`

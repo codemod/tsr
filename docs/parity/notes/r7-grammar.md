@@ -178,3 +178,34 @@ owner never did. Both score RIGHT in the single-checker harness.
 release CLI: `--singleThreaded` and `--checkers 4` now print the same
 diagnostics, identical to `target/tsgo-pinned`'s; the base binary drops
 `file2.ts(3,10)` TS2814 and `file2.ts(4,7)` TS2813 under `--checkers 4`.
+
+## §5 `checkGrammarImportClause` and the type-only specifier arms (IMPORT-ATTRIBUTES remainder)
+
+r6-triage left three cases of `IMPORT-ATTRIBUTES-CHECKS` that are other
+operations: `grammarErrors` (TS1363, TS1392) and `importSpecifiers1`
+(TS2206). Ported in `grammar.rs`:
+
+- `check_grammar_import_clause` is `checkGrammarImportClause`
+  (`grammarchecks.go:2118`) whole: the `type` arm (TS1363 for a default plus
+  named bindings, else `checkGrammarTypeOnlyNamedImportsOrExports`, TS2206 on
+  the first specifier's first token) and the `defer` arm (TS18058/TS18059/
+  TS18060), which was `check.rs`'s `check_deferred_import_clause` and moves
+  here unchanged. The clause range starts at the phase modifier upstream; this
+  parser leaves the modifier outside the clause's span, so the range is
+  rebuilt from it (the old note §615's workaround, kept).
+- `check_grammar_export_declaration` is `checkGrammarExportDeclaration`
+  (`grammarchecks.go:196`): TS2207 for `type` on a specifier of
+  `export type { … }`.
+- `check_grammar_import_equals_type_only` is `checkImportEqualsDeclaration`'s
+  TS1392 arm (`checker.go:5491`) for an entity-name alias.
+
+**Gate not mirrored.** Upstream reaches the clause only when
+`checkExternalImportOrExportDeclaration` passed, and skips the bindings when
+the clause reported. This port's arms of that function report from their
+own dispatch and its binding checks are not gated on the clause; as with the
+deferred arm before, the clause is checked unconditionally. No corpus case
+pairs a clause error with a binding or attribute diagnostic.
+
+**JSDoc `@import`.** `importTag15` waits on the JSDoc lane: the reparsed
+`@import` is an import declaration upstream, which this port's check walk
+does not visit.
