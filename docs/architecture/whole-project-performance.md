@@ -10,12 +10,19 @@ Build both compilers before timing them. The harness accepts a prebuilt native
 binary so that a Go build cannot contaminate the measured interval:
 
 ```sh
-cargo build --release --bin tsr
+cargo build --profile dist -p tsr       # the measured and shipped build (ADR-0054)
 cargo run -p xtask -- perf-project \
   --project /path/to/project/tsconfig.json \
+  --tsr target/dist/tsr \
   --tsgo /path/to/pinned/tsgo \
   --samples 5 --output /tmp/whole-project-perf.json
 ```
+
+The release ratio is measured on the fat-LTO `dist` profile, the build a
+user would run ([ADR-0054](../adr/0054-the-release-ratio-is-measured-on-the-dist-profile.md)).
+Report the `release` ratio beside it: `cargo build --release --bin tsr`, the
+harness's default `--tsr`. Ratios recorded before ADR-0054 are `release`
+ratios. Self-comparison gates (box-protocol §5) stay within `release`.
 
 Add `--mode single` to request `--singleThreaded true` on both sides. The default
 measures each CLI's normal scheduling (see [Native checker pool](#native-checker-pool)).
