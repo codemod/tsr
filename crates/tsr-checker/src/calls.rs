@@ -1468,12 +1468,7 @@ impl Checker<'_, '_> {
             node,
             &arguments,
             &instantiated,
-            CandidateContext::Instantiated {
-                const_type_parameters: candidate
-                    .type_parameters
-                    .iter()
-                    .any(|parameter| parameter.is_const),
-            },
+            CandidateContext::Instantiated,
             &[],
         ) != ApplicabilityReport::Declined
             || self.report_this_argument(node, &instantiated, false) == Ternary::Related
@@ -1667,12 +1662,7 @@ impl Checker<'_, '_> {
             node,
             &arguments,
             &instantiated,
-            CandidateContext::Instantiated {
-                const_type_parameters: candidate
-                    .type_parameters
-                    .iter()
-                    .any(|parameter| parameter.is_const),
-            },
+            CandidateContext::Instantiated,
             &[],
         );
     }
