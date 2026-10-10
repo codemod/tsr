@@ -1596,12 +1596,16 @@ impl<'a> Checker<'a, '_> {
             for host_node in &hosts {
                 if let Some(docs) = self.jsdoc_entries.get(host_node) {
                     for doc in *docs {
-                        // gatherTypeParameters (reparser.go): a typedef's
-                        // templates belong to its alias, not the comment host.
-                        let typedef_owned = doc
-                            .tags
-                            .iter()
-                            .any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocTypedefTag(_)));
+                        // gatherTypeParameters (reparser.go:293): a typedef's
+                        // or callback's templates belong to its alias, not
+                        // the comment host.
+                        let typedef_owned = doc.tags.iter().any(|tag| {
+                            matches!(
+                                tag,
+                                tsr_ast::JSDocTag::JSDocTypedefTag(_)
+                                    | tsr_ast::JSDocTag::JSDocCallbackTag(_)
+                            )
+                        });
                         for tag in doc.tags {
                             match tag {
                                 tsr_ast::JSDocTag::JSDocTemplateTag(template) if !typedef_owned => {

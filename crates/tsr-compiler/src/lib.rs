@@ -1469,13 +1469,17 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
             let docs = file.jsdoc().get(declaration);
             {
                 for doc in docs {
-                    // A typedef owns the templates in its comment; they do
-                    // not parameterize the declaration hosting that comment.
-                    if doc
-                        .tags
-                        .iter()
-                        .any(|tag| matches!(tag, tsr_ast::JSDocTag::JSDocTypedefTag(_)))
-                    {
+                    // A typedef or callback owns the templates in its
+                    // comment; they do not parameterize the declaration
+                    // hosting that comment (`gatherTypeParameters`,
+                    // `parser/reparser.go:293`).
+                    if doc.tags.iter().any(|tag| {
+                        matches!(
+                            tag,
+                            tsr_ast::JSDocTag::JSDocTypedefTag(_)
+                                | tsr_ast::JSDocTag::JSDocCallbackTag(_)
+                        )
+                    }) {
                         continue;
                     }
                     for tag in doc.tags {

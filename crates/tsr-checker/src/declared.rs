@@ -5590,16 +5590,18 @@ impl<'a> Checker<'a, '_> {
         // alias-named bake keeps its name — and the printer checks it at both
         // signature-rendering sites. Registering there too is the whole
         // difference between §947.1 and this.
+        //
+        // A JS `@typedef`/`@callback` is the same declaration in native (a
+        // reparsed `JSTypeAliasDeclaration`), so its body and parameters are
+        // read through the JSDoc-aware projections.
         if self.binder.symbols().get(symbol).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
-            && let Some(declaration) = self.type_alias_declaration_of(symbol)
-            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && let Some(
                 body_node @ (TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_)),
-            ) = alias.r#type
+            ) = self.type_alias_body(symbol)
             && self.variadic_alias_in_progress.insert(symbol)
         {
-            let parameter_symbols: Vec<tsr_binder::SymbolId> = alias
-                .type_parameters
+            let parameter_symbols: Vec<tsr_binder::SymbolId> = self
+                .local_type_parameters_of(symbol)
                 .iter()
                 .filter_map(|parameter| parameter.node_id)
                 .filter_map(|id| self.binder.symbol_of(id))
