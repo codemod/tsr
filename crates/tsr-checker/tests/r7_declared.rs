@@ -202,3 +202,17 @@ fn a_declared_union_type_takes_the_declaring_alias_whatever_its_syntax() {
          const t5 = t;\n";
     assert_eq!(type_of_last_initializer(source), "T05");
 }
+
+/// §13: a deferred conditional with a function-type extends operand is
+/// printed from its parts, so the declaring signature resolves (tsgo: `w :
+/// <S>(x: (S extends () => any ? never : S) | (() => S)) => S`); it was
+/// `error`.
+#[test]
+fn a_deferred_conditional_with_a_function_operand_keeps_its_signature() {
+    let source = "declare function f3<S>(x: (S extends () => any ? never : S) | (() => S)): S;\n\
+         const w = f3;\n";
+    assert_eq!(
+        type_of_last_initializer(source),
+        "<S>(x: (S extends () => any ? never : S) | (() => S)) => S"
+    );
+}

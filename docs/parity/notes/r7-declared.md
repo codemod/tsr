@@ -578,3 +578,44 @@ jsxComplexSignatureHasApplicabilityError 0:52 (`HandlerRendererResult`'s
 own declaration prints its constituents). A cut-down file with
 `React.ComponentType` does not reproduce 0:52, so its reader is not
 located yet.
+
+## 13. CONDITIONAL-INLINE-NODE-INSTANTIATION (part): a deferred conditional with a function-type operand has a print
+
+**Forcing constraint.** An inline conditional that does not evaluate is
+minted with its written text (the §906 mint). `written_type_text`
+(`signatures.rs`) has no arm for a function or constructor type node, so a
+conditional whose extends type is one had no text and minted `error`:
+`declare function useState1<S>(initialState: (S extends (() => any) ? never
+: S) | (() => S)): S` made `useState1` itself `error`, and every call to it
+(conditionalTypeBasedContextualTypeReturnTypeWidening). The node builder
+prints a deferred conditional through createConditionalTypeNode over its
+typed parts. It parenthesizes the check type when that is a function,
+constructor or conditional type, and the extends type only when it is a
+conditional.
+
+**Port.**
+- `conditional_mint_text`'s operands follow those two rules for a
+  parenthesized operand.
+- `conditional_typed_mint_text`, the last resort, prints the check and
+  extends **types** (resolved under the current frames, as the evaluator
+  already resolves them) with those rules, and the branches with their
+  written text. It answers only for a conditional getConditionalType
+  defers (`is_deferred_type` on either operand).
+
+**Refused, with the numbers.**
+- A first cut resolved the branch types too: −5 types, and awaitedType ran
+  10 s per case. Resolving `Awaited<V>` in a branch at mint expands what
+  native resolves lazily (getTrueTypeFromConditionalType).
+- A second cut without the deferral gate: +28 / −5. awaitedType 0:27/0:34
+  (×2 targets) and infiniteConstraints 0:61 printed a deferred conditional
+  over a concrete check, where native evaluates (or answers errorType at its
+  instantiation guard). Those keep the gap.
+
+**Measured** (unfiltered against `a1e71942`): types **+20, 0 lost**
+(conditionalTypeBasedContextualTypeReturnTypeWidening 12,
+inferTypesWithExtends1 3, inferTypes2 2,
+arrayFakeFlatNoCrashInferenceDeclarations 2, mappedTypeAsClauses 1);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0. The case's
+remaining 16 lines are the call results' literal widening under a
+conditional contextual type (`() => 0` printed `() => number`), which is
+getReturnTypeFromBody's contextual literal test, not this mint.
