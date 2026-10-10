@@ -4678,18 +4678,15 @@ impl<'a, 'n> Checker<'a, 'n> {
         entries
     }
 
-    /// A clone's aliases name that module value, not its callable source.
+    /// Whether `alias` resolves to a module clone rather than to the module:
+    /// `resolveESModuleSymbol` (`checker.go:15568`) answers a namespace
+    /// import with `cloneTypeAsModuleType` in each of its arms (signatures,
+    /// a `default` property, an ESM-to-CommonJS reference), whatever the
+    /// target's kind, so `trySymbolTable`'s `resolveAlias` comparison never
+    /// matches the module through it. The port has no clone symbol; the
+    /// alias's value being a recorded clone (`module_value_clones`) is the
+    /// stand-in (r7-printer §2).
     fn alias_targets_module_clone(&mut self, alias: SymbolId) -> bool {
-        let target = self.resolve_alias_fully(alias);
-        if !self
-            .binder
-            .symbols()
-            .get(target)
-            .flags
-            .intersects(SymbolFlags::CLASS | SymbolFlags::FUNCTION)
-        {
-            return false;
-        }
         let value = self.get_type_of_symbol(alias);
         self.module_value_clones.contains_key(&value)
     }

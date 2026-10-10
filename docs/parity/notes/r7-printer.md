@@ -171,9 +171,14 @@ form win: a printer that never asks the resolver during checking.
   only when the file's imports found a container; `extended_containers` by
   symbol; `program_external_modules` is the program's module list, built on
   the first fallback; `resolved_exports` by symbol.
-- *Publication states:* absent or final, as native's links. A resolver
-  nested inside another borrows an empty cache, and its additions are
-  dropped when the outer one returns its own.
+- *Publication states:* absent or final, as native's links. Lifetime and
+  return path: `DeclarationEmitResolver::new` takes the checker's cache with
+  `mem::take`, and the resolver's `Drop` puts it back, so the cache is never
+  shared mutably and every resolver sees what earlier ones published. A
+  resolver nested inside another (built from the checker the outer one
+  holds) borrows an empty cache; when the outer one drops last its cache
+  overwrites the inner one's, so the inner one's additions are dropped and
+  nothing is corrupted.
 - *Receiver/alias context:* the reference node only.
 - *Expensive-work boundary:* the walk runs only where `symbol_chain` has
   already found that the bare name needs qualification, the parent is a
@@ -239,3 +244,26 @@ Only the whole-print expectation of those three hosted rows moved; the
 integrator approved the edit in this commit. The hostless rows are
 unchanged: a checker built without a module host names no module from
 another file (§1.2's arm asks for a host).
+
+## 2. A module clone hides its module from every alias, whatever the target
+
+Routed from r7-shared (`r7-shared.md` §1, its
+`r7-shared-printer-module-clone.diff`, applied unchanged).
+`alias_targets_module_clone` (checker.rs, the `module_alias_at` /
+`best_name` / `alias_in_scope_for` exclusion that stands in for
+`trySymbolTable`'s `resolveAlias(alias) == symbol` test against a clone
+symbol) admitted only clones of class or function targets.
+`resolveESModuleSymbol` (`checker.go:15568`) clones in every arm
+(signatures, a `default` property, an ESM-to-CommonJS reference,
+`:15609-15618`), so an alias of any target that resolves to a clone is not
+the module's name: in `nodeModules1`, `typeof m26` (an `import m26 =
+require`) where the port printed `typeof m4` (an `import * as m4` of a
+CommonJS file, a clone). No cache or table: the test reads the existing
+`module_value_clones` record of the alias's value.
+
+Measured against §1's commit, both dumps unfiltered: types **+196 / −0**
+(`nodeModules1` and `nodeModulesAllowJs1`, 24 lines in each of four modes;
+`unusedImports11` 2, `unusedImports12` 1, `importAttributes9` 1),
+diagnostics unchanged. Coverage: `checker_types` 8,706 → 8,708,
+`checker_types_configured` 1,759 → 1,767. CPU new/old against §1's binary,
+21 samples: domain-model 1.009, generic-imports 1.005.
