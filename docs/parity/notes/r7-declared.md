@@ -157,3 +157,100 @@ and they are the JSX road the old test broke.
 calls non-generic. That would be a fourth instantiable kind minted without
 its flag, and it shows up as a reference printed where native prints the
 alias, or as `error` where native prints a deferred conditional.
+
+## 3. CONDITIONAL-DEFERRAL-GATE: the evaluator defers on `isDeferredType`, and relates instantiated check types
+
+**Forcing constraint.** `evaluate_conditional_node` (`declared.rs`) declined
+any check type that `mentions_registered_type_parameter`. In the general
+path it also declined any check that `mentions_any_type_parameter`. Native
+getConditionalType (`checker.go:24339`) defers only when
+`isDeferredType(checkType, checkTuples)`. For any other check it decides by
+two relations:
+- false when the permissive instantiations (`getPermissiveInstantiation`,
+  every type parameter to the wildcard, `:24479`) of the check and extends
+  types are unrelated (`:24377`);
+- true when the restrictive ones (`:24492`) are related (`:24415`);
+- deferred otherwise.
+
+The port instantiated only the extends type. Probed with the pinned tsgo:
+
+| Written | TSR before | Native |
+|---|---|---|
+| `Outer<{ isAny: <T>(obj: any) => obj is T }>`'s `v` (`v: Ex<P, null>`) | `Ex<{ isAny: …; }, null>` | `{ isAny: <T>(obj: any) => obj is T; }` |
+| `Outer2<{ isAny: … }>` (`type Outer2<P> = Ex<P, null>`) | `Outer2<{ isAny: …; }>` | `{ isAny: <T>(obj: any) => obj is T; }` |
+| `Has<T>` (`{ a: T } extends { b: string } ? 1 : 0`) in a generic body | `Has<T>` | `0` |
+
+**Port.**
+- The early decline asks `is_deferred_type(check, check_tuples)` (§2's
+  port). `check_tuples` is now `conditional_check_tuples`, shared with
+  `conditional_alias_check_is_deferred`.
+- The general path drops the `mentions_any_type_parameter(check)` decline.
+  It adds `!is_deferred_type(extends, check_tuples)` beside the existing
+  flag test. `indexed_access_index_is_generic` (a retained `keyof`
+  operand) stays.
+- `definite_conditional_outcome` relates `permissive(check)` to
+  `permissive(extends)`, then `restrictive(check)` to
+  `restrictive(extends)`. It is asked when either operand mentions a
+  registered type parameter (`conditional_mentions_type_parameters`).
+
+The instantiations reuse `extends_instantiation`'s cache. That cache is
+keyed by type identity, as native's `CachedTypeKindPermissiveInstantiation`
+/ `RestrictiveInstantiation` are keyed by the type, so a check type is
+cached like an extends type (r6-declared3 §1's convention record holds:
+owner `instantiation_expressions.conditional_extends`, each slot written
+once, never invalidated).
+
+**Measured** (unfiltered, against §2's freeze):
+- types **+1 RIGHT, 0 lost**: genericCallInferenceInConditionalTypes1:0:33
+  GAP → RIGHT. :0:23 went GAP → WRONG: `{ ref?: Ref<HTMLElement>; }` where
+  native prints `| undefined` on the instantiated optional member, which
+  is a printing gap downstream of the now-evaluated conditional;
+- diagnostics 0 / 0;
+- child CPU vs the frozen binary: 21 samples gave domain-model 0.990,
+  generic-imports 1.035; the 41-sample rerun gave 1.004 / 0.987.
+
+**Why so few lines.** The cluster's own cases fail elsewhere. Hypotheses
+read from the rows, not yet verified:
+- conditionalTypeGenericInSignatureTypeParameterConstraint's `H_inline1 :
+  x` is the declared type of a generic alias printed under its own
+  parameters, which never reaches this evaluator;
+- quickinfoTypeAtReturnPositionsInaccurate's `Extract<Entries[EntryId], …>`
+  needs `Entries[EntryId]` to stay a deferred indexed access where this
+  port resolves it;
+- strictBindCallApply1's `OmitThisParameter<(...args: T) => void>` is the
+  function-type check `unknown extends ThisParameterType<T>`;
+- inferenceContextualReturnTypeUnion2 is a `Parameters<…>` rest print.
+Each is recorded as the cluster's remainder, not attempted in this commit.
+
+## 4. Routed: a union of mapped types loses `-readonly` (r7-perf cluster 6)
+
+r7-perf's jsTyping delta has 8 false TS2540 on `Mutable<ModuleDeclaration |
+SourceFile>`-shaped receivers (`type Mutable<T extends object> = { -readonly
+[K in keyof T]: T[K] }`). The mapped side is already native's:
+`Mutable<A | B>` distributes to `Mutable<A> | Mutable<B>` with the alias
+origin (`distribute_mapped_union`, `mapped.rs`). The false report also
+fires with no alias: `declare const u: Mutable<A> | Mutable<B>; u.flags = 1`.
+
+**Cause** (`readonly_target.rs`, r7-flow).
+`is_assignment_to_readonly_property`'s union arm reads each constituent
+through `get_property_of_type(part)` and `is_readonly_symbol`. A mapped
+member has no symbol of its own: the found symbol is the modifiers type's
+`A.flags`, which is declared readonly. createUnionOrIntersectionProperty
+(`checker.go:21452`) reads the transient mapped symbol's
+`CheckFlagsReadonly`, which `-readonly` cleared. The non-union tail of the
+same function already reads `mapped_identity_optionality` and the member
+image for that reason.
+
+**Diff**
+([`r7-declared-readonly-union-mapped-member.diff`](r7-declared-readonly-union-mapped-member.diff)):
+`constituent_property_is_readonly` asks the constituent the way the
+non-union tail asks a receiver. First the homomorphic modifier, then the
+member image (a mapped image is final), then the symbol.
+
+**Measured:**
+- Against the `.1265` freeze, both corpus dumps are unchanged (no corpus
+  case has the shape).
+- On `src/jsTyping`, TS2540 goes 8 → 0 (native 0) and every other code's
+  count is identical.
+- Controls report as tsgo does: `Readonly<A> | A`, `A | B` with a readonly
+  member, and `Mutable<B> | Readonly<A>`.
