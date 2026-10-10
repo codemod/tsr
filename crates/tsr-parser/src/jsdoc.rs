@@ -1793,10 +1793,12 @@ impl<'a> Parser<'a> {
 
     fn next_jsdoc_token(&mut self) {
         self.token = self.scanner.scan_jsdoc_token();
+        self.sync_scanner_diagnostics();
     }
 
     fn next_jsdoc_comment_text_token(&mut self, in_backticks: bool) {
         self.token = self.scanner.scan_jsdoc_comment_text_token(in_backticks);
+        self.sync_scanner_diagnostics();
     }
 
     /// Put the scanner back at the current token's start, so the next scan can be
