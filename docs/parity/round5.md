@@ -1970,3 +1970,18 @@ Refused: evicting array-literal arguments per candidate (+38/−16 types, −1
 diag). The held conditional-node diff's real blocker is
 getLowerBoundOfKeyType's conditional arm in mapped.rs, not reverse-mapped
 inference. `.1151`, `.16.69`, `.16.74` and `.1188` are reopened unassigned.
+
+### Checkpoint wrap-up: r6-printer5 (batch CI)
+
+Batch CI lands r6-printer5's scanner commits and two diffs:
+- Scan's radix, `.digit` and `#` arms;
+- regexp.go ported into tsr-scanner, with checkGrammarRegularExpressionLiteral
+  hooked into check.rs;
+- TS1260 for keywords containing escapes.
+
+Measured by the box on `7dba1e1`: +27 diagnostics cases, 0 lost. The regexp
+validator never runs on the bench projects, and Ir is within the layout band.
+
+`.1174` and `.1192` are closed. The rescan-ordering rows wait on the parser's
+diagnostic sink (main). `.1170` and `.1260` were not started; they are
+reopened unassigned, with the plan in the box's notes §5.
