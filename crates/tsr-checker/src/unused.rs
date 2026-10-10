@@ -443,6 +443,18 @@ impl Checker<'_, '_> {
                 .property_name
                 .and_then(|n| n.node_id())
                 .or_else(|| element.name.and_then(|n| n.node_id())),
+            // `#x in obj`: `checkPrivateIdentifierExpression`
+            // (`checker.go:7837`) marks the private member referenced, with
+            // no self-access exemption (`isSelfTypeAccess` is false).
+            Some(Node::PrivateIdentifier(identifier))
+                if self.nodes.parent(node).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::BinaryExpression
+                }) =>
+            {
+                let text = identifier.text.to_string();
+                self.note_member_name(&text);
+                return;
+            }
             _ => None,
         };
         let Some(named) = named else { return };

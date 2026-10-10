@@ -276,3 +276,12 @@ lone private setter was never reported (`unusedSetterInClass`). And
 it leaves a field unread. The member-name pass records write-only accesses
 under their own key (`member_write_key`), read only for set accessors, with
 the same self-access rule as reads. Converted: `unusedSetterInClass(target=es2015)`.
+
+## §11 `#x in obj` reads `#x`
+
+`checkPrivateIdentifierExpression` (`checker.go:7837`), which `#x in obj`
+reaches for its left operand, calls `markPropertyAsReferenced` with no
+write-only node and `isSelfTypeAccess` false, so a private member used only
+as a brand check is not unused. The member-name pass (`note_member_name_at`)
+now records a private identifier that is a binary expression's operand.
+Converted: `privateNameInInExpressionUnused` (es2022, esnext).
