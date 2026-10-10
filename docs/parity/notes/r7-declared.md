@@ -413,3 +413,36 @@ On `src/jsTyping` (TSR vs `660718af`, native reports only one TS2688):
   TS2740 3 → 0, TS2454 2 → 0, TS2352 3 → 1, TS2367 1 → 0;
 - TS2322 12 → 17. Those five are new reports on now-typed code, not
   examined here.
+
+## 9. TYPE-ALIAS-DECLARED-BODY (part): an own indexed-access body resolves without the alias
+
+**Forcing constraint.** `create_type_reference`'s indexed arm evaluated an
+alias whose body is (or reaches) an indexed access. It then re-minted a
+signature-typed result under the alias's name (`alias_named_signature_types`,
+from `5fc064d4`'s "function-alias rendering"). Native separates two cases.
+- An alias whose **own** body is the indexed access declares the resolved
+  property type: getIndexedAccessTypeEx is handed the alias, but its
+  resolved arm returns the property type as declared. getTypeAliasInstantiation
+  then instantiates that type with no new alias. So `type BivariantHack<I, O>
+  = { foo(x: I): O }["foo"]` at `<Animal, Animal>` is `(x: Animal) => Animal`
+  (strictFunctionTypesErrors ×10). The same holds for `type Cb<T> = {
+  noAlias: () => T }["noAlias"]` (nestedCallbackErrorNotFlattened ×5).
+- An alias whose body is a **reference** to such an alias gets the outer
+  alias as `newAlias`, and instantiateTypeWithAlias gives it to the
+  anonymous object instantiation. So `type MouseEventHandler<T> =
+  EventHandler<MouseEvent<T>>` prints `MouseEventHandler<any>`
+  (jsxComplexSignatureHasApplicabilityError:0:163, which the first cut lost
+  when it dropped the naming for both).
+
+**Port.** The signature re-mint applies only when the body is not itself an
+`IndexedAccessTypeNode` (`own_indexed`). No new state.
+
+**Measured** (unfiltered against §8's tree): types **+18, 0 lost**
+(strictFunctionTypesErrors 10, nestedCallbackErrorNotFlattened 5,
+stringMappingReduction 3); diagnostics 0 / 0. The first cut (`!indexed`)
+measured +18 / −1, the `MouseEventHandler` line.
+
+**Remains.** A parameter written `cb: BivariantHack<Dog, Animal>` still
+prints the alias. The type is right; the signature printer reuses the
+written annotation. Native's node reuse rejects an alias reference whose
+type does not carry that alias. Owner: `node_reuse.rs` (r7-printer).
