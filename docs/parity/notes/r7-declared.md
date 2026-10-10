@@ -254,3 +254,42 @@ member image (a mapped image is final), then the symbol.
   count is identical.
 - Controls report as tsgo does: `Readonly<A> | A`, `A | B` with a readonly
   member, and `Mutable<B> | Readonly<A>`.
+
+## 5. A parenthesized conditional branch in a mapped template (prerequisite of §1 on `660718af`)
+
+**Found while re-landing §1.** On `660718af` the stack also turned
+deeplyNestedMappedTypes from RIGHT to WRONG on diagnostics (TS2322 at 69,5 and 77,5
+missing). TypeBox's `RequiredPropertyKeys<T> = keyof Omit<T,
+ReadonlyOptionalPropertyKeys<T> | …>` evaluated to `never` instead of
+native's `"level1"`. Each key alias is `{ [K in keyof T]: T[K] extends
+TReadonly<TSchema> ? (T[K] extends TOptional<T[K]> ? K : never) : never
+}[keyof T]`, and its template never built. Probed:
+
+```ts
+type M7<T> = { [K in keyof T]: T[K] extends number ? (T[K] extends string ? 2 : 1) : 0 };
+declare const m7: M7<{ a: TString }>;  m7.a   // TSR: error; tsgo: 0
+```
+
+Without the parentheses the same template is `0`. The deferred
+conditional in a mapped template is minted with its written text
+(`declared.rs`, the §906 mint). `written_type_text` (`signatures.rs`)
+declines a parenthesized non-union node, the mint fell to `(None, _) =>
+error`, and `mapped_type_info` declined the whole mapped type. So the
+`ReadonlyOptionalPropertyKeys<T1>` reference stayed unevaluated, and
+`Exclude<"level1", …>` related `"level1"` to that unevaluated mint. On main
+the outer `Omit` had no parts, which hid this. With the stack, `Omit`
+captures `Pick`'s parts, so the wrong `never` reached the relation.
+
+**Port.** `conditional_mint_text` (`declared.rs`) supplies the mint's text
+when `written_type_text` declines a conditional. The node builder prints a
+deferred conditional from its parts through `createConditionalTypeNode`,
+which parenthesizes only the check type
+(parenthesizeCheckTypeOfConditionalType) and the extends type
+(parenthesizeExtendsTypeOfConditionalType). A branch is printed bare, so
+its written parentheses are dropped, recursively for nested conditionals.
+The check and extends types keep the written-text rules and still decline.
+`signatures.rs` is not touched. Per mint, no table.
+
+**Measured** (alone, unfiltered against `660718af`): types +1
+(conditionalTypeAssignabilityWhenDeferred:0:94 WRONG → RIGHT), 0 lost;
+diagnostics 0 / 0.
