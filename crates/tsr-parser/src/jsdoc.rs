@@ -103,12 +103,17 @@ impl<'a> Parser<'a> {
             return &[];
         }
 
+        // `parseJSDocComment` (`jsdoc.go:156`) restores
+        // `statementHasAwaitIdentifier`: a comment never marks its statement
+        // for the top-level await reparse.
+        let saved_await_identifier = self.statement_has_await_identifier;
         let mut docs = Vec::with_capacity(ranges.len());
         for range in ranges {
             if let Some(doc) = self.parse_jsdoc_comment(range) {
                 docs.push(doc);
             }
         }
+        self.statement_has_await_identifier = saved_await_identifier;
         self.arena.alloc_slice(&docs)
     }
 

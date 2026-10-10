@@ -320,7 +320,9 @@ impl<'a> Parser<'a> {
                 };
                 self.expect(SyntaxKind::NewKeyword);
                 let type_parameters = self.parse_type_parameters();
-                let parameters = self.parse_parameter_list();
+                // `parseParameters(ParseFlagsType)`: no await context.
+                let parameters =
+                    self.with_function_context(false, false, Self::parse_parameter_list);
                 self.expect(SyntaxKind::EqualsGreaterThanToken);
                 let return_type =
                     self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate);
@@ -636,7 +638,8 @@ impl<'a> Parser<'a> {
             if !p.at(SyntaxKind::OpenParenToken) {
                 return None;
             }
-            let parameters = p.parse_parameter_list();
+            // `parseParameters(ParseFlagsType)`: no await context.
+            let parameters = p.with_function_context(false, false, Self::parse_parameter_list);
             if !p.at(SyntaxKind::EqualsGreaterThanToken) {
                 return None;
             }
@@ -1159,7 +1162,7 @@ impl<'a> Parser<'a> {
             // Method signatures don't exist in expression contexts, so they
             // have neither [Yield] nor [Await].
             let type_parameters = self.parse_type_parameters();
-            let parameters = self.with_await_context(false, Self::parse_parameter_list);
+            let parameters = self.with_function_context(false, false, Self::parse_parameter_list);
             let return_type = self.parse_return_type_in_type();
             self.parse_type_member_semicolon();
             let type_parameters = self.arena.alloc_slice(&type_parameters);
@@ -1201,7 +1204,7 @@ impl<'a> Parser<'a> {
             self.expect(SyntaxKind::NewKeyword);
         }
         let type_parameters = self.parse_type_parameters();
-        let parameters = self.with_await_context(false, Self::parse_parameter_list);
+        let parameters = self.with_function_context(false, false, Self::parse_parameter_list);
         let return_type = self.parse_return_type_in_type();
         self.parse_type_member_semicolon();
         let type_parameters = self.arena.alloc_slice(&type_parameters);

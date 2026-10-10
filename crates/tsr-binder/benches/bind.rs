@@ -60,6 +60,7 @@ fn parse_and_bind(name: &str, source: &str) -> usize {
         parents: true,
         jsdoc: false,
         defer_ts_jsdoc: false,
+        module_indicator: tsr_parser::ModuleIndicatorOptions::default(),
     };
     let parsed = tsr_parser::parse_with_options(&arena, source, options);
     let bound = tsr_binder::bind(
