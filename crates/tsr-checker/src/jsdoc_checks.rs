@@ -335,10 +335,6 @@ impl<'a> Checker<'a, '_> {
     /// is reparsed into ([`Self::jsdoc_template_lists`]), which
     /// `checkGrammarModifiers` reads as the parameter's `Parent`; `None` for
     /// a written parameter or one no declaration takes.
-    #[expect(
-        dead_code,
-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-template-grammar.diff"
-    )]
     pub(crate) fn jsdoc_template_owner_kind(&self, parameter: NodeId) -> Option<SyntaxKind> {
         let tag = self.nodes.parent(parameter)?;
         if self.nodes.kind(tag) != SyntaxKind::JSDocTemplateTag {

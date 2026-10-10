@@ -472,7 +472,11 @@ fn diagnostic_traversal_respects_native_declared_variance() {
         .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
         .collect();
     actual.sort_unstable();
-    // Native rejects 36:1 and accepts 37:1. The separate TS1274 grammar
-    // diagnostic at 59:14 remains unsupported; no assignment is suppressed.
-    assert_eq!(actual, [(18, 1, 2322), (36, 1, 2322), (55, 1, 2322), (56, 1, 2322)]);
+    // Native rejects 36:1 and accepts 37:1, and reports TS1274 at 59:14 —
+    // `@template in T` on a function (`checkGrammarModifiers`,
+    // `grammarchecks.go:526`); no assignment is suppressed.
+    assert_eq!(
+        actual,
+        [(18, 1, 2322), (36, 1, 2322), (55, 1, 2322), (56, 1, 2322), (59, 14, 1274)]
+    );
 }

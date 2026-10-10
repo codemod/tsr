@@ -1020,6 +1020,13 @@ impl Checker<'_, '_> {
         }
         self.check_contextual_identifier(node, ambient);
         self.check_type_parameter_list(type_parameters_of(typed));
+        // `checkTypeParameters` on each `@template` list the JS reparser
+        // makes from the comments this node hosts (`jsdoc_template_lists`).
+        if self.file_is_js {
+            for (_, list) in self.jsdoc_template_lists(node) {
+                self.check_type_parameter_list(&list);
+            }
+        }
         if self.nodes.kind(node) == SyntaxKind::SwitchStatement {
             self.check_switch_case_comparable(node);
         }
@@ -7618,9 +7625,32 @@ impl Checker<'_, '_> {
     /// `checker-notes-diag2.md` §88.
     ///
     /// The report lands on the **later** declaration only (`for j := range i`).
-    fn check_type_parameter_list(&mut self, parameters: &[&tsr_ast::TypeParameterDeclaration<'_>]) {
+    ///
+    /// With its two default rules (`checker.go:7006-7012`): a parameter
+    /// without a default after one with a default is TS2706 at the
+    /// parameter, and a default's reference to this or a later parameter of
+    /// the list is TS2744 at the reference (`checkTypeParametersNotReferenced`,
+    /// `:7022`).
+    pub(crate) fn check_type_parameter_list(
+        &mut self,
+        parameters: &[&tsr_ast::TypeParameterDeclaration<'_>],
+    ) {
+        let mut seen_default = false;
         for (index, parameter) in parameters.iter().enumerate() {
             let Some(id) = parameter.node_id else { continue };
+            if let Some(default) = parameter.default_type {
+                seen_default = true;
+                self.check_type_parameters_not_referenced(default, parameters, index);
+            } else if seen_default && let Some(file) = self.source_file_of_for_diagnostics(id) {
+                let span = self.error_span(id);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::REQUIRED_TYPE_PARAMETERS_MAY_NOT_FOLLOW_OPTIONAL_TYPE_PARAMETERS,
+                        span,
+                    ),
+                );
+            }
             let Some(symbol) = self.binder.symbol_of(id) else { continue };
             let duplicate = parameters[..index].iter().any(|earlier| {
                 earlier
@@ -7644,6 +7674,131 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// `checkTypeParametersNotReferenced` (`checker.go:7022`): every type
+    /// reference in `root` whose type is the parameter at `index` or a later
+    /// one of `parameters` is TS2744.
+    fn check_type_parameters_not_referenced(
+        &mut self,
+        root: tsr_ast::TypeNode<'_>,
+        parameters: &[&tsr_ast::TypeParameterDeclaration<'_>],
+        index: usize,
+    ) {
+        let Some(root) = tsr_ast::Node::from(root).node_id() else { return };
+        let mut stack = vec![root];
+        while let Some(current) = stack.pop() {
+            let Some(typed) = self.node_map.get(current) else { continue };
+            if let Node::TypeReferenceNode(reference) = typed {
+                let t =
+                    self.get_type_from_type_node(tsr_ast::TypeNode::TypeReferenceNode(reference));
+                if self.store.get(t).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER) {
+                    for later in &parameters[index..] {
+                        let Some(symbol) = later.node_id.and_then(|id| self.binder.symbol_of(id))
+                        else {
+                            continue;
+                        };
+                        if self.get_declared_type_of_symbol(symbol) == t
+                            && let Some(file) = self.source_file_of_for_diagnostics(current)
+                        {
+                            let span = self.error_span(current);
+                            self.report(
+                                file,
+                                Diagnostic::new(
+                                    &messages::TYPE_PARAMETER_DEFAULTS_CAN_ONLY_REFERENCE_PREVIOUSLY_DECLARED_TYPE_PARAMETERS,
+                                    span,
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+            let mut children = Vec::new();
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+            stack.extend(children.into_iter().rev());
+        }
+    }
+
+    /// `checkGrammarModifiers`' arms for a modifier on a type parameter, and
+    /// its `in`/`out` arm on any node (`grammarchecks.go:295`, `:303-312`,
+    /// `:526-543`). Answers whether one was reported, which ends the walk as
+    /// upstream's `return` does.
+    fn check_type_parameter_modifier(
+        &mut self,
+        node: NodeId,
+        token: &tsr_ast::Token<'_>,
+        seen: &[SyntaxKind],
+    ) -> bool {
+        let kind = token.kind;
+        let parent = self
+            .jsdoc_template_owner_kind(node)
+            .or_else(|| self.nodes.parent(node).map(|parent| self.nodes.kind(parent)));
+        let (message, args): (&'static tsr_diagnostics::Message, Vec<String>) = match kind {
+            SyntaxKind::ConstKeyword => {
+                if parent.is_some_and(|parent| {
+                    matches!(
+                        parent,
+                        SyntaxKind::FunctionDeclaration
+                            | SyntaxKind::MethodDeclaration
+                            | SyntaxKind::Constructor
+                            | SyntaxKind::GetAccessor
+                            | SyntaxKind::SetAccessor
+                            | SyntaxKind::FunctionExpression
+                            | SyntaxKind::ArrowFunction
+                            | SyntaxKind::ClassDeclaration
+                            | SyntaxKind::ClassExpression
+                            | SyntaxKind::FunctionType
+                            | SyntaxKind::ConstructorType
+                            | SyntaxKind::CallSignature
+                            | SyntaxKind::ConstructSignature
+                            | SyntaxKind::MethodSignature
+                    )
+                }) {
+                    return false;
+                }
+                (
+                    &messages::_0_MODIFIER_CAN_ONLY_APPEAR_ON_A_TYPE_PARAMETER_OF_A_FUNCTION_METHOD_OR_CLASS,
+                    vec!["const".to_string()],
+                )
+            }
+            SyntaxKind::InKeyword | SyntaxKind::OutKeyword => {
+                let text = if kind == SyntaxKind::InKeyword { "in" } else { "out" };
+                if self.nodes.kind(node) != SyntaxKind::TypeParameter
+                    || parent.is_some_and(|parent| {
+                        !matches!(
+                            parent,
+                            SyntaxKind::InterfaceDeclaration
+                                | SyntaxKind::ClassDeclaration
+                                | SyntaxKind::ClassExpression
+                                | SyntaxKind::TypeAliasDeclaration
+                        )
+                    })
+                {
+                    (
+                        &messages::_0_MODIFIER_CAN_ONLY_APPEAR_ON_A_TYPE_PARAMETER_OF_A_CLASS_INTERFACE_OR_TYPE_ALIAS,
+                        vec![text.to_string()],
+                    )
+                } else if seen.contains(&kind) {
+                    (&messages::_0_MODIFIER_ALREADY_SEEN, vec![text.to_string()])
+                } else if kind == SyntaxKind::InKeyword && seen.contains(&SyntaxKind::OutKeyword) {
+                    (
+                        &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                        vec!["in".to_string(), "out".to_string()],
+                    )
+                } else {
+                    return false;
+                }
+            }
+            _ => match modifier_keyword_text(kind) {
+                Some(text) => (
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_TYPE_PARAMETER,
+                    vec![text.to_string()],
+                ),
+                None => return false,
+            },
+        };
+        self.report_modifier_error(token, message, &args);
+        true
     }
 
     /// TS1029 — `'{0}' modifier must precede '{1}' modifier.`
@@ -8229,6 +8384,16 @@ impl Checker<'_, '_> {
                     &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_TYPE_MEMBER,
                     &[text.to_string()],
                 );
+                return;
+            }
+            // The type-parameter arms (`grammarchecks.go:295`, `:307`, `:526`):
+            // only `in`, `out` and `const`, each on the declarations that take
+            // it. A JSDoc `@template` parameter's parent is the declaration its
+            // list is reparsed into (`jsdoc_template_owner_kind`).
+            if (self.nodes.kind(node) == SyntaxKind::TypeParameter
+                || matches!(kind, SyntaxKind::InKeyword | SyntaxKind::OutKeyword))
+                && self.check_type_parameter_modifier(node, token, &seen)
+            {
                 return;
             }
             // TS1028, the **first** arm of the same `if`/`else if` chain
