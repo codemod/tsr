@@ -2813,6 +2813,14 @@ impl<'a> Checker<'a, '_> {
         // no body and its return type is `any`. That is a computed answer and not
         // a gap, which is why it is `anyType` here and `errorType` below.
         let Some(body) = body else { return Some(self.intrinsics.any) };
+        // `NodeIsMissing` is `pos == end`: a body whose `{` was missing is the
+        // parser's empty recovery `Block`, which covers no text
+        // (`parseBlock`'s `createMissingList` arm).
+        if let Body::Block(block) = body
+            && self.nodes.span(block).is_empty()
+        {
+            return Some(self.intrinsics.any);
+        }
         self.return_type_from_body(declaration, body, modifiers, asterisk, may_return_never)
     }
 

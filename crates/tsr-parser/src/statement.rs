@@ -633,10 +633,19 @@ impl<'a> Parser<'a> {
     /// `await` identifier inside it never marks the enclosing top-level
     /// statement for the reparse (`statementHasAwaitIdentifier`).
     pub(crate) fn parse_function_block(&mut self) -> &'a Block<'a> {
+        self.parse_function_block_with(None)
+    }
+
+    /// [`Self::parse_function_block`] with `parseFunctionBlock`'s diagnostic
+    /// message for a missing `{`.
+    pub(crate) fn parse_function_block_with(
+        &mut self,
+        missing_open_brace: Option<&'static tsr_diagnostics::Message>,
+    ) -> &'a Block<'a> {
         let saved = self.statement_has_await_identifier;
         // "The body of the function is not in [Decorator] context."
         let saved_decorator = std::mem::replace(&mut self.in_decorator_context, false);
-        let block = self.parse_block();
+        let block = self.parse_block_with(missing_open_brace);
         self.in_decorator_context = saved_decorator;
         self.statement_has_await_identifier = saved;
         block
@@ -669,7 +678,11 @@ impl<'a> Parser<'a> {
             _ => self.expect(SyntaxKind::OpenBraceToken),
         };
         if !open_brace_parsed && !ignore_missing_open_brace {
-            return self.finish_node(Block::new(&[], true), SyntaxKind::Block, start);
+            // `createMissingList()`: the block covers no text, zero-width at
+            // the next token's full start (`finishNode(…, pos)` with
+            // `pos = p.nodePos()`), which is what `ast.NodeIsMissing` reads.
+            let at = self.node_end();
+            return self.finish_node_with_end(Block::new(&[], false), SyntaxKind::Block, at, at);
         }
         let statements = self.parse_statement_list(ParsingContext::BlockStatements);
         // `parseExpectedMatchingBrackets`.
