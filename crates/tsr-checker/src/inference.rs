@@ -1529,6 +1529,12 @@ impl<'a> Checker<'a, '_> {
                                 &[type_parameter],
                                 &[name],
                             ) && !argument_types.get(index).is_some_and(|&source| {
+                                // Nor does a tuple whose arity rules the tuple
+                                // parameter out: `inferFromObjectTypes` returns
+                                // at `typesDefinitelyUnrelated`
+                                // (`inference.go:715`) before any element.
+                                self.tuple_types_definitely_unrelated(source, parameter_type)
+                            }) && !argument_types.get(index).is_some_and(|&source| {
                                 self.predicate_only_inference_has_no_source(
                                     source,
                                     parameter_type,
@@ -3249,6 +3255,58 @@ impl<'a> Checker<'a, '_> {
     /// Ported from inferFromObjectTypes (internal/checker/inference.go:714-809).
     /// Rest slots are represented here by their array operand; upstream stores
     /// the element argument instead. Convert at the inference boundary.
+    /// `tupleTypesDefinitelyUnrelated` (`inference.go:1195`) over this port's
+    /// tuple element lists; a `*_rest` entry is the array element of a rest
+    /// (non-variadic) spread.
+    fn tuple_elements_definitely_unrelated(
+        sources: &[crate::tuples::TupleElement],
+        source_rest: &[Option<TypeId>],
+        targets: &[crate::tuples::TupleElement],
+        target_rest: &[Option<TypeId>],
+    ) -> bool {
+        let target_variadic =
+            targets.iter().enumerate().any(|(i, e)| e.spread && target_rest[i].is_none());
+        let target_variable = targets.iter().any(|e| e.spread);
+        let source_variable = sources.iter().any(|e| e.spread);
+        let target_min = targets
+            .iter()
+            .enumerate()
+            .filter(|(i, e)| !e.optional && (!e.spread || target_rest[*i].is_none()))
+            .count();
+        let source_min = sources
+            .iter()
+            .enumerate()
+            .filter(|(i, e)| !e.optional && (!e.spread || source_rest[*i].is_none()))
+            .count();
+        let source_fixed = sources.iter().take_while(|e| !e.spread).count();
+        (!target_variadic && target_min > source_min)
+            || (!target_variable && (source_variable || targets.len() < source_fixed))
+    }
+
+    /// `inferFromObjectTypes`' `typesDefinitelyUnrelated` exit
+    /// (`inference.go:715`) for two tuples: their incompatible arities make
+    /// the source supply no inference at all.
+    pub(crate) fn tuple_types_definitely_unrelated(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+    ) -> bool {
+        let (Some(sources), Some(targets)) =
+            (self.inference_tuple_elements(source), self.inference_tuple_elements(target))
+        else {
+            return false;
+        };
+        let rest = |checker: &mut Self, elements: &[crate::tuples::TupleElement]| {
+            elements
+                .iter()
+                .map(|e| if e.spread { checker.tuple_spread_array_element(e.r#type) } else { None })
+                .collect::<Vec<_>>()
+        };
+        let source_rest = rest(self, &sources);
+        let target_rest = rest(self, &targets);
+        Self::tuple_elements_definitely_unrelated(&sources, &source_rest, &targets, &target_rest)
+    }
+
     fn infer_from_tuple_types(
         &mut self,
         source: TypeId,
@@ -3321,27 +3379,15 @@ impl<'a> Checker<'a, '_> {
             .collect();
         // tupleTypesDefinitelyUnrelated rejects incompatible tuple arities
         // before element inference; array sources have no tuple arity.
-        if source_array.is_none() {
-            let target_variadic =
-                targets.iter().enumerate().any(|(i, e)| e.spread && target_rest[i].is_none());
-            let target_variable = targets.iter().any(|e| e.spread);
-            let source_variable = sources.iter().any(|e| e.spread);
-            let target_min = targets
-                .iter()
-                .enumerate()
-                .filter(|(i, e)| !e.optional && (!e.spread || target_rest[*i].is_none()))
-                .count();
-            let source_min = sources
-                .iter()
-                .enumerate()
-                .filter(|(i, e)| !e.optional && (!e.spread || source_rest[*i].is_none()))
-                .count();
-            let source_fixed = sources.iter().take_while(|e| !e.spread).count();
-            if (!target_variadic && target_min > source_min)
-                || (!target_variable && (source_variable || targets.len() < source_fixed))
-            {
-                return true;
-            }
+        if source_array.is_none()
+            && Self::tuple_elements_definitely_unrelated(
+                &sources,
+                &source_rest,
+                &targets,
+                &target_rest,
+            )
+        {
+            return true;
         }
         if source_array.is_none()
             && sources.len() == targets.len()

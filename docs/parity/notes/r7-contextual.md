@@ -340,3 +340,23 @@ Result (commit 6), against the `e5e0494b` freeze: types +20 RIGHT
 `dependentDestructuredVariables` 3, `narrowingDestructuring` 2), diagnostics
 +2, 0 lost. jsTyping's shape (`if (!state.cache) return; const { cache } =
 state; cache.orig();`) no longer reports TS18048, matching tsgo-pinned.
+
+## 7. INFER-NO-CANDIDATE-GUARD: a tuple of incompatible arity supplies nothing
+
+`inferFromObjectTypes` returns at `typesDefinitelyUnrelated`
+(`inference.go:715`, tuples at `:1195`) before inferring from any element of
+a tuple whose arity rules the tuple parameter out. For
+`all<T1, T2, T3>(x: [IPromise<T1>, IPromise<T2>, IPromise<T3>])` called with
+a pair, all three parameters therefore keep no candidate, take their
+default, and applicability moves on to the two-element overload.
+`infer_from_tuple_types` already carried that predicate inline. It is now
+`tuple_elements_definitely_unrelated` (with a `TypeId` front end,
+`tuple_types_definitely_unrelated`), and `structural_source_supplied`
+treats such an argument like §401's null/undefined: no structural source.
+Before this, `$q.all([ps, pn])` declined the whole call (`error`).
+
+Result (commit 7), against the `63a147ac` freeze: types +5 RIGHT
+(`variadicTuples2` 4, `restTupleElements1` 1), 0 lost; diagnostics
+unchanged. Falsifier: a tuple pair the predicate calls unrelated while
+native's `TargetTupleType` flags disagree. Optional and rest elements are
+the place to look, since `minLength` counts required elements only.
