@@ -813,6 +813,12 @@ impl<'a> Checker<'a, '_> {
                             &mut array_headed,
                         ),
                         _ => None,
+                    })
+                    .or_else(|| match node {
+                        TypeNode::ConditionalTypeNode(conditional) => {
+                            self.conditional_typed_mint_text(conditional)
+                        }
+                        _ => None,
                     });
                 match (text, node) {
                     // §905.1: a RECURSIVE mapped alias answers `any` upstream,
@@ -5084,9 +5090,39 @@ impl<'a> Checker<'a, '_> {
         single_quoted: &mut bool,
         array_headed: &mut bool,
     ) -> Option<String> {
-        let check = Self::written_type_text(conditional.check_type?, single_quoted, array_headed)?;
-        let extends =
-            Self::written_type_text(conditional.extends_type?, single_quoted, array_headed)?;
+        // A parenthesized operand prints as createConditionalTypeNode
+        // reparenthesizes it: the check type keeps parentheses around a
+        // function, constructor or conditional type
+        // (parenthesizeCheckTypeOfConditionalType), the extends type only
+        // around a conditional (parenthesizeExtendsTypeOfConditionalType).
+        let operand = |node: TypeNode<'_>,
+                       check: bool,
+                       single_quoted: &mut bool,
+                       array_headed: &mut bool|
+         -> Option<String> {
+            if let Some(text) = Self::written_type_text(node, single_quoted, array_headed) {
+                return Some(text);
+            }
+            let mut inner = node;
+            while let TypeNode::ParenthesizedTypeNode(parenthesized) = inner {
+                inner = parenthesized.r#type?;
+            }
+            let (text, keeps) = match inner {
+                TypeNode::ConditionalTypeNode(nested) => (
+                    Self::written_type_text(inner, single_quoted, array_headed).or_else(|| {
+                        Self::conditional_mint_text(nested, single_quoted, array_headed)
+                    })?,
+                    true,
+                ),
+                TypeNode::FunctionTypeNode(_) | TypeNode::ConstructorTypeNode(_) => {
+                    (Self::written_type_text(inner, single_quoted, array_headed)?, check)
+                }
+                _ => return None,
+            };
+            Some(if keeps { format!("({text})") } else { text })
+        };
+        let check = operand(conditional.check_type?, true, single_quoted, array_headed)?;
+        let extends = operand(conditional.extends_type?, false, single_quoted, array_headed)?;
         let mut branch = |node: TypeNode<'_>| {
             let mut node = node;
             while let TypeNode::ParenthesizedTypeNode(parenthesized) = node {
@@ -5103,6 +5139,88 @@ impl<'a> Checker<'a, '_> {
         let true_type = branch(conditional.true_type?)?;
         let false_type = branch(conditional.false_type?)?;
         Some(format!("{check} extends {extends} ? {true_type} : {false_type}"))
+    }
+
+    /// The deferred conditional's print from its operand TYPES, where its
+    /// written text has a node `written_type_text` cannot spell (a function
+    /// type operand: `S extends () => any ? never : S`). The node builder
+    /// prints a deferred conditional through createConditionalTypeNode over
+    /// `checkType`, `extendsType`, and the true and false types, so this is
+    /// that print for the check and extends types. The check type is
+    /// parenthesized when it is a function, constructor or conditional type
+    /// (parenthesizeCheckTypeOfConditionalType), and the extends type when it
+    /// is a conditional (parenthesizeExtendsTypeOfConditionalType). Both are
+    /// resolved under the current frames, as the evaluator already resolves
+    /// them. `None` when either does not resolve or a branch has no written
+    /// text. Without a text the mint was `error`, and every signature holding
+    /// the conditional was `error` too (r7-declared §13).
+    fn conditional_typed_mint_text(
+        &mut self,
+        conditional: &tsr_ast::ConditionalTypeNode<'a>,
+    ) -> Option<String> {
+        let mut single_quoted = false;
+        let mut array_headed = false;
+        // The branches keep the written-text rules (their parentheses dropped,
+        // as `conditional_mint_text` does): resolving them here would force
+        // what native resolves lazily (getTrueTypeFromConditionalType), and a
+        // recursive branch then expands at mint (awaitedType ran 10 s).
+        let mut branch = |node: TypeNode<'_>| {
+            let mut node = node;
+            while let TypeNode::ParenthesizedTypeNode(parenthesized) = node {
+                node = parenthesized.r#type?;
+            }
+            match node {
+                TypeNode::ConditionalTypeNode(inner) => Self::written_type_text(
+                    node,
+                    &mut single_quoted,
+                    &mut array_headed,
+                )
+                .or_else(|| {
+                    Self::conditional_mint_text(inner, &mut single_quoted, &mut array_headed)
+                }),
+                _ => Self::written_type_text(node, &mut single_quoted, &mut array_headed),
+            }
+        };
+        let yes = branch(conditional.true_type?)?;
+        let no = branch(conditional.false_type?)?;
+        if self.instantiation_depth >= 100 {
+            return None;
+        }
+        self.instantiation_depth += 1;
+        let check = conditional.check_type.map(|node| self.get_type_from_type_node(node));
+        let extends = conditional.extends_type.map(|node| self.get_type_from_type_node(node));
+        self.instantiation_depth -= 1;
+        let (Some(check), Some(extends)) = (check, extends) else { return None };
+        if self.is_error(check) || self.is_error(extends) {
+            return None;
+        }
+        // Only a conditional getConditionalType defers is printed from its
+        // parts (isDeferredType, checker.go:24475). A decided check this
+        // port cannot evaluate keeps the gap, as native answers its branch
+        // (or errorType at the instantiation guard, `Awaited<BadPromise>`).
+        let check_tuples = Self::conditional_check_tuples(conditional);
+        if !self.is_deferred_type(check, check_tuples)
+            && !self.is_deferred_type(extends, check_tuples)
+        {
+            return None;
+        }
+        let is_callable = |checker: &Self, t: TypeId| {
+            matches!(
+                checker.store.get(t).data,
+                crate::types::TypeData::Anonymous { signature: true, .. }
+            )
+        };
+        let is_conditional =
+            |checker: &Self, t: TypeId| checker.store.get(t).flags.contains(TypeFlags::CONDITIONAL);
+        let mut check_text = self.type_to_string(check);
+        if is_callable(self, check) || is_conditional(self, check) {
+            check_text = format!("({check_text})");
+        }
+        let mut extends_text = self.type_to_string(extends);
+        if is_conditional(self, extends) {
+            extends_text = format!("({extends_text})");
+        }
+        Some(format!("{check_text} extends {extends_text} ? {yes} : {no}"))
     }
 
     fn skip_type_parentheses(mut node: TypeNode<'a>) -> Option<TypeNode<'a>> {
