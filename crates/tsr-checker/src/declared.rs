@@ -5536,10 +5536,18 @@ impl<'a> Checker<'a, '_> {
             ) {
                 return evaluated;
             }
-            // Upstream evaluates conditional aliases in alias-declared
-            // positions even through type-parameter arguments
-            // (`PrefixData<P>` answers `\`${P}:baz\``).
-            return error;
+            // getConditionalType (checker.go:24339) defers when the
+            // instantiated check type is generic: the result is a
+            // ConditionalType carrying the reference's alias
+            // (getTypeAliasInstantiation, checker.go:23641), which is the
+            // named reference below (`type_reference_targets` records its
+            // root and arguments; `alias_declares_conditional` reads it as a
+            // conditional). Every other refusal keeps the gap: a decided
+            // check whose branch this port cannot evaluate, and native's
+            // own errorType at the instantiation guard (r6-declared2 §1).
+            if !self.conditional_alias_check_is_deferred(symbol, &arguments) {
+                return error;
+            }
         }
         // The same alias-declared position through an alias whose body is a
         // reference to a conditional alias (`type N3 = Not<boolean>` over
@@ -9471,6 +9479,69 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
+    /// Whether getConditionalType (checker.go:24339) defers the conditional
+    /// body of `symbol` under `arguments`: its check type, resolved under the
+    /// alias's bindings, is generic (`isGenericType`), the same test
+    /// [`Checker::evaluate_conditional_node`] declines on, or its extends
+    /// type is (`isDeferredType(inferredExtendsType)`). A non-conditional
+    /// body, a binding that cannot be built, or the instantiation guard
+    /// answers `false`.
+    pub(crate) fn conditional_alias_check_is_deferred(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> bool {
+        if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
+            return false;
+        }
+        let Some(declaration) = self.type_alias_declaration_of(symbol) else { return false };
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        let Some(TypeNode::ConditionalTypeNode(conditional)) =
+            alias.r#type.and_then(Self::skip_type_parentheses)
+        else {
+            return false;
+        };
+        let Some(check_node) = conditional.check_type else { return false };
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() {
+            return false;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let Some(parameter) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                return false;
+            };
+            frame.insert(parameter, argument);
+        }
+        // The extends type defers too (`!isDeferredType(inferredExtendsType)`).
+        // With infer parameters, inferredExtendsType is the extends type under
+        // the inference mapper, which this test cannot form; only the check
+        // type is asked then.
+        let has_infer_parameters =
+            conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+                locals.values().any(|&symbol| {
+                    self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+                })
+            });
+        let extends_node = conditional.extends_type.filter(|_| !has_infer_parameters);
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let check = self.get_type_from_type_node(check_node);
+        let extends = extends_node.map(|node| self.get_type_from_type_node(node));
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        let deferred = |checker: &Self, t: TypeId| {
+            !checker.is_error(t)
+                && !checker.signature_types.contains_key(&t)
+                && (checker.store.get(t).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+                    || checker.mentions_registered_type_parameter(t))
+        };
+        !self.is_error(check)
+            && (deferred(self, check) || extends.is_some_and(|extends| deferred(self, extends)))
+    }
+
     /// Whether a type alias's declared type is a conditional type: its body is
     /// a conditional, or a reference to another generic alias whose declared
     /// type is (the chain [`Checker::evaluate_conditional_alias_reference`]
@@ -9615,6 +9686,28 @@ impl<'a> Checker<'a, '_> {
                 checker.get_type_from_type_node(node.true_type?),
                 checker.get_type_from_type_node(node.false_type?),
             ))
+        })
+    }
+
+    /// A deferred conditional's `[checkType, extendsType, trueType,
+    /// falseType]` under its root mapper (`ConditionalType.checkType`/
+    /// `extendsType`, getTrueTypeFromConditionalType,
+    /// getFalseTypeFromConditionalType), for an inline conditional mint or a
+    /// reference to a conditional alias. `None` when any operand is not
+    /// computable.
+    pub(crate) fn conditional_root_operands(&mut self, id: TypeId) -> Option<[TypeId; 4]> {
+        if let Some(info) = self.mapped_conditionals.get(&id) {
+            return Some(info.operands);
+        }
+        let error = self.intrinsics.error;
+        self.with_conditional_inference_node(id, |checker, node| {
+            let operands = [
+                checker.get_type_from_type_node(node.check_type?),
+                checker.get_type_from_type_node(node.extends_type?),
+                checker.get_type_from_type_node(node.true_type?),
+                checker.get_type_from_type_node(node.false_type?),
+            ];
+            (!operands.contains(&error)).then_some(operands)
         })
     }
 
