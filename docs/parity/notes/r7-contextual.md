@@ -450,3 +450,24 @@ that reads a sibling binding), `objectBindingPatternContextuallyTypesArgument`
 (an argument contextually typed by the pattern), `literalTypesAndTypeAssertions`
 and the optional flags in `declarationEmitDestructuring2` (`{ x?: …; y?: … }`,
 `padObjectLiteralType`).
+
+## 11. BINDING-ELEMENT-COMPUTED-NAME-INDEXED-ACCESS: a certain miss is `errorType`
+
+`let {[foo]: bar} = {bar: "bar"}` with `foo: string`: in
+`getBindingElementTypeFromParentType`, the computed-name arm indexes the
+parent with `getIndexedAccessTypeEx(parent, string, …, name)`
+(`checker.go:17741`). A binding element is not an access expression, so
+`getPropertyTypeForIndexType` takes its no-signature leg
+(`:27100-27130`): it reports TS2537 (already reported here) and answers nil,
+and `getIndexedAccessTypeEx` (`:26927`) turns that into `errorType` for its
+access node. That is native's any-flagged error, printed `any`, not this
+port's gap, so the assignment-pattern literals built from the bound names
+(`{ [foo]: any; }`, `[{ [x: string]: any; }]`) now type. The arm answered the
+gap. It now answers `native_error` when `computed_key_certainly_unmatched`
+certifies the miss: a non-literal `string`/`number` key, and a non-generic
+object whose member table is complete and has no index signature. Anything
+else keeps the gap.
+
+Result (commit 10): types +21 RIGHT (`computedPropertiesInDestructuring1` 10,
+`computedPropertiesInDestructuring1_ES6` 10, `objectRest` 1), 0 lost;
+diagnostics unchanged; jsTyping unchanged.

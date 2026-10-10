@@ -226,10 +226,19 @@ impl Checker<'_, '_> {
                             self.include_unchecked_undefined(info.value, include, parent_type, key)
                         } else {
                             let apparent = self.apparent_type(parent_type);
-                            if !(allow_missing && self.is_object_literal_type(apparent)) {
+                            if allow_missing && self.is_object_literal_type(apparent) {
+                                self.intrinsics.undefined
+                            } else if self.computed_key_certainly_unmatched(apparent, key) {
+                                // getPropertyTypeForIndexType's no-signature
+                                // leg for a binding element (no access
+                                // expression, `checker.go:27100-27130`)
+                                // reports TS2537 and answers nil, so
+                                // getIndexedAccessTypeEx (`:26927`) gives
+                                // `errorType` for its access node.
+                                self.intrinsics.native_error
+                            } else {
                                 return error;
                             }
-                            self.intrinsics.undefined
                         }
                     }
                 } else {
@@ -1274,6 +1283,31 @@ impl Checker<'_, '_> {
     /// `{ [k: string]: V }` is `V` (`lateBoundDestructuringImplicitAnyError`,
     /// r5-shapes §2.7). `resolved_indexed_access_type` (`indexed.rs`) reads
     /// its index signatures through this too.
+    /// Whether a non-literal `string` or `number` key certainly matches no
+    /// member of `object`: a non-generic object whose member table is
+    /// complete and that has no index signature at all. Anything this port
+    /// cannot certify stays undecided.
+    fn computed_key_certainly_unmatched(&mut self, object: TypeId, key: TypeId) -> bool {
+        let key_flags = self.store.get(key).flags;
+        if !matches!(self.store.get(key).data, TypeData::Intrinsic { .. })
+            || !key_flags.intersects(TypeFlags::STRING | TypeFlags::NUMBER)
+        {
+            return false;
+        }
+        let flags = self.store.get(object).flags;
+        if !flags.contains(TypeFlags::OBJECT)
+            || flags
+                .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
+            || self.mapped_types.contains_key(&object)
+            || self.unresolved_types.contains(&object)
+        {
+            return false;
+        }
+        (self.anonymous_properties.contains_key(&object)
+            || self.declared_members_are_complete(object))
+            && self.get_index_infos_of_type(object).is_some_and(|infos| infos.is_empty())
+    }
+
     pub(crate) fn destructuring_index_info(
         &mut self,
         object: TypeId,
