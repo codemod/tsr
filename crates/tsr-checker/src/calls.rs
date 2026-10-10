@@ -407,9 +407,9 @@ enum CallArity {
     /// Some candidate has a correct arity; the arguments decide. Carries
     /// the candidate when it is the single non-generic one.
     Applicable(Option<Box<Signature>>),
-    /// The single candidate is generic, written without type arguments:
-    /// `chooseOverload` infers its type arguments and checks the
-    /// instantiation (`checker.go:9055`).
+    /// The single candidate of a call or `new` is generic: `chooseOverload`
+    /// checks its written type arguments or infers them, and checks the
+    /// instantiation (`checker.go:9046`).
     ApplicableGeneric(Box<Signature>),
     /// Several candidates, none generic, in `reorderCandidates` order; those
     /// whose arity matched. `chooseOverload` checks each against the
@@ -972,7 +972,8 @@ impl Checker<'_, '_> {
             // already filtered out above.
             if let [candidate] = candidates.as_slice()
                 && !candidate.type_parameters.is_empty()
-                && is_call
+                && !tagged
+                && !no_argument_list
                 && !effective.iter().any(|argument| argument.spread)
                 && effective.len() == arguments.len()
             {
@@ -1362,19 +1363,52 @@ impl Checker<'_, '_> {
         node: tsr_ast::NodeId,
         candidate: &Signature,
     ) -> bool {
-        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else {
-            return false;
+        let (type_arguments, arguments, callee, call) = match self.node_map.get(node) {
+            Some(tsr_ast::Node::CallExpression(call)) => {
+                (call.type_arguments, call.arguments, call.expression, Some(call))
+            }
+            Some(tsr_ast::Node::NewExpression(new)) => {
+                (new.type_arguments, new.arguments, new.expression, None)
+            }
+            _ => return false,
         };
-        if !call.type_arguments.is_empty() {
+        if !type_arguments.is_empty() {
             match self.check_call_type_argument_constraints(candidate, node) {
                 Some(true) => {}
                 Some(false) => return true,
                 None => return false,
             }
         }
-        let instantiated = if call.type_arguments.is_empty()
-            && call.arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+        // With no argument and no generic rest, `isSignatureApplicable` has
+        // nothing to relate for a `new` (its `this` arm is skipped): the
+        // instantiation is not needed.
+        if call.is_none()
+            && arguments.is_empty()
+            && self.signature_non_array_rest_type(candidate).is_none()
         {
+            return true;
+        }
+        let published = match (call, self.node_map.get(node)) {
+            (None, Some(tsr_ast::Node::NewExpression(new))) => {
+                // `resolveNewExpression`'s instantiation is the one the type
+                // road published for the node (`signatureLinks.resolvedSignature`):
+                // reused, so a `new` that resolved costs no second inference.
+                // None was published when that road could not instantiate the
+                // candidate; the inference below runs on that path only.
+                self.check_expression(Expression::NewExpression(new));
+                self.resolved_call_signatures
+                    .get(&node)
+                    .filter(|resolved| resolved.type_parameters.is_empty())
+                    .cloned()
+            }
+            _ => None,
+        };
+        let instantiated = if let Some(published) = published {
+            published
+        } else if type_arguments.is_empty()
+            && arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+        {
+            let Some(call) = call else { return false };
             // checkCallExpression resolves the call (`resolveCall`,
             // assigning the callbacks' contextual parameter types once)
             // before any callback body is checked. The diagnostic walk
@@ -1394,7 +1428,7 @@ impl Checker<'_, '_> {
             let answer = self.check_generic_call_with(
                 candidate,
                 Some(node),
-                call.arguments,
+                arguments,
                 Some(&mut instantiated),
             );
             match instantiated {
@@ -1407,16 +1441,16 @@ impl Checker<'_, '_> {
         // `candidateForArgumentArityError`, reported by `getArgumentArityError`
         // over it alone (`reportCallResolutionErrors`, `checker.go:9670`).
         if self.signature_non_array_rest_type(candidate).is_some() {
-            let Some(effective) = self.effective_call_arguments(call.arguments) else {
+            let Some(effective) = self.effective_call_arguments(arguments) else {
                 return false;
             };
             match self.has_correct_arity(&instantiated, &effective, false) {
                 Some(true) => {}
                 Some(false) => {
-                    let error_node = call
-                        .expression
-                        .and_then(|callee| callee.node_id())
-                        .map_or(node, |callee| self.call_error_node(callee));
+                    let error_node = match (call, callee.and_then(|callee| callee.node_id())) {
+                        (Some(_), Some(callee)) => self.call_error_node(callee),
+                        _ => node,
+                    };
                     self.report_argument_arity_error(node, error_node, &[instantiated], &effective);
                     return true;
                 }
@@ -1462,10 +1496,11 @@ impl Checker<'_, '_> {
         candidate: &Signature,
         call: tsr_ast::NodeId,
     ) -> Option<bool> {
-        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(call) else {
-            return None;
+        let nodes = match self.node_map.get(call) {
+            Some(tsr_ast::Node::CallExpression(call)) => call.type_arguments,
+            Some(tsr_ast::Node::NewExpression(new)) => new.type_arguments,
+            _ => return None,
         };
-        let nodes = call.type_arguments;
         let parameters = self.type_parameter_types(candidate)?;
         if nodes.len() > parameters.len() {
             return None;
@@ -1914,9 +1949,14 @@ impl Checker<'_, '_> {
                     CallArity::Applicable(Some(signature)) => {
                         self.check_single_candidate_arguments(node, &signature);
                     }
-                    CallArity::Applicable(None)
-                    | CallArity::ApplicableGeneric(_)
-                    | CallArity::ApplicableOverloads(_) => {
+                    CallArity::ApplicableGeneric(candidate) => {
+                        if !self.check_single_generic_candidate_arguments(node, &candidate)
+                            && !self.report_overload_argument_failure(node)
+                        {
+                            self.check_new_arity(node, false);
+                        }
+                    }
+                    CallArity::Applicable(None) | CallArity::ApplicableOverloads(_) => {
                         if !self.report_overload_argument_failure(node) {
                             self.check_new_arity(node, false);
                         }

@@ -127,3 +127,31 @@ missing a report at a TS2722-class location (`mappedTypeIndexedAccessConstraint`
 Coverage bin on the commit: `checker_types` 8,678/9,538 (+1),
 `checker_types_configured` 1,756/1,928 (+4), `diagnostics` 4,804/5,502
 (unchanged).
+
+## 3. A single generic construct signature reports (`.1153`, `.1158`, `.1172`)
+
+r6-callreport's diff 3 ([r6-callreport.md](r6-callreport.md) §4,
+[`r6-callreport-3-generic-new.diff`](r6-callreport-3-generic-new.diff)),
+applied unchanged on `2745f162`. `chooseOverload`'s generic arm
+(`checker.go:9046`) runs for a `new` whose single candidate is generic: its
+written type arguments are checked against their constraints, and the
+instantiation is checked with `reportErrors`. The instantiation is the one the
+`new` type road published (`signatureLinks.resolvedSignature`); only when
+none was published does the report run `check_generic_call_with`. A `new`
+with no arguments and no generic rest needs no instantiation.
+
+Round 6 held this diff for a +0.09% domain-model Ir cost over its diff 2.
+Valgrind is not installed in this orb, so this gate's measure is the
+protocol's median child CPU against the frozen `2745f162` binary at 41
+samples: domain-model 0.979, generic-imports 1.000. The remaining cost r6
+named (the published-signature reuse plus one argument relation on a
+successful generic `new`) is the cost calls already pay on the same path.
+
+**Measured** against `2745f162`: diagnostics +7, 0 lost; types 0 gained,
+0 lost. Converted: classTypeParametersInStatics, dataViewConstructor,
+genericClassWithStaticFactory, overloadresolutionWithConstraintCheckingDeferred,
+exportAssignmentConstrainedGenericType, overloadResolutionClassConstructors,
+typeArgumentInferenceConstructSignatures.
+
+Coverage bin on the commit: `diagnostics` 4,811/5,502 (+7); type suites
+unchanged.
