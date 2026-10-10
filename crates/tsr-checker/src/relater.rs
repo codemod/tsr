@@ -786,19 +786,43 @@ impl Checker<'_, '_> {
         }
         let identity = self.relation_recursion_identity(ty);
         let mut count = 0;
-        let mut last = 0;
+        let mut last: Option<TypeId> = None;
         for &previous in stack {
             if self.has_relation_recursion_identity(previous, identity) {
-                if previous.index() >= last {
+                // "We only count occurrences with a higher type id than the
+                // previous occurrence, since higher type ids are an indicator
+                // of newer instantiations caused by recursion." Native
+                // instantiates a mapped type's template and members on first
+                // read, so a nested instance its walk reaches is newer than
+                // the instance; this port evaluates them eagerly, inner first,
+                // so the same instance has a LOWER id here. Created during the
+                // earlier instance's evaluation is that order (r7-reports §11).
+                if last.is_none_or(|last| {
+                    previous.index() >= last.index()
+                        || self.created_during_mapped_evaluation(last, previous)
+                }) {
                     count += 1;
                     if count == threshold {
                         return true;
                     }
                 }
-                last = previous.index();
+                last = Some(previous);
             }
         }
         false
+    }
+
+    /// Was `later` created while the mapped instance `earlier` was being
+    /// evaluated (its template instantiated, its members resolved)? Then
+    /// native creates it after `earlier`, on first read, whatever its id is
+    /// here. A type that existed before that evaluation (an argument the
+    /// instance was handed, or one an earlier, separate evaluation built)
+    /// keeps its id order, as native's would.
+    fn created_during_mapped_evaluation(&self, earlier: TypeId, later: TypeId) -> bool {
+        self.mapped_types
+            .get(&earlier)
+            .and_then(|info| info.evaluation_start)
+            .is_some_and(|start| later.index() >= start)
     }
 
     /// Whether `source` is assignable to `target`.
@@ -3425,8 +3449,25 @@ impl Relater<'_, '_, '_> {
                 }
                 // A checker-minted object literal (`getTypeFromImportAttributes`)
                 // resolves its members from its captured properties.
+                // So does a closed mapped instance whose member resolution
+                // completed: resolveMappedTypeMembers' table is the captured
+                // property list (r7-reports §11).
                 TypeData::Named { members: None, .. } => {
                     self.checker.minted_object_literal_symbol_types.contains(&id)
+                        || (self
+                            .checker
+                            .mapped_types
+                            .get(&id)
+                            // An instance minted by `instantiate_mapped_type`
+                            // is declined: its member resolution over an
+                            // inferred argument is not right yet
+                            // (`reverse_mapped` pins one; r7-reports §11).
+                            .is_some_and(|info| info.instance.is_none())
+                            && self
+                                .checker
+                                .anonymous_properties
+                                .get(&id)
+                                .is_some_and(|(_, complete)| *complete))
                 }
                 _ => false,
             }
