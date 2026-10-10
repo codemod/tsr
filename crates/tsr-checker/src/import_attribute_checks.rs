@@ -37,11 +37,6 @@
 //! callers in `check.rs` (MAIN). No corpus case reports a binding diagnostic
 //! beside a TS2858 (`docs/parity/notes/r6-triage.md` §4).
 
-#![expect(
-    dead_code,
-    reason = "the check.rs and import_attributes.rs hooks ship as r6-triage-import-attribute-values.diff"
-)]
-
 use tsr_ast::{ImportAttributeName, ImportAttributes, Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -196,6 +191,7 @@ impl Checker<'_, '_> {
         // `ObjectFlagsObjectLiteral` (no spread) and the symbol's
         // `SymbolFlagsObjectLiteral`.
         self.object_literal_spread_flags.insert(ty, false);
+        self.minted_object_literal_symbol_types.insert(ty);
         self.non_inferrable_types.insert(ty);
         Some(ty)
     }

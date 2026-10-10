@@ -4,22 +4,18 @@
 //!
 //! Called once per declaration from the check walk's `ImportDeclaration` and
 //! `ExportDeclaration` arms, which is where upstream's `checkImportDeclaration`
-//! (`:5330`) and `checkExportDeclaration` (`:5548`) end. Each report is a
-//! `grammarErrorOnNode`, so nothing is reported in a file with parse
+//! (`:5330`) and `checkExportDeclaration` (`:5548`) end. Each grammar report is a
+//! `grammarErrorOnNode`, so none is reported in a file with parse
 //! diagnostics. No cache, side table or traversal: the reads are the
 //! declaration's own syntax and the host's
 //! `GetEmitSyntaxForUsageLocation` answer for its specifier.
 //!
-//! **Not ported:** the opening relation check,
-//! `checkTypeAssignableTo(getTypeFromImportAttributes(node),
-//! getNullableType(ImportAttributes, Undefined))`, the TS2322 on a non-string
-//! attribute value. It needs the synthetic object-literal type
-//! `getTypeFromImportAttributes` builds, which this port's type store has no
-//! constructor for outside `check_object_literal`. Its absence costs only
-//! the TS2322 rows (`importAttributes6`, `importAttributes9`,
-//! `compiler/importAssertionNonstring`); every arm below runs after it
-//! unconditionally upstream, so leaving it out changes no other report.
-//! `docs/parity/notes/r5-modules.md` §3.
+//! The opening relation check, `checkTypeAssignableTo(getTypeFromImportAttributes(node),
+//! getNullableType(ImportAttributes, Undefined))`, is
+//! [`Checker::check_import_attributes_assignable`] in
+//! `import_attribute_checks.rs`, called here before the parse-error gate
+//! because it is a `c.error`, not a grammar report
+//! (`docs/parity/notes/r6-triage.md` §4; formerly r5-modules.md §3).
 
 use tsr_ast::{ImportAttributeName, ImportAttributes, Node, NodeId, SyntaxKind};
 use tsr_diagnostics::{Message, messages};
@@ -33,9 +29,6 @@ impl Checker<'_, '_> {
     /// the top of both callers, which never reach this check.
     pub(crate) fn check_import_attributes(&mut self, node: NodeId) {
         use tsr_core::ModuleKind;
-        if self.file_has_parse_errors {
-            return;
-        }
         let (attributes, specifier, is_type_only) = match self.node_map.get(node) {
             Some(Node::ImportDeclaration(declaration)) => (
                 declaration.attributes,
@@ -57,6 +50,12 @@ impl Checker<'_, '_> {
                 SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
             )
         }) {
+            return;
+        }
+        // The relation opening `checkImportAttributes` is a `c.error`, so it
+        // stands in a file with parse errors; the grammar arms below do not.
+        self.check_import_attributes_assignable(node);
+        if self.file_has_parse_errors {
             return;
         }
         let has_override = self.resolution_mode_override(attributes, is_type_only);

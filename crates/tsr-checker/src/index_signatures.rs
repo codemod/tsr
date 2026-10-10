@@ -1466,7 +1466,9 @@ impl<'a> Checker<'a, '_> {
         let (TypeData::Named { members: Some(symbol), .. } | TypeData::Anonymous { symbol, .. }) =
             self.store.get(id).data
         else {
-            return false;
+            // A checker-minted ObjectLiteral symbol
+            // (`getTypeFromImportAttributes`), which declares no signatures.
+            return self.minted_object_literal_symbol_types.contains(&id);
         };
         let flags = self.binder.symbols().get(symbol).flags;
         if !flags.intersects(

@@ -762,6 +762,13 @@ pub struct Checker<'a, 'n> {
     /// per ADR-0003 rather than widening `TypeData`. Read by the element
     /// access lookup's failure path, which answers `any` for them.
     pub(crate) js_literal_types: rustc_hash::FxHashSet<crate::types::TypeId>,
+    /// Anonymous object types whose symbol native mints in the checker with
+    /// `SymbolFlagsObjectLiteral` (`getTypeFromImportAttributes`,
+    /// `checker.go:5447`). This port's types name binder symbols only, so
+    /// the flag `isObjectTypeWithInferableIndex` (`relater.go:4624`) reads
+    /// off the symbol is carried here (ADR-0003). Written once at mint by
+    /// `import_attribute_checks.rs`; never removed.
+    pub(crate) minted_object_literal_symbol_types: rustc_hash::FxHashSet<crate::types::TypeId>,
     /// Object-literal types as minted by `check_object_literal` — upstream's
     /// `ObjectFlagsFreshLiteral`, carried in a side table per ADR-0003. Read
     /// by the subtype reduction's excess-property gate (`hasExcessProperties`,
@@ -1584,6 +1591,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             lib_includes_dom: false,
             uses_wildcard_types: false,
             js_literal_types: rustc_hash::FxHashSet::default(),
+            minted_object_literal_symbol_types: rustc_hash::FxHashSet::default(),
             fresh_object_literal_types: rustc_hash::FxHashSet::default(),
             regular_object_literal_types: FxHashMap::default(),
             object_literal_spread_flags: FxHashMap::default(),

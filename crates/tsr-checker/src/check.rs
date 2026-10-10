@@ -236,6 +236,7 @@ impl Checker<'_, '_> {
                         side_effect,
                     );
                 }
+                self.check_import_attribute_values(node);
                 self.check_import_attributes(node);
                 ambient
             }
@@ -245,6 +246,7 @@ impl Checker<'_, '_> {
                     declaration.module_specifier.and_then(|s| s.node_id()),
                     false,
                 );
+                self.check_import_attribute_values(node);
                 self.check_import_attributes(node);
                 ambient
             }

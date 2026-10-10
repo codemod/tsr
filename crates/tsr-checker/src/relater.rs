@@ -3322,6 +3322,11 @@ impl Relater<'_, '_, '_> {
                 TypeData::Anonymous { .. } => {
                     self.checker.signatures_of_type(id).is_some_and(|list| !list.is_empty())
                 }
+                // A checker-minted object literal (`getTypeFromImportAttributes`)
+                // resolves its members from its captured properties.
+                TypeData::Named { members: None, .. } => {
+                    self.checker.minted_object_literal_symbol_types.contains(&id)
+                }
                 _ => false,
             }
     }
@@ -4027,7 +4032,9 @@ impl Relater<'_, '_, '_> {
         let (TypeData::Named { members: Some(symbol), .. } | TypeData::Anonymous { symbol, .. }) =
             self.checker.type_of(id).data
         else {
-            return false;
+            // A checker-minted ObjectLiteral symbol
+            // (`getTypeFromImportAttributes`), which declares no signatures.
+            return self.checker.minted_object_literal_symbol_types.contains(&id);
         };
         let flags = self.checker.binder.symbols().get(symbol).flags;
         flags.intersects(
