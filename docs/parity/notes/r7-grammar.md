@@ -209,3 +209,28 @@ pairs a clause error with a binding or attribute diagnostic.
 **JSDoc `@import`.** `importTag15` waits on the JSDoc lane: the reparsed
 `@import` is an import declaration upstream, which this port's check walk
 does not visit.
+
+## §6 TS2312 in `resolveBaseTypesOfInterface` (CHECK-INTERFACE-HERITAGE-AND-BASES, first arm)
+
+`resolveBaseTypesOfInterface` (`checker.go:19498`) reports
+`An interface can only extend an object type or intersection of object types
+with statically known members` at an `extends` element whose reduced type is
+not an error and not a valid base type. `base_types.rs` computed the list but
+reported nothing. The report is now made where upstream makes it: the
+resolution runs once per symbol per checker (`base_type_links`, its module
+documentation's publication rules), and every caller that resolves an
+interface's bases reaches it, as upstream's do. The circular arm
+(`reportCircularBaseType`) stays `check.rs`'s `check_recursive_base_type`;
+moving it here would report TS2310 a second time beside that check, and this
+port's collection does not deduplicate.
+
+`interface_heritage_type` gains `getTypeReferenceType`'s type-parameter arm:
+an unconstrained `T` resolved to the error type, so `interface I<T> extends T`
+was silent; it is now the parameter's declared type (with type arguments it
+stays the error type, upstream's TS2315 path). Other element shapes this
+partial `getTypeFromTypeNode` cannot type still read as the error type, so
+the report is a subset of upstream's, never a superset.
+
+Converted: `typeParameterAsBaseType`. `interfaceExtendsObjectIntersectionErrors`
+gains its two TS2312 lines and stays WRONG on the heritage relation
+(TS2430/TS2416/TS2411/TS2413 against alias and intersection bases).
