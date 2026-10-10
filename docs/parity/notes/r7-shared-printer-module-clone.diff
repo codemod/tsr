@@ -1,0 +1,21 @@
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index a2ee3c66..d3e6cd8d 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -4661,16 +4661,6 @@ impl<'a, 'n> Checker<'a, 'n> {
+ 
+     /// A clone's aliases name that module value, not its callable source.
+     fn alias_targets_module_clone(&mut self, alias: SymbolId) -> bool {
+-        let target = self.resolve_alias_fully(alias);
+-        if !self
+-            .binder
+-            .symbols()
+-            .get(target)
+-            .flags
+-            .intersects(SymbolFlags::CLASS | SymbolFlags::FUNCTION)
+-        {
+-            return false;
+-        }
+         let value = self.get_type_of_symbol(alias);
+         self.module_value_clones.contains_key(&value)
+     }
