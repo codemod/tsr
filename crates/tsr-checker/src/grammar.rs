@@ -2651,3 +2651,121 @@ impl Checker<'_, '_> {
             || module.keyword.kind == SyntaxKind::GlobalKeyword
     }
 }
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarAccessor` (`grammarchecks.go:1307`), arm for arm.
+    /// Each arm returns, so an accessor gets at most one report. The caller
+    /// (`checkAccessorDeclaration`, `checker.go:2932`) runs it behind
+    /// `!checkGrammarFunctionLikeDeclaration(node)`, whose first conjunct is
+    /// `checkGrammarModifiers`; the file has no parse diagnostics.
+    pub(crate) fn check_grammar_accessor_declaration(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+    ) -> bool {
+        let is_get = matches!(typed, Node::GetAccessorDeclaration(_));
+        let (modifiers, name, type_parameters, parameters, return_type, body) = match typed {
+            Node::GetAccessorDeclaration(n) => {
+                (n.modifiers, n.name, n.type_parameters, n.parameters, n.r#type, n.body)
+            }
+            Node::SetAccessorDeclaration(n) => {
+                (n.modifiers, n.name, n.type_parameters, n.parameters, n.r#type, n.body)
+            }
+            _ => return false,
+        };
+        let is_abstract = has_modifier(modifiers, SyntaxKind::AbstractKeyword);
+        let in_type = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::TypeLiteral | SyntaxKind::InterfaceDeclaration
+            )
+        });
+        if !in_type && body.is_none() && !is_abstract && !self.has_ambient_flag(node) {
+            // `grammarErrorAtPos(accessor, accessor.End()-1, len(";"), …)`.
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+            let end = self.nodes.span(node).end;
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_EXPECTED,
+                    tsr_core::Span::new(end - 1, end),
+                    ["{".to_string()],
+                ),
+            );
+            return true;
+        }
+        if let Some(body) = body {
+            if is_abstract {
+                self.grammar_error_on_node(
+                    node,
+                    &messages::AN_ABSTRACT_ACCESSOR_CANNOT_HAVE_AN_IMPLEMENTATION,
+                );
+                return true;
+            }
+            if in_type && let Some(body) = body.node_id() {
+                self.grammar_error_on_node(
+                    body,
+                    &messages::AN_IMPLEMENTATION_CANNOT_BE_DECLARED_IN_AMBIENT_CONTEXTS,
+                );
+                return true;
+            }
+        }
+        let Some(name) = name.node_id() else { return false };
+        // `funcData.TypeParameters != nil`: this tree keeps no empty `<>`
+        // list, so an empty one reads as absent.
+        if !type_parameters.is_empty() {
+            self.grammar_error_on_node(name, &messages::AN_ACCESSOR_CANNOT_HAVE_TYPE_PARAMETERS);
+            return true;
+        }
+        // `doesAccessorHaveCorrectParameterCount`: `getAccessorThisParameter`
+        // (`checker.go:19931`) is non-nil at one more parameter than the
+        // accessor takes when the first is `this`.
+        let first_is_this = parameters.first().is_some_and(|first| {
+            matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        });
+        let wanted = usize::from(!is_get);
+        let has_this_parameter = parameters.len() == wanted + 1 && first_is_this;
+        if !has_this_parameter && parameters.len() != wanted {
+            let message = if is_get {
+                &messages::A_GET_ACCESSOR_CANNOT_HAVE_PARAMETERS
+            } else {
+                &messages::A_SET_ACCESSOR_MUST_HAVE_EXACTLY_ONE_PARAMETER
+            };
+            self.grammar_error_on_node(name, message);
+            return true;
+        }
+        if is_get {
+            return false;
+        }
+        if return_type.is_some() {
+            self.grammar_error_on_node(
+                name,
+                &messages::A_SET_ACCESSOR_CANNOT_HAVE_A_RETURN_TYPE_ANNOTATION,
+            );
+            return true;
+        }
+        // `GetSetAccessorValueParameter`: the parameter after a `this` one.
+        let Some(parameter) = parameters.get(usize::from(has_this_parameter)) else {
+            return false;
+        };
+        if let Some(rest) = parameter.dot_dot_dot_token.and_then(|token| token.node_id) {
+            self.grammar_error_on_node(rest, &messages::A_SET_ACCESSOR_CANNOT_HAVE_REST_PARAMETER);
+            return true;
+        }
+        if let Some(question) = parameter.question_token.and_then(|token| token.node_id) {
+            self.grammar_error_on_node(
+                question,
+                &messages::A_SET_ACCESSOR_CANNOT_HAVE_AN_OPTIONAL_PARAMETER,
+            );
+            return true;
+        }
+        if parameter.initializer.is_some() {
+            self.grammar_error_on_node(
+                name,
+                &messages::A_SET_ACCESSOR_PARAMETER_CANNOT_HAVE_AN_INITIALIZER,
+            );
+            return true;
+        }
+        false
+    }
+}

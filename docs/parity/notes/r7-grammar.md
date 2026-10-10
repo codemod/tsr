@@ -104,3 +104,28 @@ checker diagnostics are reduced to `plainJSErrors`, which lists neither code.
 upstream on a node kind `grammar_modifier_nodes` names, or a gated grammar
 check (TS1191/TS1193/TS1120/TS1039/TS1276 …) reported on a node that also has
 a modifier report.
+
+## §2 `checkGrammarAccessor` (GRAMMAR-ACCESSOR-DECLARATION)
+
+**Forcing fact.** r6-triage's row: 8 diagnostics cases. TS1094 (type
+parameters), TS1095 (set return annotation) and TS1052 (set parameter
+initializer) had no emitter, TS1183 on an accessor body in a type literal or
+interface was missing, and TS1049/TS1054 counted a `this` parameter
+(`thisTypeInAccessors`).
+
+**Port.** `check_grammar_accessor_declaration` (`grammar.rs`) is
+`checkGrammarAccessor` (`grammarchecks.go:1307`) arm for arm: the missing-body
+`'{' expected` arm behind `NodeFlagsAmbient` (`has_ambient_flag`, §1), TS1318
+and TS1183 on a body, TS1094, `doesAccessorHaveCorrectParameterCount` with
+`getAccessorThisParameter` (`checker.go:19931`: one more parameter than the
+accessor takes when the first is `this`), TS1095, and the value parameter's
+TS1053/TS1051/TS1052 (`GetSetAccessorValueParameter`, the parameter after a
+`this` one). `check.rs`'s `check_grammar_accessor` keeps only its caller's
+shape: `!checkGrammarFunctionLikeDeclaration && !checkGrammarAccessor`, of
+whose first conjunct `checkGrammarModifiers` is consulted (the parameter-list
+conjunct reports from its own dispatch, as before).
+
+**Limitation accepted.** `funcData.TypeParameters != nil` is true for an empty
+`<>` list; this tree keeps an empty list as no list, so `get x<>()` gets no
+TS1094. The parser lane owns the representation (TS1098/TS1099 have the same
+gap, `GRAMMAR-EMPTY-TYPE-PARAMETER-OR-ARGUMENT-LIST`).
