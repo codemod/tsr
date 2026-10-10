@@ -707,7 +707,20 @@ impl Checker<'_, '_> {
                 return CallHead::Unknown;
             };
             if !untyped && call_count == 0 {
-                if self.could_contain_type_variables_at_head(func_type, 3) {
+                // The refusal of [`Checker::could_contain_type_variables_at_head`]
+                // guards reading an empty call list as "not callable". A type
+                // with construct signatures has a decided list: TS2348
+                // (`resolveCallExpression`, `checker.go:8549`) whatever its
+                // type variables.
+                // Likewise a union each of whose members has a decided,
+                // non-empty call list: its empty composite is
+                // `getUnionSignatures`' own verdict (`invocationErrorDetails`'
+                // "Each member of the union type … has signatures, but none
+                // of those signatures are compatible with each other").
+                if construct_count == 0
+                    && self.could_contain_type_variables_at_head(func_type, 3)
+                    && !self.union_members_have_call_signatures(apparent)
+                {
                     return CallHead::Unknown;
                 }
                 if construct_count != 0 {
@@ -2746,6 +2759,10 @@ impl Checker<'_, '_> {
     /// in its own body. Every other shape goes through the shared resolver.
     fn head_signatures(&mut self, t: TypeId, kind: SignatureKind) -> Option<Vec<Signature>> {
         let t = self.apparent_type(t);
+        // `getSignaturesOfType` of `never` (not a structured type) is empty.
+        if self.store.get(t).flags.intersects(TypeFlags::NEVER) {
+            return Some(Vec::new());
+        }
         let is_call = kind == SignatureKind::Call;
         if let Some(signatures) = self.signature_types.get(&t) {
             return Some(
@@ -2771,6 +2788,16 @@ impl Checker<'_, '_> {
             return None;
         }
         self.signatures_of_type_kind(t, kind)
+    }
+
+    /// Whether `t` is a union every member of which has a decided, non-empty
+    /// call signature list.
+    fn union_members_have_call_signatures(&mut self, t: TypeId) -> bool {
+        let TypeData::Union { types, .. } = self.store.get(t).data.clone() else { return false };
+        types.into_iter().all(|member| {
+            self.signatures_of_type_kind(member, SignatureKind::Call)
+                .is_some_and(|signatures| !signatures.is_empty())
+        })
     }
 
     fn head_signature_count(&mut self, t: TypeId, kind: SignatureKind) -> Option<usize> {

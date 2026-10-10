@@ -363,6 +363,18 @@ impl Checker<'_, '_> {
                 continue;
             }
             let right = &list[0];
+            // A generic member whose type parameters are not identical to a
+            // generic result's (`compareTypeParametersIdentical`) leaves no
+            // union signature (`results = nil`, checker.go:21155).
+            if !right.type_parameters.is_empty() {
+                for held in &result {
+                    if !held.type_parameters.is_empty()
+                        && !self.union_type_parameters_identical(right, held)?
+                    {
+                        return Some(Vec::new());
+                    }
+                }
+            }
             result = result
                 .into_iter()
                 .map(|left| self.combine_union_signature(left, right.clone()))
@@ -551,6 +563,41 @@ impl Checker<'_, '_> {
         let names: Vec<_> = names.into_iter().map(str::to_owned).collect();
         let names: Vec<_> = names.iter().map(String::as_str).collect();
         self.instantiate_signature(source, &map, &source_ids, &names)
+    }
+
+    /// compareTypeParametersIdentical (pinned 5b1047d relater.go:2247): the
+    /// same count, and each source constraint identical to the target's
+    /// instantiated into the source's parameters (`unknown` when absent).
+    /// Defaults are not compared. `None` when a parameter list is unresolved.
+    fn union_type_parameters_identical(
+        &mut self,
+        source: &Signature,
+        target: &Signature,
+    ) -> Option<bool> {
+        if source.type_parameters.len() != target.type_parameters.len() {
+            return Some(false);
+        }
+        let source_ids = self.type_parameter_types(source)?;
+        let target_ids = self.type_parameter_types(target)?;
+        let map: Vec<_> = target_ids.iter().copied().zip(source_ids.iter().copied()).collect();
+        let names: Vec<String> =
+            target.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        for (index, (left, right)) in
+            source.type_parameters.iter().zip(&target.type_parameters).enumerate()
+        {
+            if source_ids[index] == target_ids[index] {
+                continue;
+            }
+            let source_constraint = left.constraint.unwrap_or(self.intrinsics.unknown);
+            let target_constraint = right.constraint.unwrap_or(self.intrinsics.unknown);
+            let target_constraint =
+                self.instantiate_type(target_constraint, &map, &target_ids, &names);
+            if !self.union_signature_types_identical(source_constraint, target_constraint, 1) {
+                return Some(false);
+            }
+        }
+        Some(true)
     }
 
     fn union_this_parameter(&mut self, signatures: &[Signature]) -> Option<Parameter> {

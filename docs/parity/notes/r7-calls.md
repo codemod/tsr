@@ -483,6 +483,44 @@ instantiation, as tsgo does (it was `error`).
 diagnostics 0/0. jsTyping 127 → 127, new_false 0, lost_true 0. Perf (median
 child CPU, 41 samples): domain-model 0.911, generic-imports 1.000.
 
+## 10. The no-call-signature arm: `never`, incompatible generic unions, construct-only callees
+
+**Native.** `resolveCallExpression` (`checker.go:8511-8560`) reports
+TS2348 when `getSignaturesOfType(apparent, Call)` is empty and construct
+signatures exist, and `invocationError` (TS2349) when both lists are empty
+and the call is not untyped. Three callee shapes reach that arm in native
+and did not here:
+
+- **`never`**: `getSignaturesOfType(never)` is empty (not a structured
+  type), and `isUntypedFunctionCall` excludes a `never` apparent type.
+  This port's shared resolver (`signatures_of_type_kind`) answers `None`
+  for `never`, so the head declined. `head_signatures` now answers the
+  empty list (neverTypeErrors1/2).
+- **A union of generic signatures with different type parameters**:
+  `getUnionSignatures`' master-list pass (`checker.go:21155`) sets the result
+  to nil when a member's type parameters are not
+  `compareTypeParametersIdentical` (`relater.go:2247`) to a generic result's.
+  `union_signatures.rs` tried to align them, and undecided when it could
+  not. It now ports the identity test (`union_type_parameters_identical`:
+  same count, each constraint identical to the other's instantiated into its
+  parameters, defaults not compared) and answers the empty list
+  (betterErrorForUnionCall's `fnUnion2`).
+- **Construct-only callees with type variables** (`new (arg: T) => Date`,
+  `I1<T>` with a construct signature): the head's
+  `could_contain_type_variables_at_head` refusal declined. A type with
+  construct signatures has a decided call list, so the refusal no longer
+  applies when construct signatures exist (TS2348, genericConstructorFunction1).
+  It is also narrowed for a union every member of which has a decided,
+  non-empty call list (`union_members_have_call_signatures`). That union's
+  empty composite is `getUnionSignatures`' own verdict
+  (`invocationErrorDetails`' "Each member of the union type … has
+  signatures, but none of those signatures are compatible with each other").
+
+**Measured** against `0ff376e0`: diagnostics +4 (betterErrorForUnionCall,
+genericConstructorFunction1, neverTypeErrors1, neverTypeErrors2), 0 lost;
+types 0/0; jsTyping 127 → 127, new_false 0, lost_true 0. Perf (21 samples):
+domain-model 0.975, generic-imports 1.025.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
