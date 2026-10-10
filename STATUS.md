@@ -22,6 +22,40 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
+Round 7 (`tsr-2zk.47`), Amp orb boxes, integrating straight onto **main**.
+Ten lanes with whole-file ownership ([round7.md](docs/parity/round7.md));
+six gated batches so far. Pinned native `5b1047d`. Coverage bin, full corpus,
+measured on main `5f2713fe` (batch 6):
+
+| Suite | Round-6 close (`83c6f58d`) | Now (`5f2713fe`) | Change |
+|---|---|---|---|
+| `checker_types` | 8,677/9,538 (90.97%) | **8,755/9,538 (91.79%)** | +78 |
+| `checker_types_configured` | 1,752/1,928 (90.87%) | **1,783/1,928 (92.48%)** | +31 |
+| `diagnostics` | 4,786/5,502 (86.99%) | **4,863/5,502 (88.39%)** | +77 |
+| `diagnostics_configured` | 955/1,091 (87.53%) | **972/1,091 (89.09%)** | +17 |
+
+Type lines RIGHT 551,176 of 556,357 aligned → 552,595 of 557,127 (+1,419; the parser lanes aligned 770 more lines). Every batch passed:
+- `scripts/parity_gate.sh compare` against the previous batch's freeze, with
+  zero previously RIGHT keys lost or missing;
+- workspace tests and fmt;
+- strict workspace clippy, green on main since batch 4;
+- the 21-sample child-CPU perf check, re-run at 41 samples above 1.03.
+
+**Performance target not met.** TSR/tsgo-pinned median wall · CPU, measured by
+r7-perf on `1b466dc8` plus its dist-profile and teardown commits (21 samples):
+
+| Project | release | dist (ADR-0054) |
+|---|---|---|
+| domain-model | 0.662 · 0.523 | 0.692 · 0.460 |
+| domain-model-large | 0.749 · 0.569 | 0.744 · 0.540 |
+| generic-imports | 0.743 · 0.356 | 0.738 · 0.366 |
+| jsTyping | not equivalent work | 4.159 |
+
+jsTyping is not equivalent work: TSR reports 429 diagnostics against tsgo's
+86. Round 7 routed the delta to eight lane clusters (`tsr-2zk.1277.2`–`.9`).
+r7-contextual's NakedTypeVariable intersection inference removed 164 false
+TS2769. Lazy JSDoc (`tsr-2zk.17.1`, ADR-0053) cut generic-imports CPU by 26%.
+
 CLI build compatibility (`tsr-qwb`), measured on `f55a2585` plus the three-source
 guard rewrite: Rust **1.89 and 1.96** release CLI builds pass, as do **225 checker
 library tests** (zero failures). Cargo launched from the real Next.js working directory
@@ -4028,6 +4062,30 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Round 7 (`5f2713fe`), in flight. Ten orb lanes are live and listed in
+[round7.md](docs/parity/round7.md). Held work, with the gate that holds it:
+- `tsr-2zk.1266`: the mapped stack, +69 types and −1 diagnostic
+  (deeplyNestedMappedTypes). The relater caches a complexity overflow and
+  answers Unknown, where native's isDeeplyNestedType stops first. Routed to
+  r7-reports. Lands with r7-declared's members.rs this-substitution grant.
+- r7-calls' TS2775/TS2776 port: +1/−3 until r7-flow's dotted-name arms. Both
+  arms are now on main, so re-measuring is next.
+- r7-shared's export= pure-alias step: +3/−8. It waits on alias instances
+  that keep only their written type arguments (r7-declared,
+  getTypeFromTypeAliasReference).
+- r6-errorsplit3 diff R: +16/−2. It waits on members.rs
+  is_readonly_property_of_type reading the mapped member image (r7-shared).
+- r7-flow's certification-gate drop: diagnostics +12/−5. The five losses
+  are narrowing gaps, routed.
+- The alias/mapper cutover (`tsr-2zk.16.56.1.4`): 41 commits on a base 1,581
+  commits old. It cannot be rebased mechanically. r7-shared is re-deriving
+  it behaviour by behaviour on `box/r7-shared-cutover`.
+
+Perf: `tsr-2zk.17.3` is structurally blocked on rebasable node ids and on
+per-file bind with an id-offset merge (`.17.4`/`.17.5`); r7-perf is writing
+the design record. mimalloc is conditionally approved (child CPU dm 0.843,
+dml 0.828, gi 0.970).
+
 `tsr-qwb` removes the three Rust 1.89 match-guard build errors. The CLI can again
 be built from the user's application directory. Checker fidelity and the
 TSR/tsgo wall target remain separate unfinished work.
@@ -7949,6 +8007,23 @@ Toolchain qualification at `f55a2585`: one successful Rust 1.96 release build di
 not certify an application-directory Cargo invocation. Rust 1.89 rejected the
 same source with **three E0658 errors**. `--manifest-path` did not select TSR's
 toolchain pin. The guard rewrite restores that build without changing semantics.
+
+Round 7 (`tsr-2zk.47`). Refused or held by the number that measured it:
+- r7-printer's per-question accessibility cache: child CPU 1.10 on
+  generic-imports. Refused in favour of checker-lifetime `accessibility_links`
+  (r7-printer.md §1.4).
+- The first TS2775/TS2776 port: diagnostics +1/−3. The false reports were
+  getTypeOfDottedName gaps.
+- r7-shared's export= pure alias through resolveESModuleSymbol: +3/−8 types
+  (contextuallyTypedJsxAttribute2 ×7). The cause is default-equal type
+  arguments.
+- r6-errorsplit3 diff R (isReadonlySymbol for property signatures and
+  parameter properties): +16/−2 (mappedTypes6 277/279).
+- Dropping union_receiver_flow_is_uncertified: diagnostics +12/−5.
+- `tsr-2zk.17.3` in-file pipelined bind: estimated ≤2 ms on domain-model,
+  not built.
+- `.9.7` lazy signature parameters: no corpus witness; closed.
+- mimalloc without purge_delay: generic-imports 0.98–1.03 across runs.
 
 Round 6 (`tsr-2zk`). Each item was refused by the gate that measured it, and
 backed out on the integration branch:
@@ -16457,3 +16532,4 @@ that were true of a different population than the one they were quoted about.
 | 2026-10-10 | `83c6f58d` (round-6 integration, origin/main `81be45d5` merged in) / native `5b1047d` | +188 checker_types, +150 diagnostics cases since round-5 close | 0 previously RIGHT losses (every batch gated; five refusals backed out) | **Round 6 checkpointed at the usage limit.** checker_types 8,677/9,538 (90.97%), diagnostics 4,786/5,502 (86.99%), configured 1,752/1,928 and 955/1,091. Ten boxes wrapped up; r6-triage filed 102 ranked clusters. Held: `tsr-2zk.1264`–`.1267`. The 0.50 wall target is not met; the lazy-JSDoc perf lever (`tsr-2zk.17.1`) is still claimed by main. Not pushed to main. |
 
 | 2026-10-09 | `f55a2585` plus three-source guard rewrite | — | — | **CLI build compatibility restored (`tsr-qwb`).** Original source passes Rust1.96 but fails Rust1.89 with three E0658 match-guard diagnostics; Next.js working directory selects1.89 despite manifest path. Equivalent tuple patterns/ordinary control flow retain evaluation order and surrogate fallbacks. Rust1.89 release CLI build, actual application-directory version launch and225 checker library tests pass. No new semantic coverage or speed claim. [Toolchain selection](docs/conventions.md#select-the-toolchain-when-invoking-cargo-from-another-project). |
+| 2026-10-10 | `5f2713fe` (round 7, batches 1–6 on main) / native `5b1047d` | +78 checker_types, +31 configured, +77 diagnostics, +17 configured cases; +1,419 type lines | 0 previously RIGHT losses (every batch gated against the previous freeze) | **Round 7 dispatched as ten Amp orb lanes, integrating directly onto main.** checker_types 8,755/9,538 (91.79%), diagnostics 4,863/5,502 (88.39%), configured 1,783/1,928 and 972/1,091. Strict workspace clippy made green (batch 4). Lazy JSDoc (ADR-0053) and the fat-LTO dist profile (ADR-0054) landed. The 0.50 wall target is still not met: dm 0.66, dml 0.75, gi 0.74 (release). jsTyping is not equivalent work. Held: `.1266`, the TS2775 port, export= pure alias, diff R. |
