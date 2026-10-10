@@ -365,3 +365,87 @@ cache or table.
 **+3 / −0** (the three cases), diagnostics unchanged. Coverage:
 `checker_types` 8,742 → 8,745. CPU new/old, 21 samples: domain-model 0.989,
 generic-imports 0.990. Test: `tests/default_symbol_written_name.rs`.
+
+## 5. A written qualifier is re-spelled by the accessible chain (LOCAL-IMPORT-EQUALS-ALIAS / NEEDS-QUALIFICATION, part)
+
+**Forcing constraint.** `aliasBug`:
+
+```ts
+namespace foo { export class Provide {} }
+import provide = foo;
+function use() {
+  var p1: provide.Provide;    // >p1 : provide.Provide
+  var p2: foo.Provide;        // >p2 : provide.Provide   (native)   foo.Provide (port)
+}
+```
+
+The `.types` writer prints a variable's *type* (`typeToString`), not its
+annotation, so native names `Provide` by `symbolToTypeNode` →
+`getSymbolChain`: `getAccessibleSymbolChain` meets the alias `provide` in
+the file's locals before it would walk to `Provide`'s parent, and
+`trySymbolTable`'s `getCandidateListForSymbol` gives `[provide, Provide]`.
+The port bakes a reference type's text from the written entity name
+(`checker-notes-qualname.md`'s design W, `declared.rs`), and
+`qualified_name_at`'s gate (`split_around_name`) only acts on a bare name,
+so a baked `foo.Provide` (or `B.A`, read through
+`aliasOnMergedModuleInterface`'s `import foo = require("foo")`) printed
+as written.
+
+**The port.** `qualified_name_at` recognizes a print that is a dotted entity
+name ending in the type's own symbol name (`[typeof ]Q1.….name[<args>]`,
+`split_around_qualified_name`) and re-spells the whole path from the
+resolver's chain (`symbol_chain_text_at`: `symbol_chain_at` with
+`endOfChain` and `yieldModuleSymbol`, an import type when the root is an
+external module, else the chain's names). A bare name keeps the existing
+roads (`best_name`, `symbol_chain`); only a written qualifier is replaced.
+No cache or table: the walk is the resolver's, on `accessibility_links`.
+
+**A prerequisite in the resolver: `ast.IsExternalOrCommonJSModule`.** The
+first build measured +38 / **−6**: `varRequireFromJavascript` and
+`varRequireFromTypescript` printed `import("./ex").Crunch` where native
+keeps `ex.Crunch`. `use.js` declares `var ex = require('./ex')`, an alias
+(the port's binder flags it `ALIAS`, and it resolves to `ex.js`), but the
+file has no `import`/`export`, and the resolver's `scope_tables` skipped its
+locals as a global script's. Native's test is `ast.IsGlobalSourceFile`, i.e.
+not `IsExternalOrCommonJSModule`, and a file that `require`s is a CommonJS
+module. `hasNonGlobalAugmentationExternalModuleSymbol` and
+`hasExternalModuleSymbol` take the same file test. All three now ask
+`Checker::is_external_or_common_js_module` (the binder gives exactly those
+files a symbol). Measured alone against §4's commit: +0 / −0 on both dumps;
+it is in this commit because §5 exposes it.
+
+**Measured** against §4's commit (`668b4795`), both dumps unfiltered: types
+**+38 / −0**, diagnostics unchanged. Converted lines: `aliasBug`,
+`aliasErrors`, `aliasOnMergedModuleInterface`,
+`declarationEmitUnnessesaryTypeReferenceNotAdded`, `exportEqualErrorType`,
+`exportEqualMemberMissing` (1 each), `ModuleWithExportedAndNonExportedImportAlias` 4,
+`visibilityOfCrossModuleTypeUsage` 4,
+`conflictingDeclarationsImportFromNamespace{1,2}` 4 each, `dynamicNames` 3,
+`module_augmentUninstantiatedModule2` 3,
+`inlineJsxFactoryDeclarationsLocalTypes` 3, `constEnums` 2,
+`emitDecoratorMetadata_isolatedModules` ×2, `exportImportNonInstantiatedModule`,
+`moduleAugmentationDuringSyntheticDefaultCheck`, `umd8` (1 each). Coverage:
+`checker_types` 8,745 → 8,755, `checker_types_configured` 1,771 → 1,774.
+CPU new/old, 21 samples: domain-model 0.991, generic-imports 0.995. Tests:
+`tests/module_rooted_symbol_chain.rs`' fourth and fifth cases.
+
+## 6. The file-module arm asks only the resolver (r7-printer §1.3 retired)
+
+r7-shared's `f11e37b8` resolves `import EnumA = Enum.A` beside
+`export type EnumA` (`importedEnumMemberMergedWithExportedAliasIsError`),
+which was §1.3's reason to keep the flat same-file arm. Measured on the
+batch-6 base against §5's commit, both dumps unfiltered, each step
+**+0 / −0** on types and diagnostics:
+
+1. the same-file case goes to the resolver, keeping the `unresolved_export`
+   decline;
+2. the `unresolved_export` decline goes too (its history: §106's "chain1"
+   217 losses, measured before the resolver existed);
+3. the stem/directory computation and the `same_file`/`held_by_exports`
+   tests, now read by nothing, are deleted.
+
+So `symbol_chain`'s file-module arm is native's question alone: the
+resolver's `getSymbolChain` rooted at a file module spells
+`import(<specifier>)`. A refusal (a bare name where native qualifies) can
+now only come from the resolver's walk or from `getSpecifierForModuleSymbol`,
+not from a port-only gate.
