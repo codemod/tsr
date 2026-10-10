@@ -70,3 +70,67 @@ enough). Routed to the contextual/inference owner: the inference of a
 generic call's return type from a context-sensitive function's return
 expressions must not see that function's own unfixed parameter types. When
 it stops, delete the arm (+4 cases).
+
+## 3. TS7032 / TS7033 and the set accessor's TS7006 (`getTypeOfAccessors`)
+
+**Forcing fact.** Six cases miss `Property '{0}' implicitly has type 'any',
+because its set accessor lacks a parameter type annotation.` (TS7032), its
+getter twin TS7033, and the TS7006 beside it on the setter's parameter
+(`parserES3Accessors4`, `implicitAnyGetAndSetAccessorWithAnyReturnType`,
+`noImplicitAnyMissingGetAccessor`, `noImplicitAnyMissingSetAccessor`,
+`isolatedDeclarationErrorsClasses`, `isolatedDeclarationErrorsObjects`).
+Neither had a port: the parameter rule's owner test answered `Other` for a
+set accessor, and nothing reported TS7032/TS7033.
+
+**Upstream.**
+
+- `getTypeOfAccessors` (`checker.go:18511`) tries the getter's annotation,
+  the setter's parameter annotation, the auto-accessor's annotation, then the
+  getter body's inferred return type. With none it reports TS7032 on the
+  setter, else TS7033 on the getter, skipping one that
+  `isPrivateWithinAmbient`, and answers `any`. `checkAccessorDeclaration`
+  (`checker.go:2974`) resolves it for every accessor.
+- A set accessor's parameter is typed by `getTypeForVariableLikeDeclaration`
+  (`checker.go:16716`): with `hasBindableName` and a getter on the symbol, the
+  getter's return type. Otherwise `getContextuallyTypedParameterType`
+  answers nil (an accessor is not `isContextSensitiveFunctionOrObjectLiteralMethod`)
+  and `widenTypeForVariableLikeDeclaration` reports TS7006.
+
+**Port** (`implicit_any.rs`, `check_implicit_any_accessor`, called from
+`resolve_accessor_symbol_type`, `assignreport.rs`, which already is
+`checkAccessorDeclaration`'s `getTypeOfAccessors` site). The accessor pair is
+`GetDeclarationOfKind` over the merged symbol's declarations, and the
+annotation test is the existing `accessor_annotation` (JSDoc included). Only
+a bodiless getter can reach TS7033, because a body always infers. Upstream
+reports once, at first resolution. The diagnostic's declaration is checked
+exactly once, so the report is made from that declaration's own check. The
+setter's parameter goes through `check_implicit_any_parameters`, with a
+`SetAccessorDeclaration` owner arm that is `Other` when a getter exists and
+`Uncontextual` otherwise.
+
+**Declined: late-bindable computed names.** `get [k]()`/`set [k](v)` with
+`const k = "m"` (or a unique-symbol `[Symbol.x]`) share one **late-bound**
+symbol upstream (`getSymbolOfDeclaration` → `getLateBoundSymbol`,
+`checker.go:14390`). This binder keeps each computed member's own symbol, and
+the checker has no late-bound member table, so the getter lookup misses.
+The first unfiltered run reported TS7006/TS7032 on ten RIGHT cases this way
+(`esDecorators-classDeclaration-accessors-{static,nonStatic,nonStaticAbstract}`
+×3 targets, `symbolDeclarationEmit4/10/11`). `accessor_has_late_bindable_name`
+(`hasLateBindableName`: a dynamic name, an entity-name expression, a type
+`isTypeUsableAsPropertyName`) declines both arms. A dynamic name that is
+*not* late-bindable has its own anonymous `__computed` symbol upstream too
+(`bindAnonymousDeclaration`), so it reports
+(`isolatedDeclarationErrorsClasses` 48:9/48:39 needs this). The decline
+waits on late-bound member symbols (proposed issue in §9).
+
+**Not a new table.** No cache or side table is added. The accessor pair is
+read from the binder's merged symbol on each call (two declarations at
+most), once per accessor declaration.
+
+**Measured** (unfiltered diagnostics, on top of §1): WRONG → RIGHT the six
+cases above; no other row changed; type lines byte-identical.
+
+**Falsifier.** A case with a TS7032 on an accessor whose sibling is in a
+merged declaration TSR's `merged_symbol` does not reach (an interface and a
+class, say) would show the pair lookup is narrower than
+`GetDeclarationOfKind` over the merged symbol.
