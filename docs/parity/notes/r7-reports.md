@@ -449,6 +449,111 @@ take the parent tuple's element types, which needs
 r7-parser), and `destructuringWithLiteralInitializers2` (strict mode, so the
 flag comes from `nonInferrableAnyType`, which is not ported).
 
+## 11. Closed mapped instances relate structurally, and deep nesting follows native's creation order
+
+Routed from r7-declared: `deeplyNestedMappedTypes` loses its TS2322 at
+(69,5)/(77,5) once r7-declared's mapped stack (`tsr-2zk.1266`, held as
+`r7-declared-HELD-mapped-stack.diff`) evaluates TypeBox's
+`PropertiesReduce<…>` to object types.
+
+**What the relater saw.** On batch-5 main plus the stack, the top-level
+`Input → Output` pair was Unknown at the no-members-table fall-through, not
+the cached overflow the routing note described. Main has moved since then.
+Both sides are closed mapped instances (`Evaluate<…>`'s `{ [K in keyof O]:
+O[K] }`): `Named { members: None }`, in `mapped_types`, with a complete
+captured property list. The relater's `has_members` admitted no ownerless
+type but the import-attributes mint, so the walk never started.
+
+**Part 1: a closed mapped instance with a complete capture is structured.**
+Native relates every mapped type through `resolveMappedTypeMembers`' table,
+and the captured list is that table. Alone, this measured on main: types +8,
+diagnostics +2, **−1** (`deeplyNestedMappedTypes` 45:7, a false TS2322 on
+`NestedRecord<"x.y.z.a.b.c", number> → …<…, string>`). §7's refused
+widening, which admitted every ownerless capture (spreads and rests too),
+lost five cases. This is that list's mapped subset, and the one loss is
+Part 2's.
+
+**Part 2: `isDeeplyNestedType`'s id order is creation order.**
+`isDeeplyNestedType` counts stack entries with the same recursion identity,
+but only those "with a higher type id than the previous occurrence, since
+higher type ids are an indicator of newer instantiations caused by
+recursion". Native instantiates a mapped type's template and resolves its
+members on first read, so `NestedRecord`'s nested `{ [P in K0]: … }`
+instances are created during the walk, with rising ids. After three it is
+deeply nested, the walk answers Maybe, and tsgo reports nothing. This port
+evaluates the chain eagerly, inner first, so the same instances have
+falling ids, the count never passes one, and the leaves `number`/`string`
+are related.
+
+Ids cannot be read in reverse either. Explicit nesting also has falling ids,
+in native too, because type arguments are resolved first. Oracle-checked:
+tsgo reports `Record<"a", Record<"a", Record<"a", Record<"a", number>>>>`
+against its `string` twin, and four nested written mapped types, while it
+accepts `NestedRecord`. A two-direction count measured −1 case
+(`deeplyNestedCheck`) and −6 type lines. "Not one of the instance's mapper
+arguments" was tried too: it fixed `NestedRecord` but broke TypeBox, whose
+nested `Evaluate` instances already existed, built by the inner
+`Type.Object` calls before the outer instance. Native also sees those as
+older.
+
+The exact emulation of native's order is a **watermark**. A nested instance
+reached from mapped instance `M` is newer than `M` in native's lazy order
+iff it was created while `M` was being evaluated. Native would have created
+it on first read. A type that existed before `M`'s evaluation keeps its id
+order, as native's would. `MappedTypeInfo.evaluation_start` records
+`store.len()` when `mapped_type_info` starts (before the template is
+evaluated) and when `instantiate_mapped_type_worker` starts.
+`created_during_mapped_evaluation(last, previous)` reads it, and the count
+admits `previous` when its id is higher *or* it was created during `last`'s
+evaluation.
+
+**Cache/table convention.** `evaluation_start` is a field of the existing
+`MappedTypeInfo` side entry (owner `mapped.rs`, keyed by the instance
+`TypeId`). It is written once when the info is built, before publication,
+and never changed. It is read only by the relater's deep-nesting count. No
+new table, and no new expensive work: one `usize` per mapped info.
+
+**Measured** (unfiltered, both dumps, against batch-5 main `20501307`):
+
+| tree | types RIGHT | diagnostics |
+|---|---|---|
+| this branch's tip + Parts 1–2, before Part 1's decline | +8, 0 lost | +2 (`mappedTypeAsStringTemplate`, `paramsOnlyHaveLiteralTypesWhenAppropriatelyContextualized`), 0 lost (a unit test failed, below) |
+| r7-declared stack (`.1266` + `e291ff89` + members diff) alone | +75, 0 lost | −1 (`deeplyNestedMappedTypes`) |
+| stack + Parts 1–2 | +83, 0 lost | +2 over the tip, **0 lost** |
+
+On the stack, the file gives exactly tsgo's five TS2322s: 10:7, 18:7,
+70:5, 74:5, 78:5.
+
+**Part 1's decline: instances built by `instantiate_mapped_type`.** The
+gate's `reverse_mapped_filters_use_captured_computed_name_origins` caught a
+member defect that Part 1 would expose. `strings<T>(value: { [K in keyof T &
+string]: Box<T[K]> })` over an inferred `T` resolves its parameter instance
+to `{ 0: Box<{ value: string }>; 01: Box<number>; … }`: the wrong keys and
+member types. tsgo relates the argument, and this port reported a false
+TS2345 once the instance became structured. Before Part 1, the relater's
+refusal hid it. The admission is therefore limited to node evaluations
+(`instance: None`, the alias-evaluation mints TypeBox and `NestedRecord`
+produce). An instance from `instantiate_mapped_type` keeps the old decline
+until its member resolution is right (r7-declared, `mapped.rs`; proposed
+issue in §13). With that limit: main types +7, 0 lost, and no case moves
+(`mappedTypeAsStringTemplate` and
+`paramsOnlyHaveLiteralTypesWhenAppropriatelyContextualized` were instance
+gains and go back); stack + Parts 1–2: types +77, 0 lost, 0 cases lost.
+
+The convention record for the watermark is in
+[checker-relation-publication.md](../../architecture/checker-relation-publication.md#deep-nesting-order-for-eagerly-evaluated-mapped-instances-r7-reports-tsr-2zk1276).
+
+**Ownership.** Part 2's field is in `mapped.rs` (r7-declared), granted by the
+integrator for this commit. Its diff is
+[`r7-reports-mapped-evaluation-start.diff`](r7-reports-mapped-evaluation-start.diff)
+(11 lines). The relater half cannot compile without it, so the two land
+together.
+
+**Falsifier.** A recursive non-homomorphic mapped chain that tsgo reports,
+where this count now finds it deeply nested, would show a nested instance
+that native resolves before its outer instance even though this port
+created it during the outer's evaluation (an instantiation-cache hit native
+has and this port does not).
 ## 12. Two `has_no_contextual_type` arms: an uncontextual parameter's initializer and a `yield` operand (granted: `signatures.rs`)
 
 **Forcing fact.** TS7057 (`'yield' expression implicitly results in an 'any'
