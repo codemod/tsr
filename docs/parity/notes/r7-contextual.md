@@ -238,3 +238,64 @@ rewritten readonly. `widening.rs` would then normalize with the non-readonly
 member text. No corpus line shows this, because the members are re-rendered
 from `anonymous_properties` on print. A falsifier is a normalized const union
 member that prints a mutable property.
+
+## 4. INFER-NO-CANDIDATE-GUARD: an `any`/`unknown` argument supplies no structural candidate
+
+### Forcing constraint
+
+When a type parameter collects no candidate, `getInferredType`
+(`inference.go:1317`, no-candidate arm `:1358-1377`) answers its default,
+`unknown`, or `any` under `AnyDefault` (JS files). `check_generic_call_worker`
+instead declines the whole call (`structural_source_supplied`) whenever some
+argument sits at a position mentioning the parameter. The reason is that this
+collector is incomplete, so finding no candidate does not prove that native
+finds none either. `inferingFromAny` (a JS file: `f2(a)` with `a: any`
+against `t: T[]` is `any`) printed `error` on 17 lines.
+
+### Measured before choosing
+
+Dropping the decline outright, against the `90967e42` freeze: types +125 /
+−4, diagnostics +8 / −3. Each loss is a collector or argument-type gap in
+another lane's file, so the decline cannot go yet:
+
+| loss | root cause | owner |
+|---|---|---|
+| `voidReturnIndexUnionInference` (TS2345 ×2) | `props.onFoo` on `Readonly<P>` reads `P["onFoo"] \| undefined`. Native reads the property of `getResolvedApparentTypeOfMappedType`, i.e. `Readonly<Props>`. | `mapped.rs`/`members.rs` |
+| `symbolProperty61` (TS2345) | `typeof Symbol.obs` is `symbol`, not `unique symbol`, so inference through the `[Symbol.obs]` key finds nothing | unique-symbol typing |
+| `jsFileImportPreservedWhenUsed` (4 lines) | `T[keyof T]` at `T := object` is `any`; native gives `never` (`keyof object` is `never`) | `indexed.rs` |
+| `contravariantOnlyInferenceFromAnnotatedFunction` (TS2322) | native infers `A := string` from the annotated `fn: (a: string) => {}` inside a homomorphic `Funcs<A, B>`. This reading did not find the native arm that does it. | open (REVERSE-MAPPED family) |
+
+### What was ported
+
+Narrowing the decline toward native for one source kind the collector handles
+completely. In `inferFromTypes` (`inference.go:65-275`) an `any` or `unknown`
+source gets a candidate only at a naked type variable: directly, or through
+the union, intersection, conditional and indexed-access arms, which this
+collector has. Its default arm finds no object in `getApparentType(any)`.
+Only `wildcardType` propagates further, and no argument is ever that type. So
+such an argument joins §401's null/undefined exemption. This port's
+any-flagged `error` is a gap, not `any` (ADR-0048), and keeps the refusal.
+
+`tests/signature_position_prerequisites.rs` pinned the old decline for
+`arrayOrUnknown(uncertain)`. tsgo-pinned answers `"unknown"` in both
+strictness modes (overload 1 infers `T := unknown` and `unknown[]` rejects
+the argument). Strict now matches. Non-strict still declines, which is a gap,
+not a manufactured winner, and the test now says so.
+
+### Result (commit 4)
+
+Against the `90967e42` freeze: types +24 RIGHT, 0 lost; diagnostics +1 case
+(`computedPropertyBindingElementDeclarationNoCrash1`), 0 lost. Cases converted:
+`inferingFromAny`, `computedPropertyBindingElementDeclarationNoCrash1`.
+
+### How to know this is wrong
+
+A call whose `any`/`unknown` argument meets a target arm this collector lacks
+but native reaches with a naked variable, for example a template-literal
+target with an `any` hole. The call would then answer the default where
+native has the `any` candidate.
+
+### Still declined (the other +101 lines measured above)
+
+They wait on the four rows above. A shape-by-shape certification, like this
+one, is the way to take more of them without the losses.

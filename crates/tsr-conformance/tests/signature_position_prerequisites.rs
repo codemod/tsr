@@ -74,9 +74,14 @@ const unsupported = arrayOrUnknown(uncertain);
             // The identity alias exposes its instantiable body, so native's
             // first generic overload succeeds without treating it as an array.
             ("shadowed", "\"shadow\""),
-            // Native accepts unknown, but its inference prerequisite remains
-            // unsupported. It must not be skipped to manufacture a winner.
-            ("unsupported", "error"),
+            // Native accepts unknown: an `unknown` argument supplies no
+            // structural candidate (`inferFromTypes`), so `T` fixes to
+            // `unknown`, `unknown[]` rejects the argument and the second
+            // overload wins (checked against tsgo-pinned, both strictness
+            // modes; docs/parity/notes/r7-contextual.md §4). Without
+            // strictNullChecks this port still declines the call (a gap, not
+            // a manufactured winner).
+            ("unsupported", if strict { "\"unknown\"" } else { "error" }),
         ] {
             let actual = actual[0].iter().find(|a| a.text == name).expect(name);
             assert_eq!(actual.type_string, expected, "{name}, strict={strict}");

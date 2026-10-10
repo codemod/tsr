@@ -1500,11 +1500,23 @@ impl<'a> Checker<'a, '_> {
                             // fixture family is `utils.fold(null)` reading
                             // `unknown` (`genericFunctionsWithOptionalParameters1/2`),
                             // so such a position must not veto the fallback.
+                            // Nor does an `any` or `unknown` argument:
+                            // `inferFromTypes` (`inference.go:65-275`) gets a
+                            // candidate from it only at a naked type variable
+                            // (directly, or through the union, intersection,
+                            // conditional and indexed-access arms, all of
+                            // which this collector has); its default arm
+                            // finds no object in `getApparentType(any)`. Only
+                            // the `wildcardType` propagates further, and an
+                            // argument is never that type. This port's
+                            // any-flagged `error` is a gap, not `any`
+                            // (ADR-0048), and keeps the refusal.
                             argument_types.get(index).is_some_and(|&argument| {
-                                !self
-                                    .type_of(argument)
-                                    .flags
-                                    .intersects(crate::flags::TypeFlags::NULLABLE)
+                                (argument == self.intrinsics.error
+                                    || !self.type_of(argument).flags.intersects(
+                                        crate::flags::TypeFlags::NULLABLE
+                                            | crate::flags::TypeFlags::ANY_OR_UNKNOWN,
+                                    ))
                                     && self
                                         .intersection_inference_source(
                                             argument,
