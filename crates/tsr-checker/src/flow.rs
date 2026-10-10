@@ -135,6 +135,40 @@ struct FlowState {
     element_dedupe_mark: usize,
     /// Recursion depth, against the 2,000 cap.
     depth: u32,
+    /// `getSyntheticElementAccess` (`checker.go:17857`): the reference is
+    /// `reference[names[0]][names[1]]…`, an element access native
+    /// synthesizes for a destructured name. `None` for every real reference.
+    synthetic: Option<SyntheticAccess>,
+}
+
+/// The synthetic element access `getFlowTypeOfDestructuring` walks
+/// (`checker.go:17849`). Native builds a fresh `ElementAccessExpression`
+/// over the parent access with the destructured name as a string literal,
+/// parented to the destructuring node and carrying the parent access's flow
+/// node. The tree here is immutable (ADR-0012), so the access is kept as
+/// its root (`FlowState::reference`, a real node with a flow node) and the
+/// names applied on top, matched structurally (`isMatchingReference`'s
+/// access arm).
+struct SyntheticAccess {
+    /// The destructuring node native parents the access to: a binding
+    /// element, property assignment or array-literal element. Its identity
+    /// stands for the fresh node's (loop cache keys).
+    owner: NodeId,
+    /// The accessed names, innermost first: `const { a: { b } } = x` gives
+    /// `x["a"]["b"]` for `b`.
+    names: Vec<String>,
+}
+
+/// `getLiteralPropertyNameText` (`flow.go:1806`) for a written name: an
+/// identifier, string or numeric literal. A computed name declines.
+fn literal_property_name_text(name: Node<'_>) -> Option<String> {
+    match name {
+        Node::Identifier(identifier) => Some(identifier.text.to_string()),
+        Node::StringLiteral(literal) => Some(literal.text.to_string()),
+        Node::NumericLiteral(literal) => Some(literal.text.to_string()),
+        Node::NoSubstitutionTemplateLiteral(literal) => Some(literal.text.to_string()),
+        _ => None,
+    }
 }
 
 /// Upstream's cap (`flow.go:118`), reproduced exactly rather than rounded.
@@ -375,6 +409,7 @@ impl Checker<'_, '_> {
             shared_flow_start: self.shared_flows.len(),
             element_dedupe_mark: 0,
             depth: 0,
+            synthetic: None,
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
@@ -544,6 +579,7 @@ impl Checker<'_, '_> {
             shared_flow_start: self.shared_flows.len(),
             element_dedupe_mark: 0,
             depth: 0,
+            synthetic: None,
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
@@ -618,11 +654,169 @@ impl Checker<'_, '_> {
             shared_flow_start: self.shared_flows.len(),
             element_dedupe_mark: 0,
             depth: 0,
+            synthetic: None,
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
         self.flow_result_or_declared(reference, result, any)
+    }
+
+    /// `getFlowTypeOfDestructuring` (`checker.go:17849`): the flow type of
+    /// the synthetic element access `parentAccess["name"]` a destructured
+    /// name denotes, from the parent access's flow node, or `declared_type`
+    /// when there is none. `node` is the binding element, property
+    /// assignment or array-literal element; `getBindingElementTypeFromParentType`
+    /// and the destructuring-assignment checks pass the indexed access type
+    /// as `declared_type`.
+    ///
+    /// `if (!state.cache) return; const { cache } = state;` narrows `cache`
+    /// by the guard on `state.cache`: the synthetic `state["cache"]` matches
+    /// it structurally.
+    ///
+    /// Checker port boundary: no cache or side table. One flow walk per
+    /// call, as native's `getFlowTypeOfReference`; loop results share
+    /// `flow_loop_cache` under the destructuring node's identity (the fresh
+    /// node's, natively). The reference's root is a real node whose flow
+    /// node `getFlowNodeOfNode(parentAccess)` reads; nested patterns chain
+    /// through `getParentElementAccess` without a walk of their own.
+    // Its callers are `getBindingElementTypeFromParentType`'s two sites in
+    // `destructure.rs` (r7-contextual's); `docs/parity/notes/r7-flow.md` §7.
+    #[allow(dead_code)]
+    pub(crate) fn get_flow_type_of_destructuring(
+        &mut self,
+        node: NodeId,
+        declared_type: TypeId,
+    ) -> TypeId {
+        let Some((base, names)) = self.synthetic_element_access(node) else {
+            return declared_type;
+        };
+        if self.flow_analysis_disabled {
+            return self.intrinsics.error;
+        }
+        let Some(flow) = self.binder.flow_of(base) else { return declared_type };
+        let mut state = FlowState {
+            array_elements: Vec::new(),
+            reduce_labels: Vec::new(),
+            reference: base,
+            symbol: None,
+            declared_type,
+            initial_type: declared_type,
+            is_auto: false,
+            discriminant_pattern: None,
+            is_auto_array: false,
+            outer_reference: false,
+            // Native `getFlowTypeOfReference`'s nil flow container.
+            flow_container: None,
+            shared_flow_start: self.shared_flows.len(),
+            element_dedupe_mark: 0,
+            depth: 0,
+            synthetic: Some(SyntheticAccess { owner: node, names }),
+        };
+        let answer = self.get_type_at_flow_node(&mut state, flow);
+        let result = self.finalize_evolving_array(&mut state, answer).t;
+        self.shared_flows.truncate(state.shared_flow_start);
+        // The synthetic access's parent is the destructuring node, never a
+        // non-null expression: only the unreachable sentinel converts.
+        if result == self.intrinsics.unreachable_never { declared_type } else { result }
+    }
+
+    /// `getSyntheticElementAccess` (`checker.go:17857`): the root and names
+    /// of `node`'s synthetic access, when its parent access has a flow node
+    /// and `node` has a literal destructuring name.
+    fn synthetic_element_access(&mut self, node: NodeId) -> Option<(NodeId, Vec<String>)> {
+        let (base, mut names) = self.parent_element_access(node)?;
+        // `getFlowNodeOfNode(parentAccess)`: a synthetic parent carries its
+        // own parent's flow node, so the root's decides.
+        self.binder.flow_of(base)?;
+        names.push(self.destructuring_property_name(node)?);
+        Some((base, names))
+    }
+
+    /// `getParentElementAccess` (`checker.go:17882`).
+    fn parent_element_access(&mut self, node: NodeId) -> Option<(NodeId, Vec<String>)> {
+        let parent = self.nodes.parent(node)?;
+        let ancestor = self.nodes.parent(parent)?;
+        match self.node_map.get(ancestor)? {
+            Node::BindingElement(_) | Node::PropertyAssignment(_) => {
+                self.synthetic_element_access(ancestor)
+            }
+            Node::ArrayLiteralExpression(_) => self.synthetic_element_access(parent),
+            Node::VariableDeclaration(declaration) => {
+                Some((declaration.initializer?.node_id()?, Vec::new()))
+            }
+            Node::BinaryExpression(binary) => Some((binary.right?.node_id()?, Vec::new())),
+            _ => None,
+        }
+    }
+
+    /// `getDestructuringPropertyName` (`flow.go:1792`): an object binding
+    /// element's or property assignment's literal name, or an array element's
+    /// position.
+    fn destructuring_property_name(&mut self, node: NodeId) -> Option<String> {
+        let parent = self.nodes.parent(node)?;
+        match self.node_map.get(node)? {
+            Node::BindingElement(_) => self.get_accessed_property_name(node),
+            Node::PropertyAssignment(assignment) => {
+                literal_property_name_text(self.node_map.get(assignment.name.node_id()?)?)
+            }
+            Node::ShorthandPropertyAssignment(assignment) => {
+                literal_property_name_text(self.node_map.get(assignment.name.node_id()?)?)
+            }
+            _ => match self.node_map.get(parent)? {
+                Node::ArrayLiteralExpression(literal) => literal
+                    .elements
+                    .iter()
+                    .position(|element| element.node_id() == Some(node))
+                    .map(|index| index.to_string()),
+                _ => None,
+            },
+        }
+    }
+
+    /// `isMatchingReference(synthetic, target)` (`flow.go:1597`) for the
+    /// synthetic access `base[names…]`: the access arm, same accessed name
+    /// and a matching receiver, down to the root's own match.
+    fn synthetic_reference_matches(
+        &mut self,
+        base: NodeId,
+        names: &[String],
+        target: NodeId,
+    ) -> bool {
+        let Some((last, receiver_names)) = names.split_last() else {
+            return self.references_match(base, target);
+        };
+        if let Some(inner) = self.matching_reference_target(target) {
+            return self.synthetic_reference_matches(base, names, inner);
+        }
+        let Some(node) = self.node_map.get(target) else { return false };
+        if !matches!(node, Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_)) {
+            return false;
+        }
+        if self.accessed_property_name_at(node).as_deref() != Some(last.as_str()) {
+            return false;
+        }
+        let Some(receiver) = node.expression_id() else { return false };
+        self.synthetic_reference_matches(base, receiver_names, receiver)
+    }
+
+    /// For an access reference, real or synthetic: its accessed name when
+    /// `target` matches its receiver (`isMatchingReference(reference.Expression(),
+    /// target)` with `getAccessedPropertyName(reference)`).
+    fn reference_receiver_name(&mut self, state: &FlowState, target: NodeId) -> Option<String> {
+        if let Some(synthetic) = &state.synthetic {
+            let (last, receiver_names) = synthetic.names.split_last()?;
+            let (last, receiver_names) = (last.clone(), receiver_names.to_vec());
+            return self
+                .synthetic_reference_matches(state.reference, &receiver_names, target)
+                .then_some(last);
+        }
+        let receiver = self.expression_of_access(state.reference)?;
+        if !self.references_match(receiver, target) {
+            return None;
+        }
+        let reference = self.node_map.get(state.reference)?;
+        self.accessed_property_name_at(reference)
     }
 
     /// `getUnionOrEvolvingArrayType` (`flow.go:1314`), the junction rule:
@@ -867,6 +1061,7 @@ impl Checker<'_, '_> {
                 // receiver was already selected by checkThisExpression.
                 if let Some(container) = binder.flow().node(flow)
                     && state.flow_container != Some(container)
+                    && state.synthetic.is_none()
                     && !matches!(
                         self.nodes.kind(state.reference),
                         SyntaxKind::PropertyAccessExpression | SyntaxKind::ElementAccessExpression
@@ -3522,7 +3717,14 @@ impl Checker<'_, '_> {
             tsr_core::index::Idx::index(flow),
             match state.symbol {
                 Some(symbol) => symbol.index() as u64,
-                None => (1 << 63) | u64::from(state.reference.as_u32()),
+                // A synthetic access is keyed by its destructuring node, the
+                // fresh node's stand-in (no real reference shares that id).
+                None => {
+                    (1 << 63)
+                        | u64::from(
+                            state.synthetic.as_ref().map_or(state.reference, |s| s.owner).as_u32(),
+                        )
+                }
             },
             state.initial_type,
         );
@@ -4566,6 +4768,10 @@ impl Checker<'_, '_> {
     }
 
     fn is_matching_reference(&mut self, state: &FlowState, node: NodeId) -> bool {
+        if let Some(synthetic) = &state.synthetic {
+            let names = synthetic.names.clone();
+            return self.synthetic_reference_matches(state.reference, &names, node);
+        }
         if node == state.reference {
             return true;
         }
@@ -4618,6 +4824,19 @@ impl Checker<'_, '_> {
     /// already tested that case.
     fn contains_matching_reference(&mut self, state: &FlowState, node: NodeId) -> bool {
         let mut source = state.reference;
+        // A synthetic `base[a][b]`'s parts are `base[a]`, `base` and then
+        // `base`'s own parts.
+        if let Some(synthetic) = &state.synthetic {
+            let names = synthetic.names.clone();
+            for length in (1..names.len()).rev() {
+                if self.synthetic_reference_matches(source, &names[..length], node) {
+                    return true;
+                }
+            }
+            if self.reference_part_matches(source, node) {
+                return true;
+            }
+        }
         while let Some(receiver) = match self.node_map.get(source) {
             Some(
                 access @ (Node::PropertyAccessExpression(_) | Node::ElementAccessExpression(_)),
@@ -4625,32 +4844,40 @@ impl Checker<'_, '_> {
             _ => None,
         } {
             source = receiver;
-            // Compared against the *sub-reference*, so this cannot reuse
-            // `is_matching_reference`, which is fixed to `state.reference`.
-            if self.references_match(source, node) {
+            if self.reference_part_matches(source, node) {
                 return true;
             }
-            // An identifier part is also matched by the symbol the binder
-            // recorded the assignment against — `obj = {}` records its flow
-            // node on the declaration, not on an expression, which
-            // `references_match`'s identifier arm handles only when the target
-            // resolves. Asking the symbol directly is what makes an assignment
-            // to a `let` visible here.
-            if let (Some(Node::Identifier(identifier)), Some(assigned)) =
-                (self.node_map.get(source), self.binder.symbol_of(node))
-                && self
-                    .binder
-                    .resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        source,
-                        identifier.text,
-                        SymbolFlags::VALUE,
-                    )
-                    .is_some_and(|resolved| resolved == assigned)
-            {
-                return true;
-            }
+        }
+        false
+    }
+
+    /// One part of [`Checker::contains_matching_reference`]'s walk.
+    fn reference_part_matches(&mut self, source: NodeId, node: NodeId) -> bool {
+        // Compared against the *sub-reference*, so this cannot reuse
+        // `is_matching_reference`, which is fixed to `state.reference`.
+        if self.references_match(source, node) {
+            return true;
+        }
+        // An identifier part is also matched by the symbol the binder
+        // recorded the assignment against — `obj = {}` records its flow
+        // node on the declaration, not on an expression, which
+        // `references_match`'s identifier arm handles only when the target
+        // resolves. Asking the symbol directly is what makes an assignment
+        // to a `let` visible here.
+        if let (Some(Node::Identifier(identifier)), Some(assigned)) =
+            (self.node_map.get(source), self.binder.symbol_of(node))
+            && self
+                .binder
+                .resolve_name(
+                    self.nodes,
+                    self.node_map,
+                    source,
+                    identifier.text,
+                    SymbolFlags::VALUE,
+                )
+                .is_some_and(|resolved| resolved == assigned)
+        {
+            return true;
         }
         false
     }
@@ -5565,6 +5792,7 @@ impl Checker<'_, '_> {
             shared_flow_start: self.shared_flows.len(),
             element_dedupe_mark: 0,
             depth: 0,
+            synthetic: None,
         };
         self.narrow_type(&mut state, initial, condition, assume_true)
     }
@@ -5697,6 +5925,9 @@ impl Checker<'_, '_> {
                 if let Node::Identifier(identifier) = node
                     && !self.is_matching_reference(state, condition)
                     && self.alias_inline_level < 5
+                    // A synthetic access has no resolved symbol, so native
+                    // `isConstantReference` answers false for it.
+                    && state.synthetic.is_none()
                     && self.is_constant_reference(state.reference)
                     && let Some(symbol) = self.binder.resolve_name(
                         self.nodes,
@@ -5802,12 +6033,10 @@ impl Checker<'_, '_> {
                         // declared write type for definite assignment targets.
                         // The port's exact-mode legacy write flow must not
                         // receive the property's presence-read fact.
-                        && self.assignment_target_kind(state.reference)
-                            != crate::expressions::AssignmentTargetKind::Definite
-                        && let Some(receiver) = self.expression_of_access(state.reference)
-                        && self.references_match(receiver, right_node)
-                        && let Some(reference) = self.node_map.get(state.reference)
-                        && let Some(name) = self.accessed_property_name_at(reference)
+                        && (state.synthetic.is_some()
+                            || self.assignment_target_kind(state.reference)
+                                != crate::expressions::AssignmentTargetKind::Definite)
+                        && let Some(name) = self.reference_receiver_name(state, right_node)
                     {
                         let key = self.check_expression(left);
                         if self.property_name_from_index(key).as_deref() == Some(name.as_str()) {
@@ -6446,15 +6675,12 @@ impl Checker<'_, '_> {
                 || matches!(&self.store.get(t).data, TypeData::Union { types, .. }
                     if types.first() == Some(&self.intrinsics.missing));
             if !contains_missing
-                || self.assignment_target_kind(state.reference)
-                    == crate::expressions::AssignmentTargetKind::Definite
+                || state.synthetic.is_none()
+                    && self.assignment_target_kind(state.reference)
+                        == crate::expressions::AssignmentTargetKind::Definite
             {
                 break 'has_own;
             }
-            let reference = state.reference;
-            let Some(reference_receiver) = self.expression_of_access(reference) else {
-                break 'has_own;
-            };
             let Some(Node::PropertyAccessExpression(call_access)) =
                 call.expression.and_then(|e| e.node_id()).and_then(|id| self.node_map.get(id))
             else {
@@ -6470,9 +6696,9 @@ impl Checker<'_, '_> {
                 break 'has_own;
             };
             let call_receiver = self.get_reference_candidate(call_receiver);
-            if !self.references_match(reference_receiver, call_receiver) {
+            let Some(name) = self.reference_receiver_name(state, call_receiver) else {
                 break 'has_own;
-            }
+            };
             let argument = match tsr_ast::Node::from(call.arguments[0])
                 .node_id()
                 .and_then(|id| self.node_map.get(id))
@@ -6481,10 +6707,7 @@ impl Checker<'_, '_> {
                 Some(Node::NoSubstitutionTemplateLiteral(argument)) => argument.text,
                 _ => break 'has_own,
             };
-            let Some(reference) = self.node_map.get(reference) else {
-                break 'has_own;
-            };
-            if self.accessed_property_name_at(reference).as_deref() != Some(argument) {
+            if name != argument {
                 break 'has_own;
             }
             let facts = if assume_true { TypeFacts::NE_UNDEFINED } else { TypeFacts::EQ_UNDEFINED };
