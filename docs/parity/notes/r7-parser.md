@@ -217,6 +217,15 @@ parserErrorRecovery_ParameterList6 (`x: break` — native's
 `parse_non_array_type` reports TS1110 because of the type-parameter-list
 recovery noted there).
 
+## 5a. Types parse outside the yield and await contexts
+
+`parseType` (`parser.go:2606`) clears `NodeFlagsTypeExcludesFlags`
+(`YieldContext | AwaitContext`) for the whole type. Without it, `var v:
+await` in an async function stamped `NodeFlagsAwaitContext` on the type
+reference, which the binder's TS1359 arm and `checkGrammarYieldExpression`
+read (routed by r7-grammar). No dump moves on its own: it unblocks those
+checker ports.
+
 ## 6. Measurements
 
 See the commit messages and the box-protocol §6 reports for per-commit
@@ -231,4 +240,5 @@ numbers; §7 below keeps the running table.
 | `f44a4956` | §3 yield context | +10 / −0 | +95 / −0 | 0.992 / 1.007 (vs `1b466dc8`) |
 | `41c141b2` | `ParseOptions::module_indicator` | 0 | 0 | — |
 | `2d64b1ee` | §4 JavaScript JSX variant | +4 / −0 | +29 / −0 | 1.000 / 0.967 |
-| (this) | §5 missing function body | +8 / −0 | +18 / −0 | see report |
+| `696d4c4f` | §5 missing function body | +8 / −0 | +18 / −0 | 1.009 / 1.002 |
+| (this) | §5a type contexts | 0 | 0 | — |
