@@ -2051,3 +2051,26 @@ byte-identical. Ir was unmeasured by the box; the gate measures it.
 The declarations/relations WIP lift (58 sites) is filed as `tsr-2zk.1264`.
 The parser node-error flags are `.1262`, and call/new callIsIncomplete is
 `.1263`.
+
+### Checkpoint wrap-up: r6-errorsplit3 (batch CL)
+
+Batch CL lands r6-errorsplit3's port of anyBaseTypeIndexInfo
+(checker.go:1048, :19147, :20693) and three measured diffs:
+- globalThis composite members (members.rs);
+- UMD alias augmentation (binder);
+- dotted namespace names (parser).
+
+Measured by the box against `80bd4ba`: +58 types and +5 diagnostics cases,
+0 lost.
+
+The read-reference property miss now has fixes for 37 of its 46 false
+claims, but 9 have no fix yet, so the gate still cannot be dropped whole. The
+fixes are seven diffs (I, R, T, N, NI, S, AD). They are unmeasured and stay
+on the box's branch.
+
+The box found native's no-value alias rule. errorType comes from an
+unknownSymbol target: an unfindable module, a missing export, or an alias
+cycle. anyType comes from a shorthand ambient module or a type-circular
+variable.
+
+`tsr-2zk.1150` is reopened unassigned.
