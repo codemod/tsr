@@ -392,3 +392,61 @@ diff is not landed:
   deep conditional/mapped evaluation of `PropertiesReduce` (r7-declared).
 
 It lands once either root is fixed and its re-measurement shows no loss.
+
+## 9. `inferToMultipleTypes`' intersection-only union arm (routed from r7-declared)
+
+`inferToMultipleTypes` (`inference.go:448`) on a union target with no naked
+type variable among its constituents returns after the per-target pass.
+First, though, when every target is an intersection holding the same single
+naked variable (`getSingleTypeVariableFromIntersectionTypes`, `:532`), it
+infers the whole source to that variable at `NakedTypeVariable` priority
+(`:481-490`). That arm is what infers `A | B` for `T` from `A | B` to
+`T & (X | Y)`, which normalizes to `T & X | T & Y`. `infer_to_union` lacked
+it, so only the per-constituent `T` candidates survived and the common
+supertype picked one of them:
+
+```ts
+declare function foo<T, U>(obj: T & ({ a: U } | { b: U })): [T, U];
+foo(ab /* { a: string } | { b: string } */); // native [{ a: string } | { b: string }, string]
+```
+
+Without it, `withRouter(MyComponent)` (`C & (FunctionComponent<P> | ComponentClass<P>)`)
+reported a false TS2345. Both shapes appear in `unionAndIntersectionInference3`
+once its aliases are unions (r7-declared's held "every union body" slice,
+`r7-declared.md` §10.1). On main the aliases are print-only names, so the
+commit is corpus-neutral: types 0 / 0 and diagnostics 0 / 0 against the
+`5c037c96` freeze, jsTyping unchanged (127, new_false 0, lost_true 0). The
+alias-free repro of both shapes now matches tsgo-pinned (no diagnostic). It
+is a prerequisite for r7-declared's wider slice, not a gain of its own.
+
+## 10. CONTEXTUAL-BINDING-PATTERN-INITIALIZER: three missing native arms
+
+1. **`getTypeFromArrayBindingPattern`'s rest is only the last element**
+   (`checker.go:17961`). A `...a` before the last element is an ordinary
+   element (its own grammar error), so `var [...a, x] = [1, 2, 3]` implies
+   `[any, any]` as the initializer's contextual type, which makes
+   `[1, 2, 3]` a tuple. `array_pattern_implied_type` declined on any spread
+   not in the last position.
+2. **`getContextualTypeForInitializerExpression`'s pattern fallback**
+   (`:29431`) applies to every variable-like declaration, not only to
+   `VariableDeclaration`. A parameter with no annotation and no contextual
+   parameter type, and a binding element with no contextual type, whose name
+   is a non-empty pattern now give their initializer
+   `getTypeFromBindingPattern(name, true, false)` too. The three arms share
+   `initializer_binding_pattern_context`, and the existing TSR-only guards
+   (own-element reference, rest/reference read) carry over unchanged.
+3. **`checkArrayLiteral`'s destructuring arm takes a spread at any
+   position** (`:8034-8065`, Variadic for an array-like operand, else Rest).
+   `[...a, x] = [1, 2, 3]` with `a: [number, number, number]` is
+   `[number, number, number, number]`. The arm's exclusion of a non-final
+   spread dated from a tuple mint without element flags. It now builds
+   through `normalize_variadic_tuple`, which places both kinds.
+
+Result (commit 9), against the commit-8 freeze: types +5 RIGHT
+(`restElementMustBeLast` 3, `declarationEmitDestructuring2` 2), 0 lost;
+diagnostics unchanged; jsTyping unchanged (127, new_false 0, lost_true 0).
+Still open in the cluster: `intraBindingPatternReferences` (a pattern default
+that reads a sibling binding), `objectBindingPatternContextuallyTypesArgument`
+(an argument contextually typed by the pattern), `literalTypesAndTypeAssertions`
+and the optional flags in `declarationEmitDestructuring2` (`{ x?: …; y?: … }`,
+`padObjectLiteralType`).

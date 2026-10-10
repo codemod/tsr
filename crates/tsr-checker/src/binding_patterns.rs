@@ -103,22 +103,22 @@ impl<'a> Checker<'a, '_> {
             // selection and a rest-only pattern without Iterable remain held.
             return pattern.elements.is_empty().then(|| self.create_tuple_type(Vec::new(), false));
         }
+        // Only the LAST element is the rest element (`checker.go:17961`): a
+        // `...a` before it is an ordinary element — its own grammar error —
+        // so `[...a, x]` implies `[any, any]`.
+        let rest_index = rest.map(|_| pattern.elements.len() - 1);
         let min_length = pattern
             .elements
             .iter()
-            .rposition(|element| {
-                element.name.is_some()
-                    && element.initializer.is_none()
-                    && element.dot_dot_dot_token.is_none()
+            .enumerate()
+            .rposition(|(index, element)| {
+                element.name.is_some() && element.initializer.is_none() && Some(index) != rest_index
             })
             .map_or(0, |index| index + 1);
         let mut elements = Vec::new();
         for (index, element) in pattern.elements.iter().enumerate() {
-            let spread = element.dot_dot_dot_token.is_some();
-            if spread
-                && (index + 1 != pattern.elements.len()
-                    || !matches!(element.name, Some(BindingName::Identifier(_))))
-            {
+            let spread = Some(index) == rest_index;
+            if spread && !matches!(element.name, Some(BindingName::Identifier(_))) {
                 return None;
             }
             let ty = if element.name.is_some() {
