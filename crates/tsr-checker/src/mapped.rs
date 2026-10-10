@@ -646,10 +646,23 @@ impl<'a> Checker<'a, '_> {
         let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
             return;
         };
-        let Some(TypeNode::MappedTypeNode(mapped)) = alias.r#type else { return };
         if alias.type_parameters.len() != arguments.len() {
             return;
         }
+        let mut body = alias.r#type;
+        while let Some(TypeNode::ParenthesizedTypeNode(inner)) = body {
+            body = inner.r#type;
+        }
+        let mapped = match body {
+            Some(TypeNode::MappedTypeNode(mapped)) => mapped,
+            Some(TypeNode::TypeReferenceNode(reference)) => {
+                self.capture_mapped_alias_through_reference(
+                    id, symbol, alias, reference, arguments,
+                );
+                return;
+            }
+            _ => return,
+        };
         if !self.mapped_alias_in_progress.insert(symbol) {
             self.deferred_mapped_aliases.insert(id, (symbol, arguments.to_vec()));
             return;
@@ -664,6 +677,78 @@ impl<'a> Checker<'a, '_> {
         self.alias_evaluation_bindings.push(frame);
         self.capture_mapped_type(id, mapped);
         self.alias_evaluation_bindings.pop();
+        self.mapped_alias_in_progress.remove(&symbol);
+    }
+
+    /// getTypeAliasInstantiation (checker.go:23641) instantiates the alias's
+    /// DECLARED type. For `type Omit<T, K> = Pick<T, Exclude<keyof T, K>>`
+    /// that declared type is `Pick`'s mapped type at `[T, Exclude<keyof T,
+    /// K>]` (getTypeFromTypeAliasReference with Omit as the new alias), so
+    /// `Omit<M, "a">` IS a mapped type: its constraint, template and
+    /// modifiers type are `Pick`'s, under `Pick`'s parameters bound to the
+    /// outer reference's arguments instantiated by `Omit`'s mapper.
+    ///
+    /// This port mints the outer reference as a print-named type keyed to
+    /// `Omit` (`type_reference_targets`), and [`Checker::capture_mapped_alias`]
+    /// captured only a body that is itself a mapped type node, so the outer
+    /// reference had no mapped parts and a homomorphic map over it
+    /// (`{ [K in keyof Omit<M, "a">]: … }`) enumerated no keys. The inner
+    /// reference's written arguments are evaluated under the outer alias's
+    /// binding frame and the inner alias is captured onto the same `TypeId`.
+    /// The captured parts land in the existing `mapped_types` table, keyed
+    /// by this `TypeId` as every capture is; recursion is bounded by
+    /// `mapped_alias_in_progress` on the outer symbol.
+    fn capture_mapped_alias_through_reference(
+        &mut self,
+        id: TypeId,
+        symbol: SymbolId,
+        alias: &'a tsr_ast::TypeAliasDeclaration<'a>,
+        reference: &'a tsr_ast::TypeReferenceNode<'a>,
+        arguments: &[TypeId],
+    ) {
+        if reference.type_arguments.is_empty() {
+            return;
+        }
+        let Some(inner) =
+            reference.type_name.and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))
+        else {
+            return;
+        };
+        if !self.binder.symbols().get(inner).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return;
+        }
+        if !self.mapped_alias_in_progress.insert(symbol) {
+            return;
+        }
+        let frame = alias
+            .type_parameters
+            .iter()
+            .filter_map(|p| p.node_id)
+            .filter_map(|id| self.binder.symbol_of(id))
+            .zip(arguments.iter().copied())
+            .collect();
+        self.alias_evaluation_bindings.push(frame);
+        let inner_arguments: Vec<TypeId> = reference
+            .type_arguments
+            .iter()
+            .map(|&node| self.get_type_from_type_node(node))
+            .collect();
+        self.alias_evaluation_bindings.pop();
+        if !inner_arguments.iter().any(|&argument| self.is_error(argument)) {
+            self.capture_mapped_alias(id, inner, &inner_arguments);
+            // The capture is `Omit`'s own instantiation of `Pick`'s declared
+            // type, a distinct type from `Pick<…>`'s (native mints a new
+            // mapped type per alias), so it must not claim the node's
+            // `typeNodeLinks` slot: `Pick<…>` evaluated afterwards would
+            // answer this type, and an alias evaluation that projects one
+            // into the other would never reach a fixed point.
+            if let Some(info) = self.mapped_types.get_mut(&id)
+                && let Some(key) = info.node_key.take()
+                && self.type_literal_types.get(key.as_ref()) == Some(&id)
+            {
+                self.type_literal_types.remove(key.as_ref());
+            }
+        }
         self.mapped_alias_in_progress.remove(&symbol);
     }
 
@@ -843,7 +928,7 @@ impl<'a> Checker<'a, '_> {
                 // numeric versus quoted names from the source member's origin.
                 // Reuse the Checker-owned provenance read, not a printed name;
                 // this walk publishes no key or member image of its own.
-                let key = self.literal_type_of_property(source, &name);
+                let key = self.modifiers_property_literal_type(source, &name);
                 if key == self.intrinsics.error {
                     return None;
                 }
@@ -936,6 +1021,20 @@ impl<'a> Checker<'a, '_> {
         let mut checked = rustc_hash::FxHashSet::default();
         let mut names = Vec::new();
         for part in types {
+            if !is_union {
+                // An intersection has every constituent's property
+                // (createUnionOrIntersectionProperty never drops an
+                // intersection's name). Each constituent is read through its
+                // own table, an alias reference projected to its body
+                // ([`Checker::mapped_modifiers_part`]).
+                let part = self.mapped_modifiers_part(part);
+                for name in self.property_names_of(part) {
+                    if checked.insert(name.clone()) {
+                        names.push(name);
+                    }
+                }
+                continue;
+            }
             for name in self.property_names_of(part) {
                 if checked.insert(name.clone())
                     && self.get_property_of_type(source, &name).is_some()
@@ -949,6 +1048,93 @@ impl<'a> Checker<'a, '_> {
             }
         }
         names
+    }
+
+    /// One constituent of an intersection modifiers type, as
+    /// getPropertiesOfType reads it: a type that owns a captured table (a
+    /// mapped capture or an anonymous image) as it is, otherwise an alias
+    /// reference projected to its evaluated body (`binding_type_alias_body`,
+    /// the projection the spread and binding readers use). `Partial<Pick<M,
+    /// "a">>` is minted with `Pick`'s alias symbol as its member owner, and
+    /// that symbol has no members, so without the projection its names were
+    /// empty. Per query; no table.
+    fn mapped_modifiers_part(&mut self, part: TypeId) -> TypeId {
+        let apparent = self.apparent_type(part);
+        self.resolve_mapped_type_members(apparent);
+        if self.anonymous_properties.contains_key(&apparent) {
+            return apparent;
+        }
+        let body = self.binding_type_alias_body(apparent);
+        if body == apparent || self.is_error(body) {
+            return apparent;
+        }
+        let body = self.apparent_type(body);
+        self.resolve_mapped_type_members(body);
+        body
+    }
+
+    /// `getLiteralTypeFromProperty` (checker.go:22729's callback) of the
+    /// modifiers type's property `name`. An intersection's property is
+    /// minted from its constituents' (createUnionOrIntersectionProperty
+    /// keeps the first declaration's name type), so the first constituent
+    /// declaring `name` answers; any other type answers for itself.
+    fn modifiers_property_literal_type(&mut self, source: TypeId, name: &str) -> TypeId {
+        if let crate::types::TypeData::Intersection { types, .. } = &self.store.get(source).data {
+            for part in types.clone() {
+                let part = self.mapped_modifiers_part(part);
+                if self.property_names_of(part).iter().any(|own| own == name) {
+                    return self.literal_type_of_property(part, name);
+                }
+            }
+        }
+        self.literal_type_of_property(source, name)
+    }
+
+    /// `createUnionOrIntersectionProperty`'s intersection arm
+    /// (checker.go:21452) for the modifiers a homomorphic mapping copies: the
+    /// property is optional only when every constituent declaring it is
+    /// optional, readonly only when every one is readonly, and its
+    /// declarations (the mapped member's link) are the first constituent's.
+    /// `None` when no constituent declares `name`.
+    fn intersection_property_modifiers(
+        &mut self,
+        parts: &[TypeId],
+        name: &str,
+    ) -> Option<(bool, bool, Option<SymbolId>, String)> {
+        let mut found: Option<(bool, bool, Option<SymbolId>, String)> = None;
+        for &part in parts {
+            let part = self.mapped_modifiers_part(part);
+            let captured = self.anonymous_properties.get(&part).and_then(|(properties, _)| {
+                properties.iter().find(|property| property.name == name).map(|property| {
+                    (
+                        property.optional,
+                        property.readonly,
+                        property.origin,
+                        property.printed_name.clone(),
+                    )
+                })
+            });
+            let own = if let Some(own) = captured {
+                own
+            } else {
+                let Some(property) = self.get_property_of_type(part, name) else { continue };
+                let inherited = self.mapped_identity_optionality.get(&part).copied();
+                let optional = inherited
+                    .and_then(|modifiers| modifiers.0)
+                    .unwrap_or_else(|| self.property_is_optional(property));
+                let readonly = inherited
+                    .and_then(|modifiers| modifiers.1)
+                    .unwrap_or_else(|| self.is_readonly_property(property));
+                (optional, readonly, Some(property), name.to_string())
+            };
+            found = Some(match found {
+                None => own,
+                Some((optional, readonly, origin, printed)) => {
+                    (optional && own.0, readonly && own.1, origin.or(own.2), printed)
+                }
+            });
+        }
+        found
     }
 
     /// isTypeUsableAsPropertyName/getPropertyNameFromType (checker.go): a
@@ -1042,6 +1228,7 @@ impl<'a> Checker<'a, '_> {
         self.anonymous_properties.insert(id, (Vec::new(), true));
         let mut properties = Vec::new();
         let mut property_names: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
+        let mut slots: Vec<(TypeId, bool)> = Vec::new();
         let mut indexes: Vec<crate::index_signatures::IndexInfo> = Vec::new();
         for (name_type, key, first_key) in members {
             let Some(name) = self.mapped_key_property_name(name_type) else {
@@ -1100,12 +1287,13 @@ impl<'a> Checker<'a, '_> {
                     properties
                         .iter()
                         .find(|property| Some(property.name.as_str()) == source_name.as_deref())
+                        .cloned()
                 });
-            let was_optional = captured.map_or_else(
+            let was_optional = captured.as_ref().map_or_else(
                 || source_property.is_some_and(|property| self.property_is_optional(property)),
                 |property| property.optional,
             );
-            let was_readonly = captured.map_or_else(
+            let was_readonly = captured.as_ref().map_or_else(
                 || source_property.is_some_and(|property| self.is_readonly_property(property)),
                 |property| property.readonly,
             );
@@ -1113,8 +1301,30 @@ impl<'a> Checker<'a, '_> {
                 modifiers.and_then(|source| self.mapped_identity_optionality.get(&source));
             let was_optional = inherited.and_then(|modifiers| modifiers.0).unwrap_or(was_optional);
             let was_readonly = inherited.and_then(|modifiers| modifiers.1).unwrap_or(was_readonly);
+            // An intersection modifiers type has no captured image of its
+            // own; its property is the intersection property of its
+            // constituents (createUnionOrIntersectionProperty).
+            let composite = match (captured.is_none(), modifiers) {
+                (true, Some(source)) => match &self.store.get(source).data {
+                    TypeData::Intersection { types, .. } => Some(types.clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let composite = match (composite, source_name.as_deref()) {
+                (Some(parts), Some(name)) => self.intersection_property_modifiers(&parts, name),
+                _ => None,
+            };
+            let (was_optional, was_readonly) = composite
+                .as_ref()
+                .map_or((was_optional, was_readonly), |modifiers| (modifiers.0, modifiers.1));
+            let source_property =
+                source_property.or_else(|| composite.as_ref().and_then(|modifiers| modifiers.2));
             let optional = info.optionality.unwrap_or(was_optional);
             let readonly = info.readonly.unwrap_or(was_readonly);
+            let origin = link_declarations
+                .then(|| captured.as_ref().and_then(|property| property.origin).or(source_property))
+                .flatten();
             let printed_name = if let Some(symbol) = self.unique_symbol_type_symbol(name_type) {
                 // getPropertyNameNodeForSymbolFromNameType's UniqueESSymbol
                 // arm, printed with no site (`nodebuilderimpl.go:2482`).
@@ -1128,17 +1338,21 @@ impl<'a> Checker<'a, '_> {
                     crate::printing::quote(&name)
                 }
             } else {
-                captured.map_or_else(|| name.clone(), |property| property.printed_name.clone())
+                captured.as_ref().map_or_else(
+                    || {
+                        composite
+                            .as_ref()
+                            .map_or_else(|| name.clone(), |modifiers| modifiers.3.clone())
+                    },
+                    |property| property.printed_name.clone(),
+                )
             };
-            let origin = link_declarations
-                .then(|| captured.and_then(|property| property.origin).or(source_property))
-                .flatten();
             // getTypeOfMappedSymbol (checker.go:20984) instantiates the
             // template on the first read of the property's type, not here
             // (ADR-0050): the slot records the key and whether the modifier
             // strips the source's optionality.
             let strip_optional = self.strict_null_checks && !optional && was_optional;
-            let index = u32::try_from(properties.len()).expect("member count fits u32");
+            slots.push((key, strip_optional));
             properties.push(crate::objects::AnonymousProperty {
                 accessor_write: None,
                 method: false,
@@ -1149,9 +1363,20 @@ impl<'a> Checker<'a, '_> {
                 printed_slot: crate::objects::PrintedSlot::on_demand(),
                 optional,
                 readonly,
-                slot: crate::objects::PropertySlot::of_mapped(id, index, key, strip_optional),
+                slot: crate::objects::PropertySlot::of_mapped(id, 0, key, strip_optional),
             });
         }
+        let properties: Vec<_> = properties
+            .into_iter()
+            .zip(slots)
+            .enumerate()
+            .map(|(index, (mut property, (key, strip_optional)))| {
+                let index = u32::try_from(index).expect("member count fits u32");
+                property.slot =
+                    crate::objects::PropertySlot::of_mapped(id, index, key, strip_optional);
+                property
+            })
+            .collect();
         self.anonymous_properties.insert(id, (properties, true));
         self.object_literal_index_infos.insert(id, indexes);
     }
