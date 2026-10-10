@@ -1,0 +1,169 @@
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -4083,8 +4083,12 @@
+         {
+             return true;
+         }
+-        // A UNION, likewise over its constituents.
+-        if let TypeData::Union { types, .. } = &self.store.get(id).data {
++        // A UNION or INTERSECTION, likewise over its constituents
++        // (couldContainTypeVariables' `TypeFlagsUnionOrIntersection` arm,
++        // checker.go: `core.Some(t.Types(), c.couldContainTypeVariables)`).
++        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
++            &self.store.get(id).data
++        {
+             let constituents = types.clone();
+             if constituents.into_iter().any(|constituent| {
+                 self.target_could_contain_parameter(constituent, parameters, visiting)
+@@ -4321,6 +4325,80 @@
+         self.mint_rest_properties(properties, indexes)
+     }
+ 
++    /// `getSimplifiedIndexedAccessType` (checker.go:27915) for an inference
++    /// target, the two arms that expose a type parameter: a generic mapped
++    /// object `{ [P in K]: E }[X]` becomes `E[P := X]`
++    /// (`substituteIndexedMappedType`, `:27965`), and an intersection object
++    /// distributes, `(T & U)[K] -> T[K] & U[K]` (`distributeIndexOverObjectType`,
++    /// `:27990`, reached at `:27946` when the index is not instantiable and
++    /// `shouldDeferIndexType(object)` is false: an intersection defers only
++    /// when it is instantiable AND holds an empty anonymous object, `:26839`).
++    /// So `Pick<Readonly<FC<V> & EP>, "a">`'s member
++    /// `Readonly<FC<V> & EP>["a"]` is inferred to as `V & EP["a"]`.
++    ///
++    /// Not ported here: the union arms, the generic-tuple arm, and the
++    /// mapped arm's added optionality from the modifiers type
++    /// (`getCombinedMappedTypeOptionality`); only the mapped type's own `?`
++    /// adds `undefined`. `None` where a step cannot be computed. Per query,
++    /// no cache (native memoises in `cachedTypes`).
++    fn inference_simplified_indexed_access(
++        &mut self,
++        target: TypeId,
++        depth: u32,
++    ) -> Option<TypeId> {
++        use crate::flags::TypeFlags;
++        let &(object, index, _) = self.deferred_indexed_access_types.get(&target)?;
++        if depth > 8 || self.store.get(index).flags.intersects(TypeFlags::INSTANTIABLE) {
++            return None;
++        }
++        let object = if self.deferred_indexed_access_types.contains_key(&object) {
++            self.inference_simplified_indexed_access(object, depth + 1).unwrap_or(object)
++        } else {
++            object
++        };
++        if let TypeData::Intersection { types, .. } = &self.store.get(object).data {
++            let types = types.clone();
++            let defers = types
++                .iter()
++                .any(|&part| self.store.get(part).flags.intersects(TypeFlags::INSTANTIABLE))
++                && types.iter().any(|&part| {
++                    part == self.intrinsics.empty_object
++                        || self.is_unaliased_empty_type_literal(part)
++                });
++            if defers {
++                return None;
++            }
++            let mut parts = Vec::with_capacity(types.len());
++            for part in types {
++                let accessed = self.resolved_indexed_access_type(part, index, false)?;
++                let accessed = if self.deferred_indexed_access_types.contains_key(&accessed) {
++                    self.inference_simplified_indexed_access(accessed, depth + 1)
++                        .unwrap_or(accessed)
++                } else {
++                    accessed
++                };
++                parts.push(accessed);
++            }
++            return Some(self.get_intersection_type(&parts, None));
++        }
++        self.ensure_mapped_type_info(object);
++        let info = self.mapped_types.get(&object)?.clone();
++        if info.name_type.is_some() || !self.is_generic_index_type(info.constraint) {
++            return None;
++        }
++        let template = self.mapped_template_type(&info);
++        let substituted =
++            self.instantiate_type(template, &[(info.parameter, index)], &[info.parameter], &[]);
++        if self.is_error(substituted) {
++            return None;
++        }
++        Some(if self.deferred_indexed_access_types.contains_key(&substituted) {
++            self.inference_simplified_indexed_access(substituted, depth + 1).unwrap_or(substituted)
++        } else {
++            substituted
++        })
++    }
++
+     fn infer_from_types_within(
+         &mut self,
+         source: TypeId,
+@@ -4376,6 +4454,17 @@
+             }
+             return;
+         }
++        // inferFromTypes' type-variable arm (`inference.go:217-219`): "infer
++        // to the simplified version of an indexed access, if possible, to
++        // (hopefully) expose more bare type parameters to the inference
++        // engine". Native continues to its structural arms afterwards; so
++        // does this.
++        if self.deferred_indexed_access_types.contains_key(&target)
++            && let Some(simplified) = self.inference_simplified_indexed_access(target, 0)
++            && simplified != target
++        {
++            self.infer_from_types_within(source, simplified, original, parameters, out, depth + 1);
++        }
+         if let (Some((source_symbol, source_inner)), Some((target_symbol, target_inner))) = (
+             self.string_mapping_types.get(&source).cloned(),
+             self.string_mapping_types.get(&target).cloned(),
+diff --git a/crates/tsr-conformance/tests/r6_typesroots3_inference_intersection_indexed_access.rs b/crates/tsr-conformance/tests/r6_typesroots3_inference_intersection_indexed_access.rs
+new file mode 100644
+index 0000000..ef121f0
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_typesroots3_inference_intersection_indexed_access.rs
+@@ -0,0 +1,47 @@
++//! Inference into an intersection-bearing target: couldContainTypeVariables
++//! reads an intersection's constituents, and inferFromTypes infers to the
++//! simplified form of an indexed access (`(T & U)[K] -> T[K] & U[K]`, a generic
++//! mapped object's `E[P := K]`; `inference.go:217`).
++//! `docs/parity/notes/r6-typesroots3.md` §4. Expectations from the pinned
++//! `tsgo` (5b1047d).
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Every assertion line the corpus pipeline produces for `source`.
++fn lines(name: &str, source: &str) -> Vec<String> {
++    let case = TestCase::parse(name, "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect()
++}
++
++fn assert_lines(name: &str, source: &str, wanted: &[&str]) {
++    let lines = lines(name, source);
++    for wanted in wanted {
++        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
++    }
++}
++
++#[test]
++fn inference_reaches_through_intersections_and_indexed_accesses() {
++    let source = r#"// @strict: true
++// @target: es2020
++interface FC<V> { initialValues: V; validate?: (props: V) => void; }
++interface E { extra?: number }
++declare function G1<V = object>(x: Readonly<FC<V> & E>): V;
++export const g1 = G1({ initialValues: { foo: "" }, validate: q1 => { q1; } });
++declare function F14<V>(x: (FC<V> & {})["initialValues"]): V;
++export const a14 = F14({ foo: "" });
++"#;
++    assert_lines(
++        "probe/inference-intersection-indexed-access",
++        source,
++        &["g1 : { foo: string; }", "q1 : { foo: string; }", "a14 : { foo: string; }"],
++    );
++}

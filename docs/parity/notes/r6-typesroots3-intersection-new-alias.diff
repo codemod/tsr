@@ -1,0 +1,80 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 29c8f5b..def656b 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -5853,6 +5853,29 @@ impl<'a> Checker<'a, '_> {
+         {
+             return result;
+         }
++        // instantiateTypeWithAlias over an INTERSECTION body
++        // (getIntersectionTypeEx(types, flags, alias), checker.go:26056):
++        // the new alias is attached to the instantiated intersection, so
++        // `type PartMappings = SetOptional<Mappings, "foo">` declares a type
++        // printed `PartMappings` (an intersection type is keyed by its
++        // constituents AND its alias). The alias-free reduction case already
++        // returned above (`alias_union_body_receives_new_alias`).
++        if let crate::types::TypeData::Intersection { types, .. } =
++            self.store.get(result).data.clone()
++        {
++            if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
++                return cached;
++            }
++            let name = self.binder.symbols().get(alias).name.to_string();
++            let image = self.store.intern_intersection(
++                self.store.get(result).flags,
++                crate::types::TypeData::Intersection { types, text: name, symbol: Some(alias) },
++            );
++            self.type_reference_targets.insert(image, (target, arguments));
++            self.alias_of.insert(image, (alias, Vec::new()));
++            self.deferred_alias_references.insert((alias, result), image);
++            return image;
++        }
+         let crate::types::TypeData::Named { members, .. } = self.store.get(result).data else {
+             return result;
+         };
+diff --git a/crates/tsr-conformance/tests/r6_typesroots3_intersection_new_alias.rs b/crates/tsr-conformance/tests/r6_typesroots3_intersection_new_alias.rs
+new file mode 100644
+index 0000000..eafa9ad
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r6_typesroots3_intersection_new_alias.rs
+@@ -0,0 +1,40 @@
++//! `type PM = SetOptional<M, "a">` over an intersection-bodied generic alias
++//! attaches the new alias to the instantiated intersection
++//! (`getTypeFromTypeAliasReference`'s newAliasSymbol → `getIntersectionTypeEx`
++//! with that alias, checker.go:23609, :26056). `docs/parity/notes/r6-typesroots3.md`
++//! §2. Expectations from the pinned `tsgo` (5b1047d).
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Every assertion line the corpus pipeline produces for `source`.
++fn lines(name: &str, source: &str) -> Vec<String> {
++    let case = TestCase::parse(name, "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect()
++}
++
++fn assert_lines(name: &str, source: &str, wanted: &[&str]) {
++    let lines = lines(name, source);
++    for wanted in wanted {
++        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
++    }
++}
++
++#[test]
++fn an_intersection_alias_reference_takes_the_declaring_alias() {
++    let source = r#"// @strict: true
++// @target: es2020
++type M = { a: 1; b: 2; c: 3 };
++type SetOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
++type PM = SetOptional<M, "a">;
++export declare const pm: PM;
++"#;
++    assert_lines("probe/intersection-new-alias", source, &["PM : PM", "pm : PM"]);
++}
