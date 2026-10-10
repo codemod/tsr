@@ -1073,6 +1073,83 @@ impl<'a> Checker<'a, '_> {
         body
     }
 
+    /// `getPropertyNameNodeForSymbol` (`nodebuilderimpl.go:2426`) for a
+    /// mapped symbol, whose `nameType` is the key it was created for
+    /// (resolveMappedTypeMembers, checker.go:20940), so the name comes from
+    /// `getPropertyNameNodeForSymbolFromNameType` (`:2455`): a name that is
+    /// not an identifier is a string literal when the symbol is string-named
+    /// or the name is not numeric, a negative numeric name is computed, and
+    /// any other is classified (`classifyPropertyName`, `:2384`).
+    /// String-named and single-quoted are read over the declarations the
+    /// symbol links (`isStringNamed`, `:2405`; every declaration must agree),
+    /// which is why the same key prints `"12"` over `{ "12": … }` and `12`
+    /// over a bare key union. Reads only the declarations; no table.
+    fn mapped_property_printed_name(
+        &mut self,
+        name: &str,
+        name_type: TypeId,
+        origin: Option<SymbolId>,
+    ) -> String {
+        use crate::types::TypeData;
+        if !matches!(
+            self.store.get(name_type).data,
+            TypeData::StringLiteral(_) | TypeData::NumberLiteral(_) | TypeData::EnumLiteral { .. }
+        ) {
+            return name.to_string();
+        }
+        let declarations = origin
+            .map(|origin| self.binder.symbols().get(origin).declarations.clone())
+            .unwrap_or_default();
+        let mut string_named = !declarations.is_empty();
+        let mut single_quote = !declarations.is_empty();
+        for declaration in declarations {
+            let written = match self.node_map.get(declaration) {
+                Some(tsr_ast::Node::PropertySignatureDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::PropertyDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::PropertyAssignment(node)) => Some(node.name),
+                Some(tsr_ast::Node::MethodSignatureDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::MethodDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::GetAccessorDeclaration(node)) => Some(node.name),
+                Some(tsr_ast::Node::SetAccessorDeclaration(node)) => Some(node.name),
+                _ => None,
+            };
+            let (named, single) = match written {
+                Some(tsr_ast::PropertyName::StringLiteral(literal)) => {
+                    (true, literal.token_flags.contains(tsr_ast::TokenFlags::SINGLE_QUOTE))
+                }
+                Some(tsr_ast::PropertyName::ComputedPropertyName(computed)) => {
+                    let named = computed.expression.is_some_and(|expression| {
+                        let ty = self.check_expression(expression);
+                        self.store.get(ty).flags.intersects(crate::flags::TypeFlags::STRING_LIKE)
+                    });
+                    (named, false)
+                }
+                _ => (false, false),
+            };
+            string_named &= named;
+            single_quote &= named && single;
+        }
+        let quoted = |name: &str| {
+            if single_quote { format!("'{name}'") } else { crate::printing::quote(name) }
+        };
+        let numeric = crate::index_signatures::is_numeric_literal_name(name);
+        if !crate::objects::is_identifier_text(name) && (string_named || !numeric) {
+            return quoted(name);
+        }
+        if numeric && let Some(magnitude) = name.strip_prefix('-') {
+            return format!("[-{magnitude}]");
+        }
+        // classifyPropertyName: an identifier, else a non-negative numeric
+        // name that is not string-named, else a string literal.
+        if crate::objects::is_identifier_text(name)
+            || (!string_named && numeric && name.parse::<f64>().is_ok_and(|value| value >= 0.0))
+        {
+            name.to_string()
+        } else {
+            quoted(name)
+        }
+    }
+
     /// `getLiteralTypeFromProperty` (checker.go:22729's callback) of the
     /// modifiers type's property `name`. An intersection's property is
     /// minted from its constituents' (createUnionOrIntersectionProperty
@@ -1329,23 +1406,8 @@ impl<'a> Checker<'a, '_> {
                 // getPropertyNameNodeForSymbolFromNameType's UniqueESSymbol
                 // arm, printed with no site (`nodebuilderimpl.go:2482`).
                 format!("[{}]", self.binder.symbols().get(symbol).name)
-            } else if info.name_type.is_some() {
-                if crate::objects::is_identifier_text(&name)
-                    || matches!(self.store.get(name_type).data, TypeData::NumberLiteral(_))
-                {
-                    name.clone()
-                } else {
-                    crate::printing::quote(&name)
-                }
             } else {
-                captured.as_ref().map_or_else(
-                    || {
-                        composite
-                            .as_ref()
-                            .map_or_else(|| name.clone(), |modifiers| modifiers.3.clone())
-                    },
-                    |property| property.printed_name.clone(),
-                )
+                self.mapped_property_printed_name(&name, name_type, origin)
             };
             // getTypeOfMappedSymbol (checker.go:20984) instantiates the
             // template on the first read of the property's type, not here
@@ -1366,17 +1428,38 @@ impl<'a> Checker<'a, '_> {
                 slot: crate::objects::PropertySlot::of_mapped(id, 0, key, strip_optional),
             });
         }
-        let properties: Vec<_> = properties
-            .into_iter()
-            .zip(slots)
-            .enumerate()
-            .map(|(index, (mut property, (key, strip_optional)))| {
-                let index = u32::try_from(index).expect("member count fits u32");
-                property.slot =
-                    crate::objects::PropertySlot::of_mapped(id, index, key, strip_optional);
-                property
+        // setStructuredTypeMembers → getNamedMembers (checker.go:22049) sorts
+        // the members table with compareSymbols (utilities.go:366): a mapped
+        // symbol carries its modifiers property's declarations when they are
+        // linked, so linked members come first in declaration order, then the
+        // rest by name, then by creation order (the symbol id).
+        let mut order: Vec<usize> = (0..properties.len()).collect();
+        let keys: Vec<_> = properties
+            .iter()
+            .map(|property| {
+                let position =
+                    property.origin.and_then(|origin| self.compare_symbols_key(origin).1);
+                (position.is_none(), position)
             })
             .collect();
+        order.sort_by(|&left, &right| {
+            keys[left]
+                .cmp(&keys[right])
+                .then_with(|| properties[left].name.cmp(&properties[right].name))
+                .then(left.cmp(&right))
+        });
+        let mut slots_by_index: Vec<Option<(TypeId, bool)>> = slots.into_iter().map(Some).collect();
+        let mut taken: Vec<Option<crate::objects::AnonymousProperty>> =
+            properties.into_iter().map(Some).collect();
+        let mut properties = Vec::with_capacity(order.len());
+        for (index, original) in order.into_iter().enumerate() {
+            let mut property = taken[original].take().expect("each member is placed once");
+            let (key, strip_optional) =
+                slots_by_index[original].take().expect("each member has one slot");
+            let index = u32::try_from(index).expect("member count fits u32");
+            property.slot = crate::objects::PropertySlot::of_mapped(id, index, key, strip_optional);
+            properties.push(property);
+        }
         self.anonymous_properties.insert(id, (properties, true));
         self.object_literal_index_infos.insert(id, indexes);
     }
