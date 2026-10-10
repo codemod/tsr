@@ -70,3 +70,18 @@ fn a_const_type_parameter_literal_argument_declines() {
         []
     );
 }
+
+/// A `new` whose single construct signature is generic runs `chooseOverload`'s
+/// generic arm like a call: its written type arguments instantiate the
+/// candidate, and the instantiation is checked with `reportErrors`.
+#[test]
+fn a_generic_construct_signature_reports_its_instantiation() {
+    assert_eq!(
+        reported(
+            "declare class G<T> { constructor(x: T, y: number); }\nnew G<string>(3, 4);\n\
+             interface S { new <T, U>(n: T, m: number): void }\ndeclare var s: S;\n\
+             new s<string, number>(3, 4);\n"
+        ),
+        [(2345, "3".into()), (2345, "3".into())]
+    );
+}
