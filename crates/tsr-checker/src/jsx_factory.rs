@@ -377,4 +377,106 @@ impl Checker<'_, '_> {
         })?;
         Some(self.resolve_external_module_symbol(self.binder.merged_symbol(module)))
     }
+
+    /// The text of `getJsxFactoryEntity(location)` (`jsx.go:1406`): the
+    /// option-derived entity, [`Checker::jsx_factory_entity`]. `None` when the
+    /// file has an `@jsx` pragma, whose full text the host does not keep
+    /// (only its first identifier, [`Checker::jsx_namespace_at`]).
+    pub(crate) fn jsx_factory_entity_text(&self, location: NodeId) -> Option<String> {
+        if let (Some(host), Some(file)) =
+            (self.module_host, self.source_file_of_for_diagnostics(location))
+            && host.jsx_factory_namespace(file).is_some()
+        {
+            return None;
+        }
+        Some(self.jsx_factory_entity.clone())
+    }
+
+    /// `resolveEntityName(factory, SymbolFlagsValue, ignoreErrors: true,
+    /// dontResolveAlias: false, location)` (`checker.go:15772`) over the
+    /// factory's dotted text: the root resolved at `location` (as a namespace
+    /// when a member follows), each member through the exports of the
+    /// namespace its alias chain reaches (`resolveQualifiedName`, with the
+    /// module arm of `getExportsOfSymbol` past `export =`), and the leaf
+    /// walked along its alias chain until it carries a value. `None` for any
+    /// miss, as an ignored error answers nil.
+    pub(crate) fn resolve_jsx_factory_entity(
+        &mut self,
+        location: NodeId,
+        text: &str,
+    ) -> Option<SymbolId> {
+        let parts: Vec<&str> = text.split('.').collect();
+        let (&root, members) = parts.split_first()?;
+        let root_meaning =
+            if members.is_empty() { SymbolFlags::VALUE } else { SymbolFlags::NAMESPACE };
+        let mut symbol = self.binder.merged_symbol(self.resolve_name_with_export_alias(
+            location,
+            root,
+            root_meaning,
+        )?);
+        for (index, &member) in members.iter().enumerate() {
+            symbol = self.jsx_factory_alias_walk(symbol, SymbolFlags::NAMESPACE)?;
+            let meaning = if index + 1 == members.len() {
+                SymbolFlags::VALUE
+            } else {
+                SymbolFlags::NAMESPACE
+            };
+            symbol = self.jsx_factory_export(symbol, member, meaning)?;
+        }
+        self.jsx_factory_alias_walk(symbol, SymbolFlags::VALUE)
+    }
+
+    /// `resolveEntityName`'s alias loop (`checker.go:15821`): follow `symbol`'s
+    /// alias chain until it carries `meaning`.
+    fn jsx_factory_alias_walk(
+        &mut self,
+        mut symbol: SymbolId,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        for _ in 0..64 {
+            let flags = self.binder.symbols().get(symbol).flags;
+            if flags.intersects(meaning) || !flags.intersects(SymbolFlags::ALIAS) {
+                return Some(symbol);
+            }
+            symbol = self.binder.merged_symbol(self.resolve_alias(symbol)?);
+        }
+        None
+    }
+
+    /// `getSymbol(getExportsOfSymbol(namespace), name, meaning)`
+    /// (`checker.go:15851`): a module's exports past its `export =`
+    /// (`resolveExternalModuleSymbol`), any other symbol's own exports; an
+    /// alias counts when its chain's flags meet `meaning`.
+    fn jsx_factory_export(
+        &mut self,
+        namespace: SymbolId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
+        let namespace = self.binder.merged_symbol(namespace);
+        let found = if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::MODULE) {
+            let mut module = self.resolve_external_module_symbol(namespace);
+            if module != namespace
+                && self.binder.symbols().get(module).flags.intersects(SymbolFlags::ALIAS)
+            {
+                module = self.resolve_alias(module)?;
+            }
+            let module = self.binder.merged_symbol(module);
+            match self.get_export_of_module(module, name) {
+                Some(found) => Some(found),
+                None => self.binder.symbols().get(module).exports.get(name).copied(),
+            }
+        } else {
+            self.binder.symbols().get(namespace).exports.get(name).copied()
+        }?;
+        let found = self.binder.merged_symbol(found);
+        let flags = self.binder.symbols().get(found).flags;
+        if flags.intersects(meaning)
+            || flags.intersects(SymbolFlags::ALIAS)
+                && self.get_symbol_flags(found).intersects(meaning)
+        {
+            return Some(found);
+        }
+        None
+    }
 }

@@ -316,8 +316,22 @@ impl Checker<'_, '_> {
             let Ok(expression) = Expression::try_from(Node::from(tag)) else { return };
             let tag_type = self.check_expression(expression);
             let Some(calls) = self.call_signatures_of_type(tag_type) else { return };
+            // `checkTagNameDoesNotExpectTooManyArguments` (`jsx.go:602`) can
+            // only fail for a tag one of whose call signatures needs more
+            // than the props argument; only those tags are asked.
             if calls.iter().any(|signature| self.signature_min_argument_count(signature) > 1) {
-                return;
+                match self.jsx_tag_argument_count_fits(node, &calls) {
+                    Some(JsxFactoryArity::Fits) => {}
+                    Some(JsxFactoryArity::TooMany { minimum, factory, maximum })
+                        if calls.len() == 1 =>
+                    {
+                        self.report_jsx_tag_expects_too_many_arguments(
+                            tag_id, minimum, &factory, maximum,
+                        );
+                        return;
+                    }
+                    _ => return,
+                }
             }
         }
         for attribute in attributes.properties {
@@ -357,16 +371,139 @@ impl Checker<'_, '_> {
         self.report_jsx_attributes_failure(node, attributes_id, tag_id, target);
     }
 
+    /// `checkTagNameDoesNotExpectTooManyArguments` (`jsx.go:602-677`) for a
+    /// value tag whose call signatures are `calls`: under the automatic
+    /// runtime it fits; otherwise every call signature of the JSX factory
+    /// (`getJsxFactoryEntity`, resolved as a value) is read for the call
+    /// signatures of its first parameter's type, and the tag fits when one
+    /// of those has a rest parameter or a parameter count at least the
+    /// smallest `getMinArgumentCount` among `calls`. No factory, no factory
+    /// symbol, no factory call signature, or no first parameter with call
+    /// signatures also fits (`hasFirstParamSignatures`). `None` where this
+    /// port cannot decide: a factory named by an `@jsx` pragma
+    /// ([`Checker::jsx_factory_entity_text`]), or a signature list it cannot
+    /// read.
+    fn jsx_tag_argument_count_fits(
+        &mut self,
+        node: NodeId,
+        calls: &[crate::signatures::Signature],
+    ) -> Option<JsxFactoryArity> {
+        use crate::signatures::SignatureKind;
+        if self.jsx_implicit_import_container(node).is_some() || calls.is_empty() {
+            return Some(JsxFactoryArity::Fits);
+        }
+        let factory = self.jsx_factory_entity_text(node)?;
+        let Some(symbol) = self.resolve_jsx_factory_entity(node, &factory) else {
+            return Some(JsxFactoryArity::Fits);
+        };
+        let factory_type = self.get_type_of_symbol(symbol);
+        if self.is_gap(factory_type) {
+            return None;
+        }
+        let factory_calls = self.signatures_of_type_kind(factory_type, SignatureKind::Call)?;
+        let mut has_first_parameter_signatures = false;
+        let mut maximum = 0;
+        for signature in &factory_calls {
+            let first = self.signature_type_at_position(signature, 0)?;
+            for parameter_signature in self.jsx_factory_parameter_call_signatures(first)? {
+                has_first_parameter_signatures = true;
+                if self.signature_has_effective_rest(&parameter_signature) {
+                    return Some(JsxFactoryArity::Fits);
+                }
+                maximum = maximum.max(self.signature_parameter_count(&parameter_signature));
+            }
+        }
+        if !has_first_parameter_signatures {
+            return Some(JsxFactoryArity::Fits);
+        }
+        let minimum = calls
+            .iter()
+            .map(|signature| self.signature_min_argument_count(signature))
+            .min()
+            .unwrap_or(usize::MAX);
+        if minimum <= maximum {
+            return Some(JsxFactoryArity::Fits);
+        }
+        Some(JsxFactoryArity::TooMany { minimum, factory, maximum })
+    }
+
+    /// `getSignaturesOfType(firstparam, SignatureKindCall)` for a JSX
+    /// factory's first parameter type. A generic alias reference (`SFC<P>`)
+    /// keeps its identity in this port, where native's reference is the
+    /// instantiated body; the body is read instead (`r6-jsx2.md` §2). A
+    /// union has no call signatures when one of its constituents has none
+    /// (`getUnionSignatures`, `checker.go:21117`), which decides
+    /// `SFC<P> | ComponentClass<P> | string` without the union's own list.
+    /// `None` where a list is not decided.
+    fn jsx_factory_parameter_call_signatures(
+        &mut self,
+        ty: TypeId,
+    ) -> Option<Vec<crate::signatures::Signature>> {
+        use crate::signatures::SignatureKind;
+        let ty = self.binding_type_alias_body(ty);
+        if self.is_gap(ty) {
+            return None;
+        }
+        if let crate::types::TypeData::Union { types, .. } = self.store.get(ty).data.clone() {
+            for part in types {
+                let part = self.binding_type_alias_body(part);
+                if self.is_gap(part) {
+                    continue;
+                }
+                if self
+                    .signatures_of_type_kind(part, SignatureKind::Call)
+                    .is_some_and(|signatures| signatures.is_empty())
+                {
+                    return Some(Vec::new());
+                }
+            }
+        }
+        self.signatures_of_type_kind(ty, SignatureKind::Call)
+    }
+
+    /// TS6229 on the tag name (`jsx.go:668`): `Tag '{0}' expects at least
+    /// '{1}' arguments, but the JSX factory '{2}' provides at most '{3}'.`
+    /// The related `'{0}' is declared here.` on the tag symbol's value
+    /// declaration is not attached (related information is not compared, and
+    /// no checker report carries it yet).
+    fn report_jsx_tag_expects_too_many_arguments(
+        &mut self,
+        tag_id: NodeId,
+        minimum: usize,
+        factory: &str,
+        maximum: usize,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(tag_id) else { return };
+        let span = self.error_span(tag_id);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::TAG_0_EXPECTS_AT_LEAST_1_ARGUMENTS_BUT_THE_JSX_FACTORY_2_PROVIDES_AT_MOST_3,
+                span,
+                [
+                    self.jsx_tag_text(tag_id),
+                    minimum.to_string(),
+                    factory.to_string(),
+                    maximum.to_string(),
+                ],
+            ),
+        );
+    }
+
     /// Whether the attributes type `source` relates to the effective first
     /// argument `target` under `relation`, as `isRelatedTo` answers for a
-    /// fresh JSX attributes object, with the excess member it found. `None`
-    /// where this port does not decide.
+    /// fresh JSX attributes object, with the excess member it found. With
+    /// `fresh` false the source is `getRegularTypeOfObjectLiteral`'s answer
+    /// (`checkApplicableSignatureForJsxCallLikeElement` under
+    /// `SkipContextSensitive`, `jsx.go:678`): no excess check runs, only the
+    /// structural relation. `None` where this port does not decide.
     fn jsx_attributes_relation(
         &mut self,
         attributes_id: NodeId,
         source: TypeId,
         target: TypeId,
         relation: Relation,
+        fresh: bool,
     ) -> Option<(Ternary, JsxExcess)> {
         // `isComparingJsxAttributes` (`ObjectFlagsJsxAttributes` on the
         // source): a hyphenated member, written or spread, is known to
@@ -394,6 +531,9 @@ impl Checker<'_, '_> {
         }
         if self.store.get(target).flags.intersects(TypeFlags::ANY) {
             return Some((Ternary::Related, JsxExcess::None));
+        }
+        if !fresh {
+            return Some((self.relate_ternary(source, target, relation), JsxExcess::None));
         }
         // The attributes type is a fresh object literal (`ObjectFlagsFreshLiteral`,
         // `jsx.go:721`), so `isRelatedTo` meets `hasExcessProperties` before
@@ -430,7 +570,7 @@ impl Checker<'_, '_> {
     ) {
         let Some(source) = self.jsx_checked_attributes_type(node) else { return };
         let Some((Ternary::NotRelated, excess)) =
-            self.jsx_attributes_relation(attributes_id, source, target, Relation::Assignable)
+            self.jsx_attributes_relation(attributes_id, source, target, Relation::Assignable, true)
         else {
             return;
         };
@@ -1555,6 +1695,27 @@ enum JsxCandidate {
     TypeArgumentError,
 }
 
+/// [`Checker::jsx_skip_context_sensitive_candidate`]'s answer for one
+/// candidate under `SkipContextSensitive`.
+enum JsxSkipCandidate {
+    /// The skip check passed; the `Normal` pass continues from these
+    /// inferences (`None`: nothing was inferred).
+    Passed(Option<Vec<crate::inference::InferenceInfo>>),
+    /// An argument-error candidate, with its effective first argument.
+    Failed(Box<crate::signatures::Signature>, TypeId),
+    /// A written type argument outside its constraint.
+    TypeArgumentError,
+}
+
+/// [`Checker::jsx_tag_argument_count_fits`]'s answer.
+enum JsxFactoryArity {
+    /// Some factory first-parameter signature accepts the tag's arguments.
+    Fits,
+    /// TS6229's arguments: the tag's smallest minimum argument count, the
+    /// factory's text, and the largest first-parameter parameter count.
+    TooMany { minimum: usize, factory: String, maximum: usize },
+}
+
 /// `getJsxElementPropertiesName` (`jsx.go:1075`).
 enum JsxPropertiesName {
     /// `InternalSymbolNameMissing`: no `ElementAttributesProperty`.
@@ -1686,9 +1847,10 @@ impl Checker<'_, '_> {
                     .is_some_and(|value| self.is_context_sensitive_argument(&value)),
                 JsxAttributeLike::JsxSpreadAttribute(_) => false,
             }) || children.iter().any(|child| self.is_context_sensitive_argument(child));
-        if context_sensitive {
-            return JsxOverloads::Declined;
-        }
+        // `resolveCall`'s `argCheckMode`: context-sensitive attributes are
+        // first checked as `SkipContextSensitive`, until a candidate passes
+        // that check (`chooseOverload`, `checker.go:9080`).
+        let mut skip_context_sensitive = context_sensitive;
         let incomplete = attributes
             .node_id
             .is_some_and(|id| self.nodes.span(id).end == self.nodes.span(node).end);
@@ -1713,7 +1875,36 @@ impl Checker<'_, '_> {
                     Some(false) => continue,
                     None => return JsxOverloads::Declined,
                 }
-                let Some(check) = self.jsx_check_candidate(node, tag_type, candidate, component)
+                let Some(attributes_id) = attributes.node_id else {
+                    return JsxOverloads::Declined;
+                };
+                let mut seed = None;
+                if skip_context_sensitive {
+                    match self.jsx_skip_context_sensitive_candidate(
+                        node,
+                        attributes_id,
+                        tag_type,
+                        candidate,
+                        component,
+                        relation,
+                    ) {
+                        Some(JsxSkipCandidate::Passed(inferences)) => {
+                            skip_context_sensitive = false;
+                            seed = inferences;
+                        }
+                        Some(JsxSkipCandidate::Failed(check, props)) => {
+                            failed.push((*check, props));
+                            continue;
+                        }
+                        Some(JsxSkipCandidate::TypeArgumentError) => {
+                            type_argument_error = Some(candidate.clone());
+                            continue;
+                        }
+                        None => return JsxOverloads::Declined,
+                    }
+                }
+                let Some(check) =
+                    self.jsx_check_candidate(node, tag_type, candidate, component, seed)
                 else {
                     return JsxOverloads::Declined;
                 };
@@ -1729,7 +1920,7 @@ impl Checker<'_, '_> {
                     let source = checker.jsx_checked_attributes_type(node)?;
                     let attributes_id = attributes.node_id?;
                     checker
-                        .jsx_attributes_relation(attributes_id, source, props, relation)
+                        .jsx_attributes_relation(attributes_id, source, props, relation, true)
                         .map(|(related, _)| related)
                 });
                 match verdict {
@@ -1971,13 +2162,19 @@ impl Checker<'_, '_> {
     /// constraint makes the candidate a type-argument error, [`JsxCandidate::TypeArgumentError`]);
     /// otherwise its type arguments are inferred from the attributes
     /// (`inferJsxTypeArguments`, `jsx.go:197`) as the single-candidate
-    /// resolver infers them. `None` declines.
+    /// resolver infers them. With `seed`, the inferences a
+    /// `SkipContextSensitive` pass made for this candidate
+    /// ([`Checker::jsx_skip_context_sensitive_candidate`]), the `Normal`
+    /// inference continues from them in the same context, as
+    /// `chooseOverload`'s second `inferTypeArguments` does
+    /// (`checker.go:9086`). `None` declines.
     fn jsx_check_candidate(
         &mut self,
         node: NodeId,
         tag_type: TypeId,
         candidate: &crate::signatures::Signature,
         component: bool,
+        seed: Option<Vec<crate::inference::InferenceInfo>>,
     ) -> Option<JsxCandidate> {
         use crate::inference::InferenceFlags;
         let props = self.jsx_effective_first_argument(node, tag_type, candidate, component)?;
@@ -2006,9 +2203,14 @@ impl Checker<'_, '_> {
                 InferenceFlags::NONE
             };
             self.with_jsx_candidate_context(node, &signature, |checker| {
-                let source = checker.jsx_checked_attributes_type(node)?;
-                let mut infos = Vec::new();
-                checker.infer_from_types(source, props, &parameters, &mut infos, 0);
+                let infos = if let Some(infos) = seed {
+                    infos
+                } else {
+                    let source = checker.jsx_checked_attributes_type(node)?;
+                    let mut infos = Vec::new();
+                    checker.infer_from_types(source, props, &parameters, &mut infos, 0);
+                    infos
+                };
                 let context = checker.active_inference_contexts.get_mut(&context_node)?;
                 context.inferences = infos;
                 context.inferential = true;
@@ -2039,6 +2241,88 @@ impl Checker<'_, '_> {
         resolved.type_parameters.clear();
         let props = self.parameter_type(&resolved.parameters[0]);
         Some(JsxCandidate::Checked(Box::new(resolved), props))
+    }
+
+    /// `chooseOverload`'s first applicability check for one candidate while
+    /// `argCheckMode` is `SkipContextSensitive` (`checker.go:9046-9079`): a
+    /// generic candidate without written type arguments infers from the
+    /// attributes checked with context-sensitive functions skipped
+    /// (`inferJsxTypeArguments`, `jsx.go:197`, through the skip image the
+    /// single-candidate resolver infers from); a written list instantiates
+    /// it as [`Checker::jsx_check_candidate`] does. The skip image, checked
+    /// with the instantiated candidate as context, is then related as a
+    /// regular (not fresh) object to its effective first argument
+    /// (`checkApplicableSignatureForJsxCallLikeElement`, `jsx.go:678`).
+    ///
+    /// [`JsxSkipCandidate::Passed`] carries the inferences the `Normal`
+    /// pass continues from (`None` for a non-generic or explicitly
+    /// instantiated candidate). `None` declines.
+    fn jsx_skip_context_sensitive_candidate(
+        &mut self,
+        node: NodeId,
+        attributes_id: NodeId,
+        tag_type: TypeId,
+        candidate: &crate::signatures::Signature,
+        component: bool,
+        relation: Relation,
+    ) -> Option<JsxSkipCandidate> {
+        use crate::inference::InferenceFlags;
+        let type_arguments = match self.node_map.get(node) {
+            Some(Node::JsxOpeningElement(element)) => element.type_arguments,
+            Some(Node::JsxSelfClosingElement(element)) => element.type_arguments,
+            _ => return None,
+        };
+        let (check, inferences) = if candidate.type_parameters.is_empty()
+            || !type_arguments.is_empty()
+        {
+            match self.jsx_check_candidate(node, tag_type, candidate, component, None)? {
+                JsxCandidate::Checked(check, _) => (*check, None),
+                JsxCandidate::TypeArgumentError => {
+                    return Some(JsxSkipCandidate::TypeArgumentError);
+                }
+            }
+        } else {
+            let props = self.jsx_effective_first_argument(node, tag_type, candidate, component)?;
+            let mut signature = candidate.clone();
+            signature.parameters = vec![crate::signatures::Parameter::new(
+                "props".to_string(),
+                false,
+                false,
+                props,
+                None,
+            )];
+            let parameters = self.type_parameter_types(&signature)?;
+            let names: Vec<String> =
+                signature.type_parameters.iter().map(|p| p.name.clone()).collect();
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            let flags = if self.in_js_file(node) {
+                InferenceFlags::ANY_DEFAULT
+            } else {
+                InferenceFlags::NONE
+            };
+            let (infos, map) = self.with_jsx_candidate_context(node, &signature, |checker| {
+                let source = checker.jsx_attributes_inference_type(node, true)?;
+                let mut infos = Vec::new();
+                checker.infer_from_types(source, props, &parameters, &mut infos, 0);
+                let map = checker.resolved_inference_map(&infos, &signature, &parameters, flags)?;
+                Some((infos, map))
+            })?;
+            let mut resolved = self.instantiate_signature(signature, &map, &parameters, &names)?;
+            resolved.type_parameters.clear();
+            (resolved, Some(infos))
+        };
+        let props = self.parameter_type(check.parameters.first()?);
+        let verdict = self.with_jsx_candidate_context(node, &check, |checker| {
+            let source = checker.jsx_attributes_inference_type(node, true)?;
+            checker
+                .jsx_attributes_relation(attributes_id, source, props, relation, false)
+                .map(|(related, _)| related)
+        })?;
+        match verdict {
+            Ternary::Related => Some(JsxSkipCandidate::Passed(inferences)),
+            Ternary::NotRelated => Some(JsxSkipCandidate::Failed(Box::new(check), props)),
+            Ternary::Unknown => None,
+        }
     }
 
     /// The written type arguments of a JSX element through
