@@ -1,0 +1,78 @@
+# Parity round 7 (tsr-2zk)
+
+The goal is unchanged and not met: 99.9% case parity with pinned tsgo
+(`vendor/typescript-go` @ `5b1047d`) on the complete `checker_types`,
+`checker_types_configured`, `diagnostics` and `diagnostics_configured` corpus,
+with zero previously RIGHT losses and a verified TSR/tsgo median wall ratio
+<=0.50 on equivalent complete work.
+
+Round 7 starts from main `f55a2585` (round 6 checkpoint `83c6f58d` plus its
+STATUS row). Its numbers are STATUS.md §1's round-6 column:
+
+| Suite | Start (`83c6f58d`) |
+|---|---|
+| `checker_types` | 8,677/9,538 (90.97%) |
+| `checker_types_configured` | 1,752/1,928 (90.87%) |
+| `diagnostics` | 4,786/5,502 (86.99%) |
+| `diagnostics_configured` | 955/1,091 (87.53%) |
+
+## How round 7 runs
+
+Boxes are **Amp orb threads**, one per lane, each with its own checkout of
+`origin/main`. The integration owner is the dispatching thread. The protocol
+is [box-protocol.md](box-protocol.md), with three orb-specific changes:
+
+1. **Setup.** The orb runs `.agents/setup`, which installs the pinned 1.96.0
+   toolchain, Go 1.26.8, `bd` and the pinned native oracle at
+   `target/tsgo-pinned`. Do not run `scripts/offline-cargo/bootstrap.sh` and do
+   not set `RUSTUP_TOOLCHAIN=stable`; the pinned toolchain is available.
+2. **Branch.** Work on `box/r7-<lane>` cut from `origin/main`, push after every
+   verified commit, and `git rebase origin/main` (or merge it) whenever main
+   moves. The integration owner merges from these branches only.
+3. **Report.** When a cluster is finished, or the lane is blocked, send the
+   report of box-protocol §6 to the integration thread with
+   `send_thread_message`, then continue with the next cluster. Boxes do not
+   write Beads; proposed issues go in the report and the lane note.
+
+Gates are box-protocol §5 unchanged: `scripts/parity_gate.sh freeze` before
+editing, `scripts/parity_gate.sh compare` after (both unfiltered; any
+TYPE_LOSS/DIAG_LOSS/MISSING line refuses the commit), the coverage bin,
+`cargo test --workspace --release`, clippy on touched code, fmt, and the
+21-sample child-CPU perf comparison against the frozen binary on
+domain-model and generic-imports (re-run at 41 above 1.03).
+
+## Lanes and file ownership
+
+Whole-file ownership unless a function is named. A file not listed belongs to
+the integration owner; a change to it, or to another lane's file, is described
+in the report and routed, never made.
+
+| Lane | Owns | Starting queue |
+|---|---|---|
+| r7-shared (`tsr-2zk.1268`) | `symbols.rs`, `signatures.rs` (signature construction, `get_signature_from_declaration`), `members.rs`, `instantiate`/mapper code, `resolution.rs`, `crates/tsr-binder`; the isolated alias/mapper cutover branch `recovery/rejected-alias-shared-20261007` | the cutover's regressions (`tsr-2zk.16.56.1.4`), RESOLVE-ALIAS-INDIRECTION, MERGE-SYMBOL-RESOLVE-ALIAS-TARGET, IMPORT-EQUALS-IDENTIFIER-ALIAS-TARGET, DEFAULT-EXPORT-ALIAS-CLASS-MERGE, RESOLVE-ES-MODULE-SYMBOL-CLONE, module augmentation merge (`.38`), lazy signature parameters (`.9.7`) |
+| r7-calls (`tsr-2zk.1269`) | `calls.rs`, `call_arity.rs`, `call_reports.rs`, `decorators.rs`, `union_signatures.rs`, `type_argument_arity.rs` | `.1267` (isSignatureApplicable reportErrors hook, +18), CALL-ARGUMENT-APPLICABILITY-REPORT, CANDIDATE-FOR-OVERLOAD-FAILURE, OVERLOAD-FAILURE-REPORT, CALL-SPREAD-ARGUMENT-APPLICABILITY, TAGGED-TEMPLATE-EFFECTIVE-ARGS, RESOLVE-DECORATOR-CALL-ERRORS, CHOOSE-OVERLOAD-GENERIC-WALK, CHECK-NON-NULL-CALLEE, `.9.6`; the calls.rs arms of PARSE-ERROR-FILE-CHECK-DECLINE and JS-FILE-CHECK-DECLINE |
+| r7-parser (`tsr-2zk.1270`) | `crates/tsr-parser`, `crates/tsr-scanner` | PARSER-RECOVERY-DIVERGENCE, PARSER-REPARSE-TOP-LEVEL-AWAIT, PARSER-IS-YIELD-EXPRESSION, SCANNER-NUMERIC-AND-ESCAPE-DIAGNOSTICS, REGEXP-SCANNER-VALIDATION, PARSER-DECORATOR-EXPRESSION, PARSER-FUNCTION-BLOCK-OR-SEMICOLON-RECOVERY, PARSER-JSX-IN-JS-UNARY-OPERAND, PARSER-STATIC-BLOCK-AWAIT-CONTEXT, unaligned-count parser divergences (`.1086`) |
+| r7-grammar (`tsr-2zk.1271`) | `grammar.rs`, `import_attributes.rs`, `class_fields.rs`, `enum_member_name.rs`, `enum_initializer.rs`, `unused.rs`, `heritage_conformance.rs`, `base_types.rs` | CHECK-GRAMMAR-MODIFIERS, GRAMMAR-MISC-DECLARATIONS, PRIVATE-IDENTIFIER-GRAMMAR, CHECK-GRAMMAR-AWAIT-YIELD-CONTEXT, GRAMMAR-ACCESSOR-DECLARATION, IMPORT-ATTRIBUTES-CHECKS, CLASS-PROPERTY-INITIALIZER-CHECKS, ENUM-MEMBER-COMPUTED-NAME, CHECK-INTERFACE-HERITAGE-AND-BASES, RESOLVE-BASE-TYPES-CIRCULARITY |
+| r7-printer (`tsr-2zk.1272`) | `checker.rs` (symbol chain, best name, qualified names), `symbol_access.rs`, `symbol_accessibility.rs`, `module_specifiers.rs`, `printing.rs`, `node_reuse.rs` | every GET-SYMBOL-CHAIN-* and SYMBOL-CHAIN-* cluster, TRY-SYMBOL-TABLE-DEFAULT-IMPORT-ALIAS, TRYSYMBOLTABLE-UMD-ALIAS-EXCLUSION, SPECIFIER-FOR-MODULE-SYMBOL(/NODE-MODULES), TYPE-ALIAS-ACCESSIBILITY-GATE, `.39` |
+| r7-declared (`tsr-2zk.1273`) | `declared.rs`, `mapped.rs`, `instantiation_expressions.rs`, `indexed.rs`, `unions.rs` | `.1266` (mapped stack, +75 types, re-cut on print-time plans), `.1265` (deferred conditional fall-through, +70), TYPE-ALIAS-DECLARED-BODY-AND-INSTANTIATION, TYPE-ALIAS-INSTANTIATION-NEW-ALIAS, CONDITIONAL-INLINE-NODE-INSTANTIATION, TYPEREF-UNRESOLVED-ALIAS-TARGET-SYMBOL, IMPORT-TYPE-NODE-*, CONDITIONAL-DEFERRAL-GATE, ORIGIN-SLICE-GATE |
+| r7-flow (`tsr-2zk.1274`) | `flow.rs`, `nonexistent_property.rs`, `index_access_reports.rs`, `readonly_target.rs`, `truthiness.rs`, `this_expression.rs`; the parse-error gates outside `calls.rs` | `.1264` (asserts-this narrowing, then the access-site lift), NONEXISTENT-PROPERTY-CERTIFICATION-GATE, PARSE-ERROR-FILE-CHECK-DECLINE (non-calls arms), r6-errorsplit3's read-reference diffs (`.1150`), NARROW-* clusters, FLOW-NARROWING-RESULT-TYPE |
+| r7-contextual (`tsr-2zk.1275`) | `contextual.rs`, `inference.rs`, `array_literals.rs`, `destructure.rs`, `binding_patterns.rs`, `objects.rs`, `spreads.rs` | ARG-CONTEXT-RESOLVED-SIG, INFER-NO-CANDIDATE-GUARD, ARRAY-LITERAL-TUPLE-CONTEXT, CONTEXTUAL-BINDING-PATTERN-INITIALIZER, BINDING-PATTERN-IMPLIED-TYPE, OBJLIT-THIS-LITERAL-SELF-FALLBACK, ARRAY-LITERAL-OMITTED-EXPRESSION-ELEMENT, CONTEXTUAL-ARG-SUPER-CALL, REVERSE-MAPPED-TYPE-INFERENCE, SPREAD-PROPERTY-ANNOTATION-REUSE |
+| r7-reports (`tsr-2zk.1276`) | `relater.rs`, `assignreport.rs`, `implicit_any.rs`, `jsdoc_*.rs`, `jsx_*.rs`, `js_case_data.rs`, `assignment_declarations.rs` | IMPLICIT-ANY-PARAMETER-REPORT, IMPLICIT-ANY-AUTO-TYPED-VARIABLE, JSDOC-TAG-SEMANTICS, JSX-OVERLOAD-AND-COMPONENT-REPORT, JSX-COMPONENT-ATTRIBUTES-RESOLUTION, JSX-ATTRIBUTES-RELATION-REPORT, relation-report clusters (ASSIGN-REPORT-*, REPORT-UNMATCHED-*, HAS-EXCESS-PROPERTIES-*, ENUM-RELATION-SAME-NAME), `.1124` variance WIP |
+| r7-perf (`tsr-2zk.1277`) | `crates/tsr` (driver), `crates/tsr-compiler`, `perf_links.rs`; in `calls.rs` only the resolving-signature sentinel, in `members.rs` only the composite-name decline (`members.rs:3233`), each coordinated with that file's owner | `tsr-2zk.17.3` parallel parse/bind, `.1261`, `.1258`; measured TSR/tsgo median wall ratio on domain-model, domain-model-large, generic-imports and jsTyping |
+
+The cluster names and case counts are r6-triage's ranked table
+([notes/r6-triage.md](notes/r6-triage.md) §2), cut at `e6eadf4`; a lane
+re-measures its own clusters on its frozen base before porting.
+
+## Integration
+
+The integration owner merges green box heads in batches onto main, runs the
+same gates on the merged tree against the previous main freeze, refreshes the
+conformance snapshots, records the batch below, and pushes. A batch that
+loses a previously RIGHT key, or regresses perf, is cut back to the commits
+that pass; the backed-out commit returns to its lane with the loss named.
+
+The alias/mapper cutover never enters a batch until its own branch passes
+every gate against the then-current main.
+
+## Batches
