@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4707/5502 (85.55%)
-Failed         : 795
+Passed         : 4719/5502 (85.77%)
+Failed         : 783
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 795 failures:
+First 100 of 783 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -166,18 +166,10 @@ compiler/constraintWithIndexedAccess
   9 missing (first TS2344 at constraintWithIndexedAccess.ts(23,90))
 compiler/constructorOverloads1
   1 missing (first TS2769 at constructorOverloads1.ts(17,18))
-compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny
-  1 missing (first TS7006 at contextualOverloadListFromUnionWithPrimitiveNoImplicitAny.ts(13,20))
 compiler/contextualPropertyOfGenericFilteringMappedType
   3 missing (first TS2353 at contextualPropertyOfGenericFilteringMappedType.ts(38,5))
-compiler/contextualSignatureInArrayElementLibEs2015
-  1 missing (first TS7006 at contextualSignatureInArrayElementLibEs2015.ts(8,4))
-compiler/contextualSignatureInArrayElementLibEs5
-  1 missing (first TS7006 at contextualSignatureInArrayElementLibEs5.ts(8,4))
 compiler/contextualTypeFunctionObjectPropertyIntersection
   2 missing (first TS2353 at contextualTypeFunctionObjectPropertyIntersection.ts(84,5))
-compiler/contextualTyping38
-  1 missing (first TS7006 at contextualTyping38.ts(1,38))
 compiler/contextualTypingOfGenericFunctionTypedArguments1
   1 missing (first TS2345 at contextualTypingOfGenericFunctionTypedArguments1.ts(17,32))
 compiler/contextualTypingWithGenericAndNonGenericSignature
@@ -185,7 +177,7 @@ compiler/contextualTypingWithGenericAndNonGenericSignature
 compiler/contextuallyTypedParametersOptionalInJSDoc
   2 missing (first TS2345 at index.js(17,15))
 compiler/contextuallyTypedParametersWithInitializers1
-  2 missing (first TS7006 at contextuallyTypedParametersWithInitializers1.ts(24,24))
+  1 missing (first TS7006 at contextuallyTypedParametersWithInitializers1.ts(40,5))
 compiler/controlFlowArrayErrors
   8 missing (first TS7034 at controlFlowArrayErrors.ts(4,9))
 compiler/controlFlowFunctionLikeCircular1
@@ -212,3 +204,11 @@ compiler/declarationEmitObjectAssignedDefaultExport
   1 missing (first TS2883 at index.ts(7,1))
 compiler/declarationEmitPrivatePromiseLikeInterface
   3 missing (first TS7056 at Api.ts(6,5))
+compiler/declarationEmitReexportedSymlinkReference3
+  1 missing (first TS2883 at monorepo/pkg3/src/keys.ts(3,14))
+compiler/declarationEmitRelativeModuleError
+  1 missing (first TS2436 at declarationEmitRelativeModuleError.ts(5,16))
+compiler/declarationEmitToDeclarationDirWithoutCompositeAndDeclarationOptions
+  1 missing (first TS5069 at /foo/tsconfig.json(2,26))
+compiler/declarationEmitUsingTypeAlias1
+  2 missing (first TS2883 at src/index.ts(3,14))

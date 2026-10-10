@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8592/9538 (90.08%)
-Assertion lines: 473507/478853 (98.88%)  — a gradient, not a pass rate
-Failed         : 946
+Passed         : 8626/9538 (90.44%)
+Assertion lines: 473746/478853 (98.93%)  — a gradient, not a pass rate
+Failed         : 912
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 946 failures:
+First 100 of 912 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -26,7 +26,7 @@ compiler/aliasErrors
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
   aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >e : ErrAlias<number> — expected >e : { new (): ErrImpl<number>; prototype: ErrImpl<any>; } & (() => number)
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
-  aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >ExtendedMapper2 : ExtendedMapper2<HandledInputT, OutputT, ArgsT> — expected >ExtendedMapper2 : (name: string, mixed: HandledInputT, ...args: ArgsT) => OutputT
+  aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a2 : ExtendedMapper2<any, any, [any]> — expected >a2 : a2
 compiler/aliasOnMergedModuleInterface
   aliasOnMergedModuleInterface_1.ts: >z.bar("hello") : B.A — expected >z.bar("hello") : foo.A
 compiler/allowImportClausesToMergeWithTypes
@@ -89,8 +89,6 @@ compiler/callsOnComplexSignatures
   callsOnComplexSignatures.tsx: >component : React.ReactType — expected >component : React.ReactType<any>
 compiler/capturedParametersInInitializers1
   capturedParametersInInitializers1.ts: >foo3 : (y?: { x: number; }, z?: number) => void — expected >foo3 : (y?: { x: typeof z; }, z?: number) => void
-compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations
-  Uppercased_Dir/src/index.ts: >{ } as TypeB : import("./types").Merge<TypeA, { b: string; }> — expected >{ } as TypeB : TypeB
 compiler/castOfYield
   castOfYield.ts: 8 assertion(s), expected 9
 compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2
@@ -177,12 +175,8 @@ compiler/constEnumPreserveEmitReexport
   ReExport.ts: >MyConstEnum : typeof MyConstEnum — expected >MyConstEnum : typeof import("./ConstEnum").MyConstEnum
 compiler/constEnums
   constEnums.ts: >e : I — expected >e : I.V2 | I.V3 | I.V4
-compiler/constraintWithIndexedAccess
-  constraintWithIndexedAccess.ts: >allAreFunctionsAsExpected : TypeHardcodedAsParameterWithoutReturnType<"Boat", "description" | "displacement" | "maxGroundSpeed" | "name" | "requiresLicense"> — expected >allAreFunctionsAsExpected : allAreFunctionsAsExpected
 compiler/contextualOuterTypeParameters
   contextualOuterTypeParameters.ts: >t => {    type isArray = (typeof t)[] extends string[] ? true : false;    type IsObject = { x: typeof t } extends { x: string } ? true : false;} : error — expected >t => {    type isArray = (typeof t)[] extends string[] ? true : false;    type IsObject = { x: typeof t } extends { x: string } ? true : false;} : <T>(t: T) => void
-compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny
-  contextualOverloadListFromUnionWithPrimitiveNoImplicitAny.ts: >{    field: {        validate: (_t, _p, _s) => false,        normalize: match => match.x,    }} : any — expected >{    field: {        validate: (_t, _p, _s) => false,        normalize: match => match.x,    }} : { field: { validate: (_t: string, _p: number, _s: Rule) => false; normalize: (match: any) => any; }; }
 compiler/contextualParamTypeVsNestedReturnTypeInference2
   contextualParamTypeVsNestedReturnTypeInference2.ts: >Tag : error — expected >Tag : <const Id extends string>(id: Id) => <Self, Shape>() => TagClass<Self, Id, Shape>
 compiler/contextualParamTypeVsNestedReturnTypeInference3
@@ -199,12 +193,8 @@ compiler/contextualTypeCaching
   contextualTypeCaching.ts: >() => [    {      apply: (compiler) => {},    },  ] : () => any — expected >() => [    {      apply: (compiler) => {},    },  ] : () => { apply: (compiler: MyCompiler) => void; }[]
 compiler/contextualTypeFunctionObjectPropertyIntersection
   contextualTypeFunctionObjectPropertyIntersection.ts: >{  schema: {    events: {} as { type: "FOO" } | { type: "BAR" },  },  on: {    FOO: (ev) => {      ev.type; // should be 'FOO'    },  },} : any — expected >{  schema: {    events: {} as { type: "FOO" } | { type: "BAR" },  },  on: {    FOO: (ev) => {      ev.type; // should be 'FOO'    },  },} : { schema: { events: { type: "FOO"; } | { type: "BAR"; }; }; on: { FOO: (ev: { type: "FOO"; }) => void; }; }
-compiler/contextualTypeIterableUnions
-  contextualTypeIterableUnions.ts: >[{ b: false }] : { b: boolean; }[] — expected >[{ b: false }] : { b: false; }[]
 compiler/contextualTypeSelfReferencing
   contextualTypeSelfReferencing.ts: >result : { a: string; }[] — expected >result : [{ a: "foo"; }]
-compiler/contextualTypeShouldBeLiteral
-  contextualTypeShouldBeLiteral.ts: >{    type2: 'y',    value: 'done',    method() {        this;        this.value;    }} : { type2: "y"; value: string; method(): void; } — expected >{    type2: 'y',    value: 'done',    method() {        this;        this.value;    }} : { type2: "y"; value: "done"; method(): void; }
 compiler/contextualTypingOfTooShortOverloads
   contextualTypingOfTooShortOverloads.ts: >app.use((err: any, req, res, next) => { return; }) : error — expected >app.use((err: any, req, res, next) => { return; }) : MyApp
 compiler/contextualTypingWithGenericAndNonGenericSignature
@@ -213,3 +203,13 @@ compiler/contextualTypingWithGenericSignature
   contextualTypingWithGenericSignature.ts: >f2 = (x, y) => { return x } : error — expected >f2 = (x, y) => { return x } : <T, U>(x: T, y: U) => T
 compiler/contextuallyTypeGeneratorReturnTypeFromUnion
   contextuallyTypeGeneratorReturnTypeFromUnion.ts: >function* () {    const next = yield ''    return next[0]} : error — expected >function* () {    const next = yield ''    return next[0]} : () => Generator<string, string, string[]>
+compiler/contextuallyTypedByDiscriminableUnion2
+  contextuallyTypedByDiscriminableUnion2.ts: >props : MyComponentProps<I> — expected >props : (DisableA & DisableB & DisableD<I>) | (DisableA & DisableB & EnableD<I>) | (DisableA & EnableB & DisableD<I>) | (DisableA & EnableB & EnableD<I>) | (EnableA & EnableB & DisableD<I>) | (EnableA & EnableB & EnableD<I>)
+compiler/contextuallyTypedJsxAttribute2
+  contextuallyTypedJsxAttribute2.tsx: >onClick : error — expected >onClick : (e: React.MouseEvent<HTMLAnchorElement>) => void
+compiler/contextuallyTypedJsxChildren
+  contextuallyTypedJsxChildren.tsx: >({ onClose }) => (    <div>      <button onClick={onClose}>Click me</button>    </div>  ) : error — expected >({ onClose }) => (    <div>      <button onClick={onClose}>Click me</button>    </div>  ) : ({ onClose }: { onClose: () => void; }) => JSX.Element
+compiler/contextuallyTypedJsxChildren2
+  contextuallyTypedJsxChildren2.tsx: >selector : (state: NoInfer<{ foo: number; }>) => any — expected >selector : (state: NoInfer<{ foo: number; }>) => number
+compiler/contextuallyTypedParametersWithInitializers1
+  contextuallyTypedParametersWithInitializers1.ts: >f11 : any — expected >f11 : ({ foo }: { foo?: number | undefined; }) => number
