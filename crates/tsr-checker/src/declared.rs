@@ -6472,7 +6472,11 @@ impl<'a> Checker<'a, '_> {
             let Some(&found) = self.binder.symbols().get(symbol).exports.get(*segment) else {
                 return error;
             };
-            symbol = self.binder.merged_symbol(found);
+            // `resolveEntityName`'s qualified step resolves the alias it
+            // finds (`resolveSymbol(getSymbol(getExportsOfSymbol(ns), …))`,
+            // checker.go): `export { Bar }` makes `Bar` an export-specifier
+            // alias whose own exports are empty; `I` is the target's.
+            symbol = self.binder.merged_symbol(self.resolve_alias_fully(found));
         }
         if !self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::TYPE) {
             return error;
