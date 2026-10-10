@@ -89,3 +89,34 @@ export const w = v;
         ],
     );
 }
+
+/// `symbolToTypeNode`'s import-type arm (`nodebuilderimpl.go:651`) tests the
+/// chain's root for a string-named module declaration: an `export =` target
+/// a module augmentation merged into is spelled through its module even in
+/// its own file, where its name is accessible (`augmentExportEquals4`).
+#[test]
+fn an_augmented_export_equals_target_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/module_rooted_augmented_target",
+        r#"// @target: es2015
+// @module: commonjs
+// @filename: file1.ts
+class foo {}
+namespace foo {
+    export var v = 1;
+}
+export = foo;
+// @filename: file2.ts
+import x = require("./file1");
+x.b = 1;
+declare module "./file1" {
+    interface A { a }
+    let b: number;
+}
+"#,
+    );
+    assert_has(
+        &lines,
+        &["foo : import(\"./file1\")", "foo : typeof import(\"./file1\")", "x : typeof x"],
+    );
+}
