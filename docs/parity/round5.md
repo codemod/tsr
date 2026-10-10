@@ -2074,3 +2074,25 @@ cycle. anyType comes from a shorthand ambient module or a type-circular
 variable.
 
 `tsr-2zk.1150` is reopened unassigned.
+
+### Batch CJ+CK+CL: r6-callreport's hook diffs backed out
+
+The CJ+CK+CL gate lost four diagnostics cases.
+
+Three of them are r6-relater3's batch-CD rows: excessPropertyCheckWithEmptyObject,
+indexedAccessRelation and reverseMappedTypeLimitedConstraint. r6-callreport's
+applicability diff replaces check_instantiated_candidate_arguments with
+call_reports.rs's native pass, and that pass does not carry CD's
+hasExcessProperties-before-the-literal-gate arm.
+
+The fourth is typeParameterConstModifiers, where call_reports.rs reports a
+false TS2322 on a const type parameter's literal argument.
+
+Both hook diffs are reverted (applicability and certified literals).
+call_reports.rs stays in the tree, unhooked. The rest of CJ+CK+CL stays.
+
+Re-landing needs two things:
+- call_reports.rs carries the excess-property arm;
+- call_reports.rs handles const type parameters' literal inference.
+
+Filed as `tsr-2zk.1267`.
