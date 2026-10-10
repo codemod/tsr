@@ -118,3 +118,27 @@ Remaining `file_has_parse_errors` reads after this commit: 71 code lines in
 r6-parsegate §2 (grammar helpers and explicit tests), or `unused.rs`'
 node-level stand-in for `NodeFlagsThisNodeOrAnySubNodesHasError`. `calls.rs`
 has none left.
+
+## §3 `narrowTypeByInstanceof` over `getInstanceType` for non-class callees (r6-errorsplit3 diff I)
+
+Native narrows `x instanceof C` by `mapType(rightType, getInstanceType)`
+(`flow.go:836`); `getInstanceType` (`flow.go:964-976`) reads `prototype`, then
+the union of the construct signatures' erased returns. The port took its
+class-identity road for every anonymous callee and read construct signatures
+only off named types (`signature_candidates_of_named_type`), so a type
+literal `{ new (): D }` or an intersection callee declined. r6-errorsplit3's
+diff I (`r6-errorsplit3-instanceof-general-road.diff`) keeps the class road
+for class symbols only and reads signatures through `signatures_of_type_kind`
+(unions, intersections, type literals). Applied unchanged.
+
+Measured on `216195f6`, unfiltered: types **+15**, 0 lost
+(`typeGuardsWithInstanceOfByConstructorSignature` 8,
+`inKeywordAndIntersection` 4, `narrowByInstanceof` 2, `controlFlowInstanceof` 1);
+diagnostics **+1**, 0 lost (`controlFlowInstanceof`). No cache or traversal
+added: the same signature reads the named-type road already made.
+
+The rest of the instanceof arm is still not native's shape: the
+`reference_is_top_level_var` false-branch decline (§126) and the
+class-identity road are port constructs layered over `getNarrowedType`. A
+rewrite onto `narrowed_type_worker` alone is NARROW-INSTANCEOF-CONSTRUCT-SIGNATURES'
+remaining work (§ below when measured).

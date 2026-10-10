@@ -5852,9 +5852,25 @@ impl Checker<'_, '_> {
                     // whole-union else stays whole because its constituents
                     // derive from nothing — the §83-era "21 adverse" used a
                     // structural test this trace retired.
-                    let TypeData::Anonymous { symbol: class_symbol, .. } =
-                        self.store.get(callee_type).data
-                    else {
+                    // The class road below is `getInstanceType`'s
+                    // `prototype` leg for a class constructor, whose
+                    // `prototype` is the class instance. Every other callee
+                    // (a type literal `{ new (): D }`, an intersection)
+                    // takes the general road (`flow.go:964-976`).
+                    let class_symbol = match self.store.get(callee_type).data {
+                        TypeData::Anonymous { symbol, .. }
+                            if self
+                                .binder
+                                .symbols()
+                                .get(self.binder.merged_symbol(symbol))
+                                .flags
+                                .intersects(SymbolFlags::CLASS) =>
+                        {
+                            Some(symbol)
+                        }
+                        _ => None,
+                    };
+                    let Some(class_symbol) = class_symbol else {
                         // Native 5b1047d narrowTypeByInstanceof admits a
                         // Function-derived callee, not only a constructor.
                         // isFunctionObjectType reads completed call OR construct
@@ -5868,7 +5884,7 @@ impl Checker<'_, '_> {
                         ]
                         .into_iter()
                         .any(|kind| {
-                            self.signature_candidates_of_named_type(callee_type, kind)
+                            self.signatures_of_type_kind(callee_type, kind)
                                 .is_some_and(|candidates| !candidates.is_empty())
                         });
                         if !has_signature && !self.is_bind_bearing_function_subtype(callee_type) {
@@ -5887,7 +5903,7 @@ impl Checker<'_, '_> {
                                 // signatures of the ERASED return (type
                                 // parameters instantiated to any). The
                                 // emptyObject third leg declines.
-                                let Some(candidates) = self.signature_candidates_of_named_type(
+                                let Some(candidates) = self.signatures_of_type_kind(
                                     callee_type,
                                     crate::signatures::SignatureKind::Construct,
                                 ) else {
