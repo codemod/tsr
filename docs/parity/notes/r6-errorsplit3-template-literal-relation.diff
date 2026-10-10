@@ -1,0 +1,84 @@
+diff --git a/crates/tsr-checker/src/relater.rs b/crates/tsr-checker/src/relater.rs
+index 344c568..9428e47 100644
+--- a/crates/tsr-checker/src/relater.rs
++++ b/crates/tsr-checker/src/relater.rs
+@@ -1767,6 +1767,25 @@ impl Relater<'_, '_, '_> {
+         {
+             return RelationResult::Related;
+         }
++        // A template literal target relates only what
++        // `isTypeMatchedByTemplateLiteralType` matches (`relater.go`'s
++        // `TypeFlagsTemplateLiteral` target arm): a string literal or another
++        // template literal. A non-string primitive source reaches no other
++        // arm, so it is not related; `undefined` and `null` only under
++        // `strictNullChecks`, since `isSimpleTypeRelatedTo` relates them to
++        // everything otherwise.
++        if t.contains(TypeFlags::TEMPLATE_LITERAL)
++            && !s.intersects(composite | TypeFlags::INSTANTIABLE | TypeFlags::OBJECT)
++            && (s.intersects(
++                TypeFlags::NUMBER_LIKE
++                    | TypeFlags::BIG_INT_LIKE
++                    | TypeFlags::BOOLEAN_LIKE
++                    | TypeFlags::ES_SYMBOL_LIKE
++                    | TypeFlags::VOID,
++            ) || self.checker.strict_null_checks && s.intersects(TypeFlags::NULLABLE))
++        {
++            return RelationResult::NotRelated;
++        }
+         // §357: an OBJECT source against a decidable primitive target is a
+         // decision, not an absence — upstream's `isSimpleTypeRelatedTo` has no
+         // arm relating an object to `undefined`/`null`/`void`/`string`/…
+diff --git a/crates/tsr-conformance/tests/template_literal_discriminant.rs b/crates/tsr-conformance/tests/template_literal_discriminant.rs
+new file mode 100644
+index 0000000..a0ba138
+--- /dev/null
++++ b/crates/tsr-conformance/tests/template_literal_discriminant.rs
+@@ -0,0 +1,48 @@
++//! A template literal target relates only what
++//! `isTypeMatchedByTemplateLiteralType` matches, so `undefined` is not
++//! comparable to `${string} is wrong!` and the discriminant narrows
++//! (`docs/parity/notes/r6-errorsplit3.md` §2).
++
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Each line of `file` with its top-level error identity.
++fn identities(source: &str, file: &str) -> Vec<(String, types_producer::TopError)> {
++    let case = TestCase::parse("probe/template_literal_discriminant", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    let arena = tsr_core::Arena::new();
++    let (rendered, kinds) =
++        types_producer::assertions_for_case_with_error_kinds(&arena, &case, &expected);
++    let index = case.files.iter().position(|unit| unit.name == file).expect("the file");
++    rendered[index].iter().zip(&kinds[index]).map(|(line, kind)| (line.line(), kind.top)).collect()
++}
++
++/// Asserts every `wanted` line is printed, with no error identity.
++fn assert_lines(source: &str, file: &str, wanted: &[&str]) {
++    let lines = identities(source, file);
++    for want in wanted {
++        let line = lines
++            .iter()
++            .find(|(line, _)| line == want)
++            .unwrap_or_else(|| panic!("a `{want}` line: {lines:?}"));
++        assert_eq!(line.1, types_producer::TopError::Other, "{want}: {lines:?}");
++    }
++}
++
++#[test]
++fn undefined_discriminates_a_template_literal_member() {
++    let source = "// @target: es2015
++// @strict: true
++// @Filename: a.ts
++type Correct = { code: string; property: true; err: undefined }
++type Err = { err: `${string} is wrong!` }
++declare const example: Correct | Err;
++if (example.err === undefined) {
++    example.property;
++}
++";
++    assert_lines(source, "a.ts", &["example.property : true"]);
++}

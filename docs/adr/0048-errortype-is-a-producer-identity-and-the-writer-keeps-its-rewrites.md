@@ -474,3 +474,24 @@ as diffs (r6-errorsplit2 §7, §8):
 Zero losses. Credited gap 1,693 → **1,600**. **Narrowing**:
 `HadErrorBaseline` 1,517, `AtLocation` 542, `AccessOrQualifiedParent` 8,
 `StatementName` 27. None costs zero. The residual fell 2,209 → 2,094.
+
+### 2026-10-10 — round 6, third box: `anyBaseTypeIndexInfo`; the alias rule found; no rewrite narrowed
+
+r6-errorsplit3 (tsr-2zk.1150; notes
+[r6-errorsplit3](../parity/notes/r6-errorsplit3.md)). Base `80bd4ba` (batch BT).
+
+- **Landed:** `anyBaseTypeIndexInfo` (`checker.go:1048`, `:19147`, `:20693`)
+  in `index_signatures.rs`. 11 lines leave the gap for `any`
+  (`extendFromAny` 8, `classExtendingAny` 3), every one `anyType` natively.
+  Zero transitions on both dumps.
+- **The no-value alias rule, found (§4):** `getTypeOfAlias` answers
+  `getTypeOfSymbol(target)` for a value target. The 12 `anyType` lines are
+  a shorthand ambient module reached through an export specifier
+  (`getExternalModuleMember` returns the module, typed `anyType`) or a
+  variable inside a type circularity. Every `errorType` line is a target of
+  `unknownSymbol`: an unfindable module, a missing export, or an alias
+  chain that meets its own `resolvingSymbol` mark. Held as a diff
+  (`symbols.rs`, main's), unmeasured corpus-wide.
+- **Not narrowed.** The read-reference property miss (r6-errorsplit2 §3) is
+  still gated: its 46 false claims are bucketed and fixes are held as diffs
+  for 37 of them; the switch waits on them landing and a re-measure.

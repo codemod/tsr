@@ -1,0 +1,116 @@
+--- a/crates/tsr-checker/src/assignment_declarations.rs
++++ b/crates/tsr-checker/src/assignment_declarations.rs
+@@ -496,11 +496,11 @@
+     /// assignment in the target's `__assignment` table; this answers, for
+     /// such a symbol, every declaration of that table that late-binds to the
+     /// same name, in declaration order. `None` for any other symbol, or when
+-    /// the receiver is not an identifier naming the table's owner.
++    /// the receiver is not an entity name naming the table's owner.
+     ///
+     /// Checker port boundary: no new cache. The names are
+     /// [`Checker::late_bound_members_of`]'s `(owner, static)` entry; the key
+-    /// is the owner symbol, resolved from the receiver identifier as the
++    /// is the owner symbol, resolved from the receiver entity name as the
+     /// binder resolved it; the work is one name resolution and a scan of the
+     /// owner's late list, paid once per symbol (the type is cached by
+     /// `get_type_of_symbol`).
+@@ -516,16 +516,7 @@
+         let Some(Expression::ElementAccessExpression(access)) = binary.left else {
+             return None;
+         };
+-        let Some(Expression::Identifier(receiver)) = access.expression else {
+-            return None;
+-        };
+-        let target = self.binder.resolve_name(
+-            self.nodes,
+-            self.node_map,
+-            receiver.node_id?,
+-            receiver.text,
+-            SymbolFlags::VALUE,
+-        )?;
++        let target = self.late_bound_receiver_symbol(access.expression?)?;
+         let owner = [target, self.binder.merged_symbol(target)].into_iter().find(|&owner| {
+             self.binder.symbols().get(owner).exports.get("__assignment").is_some_and(|&table| {
+                 self.binder.symbols().get(table).declarations.contains(&declaration)
+@@ -544,6 +535,32 @@
+         )
+     }
+ 
++    /// The symbol a late-bound assignment's receiver names, as the binder's
++    /// `lookupSymbolForPropertyAccess` (`binder.go`) finds it: an identifier
++    /// by name, and `a.b` as the export `b` of `a`'s symbol. Only an entity
++    /// name qualifies; the caller confirms the owner by its `__assignment`
++    /// table, so a symbol this walk reaches that the binder did not file the
++    /// assignment under answers nothing.
++    fn late_bound_receiver_symbol(&mut self, receiver: Expression<'_>) -> Option<SymbolId> {
++        match receiver {
++            Expression::Identifier(name) => self.binder.resolve_name(
++                self.nodes,
++                self.node_map,
++                name.node_id?,
++                name.text,
++                SymbolFlags::VALUE,
++            ),
++            Expression::PropertyAccessExpression(access) => {
++                let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
++                let owner = self.late_bound_receiver_symbol(access.expression?)?;
++                [owner, self.binder.merged_symbol(owner)]
++                    .into_iter()
++                    .find_map(|owner| self.binder.symbols().get(owner).exports.get(name.text).copied())
++            }
++            _ => None,
++        }
++    }
++
+     /// The tail of `getWidenedTypeForAssignmentDeclaration`, shared by every
+     /// exit that upstream routes through it.
+     fn finish_assignment_declaration_type(&mut self, symbol: SymbolId, t: TypeId) -> TypeId {
+diff --git a/crates/tsr-checker/tests/late_bound_dotted_receiver.rs b/crates/tsr-checker/tests/late_bound_dotted_receiver.rs
+new file mode 100644
+index 0000000..37a8a11
+--- /dev/null
++++ b/crates/tsr-checker/tests/late_bound_dotted_receiver.rs
+@@ -0,0 +1,43 @@
++//! `lateBindMember` (`checker.go:16005`) gathers every late-bound assignment
++//! with one late name into one symbol, typed over all of its declarations by
++//! `getWidenedTypeForAssignmentDeclaration`, when the receiver is an entity
++//! name rather than an identifier (`docs/parity/notes/r6-errorsplit3.md`).
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The printed type of the file's last element access expression. The reads
++/// sit in a function, where no assignment's flow narrows them.
++fn last_element_access(source: &str) -> String {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    #[allow(clippy::cast_possible_truncation)]
++    let id = (0..parsed.nodes.len() as u32)
++        .map(tsr_ast::NodeId::new)
++        .filter(|&id| parsed.nodes.kind(id) == tsr_ast::SyntaxKind::ElementAccessExpression)
++        .last()
++        .expect("an element access");
++    let node = parsed.node_map.get(id).expect("a mapped node");
++    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
++    let type_id = checker.check_expression(expression);
++    checker.type_to_string(type_id)
++}
++
++#[test]
++fn a_dotted_receiver_unions_its_late_assignments() {
++    let source = "function foo() {}\n\
++                  foo.bar = function () {};\n\
++                  const k = \"x\";\n\
++                  foo.bar[k] = 1;\n\
++                  foo.bar[k] = \"s\";\n\
++                  function read() { return foo.bar[k]; }";
++    let answer = last_element_access(source);
++    assert!(answer == "string | number" || answer == "number | string", "{answer}");
++}

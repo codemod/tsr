@@ -1,0 +1,79 @@
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index b074d4a..ee160fe 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -1335,10 +1335,18 @@ impl Checker<'_, '_> {
+         if flags.intersects(SymbolFlags::VARIABLE) && self.is_constant_variable(symbol) {
+             return true;
+         }
++        // `getDeclarationModifierFlagsFromSymbol` reads the value
++        // declaration's modifiers whatever its kind: a class property, a
++        // property signature (`{ readonly obj: T }`) or a parameter property.
+         if flags.intersects(SymbolFlags::PROPERTY)
+             && let Some(declaration) = record.value_declaration
+-            && let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration)
+-            && property.modifiers.iter().any(|modifier| {
++            && let Some(modifiers) = match self.node_map.get(declaration) {
++                Some(Node::PropertyDeclaration(property)) => Some(property.modifiers),
++                Some(Node::PropertySignatureDeclaration(signature)) => Some(signature.modifiers),
++                Some(Node::ParameterDeclaration(parameter)) => Some(parameter.modifiers),
++                _ => None,
++            }
++            && modifiers.iter().any(|modifier| {
+                 tsr_ast::Node::from(*modifier)
+                     .node_id()
+                     .is_some_and(|id| self.nodes.kind(id) == tsr_ast::SyntaxKind::ReadonlyKeyword)
+diff --git a/crates/tsr-conformance/tests/readonly_property_signature_reference.rs b/crates/tsr-conformance/tests/readonly_property_signature_reference.rs
+new file mode 100644
+index 0000000..3c07332
+--- /dev/null
++++ b/crates/tsr-conformance/tests/readonly_property_signature_reference.rs
+@@ -0,0 +1,48 @@
++//! `isReadonlySymbol` reads `getDeclarationModifierFlagsFromSymbol`
++//! (`checker.go:13857`), so a `readonly` property signature makes `outer.obj` a
++//! constant reference an aliased condition narrows
++//! (`docs/parity/notes/r6-errorsplit3.md` §2).
++
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Each line of `file` with its top-level error identity.
++fn identities(source: &str, file: &str) -> Vec<(String, types_producer::TopError)> {
++    let case = TestCase::parse("probe/readonly_property_signature_reference", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    let arena = tsr_core::Arena::new();
++    let (rendered, kinds) =
++        types_producer::assertions_for_case_with_error_kinds(&arena, &case, &expected);
++    let index = case.files.iter().position(|unit| unit.name == file).expect("the file");
++    rendered[index].iter().zip(&kinds[index]).map(|(line, kind)| (line.line(), kind.top)).collect()
++}
++
++/// Asserts every `wanted` line is printed, with no error identity.
++fn assert_lines(source: &str, file: &str, wanted: &[&str]) {
++    let lines = identities(source, file);
++    for want in wanted {
++        let line = lines
++            .iter()
++            .find(|(line, _)| line == want)
++            .unwrap_or_else(|| panic!("a `{want}` line: {lines:?}"));
++        assert_eq!(line.1, types_producer::TopError::Other, "{want}: {lines:?}");
++    }
++}
++
++#[test]
++fn an_aliased_condition_narrows_a_readonly_signature_reference() {
++    let source = "// @target: es2015
++// @strict: true
++// @Filename: a.ts
++function f26(outer: { readonly obj: { kind: \"foo\", foo: string } | { kind: \"bar\", bar: number } }) {
++    const isFoo = outer.obj.kind === \"foo\";
++    if (isFoo) {
++        outer.obj.foo;
++    }
++}
++";
++    assert_lines(source, "a.ts", &["outer.obj.foo : string"]);
++}

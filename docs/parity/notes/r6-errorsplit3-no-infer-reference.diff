@@ -1,0 +1,109 @@
+diff --git a/crates/tsr-checker/src/constraints.rs b/crates/tsr-checker/src/constraints.rs
+index 401c605..9341226 100644
+--- a/crates/tsr-checker/src/constraints.rs
++++ b/crates/tsr-checker/src/constraints.rs
+@@ -583,6 +583,10 @@ impl Checker<'_, '_> {
+         ty: TypeId,
+         reference: tsr_ast::NodeId,
+     ) -> TypeId {
++        // `if c.isNoInferType(t) { t = t.AsSubstitutionType().baseType }`
++        // (`checker.go:31492`): a reference declared `NoInfer<T>` narrows
++        // as `T`.
++        let ty = self.no_infer_base_type(ty).unwrap_or(ty);
+         if !self.active_inference_contexts.is_empty() {
+             return ty;
+         }
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index b074d4a..ee160fe 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -7223,12 +7256,18 @@ impl Checker<'_, '_> {
+ 
+     /// `getTypeOfPropertyOrIndexSignatureOfType` (`checker.go`): the named
+     /// property's type, else the value type of an index signature applicable
+-    /// to the name.
++    /// to the name. Both lookups read the reduced apparent type
++    /// (`getPropertyOfType`, `getIndexInfosOfType`), so a `NoInfer<T>`
++    /// constituent answers `T`'s member.
+     fn get_type_of_property_or_index_signature_of_type(
+         &mut self,
+         t: TypeId,
+         name: &str,
+     ) -> Option<TypeId> {
++        let t = match self.no_infer_base_type(t) {
++            Some(base) => self.apparent_type(base),
++            None => t,
++        };
+         if let Some(prop) = self.get_type_of_property_of_type(t, name) {
+             return Some(prop);
+         }
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index f4c5f8b..a9bc835 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -1323,6 +1323,12 @@ impl Checker<'_, '_> {
+     }
+ 
+     pub(crate) fn apparent_type(&mut self, id: TypeId) -> TypeId {
++        // `NoInfer<T>` is a substitution type, instantiable, whose base
++        // constraint is its base type (`computeBaseConstraint`'s substitution
++        // arm over `getSubstitutionIntersection`, an `unknown` constraint).
++        // This port mints it as an alias reference
++        // ([`Checker::no_infer_base_type`]), so the head reads through it.
++        let id = self.no_infer_base_type(id).unwrap_or(id);
+         let id = self.apparent_mapped_type(id);
+         // Upstream's order, arm for arm (`checker.go:21745-21751`). `NUMBER_LIKE`
+         // carrying `ENUM` is upstream's too, not a widening added here.
+diff --git a/crates/tsr-conformance/tests/no_infer_reference.rs b/crates/tsr-conformance/tests/no_infer_reference.rs
+new file mode 100644
+index 0000000..45ec6b1
+--- /dev/null
++++ b/crates/tsr-conformance/tests/no_infer_reference.rs
+@@ -0,0 +1,47 @@
++//! `getNarrowableTypeForReference` strips `NoInfer` (`checker.go:31492`) and
++//! `getApparentType` reads through it, so a `NoInfer` reference narrows and
++//! finds its members (`docs/parity/notes/r6-errorsplit3.md` §2).
++
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Each line of `file` with its top-level error identity.
++fn identities(source: &str, file: &str) -> Vec<(String, types_producer::TopError)> {
++    let case = TestCase::parse("probe/no_infer_reference", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    let arena = tsr_core::Arena::new();
++    let (rendered, kinds) =
++        types_producer::assertions_for_case_with_error_kinds(&arena, &case, &expected);
++    let index = case.files.iter().position(|unit| unit.name == file).expect("the file");
++    rendered[index].iter().zip(&kinds[index]).map(|(line, kind)| (line.line(), kind.top)).collect()
++}
++
++/// Asserts every `wanted` line is printed, with no error identity.
++fn assert_lines(source: &str, file: &str, wanted: &[&str]) {
++    let lines = identities(source, file);
++    for want in wanted {
++        let line = lines
++            .iter()
++            .find(|(line, _)| line == want)
++            .unwrap_or_else(|| panic!("a `{want}` line: {lines:?}"));
++        assert_eq!(line.1, types_producer::TopError::Other, "{want}: {lines:?}");
++    }
++}
++
++#[test]
++fn a_no_infer_reference_narrows_and_reads_members() {
++    let source = "// @target: es2015
++// @strict: true
++// @Filename: a.ts
++declare function test2<T1, T2>(a: T1, b: T2, cb: (thing: NoInfer<T1> | NoInfer<T2>) => void): void;
++test2({ type: \"a\" as const }, { type: \"b\" as const }, (thing) => {
++    if (thing.type === \"a\") {
++        thing;
++    }
++});
++";
++    assert_lines(source, "a.ts", &["thing.type : \"a\" | \"b\"", "thing : NoInfer<{ type: \"a\"; }>"]);
++}
