@@ -420,8 +420,8 @@ enum CallArity {
 /// One entry of `getEffectiveCallArguments`: the written argument (or the
 /// spread a synthetic element came from) and whether it is spread-like
 /// (`isSpreadArgument`).
-/// One node's published state, as [`Checker::literal_subtree_state`] saves it.
-struct LiteralSubtreeEntry {
+/// One node's published state, as [`Checker::argument_subtree_state`] saves it.
+struct ArgumentSubtreeEntry {
     node: tsr_ast::NodeId,
     r#type: Option<TypeId>,
     signature: Option<Signature>,
@@ -1458,7 +1458,7 @@ impl Checker<'_, '_> {
         for (index, argument) in arguments.iter().enumerate() {
             if rechecked[index] {
                 let Some(id) = argument.node_id() else { return false };
-                saved.extend(self.literal_subtree_state(id));
+                saved.extend(self.argument_subtree_state(id));
                 checked[index + offset] =
                     Some(self.check_literal_argument_in_candidate(node, last, *argument, false));
             }
@@ -1471,7 +1471,7 @@ impl Checker<'_, '_> {
             CandidateContext::Declared,
             &checked,
         );
-        self.restore_literal_subtree_state(saved);
+        self.restore_argument_subtree_state(saved);
         if candidates.len() > 1 {
             for (_, diagnostic) in &mut self.diagnostics[before..] {
                 let span = diagnostic.span;
@@ -1514,7 +1514,7 @@ impl Checker<'_, '_> {
         restore: bool,
     ) -> TypeId {
         let Some(id) = argument.node_id() else { return self.intrinsics.error };
-        let saved = if restore { self.literal_subtree_state(id) } else { Vec::new() };
+        let saved = if restore { self.argument_subtree_state(id) } else { Vec::new() };
         self.evict_subtree(id);
         let previous = self.call_inference_signatures.insert(call, candidate.clone());
         let checked = self.check_expression(argument);
@@ -1527,19 +1527,19 @@ impl Checker<'_, '_> {
             }
         }
         if restore {
-            self.restore_literal_subtree_state(saved);
+            self.restore_argument_subtree_state(saved);
         }
         checked
     }
 
     /// The state [`Checker::evict_subtree`] clears under `root`, for
-    /// [`Checker::restore_literal_subtree_state`].
-    fn literal_subtree_state(&self, root: tsr_ast::NodeId) -> Vec<LiteralSubtreeEntry> {
+    /// [`Checker::restore_argument_subtree_state`].
+    fn argument_subtree_state(&self, root: tsr_ast::NodeId) -> Vec<ArgumentSubtreeEntry> {
         let mut state = Vec::new();
         let mut stack = vec![root];
         while let Some(id) = stack.pop() {
             let symbol = self.binder.symbol_of(id);
-            state.push(LiteralSubtreeEntry {
+            state.push(ArgumentSubtreeEntry {
                 node: id,
                 r#type: self.node_types.get(&id).copied(),
                 signature: self.resolved_call_signatures.get(&id).cloned(),
@@ -1552,7 +1552,7 @@ impl Checker<'_, '_> {
         state
     }
 
-    fn restore_literal_subtree_state(&mut self, state: Vec<LiteralSubtreeEntry>) {
+    fn restore_argument_subtree_state(&mut self, state: Vec<ArgumentSubtreeEntry>) {
         for entry in state {
             self.node_types.remove(&entry.node);
             if let Some(ty) = entry.r#type {
@@ -5115,7 +5115,10 @@ impl Checker<'_, '_> {
         }
         if self.recheck_literal_arguments_in_context(call, candidate, arguments) {
             for (slot, &argument) in argument_types.iter_mut().zip(arguments) {
-                *slot = self.check_expression(argument);
+                // A reference keeps no published candidate-context type
+                // ([`Checker::check_argument_in_candidate_context`]); it is
+                // read under this candidate again.
+                *slot = self.check_argument_in_candidate_context(call, Some(candidate), argument);
             }
         }
         *context = Some(candidate.declaration);
@@ -5212,12 +5215,44 @@ impl Checker<'_, '_> {
             && let Some(call) = call
             && !self.call_inference_signatures.contains_key(&call)
         {
+            // A reference's type under a candidate's context is that
+            // candidate's alone: `getNarrowableTypeForReference` substitutes a
+            // generic reference's constraint only under a contextual type
+            // with no generic types (`hasContextualTypeWithNoGenericTypes`),
+            // so `value: TKind` reads `SK` under `token: SK.D` and `TKind`
+            // under a generic candidate's `token: TKind`. Native's check is
+            // uncached; published here it would be every later candidate's
+            // answer (the generic one would infer `TKind := SK`). Its
+            // published state is put back.
+            let saved = Self::is_reference_argument(argument)
+                .then(|| argument.node_id().map(|id| self.argument_subtree_state(id)))
+                .flatten();
             self.call_inference_signatures.insert(call, candidate.clone());
             let checked = self.check_expression(argument);
             self.call_inference_signatures.remove(&call);
+            if let Some(saved) = saved {
+                self.restore_argument_subtree_state(saved);
+            }
             return checked;
         }
         self.check_expression(argument)
+    }
+
+    /// An identifier, property access or element access, through
+    /// parentheses: an argument whose type is a reference's narrowable type
+    /// (`getNarrowableTypeForReference`, which reads the contextual type).
+    fn is_reference_argument(argument: Expression<'_>) -> bool {
+        let mut inner = argument;
+        while let Expression::ParenthesizedExpression(parenthesized) = inner {
+            let Some(expression) = parenthesized.expression else { return false };
+            inner = expression;
+        }
+        matches!(
+            inner,
+            Expression::Identifier(_)
+                | Expression::PropertyAccessExpression(_)
+                | Expression::ElementAccessExpression(_)
+        )
     }
 
     /// §273's admission test, shared with the `new`-expression road: the

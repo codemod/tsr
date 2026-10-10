@@ -419,7 +419,7 @@ object or array literal argument, because it could read only published types.
     (`call_inference_signatures`);
   - its published state (`node_types`, `resolved_call_signatures` and
     property `symbol_types`, the set `evict_subtree` clears) is restored
-    afterwards (`literal_subtree_state` / `restore_literal_subtree_state`).
+    afterwards (`argument_subtree_state` / `restore_argument_subtree_state`).
 - The last candidate's report is made while its literals hold the last
   candidate's types, so elaboration reads them, and is restored afterwards.
 - `report_signature_applicability` now treats a written object literal as a
@@ -445,6 +445,41 @@ taggedTemplateStringsWithOverloadResolution1(_ES6). Perf (median child CPU,
 first 41-sample run read generic-imports 1.041 while another build was
 compiling; a same-binary self-comparison reads 1.000. Coverage:
 `diagnostics` 4,880/5,502.
+
+## 9. A reference argument's candidate-context check is not published
+
+Routed by the integrator from r7-contextual (jsTyping `createModifier` /
+`asToken`, `nodeFactory.ts:7158`).
+
+**Repro.** `declare function createToken(token: SK.D): {d: true};` followed
+by `declare function createToken<TKind extends SK>(token: TKind): Tok<TKind>;`,
+called `createToken(value)` with `value: TKind` inside
+`asToken<TKind extends SK>`. TSR answered `Tok<SK>` (a false TS2322 at the
+annotated `const`); tsgo answers `Tok<TKind>`. It predates this round
+(`9020aa67` has it), and `23550f9d` is not involved, because identifier
+arguments are never deferred.
+
+**Cause.** `subtype_pass_outcome` makes every argument's first check under
+the first arity-matching candidate (`check_argument_in_candidate_context`,
+the call memo set to that candidate) and publishes it. Under the
+non-generic `token: SK.D`, a contextual type with no generic types,
+`getNarrowableTypeForReference` substitutes the generic reference's
+constraint (`hasContextualTypeWithNoGenericTypes`), so `value` reads `SK`,
+and the generic candidate's inference later reads that published `SK`
+(`TKind := SK`). Native's check is per candidate and uncached.
+
+**Change.** A reference argument (an identifier, property or element access
+through parentheses) checked under a candidate's context keeps no published
+state: its subtree state is restored after the check
+(`argument_subtree_state`, the same set the literal re-check restores).
+`check_literal_arguments_for_candidate`'s re-read of the argument types after
+a literal re-check reads a reference under that candidate again rather than
+context-free.
+
+**Measured** against `99540da2`: corpus diagnostics 0/0, types 0/0. On
+jsTyping, 250 → 249 lines: the false TS2322 at `nodeFactory.ts:7158` is gone
+(new_false 0, lost_true 0). Perf (41 samples): domain-model 0.972,
+generic-imports 0.929.
 
 ## Proposed issues (for the integrator to file)
 
