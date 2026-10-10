@@ -750,7 +750,20 @@ impl Checker<'_, '_> {
         // package name to give.
         let path_to_top_level_node_modules =
             module_specifier.get(..parts.top_level_node_modules_index)?;
-        if !source_directory.starts_with(path_to_top_level_node_modules) {
+        // `stringutil.HasPrefix(info.SourceDirectory, pathToTopLevelNodeModules,
+        // caseSensitive)`: on a case-insensitive host the comparison folds
+        // case, so a realpath'd module spelled `/folder/…` is still under the
+        // importing file's `/Folder/…` (r7-printer §10).
+        let case_sensitive = host.compare_paths_options().use_case_sensitive_file_names;
+        let has_prefix =
+            source_directory.get(..path_to_top_level_node_modules.len()).is_some_and(|head| {
+                if case_sensitive {
+                    head == path_to_top_level_node_modules
+                } else {
+                    head.eq_ignore_ascii_case(path_to_top_level_node_modules)
+                }
+            });
+        if !has_prefix {
             return None;
         }
         let directory_name = module_specifier.get(parts.top_level_package_name_index + 1..)?;

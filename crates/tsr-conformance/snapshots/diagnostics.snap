@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4927/5502 (89.55%)
-Failed         : 575
+Passed         : 4934/5502 (89.68%)
+Failed         : 568
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 575 failures:
+First 100 of 568 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -38,8 +38,6 @@ compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   11 missing (first TS2815 at argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts(3,10))
 compiler/arrayCast
   1 unexpected (first TS2352 at arrayCast.ts(3,1)), 1 missing
-compiler/arrayConcatMap
-  1 missing (first TS2769 at arrayConcatMap.ts(1,20))
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))
 compiler/arrowFunctionErrorSpan
@@ -212,3 +210,5 @@ compiler/errorInUnnamedClassExpression
   1 missing (first TS2715 at errorInUnnamedClassExpression.ts(5,14))
 compiler/es6ExportEqualsInterop
   12 missing (first TS2305 at main.ts(62,10))
+compiler/es6ImportNamedImportParsingError
+  2 unexpected (first TS1434 at es6ImportNamedImportParsingError_1.ts(4,15)), 3 missing

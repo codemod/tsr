@@ -3276,16 +3276,24 @@ impl Checker<'_, '_> {
                     .collect(),
             );
         }
-        if let TypeData::Anonymous { symbol, .. } = self.store.get(ty).data
-            && self
-                .binder
-                .symbols()
-                .get(self.binder.merged_symbol(symbol))
-                .flags
-                .intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD)
-        {
-            let signature = self.parameter_only_signature_of_active_function(ty, symbol)?;
-            return Some((signature.kind == kind).then_some(signature).into_iter().collect());
+        // The ephemeral parameter-only view stands in only while one of the
+        // function's own declarations is resolving its return. Otherwise
+        // the ordinary kind-specific lists answer, as `getSignaturesOfType`
+        // does: a function merged with a namespace (`function log` plus
+        // `namespace log`) has no active-source proof and declined here,
+        // which left `typeof log extends AnyFunction` unevaluated
+        // (jsTyping's `MatchingKeys<typeof Debug, AnyFunction>`).
+        if let TypeData::Anonymous { symbol, .. } = self.store.get(ty).data {
+            let merged = self.binder.merged_symbol(symbol);
+            let owner = self.binder.symbols().get(merged);
+            if owner.flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::METHOD)
+                && owner.declarations.iter().any(|&declaration| {
+                    self.resolutions.active_signature_keys(declaration).next().is_some()
+                })
+            {
+                let signature = self.parameter_only_signature_of_active_function(ty, symbol)?;
+                return Some((signature.kind == kind).then_some(signature).into_iter().collect());
+            }
         }
         self.signatures_of_type_kind(ty, kind)
     }

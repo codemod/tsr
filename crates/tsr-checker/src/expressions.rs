@@ -3197,12 +3197,21 @@ impl Checker<'_, '_> {
     }
 
     /// unwrapAwaitedType (checker.go:31440): async return inference keeps the
-    /// generic argument of a global conditional Awaited instantiation.
+    /// generic argument of a global conditional Awaited instantiation. A union
+    /// maps per constituent through mapType, which returns the union itself
+    /// when no constituent changed.
     pub(crate) fn unwrap_awaited_type(&mut self, id: TypeId) -> TypeId {
         if let TypeData::Union { types, .. } = &self.store.get(id).data {
             let types = types.clone();
             let unwrapped: Vec<_> =
-                types.into_iter().map(|part| self.unwrap_awaited_type(part)).collect();
+                types.iter().map(|&part| self.unwrap_awaited_type(part)).collect();
+            // mapType (checker.go) answers the union itself when no
+            // constituent changed, keeping its alias (`Promise<IteratorResult<U,
+            // R>>` as an async return); rebuilding dropped it (r7-declared
+            // §12).
+            if unwrapped == types {
+                return id;
+            }
             return self.get_union_type(&unwrapped);
         }
         if self.store.get(id).flags.contains(TypeFlags::CONDITIONAL)
