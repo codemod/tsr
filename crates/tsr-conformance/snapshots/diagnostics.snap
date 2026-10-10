@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4896/5502 (88.99%)
-Failed         : 606
+Passed         : 4908/5502 (89.20%)
+Failed         : 594
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 606 failures:
+First 100 of 594 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -114,8 +114,6 @@ compiler/classWithEmptyTypeParameter
   1 missing (first TS1098 at classWithEmptyTypeParameter.ts(1,8))
 compiler/coAndContraVariantInferences5
   1 missing (first TS2322 at coAndContraVariantInferences5.ts(9,9))
-compiler/coAndContraVariantInferences6
-  1 missing (first TS2322 at coAndContraVariantInferences6.ts(34,42))
 compiler/complexRecursiveCollections
   8 missing (first TS2344 at immutable.ts(261,76))
 compiler/complicatedGenericRecursiveBaseClassReference
@@ -188,8 +186,6 @@ compiler/divergentAccessorsVisibility1
   6 missing (first TS2808 at divergentAccessorsVisibility1.ts(11,19))
 compiler/doYouNeedToChangeYourTargetLibraryES2016Plus
   4 missing (first TS2550 at doYouNeedToChangeYourTargetLibraryES2016Plus.ts(15,50))
-compiler/dottedModuleName
-  1 unexpected (first TS2391 at dottedModuleName.ts(3,18)), 0 missing
 compiler/duplicateClassElements
   1 missing (first TS2717 at duplicateClassElements.ts(34,12))
 compiler/dynamicNames
@@ -212,3 +208,7 @@ compiler/errorForUsingPropertyOfTypeAsType02
   1 missing (first TS2713 at errorForUsingPropertyOfTypeAsType02.ts(3,16))
 compiler/errorForUsingPropertyOfTypeAsType03
   5 missing (first TS2749 at errorForUsingPropertyOfTypeAsType03.ts(11,13))
+compiler/errorInUnnamedClassExpression
+  1 missing (first TS2715 at errorInUnnamedClassExpression.ts(5,14))
+compiler/es6ExportEqualsInterop
+  12 missing (first TS2305 at main.ts(62,10))

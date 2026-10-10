@@ -295,3 +295,28 @@ r7-contextual's const-literal markers.
 | `checker_types_configured` | 1,787 | 1,787 |
 | `diagnostics` | 4,895 | 4,896 |
 | `diagnostics_configured` | 981 | 981 |
+
+### Batch 12 — r7-calls `5937dd79`, r7-contextual `63a147ac`, r7-declared `db7f69d6`, r7-parser `c83bb41b`, r7-printer `deda2594` (cherry-picked)
+
+The first candidate carried r7-calls' spread-argument report (`ea1a1286`).
+The corpus compare passed, but a new jsTyping check found three false TS2345
+that tsgo does not report: checker.ts 9968/9981/51482. These were type-road
+defects that the report exposed. The batch was cut back to `5937dd79` and
+re-gated. From this batch on, the gate also diffs jsTyping's unique error
+lines against `target/tsgo-pinned`, and refuses on `new_false` or
+`lost_true` > 0.
+
+Re-gated against the batch-11 freeze: types +70 RIGHT / 0 lost / 0 missing,
+diagnostics +23 cases / 0 lost / 0 missing; jsTyping 141 → 127 unique error
+lines (tsgo 86), new_false 0, lost_true 0; tests, fmt and strict clippy
+green. Perf child-CPU new/old: domain-model 1.000. generic-imports read
+1.080 at 21 samples and 0.963/0.949 at 41 against batch 11. Against batch 9
+it reads 1.035/1.075, so a cumulative generic-imports drift since batch 9
+has gone to r7-perf to attribute.
+
+| Suite | Batch 11 | Batch 12 |
+|---|---|---|
+| `checker_types` | 8,799 | 8,807 |
+| `checker_types_configured` | 1,787 | 1,788 |
+| `diagnostics` | 4,896 | 4,908 |
+| `diagnostics_configured` | 981 | 991 |
