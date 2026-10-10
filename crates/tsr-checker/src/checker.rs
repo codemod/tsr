@@ -724,6 +724,10 @@ pub struct Checker<'a, 'n> {
     pub(crate) allow_unreachable_code: bool,
     /// `unreachableCodeIsError` — the option written **explicitly** `false`.
     pub(crate) unreachable_code_is_error: bool,
+    /// `AllowUnusedLabels == core.TSFalse` (`checkLabeledStatement`,
+    /// `checker.go:4219`): unset is a suggestion, so only an explicit
+    /// `false` reports TS7028.
+    pub(crate) unused_label_is_error: bool,
     /// `CompilerOptions.ShouldPreserveConstEnums()` — see
     /// [`Checker::set_preserve_const_enums`].
     pub(crate) preserve_const_enums: bool,
@@ -1593,6 +1597,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             assignability_probe: Vec::new(),
             allow_unreachable_code: false,
             unreachable_code_is_error: false,
+            unused_label_is_error: false,
             preserve_const_enums: false,
             isolated_modules: false,
             isolated_modules_option: false,
@@ -1905,6 +1910,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // Two reads of one option, deliberately not each other's negation.
         self.allow_unreachable_code = options.allow_unreachable_code.is_true();
         self.unreachable_code_is_error = options.allow_unreachable_code.is_false();
+        self.unused_label_is_error = options.allow_unused_labels.is_false();
 
         // `ShouldPreserveConstEnums`, which folds in `isolatedModules` — and, via
         // `GetIsolatedModules`, `verbatimModuleSyntax` too.
