@@ -739,7 +739,7 @@ impl<'a> Checker<'a, '_> {
             // (`module_clone_default_symbol`). names-modules notes §5.
             None
         } else {
-            return self.namespace_import_default_member_type(declaration, value);
+            return self.namespace_import_default_member_type(alias, declaration, value);
         };
         // resolveESModuleSymbol's `module.exports` arm answers that export
         // itself, not a module copy (`namespace_import_module_exports`).
@@ -799,12 +799,17 @@ impl<'a> Checker<'a, '_> {
     /// whose type has a `default` member and neither signatures nor an
     /// ESM-to-CommonJS reference (those two are [`Checker::module_clone_type`]'s
     /// own arms): a structured type becomes
-    /// [`Checker::get_type_with_synthetic_default_import_type`]. `None` keeps
-    /// the plain module type, which is also native's answer when the module
-    /// cannot have a synthetic default (`syntheticType = t`, cloned unchanged).
-    /// `docs/parity/notes/r5-modexports.md` §3.
+    /// [`Checker::get_type_with_synthetic_default_import_type`]
+    /// (`docs/parity/notes/r5-modexports.md` §3). When the module cannot have
+    /// a synthetic default, `syntheticType = t` and native still clones it
+    /// (`cloneTypeAsModuleType(symbol, t, referenceParent)`): the members are
+    /// the module's own, but the alias resolves to the clone symbol, not the
+    /// module, so only another alias (`import a = require`) names the module
+    /// itself. The clone is recorded in `module_value_clones` like the other
+    /// arms' (`docs/parity/notes/r7-shared.md` §1).
     fn namespace_import_default_member_type(
         &mut self,
+        alias: SymbolId,
         declaration: NodeId,
         value: TypeId,
     ) -> Option<TypeId> {
@@ -826,7 +831,19 @@ impl<'a> Checker<'a, '_> {
         }
         let module = self.resolve_external_module_name(declaration, specifier)?;
         let synthetic = self.get_type_with_synthetic_default_import_type(value, module, specifier);
-        (synthetic != value).then_some(synthetic)
+        if synthetic != value {
+            return Some(synthetic);
+        }
+        let crate::types::TypeData::Anonymous { symbol, ref text, .. } = self.store.get(value).data
+        else {
+            return None;
+        };
+        let text = text.clone();
+        let flags = self.store.get(value).flags;
+        let clone = self.store.new_anonymous(flags, text, symbol, false);
+        self.module_value_clones.insert(clone, (alias, value));
+        self.signature_types.insert(clone, Vec::new());
+        Some(clone)
     }
 
     /// The synthetic default aliases the export-equals value. Reuse that
