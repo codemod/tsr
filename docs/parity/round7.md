@@ -347,3 +347,35 @@ signal. `.agents/setup` installs valgrind.
 | `checker_types_configured` | 1,788 | 1,796 |
 | `diagnostics` | 4,908 | 4,927 |
 | `diagnostics_configured` | 991 | 1,003 |
+
+### Batch 14 — r7-declared `a1e71942`, r7-perf `2c69a228` (docs)
+
+The first candidate also carried r7-calls `3ccbce20`. The corpus compare passed,
+but the jsTyping leg found one new line that tsgo does not report
+(parser.ts 2634 TS2352). The cause is the createToken fix exposing a relater
+gap (`T["kind"]` against its constraint), routed to r7-reports. Re-gated without
+calls against the batch-13 freeze: types +5 RIGHT / 0 lost / 0 missing,
+diagnostics 0 / 0 lost / 0 missing; jsTyping new_false 0, lost_true 0;
+tests, fmt, strict clippy green; callgrind Ir generic-imports 1.0001,
+domain-model 0.9999 (median timing read 0.987/1.227 and is noise on this
+host, as batch 13 recorded). All suites: no failure count rose.
+
+| Suite | Batch 13 | Batch 14 |
+|---|---|---|
+| `checker_types` | 8,811 | 8,812 |
+| `checker_types_configured` | 1,796 | 1,796 |
+| `diagnostics` | 4,927 | 4,927 |
+| `diagnostics_configured` | 1,003 | 1,003 |
+
+Cutover decision (`tsr-2zk.16.56.1.4`): r7-shared measured the rejected
+cutover in its own era. Between `db726c9c` and the recovery head it gains
++587 and loses −94 type lines; its diagnostics dump is OOM-killed at 7 GB.
+Against current main, 410 of the 587 gains are already RIGHT, 177 remain
+(about 40 cases), and all 94 of its losses would be main losses. Squashing it
+onto main conflicts in 27 files (about 90 hunks), and its first commit also
+conflicts semantically with main's `(SymbolRef, kind)` interface-signature
+cache. **Rebase-and-repair is retired in favour of a harvest.** The branch
+stays as the record and is never merged. r7-shared keeps the harvest list (its
+lane note §C) and the five cutover unit tests as behaviour specs. Each
+still-missing behaviour is re-ported from native in the lane that owns its
+file, through the normal gate.
