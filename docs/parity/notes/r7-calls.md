@@ -395,3 +395,77 @@ decoratorOnClassProperty7, esDecorators-arguments. A first draft without the
 legacy private-named member, which native never checks). Perf (21 samples):
 domain-model 1.002, generic-imports 1.005. Coverage: `diagnostics` 4,869,
 `diagnostics_configured` 981.
+
+## 8. Non-generic overloads re-check literal arguments per candidate (OVERLOAD-FAILURE-REPORT)
+
+**Native.** `chooseOverload` (`checker.go:9025`) runs `isSignatureApplicable`
+per candidate, which checks every argument with
+`checkExpressionWithContextualType(arg, paramType)`, uncached. An object or
+array literal's type follows the candidate's parameter (literal widening,
+tuple-ness, member contexts). When every candidate fails,
+`reportCallResolutionErrors` re-checks the last one with `reportErrors`,
+chained under `The_last_overload_gave_the_following_error` and
+`No_overload_matches_this_call`.
+
+**Before.** `check_overload_candidates_arguments` declined any call with an
+object or array literal argument, because it could read only published types.
+
+**Change.**
+
+- An object or array literal argument with no nested call, `new`, tagged
+  template, function, arrow or class (`literal_subtree_has_resolution`) is
+  re-checked under each candidate (`check_literal_argument_in_candidate`):
+  - its subtree is evicted and checked with the candidate as the call's memo
+    (`call_inference_signatures`);
+  - its published state (`node_types`, `resolved_call_signatures` and
+    property `symbol_types`, the set `evict_subtree` clears) is restored
+    afterwards (`literal_subtree_state` / `restore_literal_subtree_state`).
+- The last candidate's report is made while its literals hold the last
+  candidate's types, so elaboration reads them, and is restored afterwards.
+- `report_signature_applicability` now treats a written object literal as a
+  fresh literal (the excess-property check first) whether its type is the
+  published one or one checked under the candidate (the `written` slot).
+- With several candidates the report is chained, not relabelled
+  (`Diagnostic::new_chain` twice, TS2769 head).
+
+Class literals, literals with a nested resolution, context-sensitive
+functions and tagged templates (no call memo for their substitutions) keep
+the decline.
+
+**Accepted:** `hasExcessProperties`' rejection of a candidate during
+selection is not modelled, because this port's relater does not test excess
+properties. A candidate native rejects only for an excess property is taken
+as applicable, and the call stays silent.
+
+**Measured** against `ea1a1286`: diagnostics +7, 0 lost; types 0/0.
+Converted: arrayConcatMap, functionOverloads40, functionOverloads41,
+heterogeneousArrayAndOverloads, overloadResolutionTest1,
+taggedTemplateStringsWithOverloadResolution1(_ES6). Perf (median child CPU,
+41 samples, quiet machine): domain-model 0.975, generic-imports 0.988. A
+first 41-sample run read generic-imports 1.041 while another build was
+compiling; a same-binary self-comparison reads 1.000. Coverage:
+`diagnostics` 4,880/5,502.
+
+## Proposed issues (for the integrator to file)
+
+- **Decorator inference over synthetic arguments.** `resolveDecorator`'s
+  `resolveCall` infers a generic decorator's type arguments from
+  `getEffectiveDecoratorArguments`' synthetic arguments
+  (`inferTypeArguments`, `checker.go:9390`), and a failed resolution answers
+  `getCandidateForOverloadFailure`'s instantiation
+  (`inferSignatureInstantiationForOverloadFailure`). This port's inference
+  (`check_generic_call_with`) takes argument expressions, so a generic or
+  overloaded decorator declines after its arity pass. Cases: decoratorCallGeneric
+  (TS1238), decoratorOnClassMethod8 (TS1270). Needs a types-only inference
+  entry in `inference.rs` (r7-contextual) or a synthetic-argument path through
+  it.
+- **Decorator function types are not relatable.**
+  `decorators.rs::decorator_function_type` mints a `TypeData::Named` type
+  carrying `signature_types` for the ES member decorator signatures (the
+  method, getter, setter and field value/return types). The relater answers
+  `Unknown` against it, so `checkDecorator`'s return check stays silent for ES
+  member decorators (potentiallyUncalledDecorators' member TS1270s). Native
+  mints a symbol-less anonymous object type. The fix re-mints it as this
+  port's anonymous function type (`TypeData::Anonymous` with
+  `signature: true`, which needs a symbol), measured against the contextual
+  types the same type serves today.
