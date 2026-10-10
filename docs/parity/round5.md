@@ -1985,3 +1985,23 @@ validator never runs on the bench projects, and Ir is within the layout band.
 `.1174` and `.1192` are closed. The rescan-ordering rows wait on the parser's
 diagnostic sink (main). `.1170` and `.1260` were not started; they are
 reopened unassigned, with the plan in the box's notes §5.
+
+### Batch CG+CH+CI: r6-typesroots3's mapped stack (diffs 1–4) backed out
+
+The CG+CH+CI gate lost three type lines, mappedTypeIndexedAccessConstraint
+0:96, 0:97 and 0:101. `mapper[key](o)` printed `any` where native prints
+`PartMappings[K]`.
+
+Bisected to r6-typesroots3's diff 1, mapped alias-reference keys (1b5ef1a8).
+Diffs 2–4 are stacked on it and cannot be reverted alone. The stack was
+measured at +75 types on `f334de9`, before r6-printer4's print-time plans
+(batch CB) made these lines RIGHT. Together the two changes regress them.
+
+All four diffs are reverted:
+- mapped alias-reference keys;
+- mapped member names;
+- mapped optional type;
+- intersection new alias.
+
+The rest of CG+CH+CI stays. Re-cutting the stack on the current tip is
+`tsr-2zk.1266`.
