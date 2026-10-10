@@ -42,28 +42,42 @@ impl<'a> Parser<'a> {
         start: u32,
         modifiers: &[ModifierLike<'a>],
     ) -> Statement<'a> {
+        let saved_await_identifier = self.statement_has_await_identifier;
         self.expect(SyntaxKind::ClassKeyword);
         // `export default class {}` has no name; `class require {}` has one that
-        // happens to be a contextual keyword.
+        // happens to be a contextual keyword. A binding name
+        // (`parseNameOfClassDeclarationOrExpression`, `parser.go:1791`).
         let name = if (self.at(SyntaxKind::Identifier)
             || crate::statement::is_contextual_keyword(self.token.kind))
             && !self.is_implements_clause()
         {
-            Some(self.parse_identifier())
+            Some(self.parse_binding_identifier())
         } else {
             None
         };
         let type_parameters = self.parse_type_parameters();
-        let heritage = self.parse_heritage_clauses();
-
-        // `parseClassDeclarationOrExpression`: no members without the `{`.
-        let members = if self.expect(SyntaxKind::OpenBraceToken) {
-            let members = self.parse_list(ParsingContext::ClassMembers, Self::parse_class_element);
-            self.expect(SyntaxKind::CloseBraceToken);
-            members
-        } else {
-            Vec::new()
-        };
+        // `parseClassDeclarationOrExpression` (`parser.go:1751`): an exported
+        // class's heritage clauses and members are in an await context.
+        let in_await = self.in_await_context
+            || tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::ExportKeyword);
+        let (heritage, members) = self.with_await_context(in_await, |parser| {
+            let heritage = parser.parse_heritage_clauses();
+            // `parseClassDeclarationOrExpression`: no members without the `{`.
+            let members = if parser.expect(SyntaxKind::OpenBraceToken) {
+                let members =
+                    parser.parse_list(ParsingContext::ClassMembers, Self::parse_class_element);
+                parser.expect(SyntaxKind::CloseBraceToken);
+                members
+            } else {
+                Vec::new()
+            };
+            (heritage, members)
+        });
+        // Native restores `statementHasAwaitIdentifier` only for an ambient
+        // class (`parser.go:1766`).
+        if tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::DeclareKeyword) {
+            self.statement_has_await_identifier = saved_await_identifier;
+        }
 
         let modifiers = self.arena.alloc_slice(modifiers);
         let type_parameters = self.arena.alloc_slice(&type_parameters);
@@ -460,8 +474,13 @@ impl<'a> Parser<'a> {
                 .then(|| self.take_token())
         });
         let type_node = self.parse_type_annotation();
+        // `doInContext(YieldContext|AwaitContext|DisallowInContext, false,
+        // parseInitializer)` (`parser.go:1972`).
         let initializer = if self.eat(SyntaxKind::EqualsToken) {
-            Some(self.parse_assignment_expression())
+            let saved_no_in = std::mem::take(&mut self.no_in);
+            let initializer = self.with_await_context(false, Self::parse_assignment_expression);
+            self.no_in = saved_no_in;
+            Some(initializer)
         } else {
             None
         };
@@ -631,6 +650,9 @@ impl<'a> Parser<'a> {
         start: u32,
         modifiers: &[ModifierLike<'a>],
     ) -> Statement<'a> {
+        // `parseEnumDeclaration` (`parser.go:2132`) restores
+        // `statementHasAwaitIdentifier` over the whole declaration.
+        let saved_await_identifier = self.statement_has_await_identifier;
         self.expect(SyntaxKind::EnumKeyword);
         let name = self.parse_identifier();
         let members = if self.expect(SyntaxKind::OpenBraceToken) {
@@ -651,6 +673,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::EnumDeclaration,
             start,
         );
+        self.statement_has_await_identifier = saved_await_identifier;
         Statement::EnumDeclaration(node)
     }
 

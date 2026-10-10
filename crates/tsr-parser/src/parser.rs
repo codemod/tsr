@@ -1,6 +1,8 @@
 //! Parser state: the token cursor, error recovery, and node registration.
 
-use tsr_ast::{HasNodeId, Identifier, NodeTable, SourceFile, SyntaxKind, Token as AstToken};
+use tsr_ast::{
+    HasNodeId, Identifier, NodeTable, SourceFile, Statement, SyntaxKind, Token as AstToken,
+};
 use tsr_core::{Arena, Span};
 use tsr_diagnostics::{Diagnostic, Message, messages};
 use tsr_scanner::{Scanner, Token};
@@ -218,6 +220,29 @@ impl ParseOptions {
     }
 }
 
+/// What decides whether a file is an external module, for the parser's own
+/// use of that decision: `reparseTopLevelAwait` runs only in a module that is
+/// not a declaration file (`parseSourceFileWorker`, `parser.go:449`).
+///
+/// Native's `ExternalModuleIndicatorOptions` (`ast/parseoptions.go:14`) plus
+/// `IsDeclarationFile`. The default — no `jsx` or `force` arm, not a
+/// declaration file — makes the decision on syntax alone
+/// (`isFileProbablyExternalModule`), which is native's answer under
+/// `moduleDetection: legacy` and for any file whose format the options do
+/// not force. A caller that knows the compiler options sets the rest with
+/// [`Parser::set_module_indicator`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModuleIndicatorOptions {
+    /// `jsx: react-jsx`/`react-jsxdev` under `moduleDetection: auto`: a JSX
+    /// tag makes the file a module.
+    pub jsx: bool,
+    /// `moduleDetection: force`, or a format-forced module
+    /// (`isFileForcedToBeModuleByFormat`).
+    pub force: bool,
+    /// `tspath.IsDeclarationFileName(fileName)`.
+    pub declaration_file: bool,
+}
+
 /// A recursive-descent parser over one source file.
 // Upstream's `Parser` (`parser.go:62`) carries its state the same way: two
 // parse options and several independent flags (`hasParseError`,
@@ -265,6 +290,10 @@ pub struct Parser<'a> {
     /// bodies. Its one reader is the member-expression loop, which leaves a
     /// `[` to the decorated member's computed name.
     pub(crate) in_decorator_context: bool,
+    /// The await context [`Self::with_await_context`] replaced: the one
+    /// around a signature, in which `parseParametersWorker` parses each
+    /// parameter's decorators (`inOuterAwaitContext`, `parser.go:3296`).
+    pub(crate) outer_await_context: bool,
     /// Non-zero while a nested type may not consume a conditional `extends`.
     ///
     /// The extends-side of a conditional type uses this to resolve
@@ -293,6 +322,33 @@ pub struct Parser<'a> {
     /// `NodeFlagsPossiblyContainsImportMeta` is set so far, by the
     /// `import.meta` arm (`parser.go:5195`).
     pub(crate) source_flags: tsr_ast::NodeFlags,
+
+    /// `Parser.statementHasAwaitIdentifier` (`parser.go:83`): whether the
+    /// top-level statement being parsed created an identifier spelled
+    /// `await` outside the constructs that reset it (binding names, property
+    /// names, function bodies, enum, namespace, import and export
+    /// declarations). Read by [`Self::parse_source_file`] to collect the spans
+    /// `reparseTopLevelAwait` re-reads; see
+    /// [`docs/parity/notes/r7-parser.md`](../../../docs/parity/notes/r7-parser.md) §2.
+    pub(crate) statement_has_await_identifier: bool,
+    /// `Parser.possibleAwaitSpans` (`parser.go:92`): half-open statement
+    /// index ranges of the source file, flattened into pairs.
+    possible_await_spans: Vec<usize>,
+    /// Each top-level statement's full start and end, in statement order:
+    /// native's `Node.Pos()`/`Node.End()`, which `reparseTopLevelAwait` reads
+    /// off the original statements. This port's spans start at the token, not
+    /// at the leading trivia, so the full start is recorded as each statement
+    /// is parsed.
+    top_level_extents: Vec<(u32, u32)>,
+    /// Scanner diagnostics carried over from the first parse by
+    /// `reparseTopLevelAwait`; merged by [`Self::finish`] as the scanner's own.
+    carried_scanner_diagnostics: Vec<Diagnostic>,
+    /// What decides whether the file is an external module, which gates the
+    /// top-level await reparse. See [`ModuleIndicatorOptions`].
+    module_indicator: ModuleIndicatorOptions,
+    /// The node table's length when this parser started: the first id of this
+    /// file, to which the reparse truncates.
+    first_node: usize,
 
     /// Guards against runaway recursion on pathological input.
     ///
@@ -373,6 +429,7 @@ impl<'a> Parser<'a> {
         let estimate = source.len() / 10;
         nodes.reserve(estimate);
         node_map.reserve(estimate);
+        let first_node = nodes.len();
         let script_kind = options.script_kind;
         let mut scanner = Scanner::new(source);
         scanner.set_jsx_language_variant(script_kind.allows_jsx());
@@ -396,6 +453,7 @@ impl<'a> Parser<'a> {
             // still goes through `isAwaitExpression`'s lookahead half. §193.
             in_await_context: false,
             in_decorator_context: false,
+            outer_await_context: false,
             disallow_conditional_types: 0,
             parsing_contexts: 0,
             jsdoc: Vec::new(),
@@ -408,7 +466,21 @@ impl<'a> Parser<'a> {
             assign_parents: options.parents,
             depth: 0,
             source_flags: tsr_ast::NodeFlags::empty(),
+            statement_has_await_identifier: false,
+            possible_await_spans: Vec::new(),
+            top_level_extents: Vec::new(),
+            carried_scanner_diagnostics: Vec::new(),
+            module_indicator: ModuleIndicatorOptions::default(),
+            first_node,
         }
+    }
+
+    /// Set what decides whether the file is an external module — native's
+    /// `SourceFileParseOptions.ExternalModuleIndicatorOptions` plus
+    /// `IsDeclarationFile`, which `parseSourceFileWorker` reads before
+    /// `reparseTopLevelAwait` (`parser.go:449`).
+    pub fn set_module_indicator(&mut self, options: ModuleIndicatorOptions) {
+        self.module_indicator = options;
     }
 
     /// Consume the parser, returning its diagnostics and node table.
@@ -434,6 +506,7 @@ impl<'a> Parser<'a> {
         // positional counter inside one is not a source ordinal.
         let mut tagged: Vec<(u8, Diagnostic)> =
             self.scanner.take_diagnostics().into_iter().map(|d| (0, d)).collect();
+        tagged.extend(self.carried_scanner_diagnostics.into_iter().map(|d| (0, d)));
         tagged.extend(self.diagnostics.into_iter().map(|d| (1, d)));
         tagged.sort_by_key(|(source, d)| (d.span.start, *source, d.span.end));
         let mut diagnostics: Vec<Diagnostic> = tagged.into_iter().map(|(_, d)| d).collect();
@@ -634,7 +707,9 @@ impl<'a> Parser<'a> {
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
         let saved = std::mem::replace(&mut self.in_await_context, value);
+        let saved_outer = std::mem::replace(&mut self.outer_await_context, saved);
         let result = f(self);
+        self.outer_await_context = saved_outer;
         self.in_await_context = saved;
         result
     }
@@ -646,6 +721,7 @@ impl<'a> Parser<'a> {
             token_value: self.token_value.clone(),
             diagnostics: self.diagnostics.len(),
             nodes: self.nodes.len(),
+            statement_has_await_identifier: self.statement_has_await_identifier,
         }
     }
 
@@ -653,6 +729,7 @@ impl<'a> Parser<'a> {
         self.scanner.restore(saved.scanner);
         self.token = saved.token;
         self.token_value = saved.token_value;
+        self.statement_has_await_identifier = saved.statement_has_await_identifier;
         // Guarded like `Scanner::restore`'s truncate (r5-binperf.md §5).
         if saved.diagnostics < self.diagnostics.len() {
             self.diagnostics.truncate(saved.diagnostics);
@@ -742,6 +819,20 @@ impl<'a> Parser<'a> {
         self.finish_node_with_end(node, kind, start, end)
     }
 
+    /// The context flags `finishNode` ORs into every node (`parser.go`'s
+    /// `node.Flags |= p.contextFlags`). Only `NodeFlagsAwaitContext` is
+    /// tracked: the checker reads it on a top-level `await`
+    /// (`checkGrammarAwaitOrAwaitUsing`, `grammarchecks.go:1690`) and on an
+    /// `await` identifier (`checkContextualIdentifier`, `binder.go:1311`).
+    #[inline]
+    fn context_node_flags(&self) -> tsr_ast::NodeFlags {
+        if self.in_await_context {
+            tsr_ast::NodeFlags::AWAIT_CONTEXT
+        } else {
+            tsr_ast::NodeFlags::empty()
+        }
+    }
+
     /// Record `id` as the parent of every immediate child of `node`.
     ///
     /// Done here rather than in a pass over the finished tree. The children were
@@ -796,7 +887,7 @@ impl<'a> Parser<'a> {
         T: HasNodeId,
         &'a T: Into<tsr_ast::Node<'a>>,
     {
-        let id = self.nodes.push(kind, Span::new(start, end), flags);
+        let id = self.nodes.push(kind, Span::new(start, end), flags | self.context_node_flags());
         // `alloc` hands back `&mut` for a block nothing else can reference yet, so
         // the id is written before any shared reference exists. That is why nodes
         // need no interior mutability and the finished tree is `Sync`.
@@ -827,7 +918,7 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         let node = Identifier::new("");
         let id =
-            self.nodes.push(SyntaxKind::Identifier, Span::at(start), tsr_ast::NodeFlags::empty());
+            self.nodes.push(SyntaxKind::Identifier, Span::at(start), self.context_node_flags());
         let allocated = self.arena.alloc(node);
         allocated.node_id = Some(id);
         let allocated: &'a Identifier<'a> = allocated;
@@ -837,7 +928,7 @@ impl<'a> Parser<'a> {
 
     /// Allocate a token node.
     pub(crate) fn alloc_token(&mut self, kind: SyntaxKind, span: Span) -> &'a AstToken<'a> {
-        let id = self.nodes.push(kind, span, tsr_ast::NodeFlags::empty());
+        let id = self.nodes.push(kind, span, self.context_node_flags());
         let allocated = self.arena.alloc(AstToken::new(kind));
         allocated.node_id = Some(id);
         let allocated: &'a AstToken<'a> = allocated;
@@ -854,10 +945,63 @@ impl<'a> Parser<'a> {
 
     // ---- entry point ----------------------------------------------------
 
-    /// Parse a whole file.
+    /// Parse a whole file — `parseSourceFileWorker` (`parser.go:428`),
+    /// including its `reparseTopLevelAwait` step (`parser.go:449`).
     pub fn parse_source_file(&mut self) -> &'a SourceFile<'a> {
         let start = self.pos();
-        let statements = self.parse_statement_list(crate::list::ParsingContext::SourceElements);
+        let statements = self.parse_top_level_statements();
+        let file = self.finish_source_file(start, &statements);
+        if self.possible_await_spans.is_empty()
+            || self.module_indicator.declaration_file
+            || !self.is_external_module(file)
+        {
+            return file;
+        }
+        self.reparse_top_level_await(start)
+    }
+
+    /// `parseListIndex(PCSourceElements, parseToplevelStatement)`
+    /// (`parser.go:434`, `:497`): the statement list, recording which
+    /// statements created an `await` identifier.
+    fn parse_top_level_statements(&mut self) -> Vec<Statement<'a>> {
+        let mut index = 0;
+        self.parse_list(crate::list::ParsingContext::SourceElements, |parser| {
+            let i = index;
+            index += 1;
+            parser.parse_toplevel_statement(i)
+        })
+    }
+
+    /// `parseToplevelStatement` (`parser.go:497`). This port has no reparse
+    /// list (JSDoc `@typedef` is bound off the comment, not spliced into the
+    /// statements), so `i` needs no adjustment. Native's second condition,
+    /// `statement.Flags&NodeFlagsAwaitContext == 0`, always holds here: the
+    /// first parse of a top-level statement is never in an await context.
+    fn parse_toplevel_statement(&mut self, i: usize) -> Statement<'a> {
+        self.statement_has_await_identifier = false;
+        let full_start = self.node_end();
+        let statement = self.parse_statement();
+        self.top_level_extents.push((full_start, self.statement_end(statement)));
+        if self.statement_has_await_identifier {
+            match self.possible_await_spans.last_mut() {
+                Some(last) if *last == i => *last = i + 1,
+                _ => self.possible_await_spans.extend([i, i + 1]),
+            }
+        }
+        statement
+    }
+
+    /// `Node.End()` of a statement just parsed.
+    fn statement_end(&self, statement: Statement<'a>) -> u32 {
+        statement.node_id().map_or_else(|| self.node_end(), |id| self.nodes.span(id).end)
+    }
+
+    /// The end-of-file token and the `SourceFile` node over `statements`.
+    fn finish_source_file(
+        &mut self,
+        start: u32,
+        statements: &[Statement<'a>],
+    ) -> &'a SourceFile<'a> {
         // Trailing comments document the end-of-file token
         // (`parseSourceFileWorker`'s `withJSDoc(eof, endJSDoc)`, `parser.go:438`):
         // its `@typedef`/`@callback`/`@import` declarations are reparsed into
@@ -866,7 +1010,7 @@ impl<'a> Parser<'a> {
         let eof = self.alloc_token(SyntaxKind::EndOfFile, self.token.span);
         self.attach_jsdoc(tsr_ast::Node::from(eof), end_docs);
         let file = self.finish_node(
-            SourceFile::new(self.arena.alloc_slice(&statements), eof),
+            SourceFile::new(self.arena.alloc_slice(statements), eof),
             SyntaxKind::SourceFile,
             start,
         );
@@ -876,6 +1020,168 @@ impl<'a> Parser<'a> {
             self.nodes.add_flags(id, self.source_flags);
         }
         file
+    }
+
+    /// `result.ExternalModuleIndicator != nil` after `finishSourceFile`
+    /// (`getExternalModuleIndicator`, `ast/parseoptions.go:60`).
+    fn is_external_module(&self, file: &SourceFile<'a>) -> bool {
+        if crate::references::is_file_probably_external_module(file, &self.nodes) {
+            return true;
+        }
+        (self.module_indicator.jsx && crate::references::contains_jsx_tag(file))
+            || self.module_indicator.force
+    }
+
+    /// `reparseTopLevelAwait` (`parser.go:514`).
+    ///
+    /// Native re-reads each span of statements that created an `await`
+    /// identifier in an await context, splices the new statements between the
+    /// untouched originals, keeps the original diagnostics outside the spans
+    /// and the new ones inside them. The new nodes are created after the
+    /// whole first tree, and the originals they replace stay allocated.
+    ///
+    /// This port cannot leave replaced nodes behind: a file's nodes are one
+    /// contiguous id range that consumers scan (`file.node_range()`), and an
+    /// orphaned statement there would be found by position. So the reparse
+    /// **re-parses the whole file** into the same id range, reproducing the
+    /// copied statements by parsing them again (the parse is deterministic
+    /// and they are parsed in the same context), and runs native's span loop
+    /// at the same positions. Diagnostics follow native exactly: outside the
+    /// spans they are the first parse's, filtered by position as native's
+    /// `FindIndex` slices are; inside, the reparse's. See
+    /// [`docs/parity/notes/r7-parser.md`](../../../docs/parity/notes/r7-parser.md) §2.
+    fn reparse_top_level_await(&mut self, start: u32) -> &'a SourceFile<'a> {
+        let spans = std::mem::take(&mut self.possible_await_spans);
+        let original = std::mem::take(&mut self.top_level_extents);
+        debug_assert!(spans.len() % 2 == 0, "possibleAwaitSpans malformed");
+        let saved_scanner = self.scanner.take_diagnostics();
+        let saved_parser = std::mem::take(&mut self.diagnostics);
+        let source_flags = self.source_flags;
+        self.restart();
+        self.source_flags = source_flags;
+
+        // The diagnostics of the first parse whose position lies in
+        // `[from, to)` — native's two `FindIndex` slices over its one list.
+        let mut scanner_out = Vec::new();
+        let mut parser_out = Vec::new();
+        let keep = |from: u32,
+                    to: u32,
+                    scanner_out: &mut Vec<Diagnostic>,
+                    parser_out: &mut Vec<Diagnostic>| {
+            let inside = |d: &&Diagnostic| d.span.start >= from && d.span.start < to;
+            scanner_out.extend(saved_scanner.iter().filter(inside).cloned());
+            parser_out.extend(saved_parser.iter().filter(inside).cloned());
+        };
+        // Index ranges of the reparse's own diagnostics, kept wholesale.
+        let mut windows: Vec<(usize, usize, usize, usize)> = Vec::new();
+
+        let n = original.len();
+        let mut statements: Vec<Statement<'a>> = Vec::with_capacity(n);
+        let mut after_await_statement = 0;
+        let mut i = 0;
+        while i < spans.len() {
+            let next_await_statement = spans[i];
+            let from = original[after_await_statement].0;
+            let to = original[next_await_statement].0;
+            self.parse_top_level_statements_until(to, &mut statements);
+            keep(from, to, &mut scanner_out, &mut parser_out);
+
+            let scanner_mark = self.scanner.diagnostics().len();
+            let parser_mark = self.diagnostics.len();
+            after_await_statement = spans[i + 1];
+            let saved_await = std::mem::replace(&mut self.in_await_context, true);
+            while !self.at(SyntaxKind::EndOfFile) {
+                let start_pos = self.node_end();
+                let statement = self.parse_statement();
+                statements.push(statement);
+                if start_pos == self.node_end() {
+                    self.next_token();
+                }
+                if after_await_statement < n {
+                    let last_end = original[after_await_statement - 1].1;
+                    let end = self.statement_end(statement);
+                    if end == last_end {
+                        // Done reparsing this section.
+                        break;
+                    }
+                    if end > last_end {
+                        // Ate into the next statement: continue with the next span.
+                        i += 2;
+                        after_await_statement = if i < spans.len() { spans[i + 1] } else { n };
+                    }
+                }
+            }
+            self.in_await_context = saved_await;
+            windows.push((
+                scanner_mark,
+                self.scanner.diagnostics().len(),
+                parser_mark,
+                self.diagnostics.len(),
+            ));
+            i += 2;
+        }
+        if after_await_statement < n {
+            let from = original[after_await_statement].0;
+            self.parse_top_level_statements_until(u32::MAX, &mut statements);
+            keep(from, u32::MAX, &mut scanner_out, &mut parser_out);
+        }
+
+        let reparse_scanner = self.scanner.take_diagnostics();
+        let reparse_parser = std::mem::take(&mut self.diagnostics);
+        for &(scanner_from, scanner_to, parser_from, parser_to) in &windows {
+            scanner_out.extend_from_slice(&reparse_scanner[scanner_from..scanner_to]);
+            parser_out.extend_from_slice(&reparse_parser[parser_from..parser_to]);
+        }
+        self.carried_scanner_diagnostics = scanner_out;
+        self.diagnostics = parser_out;
+        self.finish_source_file(start, &statements)
+    }
+
+    /// The source-element list from the cursor up to the statement whose full
+    /// start is `stop` (`u32::MAX`: end of file), appended to `statements`.
+    /// Used by the reparse to reproduce native's copied statements: the list
+    /// loop reaches the token at `stop` exactly where the first parse began
+    /// that statement.
+    fn parse_top_level_statements_until(&mut self, stop: u32, statements: &mut Vec<Statement<'a>>) {
+        let kind = crate::list::ParsingContext::SourceElements;
+        let saved = self.parsing_contexts;
+        self.parsing_contexts |= kind.bit();
+        while self.node_end() < stop && !self.is_list_terminator(kind) {
+            if self.is_list_element(kind, false) {
+                let before = self.pos();
+                statements.push(self.parse_statement());
+                if self.pos() == before && !self.at(SyntaxKind::EndOfFile) {
+                    self.next_token();
+                }
+                continue;
+            }
+            if self.abort_parsing_list_or_move_to_next_token(kind) {
+                break;
+            }
+        }
+        self.parsing_contexts = saved;
+    }
+
+    /// Rewind to the start of the file with empty tables, as a fresh parser
+    /// over the same tables would be.
+    fn restart(&mut self) {
+        self.nodes.truncate(self.first_node);
+        self.node_map.truncate(self.first_node);
+        self.jsdoc.clear();
+        self.jsdoc_diagnostics.clear();
+        let mut scanner = Scanner::new(self.source);
+        scanner.set_jsx_language_variant(self.script_kind.allows_jsx());
+        self.token = scanner.scan();
+        self.token_value = capture_value(&scanner);
+        self.scanner = scanner;
+        self.no_in = 0;
+        self.in_await_context = false;
+        self.in_decorator_context = false;
+        self.outer_await_context = false;
+        self.disallow_conditional_types = 0;
+        self.parsing_contexts = 0;
+        self.depth = 0;
+        self.statement_has_await_identifier = false;
     }
 }
 
@@ -889,6 +1195,8 @@ struct ParserState {
     token_value: Option<String>,
     diagnostics: usize,
     nodes: usize,
+    /// Part of native's `ParserState` (`parser.go:345`).
+    statement_has_await_identifier: bool,
 }
 
 /// Capture the scanner's decoded value, if it differs from the raw text.

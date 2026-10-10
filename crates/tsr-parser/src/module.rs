@@ -15,6 +15,10 @@ impl<'a> Parser<'a> {
     ) -> Statement<'a> {
         self.expect(SyntaxKind::ImportKeyword);
         let modifiers = self.arena.alloc_slice(modifiers);
+        // `parseImportDeclarationOrImportEqualsDeclaration` (`parser.go:2234`)
+        // restores `statementHasAwaitIdentifier` after an import-equals
+        // declaration and after the import clause.
+        let saved_await_identifier = self.statement_has_await_identifier;
 
         // `import "module";` — a side-effect import with no bindings.
         if self.at(SyntaxKind::StringLiteral) {
@@ -57,6 +61,7 @@ impl<'a> Parser<'a> {
             self.expect(SyntaxKind::EqualsToken);
             let reference = self.parse_module_reference();
             self.parse_semicolon();
+            self.statement_has_await_identifier = saved_await_identifier;
             let node = self.finish_node(
                 ImportEqualsDeclaration::new(modifiers, is_type_only, Some(name), Some(reference)),
                 SyntaxKind::ImportEqualsDeclaration,
@@ -81,6 +86,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::ImportClause,
             clause_start,
         );
+        self.statement_has_await_identifier = saved_await_identifier;
 
         self.expect(SyntaxKind::FromKeyword);
         let specifier = self.parse_module_specifier();
@@ -300,7 +306,10 @@ impl<'a> Parser<'a> {
         if self.at(SyntaxKind::AsKeyword) {
             self.next_token();
             self.expect(SyntaxKind::NamespaceKeyword);
+            // `parseNamespaceExportDeclaration` (`parser.go:2526`).
+            let saved = self.statement_has_await_identifier;
             let name = self.parse_identifier();
+            self.statement_has_await_identifier = saved;
             self.parse_semicolon();
             let node = self.finish_node(
                 NamespaceExportDeclaration::new(modifiers_slice, Some(name)),
@@ -310,6 +319,31 @@ impl<'a> Parser<'a> {
             return Statement::NamespaceExportDeclaration(node);
         }
 
+        // `parseExportAssignment` (`parser.go:2506`) and
+        // `parseExportDeclaration` (`parser.go:2539`) parse in an await
+        // context and restore `statementHasAwaitIdentifier`.
+        let saved = self.statement_has_await_identifier;
+        if let Some(statement) = self.with_await_context(true, |parser| {
+            parser.parse_export_assignment_or_declaration(start, modifiers_slice)
+        }) {
+            self.statement_has_await_identifier = saved;
+            return statement;
+        }
+
+        // Anything else is a modifier on a declaration: `export const x = 1`.
+        let mut all = vec![ModifierLike::Token(export_token)];
+        all.extend(self.parse_modifiers());
+        let all = self.arena.alloc_slice(&all);
+        self.parse_declaration_after_modifiers(start, all)
+    }
+
+    /// `export = x`, `export default x`, `export * …` and `export { … }`;
+    /// `None`, consuming nothing, when `export` modifies a declaration.
+    fn parse_export_assignment_or_declaration(
+        &mut self,
+        start: u32,
+        modifiers_slice: &'a [ModifierLike<'a>],
+    ) -> Option<Statement<'a>> {
         // `export = expr;`
         if self.at(SyntaxKind::EqualsToken) {
             self.next_token();
@@ -320,7 +354,7 @@ impl<'a> Parser<'a> {
                 SyntaxKind::ExportAssignment,
                 start,
             );
-            return Statement::ExportAssignment(node);
+            return Some(Statement::ExportAssignment(node));
         }
 
         // `export default <expression>` — `parseExportAssignment`
@@ -337,7 +371,7 @@ impl<'a> Parser<'a> {
                 SyntaxKind::ExportAssignment,
                 start,
             );
-            return Statement::ExportAssignment(node);
+            return Some(Statement::ExportAssignment(node));
         }
 
         // `export type { A }` and `export type * from "m"` are type-only
@@ -378,7 +412,7 @@ impl<'a> Parser<'a> {
                 SyntaxKind::ExportDeclaration,
                 start,
             );
-            return Statement::ExportDeclaration(node);
+            return Some(Statement::ExportDeclaration(node));
         }
 
         // `export { a, b as c } [from "m"]`.
@@ -414,18 +448,29 @@ impl<'a> Parser<'a> {
                 SyntaxKind::ExportDeclaration,
                 start,
             );
-            return Statement::ExportDeclaration(node);
+            return Some(Statement::ExportDeclaration(node));
         }
 
-        // Anything else is a modifier on a declaration: `export const x = 1`.
-        let mut all = vec![ModifierLike::Token(export_token)];
-        all.extend(self.parse_modifiers());
-        let all = self.arena.alloc_slice(&all);
-        self.parse_declaration_after_modifiers(start, all)
+        None
     }
 
     /// `namespace N { … }` and `module "m" { … }`.
+    ///
+    /// `parseAmbientExternalModuleDeclaration` (`parser.go:2169`) and
+    /// `parseModuleOrNamespaceDeclaration` (`parser.go:2205`) both restore
+    /// `statementHasAwaitIdentifier` over the whole declaration.
     pub(crate) fn parse_module_declaration(
+        &mut self,
+        start: u32,
+        modifiers: &[ModifierLike<'a>],
+    ) -> Statement<'a> {
+        let saved = self.statement_has_await_identifier;
+        let statement = self.parse_module_declaration_worker(start, modifiers);
+        self.statement_has_await_identifier = saved;
+        statement
+    }
+
+    fn parse_module_declaration_worker(
         &mut self,
         start: u32,
         modifiers: &[ModifierLike<'a>],

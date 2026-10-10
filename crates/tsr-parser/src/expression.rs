@@ -1320,7 +1320,10 @@ impl<'a> Parser<'a> {
             // — a `KeywordExpression` has no name — so every such reference
             // became anonymous. Upstream falls through to `parseIdentifier()`
             // here for the same reason.
-            kind if kind.is_keyword() && !crate::statement::is_reserved_word(kind) => {
+            kind if kind.is_keyword()
+                && !crate::statement::is_reserved_word(kind)
+                && self.is_identifier() =>
+            {
                 Expression::Identifier(self.parse_identifier())
             }
             _ => {
@@ -1419,7 +1422,9 @@ impl<'a> Parser<'a> {
             let is_getter = self.at(SyntaxKind::GetKeyword);
             self.next_token();
             let name = self.parse_property_name();
-            let parameters = self.parse_parameter_list();
+            // `parseAccessorDeclaration`'s `parseParameters(ParseFlagsNone)`:
+            // the parameters are in no await context.
+            let parameters = self.with_await_context(false, Self::parse_parameter_list);
             let return_type = self.parse_return_type_annotation();
             // Pinned `parseFunctionBlockOrSemicolon`/`parseBlock`: semicolon
             // or ASI means no body; a missing `{` instead owns an empty Block.
@@ -1496,7 +1501,7 @@ impl<'a> Parser<'a> {
         // this port does not reproduce. Applying the identifier test to them
         // changed their line counts and cost 6 cases with no gain; keeping them
         // on the old path leaves §683's separate defect exactly as it was.
-        let token_is_identifier = self.is_binding_identifier()
+        let token_is_identifier = self.is_identifier()
             || matches!(
                 self.token.kind,
                 SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead
@@ -2366,7 +2371,7 @@ impl<'a> Parser<'a> {
         let name = if self.at(SyntaxKind::OpenParenToken) || self.at(SyntaxKind::LessThanToken) {
             None
         } else {
-            Some(self.parse_identifier())
+            Some(self.parse_binding_identifier())
         };
         let type_parameters = self.parse_type_parameters();
         // The signature's own await context — see `parse_function_declaration`.
@@ -2654,25 +2659,50 @@ impl<'a> Parser<'a> {
             && (self.token.kind == SyntaxKind::Identifier || self.token.kind.is_keyword())
     }
 
+    /// `parseIdentifier` (`parser.go:5832`): `createIdentifier(isIdentifier())`,
+    /// so `await` inside an await context is a missing identifier.
     pub(crate) fn parse_identifier(&mut self) -> &'a Identifier<'a> {
-        let start = self.pos();
-        if self.is_binding_identifier() {
-            let text = self.token_value();
-            self.next_token_without_check();
-            return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
+        if self.is_identifier() {
+            return self.create_identifier();
         }
         self.report_missing_identifier()
+    }
+
+    /// `parseBindingIdentifier` (`parser.go:5810`): a binding name admits
+    /// `await` in any context (the binder reports it), and creating it does
+    /// not mark the statement for the top-level await reparse.
+    pub(crate) fn parse_binding_identifier(&mut self) -> &'a Identifier<'a> {
+        let saved = self.statement_has_await_identifier;
+        let id = if self.is_binding_identifier() {
+            self.create_identifier()
+        } else {
+            self.report_missing_identifier()
+        };
+        self.statement_has_await_identifier = saved;
+        id
+    }
+
+    /// The success arm of `createIdentifierWithDiagnostic`
+    /// (`parser.go:5841`) with `newIdentifier`'s `await` check
+    /// (`parser.go:2967`): an identifier spelled `await` marks the statement
+    /// for `reparseTopLevelAwait`. The kind test is the text test: the
+    /// scanner gives `await`, escaped or not, the keyword kind.
+    fn create_identifier(&mut self) -> &'a Identifier<'a> {
+        let start = self.pos();
+        if self.token.kind == SyntaxKind::AwaitKeyword {
+            self.statement_has_await_identifier = true;
+        }
+        let text = self.token_value();
+        self.next_token_without_check();
+        self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start)
     }
 
     /// Parse an identifier name: any keyword qualifies — `a.class` is legal.
     ///
     /// Upstream's `parseIdentifierName` (`parser.go:6316`).
     pub(crate) fn parse_identifier_name(&mut self) -> &'a Identifier<'a> {
-        let start = self.pos();
         if self.at(SyntaxKind::Identifier) || self.token.kind.is_keyword() {
-            let text = self.token_value();
-            self.next_token_without_check();
-            return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
+            return self.create_identifier();
         }
         self.report_missing_identifier()
     }
@@ -2730,7 +2760,16 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a property name: identifier, string, number, or `[computed]`.
+    /// `parsePropertyName` (`parser.go:3447`): a property name never marks
+    /// the statement for the top-level await reparse.
     pub(crate) fn parse_property_name(&mut self) -> PropertyName<'a> {
+        let saved = self.statement_has_await_identifier;
+        let name = self.parse_property_name_worker();
+        self.statement_has_await_identifier = saved;
+        name
+    }
+
+    fn parse_property_name_worker(&mut self) -> PropertyName<'a> {
         let start = self.pos();
         match self.token.kind {
             SyntaxKind::StringLiteral => {
@@ -2805,7 +2844,7 @@ impl<'a> Parser<'a> {
         match self.token.kind {
             SyntaxKind::OpenBracketToken => self.parse_array_binding_pattern(),
             SyntaxKind::OpenBraceToken => self.parse_object_binding_pattern(),
-            _ => BindingName::Identifier(self.parse_identifier()),
+            _ => BindingName::Identifier(self.parse_binding_identifier()),
         }
     }
 
@@ -2965,25 +3004,42 @@ impl<'a> Parser<'a> {
         // parseParameter)`. A token that starts no parameter is reported
         // (TS1138, or TS1390 for a keyword) and skipped unless an enclosing
         // list wants it — the general form of §198/§200/§277's subsets.
-        let (parameters, _) =
-            self.parse_delimited_list(ParsingContext::Parameters, Self::parse_parameter);
+        //
+        // Every caller has set the signature's own await context with
+        // `with_await_context`; the context it replaced is the one the
+        // parameters' decorators are parsed in (`parser.go:3296`).
+        let outer_await = self.outer_await_context;
+        let (parameters, _) = self.parse_delimited_list(ParsingContext::Parameters, |parser| {
+            parser.parse_parameter_ex(outer_await)
+        });
         self.expect(SyntaxKind::CloseParenToken);
         parameters
     }
 
+    /// `parseParameter` (`parser.go:3311`).
     pub(crate) fn parse_parameter(&mut self) -> &'a ParameterDeclaration<'a> {
+        self.parse_parameter_ex(false)
+    }
+
+    /// `parseParameterEx` (`parser.go:3315`).
+    fn parse_parameter_ex(&mut self, in_outer_await_context: bool) -> &'a ParameterDeclaration<'a> {
         let docs = self.parse_leading_jsdoc();
-        let parameter = self.parse_parameter_worker();
+        let parameter = self.parse_parameter_worker(in_outer_await_context);
         self.attach_jsdoc(tsr_ast::Node::ParameterDeclaration(parameter), docs);
         parameter
     }
 
-    fn parse_parameter_worker(&mut self) -> &'a ParameterDeclaration<'a> {
+    fn parse_parameter_worker(
+        &mut self,
+        in_outer_await_context: bool,
+    ) -> &'a ParameterDeclaration<'a> {
         let start = self.pos();
         // The first modifier's `Loc` starts at its full start, leading trivia
         // included: where the previous token ended.
         let modifiers_full_start = self.node_end();
-        let modifiers = self.parse_modifiers();
+        // "Decorators are parsed in the outer [Await] context, the rest of the
+        // parameter is parsed in the function's [Await] context."
+        let modifiers = self.with_await_context(in_outer_await_context, Self::parse_modifiers);
         // `parseParameterWorker`'s `KindThisKeyword` arm (`parser.go:3334`):
         // a `this` parameter with modifiers is a parse error at
         // `modifiers.Nodes[0].Loc` — full start, no `SkipTrivia` — so the

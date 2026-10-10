@@ -628,13 +628,17 @@ impl<'a> Parser<'a> {
         self.parse_block_with(None)
     }
 
-    /// The context half of `parseFunctionBlock` (`parser.go:3495`) this
-    /// parser tracks beyond each caller's `with_await_context`: "The body of
-    /// the function is not in [Decorator] context."
+    /// What `parseFunctionBlock` (`parser.go:3495`) does beyond each caller's
+    /// `with_await_context`: the body is not in the decorator context, and an
+    /// `await` identifier inside it never marks the enclosing top-level
+    /// statement for the reparse (`statementHasAwaitIdentifier`).
     pub(crate) fn parse_function_block(&mut self) -> &'a Block<'a> {
+        let saved = self.statement_has_await_identifier;
+        // "The body of the function is not in [Decorator] context."
         let saved_decorator = std::mem::replace(&mut self.in_decorator_context, false);
         let block = self.parse_block();
         self.in_decorator_context = saved_decorator;
+        self.statement_has_await_identifier = saved;
         block
     }
 
@@ -1186,7 +1190,7 @@ impl<'a> Parser<'a> {
         let name = if !tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::DefaultKeyword)
             || self.is_binding_identifier()
         {
-            Some(self.parse_identifier())
+            Some(self.parse_binding_identifier())
         } else {
             None
         };
