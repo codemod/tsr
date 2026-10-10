@@ -2005,3 +2005,25 @@ All four diffs are reverted:
 
 The rest of CG+CH+CI stays. Re-cutting the stack on the current tip is
 `tsr-2zk.1266`.
+
+### Checkpoint wrap-up: r6-callreport (batch CJ)
+
+Batch CJ lands r6-callreport's call_reports.rs and its first two diffs:
+- one native-shaped isSignatureApplicable(reportErrors) pass, with
+  getEffectiveCallArguments and the this-arm;
+- literal certification modelled on isLiteralOfContextualType.
+
+Measured by the box against `eee504b`: +18 diagnostics cases, 0 lost, types
+identical. Ir is −0.06% on domain-model over base.
+
+The generic-new diff (+7) is held by the integrator. It costs +0.09%
+domain-model Ir over diff 2, about twice the noise band, on a constraint that
+rejects hot-path slowdowns. It needs a measured cost explanation before it
+lands.
+
+Refused by the box:
+- the class-expression lift (−2);
+- a blanket literal lift (+0.75% Ir);
+- re-inferring every generic new (+0.9% Ir).
+
+The calls clusters are reopened unassigned.
