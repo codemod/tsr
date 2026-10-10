@@ -91,6 +91,15 @@ read; it is read once `getSpreadArgumentType` is ported
 Coverage bin on the commit: `checker_types` 8,677/9,538 (unchanged),
 `diagnostics` 4,804/5,502 (4,786 at base).
 
+**Decline removed** (after `ca1239ef`, r7-contextual's const-context
+literal markers, landed in batch 6): `union_object_and_array_literal_candidates`
+now unions a `const` type parameter's literal candidates, so the
+`CandidateContext::Instantiated { const_type_parameters }` decline is deleted
+with its field. Measured against `0b86f9d6` on `d3a34908`: diagnostics 0
+gained, 0 lost; types 0/0 (typeParameterConstModifiers stays RIGHT on the
+producer fix, now without the decline). Perf (21 samples): domain-model
+0.959, generic-imports 0.939.
+
 ## 2. CHECK-NON-NULL-CALLEE — the call resolves against the non-nullable callee
 
 Routed by the integrator from r7-declared (their measured diff
@@ -201,6 +210,14 @@ which the check now exposes:
 The port is kept as
 [`r7-calls-assertion-target.diff`](r7-calls-assertion-target.diff) until those
 arms land in `flow.rs` (routed).
+
+**Re-measured** on `d3a34908` (batch 6, with r7-flow's for-of and
+private-identifier arms) against `0b86f9d6`: +2 (assertionTypePredicates1,
+assertionTypePredicates2), 1 lost (requireAssertsFromTypescript,
+EMPTY_RIGHT → EMPTY_WRONG). The remaining false TS2775 is the JS
+`const { art } = require('./ex')` binding, which this port's binder does not
+make an alias (`resolveSymbol` follows it to the declared function natively);
+routed to r7-shared. The diff stays held while it costs a RIGHT case.
 
 ## 5. The overload walk checks a nested call argument under its first candidate
 
