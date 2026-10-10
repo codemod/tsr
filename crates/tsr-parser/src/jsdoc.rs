@@ -76,7 +76,9 @@ impl<'a> Parser<'a> {
     /// speculative parse that rewinds (an arrow function that turns out to be
     /// a parenthesized expression) never parses a comment it does not keep.
     pub(crate) fn leading_jsdoc_marker(&self) -> Option<(u32, u32)> {
-        if !self.parse_jsdoc || !self.token.flags.contains(TokenFlags::PRECEDING_JSDOC_COMMENT) {
+        if self.jsdoc_mode == crate::parser::JSDocMode::Off
+            || !self.token.flags.contains(TokenFlags::PRECEDING_JSDOC_COMMENT)
+        {
             return None;
         }
         Some((self.scanner.full_start(), self.pos()))
@@ -88,6 +90,16 @@ impl<'a> Parser<'a> {
         let Some((full_start, token_start)) = marker else { return &[] };
         let ranges = jsdoc_ranges_in(self.source, full_start, token_start);
         if ranges.is_empty() {
+            return &[];
+        }
+        // `withJSDoc` (`jsdoc.go:64`): a non-JavaScript file parses its
+        // comments here only when one carries `@see`/`@link`
+        // (`jsdocScannerInfoHasSeeOrLink`); ADR-0053.
+        if self.jsdoc_mode == crate::parser::JSDocMode::SeeOrLink
+            && !ranges.iter().any(|range| {
+                jsdoc_has_see_or_link(&self.source[range.start as usize..range.end as usize])
+            })
+        {
             return &[];
         }
 
@@ -2110,4 +2122,24 @@ fn remove_leading_newlines(comments: &mut Vec<&str>) {
         .position(|c| !c.trim_matches(['\r', '\n']).is_empty())
         .unwrap_or(comments.len());
     comments.drain(..keep_from);
+}
+
+/// `scanJSDocCommentForTags`' `@see`/`@link` half (`scanner.go:350`): some
+/// `@` in the comment starts one of the four tag names, followed by the end
+/// of the text or one of `hasJSDocTag`'s delimiters (`scanner.go:372`).
+fn jsdoc_has_see_or_link(comment: &str) -> bool {
+    let mut rest = comment;
+    while let Some(at) = rest.find('@') {
+        rest = &rest[at + 1..];
+        let tagged = ["see", "link", "linkcode", "linkplain"].iter().any(|tag| {
+            rest.strip_prefix(tag).is_some_and(|after| {
+                after.is_empty()
+                    || matches!(after.as_bytes()[0], b' ' | b'\t' | b'\n' | b'\r' | b'}' | b'*')
+            })
+        });
+        if tagged {
+            return true;
+        }
+    }
+    false
 }

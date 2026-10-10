@@ -484,9 +484,6 @@ impl Checker<'_, '_> {
     /// for import and export specifiers alike.
     pub(crate) fn check_export_specifier_is_local(&mut self, node: NodeId) {
         self.check_specifier_default_emit_helper(node);
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ExportSpecifier(specifier)) = self.node_map.get(node) else { return };
         // `PropertyNameOrName`, and a string literal is skipped outright.
         let named = specifier

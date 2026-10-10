@@ -692,13 +692,14 @@ pub struct Checker<'a, 'n> {
     pub(crate) no_implicit_returns: bool,
     /// Did the parser report a diagnostic in the file currently being walked?
     ///
-    /// Set by [`Checker::check_source_file`] and read by the rules that cannot
-    /// trust a recovered tree. Upstream needs no equivalent: its recovery is the
-    /// recovery the baselines were produced from, so a node it built in a broken
-    /// file is still the node the diagnostic is about. Here the two parsers
-    /// disagree about *what tree a broken file has*, and a rule that reports on
-    /// a node one parser invented is reporting about a program the other never
-    /// saw. `crate::check` measures what this refusal costs.
+    /// Set by [`Checker::check_source_file`]. Mirrors `hasParseDiagnostics`
+    /// (`checker.go:14066`), which native reads only in its grammar helpers
+    /// (`grammarErrorOnNode` and friends, `grammarchecks.go:19-127`) and a
+    /// handful of explicit tests (TS2410, for-await and top-level-await
+    /// arms). Plain `c.error` sites are never gated; the inventory of every
+    /// read here and its native anchor is `docs/parity/notes/r6-parsegate.md`
+    /// §2, and the sites lifted since are listed there and in
+    /// `docs/parity/notes/r7-flow.md` §2.
     pub(crate) file_has_parse_errors: bool,
     /// Whether [`Checker::report_merge_conflicts`] has already run.
     ///
@@ -1034,15 +1035,16 @@ pub struct Checker<'a, 'n> {
     /// function reports three times and the `diagnostics` suite compares
     /// multisets.
     pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
-    /// Nodes for which `check_modifier_order` — this port's slice of upstream's
-    /// `checkGrammarModifiers` — has already reported. Upstream's callers are
-    /// gated on `!c.checkGrammarModifiers(node)`, and this port dropped that
-    /// return value when it split the chain into several functions. §876.
+    /// Nodes for which `check_grammar_modifiers` (upstream's
+    /// `checkGrammarModifiers`, `grammar.rs`) answered `true`. Upstream's
+    /// callers are gated on `!c.checkGrammarModifiers(node)`.
     pub(crate) modifier_chain_reported: rustc_hash::FxHashSet<tsr_ast::NodeId>,
-    /// Nodes whose decorators were already rejected. `reportObviousDecoratorErrors`
-    /// is the first test in `checkGrammarModifiers` and returns from the whole
-    /// function, so the per-keyword switch never runs for them. §878.
-    pub(crate) decorator_error_reported: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// Nodes `check_grammar_modifiers` has already run for. Upstream calls it
+    /// from each checker that gates on it and reports again each time, and its
+    /// diagnostics collection deduplicates; this port's does not, so the
+    /// chain runs once per node and later callers read
+    /// `modifier_chain_reported` (r7-grammar §1).
+    pub(crate) modifier_chain_checked: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -1671,7 +1673,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             merged_spaces_checked: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
             modifier_chain_reported: rustc_hash::FxHashSet::default(),
-            decorator_error_reported: rustc_hash::FxHashSet::default(),
+            modifier_chain_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             mapped_identity_optionality: FxHashMap::default(),
             mapped_identity_sources: FxHashMap::default(),

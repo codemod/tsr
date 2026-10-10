@@ -1,0 +1,20 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index 074de342..798ddece 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -2869,7 +2869,14 @@ impl Checker<'_, '_> {
+             }
+             (stripped, non_optional != raw_callee_type)
+         } else {
+-            (raw_callee_type, false)
++            // resolveCallExpression (checker.go:8511): every callee passes
++            // checkNonNullTypeWithReporter; the report is the head's
++            // (`check_non_null_callee`), the stripped type is the call's.
++            let stripped = self.check_non_null_type(raw_callee_type);
++            if stripped == error {
++                return error;
++            }
++            (stripped, false)
+         };
+         let result = self.check_call_expression_worker(node, callee, callee_type);
+         // checkCallExpression (native 5b1047d1): a CommonJS require in JS

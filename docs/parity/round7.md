@@ -76,3 +76,66 @@ The alias/mapper cutover never enters a batch until its own branch passes
 every gate against the then-current main.
 
 ## Batches
+
+### Batch 1 — r7-flow `bc17c1f8`, r7-shared `9dea4118`
+
+Merged onto main `9020aa67` as `ad0c9c22`. Gate against the `9020aa67` freeze:
+types +21 RIGHT / 0 lost / 0 missing, diagnostics +5 cases / 0 lost / 0
+missing; workspace tests pass; fmt clean; perf child-CPU new/old at 21
+samples domain-model 0.960, generic-imports 0.983, diagnostics identical.
+Strict clippy reports the seven errors main already carries (enum_initializer,
+index_signatures, printing, symbols:4513, templates, unique_symbols,
+tsr-dts accessibility test); none is in a line the batch touched.
+
+| Suite | `9020aa67` | Batch 1 |
+|---|---|---|
+| `checker_types` | 8,677 | 8,680 |
+| `checker_types_configured` | 1,752 | 1,753 |
+| `diagnostics` | 4,786 | 4,791 |
+| `diagnostics_configured` | 955 | 955 |
+
+Ownership change: r7-grammar also owns `class_function_merge.rs`,
+`merge_conflicts.rs` and `check.rs::check_merged_namespace_prototype` for the
+two multi-checker drops r7-perf found under `tsr-2zk.1258`.
+
+### Batch 2 — r7-calls `5ea8f7e4`, r7-flow `216195f6`, r7-perf `a51bc525`, r7-reports `46318b3a`, r7-shared `582a2b0b`
+
+Merged onto main `87146adf` as `ae835bfe`. Gate against the batch-1 freeze:
+types +4 RIGHT / 0 lost / 0 missing, diagnostics +30 cases / 0 lost / 0
+missing; workspace tests pass; fmt clean; strict clippy unchanged (the same
+pre-existing errors, none in a touched line). Perf child-CPU new/old at 21
+samples: domain-model 0.940, generic-imports 0.736 (r7-perf's lazy JSDoc,
+ADR-0053), diagnostics identical.
+
+| Suite | Batch 1 | Batch 2 |
+|---|---|---|
+| `checker_types` | 8,680 | 8,682 |
+| `checker_types_configured` | 1,753 | 1,753 |
+| `diagnostics` | 4,791 | 4,816 |
+| `diagnostics_configured` | 955 | 958 |
+
+Ownership changes: r7-contextual also owns `widening.rs` (const-context
+literal candidates, `tsr-2zk.1275.1`); r7-calls may make
+`flow.rs::get_effects_signature`/`get_type_of_dotted_name` `pub(crate)` for
+TS2775/TS2776.
+
+### Batch 3 — r7-calls `2745f162`, r7-contextual `dcd22416`, r7-declared `2f46ba40`, r7-flow `0633293e`, r7-grammar `f298083c`, r7-parser `dd6f9d88`, r7-reports `3d2cfdfa`
+
+Merged onto main `1b466dc8`. Gate against the batch-2 freeze: types +453
+RIGHT / 0 lost / 0 missing, diagnostics +33 cases / 0 lost / 0 missing;
+workspace tests pass; fmt clean; strict clippy unchanged (pre-existing errors
+only). Perf child-CPU new/old at 21 samples: domain-model 1.006,
+generic-imports 0.996, diagnostics identical.
+
+| Suite | Batch 2 | Batch 3 |
+|---|---|---|
+| `checker_types` | 8,682 | 8,708 |
+| `checker_types_configured` | 1,753 | 1,757 |
+| `diagnostics` | 4,816 | 4,839 |
+| `diagnostics_configured` | 958 | 968 |
+
+Ownership changes: r7-grammar also owns `module_format.rs`, `strict_mode.rs`
+and `meaning_mismatch.rs`; r7-parser is granted the three
+`NodeIsMissing(body)` readers (return type and TS7010 in `signatures.rs`,
+`checkFunctionOrConstructorSymbol` in `check.rs`) for the missing-block
+recovery, in one commit with its parser half.

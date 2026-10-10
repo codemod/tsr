@@ -123,7 +123,7 @@ impl Checker<'_, '_> {
     /// rule's JS-file gate, so a JS file's access to a TypeScript const enum
     /// does not report it.
     pub(crate) fn check_element_access_index_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else { return };
@@ -377,7 +377,7 @@ impl Checker<'_, '_> {
     /// `getTypeFromIndexedAccessTypeNode` (`checker.go:24164`): the access
     /// node is the type node, its index node the index type node.
     pub(crate) fn check_indexed_access_type_index_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::IndexedAccessTypeNode(access)) = self.node_map.get(node) else { return };
@@ -587,7 +587,7 @@ impl Checker<'_, '_> {
     /// a literal key (written or computed) that names no property reports
     /// TS2339 at the index node.
     pub(crate) fn check_binding_element_index_access(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
@@ -731,7 +731,7 @@ impl Checker<'_, '_> {
     /// key no index signature takes; a literal key that names no property
     /// reports TS2339 at the index node.
     pub(crate) fn check_object_assignment_index_access(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         self.check_object_assignment_accessibility(node);

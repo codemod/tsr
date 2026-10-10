@@ -3064,9 +3064,6 @@ impl Checker<'_, '_> {
     /// itself is [`Checker::check_await_expression`]'s; this is the
     /// diagnostics walk's half, so the report is made once per node.
     pub(crate) fn check_await_operand_awaited(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::AwaitExpression(expression)) = self.node_map.get(node) else { return };
         let Some(operand) = expression.expression.and_then(|operand| operand.node_id()) else {
             return;
@@ -3090,9 +3087,6 @@ impl Checker<'_, '_> {
     /// the global `Promise`, otherwise `checkAwaitedType` with TS1058 at the
     /// function. A gap in the awaited walk reports nothing.
     pub(crate) fn check_async_function_return_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let (annotation, generator, modifiers, has_body) = match self.node_map.get(node) {
             Some(Node::FunctionDeclaration(f)) => {
                 (f.r#type, f.asterisk_token.is_some(), f.modifiers, f.body.is_some())

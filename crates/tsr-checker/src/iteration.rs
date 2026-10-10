@@ -1246,8 +1246,7 @@ impl Checker<'_, '_> {
     /// (`checker.go:5876`) reports on the declaration when no element has a
     /// name (`needCheckWidenedType`).
     pub(crate) fn check_array_binding_pattern_iteration(&mut self, pattern_id: NodeId) {
-        if self.file_has_parse_errors
-            || self.in_js_file(pattern_id)
+        if self.in_js_file(pattern_id)
             || self.nodes.kind(pattern_id) != SyntaxKind::ArrayBindingPattern
         {
             return;
@@ -1343,7 +1342,7 @@ impl Checker<'_, '_> {
     /// `checkArrayLiteralAssignment` (`checker.go:12648`) for an array
     /// literal destructuring target.
     pub(crate) fn check_array_destructuring_assignment_iteration(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(source) = self.destructuring_assignment_source(node) else { return };
@@ -1361,7 +1360,7 @@ impl Checker<'_, '_> {
     /// not array-like is iterated, reporting on the operand. A spread inside
     /// a destructuring target is a rest element and reports nothing.
     pub(crate) fn check_spread_element_iteration(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::SpreadElement(spread)) = self.node_map.get(node) else { return };
@@ -1435,7 +1434,7 @@ impl Checker<'_, '_> {
     /// `getYieldedTypeOfYieldExpression` (`checker.go:11019`)'s iteration
     /// check for a `yield*` inside a generator, reported on the operand.
     pub(crate) fn check_yield_star_iteration(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::YieldExpression(yield_expression)) = self.node_map.get(node) else {
@@ -1516,7 +1515,7 @@ impl Checker<'_, '_> {
     /// `checkRightHandSideOfForOf` (`checker.go:17678`)'s diagnostics: the
     /// operand's nullability, then its iteration check.
     pub(crate) fn check_for_of_iteration(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };

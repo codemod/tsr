@@ -261,15 +261,19 @@ impl Checker<'_, '_> {
             // "Report an implicit any error if there is no body … and node is
             // not a private method in an ambient context" is the *return type*
             // arm; a parameter in an ambient context still reports, and
-            // `ParameterList4` is an ordinary declaration. The ambient flag is
-            // threaded here only so a `.d.ts` stays silent, matching every other
-            // rule in `crate::check`.
+            // `ParameterList4` is an ordinary declaration.
             // **`isPrivateWithinAmbient`, which the comment above names and the
-            // old guard did not test.** A `.d.ts` stays silent; so does a
-            // `private` member in an ambient context. A *public* method in a
-            // `declare class` reports, and the walk-threaded `ambient` was
-            // skipping it along with them. §582.
-            if self.file_is_ambient || (ambient && private_within_ambient) {
+            // old guard did not test.** A `private` member in an ambient
+            // context stays silent; a *public* method in a `declare class`
+            // reports, and the walk-threaded `ambient` was skipping it along
+            // with them. §582.
+            // **A `.d.ts` is not exempt either.** `widenTypeForVariableLikeDeclaration`
+            // (`checker.go:18264`) exempts only `declarationBelongsToPrivateAmbientMember`
+            // (`utilities.go:334`), and a declaration file is checked like any
+            // other unless `skipLibCheck` drops it: `declare function foo(x);` in
+            // `implicitAnyInAmbientDeclaration2.d.ts` is TS7006 at `x`. The old
+            // `file_is_ambient ||` arm silenced the whole file (r7-reports §1).
+            if (ambient || self.file_is_ambient) && private_within_ambient {
                 continue;
             }
             let rest = declaration.dot_dot_dot_token.is_some();
@@ -388,6 +392,19 @@ impl Checker<'_, '_> {
             }
             Some(Node::FunctionExpression(_) | Node::ArrowFunction(_)) => {
                 ParameterOwner::Contextual
+            }
+            // `getTypeForVariableLikeDeclaration`'s set-accessor arm
+            // (`checker.go:16716`): with a getter on the same symbol the
+            // parameter is the getter's return type and never implicitly
+            // `any`. Without one, an accessor is not
+            // `isContextSensitiveFunctionOrObjectLiteralMethod`, so the
+            // parameter falls to the implicit `any` like a method's.
+            Some(Node::SetAccessorDeclaration(_)) => {
+                if self.accessor_pair(node).0.is_some() {
+                    ParameterOwner::Other
+                } else {
+                    ParameterOwner::Uncontextual
+                }
             }
             _ => ParameterOwner::Other,
         }
@@ -561,6 +578,146 @@ impl Checker<'_, '_> {
             Some(Node::ParameterDeclaration(declaration))
                 if matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
         )
+    }
+
+    /// The first get and set accessor declarations of `accessor`'s symbol —
+    /// `ast.GetDeclarationOfKind(symbol, KindGetAccessor / KindSetAccessor)`.
+    fn accessor_pair(&self, accessor: NodeId) -> (Option<NodeId>, Option<NodeId>) {
+        let Some(own) = self.binder.symbol_of(accessor) else { return (None, None) };
+        let symbol = self.binder.merged_symbol(own);
+        let declarations = &self.binder.symbols().get(symbol).declarations;
+        let of_kind = |kind| {
+            declarations.iter().copied().find(|&declaration| self.nodes.kind(declaration) == kind)
+        };
+        (of_kind(SyntaxKind::GetAccessor), of_kind(SyntaxKind::SetAccessor))
+    }
+
+    /// `hasLateBindableName` (`checker.go:19946`) for an accessor: a dynamic
+    /// computed name (`ast.IsDynamicName` — not a string or signed numeric
+    /// literal) that `isLateBindableName` admits: an entity name expression
+    /// whose type `isTypeUsableAsPropertyName` (a string or number literal,
+    /// or a unique symbol).
+    ///
+    /// Upstream pairs such an accessor with its sibling through the
+    /// **late-bound** member symbol (`getSymbolOfDeclaration` →
+    /// `getLateBoundSymbol`, `checker.go:14390`), so `get [k]()` and
+    /// `set [k](v)` with `const k = "m"` share one symbol and the setter's
+    /// parameter takes the getter's type. This binder keeps each computed
+    /// member's own symbol and the checker has no late-bound member table, so
+    /// the getter lookup would miss and report a TS7006/TS7032 upstream does
+    /// not (`esDecorators-classDeclaration-accessors-static`,
+    /// `symbolDeclarationEmit10`). Both arms decline a late-bindable name
+    /// until late-bound member symbols exist (r7-reports §3). A dynamic name
+    /// that is **not** late-bindable has its own anonymous `__computed`
+    /// symbol upstream too (`bindAnonymousDeclaration`), which is what the
+    /// binder's own symbol already is, so it is not declined.
+    fn accessor_has_late_bindable_name(&mut self, accessor: NodeId) -> bool {
+        let name = match self.node_map.get(accessor) {
+            Some(Node::GetAccessorDeclaration(n)) => n.name,
+            Some(Node::SetAccessorDeclaration(n)) => n.name,
+            _ => return false,
+        };
+        let tsr_ast::PropertyName::ComputedPropertyName(computed) = name else { return false };
+        let Some(expression) = computed.expression else { return false };
+        if !expression.node_id().is_some_and(|id| self.is_entity_name_expression(id)) {
+            return false;
+        }
+        let name_type = self.check_expression(expression);
+        self.store.get(name_type).flags.intersects(
+            crate::flags::TypeFlags::STRING_LITERAL
+                | crate::flags::TypeFlags::NUMBER_LITERAL
+                | crate::flags::TypeFlags::UNIQUE_ES_SYMBOL,
+        )
+    }
+
+    /// `isPrivateWithinAmbient` (`utilities.go:343`) for an accessor: a
+    /// `private` keyword or a `#name`, in an ambient context.
+    fn accessor_is_private_within_ambient(&self, accessor: NodeId) -> bool {
+        let (modifiers, name) = match self.node_map.get(accessor) {
+            Some(Node::GetAccessorDeclaration(n)) => (n.modifiers, n.name),
+            Some(Node::SetAccessorDeclaration(n)) => (n.modifiers, n.name),
+            _ => return false,
+        };
+        (has_modifier(modifiers, SyntaxKind::PrivateKeyword)
+            || matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_)))
+            && (self.file_is_ambient || self.declaration_is_in_an_ambient_context(accessor))
+    }
+
+    /// TS7032 / TS7033 and the set accessor's TS7006, from
+    /// `checkAccessorDeclaration` (`checker.go:2933`).
+    ///
+    /// `getTypeOfAccessors` (`checker.go:18511`) tries the getter's
+    /// annotation, the setter's parameter annotation, then the getter body's
+    /// inferred return type; with none of them it reports on the **setter**
+    /// (`Property '{0}' implicitly has type 'any', because its set accessor
+    /// lacks a parameter type annotation.`), else on the **getter** (`… get
+    /// accessor lacks a return type annotation.`), skipping a declaration
+    /// that `isPrivateWithinAmbient`, and answers `any`. Upstream reports
+    /// once, when the symbol's type is first resolved; the declaration the
+    /// diagnostic sits on is checked exactly once, so the report is made from
+    /// that declaration's own check. A getter with a body always has an
+    /// inferred type, so only a bodiless (abstract, ambient or type-member)
+    /// getter can report.
+    ///
+    /// The set accessor's parameter is a `checkSignatureDeclaration`
+    /// parameter like any other; it reports through
+    /// [`Checker::check_implicit_any_parameters`], whose owner test carries
+    /// the getter arm of `getTypeForVariableLikeDeclaration`.
+    pub(crate) fn check_implicit_any_accessor(&mut self, node: NodeId) {
+        if !self.no_implicit_any {
+            return;
+        }
+        let ambient = self.file_is_ambient || self.declaration_is_in_an_ambient_context(node);
+        if self.accessor_has_late_bindable_name(node) {
+            return;
+        }
+        if self.nodes.kind(node) == SyntaxKind::SetAccessor {
+            self.check_implicit_any_parameters(node, ambient);
+        }
+        let (getter, setter) = self.accessor_pair(node);
+        if [getter, setter]
+            .into_iter()
+            .flatten()
+            .any(|accessor| self.accessor_annotation(accessor).is_some())
+        {
+            return;
+        }
+        if let Some(Node::GetAccessorDeclaration(declaration)) =
+            getter.and_then(|getter| self.node_map.get(getter))
+            && declaration.body.is_some()
+        {
+            return;
+        }
+        let (reported, message) = match (setter, getter) {
+            (Some(setter), _) if !self.accessor_is_private_within_ambient(setter) => (
+                setter,
+                &messages::PROPERTY_0_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_ITS_SET_ACCESSOR_LACKS_A_PARAMETER_TYPE_ANNOTATION,
+            ),
+            (_, Some(getter)) if !self.accessor_is_private_within_ambient(getter) => (
+                getter,
+                &messages::PROPERTY_0_IMPLICITLY_HAS_TYPE_ANY_BECAUSE_ITS_GET_ACCESSOR_LACKS_A_RETURN_TYPE_ANNOTATION,
+            ),
+            _ => return,
+        };
+        if reported != node {
+            return;
+        }
+        let name = match self.node_map.get(node) {
+            Some(Node::GetAccessorDeclaration(n)) => n.name,
+            Some(Node::SetAccessorDeclaration(n)) => n.name,
+            _ => return,
+        };
+        // `symbolToString(symbol)`; the suite compares positions and codes,
+        // so the tree spelling of the name stands in for the symbol's.
+        let text = match name {
+            tsr_ast::PropertyName::StringLiteral(literal) => format!("\"{}\"", literal.text),
+            tsr_ast::PropertyName::NumericLiteral(literal) => literal.text.to_string(),
+            name => crate::check::declaration_name_to_string(name)
+                .unwrap_or_else(|| "(Missing)".to_string()),
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.error_span(node);
+        self.report(file, Diagnostic::with_args(message, span, [text]));
     }
 
     /// TS7010 — `'{0}', which lacks return-type annotation, implicitly has an
@@ -808,6 +965,7 @@ impl Checker<'_, '_> {
             Some(Node::CallSignatureDeclaration(n)) => collect(n.parameters),
             Some(Node::ConstructSignatureDeclaration(n)) => collect(n.parameters),
             Some(Node::MethodSignatureDeclaration(n)) => collect(n.parameters),
+            Some(Node::SetAccessorDeclaration(n)) => collect(n.parameters),
             _ => Vec::new(),
         }
     }

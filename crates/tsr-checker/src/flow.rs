@@ -3077,13 +3077,24 @@ impl Checker<'_, '_> {
     /// [`Checker::get_explicit_this_type`]. Private names and `with`
     /// statements decline.
     fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
+        self.get_type_of_dotted_name_in(node, &mut Vec::new())
+    }
+
+    /// [`Checker::get_type_of_dotted_name`] under the caller's
+    /// `resolvingExplicitTypeOfSymbol` stack (see
+    /// [`Checker::get_explicit_type_of_symbol`]).
+    fn get_type_of_dotted_name_in(
+        &mut self,
+        node: NodeId,
+        resolving: &mut Vec<SymbolId>,
+    ) -> Option<TypeId> {
         match self.node_map.get(node) {
             Some(Node::Identifier(identifier)) => {
                 let symbol =
                     self.resolve_identifier_memo(node, identifier.text, SymbolFlags::VALUE)?;
                 // `getExportSymbolOfValueSymbolIfExported`.
                 let symbol = self.binder.merged_symbol(symbol);
-                self.get_explicit_type_of_symbol(symbol)
+                self.get_explicit_type_of_symbol(symbol, resolving)
             }
             Some(Node::KeywordExpression(keyword)) => match keyword.kind {
                 SyntaxKind::ThisKeyword => self.get_explicit_this_type(node),
@@ -3092,14 +3103,14 @@ impl Checker<'_, '_> {
             },
             Some(Node::PropertyAccessExpression(access)) => {
                 let base = access.expression?.node_id()?;
-                let t = self.get_type_of_dotted_name(base)?;
+                let t = self.get_type_of_dotted_name_in(base, resolving)?;
                 let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
                 let property = self.get_property_of_type(t, name.text)?;
-                self.get_explicit_type_of_symbol(property)
+                self.get_explicit_type_of_symbol(property, resolving)
             }
             Some(Node::ParenthesizedExpression(wrapper)) => {
                 let inner = wrapper.expression?.node_id()?;
-                self.get_type_of_dotted_name(inner)
+                self.get_type_of_dotted_name_in(inner, resolving)
             }
             _ => None,
         }
@@ -3198,13 +3209,46 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `getExplicitTypeOfSymbol` (`flow.go:2154`): functions, methods,
+    /// `getExplicitTypeOfSymbol` (`flow.go:2155`): functions, methods,
     /// classes and namespaces answer their type; a variable or property
-    /// only when its declaration carries an annotation. Not ported: the
-    /// mapped-symbol origin arm, the `for..of` iterated-type arm, and the
-    /// related-info diagnostic (this caller passes `nil`).
-    pub(crate) fn get_explicit_type_of_symbol(&mut self, symbol: SymbolId) -> Option<TypeId> {
+    /// only when its declaration carries an annotation, or when it is a
+    /// `for..of` variable whose iterated expression has an explicit dotted
+    /// type (`flow.go:2176`, [`Checker::explicit_for_of_iterated_type`]).
+    /// Not ported: the mapped-symbol origin arm and the related-info
+    /// diagnostic (this caller passes `nil`).
+    ///
+    /// `resolving` is `resolvingExplicitTypeOfSymbol` (`flow.go:2157`): a
+    /// symbol already being resolved answers `None`, which is what ends
+    /// `for (const x of x)`.
+    ///
+    /// Native keeps the set on the Checker; here it is the outermost query's
+    /// call stack (empty on return, no Checker field). That covers the cycle
+    /// the for-of arm introduces, whose re-entry is its own
+    /// `getTypeOfDottedName`. It does not cover a re-entry through
+    /// `getTypeOfSymbol` (a function whose return inference walks
+    /// reachability back into an effects query on itself): native answers
+    /// nil there, this port the symbol's in-progress type, as it did before
+    /// any guard existed (`docs/parity/notes/r7-flow.md` §1).
+    fn get_explicit_type_of_symbol(
+        &mut self,
+        symbol: SymbolId,
+        resolving: &mut Vec<SymbolId>,
+    ) -> Option<TypeId> {
         let symbol = self.resolve_alias_fully(symbol);
+        if resolving.contains(&symbol) {
+            return None;
+        }
+        resolving.push(symbol);
+        let result = self.explicit_type_of_resolving_symbol(symbol, resolving);
+        resolving.pop();
+        result
+    }
+
+    fn explicit_type_of_resolving_symbol(
+        &mut self,
+        symbol: SymbolId,
+        resolving: &mut Vec<SymbolId>,
+    ) -> Option<TypeId> {
         let flags = self.binder.symbols().get(symbol).flags;
         if flags.intersects(
             SymbolFlags::FUNCTION
@@ -3235,8 +3279,52 @@ impl Checker<'_, '_> {
             if explicit {
                 return Some(self.get_type_of_symbol(symbol));
             }
+            if self.nodes.kind(declaration) == SyntaxKind::VariableDeclaration
+                && let Some(list) = self.nodes.parent(declaration)
+                && let Some(statement) = self.nodes.parent(list)
+                && self.nodes.kind(statement) == SyntaxKind::ForOfStatement
+            {
+                return self.explicit_for_of_iterated_type(statement, resolving);
+            }
         }
         None
+    }
+
+    /// The for-of arm of `getExplicitTypeOfSymbol` (`flow.go:2176`): the
+    /// statement's expression typed by `getTypeOfDottedName`, then
+    /// `checkIteratedTypeOrElementType(use, t, undefinedType, nil)`
+    /// (`checker.go:6095`) — `any` input answers itself, no yield type
+    /// (including a `never` input) answers `any`, and the nil error node
+    /// reports nothing.
+    ///
+    /// Without a global `Iterable` native takes the array-like road
+    /// (`getIteratedTypeOrElementType`, `checker.go:6141`); this port
+    /// declines there and where the iteration engine cannot decide, which
+    /// leaves the variable without an explicit type, as before this arm.
+    fn explicit_for_of_iterated_type(
+        &mut self,
+        statement: NodeId,
+        resolving: &mut Vec<SymbolId>,
+    ) -> Option<TypeId> {
+        let Some(Node::ForInOrOfStatement(for_of)) = self.node_map.get(statement) else {
+            return None;
+        };
+        let use_ = if for_of.await_modifier.is_some() {
+            crate::iteration::IterationUse::FOR_AWAIT_OF
+        } else {
+            crate::iteration::IterationUse::FOR_OF
+        };
+        let expression = for_of.expression?.node_id()?;
+        let input = self.get_type_of_dotted_name_in(expression, resolving)?;
+        if self.is_type_any(input) {
+            return Some(input);
+        }
+        if input == self.intrinsics.never {
+            return Some(self.intrinsics.any);
+        }
+        self.global_type_symbol_with_arity("Iterable", 3)?;
+        let types = self.get_iteration_types_of_iterable(input, use_).ok()?;
+        Some(types.yield_type.unwrap_or(self.intrinsics.any))
     }
 
     /// `getTypeAtFlowCall` (`flow.go`), the assertion half: a CALL flow
@@ -5764,9 +5852,25 @@ impl Checker<'_, '_> {
                     // whole-union else stays whole because its constituents
                     // derive from nothing — the §83-era "21 adverse" used a
                     // structural test this trace retired.
-                    let TypeData::Anonymous { symbol: class_symbol, .. } =
-                        self.store.get(callee_type).data
-                    else {
+                    // The class road below is `getInstanceType`'s
+                    // `prototype` leg for a class constructor, whose
+                    // `prototype` is the class instance. Every other callee
+                    // (a type literal `{ new (): D }`, an intersection)
+                    // takes the general road (`flow.go:964-976`).
+                    let class_symbol = match self.store.get(callee_type).data {
+                        TypeData::Anonymous { symbol, .. }
+                            if self
+                                .binder
+                                .symbols()
+                                .get(self.binder.merged_symbol(symbol))
+                                .flags
+                                .intersects(SymbolFlags::CLASS) =>
+                        {
+                            Some(symbol)
+                        }
+                        _ => None,
+                    };
+                    let Some(class_symbol) = class_symbol else {
                         // Native 5b1047d narrowTypeByInstanceof admits a
                         // Function-derived callee, not only a constructor.
                         // isFunctionObjectType reads completed call OR construct
@@ -5780,7 +5884,7 @@ impl Checker<'_, '_> {
                         ]
                         .into_iter()
                         .any(|kind| {
-                            self.signature_candidates_of_named_type(callee_type, kind)
+                            self.signatures_of_type_kind(callee_type, kind)
                                 .is_some_and(|candidates| !candidates.is_empty())
                         });
                         if !has_signature && !self.is_bind_bearing_function_subtype(callee_type) {
@@ -5799,7 +5903,7 @@ impl Checker<'_, '_> {
                                 // signatures of the ERASED return (type
                                 // parameters instantiated to any). The
                                 // emptyObject third leg declines.
-                                let Some(candidates) = self.signature_candidates_of_named_type(
+                                let Some(candidates) = self.signatures_of_type_kind(
                                     callee_type,
                                     crate::signatures::SignatureKind::Construct,
                                 ) else {
@@ -8900,7 +9004,7 @@ impl Checker<'_, '_> {
     /// report. JavaScript declines: its return annotation is TS8010 and its
     /// JSDoc types are another lane's.
     pub(crate) fn check_all_code_paths_return_or_throw(&mut self, function: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(function) {
+        if self.in_js_file(function) {
             return;
         }
         let (annotation, body, modifiers, generator) = match self.node_map.get(function) {

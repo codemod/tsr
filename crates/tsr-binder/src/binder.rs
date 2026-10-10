@@ -1203,22 +1203,42 @@ impl<'a, 'n> Binder<'a, 'n> {
             }
         }
 
+        // `mergeSymbolTable` (`checker.go:14109`) stores
+        // `getMergedSymbol(sourceSymbol)` for a name the target lacks: a
+        // source member already merged elsewhere (an augmentation's
+        // `interface EventList` merged through `export *` into the
+        // re-exported declaration, `checker.go:1433-1441`) enters the table
+        // as that merge, so a second augmentation merges into the same
+        // symbol (`docs/parity/notes/r7-shared.md` §2).
         for (name, member) in members {
-            match self.symbols.get(target).members.get(name) {
-                Some(&existing) => self.merge_symbol(existing, member, depth + 1),
-                None => {
-                    self.symbols.get_mut(target).members.insert(name, member);
-                }
+            if let Some(&existing) = self.symbols.get(target).members.get(name) {
+                self.merge_symbol(existing, member, depth + 1);
+            } else {
+                let member = self.merged_symbol(member);
+                self.symbols.get_mut(target).members.insert(name, member);
             }
         }
         for (name, export) in exports {
-            match self.symbols.get(target).exports.get(name) {
-                Some(&existing) => self.merge_symbol(existing, export, depth + 1),
-                None => {
-                    self.symbols.get_mut(target).exports.insert(name, export);
-                }
+            if let Some(&existing) = self.symbols.get(target).exports.get(name) {
+                self.merge_symbol(existing, export, depth + 1);
+            } else {
+                let export = self.merged_symbol(export);
+                self.symbols.get_mut(target).exports.insert(name, export);
             }
         }
+    }
+
+    /// `getMergedSymbol` over the redirects recorded so far, bounded like
+    /// [`crate::BindResult::merged_symbol`].
+    fn merged_symbol(&self, symbol: SymbolId) -> SymbolId {
+        let mut current = symbol;
+        for _ in 0..32 {
+            match self.merged.get(&current) {
+                Some(&next) if next != current => current = next,
+                _ => return current,
+            }
+        }
+        current
     }
 
     /// Run `merges` — `(target, source)` pairs, in order — through
@@ -6128,7 +6148,7 @@ fn binding_name(name: BindingName<'_>) -> Option<&str> {
 }
 
 /// The name of an `export { … }` specifier, which may be a string.
-fn export_name(name: tsr_ast::ModuleExportName<'_>) -> &str {
+pub(crate) fn export_name(name: tsr_ast::ModuleExportName<'_>) -> &str {
     match name {
         tsr_ast::ModuleExportName::Identifier(i) => i.text,
         tsr_ast::ModuleExportName::StringLiteral(s) => s.text,

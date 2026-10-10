@@ -19,7 +19,7 @@ use crate::{
 impl<'a> Checker<'a, '_> {
     /// The assignability check of one `expression satisfies Type`.
     pub(crate) fn check_satisfies_expression(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient || self.in_js_file(node) {
             return;
         }
         let Some(Node::SatisfiesExpression(satisfies)) = self.node_map.get(node) else { return };

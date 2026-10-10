@@ -417,6 +417,9 @@ impl<'a> Checker<'a, '_> {
     /// an unannotated getter is inferred from its body, which this port does
     /// eagerly (`report_accessor_circularity` records the same limit).
     pub(crate) fn resolve_accessor_symbol_type(&mut self, node: NodeId) {
+        // `getTypeOfAccessors`' implicit-`any` fallback and the set
+        // accessor's parameter (r7-reports §3).
+        self.check_implicit_any_accessor(node);
         let Some(own) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(own);
         let declarations = self.binder.symbols().get(symbol).declarations.clone();

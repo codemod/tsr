@@ -615,10 +615,261 @@ impl<'a> BindResult<'a> {
             let merges =
                 self.module_augmentation_merges(nodes, node_map, augmentation, &mut resolve);
             if !merges.is_empty() {
+                let declined = self.alias_merges.len();
                 self = binder::Binder::resuming(arena, nodes, self).merge_pairs(&merges);
+                self = self.merge_through_alias_targets(
+                    arena,
+                    nodes,
+                    node_map,
+                    declined,
+                    &mut resolve,
+                );
             }
         }
         self
+    }
+
+    /// `mergeSymbol`'s alias arm (`checker.go:14152-14164`) for the alias
+    /// merges one augmentation's [`binder::Binder::merge_pairs`] declined, from
+    /// index `declined` of [`BindResult::alias_merges`] on.
+    ///
+    /// Upstream resolves the non-transient alias target (`resolveSymbol`),
+    /// then either merges the source into (a clone of) the resolved symbol
+    /// and stores that in the table the alias stood in, or — the source's
+    /// excludes hitting the resolved flags — reports
+    /// `reportMergeSymbolError(target, source)` and returns `source`, which
+    /// `mergeSymbolTable` stores in its place (`target[id] = merged`,
+    /// `checker.go:14117`). So an augmentation's `type Row2<T>` displaces an
+    /// `export type { Row2 } from "./common"` of an interface, and its
+    /// `interface I` merges into the `interface I` behind `export default I`.
+    ///
+    /// This binder merges in place, so "a clone of the resolved symbol" is the
+    /// resolved symbol itself (the reasoning on [`binder::Binder`]'s
+    /// `merge_symbol`). The table is the alias's parent's `exports` under the
+    /// alias's name, the only table an augmentation's export recursion merges
+    /// into. A conflicting pair stays in `alias_merges`, so
+    /// `Checker::report_merge_conflicts` reports it on the alias's
+    /// declarations as upstream does; a merged pair leaves it. An alias this
+    /// binder cannot follow ([`BindResult::resolve_alias_for_merge`]) keeps
+    /// the decline: a gap, not a wrong table. Upstream's `unknownSymbol` arm
+    /// (an alias that resolves to nothing takes the source) is not taken for
+    /// that reason — "cannot follow" is not "resolves to nothing" here.
+    /// `docs/parity/notes/r7-shared.md` §2.
+    fn merge_through_alias_targets(
+        mut self,
+        arena: &'a tsr_core::Arena,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        declined: usize,
+        resolve: &mut impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+    ) -> Self {
+        let mut index = declined;
+        while index < self.alias_merges.len() {
+            let (alias, source) = self.alias_merges[index];
+            let entry = self.symbols.get(alias);
+            let name = entry.name;
+            let Some(owner) = entry.parent.map(|parent| self.merged_symbol(parent)) else {
+                index += 1;
+                continue;
+            };
+            if self.symbols.get(owner).exports.get(name) != Some(&alias) {
+                index += 1;
+                continue;
+            }
+            let Some(resolved) =
+                self.resolve_alias_for_merge(nodes, node_map, alias, resolve, &mut Vec::new())
+            else {
+                index += 1;
+                continue;
+            };
+            let resolved_flags = self.symbols.get(resolved).flags;
+            let source_flags = self.symbols.get(source).flags;
+            if !(source_flags | resolved_flags).intersects(SymbolFlags::ASSIGNMENT)
+                && source_flags.excludes().intersects(resolved_flags)
+            {
+                // `reportMergeSymbolError(target, source); return source`.
+                self.symbols.get_mut(owner).exports.insert(name, source);
+                index += 1;
+                continue;
+            }
+            self.alias_merges.remove(index);
+            self = binder::Binder::resuming(arena, nodes, self).merge_pairs(&[(resolved, source)]);
+            self.symbols.get_mut(owner).exports.insert(name, resolved);
+        }
+        self
+    }
+
+    /// `resolveSymbol(alias)` (`checker.go:16258`) as `mergeSymbol`'s alias
+    /// arm asks it, over the alias declarations this binder can follow with
+    /// its own name resolution and the program's module resolution: `export
+    /// default X` / `export = X` of an identifier (`getTargetOfExportAssignment`
+    /// → `resolveEntityName`), an export specifier, local or re-exported from
+    /// a module (`getTargetOfExportSpecifier`), and an import specifier or
+    /// default import of a module without `export =`
+    /// (`getTargetOfImportSpecifier` / `getTargetOfImportClause`). A chain is
+    /// followed to its first non-alias symbol, merged. Every other form, an
+    /// `export =` module member (`getPropertyOfType` on its type) and a cycle
+    /// answer `None`, which the caller keeps as a decline.
+    fn resolve_alias_for_merge(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        alias: SymbolId,
+        resolve: &mut impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+        visited: &mut Vec<SymbolId>,
+    ) -> Option<SymbolId> {
+        const MAX_CHAIN: usize = 16;
+        if visited.contains(&alias) || visited.len() > MAX_CHAIN {
+            return None;
+        }
+        visited.push(alias);
+        let entry = self.symbols.get(alias);
+        let &declaration = entry.declarations.iter().rev().find(|&&declaration| {
+            matches!(
+                nodes.kind(declaration),
+                SyntaxKind::ExportAssignment
+                    | SyntaxKind::ExportSpecifier
+                    | SyntaxKind::ImportSpecifier
+                    | SyntaxKind::ImportClause
+                    | SyntaxKind::ImportEqualsDeclaration
+                    | SyntaxKind::NamespaceImport
+                    | SyntaxKind::NamespaceExport
+                    | SyntaxKind::NamespaceExportDeclaration
+            )
+        })?;
+        let all = SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE;
+        let target = match node_map.get(declaration)? {
+            tsr_ast::Node::ExportAssignment(assignment) => {
+                let Some(tsr_ast::Expression::Identifier(name)) = assignment.expression else {
+                    return None;
+                };
+                self.resolve_name(nodes, node_map, name.node_id?, name.text, all)?
+            }
+            tsr_ast::Node::ExportSpecifier(specifier) => {
+                let export = nodes.parent(nodes.parent(declaration)?)?;
+                let Some(tsr_ast::Node::ExportDeclaration(export_declaration)) =
+                    node_map.get(export)
+                else {
+                    return None;
+                };
+                let local = specifier.property_name.or(specifier.name)?;
+                if let Some(module_specifier) = export_declaration.module_specifier {
+                    let module = self.module_for_merge(
+                        nodes,
+                        node_map,
+                        export,
+                        module_specifier.node_id()?,
+                        resolve,
+                    )?;
+                    self.module_member_for_merge(
+                        nodes,
+                        node_map,
+                        module,
+                        binder::export_name(local),
+                        resolve,
+                    )?
+                } else {
+                    let tsr_ast::ModuleExportName::Identifier(local) = local else {
+                        return None;
+                    };
+                    self.resolve_name(nodes, node_map, local.node_id?, local.text, all)?
+                }
+            }
+            tsr_ast::Node::ImportSpecifier(specifier) => {
+                let import = nodes.parent(nodes.parent(nodes.parent(declaration)?)?)?;
+                let Some(tsr_ast::Node::ImportDeclaration(import_declaration)) =
+                    node_map.get(import)
+                else {
+                    return None;
+                };
+                let name = specifier
+                    .property_name
+                    .or(specifier.name.map(tsr_ast::ModuleExportName::Identifier))?;
+                let module = self.module_for_merge(
+                    nodes,
+                    node_map,
+                    import,
+                    import_declaration.module_specifier?.node_id()?,
+                    resolve,
+                )?;
+                self.module_member_for_merge(
+                    nodes,
+                    node_map,
+                    module,
+                    binder::export_name(name),
+                    resolve,
+                )?
+            }
+            tsr_ast::Node::ImportClause(_) => {
+                let import = nodes.parent(declaration)?;
+                let Some(tsr_ast::Node::ImportDeclaration(import_declaration)) =
+                    node_map.get(import)
+                else {
+                    return None;
+                };
+                let module = self.module_for_merge(
+                    nodes,
+                    node_map,
+                    import,
+                    import_declaration.module_specifier?.node_id()?,
+                    resolve,
+                )?;
+                self.module_member_for_merge(
+                    nodes,
+                    node_map,
+                    module,
+                    binder::INTERNAL_DEFAULT,
+                    resolve,
+                )?
+            }
+            _ => return None,
+        };
+        let target = self.merged_symbol(target);
+        if self.symbols.get(target).flags.intersects(SymbolFlags::ALIAS) {
+            return self.resolve_alias_for_merge(nodes, node_map, target, resolve, visited);
+        }
+        Some(target)
+    }
+
+    /// The module an import or re-export names (`resolveExternalModuleName`),
+    /// merged; `None` when it does not resolve or carries `export =`.
+    fn module_for_merge(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        declaration: NodeId,
+        specifier: NodeId,
+        resolve: &mut impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+    ) -> Option<SymbolId> {
+        let Some(tsr_ast::Node::StringLiteral(literal)) = node_map.get(specifier) else {
+            return None;
+        };
+        let file = std::iter::once(declaration)
+            .chain(nodes.ancestors(declaration))
+            .find(|&node| nodes.kind(node) == SyntaxKind::SourceFile)?;
+        let module = self.merged_symbol(resolve(self, file, literal.text, specifier, false)?);
+        if self.symbols.get(module).exports.get(binder::INTERNAL_EXPORT_EQUALS).is_some() {
+            return None;
+        }
+        Some(module)
+    }
+
+    /// `getExportsOfModule(module)[name]`: the module's own export, else the
+    /// member its `export *` declarations re-export.
+    fn module_member_for_merge(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+        module: SymbolId,
+        name: &str,
+        resolve: &mut impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+    ) -> Option<SymbolId> {
+        match self.symbols.get(module).exports.get(name) {
+            Some(&own) => Some(own),
+            None => {
+                self.export_star_member(nodes, node_map, module, name, resolve, &mut Vec::new())
+            }
+        }
     }
 
     /// The declined `(alias, module, source)` merges whose alias is a UMD global
