@@ -3388,6 +3388,12 @@ impl<'a> Checker<'a, '_> {
             }
             return self.binder.pattern_ambient_module(text);
         };
+        // `sourceFile` is nil under a resolution diagnostic other than TS6142
+        // (`checker.go:15214`, `isolated_alias.rs`): TS6263's arbitrary
+        // extension is in the program and still answers no module.
+        if !self.resolution_keeps_source_file(importing_file, text, mode, target) {
+            return None;
+        }
         // `sourceFile.Symbol != nil` (`checker.go:15321`). `None` here is a file
         // that is not an external module — upstream's `File_0_is_not_a_module` —
         // and it is the reason the host answers a *file* rather than a symbol:

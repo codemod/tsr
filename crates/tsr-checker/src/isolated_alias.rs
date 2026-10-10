@@ -802,10 +802,6 @@ impl Checker<'_, '_> {
     /// JavaScript or JSON file (both stamped `JAVASCRIPT_FILE`) or a
     /// declaration file asks the host for the resolver's extension, and the
     /// common import stops at a flag read (r6-modules3 §4).
-    #[allow(
-        dead_code,
-        reason = "called by the held hook docs/parity/notes/r6-modules3-resolution-source-file.diff"
-    )]
     pub(crate) fn resolution_keeps_source_file(
         &self,
         importing_file: NodeId,
