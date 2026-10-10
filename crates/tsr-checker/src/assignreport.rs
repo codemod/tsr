@@ -4047,6 +4047,10 @@ impl<'a> Checker<'a, '_> {
     /// signatures; an intersection of only such. `None` where the member
     /// table is not certified.
     fn is_weak_type(&mut self, t: TypeId) -> Option<bool> {
+        // The substitution arm: `NoInfer<T>` is weak exactly when `T` is.
+        if let Some(base) = self.no_infer_base_type(t) {
+            return self.is_weak_type(base);
+        }
         if let TypeData::Intersection { types, .. } = self.type_of(t).data.clone() {
             for part in types {
                 if !self.is_weak_type(part)? {

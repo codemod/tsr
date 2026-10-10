@@ -625,3 +625,26 @@ constituent's names are not enumerable.
 **Measured** (unfiltered, against batch-11 main `86d9406e` plus §11–§12):
 WRONG → RIGHT `tsxStatelessFunctionComponentsWithTypeArguments4`; no other
 row changed; type lines identical.
+
+## 14. `isWeakType`'s substitution arm
+
+**Forcing fact.** `noInferCommonPropertyCheck1`: `test1(partialObj1,
+someObj1)` with `b: NoInfer<T> & { prop?: unknown }` is TS2559 (`Type '{ x:
+string; }' has no properties in common with type 'NoInfer<Partial<…>> & {
+prop?: unknown; }'`), and the same holds for `NoInfer<T1> & NoInfer<T2>`.
+TSR reported neither.
+
+**Upstream.** `isWeakType` (`relater.go:681`): an object type by its
+members, an intersection when every constituent is weak, and a
+**substitution** type by its base (`t.AsSubstitutionType().baseType`).
+`NoInfer<T>` is a substitution type.
+
+**Port** (`assignreport.rs`, `is_weak_type`). A `NoInfer<T>` reference
+(`no_infer_base_type`) answers its base's weakness. Before this it answered
+None (undecided), so the intersection was never weak.
+
+**Measured** (unfiltered, against `86d9406e` plus §11–§13): WRONG → RIGHT
+`noInferCommonPropertyCheck1`; no other row changed; type lines identical.
+`nestedExcessPropertyChecking` (30,22) stays: the elaboration's target for
+the nested `overrides` property comes from an intersection with a
+`Partial` instance, which `elaborate_object_literal_members` does not read.
