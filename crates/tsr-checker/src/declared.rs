@@ -5915,6 +5915,11 @@ impl<'a> Checker<'a, '_> {
         {
             return image;
         }
+        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && let Some(image) = self.new_alias_union_instantiation(result, symbol, alias)
+        {
+            return image;
+        }
         if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             return self.new_alias_instantiation(result, symbol, alias);
         }
@@ -6034,6 +6039,56 @@ impl<'a> Checker<'a, '_> {
         let image = self.store.intern_intersection(
             self.store.get(result).flags,
             crate::types::TypeData::Intersection { types, text, symbol: Some(alias) },
+        );
+        self.type_reference_targets.insert(image, (target, arguments));
+        self.alias_of.insert(image, (alias, Vec::new()));
+        self.deferred_alias_references.insert((alias, result), image);
+        Some(image)
+    }
+
+    /// [`Self::new_alias_intersection_instantiation`]'s union twin:
+    /// instantiateTypeWorker hands the new alias to getUnionType
+    /// (`checker.go:22176`), so `type IStringContainer = Container<string>`
+    /// over `type Container<T> = T | { [i: string]: Container<T> }` declares
+    /// the union printed `IStringContainer`. The target's aliased union
+    /// (the union arm of [`Checker::create_type_reference`]) is re-created
+    /// under the declaring alias's name with the same constituents;
+    /// `type_reference_targets` keeps the canonical pair and `alias_of`
+    /// records the new alias. Cache: `deferred_alias_references[(alias,
+    /// canonical)]`. `None` for anything else (r7-declared §10).
+    fn new_alias_union_instantiation(
+        &mut self,
+        result: TypeId,
+        symbol: SymbolId,
+        alias: SymbolId,
+    ) -> Option<TypeId> {
+        let crate::types::TypeData::Union { types, symbol: Some(owner), .. } =
+            self.store.get(result).data.clone()
+        else {
+            return None;
+        };
+        if owner != symbol
+            || !self.local_type_parameters_of(alias).is_empty()
+            || !matches!(
+                self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::UnionTypeNode(_))
+            )
+        {
+            return None;
+        }
+        let (target, arguments) = self.type_reference_targets.get(&result).cloned()?;
+        if target != symbol {
+            return None;
+        }
+        if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
+            return Some(cached);
+        }
+        let text = self.binder.symbols().get(alias).name.to_string();
+        let image = crate::unions::create_union(
+            &mut self.store,
+            TypeFlags::empty(),
+            types,
+            Some((alias, text)),
         );
         self.type_reference_targets.insert(image, (target, arguments));
         self.alias_of.insert(image, (alias, Vec::new()));

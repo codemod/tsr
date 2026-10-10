@@ -493,3 +493,36 @@ narrow) were of that bug, not of the port.
   8, unionAndIntersectionInference1 4, typePredicateFreshLiteralWidening 4,
   discriminateWithOptionalProperty3 ×2 8, for-of58 3, awaitedType(StrictNull)
   6, and more. Not yet analysed.
+
+### 10.1 The union arm of the new-alias instantiation, and what holds the wider slice
+
+`new_alias_union_instantiation` is `new_alias_intersection_instantiation`'s
+union twin. getTypeFromTypeAliasReference's `newAliasSymbol` reaches
+getUnionType, so `type X = R<number>` declares the union printed `X`, and
+`type IStringContainer = Container<string>` declares the union printed
+`IStringContainer`. The target's aliased union is re-created under the
+declaring alias's name, cached in `deferred_alias_references[(alias,
+canonical)]`. Alone it measures 0 / 0 (no corpus line has the slice's shape
+under a declaring alias). With every union body admitted it removes the
+recursiveGenericUnionType1/2 losses: that wide slice goes from +79 / −13 to
+**+47 / −9 types and +3 / −1 diagnostics** over §10's slice.
+
+Each of the nine remaining losses is a reader outside this lane that drops
+a union's alias identity:
+- **typeGuardsAsAssertions 0:23/0:31** (`Optional<r>` printed `None |
+  Some<r>`): native getUnionOrEvolvingArrayType (`flow.go:1314`) returns
+  the declared type when the junction's union has the same constituents
+  (`slices.Equal(result.types, declaredType.types)`). TSR's
+  `union_or_evolving_array` (`flow.rs`, r7-flow) lacks that arm.
+- **discriminateWithOptionalProperty2 ×6** (`Promise<IteratorResult<U, R>>`
+  printed with its constituents): the async return's awaited type maps the
+  aliased union and rebuilds it. Native mapType returns the union itself
+  when no constituent changed. Owner: the awaited-type reader
+  (`expressions.rs`, main).
+- **jsxComplexSignatureHasApplicabilityError 0:52**
+  (`HandlerRendererResult` printed `false | JSX.Element | null`): the
+  same unchanged-union rebuild on another reader, not yet located.
+- **unionAndIntersectionInference3** (diagnostics EMPTY_RIGHT →
+  EMPTY_WRONG, false TS2345 at 77 and 87): inference into `C &
+  ComponentType<P>` and `T & AB<U>` now that the alias instances are
+  unions. Owner: `inference.rs`.
