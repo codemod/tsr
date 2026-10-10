@@ -682,7 +682,6 @@ impl Checker<'_, '_> {
     /// through `getParentElementAccess` without a walk of their own.
     // Its callers are `getBindingElementTypeFromParentType`'s two sites in
     // `destructure.rs` (r7-contextual's); `docs/parity/notes/r7-flow.md` §7.
-    #[allow(dead_code)]
     pub(crate) fn get_flow_type_of_destructuring(
         &mut self,
         node: NodeId,

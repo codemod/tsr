@@ -321,3 +321,22 @@ Result (commit 5), against the `249f9754` freeze: types +10 RIGHT
 ×4), 0 lost. Falsifier: two generic overloads with *different* type-parameter
 counts where native still finds a contextual signature. It cannot, since
 `compareTypeParametersIdentical` returns false on the length check.
+
+## 6. `getFlowTypeOfDestructuring` at the binding-element sites (with r7-flow)
+
+`getBindingElementTypeFromParentType` narrows the object arm's indexed access
+(`checker.go:17743`) and the array-like positional access (`:17771`) through
+`getFlowTypeOfDestructuring` (`:17849`), a flow walk of the synthetic
+reference `parent["name"]`. r7-flow ported that walk as
+`flow.rs::get_flow_type_of_destructuring` (its note §7). This commit wires its
+two callers in `destructure.rs`, after the element type's error check. Rest
+elements are excluded, as natively (their arms do not call it). The diff is
+r7-flow's `r7-flow-destructuring-call-site.diff` unchanged, plus removal of
+the entry's `#[allow(dead_code)]`, which the integrator granted. No new cache:
+one flow walk per element read, as native's `getFlowTypeOfReference`.
+
+Result (commit 6), against the `e5e0494b` freeze: types +20 RIGHT
+(`destructuringTypeGuardFlow` 8, `destructuringControlFlow` 7,
+`dependentDestructuredVariables` 3, `narrowingDestructuring` 2), diagnostics
++2, 0 lost. jsTyping's shape (`if (!state.cache) return; const { cache } =
+state; cache.orig();`) no longer reports TS18048, matching tsgo-pinned.
