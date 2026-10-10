@@ -572,6 +572,39 @@ memo `contextual_type_for_argument` reads is shared by `new`).
 lost; types 0/0; jsTyping new_false 0, lost_true 0; callgrind Ir
 generic-imports 0.9999, domain-model 0.9999.
 
+## 13. A single non-generic candidate reports over spread arguments (CALL-SPREAD-ARGUMENT-APPLICABILITY)
+
+**Native.** `isSingleNonGenericCandidate` (`checker.go:9030`) does not look
+at spreads. `getEffectiveCallArguments` (`checker.go:30042`) expands a tuple
+spread into synthetic arguments (a rest or variadic element spread-flagged)
+and keeps any other spread as one argument. `isSignatureApplicable` checks a
+spread argument with `checkSpreadExpression` (its iterated element type) and
+a spread synthetic with `checkSyntheticExpression` (the element type), each
+against `getTypeAtPosition`.
+
+**Before.** `check_candidates_arity` returned `Applicable(None)` for any
+call with a spread, so a single non-generic candidate never reached the
+report pass.
+
+**Change.** The spread and count conditions are dropped from the
+single-non-generic arm. The report pass already builds the effective
+argument list (`report_call_arguments`, `tuple_spread_elements`); a written
+spread is typed by `check_expression`'s spread arm (its element type) and a
+spread synthetic by its element type (§7). A non-array rest
+(`getSpreadArgumentType`) still declines. Generic and overloaded candidates
+keep their spread declines.
+
+**Measured** against `d0a068a2` on `41f3c70b`: diagnostics +4, 0 lost; types
+0/0. Converted: callWithSpread2, callWithSpread3, callWithSpread5,
+iteratorSpreadInCall6. jsTyping new_false 0, lost_true 0. Callgrind Ir:
+generic-imports 0.9999, domain-model 1.0003. Exact oracle 9,582 → 9,584,
+exact_lost 0.
+
+It was held (`box/r7-calls-held`) while the jsTyping leg refused it: it
+exposed three false TS2345s from type-road defects elsewhere. Two came from
+the written-type-argument overload walk (§9); the third, `checker.ts:51482`,
+from the evolving-array receiver after `result ||= []` (r7-flow, `3d2d17f8`).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
