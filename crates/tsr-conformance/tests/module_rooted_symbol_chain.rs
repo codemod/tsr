@@ -120,3 +120,58 @@ declare module "./file1" {
         &["foo : import(\"./file1\")", "foo : typeof import(\"./file1\")", "x : typeof x"],
     );
 }
+
+/// A print baked with its written qualifier (`foo.Provide`) is re-spelled
+/// from `getSymbolChain` at the site: the in-scope alias `provide` names the
+/// namespace first (`aliasBug`'s native baseline).
+#[test]
+fn a_written_qualifier_is_respelled_by_the_accessible_chain() {
+    let lines = assertions(
+        "probe/module_rooted_written_qualifier",
+        r"// @target: es2015
+// @module: commonjs
+namespace foo {
+    export class Provide {
+    }
+}
+import provide = foo;
+function use() {
+  var p1: provide.Provide;
+  var p2: foo.Provide;
+}
+",
+    );
+    assert_has(&lines, &["p1 : provide.Provide", "p2 : provide.Provide"]);
+}
+
+/// A JavaScript file that only `require`s is a `CommonJS` module, so its
+/// locals are a scope table (`ast.IsGlobalSourceFile`), and the `require`
+/// alias names the module (`varRequireFromJavascript`'s native baseline).
+#[test]
+fn a_require_alias_in_a_commonjs_file_names_its_module() {
+    let lines = assertions(
+        "probe/module_rooted_require_alias",
+        r"// @target: es2015
+// @allowJs: true
+// @checkJs: true
+// @strict: true
+// @noEmit: true
+// @Filename: ex.js
+export class Crunch {
+    /** @param {number} n */
+    constructor(n) {
+        this.n = n
+    }
+}
+// @Filename: use.js
+var ex = require('./ex')
+/**
+ * @param {ex.Crunch} wrap
+ */
+function f(wrap) {
+    wrap.n
+}
+",
+    );
+    assert_has(&lines, &["wrap : ex.Crunch"]);
+}

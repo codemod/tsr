@@ -1100,7 +1100,14 @@ impl Checker<'_, '_> {
                     TypeData::Union { symbol: Some(symbol), .. }
                         if self.binder.symbols().get(*symbol).flags
                             .contains(tsr_binder::SymbolFlags::TYPE_ALIAS));
-            let plain = !flags.intersects(TypeFlags::OBJECT | TypeFlags::UNION);
+            // getUnionTypeWorker (checker.go:25705-25728) builds the
+            // denormalized origin from the named unions and every other
+            // reduced constituent, objects included (`CC | C3` over `type CC
+            // = C1 | C2` is `C3 | CC`). §53's gate declined a non-union
+            // object entry; r6-typesroots §9 measured lifting it at +35 / −2,
+            // the two losses a member-less alias placeholder that r7-declared
+            // §7 completed (r7-declared §8).
+            let plain = !flags.intersects(TypeFlags::UNION);
             if !(enum_union || alias_union || plain || intersection_origin) {
                 // §58.1 (`checker-notes-narrow.md`): before declining, a set
                 // that IS a named union's member set answers the named type —

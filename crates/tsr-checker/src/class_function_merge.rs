@@ -10,12 +10,22 @@
 //! `check.rs`'s `check_function_or_constructor_symbol` ports the
 //! implementation-expected arms of the same worker and declines class-merged
 //! symbols; this is the arm it declines. Upstream runs the worker once per
-//! symbol (`links.functionOrConstructorChecked`, `checker.go:3463`) from both
-//! `checkFunctionOrMethodDeclaration` and `checkClassLikeDeclaration`; the
-//! arm's output does not depend on which declaration triggered it, so this
-//! port runs it from the symbol's first class or function declaration and
-//! keeps no side table. The only traversal is the merged symbol's
-//! declaration list and each declaration's ancestor chain for `declare`.
+//! symbol per checker (`links.functionOrConstructorChecked`,
+//! `checker.go:3463`) from both `checkFunctionOrMethodDeclaration` and
+//! `checkClassLikeDeclaration`, from whichever declaration that checker
+//! reaches first. The arm's output does not depend on the trigger, but which
+//! checker runs it does: under several checkers each publishes only the
+//! diagnostics on the files it owns, so the checker that owns a second
+//! file's declaration must reach the arm from that declaration
+//! (`duplicateIdentifiersAcrossFileBoundaries` under `--checkers 4`,
+//! `tsr-2zk.1258`). An earlier port ran it only from the symbol's first
+//! declaration, which only the checker owning that file ever reaches.
+//!
+//! Checker port convention: the link is `class_function_merge_checked`,
+//! keyed by the merged `SymbolId`, owned by the `Checker`, set once on first
+//! visit (no provisional state). The only traversal is the merged symbol's
+//! declaration list and each declaration's ancestor chain for `declare`,
+//! once per symbol per checker.
 
 use tsr_ast::{NodeId, SyntaxKind};
 use tsr_binder::SymbolFlags;
@@ -34,17 +44,12 @@ impl Checker<'_, '_> {
         if !entry.flags.contains(SymbolFlags::FUNCTION) {
             return;
         }
-        let declarations = entry.declarations.clone();
-        let name = entry.name.to_string();
-        let first = declarations.iter().copied().find(|&declaration| {
-            matches!(
-                self.nodes.kind(declaration),
-                SyntaxKind::ClassDeclaration | SyntaxKind::FunctionDeclaration
-            )
-        });
-        if first != Some(node) {
+        // `if !links.functionOrConstructorChecked { … }`.
+        if !self.class_function_merge_checked.insert(symbol) {
             return;
         }
+        let declarations = entry.declarations.clone();
+        let name = entry.name.to_string();
         // `ast.IsClassLike(node) && !inAmbientContext` (`checker.go:3605`).
         let has_non_ambient_class = declarations.iter().any(|&declaration| {
             matches!(

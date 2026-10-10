@@ -21,6 +21,8 @@ required-features = ["work-trace"]
 
 [dependencies]
 tsr-execute.workspace = true
+mimalloc.workspace = true
+libmimalloc-sys.workspace = true
 
 [lints]
 workspace = true

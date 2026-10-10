@@ -1041,6 +1041,12 @@ pub struct Checker<'a, 'n> {
     /// function reports three times and the `diagnostics` suite compares
     /// multisets.
     pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    /// Merged symbols whose class-merge arm of
+    /// `checkFunctionOrConstructorSymbolWorker` this checker has run
+    /// (`class_function_merge.rs`): upstream's
+    /// `links.functionOrConstructorChecked` (`checker.go:3463`), per checker,
+    /// for the arm this port keeps apart from `function_symbol_checked`'s.
+    pub(crate) class_function_merge_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// Nodes for which `check_grammar_modifiers` (upstream's
     /// `checkGrammarModifiers`, `grammar.rs`) answered `true`. Upstream's
     /// callers are gated on `!c.checkGrammarModifiers(node)`.
@@ -1679,6 +1685,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             enum_checked: rustc_hash::FxHashSet::default(),
             merged_spaces_checked: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
+            class_function_merge_checked: rustc_hash::FxHashSet::default(),
             modifier_chain_reported: rustc_hash::FxHashSet::default(),
             modifier_chain_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
@@ -3048,6 +3055,23 @@ impl<'a, 'n> Checker<'a, 'n> {
         {
             return Some(renamed);
         }
+        // r7-printer §5: a print baked with a written qualifier
+        // (`B.A`, `foo.Provide`) is re-spelled from `getSymbolChain` at the
+        // site, as `symbolToTypeNode` names every reference.
+        if let Some((start, end)) = Self::split_around_qualified_name(&printed, name) {
+            let meaning =
+                if printed.starts_with("typeof ") { SymbolFlags::VALUE } else { SymbolFlags::TYPE };
+            if let Some(spelled) = self.symbol_chain_text_at(symbol, reference, meaning)
+                && spelled != printed[start..end]
+            {
+                let mut out = String::with_capacity(printed.len() + spelled.len());
+                out.push_str(&printed[..start]);
+                out.push_str(&spelled);
+                out.push_str(&printed[end..]);
+                return Some(out);
+            }
+            return Some(printed);
+        }
         let Some(suffix_at) = Self::split_around_name(&printed, name) else {
             return Some(printed);
         };
@@ -3198,6 +3222,63 @@ impl<'a, 'n> Checker<'a, 'n> {
         Some(out)
     }
 
+    /// Where a dotted entity name ending in `name` sits in `printed`, if
+    /// `printed` is `Q1.….name`, possibly under `typeof` and possibly with
+    /// type arguments: `(start, end)` of the whole dotted path. `None` for a
+    /// bare name ([`Checker::split_around_name`]'s shape) or anything else.
+    fn split_around_qualified_name(printed: &str, name: &str) -> Option<(usize, usize)> {
+        if name.is_empty() {
+            return None;
+        }
+        let start = if printed.starts_with("typeof ") { "typeof ".len() } else { 0 };
+        let rest = &printed[start..];
+        let path_len = rest.find('<').unwrap_or(rest.len());
+        if path_len < rest.len() && !rest.ends_with('>') {
+            return None;
+        }
+        let path = &rest[..path_len];
+        let qualifier = path.strip_suffix(name)?.strip_suffix('.')?;
+        let is_identifier = |segment: &str| {
+            let mut chars = segment.chars();
+            chars.next().is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
+                && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
+        };
+        if qualifier.is_empty() || !qualifier.split('.').all(is_identifier) {
+            return None;
+        }
+        Some((start, start + path_len))
+    }
+
+    /// `getSymbolChain(symbol, meaning, true, true)` spelled as
+    /// `symbolToTypeNode` writes it: an import type when the root is an
+    /// external module, else the chain's names joined by `.`. No cache of its
+    /// own (the resolver's, `accessibility_links`).
+    fn symbol_chain_text_at(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
+            .symbol_chain_at(symbol, reference, meaning, true, true, 0);
+        let (&root, rest) = chain.split_first()?;
+        let root_is_module = self.is_module_symbol(root)
+            || self.binder.symbols().get(root).declarations.iter().any(|&declaration| {
+                matches!(self.node_map.get(declaration), Some(Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+            });
+        let mut text = if root_is_module {
+            format!("import({})", self.module_specifier_for_symbol(root, reference)?)
+        } else {
+            self.binder.symbols().get(root).name.to_string()
+        };
+        for &part in rest {
+            text.push('.');
+            text.push_str(self.binder.symbols().get(part).name);
+        }
+        Some(text)
+    }
+
     /// Where `name` sits in `printed`, if `printed` is that name possibly under
     /// `typeof` and possibly with type arguments. Returns the offset just past
     /// the name.
@@ -3322,112 +3403,31 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let module_name = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
                 return Some(format!("import(\"{module_name}\")."));
             }
-            // §106 (`checker-notes-narrow.md`): the FILE-module half of
-            // `getSpecifierForModuleSymbol` — a module inaccessible at the
-            // site spells `import("./name").`; this port stores the stripped
-            // file path as the module symbol's name. Same-directory slice:
-            // a name carrying visible directory structure keeps the decline
-            // (a wrong specifier is worse than the bare name).
-            if self.is_module_symbol(parent) {
-                let module_name = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
-                // The port's module names are absolute virtual paths
-                // (`/file`, `/.src/file`); the same-directory slice is the
-                // name relative to the reference file's directory when the
-                // module sits under it, else relative to `/` as before. The
-                // harness compiles in the runner's `/.src` (r5-config §4),
-                // where "root-relative" would make every unit look nested.
-                // Deeper structure keeps the decline — a wrong specifier is
-                // worse than the bare name.
-                let reference_directory = self
-                    .source_file_of(reference)
-                    .and_then(|file| self.module_host.and_then(|host| host.file_path(file)))
-                    .map(|path| tsr_path::get_directory_path(&path).to_string());
-                let stem = reference_directory
-                    .as_deref()
-                    .filter(|directory| *directory != "/")
-                    .and_then(|directory| module_name.strip_prefix(directory))
-                    .and_then(|rest| rest.strip_prefix('/'))
-                    .unwrap_or_else(|| module_name.strip_prefix('/').unwrap_or(module_name));
-                // NEVER for the reference's own file: a same-file name that
-                // failed to resolve is a synthetic/evaluated position, and
-                // the bare name is upstream's print there (chain1's 217 R→W
-                // measured without this gate).
-                let same_file = {
-                    let mut current = Some(reference);
-                    let mut reference_file = None;
-                    while let Some(id) = current {
-                        if self.nodes.kind(id) == tsr_ast::SyntaxKind::SourceFile {
-                            reference_file = Some(id);
-                            break;
-                        }
-                        current = self.nodes.parent(id);
-                    }
-                    reference_file.is_some_and(|file| {
-                        self.binder
-                            .symbols()
-                            .get(parent)
-                            .declarations
-                            .first()
-                            .is_some_and(|&declaration| declaration == file)
-                    })
-                };
-                // `forEachSymbolTableInScope` (`symbolaccessibility.go`) reads
-                // the reference file's own `exports`; `needsQualification`
-                // stops at the first table holding the name. A same-file
-                // symbol that table does not hold (a conflicting declaration
-                // `declareSymbol` split into its own symbol), or whose name
-                // resolves to another symbol first, reaches the specifier for
-                // its own file. Only an exported symbol whose name did not
-                // resolve at all keeps the decline above.
-                let held_by_exports =
-                    self.binder.symbols().get(parent).exports.get(name).is_some_and(|&held| {
-                        self.binder.merged_symbol(held) == self.binder.merged_symbol(symbol)
-                    });
-                let unresolved_export = same_file
-                    && held_by_exports
-                    && self.resolve_name_at_print_site(reference, name, meaning).is_none();
-                // A reference in the module's own file keeps the flat arm:
-                // the specifier for its own file, unless the exported name did
-                // not resolve. The resolver's walk below would answer the
-                // same, but it reads `resolveAlias`, and a same-file conflict
-                // (`import EnumA = Enum.A` beside `export type EnumA`, whose
-                // alias the port leaves unresolved) would turn it into a bare
-                // name (r7-printer §1.3).
-                if same_file {
-                    if !unresolved_export && !stem.contains('/') && !stem.is_empty() {
-                        // `getSpecifierForModuleSymbol`'s spelling
-                        // (`crate::module_specifiers`, r5-modules2 §3).
-                        let specifier = self.module_specifier_for_symbol(parent, reference)?;
-                        return Some(format!("import({specifier})."));
-                    }
-                    return None;
-                }
-                // r7-printer §1: from another file, whether the chain is
-                // rooted at a module is `getSymbolChain`'s answer
-                // (`nodebuilderimpl.go:1087`), asked of the resolver's
-                // faithful walk ([`DeclarationEmitResolver::symbol_chain_at`]),
-                // not of whether the file mentions the specifier. An
-                // `export { C } from "./t1"` is no local name for `C`
-                // (`trySymbolTable` skips export-specifier aliases,
-                // `symbolaccessibility.go:573`), so the chain is `[t1, C]`
-                // and prints `import("./t1").C`. The root may be another
-                // module than the declaring one: a re-exporting module the
-                // walk prefers (`getWithAlternativeContainers`,
-                // `sortByBestName`). The specifier is the program's
-                // (`modulespecifiers.GetModuleSpecifiers`); a checker built
-                // without a module host has no program, resolves no import,
-                // and names no module from another file.
-                if self.module_host.is_some()
-                    && let Some((root, leaf)) =
-                        self.module_rooted_chain_at(symbol, reference, meaning)
-                    && self.binder.symbols().get(leaf).name == name
-                {
-                    let specifier = self.module_specifier_for_symbol(root, reference)?;
-                    // `symbolToTypeNode`'s portability report
-                    // (`nodebuilderimpl.go:681`), a no-op outside a tracker.
-                    self.track_unsafe_import(&specifier, symbol, root);
-                    return Some(format!("import({specifier})."));
-                }
+            // The file-module half of `getSpecifierForModuleSymbol`
+            // (`nodebuilderimpl.go:1249`): whether the chain is rooted at a
+            // module is `getSymbolChain`'s answer (`nodebuilderimpl.go:1087`),
+            // asked of the resolver's faithful walk
+            // ([`DeclarationEmitResolver::symbol_chain_at`]), from any file,
+            // the module's own included (r7-printer §1, §6). An
+            // `export { C } from "./t1"` is no local name for `C`
+            // (`trySymbolTable` skips export-specifier aliases,
+            // `symbolaccessibility.go:573`), so the chain is `[t1, C]` and
+            // prints `import("./t1").C`. The root may be another module than
+            // the declaring one: a re-exporting module the walk prefers
+            // (`getWithAlternativeContainers`, `sortByBestName`). The
+            // specifier is the program's (`modulespecifiers.GetModuleSpecifiers`);
+            // a checker built without a module host has no program, resolves
+            // no import, and names no module.
+            if self.is_module_symbol(parent)
+                && self.module_host.is_some()
+                && let Some((root, leaf)) = self.module_rooted_chain_at(symbol, reference, meaning)
+                && self.binder.symbols().get(leaf).name == name
+            {
+                let specifier = self.module_specifier_for_symbol(root, reference)?;
+                // `symbolToTypeNode`'s portability report
+                // (`nodebuilderimpl.go:681`), a no-op outside a tracker.
+                self.track_unsafe_import(&specifier, symbol, root);
+                return Some(format!("import({specifier})."));
             }
             return None;
         }

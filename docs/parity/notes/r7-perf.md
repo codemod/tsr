@@ -507,3 +507,138 @@ once per program, as upstream's does at program creation.
   is clean.
 - Perf, the three r7-perf commits on `660718af` against its frozen binary
   (21 samples, child CPU): domain-model 0.988, generic-imports 0.976.
+
+## §10 The `tsr` binary allocates with mimalloc (ADR-0055)
+
+The integrator approved this on 2026-10-10, conditionally. It needed
+interleaved A/B at 41 samples ≤ 1.00 child CPU on all four projects; the
+options set in `main.rs` rather than the environment; and an ADR recording
+the `unsafe` exception and the refused alternatives. This lane owns
+`Cargo.toml`/`Cargo.lock` for the commit.
+[ADR-0055](../../adr/0055-the-tsr-binary-allocates-with-mimalloc.md) has
+the decision, the variant table (v3, v3 + `no_thp`, v2, v2 + purge off) and
+the ADR-0011 exception: one `mi_option_set(purge_delay, -1)` at the start
+of `main`.
+
+**Measured** (the committed binary against its glibc parent `c36a7706`,
+`/tmp/box/ab.py`, interleaved, 41 samples):
+
+| project | wall | child CPU |
+|---|---:|---:|
+| generic-imports | 0.933 | **0.949** |
+| domain-model | 0.820 | **0.833** |
+| domain-model-large | 0.819 | **0.826** |
+| jsTyping | 0.831 | **0.775** |
+
+CLI output is `cmp`-identical to the glibc binary on all four projects. The
+gates are unaffected by construction: only `crates/tsr` links the
+allocator, and the conformance harness, tests and examples keep glibc.
+
+## §11 Measured and refused: pre-sizing the node tables for the lib set
+
+**Hypothesis.** Each file's parse grows the shared `NodeTable`/`NodeMap`
+by `len / 10` rows. The growth steps copy rows already written, which
+glibc's `mremap` avoids for large blocks and mimalloc does not. That could
+explain generic-imports' small mimalloc deficit. **Change tried**
+(`FileLoader::reserve_for_bundled_libs`, not committed): reserve once for
+the whole bundled lib set's text (3.79 MB / 10 rows) before the walk.
+
+**Measured** (41 samples, interleaved, generic-imports): glibc 1.003 wall /
+1.000 CPU; mimalloc + reserve 1.002 / 1.024 against mimalloc 0.985 / 1.008.
+It is noise at best, so it was refused. purge off (§10) is what closed
+generic-imports' gap.
+
+## §4 correction: the jsTyping classFields TS2345s were transient
+
+Report 2 (and this note's earlier revisions of §4) said batch 2 added 6
+TS2345 at `classFields.ts:2794`–`2922`. They are real on the binary built
+from `1c204cd1`, which is batch-2 main `1b466dc8` plus this lane's
+teardown commit (`/tmp/box/after4/tsr`): 429 diagnostics, 18 in
+`classFields.ts`, 6 in lines 2700–2999. They are absent from `9020aa67`
+(423 / 12 / 0) and from `c36a7706` on batch-5 main (259 / 1 / 0), using
+the same command (`tsconfig.perf.json --noEmit --incremental false
+--composite false --pretty false`). r7-calls tested `660718af` and later
+builds, where they had already gone. So a batch-2 regression was fixed by
+batch 3 or 4, and there is nothing left to route. jsTyping now reports 259
+against tsgo's 86 on `c36a7706`.
+
+## §12 The design record for `tsr-2zk.17.4`/`.17.5` (ADR-0056, proposed)
+
+The integrator asked for it on 2026-10-10.
+[ADR-0056](../../adr/0056-rebasable-node-ids-and-per-file-bind-for-a-zero-copy-front-end.md)
+proposes rebasable node ids: an `AtomicU32`-backed `node_id`, a rebase
+pass at publication, and per-file arenas kept in a program-owned pool. It
+pairs them with the existing per-file bind and id-offset merge. The
+measured input comes from `crates/tsr-compiler/examples/front_end_ceiling.rs`
+(new; release, minimum of 7 rounds per file, 4 workers). Today's path to
+zero-copy saves generic-imports 2.8–5.1 ms, domain-model 12.3–15.1 ms
+and domain-model-large 22–30 ms per process. The floor on every bench is
+`lib.dom.d.ts`'s single-threaded parse and bind, about 22 ms. Not built;
+funding is the integrator's decision.
+
+## §13 Where the ratios stand after §10
+
+TSR/tsgo, `whole_project_perf.py`, 21 samples, one session, the binary at
+`4c765057` (mimalloc). This session's absolute times ran 10–25% above the
+§10 A/B session's; the ratios are within one run.
+
+| project | release wall · CPU | **dist wall · CPU** |
+|---|---:|---:|
+| domain-model | 0.616 · 0.438 | **0.540** · 0.416 |
+| domain-model-large | 0.745 · 0.526 | **0.716** · 0.479 |
+| generic-imports | 0.665 · 0.330 | **0.598** · 0.303 |
+
+jsTyping is still not equivalent work (259 diagnostics against 86 on
+`c36a7706`). The 0.50 target is not met. domain-model-large is furthest
+off, and its remainder is the check phase.
+
+## §14 domain-model-large's remaining wall: checker 0 prints types on the success path
+
+**Pool balance** (a temporary per-checker timer in `checker_pool.rs`, not
+committed; three runs of the release binary, mimalloc). Checker 0 finishes
+in 469–660 ms. Checkers 1–3 finish in 248–364 ms. Each checker has 50 or 51
+files. The extra is one file: `src/main.ts` (program index 264, so
+264 % 4 = checker 0, the same assignment as native `checkerpool.go:115`)
+took **395 ms**. Single-threaded, after every model file was already
+checked, it takes about 155 ms, and its cost is linear in its 200
+`run()` blocks (K = 25 / 50 / 100 / 200 blocks: 21 / 35 / 68 / 155 ms).
+
+**Against tsgo, single-threaded** (`--singleThreaded`, check time, three
+runs; `/tmp/box/dmlk<K>` copies with `main.ts` cut to K blocks):
+
+| K blocks | TSR check | tsgo check |
+|---:|---:|---:|
+| 25 | 0.93–1.04 s | 0.67–0.77 s |
+| 200 | 1.09–1.26 s | 0.74–0.86 s |
+
+TSR's single-threaded checker is about 1.4× tsgo's on this project. The
+multi-threaded CPU ratio (0.48–0.53) flatters it, because tsgo's
+goroutines spend CPU that does not shorten its wall. Per `main.ts` block
+TSR pays about 1.1 ms against tsgo's about 0.3 ms.
+
+**Where a block's time goes** (`perf`, dwarf call graphs, inclusive sample
+delta between K = 200 and K = 25, single-threaded): 249 of the 339-sample
+increase under `check_single_candidate_arguments` is
+`objects.rs` `check_object_literal_members` → `member_text_at` →
+`type_to_string_at` → `qualified_name_at` → `symbol_chain` →
+`symbol_accessibility` (`try_symbol_table`,
+`alternative_containing_modules`, `same_reference`). Every object literal
+mints its type with its members' text rendered **at the literal's site**
+(§735's render-at-reference). In `main.ts`, each
+`describeModelNNNEvent({ kind: "created", item: createdNNN.value })`
+renders `item`'s interface name by searching the accessible symbol chain
+through a file with 600 imported names. No error is ever printed. Native
+prints on error paths only. `get_type_at_flow_condition` /
+`get_type_at_flow_branch_label` (175 samples, mostly the narrowing of
+`createdNNN.ok`/`.value` inside the long function) come next.
+
+Share of all CPU (4 checkers): `member_text_at` is **6.2%** on dml (17.3%
+of checker 0, the critical path) and 2.1% on dm (7.0% of checker 0).
+Making the literal's member text lazy, read through the
+`PrintedSlot::on_demand` road that `AnonymousProperty` already has, or
+through an ADR-0052 print-time plan, would take about 17% off checker 0
+on dml. The type's display text currently enters `store.new_named` at
+mint (`objects.rs:2318`), so laziness needs the store to accept deferred
+text. That is the printer lane's (`printing.rs`, `symbol_accessibility.rs`)
+and the contextual lane's (`objects.rs`) to build. It is routed through
+the integrator, not built here.

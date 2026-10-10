@@ -473,7 +473,11 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// `resolveBaseTypesOfInterface` (`checker.go:19498`): every `extends`
-    /// element of every interface declaration, appended in order.
+    /// element of every interface declaration, appended in order. An element
+    /// that is not a valid base type is TS2312 at the element, reported here
+    /// as upstream does: the resolution runs once per symbol per checker
+    /// (`base_type_links`). The circular arm's `reportCircularBaseType` stays
+    /// `check.rs`'s `check_recursive_base_type`.
     fn resolve_base_types_of_interface(&mut self, symbol: SymbolId) {
         let declarations = self.binder.symbols().get(symbol).declarations.clone();
         for declaration in declarations {
@@ -490,7 +494,23 @@ impl<'a> Checker<'a, '_> {
             for &entry in clause.types {
                 let base = self.interface_heritage_type(entry);
                 let base = self.reduced_base_type(base);
-                if self.is_error(base) || !self.is_valid_base_type(base) {
+                if self.is_error(base) {
+                    continue;
+                }
+                if !self.is_valid_base_type(base) {
+                    // `c.error(node, An_interface_can_only_extend_…)`.
+                    if let Some(at) = entry.node_id
+                        && let Some(file) = self.source_file_of_for_diagnostics(at)
+                    {
+                        let span = self.error_span(at);
+                        self.report(
+                            file,
+                            tsr_diagnostics::Diagnostic::new(
+                                &tsr_diagnostics::messages::AN_INTERFACE_CAN_ONLY_EXTEND_AN_OBJECT_TYPE_OR_INTERSECTION_OF_OBJECT_TYPES_WITH_STATICALLY_KNOWN_MEMBERS,
+                                span,
+                            ),
+                        );
+                    }
                     continue;
                 }
                 if self.class_or_interface_target(base) != Some(symbol)
@@ -522,6 +542,14 @@ impl<'a> Checker<'a, '_> {
             return self
                 .instantiated_heritage_base(symbol, entry.type_arguments, entry.node_id)
                 .unwrap_or(error);
+        }
+        // `getTypeReferenceType` of a type parameter: its declared type; with
+        // type arguments it is TS2315 and `errorType`.
+        if flags.contains(SymbolFlags::TYPE_PARAMETER) {
+            if !entry.type_arguments.is_empty() {
+                return error;
+            }
+            return self.get_declared_type_of_symbol(symbol);
         }
         if flags.contains(SymbolFlags::TYPE_ALIAS) {
             if entry.type_arguments.is_empty() {

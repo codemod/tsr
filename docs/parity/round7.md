@@ -237,3 +237,45 @@ domain-model 1.024, generic-imports 0.954, diagnostics identical.
 
 Grant: r7-flow adds `Intrinsics::auto` (native `autoType`, distinct from
 `anyType`) in `intrinsics.rs`, which must not escape the flow walk.
+
+### Batch 9 — r7-calls `0b86f9d6`, r7-contextual `249f9754`, r7-declared `273e9989`, r7-flow `71f8076c`, r7-perf `4c765057`, r7-reports `a8fe82ca`
+
+Merged onto main `0aa00136`. Gate against the batch-8 freeze: types +99
+RIGHT / 0 lost / 0 missing, diagnostics +11 cases / 0 lost / 0 missing;
+tests, fmt and strict clippy green. Perf child-CPU new/old at 21 samples:
+domain-model 0.882, generic-imports 0.940 (mimalloc, ADR-0055), diagnostics
+identical. r7-declared's union-origin fix (getUnionTypeWorker admitting a
+non-union object entry) cuts jsTyping's false TS2345 74→32 and TS2339 32→1.
+
+| Suite | Batch 8 | Batch 9 |
+|---|---|---|
+| `checker_types` | 8,768 | 8,782 |
+| `checker_types_configured` | 1,783 | 1,784 |
+| `diagnostics` | 4,877 | 4,888 |
+| `diagnostics_configured` | 972 | 972 |
+
+TSR/tsgo-pinned wall · CPU after batch 9 (r7-perf, 21 samples, `dist`):
+domain-model 0.540 · 0.416, domain-model-large 0.716 · 0.479,
+generic-imports 0.598 · 0.303. jsTyping is not equivalent work yet (259 vs
+86 diagnostics).
+
+### Batch 10 — r7-declared `70961797`, r7-grammar `f3e6979b`, r7-perf `42f3f672`, r7-printer `2adaf373`
+
+Merged onto main `92fe8f05`, plus a fmt fix to r7-perf's
+`front_end_ceiling` example. Gate against the batch-9 freeze: types +59
+RIGHT / 0 lost / 0 missing, diagnostics +16 cases / 0 lost / 0 missing;
+tests and strict clippy green. Perf child-CPU new/old: domain-model 0.993
+(21); generic-imports 1.099 at 21 samples, re-run at 41 twice, 1.021 and
+1.012, inside the threshold. Diagnostics identical. `tsr-2zk.1258`'s two
+multi-checker drops are fixed (r7-grammar 375afb66).
+
+| Suite | Batch 9 | Batch 10 |
+|---|---|---|
+| `checker_types` | 8,782 | 8,797 |
+| `checker_types_configured` | 1,784 | 1,787 |
+| `diagnostics` | 4,888 | 4,895 |
+| `diagnostics_configured` | 972 | 981 |
+
+Grants: r7-grammar owns `delete_operand.rs` and `member_completeness.rs`,
+and `check.rs`'s interface-extends type-name arm and
+`check_value_identifier`'s TS2301/TS2844 choice.

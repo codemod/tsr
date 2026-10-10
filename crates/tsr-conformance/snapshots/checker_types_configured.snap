@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1783/1928 (92.48%)
-Assertion lines: 77797/78552 (99.04%)  — a gradient, not a pass rate
-Failed         : 145
+Passed         : 1787/1928 (92.69%)
+Assertion lines: 77809/78552 (99.05%)  — a gradient, not a pass rate
+Failed         : 141
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 145 failures:
+First 100 of 141 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -58,8 +58,6 @@ compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpro
   declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: >x : { foo?: string | undefined; baz?: undefined; } & { bar: number; } & A — expected >x : { foo?: string; baz?: undefined; } & { bar: number; } & A
 compiler/declarationEmitSymlinkPaths(target=es2015)
   /packages/search-prefix/src/Store/NotificationStore.ts: >NotificationScenario : () => NotificationResponse — expected >NotificationScenario : () => import("../API/NotificationAPIUtils").NotificationResponse
-compiler/declarationEmitUnnessesaryTypeReferenceNotAdded(target=es2015)
-  /index.ts: >minimist(process.argv.slice(2)) : thing.ParsedArgs — expected >minimist(process.argv.slice(2)) : minimist.ParsedArgs
 compiler/declarationEmitWithDefaultAsComputedName(target=es2015)
   main.ts: >other : Experiment<"foo"> — expected >other : { name: "foo"; }
 compiler/declarationEmitWithDefaultAsComputedName2(target=es2015)
@@ -90,10 +88,6 @@ compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)
   duplicateIdentifierBindingElementInParameterDeclaration2.ts: >f7 : any — expected >f7 : (a: any, func?: (a: any) => number) => void
 compiler/duplicateObjectLiteralProperty(target=es2015)
   duplicateObjectLiteralProperty.ts: >y : { a: number; } — expected >y : { readonly a: number; }
-compiler/emitDecoratorMetadata_isolatedModules(module=commonjs)
-  index.ts: >p1_ns : t1.T1 — expected >p1_ns : T1
-compiler/emitDecoratorMetadata_isolatedModules(module=esnext)
-  index.ts: >p1_ns : t1.T1 — expected >p1_ns : T1
 compiler/es5-yieldFunctionObjectLiterals(target=es2015)
   es5-yieldFunctionObjectLiterals.ts: >objectLiteral1 : error — expected >objectLiteral1 : () => Generator<number, void, unknown>
 compiler/es5ExportDefaultClassDeclaration3(target=es2015)
@@ -138,8 +132,6 @@ compiler/sourceMapValidationDestructuringForOfObjectBindingPatternDefaultValues(
   sourceMapValidationDestructuringForOfObjectBindingPatternDefaultValues.ts: >{ primary: "nosKill", secondary: "noSkill" } : { primary: string; secondary: string; } — expected >{ primary: "nosKill", secondary: "noSkill" } : { primary?: string; secondary?: string; }
 compiler/sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues2(target=es2015)
   sourceMapValidationDestructuringParametertArrayBindingPatternDefaultValues2.ts: >primarySkillA : error — expected >primarySkillA : string
-compiler/stableTypeOrdering(stabletypeordering=true)
-  stableTypeOrdering.ts: >enumUnion : (x: Color | string | string[]) => any — expected >enumUnion : (x: Color | string | string[]) => string | string[] | Color
 compiler/strictNullEmptyDestructuring(target=es2015)
   strictNullEmptyDestructuring.ts: >({} = null) : null — expected >({} = null) : any
 compiler/taggedTemplateStringsWithCurriedFunction(target=es2015)
@@ -228,3 +220,11 @@ conformance/nodeModulesAllowJsSynchronousCallErrors(module=node18)
   subfolder/index.js: >mod4 : { f(): Promise<void>; default: typeof import("./index.js"); } — expected >mod4 : { f(): Promise<void>; default: typeof mod2; }
 conformance/nodeModulesAllowJsSynchronousCallErrors(module=node20)
   subfolder/index.js: >mod4 : { f(): Promise<void>; default: typeof import("./index.js"); } — expected >mod4 : { f(): Promise<void>; default: typeof mod2; }
+conformance/nodeModulesAllowJsSynchronousCallErrors(module=nodenext)
+  subfolder/index.js: >mod4 : { f(): Promise<void>; default: typeof import("./index.js"); } — expected >mod4 : { f(): Promise<void>; default: typeof mod2; }
+conformance/nodeModulesCjsFormatFileAlwaysHasDefault(module=node18)
+  index.ts: >mod : any — expected >mod : typeof mod
+conformance/nodeModulesCjsFormatFileAlwaysHasDefault(module=node20)
+  index.ts: >mod : any — expected >mod : typeof mod
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node16)
+  /index.ts: >b : import("pkg").ImportInterface — expected >b : import("./node_modules/pkg/import").ImportInterface

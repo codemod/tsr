@@ -127,3 +127,40 @@ fn a_self_mentioned_type_literal_alias_has_its_members_in_the_union() {
          const r = x;\n";
     assert_eq!(type_of_last_initializer(source), "1");
 }
+
+/// §8: a union of an alias-named union and an object keeps the alias in its
+/// origin (getUnionTypeWorker, checker.go:25705) instead of failing (tsgo:
+/// `z : C3 | CC`).
+#[test]
+fn an_alias_named_union_beside_an_object_keeps_its_origin() {
+    let source = "interface C1 { a: 1 } interface C2 { b: 2 } interface C3 { c: 3 }\n\
+         type CC = C1 | C2;\n\
+         declare const y: CC | C3;\n\
+         const z = y;\n";
+    assert_eq!(type_of_last_initializer(source), "C3 | CC");
+}
+
+/// §9: an alias whose own body is an indexed access resolves to the
+/// property's type without the alias (getIndexedAccessTypeOrUndefined's
+/// resolved arm), so `BivariantHack<Animal, Animal>` is the method type
+/// instantiated (tsgo: `x : (x: Animal) => Animal`).
+#[test]
+fn an_own_indexed_alias_body_instantiates_without_the_alias() {
+    let source = "interface Animal { a: string }\n\
+         type BivariantHack<I, O> = { foo(x: I): O }[\"foo\"];\n\
+         declare let f1: BivariantHack<Animal, Animal>;\n\
+         const x = f1;\n";
+    assert_eq!(type_of_last_initializer(source), "(x: Animal) => Animal");
+}
+
+/// §9: a body that is a reference to such an alias hands the outer alias to
+/// the instantiated object type (instantiateTypeWithAlias with the new
+/// alias), so it keeps the outer name (tsgo: `h : Handler<number>`).
+#[test]
+fn a_reference_body_to_an_indexed_alias_keeps_the_outer_alias() {
+    let source = "type Ev<E> = { hack(event: E): void }[\"hack\"];\n\
+         type Handler<T> = Ev<T[]>;\n\
+         declare let h1: Handler<number>;\n\
+         const h = h1;\n";
+    assert_eq!(type_of_last_initializer(source), "Handler<number>");
+}

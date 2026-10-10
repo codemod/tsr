@@ -44,6 +44,11 @@ smallvec = { version = "1.15", features = ["union"] }
 # ADR-0030 for why the alternative (depth guards on every recursive walk) was
 # tried first and abandoned.
 stacker = "0.1.25"
+# The `tsr` binary's global allocator: mimalloc v2, with `extended` for the
+# one option the driver sets at start-up. Only the binary links it; libraries,
+# tests and the conformance harness keep the system allocator. ADR-0055.
+mimalloc = { version = "0.1.52", default-features = false, features = ["v2"] }
+libmimalloc-sys = { version = "0.1.49", default-features = false, features = ["v2", "extended"] }
 
 # Codegen (xtask only).
 anyhow = "1"

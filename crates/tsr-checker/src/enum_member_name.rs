@@ -118,6 +118,32 @@ impl Checker<'_, '_> {
             tsr_ast::PropertyName::Identifier(name) => {
                 (name.node_id, is_numeric_literal_name(name.text))
             }
+            // `ast.IsComputedNonLiteralName`: a computed name whose
+            // expression is not a string or numeric literal is TS1164, and
+            // its expression is never checked (`checkEnumMember` does not
+            // visit the name). A literal one is named by its text.
+            tsr_ast::PropertyName::ComputedPropertyName(computed) => match computed.expression {
+                Some(tsr_ast::Expression::StringLiteral(literal)) => {
+                    (computed.node_id, is_numeric_literal_name(literal.text))
+                }
+                Some(tsr_ast::Expression::NoSubstitutionTemplateLiteral(literal)) => {
+                    (computed.node_id, is_numeric_literal_name(literal.text))
+                }
+                Some(tsr_ast::Expression::NumericLiteral(_)) => (computed.node_id, true),
+                _ => {
+                    let Some(at) = computed.node_id else { return };
+                    let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+                    let span = self.error_span(at);
+                    self.report(
+                        file,
+                        Diagnostic::new(
+                            &messages::COMPUTED_PROPERTY_NAMES_ARE_NOT_ALLOWED_IN_ENUMS,
+                            span,
+                        ),
+                    );
+                    return;
+                }
+            },
             _ => return,
         };
         if !numeric {

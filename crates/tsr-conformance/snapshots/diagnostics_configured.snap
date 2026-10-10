@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 972/1091 (89.09%)
-Failed         : 119
+Passed         : 981/1091 (89.92%)
+Failed         : 110
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,11 +25,9 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 119 failures:
+First 100 of 110 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
-compiler/accessorWithInitializer(target=es2015)
-  2 missing (first TS1052 at accessorWithInitializer.ts(2,9))
 compiler/ambientWithStatements(alwaysstrict=true)
   2 missing (first TS1104 at ambientWithStatements.ts(3,5))
 compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)
@@ -166,10 +164,6 @@ conformance/emitModuleCommonJS(module=commonjs)
   1 missing (first TS2307 at a.js(4,11))
 conformance/emitModuleCommonJS(module=nodenext)
   1 missing (first TS2307 at a.js(4,11))
-conformance/esDecorators-decoratorExpression.1(experimentaldecorators=false)
-  22 missing (first TS1497 at esDecorators-decoratorExpression.1.ts(3,4))
-conformance/esDecorators-decoratorExpression.1(experimentaldecorators=true)
-  22 missing (first TS1497 at esDecorators-decoratorExpression.1.ts(3,4))
 conformance/importTag15(module=es2015)
   2 missing (first TS2823 at 1.js(1,30))
 conformance/importTag15(module=esnext)
@@ -213,16 +207,22 @@ conformance/parser.asyncGenerators.classMethods.es2018(alwaysstrict=true)
 conformance/parser.asyncGenerators.objectLiteralMethods.es2018(alwaysstrict=true)
   2 unexpected (first TS2322 at asyncGeneratorPropertyIsError.ts(2,16)), 0 missing
 conformance/parserES5ComputedPropertyName6(target=es2015)
-  1 unexpected (first TS2552 at parserES5ComputedPropertyName6.ts(2,4)), 1 missing
+  1 unexpected (first TS2552 at parserES5ComputedPropertyName6.ts(2,4)), 0 missing
 conformance/parserES5SymbolProperty4(target=es2015)
   1 missing (first TS2339 at parserES5SymbolProperty4.ts(2,13))
-conformance/parserGetAccessorWithTypeParameters1(target=es2015)
-  1 missing (first TS1094 at parserGetAccessorWithTypeParameters1.ts(2,7))
-conformance/parserMemberAccessorDeclaration16(target=es2015)
-  1 missing (first TS1052 at parserMemberAccessorDeclaration16.ts(2,8))
-conformance/parserSetAccessorWithTypeAnnotation1(target=es2015)
-  1 missing (first TS1095 at parserSetAccessorWithTypeAnnotation1.ts(2,8))
-conformance/parserSetAccessorWithTypeParameters1(target=es2015)
-  1 missing (first TS1094 at parserSetAccessorWithTypeParameters1.ts(2,8))
 conformance/privateNameBadSuperUseDefineForClassFields(target=es2022)
   1 unexpected (first TS2376 at privateNameBadSuperUseDefineForClassFields.ts(4,3)), 0 missing
+conformance/privateNameBadSuperUseDefineForClassFields(target=esnext)
+  1 unexpected (first TS2376 at privateNameBadSuperUseDefineForClassFields.ts(4,3)), 0 missing
+conformance/privateNameInInExpression(target=es2022)
+  5 missing (first TS2571 at privateNameInInExpression.ts(21,29))
+conformance/privateNameInInExpression(target=esnext)
+  5 missing (first TS2571 at privateNameInInExpression.ts(21,29))
+conformance/privateNameInInExpressionUnused(target=es2022)
+  1 unexpected (first TS6133 at privateNameInInExpressionUnused.ts(3,5)), 0 missing
+conformance/privateNameInInExpressionUnused(target=esnext)
+  1 unexpected (first TS6133 at privateNameInInExpressionUnused.ts(3,5)), 0 missing
+conformance/privateNameInObjectLiteral-3(target=es2015)
+  2 unexpected (first TS18004 at privateNameInObjectLiteral-3.ts(2,5)), 1 missing
+conformance/restPropertyWithBindingPattern(target=es2015)
+  5 missing (first TS2501 at restPropertyWithBindingPattern.ts(1,6))
