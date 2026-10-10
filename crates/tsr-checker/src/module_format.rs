@@ -1174,7 +1174,7 @@ impl Checker<'_, '_> {
     /// The `await` keyword's start for an `await using` list: a
     /// `CONST | USING` list (`NodeFlagsAwaitUsing`) or a `USING` list this
     /// parser left an `await` in front of (`is_await_using_list`).
-    fn await_using_list_await_start(&self, list: NodeId, owner: NodeId) -> Option<u32> {
+    pub(crate) fn await_using_list_await_start(&self, list: NodeId, owner: NodeId) -> Option<u32> {
         let block_scope = self.nodes.flags(list) & tsr_ast::NodeFlags::BLOCK_SCOPED;
         let awaited = block_scope == tsr_ast::NodeFlags::CONSTANT
             || (block_scope == tsr_ast::NodeFlags::USING && self.is_await_using_list(list));

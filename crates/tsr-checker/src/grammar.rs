@@ -657,15 +657,22 @@ impl Checker<'_, '_> {
         let Some(parent) = self.nodes.parent(list) else { return false };
         if self.nodes.kind(parent) == SyntaxKind::ForInStatement {
             // `for (await using x in …)` and `for (using x in …)` parse to the
-            // same tree here, and the two messages differ; decline the
-            // ambiguous one rather than guess.
-            if block_scope != NodeFlags::CONSTANT {
-                return false;
-            }
-            self.grammar_error_on_node(
-                list,
-                &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_AN_AWAIT_USING_DECLARATION,
-            );
+            // same tree here; the eaten `await` is recovered from the source
+            // (`await_using_list_await_start`), and upstream's list — and so
+            // the report — starts at it.
+            let Some(file) = self.source_file_of_for_diagnostics(list) else { return true };
+            let list_span = self.nodes.span(list);
+            let (message, span) = match self.await_using_list_await_start(list, parent) {
+                Some(start) => (
+                    &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_AN_AWAIT_USING_DECLARATION,
+                    tsr_core::Span::new(start, list_span.end),
+                ),
+                None => (
+                    &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_A_USING_DECLARATION,
+                    list_span,
+                ),
+            };
+            self.report(file, Diagnostic::new(message, span));
             return true;
         }
         let Some(Node::VariableStatement(statement)) = self.node_map.get(parent) else {

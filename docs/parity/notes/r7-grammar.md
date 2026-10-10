@@ -441,3 +441,12 @@ Not ported: the parameter list's trailing-comma arm (TS1025,
 `indexSignatureWithTrailingComma`), which needs the parser to record a
 parameter list's trailing comma. Converted: `indexerConstraints2`,
 `genericIndexTypeHasSensibleErrorMessage`.
+
+## §19 `for (await using x in …)` is TS1494
+
+`checkGrammarVariableDeclarationList` (`grammarchecks.go:1658`) reports a
+`using` list in a `for…in` head as TS1493 and an `await using` one as TS1494,
+on the list — which starts at the `await` upstream. The arm declined both,
+since this parser eats the `await`; `await_using_list_await_start`
+(`module_format.rs`, §9) recovers it, so both messages are reported with the
+list's upstream start. Converted: `awaitUsingDeclarationsInForIn`.
