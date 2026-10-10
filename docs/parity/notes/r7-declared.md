@@ -384,3 +384,32 @@ see two types with one structure.
 **Measured** (alone, unfiltered against §5's freeze): types 0 / 0,
 diagnostics 0 / 0. It only matters once §8 lets these unions exist. Probe:
 `isNode(d)` now narrows to `B` (tsgo: `B`).
+
+## 8. ORIGIN-SLICE-GATE: a non-union object enters a union's origin
+
+**Forcing constraint.** getUnionTypeWorker (`checker.go:25705-25728`)
+builds a denormalized origin whenever named unions meet other
+constituents without overlap. The origin's entries are the named unions
+plus every other reduced constituent, objects included.
+`build_origin_union`'s §53 slice gate (`unions.rs`) answered `error` when an
+entry was a non-union object. So `type CC = C1 | C2; declare const y: CC |
+C3` was `error` (tsgo: `C3 | CC`). r7-contextual traced about 25 jsTyping
+TS2345 to it: `ReadonlyArray<CC>.concat` and `T | CA<T>` at `T := CC` fail
+to instantiate.
+
+**Port.** r6-typesroots' held one-line diff: an object entry is admitted as
+a plain entry. Its two losses (subtypeReductionUnionConstraints 0:23/0:32)
+were the placeholder §7 completed.
+
+**Measured** (unfiltered against §7's tree): types **+75 RIGHT, 0 lost**:
+TypeGuardWithEnumUnion 16, tsxGenericAttributesType1 9,
+checkJsxChildrenProperty3/4 7+7, subtypeReductionUnionConstraints 6,
+iterableWithNeverAsUnionMember 6, checkJsxChildrenProperty12 4,
+tsxGenericAttributesType2 3, stableTypeOrdering 3, and 10 more lines across
+7 cases. Diagnostics 0 / 0.
+
+On `src/jsTyping` (TSR vs `660718af`, native reports only one TS2688):
+- TS2345 74 → 32, TS2339 32 → 1, TS2678 15 → 0, TS2769 6 → 4,
+  TS2740 3 → 0, TS2454 2 → 0, TS2352 3 → 1, TS2367 1 → 0;
+- TS2322 12 → 17. Those five are new reports on now-typed code, not
+  examined here.
