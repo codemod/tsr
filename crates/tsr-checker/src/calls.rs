@@ -420,6 +420,14 @@ enum CallArity {
 /// One entry of `getEffectiveCallArguments`: the written argument (or the
 /// spread a synthetic element came from) and whether it is spread-like
 /// (`isSpreadArgument`).
+/// One node's published state, as [`Checker::literal_subtree_state`] saves it.
+struct LiteralSubtreeEntry {
+    node: tsr_ast::NodeId,
+    r#type: Option<TypeId>,
+    signature: Option<Signature>,
+    symbol: Option<(tsr_binder::SymbolId, Option<TypeId>)>,
+}
+
 #[derive(Clone, Copy)]
 struct EffectiveArgument {
     node: tsr_ast::NodeId,
@@ -1315,19 +1323,28 @@ impl Checker<'_, '_> {
     /// `reportCallResolutionErrors` (`checker.go:9649`): when no candidate is
     /// applicable, the last failing one (`candidatesForArgumentError`'s last
     /// entry) is re-checked with `reportErrors`. With one failing candidate
-    /// its diagnostic is reported as is (TS2345); with several, upstream
-    /// chains it under `The_last_overload_gave_the_following_error` and
-    /// `No_overload_matches_this_call` at the same location, so its head is
-    /// TS2769. This port's `Diagnostic` has no message chain or related
-    /// information yet (`tsr-2zk.22`): only the head is emitted, and the
-    /// chain and `The_last_overload_is_declared_here` are dropped.
+    /// its diagnostic is reported as is (TS2345); with several, it is chained
+    /// under `The_last_overload_gave_the_following_error` and
+    /// `No_overload_matches_this_call` at the same location (TS2769). The
+    /// related information (`The_last_overload_is_declared_here`,
+    /// `addImplementationSuccessElaboration`) is not attached.
     ///
-    /// Arguments are read from their checked types (no new cache). Upstream
-    /// checks each argument under the candidate's parameter as contextual
-    /// type, so an argument whose type depends on it is declined: an object,
-    /// array or class literal, a context-sensitive function, and the shapes
-    /// of [`Checker::report_argument_type_is_not_upstreams`]. A relation this port
-    /// cannot decide also declines. Answers `false` on decline.
+    /// Upstream checks each argument under the candidate's parameter as
+    /// contextual type (`checkExpressionWithContextualType`, uncached). An
+    /// object or array literal with no nested resolution, function or class
+    /// (`literal_subtree_has_resolution`) is re-checked that way under each
+    /// candidate ([`Checker::check_literal_argument_in_candidate`]), and the
+    /// last candidate's report is made while its literals hold that
+    /// candidate's types. Every other argument is read from its checked type
+    /// (its type does not follow the contextual type); a class literal, a
+    /// literal with a nested resolution, a context-sensitive function, the
+    /// shapes of [`Checker::report_argument_type_is_not_upstreams`] and a
+    /// relation this port cannot decide decline. Answers `false` on decline.
+    ///
+    /// Not modelled: `hasExcessProperties`' rejection of a candidate during
+    /// selection (this port's relater does not test excess properties), so a
+    /// candidate native rejects only for an excess property is taken as
+    /// applicable here and nothing is reported.
     fn check_overload_candidates_arguments(
         &mut self,
         node: tsr_ast::NodeId,
@@ -1345,18 +1362,28 @@ impl Checker<'_, '_> {
         };
         let offset = usize::from(strings.is_some());
         let arguments: &[Expression<'_>] = &written.arguments;
-        for argument in arguments {
+        let mut rechecked = vec![false; arguments.len()];
+        for (index, argument) in arguments.iter().enumerate() {
             let mut inner = *argument;
             while let Expression::ParenthesizedExpression(parenthesized) = inner {
                 let Some(expression) = parenthesized.expression else { return false };
                 inner = expression;
             }
-            if matches!(
+            let literal = matches!(
                 inner,
-                Expression::ObjectLiteralExpression(_)
-                    | Expression::ArrayLiteralExpression(_)
-                    | Expression::ClassExpression(_)
-            ) || self.is_context_sensitive_argument(argument)
+                Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
+            );
+            if literal
+                && strings.is_none()
+                && !self.is_context_sensitive_argument(argument)
+                && inner.node_id().is_some_and(|id| !self.literal_subtree_has_resolution(id))
+            {
+                rechecked[index] = true;
+                continue;
+            }
+            if literal
+                || matches!(inner, Expression::ClassExpression(_))
+                || self.is_context_sensitive_argument(argument)
                 || self.report_argument_type_is_not_upstreams(*argument)
             {
                 return false;
@@ -1392,7 +1419,14 @@ impl Checker<'_, '_> {
                 if self.is_gap(target) {
                     return false;
                 }
-                let source = self.check_expression(*argument);
+                let source = if rechecked[index] {
+                    self.check_literal_argument_in_candidate(node, candidate, *argument, true)
+                } else {
+                    self.check_expression(*argument)
+                };
+                if self.is_gap(source) {
+                    return false;
+                }
                 // This port's relation over a generic source (a homomorphic
                 // mapped type over a type parameter, `Boxified<T>` against
                 // `concat`'s overloads) is not upstream's; declined, the same
@@ -1416,15 +1450,125 @@ impl Checker<'_, '_> {
             }
         }
         let Some(last) = candidates.last() else { return false };
+        let Some(report_arguments) = self.report_call_arguments(node) else { return false };
+        // The last candidate's report reads its literals as checked under it;
+        // the published types are put back afterwards.
+        let mut saved = Vec::new();
+        let mut checked = vec![None; report_arguments.len()];
+        for (index, argument) in arguments.iter().enumerate() {
+            if rechecked[index] {
+                let Some(id) = argument.node_id() else { return false };
+                saved.extend(self.literal_subtree_state(id));
+                checked[index + offset] =
+                    Some(self.check_literal_argument_in_candidate(node, last, *argument, false));
+            }
+        }
         let before = self.diagnostics.len();
-        self.check_single_candidate_arguments(node, last);
+        self.report_signature_applicability(
+            node,
+            &report_arguments,
+            last,
+            CandidateContext::Declared,
+            &checked,
+        );
+        self.restore_literal_subtree_state(saved);
         if candidates.len() > 1 {
             for (_, diagnostic) in &mut self.diagnostics[before..] {
-                diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
-                diagnostic.args.clear();
+                let span = diagnostic.span;
+                let child = std::mem::replace(
+                    diagnostic,
+                    Diagnostic::new(&messages::NO_OVERLOAD_MATCHES_THIS_CALL, span),
+                );
+                let chained = Diagnostic::new_chain(
+                    Some(child),
+                    &messages::THE_LAST_OVERLOAD_GAVE_THE_FOLLOWING_ERROR,
+                    [],
+                );
+                *diagnostic = Diagnostic::new_chain(
+                    Some(chained),
+                    &messages::NO_OVERLOAD_MATCHES_THIS_CALL,
+                    [],
+                );
             }
         }
         true
+    }
+
+    /// `checkExpressionWithContextualType(arg, paramType)` for an object or
+    /// array literal argument with no nested resolution, under one
+    /// non-generic overload candidate: the literal's subtree is evicted and
+    /// checked with the candidate as the call's memo
+    /// (`call_inference_signatures`, read by `contextual_type_for_argument`).
+    /// With `restore`, the published state of the subtree is put back, as
+    /// native's check is uncached; otherwise the caller restores it.
+    ///
+    /// Key and owner: the subtree's `node_types`, `resolved_call_signatures`
+    /// and property `symbol_types`, the same set `evict_subtree` clears and
+    /// `transcribed_generic_set_walk` restores; no new cache. Work boundary:
+    /// one literal check per candidate on the report path only.
+    fn check_literal_argument_in_candidate(
+        &mut self,
+        call: tsr_ast::NodeId,
+        candidate: &Signature,
+        argument: Expression<'_>,
+        restore: bool,
+    ) -> TypeId {
+        let Some(id) = argument.node_id() else { return self.intrinsics.error };
+        let saved = if restore { self.literal_subtree_state(id) } else { Vec::new() };
+        self.evict_subtree(id);
+        let previous = self.call_inference_signatures.insert(call, candidate.clone());
+        let checked = self.check_expression(argument);
+        match previous {
+            Some(previous) => {
+                self.call_inference_signatures.insert(call, previous);
+            }
+            None => {
+                self.call_inference_signatures.remove(&call);
+            }
+        }
+        if restore {
+            self.restore_literal_subtree_state(saved);
+        }
+        checked
+    }
+
+    /// The state [`Checker::evict_subtree`] clears under `root`, for
+    /// [`Checker::restore_literal_subtree_state`].
+    fn literal_subtree_state(&self, root: tsr_ast::NodeId) -> Vec<LiteralSubtreeEntry> {
+        let mut state = Vec::new();
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            let symbol = self.binder.symbol_of(id);
+            state.push(LiteralSubtreeEntry {
+                node: id,
+                r#type: self.node_types.get(&id).copied(),
+                signature: self.resolved_call_signatures.get(&id).cloned(),
+                symbol: symbol.map(|symbol| (symbol, self.symbol_types.get(&symbol).copied())),
+            });
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        state
+    }
+
+    fn restore_literal_subtree_state(&mut self, state: Vec<LiteralSubtreeEntry>) {
+        for entry in state {
+            self.node_types.remove(&entry.node);
+            if let Some(ty) = entry.r#type {
+                self.node_types.insert(entry.node, ty);
+            }
+            self.resolved_call_signatures.remove(&entry.node);
+            if let Some(signature) = entry.signature {
+                self.resolved_call_signatures.insert(entry.node, signature);
+            }
+            if let Some((symbol, ty)) = entry.symbol {
+                self.symbol_types.remove(&symbol);
+                if let Some(ty) = ty {
+                    self.symbol_types.insert(symbol, ty);
+                }
+            }
+        }
     }
 
     /// `reportCallResolutionErrors`' `candidatesForArgumentError` arm
