@@ -1852,3 +1852,20 @@ PARSE-ERROR-FILE-CHECK-DECLINE (`tsr-2zk.1152`, 43 cases). About 175
 reports that native issues unconditionally. Lifting them is cross-cutting, so
 one owner does it: every site ships as a measured diff, landed by the
 integrator.
+
+### r6-printer4 finished (batch CB); r6-printer5 dispatched
+
+Batch CB lands r6-printer4's ADR-0052 print-time plans and two diffs:
+- createMappedTypeNodeFromType and typeToTypeNode's index and indexed-access
+  arms, printed at the site;
+- getSymbolChain's containers for unique-symbol keys.
+
+Measured by the box: +12 types, 0 lost. domain-model Ir +0.010%, all of it
+in the renderer's dispatch closure; CLI output is byte-identical.
+
+r6-printer5 takes three r6-triage printer clusters:
+- SHADOWED-TYPEPARAM-RENAME (`tsr-2zk.1170`), together with r6-typesroots3's
+  by-text typeParameterToName item, so one owner holds typeParameterToName;
+- SCANNER-NUMERIC-AND-ESCAPE-DIAGNOSTICS (`.1174`);
+- REGEXP-SCANNER-VALIDATION (`.1192`).
+It also takes the remainder in `tsr-2zk.1260`.
