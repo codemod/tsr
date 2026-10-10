@@ -1,0 +1,120 @@
+diff --git a/crates/tsr-checker/src/call_arity.rs b/crates/tsr-checker/src/call_arity.rs
+index c1ec663..4be5e87 100644
+--- a/crates/tsr-checker/src/call_arity.rs
++++ b/crates/tsr-checker/src/call_arity.rs
+@@ -33,7 +33,7 @@ impl<'a> Checker<'a, '_> {
+     /// the caller decided arity from the callee type's signatures
+     /// ([`Checker::check_argument_arity_of_signatures`]).
+     pub(crate) fn check_call_arity(&mut self, node: NodeId, syntactic_arity: bool) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::CallExpression(call)) = self.node_map.get(node) else { return };
+@@ -190,7 +190,7 @@ impl<'a> Checker<'a, '_> {
+     /// whole `new` expression rather than on `C`.
+     /// `syntactic_arity` as for [`Checker::check_call_arity`].
+     pub(crate) fn check_new_arity(&mut self, node: NodeId, syntactic_arity: bool) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::NewExpression(call)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index e7416fc..a902908 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -734,9 +734,6 @@ impl Checker<'_, '_> {
+ 
+     /// Every diagnostic `resolveCallExpression` issues for one call node.
+     pub(crate) fn check_call_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         if let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node)
+             && let Some(Expression::KeywordExpression(keyword)) = call.expression
+             && keyword.kind == tsr_ast::SyntaxKind::SuperKeyword
+@@ -2184,9 +2181,6 @@ impl Checker<'_, '_> {
+     /// `noImplicitAny`, a non-`void` return is TS2350; else
+     /// `invocationError(Construct)` is TS2351 on the callee.
+     pub(crate) fn check_new_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         match self.check_new_expression_head(node) {
+             CallHead::Done => {}
+             CallHead::Resolve(apparent) => {
+@@ -2228,9 +2222,6 @@ impl Checker<'_, '_> {
+     /// `invocationError` (TS2349) on the tag, or TS2796 when the tagged
+     /// template is an array element (a likely missing comma).
+     pub(crate) fn check_tagged_template_diagnostics(&mut self, node: tsr_ast::NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
+             return;
+         };
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index 46594ea..b55faf9 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -5938,7 +5938,7 @@ impl Checker<'_, '_> {
+     /// adjacent lines to catch a rule that walks the heritage chain. §999 walks
+     /// that chain for a different rule, which is why this one must not. §1029.
+     fn check_new_on_abstract_class(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::NewExpression(expression)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/contextual.rs b/crates/tsr-checker/src/contextual.rs
+index b73e8d5..445104c 100644
+--- a/crates/tsr-checker/src/contextual.rs
++++ b/crates/tsr-checker/src/contextual.rs
+@@ -2975,9 +2975,7 @@ impl<'a> Checker<'a, '_> {
+         node: NodeId,
+         arguments: &[Expression<'_>],
+     ) {
+-        if self.file_has_parse_errors
+-            || !arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
+-        {
++        if !arguments.iter().any(|argument| self.is_context_sensitive_argument(argument)) {
+             return;
+         }
+         self.check_expression_at_node(node);
+diff --git a/crates/tsr-checker/src/implicit_any.rs b/crates/tsr-checker/src/implicit_any.rs
+index 892af98..dc1d2fc 100644
+--- a/crates/tsr-checker/src/implicit_any.rs
++++ b/crates/tsr-checker/src/implicit_any.rs
+@@ -845,7 +845,7 @@ impl Checker<'_, '_> {
+     /// constructor functions take another road.
+     pub(crate) fn check_implicit_any_new_expression(&mut self, node: NodeId) {
+         use crate::{flags::TypeFlags, signatures::SignatureKind};
+-        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
++        if !self.no_implicit_any || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::NewExpression(new)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/type_argument_arity.rs b/crates/tsr-checker/src/type_argument_arity.rs
+index 78b9058..5a7e453 100644
+--- a/crates/tsr-checker/src/type_argument_arity.rs
++++ b/crates/tsr-checker/src/type_argument_arity.rs
+@@ -36,9 +36,6 @@ use crate::checker::Checker;
+ impl Checker<'_, '_> {
+     /// The arity check for one written type reference.
+     pub(crate) fn check_type_argument_arity(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let (name, written) = match self.node_map.get(node) {
+             Some(Node::TypeReferenceNode(reference)) => (
+                 reference.type_name.and_then(|name| name.node_id()),
+@@ -242,7 +239,7 @@ impl Checker<'_, '_> {
+     /// declaration, a function or a class. The overload arm needs a signature
+     /// set this port does not build and carries a different message.
+     pub(crate) fn check_call_type_argument_arity(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let (callee, type_arguments) = match self.node_map.get(node) {

@@ -1,0 +1,284 @@
+diff --git a/crates/tsr-checker/src/computed_name.rs b/crates/tsr-checker/src/computed_name.rs
+index cb36b93..d0aaa9f 100644
+--- a/crates/tsr-checker/src/computed_name.rs
++++ b/crates/tsr-checker/src/computed_name.rs
+@@ -45,7 +45,7 @@ impl Checker<'_, '_> {
+         // and `FunctionDeclaration` and nowhere else, so a **member's own**
+         // `declare` is invisible to it. §134 hit this in the type-only alias
+         // rule; this is the sweep for it. §135.
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         if self.nodes.parent(node).is_some_and(|member| self.member_has_declare_modifier(member)) {
+@@ -289,7 +289,7 @@ impl Checker<'_, '_> {
+     /// evaluated once per declaration and the containing type's parameter has
+     /// no value there, so it is the reference that is illegal. §1027.
+     fn check_computed_name_type_parameter_reference(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(owner) = self.nodes.parent(node).and_then(|member| self.nodes.parent(member))
+diff --git a/crates/tsr-checker/src/delete_operand.rs b/crates/tsr-checker/src/delete_operand.rs
+index d5ef54d..c37dc1c 100644
+--- a/crates/tsr-checker/src/delete_operand.rs
++++ b/crates/tsr-checker/src/delete_operand.rs
+@@ -24,9 +24,6 @@ impl Checker<'_, '_> {
+     /// `checkDeleteExpression` (`checker.go:10804`) after its
+     /// not-an-access arm (TS2703, `check_reference_expression`).
+     pub(crate) fn check_delete_operand_symbol(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::DeleteExpression(delete)) = self.node_map.get(node) else { return };
+         let Some(operand) = delete.expression.and_then(|e| e.node_id()) else { return };
+         // `expr := ast.SkipParentheses(node.Expression())`.
+diff --git a/crates/tsr-checker/src/index_access_reports.rs b/crates/tsr-checker/src/index_access_reports.rs
+index 4e4fc00..fdd147e 100644
+--- a/crates/tsr-checker/src/index_access_reports.rs
++++ b/crates/tsr-checker/src/index_access_reports.rs
+@@ -118,7 +118,7 @@ impl Checker<'_, '_> {
+     /// the element access, its index node the argument expression. An error
+     /// object type or a const enum object returns before indexing.
+     pub(crate) fn check_element_access_index_type(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else { return };
+@@ -357,7 +357,7 @@ impl Checker<'_, '_> {
+     /// `getTypeFromIndexedAccessTypeNode` (`checker.go:24164`): the access
+     /// node is the type node, its index node the index type node.
+     pub(crate) fn check_indexed_access_type_index_type(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::IndexedAccessTypeNode(access)) = self.node_map.get(node) else { return };
+@@ -567,7 +567,7 @@ impl Checker<'_, '_> {
+     /// a literal key (written or computed) that names no property reports
+     /// TS2339 at the index node.
+     pub(crate) fn check_binding_element_index_access(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+@@ -711,7 +711,7 @@ impl Checker<'_, '_> {
+     /// key no index signature takes; a literal key that names no property
+     /// reports TS2339 at the index node.
+     pub(crate) fn check_object_assignment_index_access(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         self.check_object_assignment_accessibility(node);
+diff --git a/crates/tsr-checker/src/index_constraint.rs b/crates/tsr-checker/src/index_constraint.rs
+index 190bd08..4b49a22 100644
+--- a/crates/tsr-checker/src/index_constraint.rs
++++ b/crates/tsr-checker/src/index_constraint.rs
+@@ -168,7 +168,7 @@ impl<'a> Checker<'a, '_> {
+     /// the symbol's first interface declaration, which is the one a file-order
+     /// check reaches first.
+     pub(crate) fn check_index_constraints(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(symbol) = self.binder.symbol_of(node) else { return };
+diff --git a/crates/tsr-checker/src/nonexistent_property.rs b/crates/tsr-checker/src/nonexistent_property.rs
+index 7dc1d86..4e75b26 100644
+--- a/crates/tsr-checker/src/nonexistent_property.rs
++++ b/crates/tsr-checker/src/nonexistent_property.rs
+@@ -89,9 +89,6 @@ impl Checker<'_, '_> {
+             Some(Node::ElementAccessExpression(access)) => {
+                 // Malformed element access is not part of this proven property
+                 // recovery boundary; retain its existing parse-error decline.
+-                if self.file_has_parse_errors {
+-                    return;
+-                }
+                 let (Some(receiver), Some(argument)) =
+                     (access.expression, access.argument_expression)
+                 else {
+@@ -116,36 +113,6 @@ impl Checker<'_, '_> {
+         }
+ 
+         let Some(receiver_id) = receiver.node_id() else { return };
+-        if self.file_has_parse_errors {
+-            // Constructor recovery can leave `this.x = ...` as a statement
+-            // where native ended the body and owns class property declarations.
+-            // This port cannot certify that recovered write's receiver image.
+-            if self.nodes.kind(receiver_id) == SyntaxKind::ThisKeyword
+-                && self.is_write_only_access(node)
+-                && self
+-                    .get_this_container(node, false)
+-                    .is_some_and(|container| self.nodes.kind(container) == SyntaxKind::Constructor)
+-            {
+-                return;
+-            }
+-            if let Some(Node::Identifier(identifier)) = self.node_map.get(receiver_id) {
+-                let Some(symbol) = self.binder.resolve_name(
+-                    self.nodes,
+-                    self.node_map,
+-                    receiver_id,
+-                    identifier.text,
+-                    SymbolFlags::VALUE,
+-                ) else {
+-                    return;
+-                };
+-                // `getExplicitTypeOfSymbol` (pinned flow.go:2155) is also the
+-                // assertion-effect supplier. Its unsupported for-of/mapped
+-                // origins cannot certify a miss merely by flowed == declared.
+-                if self.get_explicit_type_of_symbol(symbol).is_none() {
+-                    return;
+-                }
+-            }
+-        }
+         let receiver_type = self.check_expression(receiver);
+         if self.global_this_member_is_not_reported(receiver_type, name_text) {
+             return;
+diff --git a/crates/tsr-checker/src/private_setter_read.rs b/crates/tsr-checker/src/private_setter_read.rs
+index bc53d63..6fa80ed 100644
+--- a/crates/tsr-checker/src/private_setter_read.rs
++++ b/crates/tsr-checker/src/private_setter_read.rs
+@@ -21,7 +21,7 @@ use crate::expressions::AssignmentTargetKind;
+ 
+ impl Checker<'_, '_> {
+     pub(crate) fn check_private_setter_read(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/readonly_target.rs b/crates/tsr-checker/src/readonly_target.rs
+index 8126a6c..50f4d3b 100644
+--- a/crates/tsr-checker/src/readonly_target.rs
++++ b/crates/tsr-checker/src/readonly_target.rs
+@@ -32,7 +32,7 @@ use tsr_binder::SymbolFlags;
+ impl Checker<'_, '_> {
+     /// The read-only check for one `x.y = …` target.
+     pub(crate) fn check_readonly_assignment_target(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors {
++        if ambient {
+             return;
+         }
+         self.check_readonly_index_signature_write(node);
+@@ -445,7 +445,7 @@ impl Checker<'_, '_> {
+     /// decline has to cover this one too — otherwise `const x = 1; x += 1`
+     /// reports TS2588 *and* TS2362 where upstream reports one. §282.
+     pub(crate) fn check_readonly_identifier_assignment(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors {
++        if ambient {
+             return;
+         }
+         let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return };
+@@ -1064,9 +1064,6 @@ impl Checker<'_, '_> {
+     /// ancestor of the access and an `ancestors().any()` identity test declines
+     /// every case. §627 bracketed the decline to this line. §628.
+     pub(crate) fn check_private_name_shadowing(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+         let (Some(receiver), Some(tsr_ast::MemberName::PrivateIdentifier(name))) =
+             (access.expression, access.name)
+@@ -1111,9 +1108,6 @@ impl Checker<'_, '_> {
+     /// declaring class's own members. §580's shape; §628 made the same move for
+     /// TS18014. §666.
+     pub(crate) fn check_private_accessor_is_writable(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+         if binary.operator_token.is_none_or(|t| !t.kind.is_assignment_operator()) {
+             return;
+@@ -1334,7 +1328,7 @@ impl Checker<'_, '_> {
+     /// and `checkPropertyAccessibility` runs on it as a read, reported at
+     /// `getBindingElementPropertyName` (the property name, else the name).
+     pub(crate) fn check_binding_element_accessibility(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+@@ -1793,7 +1787,7 @@ impl Checker<'_, '_> {
+     /// - a class-like `valueDeclaration` (the computed-name/decorator arm);
+     /// - an ancestor class whose first base type does not resolve.
+     pub(crate) fn check_property_not_used_before_declaration(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.file_is_ambient {
++        if self.file_is_ambient {
+             return;
+         }
+         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/spread_overrides.rs b/crates/tsr-checker/src/spread_overrides.rs
+index 695b6cb..19aab82 100644
+--- a/crates/tsr-checker/src/spread_overrides.rs
++++ b/crates/tsr-checker/src/spread_overrides.rs
+@@ -20,7 +20,7 @@ impl Checker<'_, '_> {
+     /// runs `checkSpreadPropOverrides` (`checker.go:13371`) against the table
+     /// as filled so far.
+     pub(crate) fn check_spread_property_overrides(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) || !self.strict_null_checks {
++        if self.in_js_file(node) || !self.strict_null_checks {
+             return;
+         }
+         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
+@@ -126,7 +126,7 @@ impl Checker<'_, '_> {
+     /// (`checker.go:17723`): an `unknown` or non-spreadable parent reports on
+     /// the rest element. An `any` parent returns before it.
+     pub(crate) fn check_object_rest_of_non_object_type(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+@@ -193,7 +193,7 @@ impl Checker<'_, '_> {
+     /// type must pass `isValidSpreadType` (`checker.go:13304`), reported on
+     /// the spread assignment.
+     pub(crate) fn check_spread_of_non_object_type(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ObjectLiteralExpression(literal)) = self.node_map.get(node) else {
+diff --git a/crates/tsr-checker/src/tuples.rs b/crates/tsr-checker/src/tuples.rs
+index 3f2e9ba..a5bd787 100644
+--- a/crates/tsr-checker/src/tuples.rs
++++ b/crates/tsr-checker/src/tuples.rs
+@@ -645,7 +645,7 @@ impl Checker<'_, '_> {
+     /// `getIndexedAccessTypeOrUndefined` with the access expression as the
+     /// access node and no `AccessFlagsAllowMissing`.
+     pub(crate) fn check_element_access_tuple_bounds(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else { return };
+@@ -682,7 +682,7 @@ impl Checker<'_, '_> {
+     /// `getIndexedAccessType` with the type node as the access node: a
+     /// non-generic tuple object reports on the index type node.
+     pub(crate) fn check_indexed_access_type_tuple_bounds(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::IndexedAccessTypeNode(access)) = self.node_map.get(node) else { return };
+@@ -712,7 +712,7 @@ impl Checker<'_, '_> {
+     /// position, the element's name as access node, and
+     /// `AccessFlagsAllowMissing` when the element has a default.
+     pub(crate) fn check_binding_element_tuple_bounds(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+@@ -745,7 +745,7 @@ impl Checker<'_, '_> {
+     /// for an array literal target: each non-spread, non-omitted element
+     /// without a default indexes an array-like source at its position.
+     pub(crate) fn check_array_assignment_tuple_bounds(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ArrayLiteralExpression(literal)) = self.node_map.get(node) else { return };
