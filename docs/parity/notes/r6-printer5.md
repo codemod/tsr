@@ -216,3 +216,62 @@ not built here.
 
 `parserRegularExpressionDivideAmbiguity4`'s extra TS1005 is the same
 family's recovery after the unterminated literal (parser).
+
+## 4. Re-freeze for item 3, and where the box stopped
+
+Batch BU (r6-typesroots2's shadow-rename work, `render_scope_resolution.rs`)
+landed on main after this box's freeze, and item 3 builds on it, so the
+branch merged main `07a51e4` (batch BV; batch CB still not landed) at
+`6ecef2b`. Its dumps (this lane's committed code included: §1's scanner
+arms are live, §2's checker function is unreached without its diff): types
+550,841 RIGHT / 4,798 WRONG / 712 GAP; diagnostics 5,660 RIGHT, 5,608
+EMPTY_RIGHT, 933 WRONG, 37 EMPTY_WRONG. The §2 and §3 diffs were measured on
+`7dba1e1`; they were not re-measured on `6ecef2b` (UNMEASURED there; both
+apply cleanly: check.rs's hook and the parser files are untouched by BV).
+
+The integrator called the usage checkpoint before item 3 started. Nothing
+of items 3 and 4 is built.
+
+## 5. Report
+
+**Commits** (on `claude/beautiful-shannon-ar5gh0-r6-printer5`):
+
+| commit | what | alone |
+|---|---|---|
+| `13ef10f` | §1: `Scan`'s radix, `.digit` and `#` arms | diagnostics +3 / −0, types +0 / −0 (48 lines newly aligned, 47 RIGHT) |
+| `9ad5cee` | §2: the regular-expression validator (tsr-scanner) and `checkGrammarRegularExpressionLiteral` (literals.rs) + hook diff | +0 without the diff |
+| `9857e68` | §3: the TS1260 diff; regex-vs-divide routed | docs |
+| `6ecef2b` | merge of main `07a51e4` (re-freeze) | — |
+
+**Diffs, in apply order** (measured on `7dba1e1`, stacked):
+
+1. [`r6-printer5-regexp-check-hook.diff`](r6-printer5-regexp-check-hook.diff)
+   (check.rs, main): diagnostics **+18 / −0**, types +0 / −0, slowcases
+   clean, Ir dm +0.09% gi −0.24% (validator never called on either), CLI
+   identical.
+2. [`r6-printer5-keyword-escapes.diff`](r6-printer5-keyword-escapes.diff)
+   (parser.rs, expression.rs, module.rs, main; new test): diagnostics
+   **+3 / −0**, types +0 / −0, slowcases clean, Ir dm +0.035% gi +0.23% over
+   diff 1 (stack vs base: +0.13% / −0.01%), CLI identical.
+
+Stack on `7dba1e1`: diagnostics 5,643 → 5,667 RIGHT (**+24**), 0 lost; types
+550,412 → 550,459 RIGHT, 0 lost.
+
+**Remaining, with causes:**
+
+- Item 1: `parser645086_1/2`, `parserRegularExpressionDivideAmbiguity4`:
+  the parser sink merges scanner diagnostics scanner-first, wrong for a
+  rescan (§3; main's parser).
+- Item 3 (`tsr-2zk.1170`, SHADOWED-TYPEPARAM-RENAME, 15 cases): not
+  started. The plan: route every signature type parameter through
+  `allocate_type_parameter_name` at `enterNewScope`, retire
+  `signatures.rs`' token-wise `type_parameter_renames`/`apply_renames`, and
+  give the by-text half (`typeParameterNamesByText`, the 763-line refusal) a
+  per-print owner scoped like `cloneNodeBuilderContext`; the inference.rs
+  half is main's.
+- Item 4 (`tsr-2zk.1260`): not started (unique-symbol member identity,
+  members.rs; r6-triage rows 92, 102, 106, 110, 145, 160, 166, 170, 173 per
+  r6-printer4 §4).
+- Routed, untouched: createMappedTypeNodeFromType's wrappers (`.16.2`),
+  mapped key order (mapped.rs, r6-declared3), the symbol_chain
+  `imported_here` gate (`tsr-2zk.39`).
