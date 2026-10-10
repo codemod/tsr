@@ -643,3 +643,23 @@ the tree, including a histogram of optional-token kinds (`printer_suite.rs`).
 pass). On main alone: 11,804 → 11,806 (the last two), 0 newly failing.
 The checker does not depend on `tsr-printer`; both corpus dumps are
 unchanged.
+
+## 12. The naming walks compare through `resolveSymbol` (routed from r7-shared)
+
+r7-shared's `r7-shared-printer-resolve-symbol.diff` (`r7-shared.md` §5),
+applied as routed, both hunks. `trySymbolTable` compares
+`c.resolveAlias(symbolFromSymbolTable)` and `getSymbolIfSameReference`
+compares `resolveSymbol`s (`checker.go:16258`): a pure alias resolves, and
+an alias merged with another meaning is its own symbol. The port's naming
+walks in checker.rs (`module_alias_at`, `best_name`'s alias and export
+routes, `export_equals_alias_name_at`, the clone guard in
+`type_to_string_at_worker`) followed every alias to its end
+(`resolve_alias_fully`), walking on through a merged alias+type symbol.
+`Checker::resolve_symbol` (symbols.rs, the diff's other hunk; the
+definition is r7-shared's port, not on main before this commit) answers
+native's one step, and those seven call sites ask it.
+
+**Measured** against §11's commit (`ef891f87`), both dumps unfiltered: types
+**+11 / −0** (`noCrashOnImportShadowing` 4, `exportTypeMergedWithExportStarAsNamespace` 5,
+`typeAndNamespaceExportMerge` 2),
+diagnostics unchanged.
