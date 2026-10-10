@@ -304,6 +304,7 @@ pub fn run_compilation(
             &program,
             &options,
             pool_size,
+            sys.exits_after_command(),
             #[cfg(feature = "work-trace")]
             work_trace.as_ref(),
         )
@@ -410,21 +411,32 @@ pub fn run_compilation(
         ));
     }
 
-    if diagnostics.is_empty() {
-        return ExitStatus::Success;
-    }
-    // EmitFilesAndReportErrors / CombineEmitResults (5b1047d): an empty
-    // emitter list is an unskipped result. List-only and noEmitOnError instead
-    // return a skipped result before source eligibility is considered.
-    let empty_emit = !options.list_files_only.is_true()
-        && !options.no_emit_on_error.is_true()
-        && !(0..program.source_files().len())
-            .any(|index| program.source_file_may_be_emitted(index));
-    if empty_emit {
-        ExitStatus::DiagnosticsPresentOutputsGenerated
+    let status = if diagnostics.is_empty() {
+        ExitStatus::Success
     } else {
-        ExitStatus::DiagnosticsPresentOutputsSkipped
+        // EmitFilesAndReportErrors / CombineEmitResults (5b1047d): an empty
+        // emitter list is an unskipped result. List-only and noEmitOnError
+        // instead return a skipped result before source eligibility is
+        // considered.
+        let empty_emit = !options.list_files_only.is_true()
+            && !options.no_emit_on_error.is_true()
+            && !(0..program.source_files().len())
+                .any(|index| program.source_file_may_be_emitted(index));
+        if empty_emit {
+            ExitStatus::DiagnosticsPresentOutputsGenerated
+        } else {
+            ExitStatus::DiagnosticsPresentOutputsSkipped
+        }
+    };
+    if sys.exits_after_command() {
+        // The process ends with this command, so the program's tables and the
+        // arena are not torn down: the operating system reclaims them, as it
+        // does a native process's heap (`tsc` exits without collecting).
+        // `r7-perf.md` §8.
+        std::mem::forget(program);
+        std::mem::forget(arena);
     }
+    status
 }
 
 /// Layer command-line options over a config file's.

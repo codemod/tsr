@@ -287,9 +287,152 @@ need re-measuring once those land.
 
 ## §5 The lane's numbers
 
-| state | dm wall · CPU | dml wall · CPU | gi wall · CPU | jsTyping wall |
-|---|---:|---:|---:|---:|
-| base `9020aa67` | 0.801 · 0.517 | 0.774 · 0.561 | 0.878 · 0.427 | 4.416 (not equivalent) |
-| §2 JSDoc deferral | **0.706** · 0.509 | 0.781 · 0.569 | **0.648** · 0.317 | unchanged (check-bound) |
+Ratios are TSR/tsgo, wall · CPU, with 21 samples (jsTyping 5). This
+container's runs differ from one another by several percent; within a row
+the binaries ran in one session. From §6 on, every row carries both
+profiles (ADR-0054).
 
+| state | profile | dm | dml | gi | jsTyping wall |
+|---|---|---:|---:|---:|---:|
+| base `9020aa67` | release | 0.801 · 0.517 | 0.774 · 0.561 | 0.878 · 0.427 | 4.416 (not equivalent) |
+| §2 JSDoc deferral | release | 0.706 · 0.509 | 0.781 · 0.569 | 0.648 · 0.317 | — |
+| §2, §6's session | release | 0.662 · 0.523 | 0.749 · 0.569 | 0.743 · 0.356 | — |
+| §2, §6's session | **dist** | 0.692 · **0.460** | 0.744 · **0.540** | 0.738 · 0.366 | 4.159 (not equivalent) |
+
+In §6's session the gi and dm walls are noisy against the
+`dist`/`release` self-comparison (§6); the CPU column is the stable one.
 The 0.50 target is not met on any project.
+
+## §6 The `dist` profile is fat LTO, and the release ratio is measured on it (ADR-0054)
+
+The integrator approved this as a build decision (2026-10-10). This lane
+owns `Cargo.toml`'s `[profile.dist]` for this one commit.
+`[profile.dist]` goes from thin to fat LTO with `codegen-units = 1`.
+[ADR-0054](../../adr/0054-the-release-ratio-is-measured-on-the-dist-profile.md)
+records the measured-and-shipped rule, and
+`docs/architecture/whole-project-performance.md`'s reproduce block now
+builds `target/dist/tsr`. Gates stay on `release`.
+
+`dist`/`release` on the same tree (§2's commit), with the `release`
+binary in the harness's `--tsgo` slot:
+
+| project | wall | CPU | samples |
+|---|---:|---:|---:|
+| domain-model | 0.894 | **0.905** | 21 |
+| generic-imports | 0.950 | **0.959** | 21 |
+| domain-model-large | 0.922 | **0.900** | 21 |
+| jsTyping | 0.921 | **0.942** | 5 |
+
+An earlier probe used `CARGO_PROFILE_RELEASE_LTO=fat`, the same settings
+through the environment. It read 0.934, 0.967 and 0.943 CPU on the first
+three projects. CLI output is `cmp`-identical to the `release` binary on
+dm, dml and gi, and `diagnostics_match` holds against the base on jsTyping.
+A from-scratch `cargo build --profile dist -p tsr` takes 3 min 11 s on this
+container.
+
+No workflow builds a shipped `tsr`. `perf.yml` builds only the parser
+example and bench. A whole-project job building `target/dist/tsr` and
+reporting both profiles is proposed to the integrator, who owns
+`.github/`.
+
+## §7 The front end, `tsr-2zk.17.3`, the allocator and `tsr-2zk.1261`
+
+**Front end after §2** (`--extendedDiagnostics`, three runs each):
+
+| project | parse | bind | check |
+|---|---:|---:|---:|
+| generic-imports | 23–31 ms | 11 ms | 1 ms |
+| domain-model | 35 ms | 15 ms | 66–74 ms (4 checkers) |
+
+On generic-imports the critical path is `lib.dom.d.ts`, about 83% of the
+parsed bytes and 80% of the bound nodes. It is parsed straight into the
+shared tables, then bound serially (r5-loader §3's gate: largest/total > 0.5).
+r5-loader §6.2 measured moving its parse to a worker: the AST publication
+copy (0.31 of the parse) then lands on the coordinator, with nothing to
+overlap it on this project. The same holds for a private bind of
+`lib.dom` (publication about 0.45 of the bind). Either change wins only
+once publication stops copying. That is `tsr-2zk.17.4` (rebasable node
+ids: about 900 `node_id` read sites in generated `tsr-ast` code) and
+`tsr-2zk.17.5` (per-file binding with id-offset merge). `tsr-2zk.17.3`
+records itself as blocked on both. Neither is in this lane's files
+(`tsr-ast`, `tsr-parser`, `tsr-binder`), and each needs its own design
+record, because it changes ADR-0003/ADR-0034's node-table ownership. They
+are not attempted here.
+
+The one front-end piece inside this lane's files is a pipelined bind. Here
+the coordinator would bind `lib.dom` directly into the canonical tables
+while workers privately bind the files after it. On domain-model that
+publication is about 78 K nodes at about 0.45 of the bind, so the estimate
+is ≤2 ms out of a 15 ms bind. It was not built.
+
+**The allocator** is about 11% self of domain-model's single-threaded
+profile (`malloc`, `_int_free`, `cfree`, `_int_malloc`,
+`malloc_consolidate`, `realloc`). On generic-imports, kernel page-fault
+handling is about 12% (`do_user_addr_fault`, `clear_page_erms`,
+memcg charge). Two glibc tunings were measured through `GLIBC_TUNABLES`,
+with no code change: `glibc.malloc.hugetlb=1` (THP for malloc, wall
+0.993 / CPU 0.994) and a 256 MiB `top_pad` + `mmap_threshold` (0.991 /
+0.988), 21 samples on generic-imports. Both are noise, so no
+`mallopt`/`unsafe` hook was proposed (ADR-0011). The first-touch faults
+are the memory the parse and bind write. A different global allocator
+would need a new dependency, and boxes cannot change `Cargo.lock`. So the
+allocator share stays with `tsr-2zk.1092` (Signature copies, r5-checkperf2
+§2): fewer allocations, not a faster allocator.
+
+**`tsr-2zk.1261` (ramdaToolsNoInfinite2): not reproducible on main.**
+r6-declared3 §1 measured the per-call alias-frame map with r6-declared2's
+*held binder diff* applied (12.9 G Ir, 1.4 s). On `a51bc525` the case
+takes 182 ms in the diagnostics dump and 0.35 s wall in a filtered
+`verdictdump` (`TOTAL 493 right 474`). The cost appears only on the held
+diff's path, so `.1261` should be re-measured when that diff lands, and not
+before. The corpus's slowest cases on this base are
+`performanceComparisonOfStructurallyIdenticalInterfacesWithGenericSignatures`
+(3.9 s), `relationComplexityError` (1.7 s) and `ramdaToolsNoInfinite`
+(1.7 s).
+
+## §8 The CLI process does not tear down what it is about to exit from
+
+**Forcing measurement.** After the report is written, `run_compilation`
+still dropped the `Program`: node table, node map, `BindResult` hash maps,
+per-file vectors and the arena. Each checker worker also dropped its
+`Checker`'s type, symbol-link and relation tables before `std::thread::scope`
+joined it. That work is on the critical path. The pool waits for the
+slowest worker's drop, and the process cannot exit until `main` returns.
+Native `tsc` (tsgo) does none of it: the process exits without a final
+collection, and the operating system reclaims the heap.
+
+**Change** (`tsr-execute`, the driver):
+
+- `System::exits_after_command()` defaults to `false`. `OsSystem`, the
+  `tsr` binary's host, answers `true`.
+- When it is `true`, `run_compilation` `mem::forget`s the `Program` and the
+  arena once the exit status is known. `check_program_files` gets the
+  answer and `mem::forget`s each checker after its diagnostics are
+  collected.
+- The baseline runner and the test hosts keep the default, so a
+  long-running process that runs many commands drops everything as before.
+
+This is not a cache, side table or traversal, so the checker-port record
+does not apply. No answer depends on it. The forgotten values are only
+memory: no file handle, lock or thread is held by a `Program` or `Checker`.
+
+**Measured** (base: this branch's previous commit, `9242e12f`'s `release`
+binary; `/tmp/box/ab.py`, interleaved fresh processes, 21 samples):
+
+| project | wall | CPU |
+|---|---:|---:|
+| domain-model | 0.959 | 0.972 |
+| generic-imports | 0.965 | 0.960 |
+
+The box-protocol harness (`whole_project_perf.py`, the frozen `9242e12f`
+binary in the `--tsgo` slot, 21 samples) gives domain-model 0.979 wall ·
+**0.945** CPU and generic-imports 0.978 · **0.980**. The output is
+`cmp`-identical on dm, dml and gi. Both dumps are unchanged (`compare`
+against the `9242e12f` freeze: 0 lost, 0 missing; the conformance harness
+does not use `OsSystem`). `cargo test --workspace --release`: 3,753 passed,
+0 failed.
+
+**How we would know it is wrong.** A host that answers `true` and runs a
+second command in the same process: memory would grow by one program per
+command. `OsSystem` is constructed once per `main` and runs exactly one
+`command_line`.

@@ -628,13 +628,17 @@ impl<'a> Parser<'a> {
         self.parse_block_with(None)
     }
 
-    /// The context half of `parseFunctionBlock` (`parser.go:3495`) this
-    /// parser tracks beyond each caller's `with_await_context`: "The body of
-    /// the function is not in [Decorator] context."
+    /// What `parseFunctionBlock` (`parser.go:3495`) does beyond each caller's
+    /// `with_function_context`: the body is not in the decorator context, and an
+    /// `await` identifier inside it never marks the enclosing top-level
+    /// statement for the reparse (`statementHasAwaitIdentifier`).
     pub(crate) fn parse_function_block(&mut self) -> &'a Block<'a> {
+        let saved = self.statement_has_await_identifier;
+        // "The body of the function is not in [Decorator] context."
         let saved_decorator = std::mem::replace(&mut self.in_decorator_context, false);
         let block = self.parse_block();
         self.in_decorator_context = saved_decorator;
+        self.statement_has_await_identifier = saved;
         block
     }
 
@@ -1186,7 +1190,7 @@ impl<'a> Parser<'a> {
         let name = if !tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::DefaultKeyword)
             || self.is_binding_identifier()
         {
-            Some(self.parse_identifier())
+            Some(self.parse_binding_identifier())
         } else {
             None
         };
@@ -1197,15 +1201,17 @@ impl<'a> Parser<'a> {
         // A non-async function nested in an async one turns the context OFF,
         // which is why this is set to a value rather than pushed. §193.
         let is_async = Self::is_async(modifiers);
-        let (parameters, return_type, body) = self.with_await_context(is_async, |parser| {
-            let parameters = parser.parse_parameter_list();
-            let return_type = parser.parse_return_type_annotation();
-            // An overload signature has no body, just a semicolon
-            // (`parseFunctionBlockOrSemicolon`, `'{' or ';' expected`).
-            let body =
-                parser.parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
-            (parameters, return_type, body)
-        });
+        let is_generator = asterisk.is_some();
+        let (parameters, return_type, body) =
+            self.with_function_context(is_async, is_generator, |parser| {
+                let parameters = parser.parse_parameter_list();
+                let return_type = parser.parse_return_type_annotation();
+                // An overload signature has no body, just a semicolon
+                // (`parseFunctionBlockOrSemicolon`, `'{' or ';' expected`).
+                let body =
+                    parser.parse_function_block_or_semicolon(false, Some(&messages::OR_EXPECTED));
+                (parameters, return_type, body)
+            });
 
         let modifiers = self.arena.alloc_slice(modifiers);
         let type_parameters = self.arena.alloc_slice(&type_parameters);

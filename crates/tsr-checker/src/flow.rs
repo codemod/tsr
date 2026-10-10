@@ -3074,7 +3074,7 @@ impl Checker<'_, '_> {
     /// WITHOUT flow analysis — identifiers and property chains through
     /// their EXPLICIT types only, so that resolving an assertion's callee
     /// inside the walk cannot re-enter the walk. `this` answers
-    /// [`Checker::get_explicit_this_type`]. Private names and `with`
+    /// [`Checker::get_explicit_this_type`]. `with`
     /// statements decline.
     fn get_type_of_dotted_name(&mut self, node: NodeId) -> Option<TypeId> {
         self.get_type_of_dotted_name_in(node, &mut Vec::new())
@@ -3104,8 +3104,14 @@ impl Checker<'_, '_> {
             Some(Node::PropertyAccessExpression(access)) => {
                 let base = access.expression?.node_id()?;
                 let t = self.get_type_of_dotted_name_in(base, resolving)?;
-                let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
-                let property = self.get_property_of_type(t, name.text)?;
+                let property = match access.name? {
+                    tsr_ast::MemberName::Identifier(name) => {
+                        self.get_property_of_type(t, name.text)?
+                    }
+                    tsr_ast::MemberName::PrivateIdentifier(name) => {
+                        self.private_property_of_dotted_type(t, name.text)?
+                    }
+                };
                 self.get_explicit_type_of_symbol(property, resolving)
             }
             Some(Node::ParenthesizedExpression(wrapper)) => {
@@ -3114,6 +3120,28 @@ impl Checker<'_, '_> {
             }
             _ => None,
         }
+    }
+
+    /// `getTypeOfDottedName`'s private-identifier lookup (`flow.go:2137`):
+    /// `getPropertyOfType(t, GetSymbolNameForPrivateIdentifier(t.symbol, name))`,
+    /// and nothing when `t` has no symbol. Native's member name is mangled
+    /// with the declaring class (`binder.go:369`); this port keys private
+    /// members by their text (`crate::private_name_identity`), so the mangled
+    /// lookup is the text lookup restricted to a member declared by `t`'s own
+    /// class symbol. An inherited base `#x` is another class's name natively
+    /// and misses here too.
+    fn private_property_of_dotted_type(&mut self, t: TypeId, text: &str) -> Option<SymbolId> {
+        let owner = match self.store.get(t).data {
+            TypeData::Named { members, .. } => members?,
+            TypeData::Anonymous { symbol, .. } => symbol,
+            _ => return None,
+        };
+        let owner = self.binder.merged_symbol(owner);
+        let property = self.get_property_of_type(t, text)?;
+        let declaration = self.binder.symbols().get(property).value_declaration?;
+        let class = self.containing_class_of(declaration)?;
+        let class_symbol = self.binder.symbol_of(class)?;
+        (self.binder.merged_symbol(class_symbol) == owner).then_some(property)
     }
 
     /// `getExplicitThisType` (`flow.go:2215`): the explicit type of the `this`
@@ -7306,7 +7334,15 @@ impl Checker<'_, '_> {
         let mut parts = Vec::with_capacity(constituents.len());
         for constituent in constituents {
             let flags = self.store.get(constituent).flags;
-            if constituent == self.intrinsics.error || flags.contains(TypeFlags::NEVER) {
+            // `getPropertyOfType` reads the reduced apparent type
+            // (`getReducedApparentType`): an intersection whose discriminants
+            // conflict (`a & b` from distributing `(a | b | c) & (b | c)`)
+            // reduces to `never`, which `createUnionOrIntersectionProperty`
+            // skips like any `never` constituent.
+            if constituent == self.intrinsics.error
+                || flags.contains(TypeFlags::NEVER)
+                || self.intersection_has_never_discriminant(constituent)
+            {
                 continue;
             }
             let apparent = self.apparent_type(constituent);

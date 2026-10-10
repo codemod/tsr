@@ -181,8 +181,7 @@ Median child-CPU new/old (21 samples, against §1's binary): domain-model
   `hasNonGlobalAugmentationExternalModuleSymbol` arm): `typeof
   import("./file1")`. The merge already adds the declaration; routed to
   r7-printer.
-- `augmentExportEquals5` `x.id` (3 lines), TS2454: `import { Request } from
-  "express"` reads a member of an `export =` namespace; to investigate.
+- `augmentExportEquals5` `x.id` (3 lines), TS2454: §3 (held).
 - `augmentExportEquals7`: `import * as lib` of an `export =` of a
   `var`+`namespace`: the synthetic default wrapper prints `{ default: () =>
   void; }`; `module_clone_type` / `getTypeWithSyntheticDefaultOnly` arm.
@@ -190,3 +189,72 @@ Median child-CPU new/old (21 samples, against §1's binary): domain-model
   import VNode = react.ReactNode` against `type VNode`) needs the
   qualified import-equals through a UMD `export =`, which the binder walk
   declines; TS2300 ×2 and `VNode` missing.
+
+## 3. HELD: `resolveESModuleSymbol`'s pure-alias step in `getExternalModuleMember`
+
+### Cause
+
+`getExternalModuleMember` (`checker.go:14667`) reads members off
+`resolveESModuleSymbol(moduleSymbol)`, whose second step (`:15570`) resolves
+an `export =` symbol that is a pure alias (`export = e`, `IsNonLocalAlias`)
+through `resolveIndirectionAlias`. `get_external_module_member` stopped at
+`resolveExternalModuleSymbol(…, dontResolveAlias = true)`, so for `export =
+e` it read the exports of the `export=` alias symbol itself (empty) and the
+module's own table (only `export=`): `import { Request } from "express"`
+resolved to nothing although the augmentation had merged `Request` into
+`e` (`augmentExportEquals5`, `x.id : any`, TS2454 missing).
+
+### Measured, and why it is held
+
+`r7-shared-HELD-export-equals-pure-alias.diff`, against batch-2 main
+`1b466dc8`: +3 type lines and +1 diagnostics case (`augmentExportEquals5`),
+**−8 type lines** — refused. The losses are a printer gap the resolution
+exposes, not a wrong target: `contextuallyTypedJsxAttribute2` ×7 and
+`declarationEmitExportAssignedNamespaceNoTripleSlashTypesReference` 2:2
+import `ElementType` / `Component` by name from react's `export = React`.
+Unresolved, the reference printed its written text (`ElementType`,
+`Component`), which matched native by accident; resolved, TSR prints the
+reference with its filled default arguments (`ElementType<any>`,
+`Component<any, {}, {}>`), where native's node builder omits type arguments
+that equal the declared defaults for a reference written without them.
+Re-land when the printer drops default-equal trailing arguments (routed,
+r7-printer); the diff then needs re-measuring.
+
+## 4. `resolveQualifiedName`'s left side through an alias (QUALIFIED-NAME-LEFT-ALIAS-RESOLVE)
+
+### Cause
+
+`import EnumA = Enum.A` after `import { Enum } from "./enum"`:
+`getSymbolOfPartOfRightHandSideOfImportEquals` → `resolveEntityName` →
+`resolveQualifiedName` (`checker.go:15828`) resolves the left side with
+`resolveEntityName(left, Namespace, …, dontResolveAlias = false)`, whose
+`resolveSymbol` follows the pure import alias to the enum, then reads `A`
+from its exports; a merged alias whose own exports lack the name falls back
+to its target's (`:15852`). `resolve_qualified_entity` read `exports` off
+the alias symbol as found and answered `None`, so `EnumA` (merged with an
+exported type alias in `importedEnumMemberMergedWithExportedAliasIsError`)
+read `any`; r7-printer had kept an older same-file arm to cover that line.
+
+### The port
+
+Each left segment is merged, a pure alias (`is_non_local_pure_alias`) is
+resolved through `resolve_alias`, and a missing name on a merged alias falls
+back to the alias target's exports. No cache: `resolve_alias`'s existing
+memo is the only state touched.
+
+### Measured (against batch-4 main `660718af`)
+
++9 type lines, zero losses, diagnostics unchanged; 2 cases:
+`importedEnumMemberMergedWithExportedAliasIsError` (the routed 1:1 line)
+and `declarationEmitEnumReferenceViaImportEquals` (7 lines);
+`leaveOptionalParameterAsWritten` 1:6 also turns right. One line moves
+GAP→WRONG: `leaveOptionalParameterAsWritten` 2:5, where `export import Foo
+= a.Foo` inside `declare global { namespace teams.calling }` now resolves as
+native resolves it, and the printer spells the reference
+`teams.calling.Foo | undefined` where native's accessible-chain search
+answers `import("./a").Foo | undefined` (routed, r7-printer).
+Coverage: `checker_types` 8,738/9,538, `checker_types_configured`
+1,771/1,928, `diagnostics` 4,849/5,502, `diagnostics_configured` 968/1,091.
+Median child-CPU new/old (21 samples): domain-model 1.0009,
+generic-imports 1.0108. Workspace clippy (`--all-targets -D warnings`) clean;
+`cargo test --workspace --release` passes.

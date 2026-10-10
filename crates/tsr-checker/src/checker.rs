@@ -2595,11 +2595,26 @@ impl<'a, 'n> Checker<'a, 'n> {
         }) {
             return Some(crate::printing::quote(name));
         }
-        if let Some(&file) = symbol
+        // `ast.GetSourceFileOfModule` (`ast/utilities.go:3571`): the file of
+        // the value declaration, else of the first declaration that is no
+        // module augmentation. For a file's module symbol that is the file
+        // itself; for the `export =` target an augmentation merged into
+        // (`augmentExportEquals*`, r7-printer §3), it is the target's file.
+        let file = symbol
             .declarations
             .iter()
-            .find(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
-        {
+            .copied()
+            .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile)
+            .or_else(|| {
+                let declaration = symbol.value_declaration.or_else(|| {
+                    symbol.declarations.iter().copied().find(|&declaration| {
+                        !self.is_external_module_augmentation_declaration(declaration)
+                            && !self.is_global_scope_augmentation(declaration)
+                    })
+                })?;
+                self.source_file_of(declaration)
+            });
+        if let Some(file) = file {
             // The file arm: `GetModuleSpecifiers` over the module's file
             // (`crate::module_specifiers`, r5-modules2 §2).
             if let Some(from) = self.source_file_of(reference)
@@ -2618,6 +2633,21 @@ impl<'a, 'n> Checker<'a, 'n> {
                 .then(|| format!("\"./{relative}\""));
         }
         None
+    }
+
+    /// `ast.IsExternalModuleAugmentation` (`ast/utilities.go:3567`): an
+    /// ambient (string-named) module declaration placed as an external
+    /// augmentation.
+    fn is_external_module_augmentation_declaration(&self, declaration: NodeId) -> bool {
+        matches!(self.node_map.get(declaration), Some(tsr_ast::Node::ModuleDeclaration(node))
+            if matches!(node.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+            && self.is_module_augmentation_external(declaration)
+    }
+
+    /// `ast.IsGlobalScopeAugmentation`: `declare global { … }`.
+    fn is_global_scope_augmentation(&self, declaration: NodeId) -> bool {
+        matches!(self.node_map.get(declaration), Some(tsr_ast::Node::ModuleDeclaration(node))
+            if node.keyword.kind == SyntaxKind::GlobalKeyword)
     }
 
     /// `ast.IsModuleAugmentationExternal` (`utilities.go:1694`): a module
@@ -3016,6 +3046,22 @@ impl<'a, 'n> Checker<'a, 'n> {
         let Some(suffix_at) = Self::split_around_name(&printed, name) else {
             return Some(printed);
         };
+        // r7-printer §3: `symbolToTypeNode`'s import-type arm
+        // (`nodebuilderimpl.go:651`) when the chain's root itself carries a
+        // string-named module declaration — an `export =` target a module
+        // augmentation merged into prints `typeof import("./file1")` even
+        // where its own name is accessible.
+        if self.has_string_named_module_declaration(symbol) {
+            let meaning =
+                if printed.starts_with("typeof ") { SymbolFlags::VALUE } else { SymbolFlags::TYPE };
+            if let Some(text) = self.module_declared_root_text_at(symbol, reference, meaning) {
+                let mut out = String::with_capacity(printed.len() + text.len());
+                out.push_str(&printed[..suffix_at - name.len()]);
+                out.push_str(&text);
+                out.push_str(&printed[suffix_at..]);
+                return Some(out);
+            }
+        }
         // The RENAME (`checker-notes-modobj.md` §10.8): the innermost
         // accessible name for the symbol may be an *alias's* — `typeof React`
         // for a type whose symbol is the global `__React`, because the file's
@@ -3402,6 +3448,55 @@ impl<'a, 'n> Checker<'a, 'n> {
             // is the recursion's base case rather than a refusal.
             None => format!("{parent_name}."),
         })
+    }
+
+    /// Whether one of `symbol`'s declarations is a string-named module
+    /// declaration: `hasNonGlobalAugmentationExternalModuleSymbol`'s ambient
+    /// half, here on a symbol that is not itself a module (an augmentation
+    /// merged into an `export =` target).
+    pub(crate) fn has_string_named_module_declaration(&self, symbol: SymbolId) -> bool {
+        let entry = self.binder.symbols().get(symbol);
+        !self.is_ambient_module(symbol)
+            && entry.declarations.iter().any(|&declaration| {
+                matches!(self.node_map.get(declaration), Some(Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+            })
+    }
+
+    /// `symbolToTypeNode`'s import-type spelling (`nodebuilderimpl.go:651`)
+    /// for a chain whose root carries a string-named module declaration:
+    /// `import("<specifier>")` followed by the rest of the chain. `None` when
+    /// the chain's root is another symbol (an alias names it) or the
+    /// specifier cannot be computed. No cache: the resolver's
+    /// (`Checker::accessibility_links`) is the walk's.
+    pub(crate) fn module_declared_root_text_at(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
+            .symbol_chain_at(symbol, reference, meaning, true, true, 0);
+        let (&root, rest) = chain.split_first()?;
+        // `core.Some(chain[0].Declarations,
+        // hasNonGlobalAugmentationExternalModuleSymbol)`: the root may also be
+        // the file module itself, when the `export =` shortcut of
+        // `getSymbolChain` made the module the chain.
+        let root_is_module =
+            self.binder.symbols().get(root).declarations.iter().any(|&declaration| {
+                matches!(self.node_map.get(declaration), Some(Node::ModuleDeclaration(module))
+                if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+            }) || self.is_module_symbol(root);
+        if !root_is_module {
+            return None;
+        }
+        let specifier = self.module_specifier_for_symbol(root, reference)?;
+        let mut text = format!("import({specifier})");
+        for &part in rest {
+            text.push('.');
+            text.push_str(self.binder.symbols().get(part).name);
+        }
+        Some(text)
     }
 
     /// `getSymbolChain(symbol, meaning, endOfChain = true, yieldModuleSymbol =

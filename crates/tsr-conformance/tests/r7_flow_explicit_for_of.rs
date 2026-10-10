@@ -41,3 +41,38 @@ for (const self of self) { self.assertDerived(); }";
     // `for (const self of self)` ends at `resolvingExplicitTypeOfSymbol`.
     assert!(reported.contains(&(9, 20, 2448)), "{reported:?}");
 }
+
+fn type_lines(source: &str) -> Vec<String> {
+    use tsr_conformance::{types_baseline::FileTypes, types_producer};
+    let case = TestCase::parse("probe/explicit-private", "probe.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect()
+}
+
+/// `getTypeOfDottedName`'s private-identifier arm (pinned flow.go:2137):
+/// `this.#p(v)` and `C.#s(v)` supply the effects signature. Native prints
+/// `v : string` and `v : number` at the reads after the calls.
+#[test]
+fn private_identifier_assertion_callees_narrow() {
+    let lines = type_lines(
+        "// @strict: true
+// @target: es2022
+class Foo2 {
+    #p1(v: any): asserts v is string { if (typeof v !== \"string\") throw new Error(); }
+    static #s(v: any): asserts v is number { if (typeof v !== \"number\") throw new Error(); }
+    m1(v: unknown) { this.#p1(v); v.length; }
+    m2(v: unknown) { Foo2.#s(v); v.toFixed(); }
+}",
+    );
+    for wanted in ["v : string", "v : number"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}

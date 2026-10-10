@@ -93,18 +93,25 @@ missing_panics_doc = "allow"
 # `opt-level` stays at 3: the conformance run is compute-bound and dropping it
 # makes the run *much* slower, which is the opposite of the goal.
 #
-# `[profile.dist]` below keeps the slow-and-fast build for anyone who needs it.
+# `[profile.dist]` below is the slow-and-fast build: the one that is shipped and
+# the one the release ratio is measured with (ADR-0054).
 [profile.release]
 opt-level = 3
 lto = false
 codegen-units = 16
 panic = "abort"
 
-# The old `release`: whole-program LTO, one codegen unit. For a shipped
-# artefact or a benchmark where the last few percent matter.
+# The shipped and measured build: fat whole-program LTO, one codegen unit.
+# The TSR/tsgo release ratio is measured with this profile, and a shipped
+# `tsr` is built with it (`cargo build --profile dist -p tsr`, output in
+# `target/dist/tsr`). See docs/adr/0054-the-release-ratio-is-measured-on-the-dist-profile.md.
+# Fat rather than thin: thin LTO recovered jsTyping's share but not
+# generic-imports' (docs/parity/notes/r6-checkperf.md §5). `release` above stays
+# the gate and inner-loop profile, because its incremental relink is seconds,
+# while this profile's from-scratch build is about four minutes on a 4-core box.
 [profile.dist]
 inherits = "release"
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 
 # Release code with symbols, for `perf`.
