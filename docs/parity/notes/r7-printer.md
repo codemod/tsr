@@ -478,3 +478,32 @@ lands (`allow(dead_code)` names that consumer); the unit test
 
 Measured: no corpus line reaches it (both dumps unchanged against §6's
 commit).
+
+## 8. An array literal's tuple image prints at the site
+
+**Forcing constraint.** `declFileTypeAnnotationTupleType`:
+`var k: [c, m.c] = [new c(), new m.c()]` prints the literal's type
+`[c, m.c]` natively; the port printed `[c, c]`, although `new m.c()` alone
+printed `m.c`.
+
+**Cause.** `checkArrayLiteral` returns `createArrayLiteralType` of the
+contextual tuple (`checker.go:8103`), a separate reference image flagged
+`ArrayLiteral` (`widening.rs`, `array_literal_bases`). `tuple_text_at`
+(printing.rs) admits only a tuple `create_tuple_type` minted (its
+`tuple_types` canonical entry), so the image fell back to its minted text,
+whose elements were printed inside view. Native's `typeReferenceToTypeNode`
+never reads the `ArrayLiteral` flag: the image prints exactly as its base.
+
+**The port.** The canonical test compares against the image's base
+(`array_literal_bases`) when there is one. The image carries the base's
+labels, optional mask, rest tail and variadic records (copied when it is
+minted), so the other declines still read the same facts. No cache or table.
+
+**Measured** against §7's commit (`deda2594`), both dumps unfiltered: types
+**+6 / −0** (`declFileTypeAnnotationTupleType` 0:7, 0:18;
+`jsxChildrenSingleChildConfusableWithMultipleChildrenNoError` 0:15, 0:16,
+0:20; `declarationEmitTypeParameterNameShadowedInternally` 0:7),
+diagnostics unchanged. Coverage with §5–§8 on `92fe8f05`: `checker_types`
+8,782 → 8,796, `checker_types_configured` 1,784 → 1,788. CPU new/old,
+21 samples: domain-model 1.002, generic-imports 1.023. Test:
+`tests/array_literal_tuple_site.rs`.
