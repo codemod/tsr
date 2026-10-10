@@ -561,3 +561,84 @@ the same command (`tsconfig.perf.json --noEmit --incremental false
 builds, where they had already gone. So a batch-2 regression was fixed by
 batch 3 or 4, and there is nothing left to route. jsTyping now reports 259
 against tsgo's 86 on `c36a7706`.
+
+## §12 The design record for `tsr-2zk.17.4`/`.17.5` (ADR-0056, proposed)
+
+The integrator asked for it on 2026-10-10.
+[ADR-0056](../../adr/0056-rebasable-node-ids-and-per-file-bind-for-a-zero-copy-front-end.md)
+proposes rebasable node ids: an `AtomicU32`-backed `node_id`, a rebase
+pass at publication, and per-file arenas kept in a program-owned pool. It
+pairs them with the existing per-file bind and id-offset merge. The
+measured input comes from `crates/tsr-compiler/examples/front_end_ceiling.rs`
+(new; release, minimum of 7 rounds per file, 4 workers). Today's path to
+zero-copy saves generic-imports 2.8–5.1 ms, domain-model 12.3–15.1 ms
+and domain-model-large 22–30 ms per process. The floor on every bench is
+`lib.dom.d.ts`'s single-threaded parse and bind, about 22 ms. Not built;
+funding is the integrator's decision.
+
+## §13 Where the ratios stand after §10
+
+TSR/tsgo, `whole_project_perf.py`, 21 samples, one session, the binary at
+`4c765057` (mimalloc). This session's absolute times ran 10–25% above the
+§10 A/B session's; the ratios are within one run.
+
+| project | release wall · CPU | **dist wall · CPU** |
+|---|---:|---:|
+| domain-model | 0.616 · 0.438 | **0.540** · 0.416 |
+| domain-model-large | 0.745 · 0.526 | **0.716** · 0.479 |
+| generic-imports | 0.665 · 0.330 | **0.598** · 0.303 |
+
+jsTyping is still not equivalent work (259 diagnostics against 86 on
+`c36a7706`). The 0.50 target is not met. domain-model-large is furthest
+off, and its remainder is the check phase.
+
+## §14 domain-model-large's remaining wall: checker 0 prints types on the success path
+
+**Pool balance** (a temporary per-checker timer in `checker_pool.rs`, not
+committed; three runs of the release binary, mimalloc). Checker 0 finishes
+in 469–660 ms. Checkers 1–3 finish in 248–364 ms. Each checker has 50 or 51
+files. The extra is one file: `src/main.ts` (program index 264, so
+264 % 4 = checker 0, the same assignment as native `checkerpool.go:115`)
+took **395 ms**. Single-threaded, after every model file was already
+checked, it takes about 155 ms, and its cost is linear in its 200
+`run()` blocks (K = 25 / 50 / 100 / 200 blocks: 21 / 35 / 68 / 155 ms).
+
+**Against tsgo, single-threaded** (`--singleThreaded`, check time, three
+runs; `/tmp/box/dmlk<K>` copies with `main.ts` cut to K blocks):
+
+| K blocks | TSR check | tsgo check |
+|---:|---:|---:|
+| 25 | 0.93–1.04 s | 0.67–0.77 s |
+| 200 | 1.09–1.26 s | 0.74–0.86 s |
+
+TSR's single-threaded checker is about 1.4× tsgo's on this project. The
+multi-threaded CPU ratio (0.48–0.53) flatters it, because tsgo's
+goroutines spend CPU that does not shorten its wall. Per `main.ts` block
+TSR pays about 1.1 ms against tsgo's about 0.3 ms.
+
+**Where a block's time goes** (`perf`, dwarf call graphs, inclusive sample
+delta between K = 200 and K = 25, single-threaded): 249 of the 339-sample
+increase under `check_single_candidate_arguments` is
+`objects.rs` `check_object_literal_members` → `member_text_at` →
+`type_to_string_at` → `qualified_name_at` → `symbol_chain` →
+`symbol_accessibility` (`try_symbol_table`,
+`alternative_containing_modules`, `same_reference`). Every object literal
+mints its type with its members' text rendered **at the literal's site**
+(§735's render-at-reference). In `main.ts`, each
+`describeModelNNNEvent({ kind: "created", item: createdNNN.value })`
+renders `item`'s interface name by searching the accessible symbol chain
+through a file with 600 imported names. No error is ever printed. Native
+prints on error paths only. `get_type_at_flow_condition` /
+`get_type_at_flow_branch_label` (175 samples, mostly the narrowing of
+`createdNNN.ok`/`.value` inside the long function) come next.
+
+Share of all CPU (4 checkers): `member_text_at` is **6.2%** on dml (17.3%
+of checker 0, the critical path) and 2.1% on dm (7.0% of checker 0).
+Making the literal's member text lazy, read through the
+`PrintedSlot::on_demand` road that `AnonymousProperty` already has, or
+through an ADR-0052 print-time plan, would take about 17% off checker 0
+on dml. The type's display text currently enters `store.new_named` at
+mint (`objects.rs:2318`), so laziness needs the store to accept deferred
+text. That is the printer lane's (`printing.rs`, `symbol_accessibility.rs`)
+and the contextual lane's (`objects.rs`) to build. It is routed through
+the integrator, not built here.
