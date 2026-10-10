@@ -381,3 +381,15 @@ when the reference sits inside the property's type annotation
 (`prop.Type.Loc.ContainsInclusive(errorLocation.Pos())`, `:1522`).
 `check_value_identifier` (`check.rs`, granted) reported TS2301 for both.
 Converted: `initializerReferencingConstructorParameters`.
+
+## §15 An interface's `extends` element is a type reference
+
+`checkInterfaceDeclaration` (`checker.go:5023`) runs `checkTypeReferenceNode`
+on each `extends` element, so a namespace there is TS2709 and a value TS2749
+(`moduleAsBaseType`). The type-name reporter in `check.rs` (granted) admitted
+an `ExpressionWithTypeArguments` only under a class's `implements` clause; it
+now admits an interface's `extends` clause too. A class's `extends` stays a
+value (`checkClassLikeDeclaration` checks its expression) and an interface's
+`implements` stays TS1176 only. Matches `target/tsgo-pinned` on a scratch file
+covering a namespace, an unresolved name (TS2304, not doubled) and a value.
+Converted: `moduleAsBaseType`.
