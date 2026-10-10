@@ -1,0 +1,21 @@
+diff --git a/crates/tsr-checker/src/destructure.rs b/crates/tsr-checker/src/destructure.rs
+index 8950aaa0..068a215b 100644
+--- a/crates/tsr-checker/src/destructure.rs
++++ b/crates/tsr-checker/src/destructure.rs
+@@ -331,6 +331,16 @@ impl Checker<'_, '_> {
+         if element_type == error {
+             return error;
+         }
++        // `getFlowTypeOfDestructuring` (`checker.go:17743`, `:17771`): the
++        // object arm's indexed access and the array-like positional access.
++        let element_type = if element.dot_dot_dot_token.is_none()
++            && (self.nodes.kind(pattern_id) == SyntaxKind::ObjectBindingPattern
++                || self.binding_parent_is_array_like(parent_type) == Some(true))
++        {
++            self.get_flow_type_of_destructuring(declaration, element_type)
++        } else {
++            element_type
++        };
+         // The annotated-root default strip (`checker.go:17782`–`:17786`),
+         // under the standing strict-throughout assumption: a default of a
+         // non-`undefined` type removes `undefined` from the element. The
