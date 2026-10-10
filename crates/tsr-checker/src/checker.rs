@@ -3043,6 +3043,11 @@ impl<'a, 'n> Checker<'a, 'n> {
             return Some(printed);
         };
         let name = self.binder.symbols().get(symbol).name;
+        if name == "default"
+            && let Some(renamed) = self.default_symbol_text_as_written(symbol, &printed, reference)
+        {
+            return Some(renamed);
+        }
         let Some(suffix_at) = Self::split_around_name(&printed, name) else {
             return Some(printed);
         };
@@ -3448,6 +3453,72 @@ impl<'a, 'n> Checker<'a, 'n> {
             // is the recursion's base case rather than a refusal.
             None => format!("{parent_name}."),
         })
+    }
+
+    /// `getNameOfSymbolAsWritten` (`nodebuilderimpl.go:973`) for a symbol
+    /// named `default`, as the first segment of an entity name: in the
+    /// binding context (`isDefaultBindingContext`, a file or ambient module)
+    /// of its first declaration, the name of its first named declaration
+    /// (`ast.GetNameOfDeclaration`, which for `export default foo` is the
+    /// identifier `foo`). `export default foo` followed by `export default
+    /// class Foo {}` merges both into one `default` symbol, so the class's
+    /// instance type is written `foo` (`exportDefaultClassAndValue`). The
+    /// port bakes the class's own name; this re-spells that segment of
+    /// `printed`. `None` (the existing roads decide) outside the binding
+    /// context, where native writes `default`, or when nothing changes.
+    fn default_symbol_text_as_written(
+        &self,
+        symbol: SymbolId,
+        printed: &str,
+        reference: NodeId,
+    ) -> Option<String> {
+        let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
+        let first = *declarations.first()?;
+        let binding_context = |node: NodeId| {
+            let mut current = Some(node);
+            while let Some(id) = current {
+                let ambient = matches!(self.node_map.get(id), Some(Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                        || module.keyword.kind == SyntaxKind::GlobalKeyword);
+                if ambient || self.nodes.kind(id) == SyntaxKind::SourceFile {
+                    return Some(id);
+                }
+                current = self.nodes.parent(id);
+            }
+            None
+        };
+        if binding_context(first) != binding_context(reference) {
+            return None;
+        }
+        let name_text = |declaration: NodeId| -> Option<&'a str> {
+            let name = match self.node_map.get(declaration)? {
+                // `GetNonAssignedNameOfDeclaration`'s export-assignment arm.
+                Node::ExportAssignment(assignment) => match assignment.expression? {
+                    tsr_ast::Expression::Identifier(identifier) => return Some(identifier.text),
+                    _ => return None,
+                },
+                _ => self.declaration_name_of(declaration)?,
+            };
+            match self.node_map.get(name)? {
+                Node::Identifier(identifier) => Some(identifier.text),
+                _ => None,
+            }
+        };
+        let written = declarations.iter().find_map(|&declaration| name_text(declaration))?;
+        for &declaration in &declarations {
+            let Some(baked) = name_text(declaration) else { continue };
+            if baked == written {
+                continue;
+            }
+            if let Some(suffix_at) = Self::split_around_name(printed, baked) {
+                let mut out = String::with_capacity(printed.len() + written.len());
+                out.push_str(&printed[..suffix_at - baked.len()]);
+                out.push_str(written);
+                out.push_str(&printed[suffix_at..]);
+                return Some(out);
+            }
+        }
+        None
     }
 
     /// Whether one of `symbol`'s declarations is a string-named module
