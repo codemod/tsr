@@ -161,3 +161,20 @@ domain-model 0.984 (21) / 1.009 (41), generic-imports 1.029 (21) / 0.960
 
 Ownership changes: r7-contextual owns `const_inference.rs`; r7-perf owns the
 program-diagnostics wiring in `tsr-conformance/src/diagnostics_suite.rs`.
+
+### Batch 5 — r7-calls `e6d8f4e8`, r7-flow `e7ca1519`, r7-perf `1c204cd1`, r7-reports `20469d65`
+
+Merged onto main `660718af` (r7-flow's lane-note conflict resolved to the
+lane's copy; r7-parser still conflicted and waited for its rebase). Gate
+against the batch-4 freeze: types +12 RIGHT / 0 lost / 0 missing,
+diagnostics +5 cases / 0 lost / 0 missing; tests, fmt and strict clippy
+green. Perf child-CPU new/old at 21 samples: domain-model 0.963,
+generic-imports 0.980, diagnostics identical. r7-perf's fat-LTO `dist`
+profile (ADR-0054) lands here; gates stay on `release`.
+
+| Suite | Batch 4 | Batch 5 |
+|---|---|---|
+| `checker_types` | 8,736 | 8,737 |
+| `checker_types_configured` | 1,771 | 1,771 |
+| `diagnostics` | 4,849 | 4,852 |
+| `diagnostics_configured` | 968 | 970 |
