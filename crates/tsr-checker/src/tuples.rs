@@ -645,7 +645,7 @@ impl Checker<'_, '_> {
     /// `getIndexedAccessTypeOrUndefined` with the access expression as the
     /// access node and no `AccessFlagsAllowMissing`.
     pub(crate) fn check_element_access_tuple_bounds(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::ElementAccessExpression(access)) = self.node_map.get(node) else { return };
@@ -682,7 +682,7 @@ impl Checker<'_, '_> {
     /// `getIndexedAccessType` with the type node as the access node: a
     /// non-generic tuple object reports on the index type node.
     pub(crate) fn check_indexed_access_type_tuple_bounds(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::IndexedAccessTypeNode(access)) = self.node_map.get(node) else { return };
@@ -712,7 +712,7 @@ impl Checker<'_, '_> {
     /// position, the element's name as access node, and
     /// `AccessFlagsAllowMissing` when the element has a default.
     pub(crate) fn check_binding_element_tuple_bounds(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
@@ -745,7 +745,7 @@ impl Checker<'_, '_> {
     /// for an array literal target: each non-spread, non-omitted element
     /// without a default indexes an array-like source at its position.
     pub(crate) fn check_array_assignment_tuple_bounds(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::ArrayLiteralExpression(literal)) = self.node_map.get(node) else { return };
