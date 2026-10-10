@@ -1806,3 +1806,27 @@ Filed as `tsr-2zk.1258`.
 
 r6-modules4 takes `.1256`, `.1257` and `.1258`, plus r6-triage's module
 clusters `.1162`, `.1180`, `.1181`, `.1194`, `.1208`, `.1210` and `.1211`.
+
+### Batch BY+BZ: r6-declared2's deferred conditional fall-through backed out
+
+The BY+BZ gate lost one diagnostics case: a false TS2769 on `<TestComponent />`
+in compiler/returnTypePredicateIsInstantiateInContextOfTarget, whose props
+flow through React's LibraryManagedAttributes.
+
+Bisected to r6-declared2's c06e47b2. That commit let
+get_instantiated_type_reference's alias-declared `return error` fall through
+to a deferred conditional reference when getConditionalType would defer, and
+it is worth +70 types.
+
+The fall-through is faithful on its own. It exposes a downstream gap in the
+JSX overload road: the deferred LibraryManagedAttributes conditional is
+related where native resolves it. The no-regression rule holds it until that
+gap is fixed.
+
+Backed out:
+- the fall-through;
+- conditional_root_operands;
+- the mapped.rs read of it.
+
+The rest of BY and BZ stays. r6-declared2's four tests still pass. Re-landing
+c06e47b2 is `tsr-2zk.1265`.

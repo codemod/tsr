@@ -326,12 +326,8 @@ impl<'a> Checker<'a, '_> {
     /// isExcludedMappedPropertyName (checker.go:30624), for a conditional
     /// that excludes its extends type and otherwise keeps the check variable.
     fn is_excluded_mapped_property_name(&mut self, ty: TypeId, key: TypeId) -> bool {
-        if self.store.get(ty).flags.contains(crate::flags::TypeFlags::CONDITIONAL)
-            || self.type_reference_targets.contains_key(&ty)
-        {
-            let Some([check, extends, yes, no]) = self.conditional_root_operands(ty) else {
-                return false;
-            };
+        if let Some(info) = self.mapped_conditionals.get(&ty).cloned() {
+            let [check, extends, yes, no] = info.operands;
             return yes == self.intrinsics.never
                 && no == check
                 && self.is_type_assignable_to(key, extends);
