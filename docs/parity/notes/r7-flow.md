@@ -332,3 +332,21 @@ TS2454; not shipped, r7-reports owns the reporter) on `71f8076c`: diagnostics
 **+5** (`controlFlowNoImplicitAny`,
 `implicitAnyDeclareVariablesWithoutTypeAndInit`, `narrowingPastLastAssignment`,
 `tsxEmit1`, `tsxReactEmit1`), types byte-identical, 0 lost.
+
+## §9 NARROW-PRIVATE-IDENTIFIER-IN-EXPRESSION: `#x in obj`
+
+`narrowTypeByBinaryExpression`'s `in` arm (`flow.go:519`) sends a private
+identifier left operand to `narrowTypeByPrivateIdentifierInInExpression`
+(`flow.go:982`): a matching right operand narrows by `getNarrowedType(t,
+target, assumeTrue, checkDerived=true)`, the target the declaring class's
+declared type, or its static side (`getTypeOfSymbol(classSymbol)`) when the
+member is static. The port's `in` arm had only the string-key road.
+`getSymbolForPrivateIdentifierExpression` is the existing lexical lookup
+(`lexical_private_declaring_class`, members.rs); the member's
+`HasStaticModifier` is read off its first declaration in that class. An
+undecidable `narrowed_type_worker` keeps `t`, as at the other callers.
+
+Measured on `e65ec3bf`: types **+32** (`privateNameInInExpression` es2022 and
+esnext 14 each, `privateNameInInExpressionTransform` ×3, `importHelpersES6`),
+diagnostics unchanged, 0 lost. No cache or traversal: one class-member scan
+per narrowing.
