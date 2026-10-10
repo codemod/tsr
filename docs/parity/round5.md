@@ -1830,3 +1830,25 @@ Backed out:
 
 The rest of BY and BZ stays. r6-declared2's four tests still pass. Re-landing
 c06e47b2 is `tsr-2zk.1265`.
+
+### r6-jsx2 finished (batch CA); r6-parsegate dispatched
+
+Batch CA lands r6-jsx2's two lane commits and its three diffs (J1–J3):
+- chooseOverload's SkipContextSensitive pass for JSX candidates;
+- checkTagNameDoesNotExpectTooManyArguments (TS6229).
+
+Measured by the box against `2e26f22`: +2 diagnostics cases and +8 type
+lines, 0 lost, CPU within noise.
+
+The alias-reference-signatures diff is held: it adds a false TS2345 at
+coAndContraVariantInferences6.
+
+The JSX lane's remainder is small and spread across other owners. It is filed
+unassigned as `tsr-2zk.1259`, and the lane is retired for now.
+
+The slot goes to r6-parsegate on r6-triage's largest cluster,
+PARSE-ERROR-FILE-CHECK-DECLINE (`tsr-2zk.1152`, 43 cases). About 175
+`file_has_parse_errors` early returns across about 40 checker files drop
+reports that native issues unconditionally. Lifting them is cross-cutting, so
+one owner does it: every site ships as a measured diff, landed by the
+integrator.
