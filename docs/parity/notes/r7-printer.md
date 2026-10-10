@@ -507,3 +507,47 @@ diagnostics unchanged. Coverage with §5–§8 on `92fe8f05`: `checker_types`
 8,782 → 8,796, `checker_types_configured` 1,784 → 1,788. CPU new/old,
 21 samples: domain-model 1.002, generic-imports 1.023. Test:
 `tests/array_literal_tuple_site.rs`.
+
+## 9. A module object is named by `getSymbolChain` (SYMBOL-CHAIN-CANDIDATE-EXPORTS-OF-SYMBOL)
+
+**Forcing constraint.** `exportAsNamespace{1,2,3}` (three module modes
+each): in `2.ts`, `import * as foo from './1'` where `1.ts` writes
+`export * as ns from './0'`; `foo.ns`'s type, module `0`'s namespace
+object, prints `typeof foo.ns` natively and `typeof import("./0")` in the
+port.
+
+**Cause.** The module-object arm of `type_to_string_at_worker` (checker.rs)
+asked `module_name_at`, which finds only an in-scope alias that names the
+module directly, and otherwise spelled the import form. Native's
+`getAccessibleSymbolChain` reaches the module through `trySymbolTable`'s
+`getCandidateListForSymbol`: the alias `foo` resolves to module `1`, whose
+exports hold the namespace re-export `ns` (a local-name lookup excludes it,
+an exports lookup does not, `symbolaccessibility.go:571`), so the chain is
+`[foo, ns]`.
+
+**The port.** Where no direct alias names the module, the arm asks
+`symbol_chain_text_at` (§5) for the module and spells a chain that is not
+rooted at a module. A module-rooted chain keeps the existing import form.
+
+**A spelling the chain text does not port.** The first build measured
++36 / **−10** (`privacyImportParseErrors`, `privacyGloImportParseErrors`,
+`ambientExternalModuleInsideNonAmbient`): an ambient `declare module "abc"`
+nested in an ambient namespace `m2` printed `typeof m2."abc"` where native
+prints `typeof import("abc")`. `createAccessFromSymbolChain` writes a
+member whose name is no identifier as an indexed access, never as a dotted
+segment, and `symbol_chain_text_at` does not port that arm, so it now
+declines such a chain (`objects::is_identifier_text`, the ASCII subset of
+`scanner.IsIdentifierText`) and the existing roads print the line as
+before. Why native's chain for those modules is `["abc"]` rather than
+`[m2, "abc"]` was not investigated; the decline only stops the port from
+inventing a spelling native never writes.
+
+**Measured** against §8's commit (`bc18f861`), both dumps unfiltered: types
+**+36 / −0** (`exportAsNamespace{1,2,3}` ×3 modes, 4 lines each),
+diagnostics unchanged. Coverage: `checker_types` 8,799 → 8,801,
+`checker_types_configured` 1,787 → 1,797. CPU new/old, 21 samples:
+domain-model 1.002, generic-imports 0.981. jsTyping error lines against
+pinned tsgo: none added, none lost. Test: `tests/module_rooted_symbol_chain.rs`'
+sixth case. Still open in the cluster: `nodeColonModuleResolution` (`typeof
+ph.constants` for a member of an ambient module reached through an
+import), which takes the namespace-member road, not this arm.
