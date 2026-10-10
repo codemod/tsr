@@ -857,11 +857,8 @@ impl Checker<'_, '_> {
                 self.check_yield_in_parameter_initializer(node);
                 self.check_yield_expression_assignability(node);
             }
-            Node::AwaitExpression(_) => {
-                self.check_await_in_parameter_initializer(node);
-                self.check_await_in_non_async_function(node);
-                self.check_await_operand_awaited(node);
-            }
+            // `checkGrammarAwaitOrAwaitUsing` is `module_format.rs`'s.
+            Node::AwaitExpression(_) => self.check_await_operand_awaited(node),
             Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
                 self.report_missing_module_export(node);
                 self.check_circular_import_alias(node);
@@ -1028,7 +1025,6 @@ impl Checker<'_, '_> {
             self.check_for_in_right_operand(node);
             self.check_for_in_reference_expression(node);
             self.check_for_in_or_of_declarations(node);
-            self.check_for_await_context(node);
             self.check_for_of_iteration(node);
             self.check_for_of_reference_assignment(node, ambient);
             self.check_for_of_reference_target(node);
@@ -7545,68 +7541,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS1103 — `'for await' loops are only allowed within async functions and
-    /// at the top levels of modules.`
-    ///
-    /// `checkGrammarForInOrForOfStatement` (`grammarchecks.go:1205`) gates on
-    /// `Flags&NodeFlagsAwaitContext == 0`. That flag is set by upstream's parser
-    /// inside async bodies and **this port never sets it** (§829's inventory),
-    /// so the test is vacuously true and a literal port would report every
-    /// `for await`. The stand-in is what the flag records: the containing
-    /// function carries no `async` modifier.
-    ///
-    /// Top-level `for await` is a different message (TS1431/TS1432, on module
-    /// kind and target) and is not built here, so a `for await` with no
-    /// containing function is skipped.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §830.
-    fn check_for_await_context(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        if self.nodes.kind(node) != SyntaxKind::ForOfStatement {
-            return;
-        }
-        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
-        let Some(modifier) = statement.await_modifier else { return };
-        let Some(at) = modifier.node_id else { return };
-        let Some(function) = self.containing_function_for_await(node) else { return };
-        if self.has_async_modifier(function) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::FOR_AWAIT_LOOPS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
-                span,
-            ),
-        );
-    }
-
-    /// `GetContainingFunction` for §830, including the `Constructor` that
-    /// upstream's related-info arm treats specially.
-    fn containing_function_for_await(&self, node: NodeId) -> Option<NodeId> {
-        let mut current = self.nodes.parent(node);
-        while let Some(id) = current {
-            if matches!(
-                self.nodes.kind(id),
-                SyntaxKind::FunctionDeclaration
-                    | SyntaxKind::FunctionExpression
-                    | SyntaxKind::ArrowFunction
-                    | SyntaxKind::MethodDeclaration
-                    | SyntaxKind::GetAccessor
-                    | SyntaxKind::SetAccessor
-                    | SyntaxKind::Constructor
-            ) {
-                return Some(id);
-            }
-            current = self.nodes.parent(id);
-        }
-        None
-    }
-
     /// TS2532 — `Object is possibly 'undefined'`, for an **empty** binding
     /// pattern whose initializer is `void`.
     ///
@@ -9190,34 +9124,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS2524 — `'await' expressions cannot be used in a parameter initializer.`
-    ///
-    /// `checkGrammarAwaitOrAwaitUsing`'s last arm (`grammarchecks.go:1768`):
-    ///
-    /// ```go
-    /// if ast.IsAwaitExpression(node) && c.isInParameterInitializerBeforeContainingFunction(node) {
-    ///     // NOTE: We report this regardless as to whether there are parse diagnostics.
-    ///     c.error(node, diagnostics.X_await_expressions_cannot_be_used_in_a_parameter_initializer)
-    /// }
-    /// ```
-    ///
-    /// The comment is upstream's own and is the reason this rule does not take
-    /// the `file_has_parse_errors` guard every neighbouring grammar check takes.
-    fn check_await_in_parameter_initializer(&mut self, node: NodeId) {
-        if !self.is_in_parameter_initializer_before_containing_function(node) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AWAIT_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
-                span,
-            ),
-        );
-    }
-
     /// TS2523 — `'yield' expressions cannot be used in a parameter initializer.`
     ///
     /// `checkGrammarYieldExpression`'s second arm (`grammarchecks.go:1783`),
@@ -9263,91 +9169,6 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
-    }
-
-    /// TS1308 — `'await' expressions are only allowed within async functions
-    /// and at the top levels of modules.`
-    ///
-    /// `checkGrammarAwaitOrAwaitUsing`'s `else` arm (`grammarchecks.go:1689`).
-    /// Upstream tests `node.Flags&ast.NodeFlagsAwaitContext == 0`, a flag its
-    /// **parser** sets inside an async function and which this port declares
-    /// and never sets (`flags.rs`).
-    ///
-    /// The decidable equivalent is one modifier lookup — `AwaitContext` *is*
-    /// "the nearest enclosing function is async", and that function is right
-    /// here. §268/§269.
-    ///
-    /// # What is declined
-    ///
-    /// `IsInTopLevelContext`'s four messages are gated on `moduleKind` against
-    /// six module kinds, `ImpliedNodeFormat` and `languageVersion >= ES2017`;
-    /// the class-static-block arm has its own message. Both decline, so this
-    /// reports only where the answer needs no options at all.
-    fn check_await_in_non_async_function(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // `getContainingFunctionOrClassStaticBlock`.
-        // **A class field initializer is an await-context boundary.** Upstream
-        // reads `NodeFlagsAwaitContext`, which the parser does not set past a
-        // property declaration's initializer — it is evaluated as its own
-        // function at construction — so `class { x = await f() }` inside an
-        // `async` function is still an error. The container walk has to stop
-        // there or it finds the enclosing async function and stays silent.
-        // §613, and §515 for the same shape from the failing side.
-        let Some(container) = self.nodes.ancestors(node).find(|&ancestor| {
-            self.is_function_like_or_static_block(ancestor)
-                || self.nodes.kind(ancestor) == SyntaxKind::PropertyDeclaration
-        }) else {
-            // No container: `IsInTopLevelContext`, declined above.
-            return;
-        };
-        if self.nodes.kind(container) == SyntaxKind::PropertyDeclaration {
-            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-            let span = self.nodes.span(node);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
-                    span,
-                ),
-            );
-            return;
-        }
-        if self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration {
-            return;
-        }
-        if self.has_async_modifier(container) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        // `GetRangeOfTokenAtPosition(sourceFile, node.Pos())` — the `await`
-        // keyword, which is the node's first token.
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
-                span,
-            ),
-        );
-    }
-
-    /// `hasAsyncModifier` — an `async` modifier on a function-like.
-    fn has_async_modifier(&self, node: NodeId) -> bool {
-        let modifiers = match self.node_map.get(node) {
-            Some(Node::FunctionDeclaration(n)) => n.modifiers,
-            Some(Node::FunctionExpression(n)) => n.modifiers,
-            Some(Node::ArrowFunction(n)) => n.modifiers,
-            Some(Node::MethodDeclaration(n)) => n.modifiers,
-            Some(Node::GetAccessorDeclaration(n)) => n.modifiers,
-            Some(Node::SetAccessorDeclaration(n)) => n.modifiers,
-            Some(Node::ConstructorDeclaration(n)) => n.modifiers,
-            _ => return false,
-        };
-        modifiers.iter().any(|modifier| {
-            matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
-        })
     }
 
     /// `Checker.isInParameterInitializerBeforeContainingFunction`

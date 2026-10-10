@@ -265,6 +265,61 @@ to is the calls lane's. Verified against `target/tsgo-pinned` on a scratch
 file; `esDecorators-decoratorExpression.1` still has parse errors on this
 base and converts once r7-parser's decorator-expression parsing lands.
 
+## §9 `checkGrammarAwaitOrAwaitUsing` on `NodeFlagsAwaitContext` (CHECK-GRAMMAR-AWAIT-YIELD-CONTEXT)
+
+**Forcing fact.** The function's arms were spread over three stand-ins:
+`check_await_in_non_async_function` and `check_for_await_context`
+(`check.rs`), which read "the containing function has no `async` modifier"
+in place of `NodeFlagsAwaitContext` and special-cased property initializers
+(§613), `check_await_in_parameter_initializer` (`check.rs`), and
+`check_top_level_await` (`module_format.rs`), whose top-level arm ran with no
+`AwaitContext` test at all, so a top-level `await` the parser reparses
+reported TS1378. The class-static-block arms (TS18037, TS18054, TS18038) had
+no emitter. r7-parser `1321f0aa` stamps `NodeFlags::AWAIT_CONTEXT` on every
+node finished in an await context (`finishNode`'s `contextFlags`), which is
+the flag the function reads.
+
+**Port** (`module_format.rs`):
+- `check_grammar_await_or_await_using` is the function whole, for an
+  `AwaitExpression` (`checkAwaitExpression`, `checker.go:10846`) and for an
+  `await using` list: the static-block arm (`c.error`, no parse-error gate),
+  the `AwaitContext` gate with the top-level arms (`check_top_level_await`)
+  and the TS1308/TS2852 arm with TS1356 related at a non-constructor,
+  non-`async` container, and TS2524.
+- `check_for_await_grammar` is `checkGrammarForInOrForOfStatement`'s
+  `for await` arms behind the same gate (top level, or TS1103 with TS1356
+  related at `GetContainingFunction`) and `checkForOfStatement`'s TS18038.
+- `checkGrammarVariableDeclarationList`'s last step: `grammar.rs`'s list
+  check now ends in `check_await_using_declaration_list` when no earlier arm
+  reported. In a file with parse diagnostics every earlier arm (and the
+  `checkGrammarModifiers` gate) is a silent `false` upstream, so the tail
+  always runs there; this port skips its list check wholesale in such a file,
+  so `module_format.rs` asks the tail directly for statement and `for`-head
+  lists in that case.
+- The `await` of `await using` is eaten by this parser, so its position is
+  recovered as before (`await_using_keyword_start`, or the token in front of
+  a `for`-head list).
+- The dispatch (`check_await_grammar_of`) runs ahead of
+  `check_module_format`'s `module: none` return: the grammar is not a
+  module-format check, and the top-level arm reads the module kind itself.
+
+**Held: `binder.go:1311`'s TS1359 arm** (`await` as an identifier in an
+`AwaitContext`, `strict_mode.rs`'s `check_contextual_identifier`). Ported and
+measured on this base at 15 cases gained and 8 lost: `var v: await;` inside an
+async function (`asyncFunctionDeclaration13`, `asyncArrowFunction10`,
+`parser.asyncGenerators.*`, `awaitAsTypeIsOk`) drew TS1359 because this
+parser's `parse_type` does not clear the await and yield contexts
+(`parseType`'s `setContextFlags(NodeFlagsTypeExcludesFlags, false)`,
+`parser.go:2608`), so a type's identifiers carry `AWAIT_CONTEXT`. Routed to
+r7-parser; the arm lands once types are parsed outside the contexts. The
+`yield` arm and `checkGrammarYieldExpression`'s TS1163 read
+`NodeFlagsYieldContext`, which the parser now stamps, and wait on the same fix.
+
+`topLevelAwaitErrors.1`'s TS2863 on `string` in `class C extends await<string>`
+was first read as a `check.rs` decline; r7-parser's dump of native's tree shows
+`string` is the class's only base expression, and r7-parser `f44a4956`
+converts the case. Nothing here.
+
 ## §10 A private set accessor is checked for use
 
 `checkUnusedClassMembers` (`checker.go:7115`) skips a set accessor only when

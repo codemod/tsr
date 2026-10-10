@@ -110,6 +110,10 @@ impl Checker<'_, '_> {
     /// known. Dispatches to the native check that owns each module-format
     /// diagnostic for that node kind.
     pub(crate) fn check_module_format(&mut self, node: NodeId, typed: Node<'_>, ambient: bool) {
+        // The await grammar is not a module-format check: it runs under
+        // every `module` setting (its top-level arm reads the module kind
+        // itself).
+        self.check_await_grammar_of(node, typed);
         if self.module_format_options.module_kind == ModuleKind::None {
             return;
         }
@@ -172,23 +176,6 @@ impl Checker<'_, '_> {
             Node::ArrowFunction(arrow) => self.check_reserved_arrow_type_parameters(arrow),
             Node::TypeAssertion(_) => self.check_reserved_type_assertion(node),
             Node::CaseOrDefaultClause(clause) => self.check_fallthrough_case(node, clause),
-            Node::AwaitExpression(_) => {
-                let start = self.nodes.span(node).start;
-                self.check_top_level_await(node, TopLevelAwait::Expression, start);
-            }
-            Node::ForInOrOfStatement(statement) => {
-                if self.nodes.kind(node) == SyntaxKind::ForOfStatement
-                    && let Some(modifier) = statement.await_modifier.and_then(|m| m.node_id)
-                {
-                    let start = self.nodes.span(modifier).start;
-                    self.check_top_level_await(node, TopLevelAwait::ForAwait, start);
-                }
-            }
-            Node::VariableStatement(statement) => {
-                if let Some(start) = self.await_using_keyword_start(node, statement) {
-                    self.check_top_level_await(node, TopLevelAwait::AwaitUsing, start);
-                }
-            }
             _ => {}
         }
     }
@@ -972,5 +959,237 @@ impl Checker<'_, '_> {
                 tsr_core::Span::new(span.start, end.max(span.start)),
             ),
         );
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarAwaitOrAwaitUsing` (`grammarchecks.go:1676`), for
+    /// an `AwaitExpression` (`checkAwaitExpression`, `checker.go:10846`) or an
+    /// `await using` declaration list (`checkGrammarVariableDeclarationList`'s
+    /// last step, `grammarchecks.go:1669`). `await_start` is where
+    /// `GetRangeOfTokenAtPosition(sourceFile, node.Pos())` finds the `await`
+    /// keyword (this parser eats the `await` of `await using` before the
+    /// list, so the list's own span starts after it). Answers native's
+    /// `hasError`.
+    ///
+    /// The arms, in order:
+    /// - inside a class static block (`getContainingFunctionOrClassStaticBlock`):
+    ///   TS18037 / TS18054 with `c.error`, whether or not the file has parse
+    ///   diagnostics;
+    /// - else without `NodeFlagsAwaitContext` (set by the parser, r7-parser
+    ///   `1321f0aa`): at top level, `check_top_level_await`'s module/target
+    ///   arms; elsewhere TS1308 / TS2852 on the `await` keyword with TS1356
+    ///   related at a non-constructor container that is not `async`;
+    /// - an `AwaitExpression` in a parameter initializer: TS2524.
+    fn check_grammar_await_or_await_using(
+        &mut self,
+        node: NodeId,
+        kind: TopLevelAwait,
+        await_start: u32,
+    ) -> bool {
+        let before = self.diagnostics.len();
+        let is_expression = kind == TopLevelAwait::Expression;
+        let container = self
+            .nodes
+            .ancestors(node)
+            .find(|&ancestor| self.is_function_like_or_static_block(ancestor));
+        let file = self.source_file_of_for_diagnostics(node);
+        if let Some(container) = container
+            && self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration
+        {
+            let (message, span) = if is_expression {
+                (
+                    &messages::AWAIT_EXPRESSION_CANNOT_BE_USED_INSIDE_A_CLASS_STATIC_BLOCK,
+                    self.error_span(node),
+                )
+            } else {
+                (
+                    &messages::AWAIT_USING_STATEMENTS_CANNOT_BE_USED_INSIDE_A_CLASS_STATIC_BLOCK,
+                    tsr_core::Span::new(await_start, self.nodes.span(node).end),
+                )
+            };
+            if let Some(file) = file {
+                self.report(file, Diagnostic::new(message, span));
+            }
+        } else if !self.nodes.flags(node).contains(tsr_ast::NodeFlags::AWAIT_CONTEXT) {
+            if self.is_in_top_level_context(node) {
+                self.check_top_level_await(node, kind, await_start);
+            } else if !self.file_has_parse_errors
+                && let Some(file) = file
+            {
+                let message = if is_expression {
+                    &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES
+                } else {
+                    &messages::AWAIT_USING_STATEMENTS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES
+                };
+                let mut diagnostic =
+                    Diagnostic::new(message, tsr_core::Span::new(await_start, await_start + 5));
+                if let Some(container) = container
+                    && self.nodes.kind(container) != SyntaxKind::Constructor
+                    && !self.declaration_has_async_modifier(container)
+                {
+                    diagnostic.add_related_information(Some(Diagnostic::new(
+                        &messages::DID_YOU_MEAN_TO_MARK_THIS_FUNCTION_AS_ASYNC,
+                        self.error_span(container),
+                    )));
+                }
+                self.report(file, diagnostic);
+            }
+        }
+        if is_expression
+            && self.is_in_parameter_initializer_before_containing_function(node)
+            && let Some(file) = file
+        {
+            // "We report this regardless as to whether there are parse
+            // diagnostics."
+            let span = self.nodes.span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::AWAIT_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
+                    span,
+                ),
+            );
+        }
+        self.diagnostics.len() != before
+    }
+
+    /// The `for await` arms of `checkGrammarForInOrForOfStatement`
+    /// (`grammarchecks.go:1205`) and `checkForOfStatement`'s static-block arm
+    /// (`checker.go:4038`): without `NodeFlagsAwaitContext`, the top-level
+    /// module/target arms or, elsewhere, TS1103 with TS1356 related at a
+    /// non-constructor containing function; inside a class static block,
+    /// TS18038. All on the `await` modifier, all silent in a file with parse
+    /// diagnostics.
+    fn check_for_await_grammar(&mut self, node: NodeId, modifier: NodeId) {
+        let start = self.nodes.span(modifier).start;
+        if !self.nodes.flags(node).contains(tsr_ast::NodeFlags::AWAIT_CONTEXT) {
+            if self.is_in_top_level_context(node) {
+                self.check_top_level_await(node, TopLevelAwait::ForAwait, start);
+            } else if !self.file_has_parse_errors
+                && let Some(file) = self.source_file_of_for_diagnostics(modifier)
+            {
+                let mut diagnostic = Diagnostic::new(
+                    &messages::FOR_AWAIT_LOOPS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
+                    self.error_span(modifier),
+                );
+                // `ast.GetContainingFunction`: the nearest function-like
+                // ancestor (a static block is not one).
+                if let Some(function) = self.nodes.ancestors(node).find(|&ancestor| {
+                    self.is_function_like_or_static_block(ancestor)
+                        && self.nodes.kind(ancestor) != SyntaxKind::ClassStaticBlockDeclaration
+                }) && self.nodes.kind(function) != SyntaxKind::Constructor
+                {
+                    diagnostic.add_related_information(Some(Diagnostic::new(
+                        &messages::DID_YOU_MEAN_TO_MARK_THIS_FUNCTION_AS_ASYNC,
+                        self.error_span(function),
+                    )));
+                }
+                self.report(file, diagnostic);
+                return;
+            }
+        }
+        if !self.file_has_parse_errors
+            && self
+                .nodes
+                .ancestors(node)
+                .find(|&ancestor| self.is_function_like_or_static_block(ancestor))
+                .is_some_and(|container| {
+                    self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration
+                })
+        {
+            self.grammar_error_on_node(
+                modifier,
+                &messages::FOR_AWAIT_LOOPS_CANNOT_BE_USED_INSIDE_A_CLASS_STATIC_BLOCK,
+            );
+        }
+    }
+
+    /// The dispatch of `checkGrammarAwaitOrAwaitUsing` and its `for await`
+    /// and `await using` relatives for one node of the check walk.
+    fn check_await_grammar_of(&mut self, node: NodeId, typed: Node<'_>) {
+        match typed {
+            // `checkAwaitExpression` (`checker.go:10846`).
+            Node::AwaitExpression(_) => {
+                let start = self.nodes.span(node).start;
+                self.check_grammar_await_or_await_using(node, TopLevelAwait::Expression, start);
+            }
+            Node::ForInOrOfStatement(statement) => {
+                if self.nodes.kind(node) == SyntaxKind::ForOfStatement
+                    && let Some(modifier) = statement.await_modifier.and_then(|m| m.node_id)
+                {
+                    self.check_for_await_grammar(node, modifier);
+                }
+                if let Some(tsr_ast::ForInitializer::VariableDeclarationList(list)) =
+                    statement.initializer
+                    && let Some(list) = list.node_id
+                {
+                    self.check_await_using_list_in_file_with_parse_errors(list);
+                }
+            }
+            Node::ForStatement(statement) => {
+                if let Some(tsr_ast::ForInitializer::VariableDeclarationList(list)) =
+                    statement.initializer
+                    && let Some(list) = list.node_id
+                {
+                    self.check_await_using_list_in_file_with_parse_errors(list);
+                }
+            }
+            Node::VariableStatement(statement) => {
+                if let Some(list) = statement.declaration_list.and_then(|list| list.node_id) {
+                    self.check_await_using_list_in_file_with_parse_errors(list);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// `checkGrammarVariableDeclarationList`'s `await using` tail in a file
+    /// with parse diagnostics. Every earlier arm there, and the
+    /// `checkGrammarModifiers` gate in front of it, is a `grammarError…` that
+    /// answers `false` in such a file, so upstream always reaches the tail;
+    /// this port's list check (`grammar.rs`) is skipped there wholesale, so
+    /// the tail is asked from here instead.
+    fn check_await_using_list_in_file_with_parse_errors(&mut self, list: NodeId) {
+        if self.file_has_parse_errors {
+            self.check_await_using_declaration_list(list);
+        }
+    }
+
+    /// `hasAsyncModifier`: `async` among a declaration's written modifiers.
+    fn declaration_has_async_modifier(&self, node: NodeId) -> bool {
+        self.node_map.get(node).and_then(crate::check::modifiers_of).is_some_and(|modifiers| {
+            tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::AsyncKeyword)
+        })
+    }
+
+    /// The `await using` tail of `checkGrammarVariableDeclarationList`
+    /// (`grammarchecks.go:1669`) for `list`, when it is one.
+    pub(crate) fn check_await_using_declaration_list(&mut self, list: NodeId) -> bool {
+        let Some(statement) = self.nodes.parent(list) else { return false };
+        let Some(start) = self.await_using_list_await_start(list, statement) else { return false };
+        self.check_grammar_await_or_await_using(list, TopLevelAwait::AwaitUsing, start)
+    }
+
+    /// The `await` keyword's start for an `await using` list: a
+    /// `CONST | USING` list (`NodeFlagsAwaitUsing`) or a `USING` list this
+    /// parser left an `await` in front of (`is_await_using_list`).
+    fn await_using_list_await_start(&self, list: NodeId, owner: NodeId) -> Option<u32> {
+        let block_scope = self.nodes.flags(list) & tsr_ast::NodeFlags::BLOCK_SCOPED;
+        let awaited = block_scope == tsr_ast::NodeFlags::CONSTANT
+            || (block_scope == tsr_ast::NodeFlags::USING && self.is_await_using_list(list));
+        if !awaited {
+            return None;
+        }
+        if let Some(Node::VariableStatement(statement)) = self.node_map.get(owner) {
+            return self.await_using_keyword_start(owner, statement);
+        }
+        // A `for` head: the `await` is the token before the list.
+        let list_start = self.nodes.span(list).start;
+        let file = self.source_file_of_for_diagnostics(list)?;
+        let text = self.module_host.and_then(|host| host.source_text(file, self.nodes))?;
+        let before = text.get(..list_start as usize)?.trim_end();
+        let start = before.strip_suffix("await")?.len();
+        u32::try_from(start).ok()
     }
 }

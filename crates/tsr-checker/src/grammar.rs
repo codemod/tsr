@@ -671,10 +671,18 @@ impl Checker<'_, '_> {
     }
 
     /// `Checker.checkGrammarVariableDeclarationList` (`grammarchecks.go:1646`)
-    /// without its ambient arm (the parser does not set `NodeFlags::AMBIENT`)
-    /// and its trailing `checkGrammarAwaitOrAwaitUsing`, which is reported
-    /// elsewhere. Returns whether it reported.
+    /// without its ambient arm (the parser does not set `NodeFlags::AMBIENT`).
+    /// Its last step, `checkGrammarAwaitOrAwaitUsing` for an `await using`
+    /// list, runs when no earlier arm reported (`module_format.rs`). Returns
+    /// whether it reported.
     pub(crate) fn check_grammar_variable_declaration_list(&mut self, list: NodeId) -> bool {
+        self.check_grammar_variable_declaration_list_arms(list)
+            || self.check_await_using_declaration_list(list)
+    }
+
+    /// The arms of [`Checker::check_grammar_variable_declaration_list`]
+    /// before its `await using` tail.
+    fn check_grammar_variable_declaration_list_arms(&mut self, list: NodeId) -> bool {
         if self.report_disallowed_trailing_comma(list, &messages::TRAILING_COMMA_NOT_ALLOWED) {
             return true;
         }
