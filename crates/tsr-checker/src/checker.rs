@@ -2250,7 +2250,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             _ => None,
         };
         if let Some(original) = original {
-            let original = self.resolve_alias_fully(original);
+            let original = self.resolve_symbol(original);
             let has_clone = self.module_value_clones.values().any(|&(_, source)| {
                 matches!(self.store.get(source).data,
                     crate::types::TypeData::Anonymous { symbol, .. }
@@ -4134,7 +4134,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 {
                     continue;
                 }
-                if self.binder.merged_symbol(self.resolve_alias_fully(link)) != target {
+                if self.binder.merged_symbol(self.resolve_symbol(link)) != target {
                     continue;
                 }
                 match found {
@@ -4273,7 +4273,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `import * as React from "react"` resolves to the `export=` symbol,
         // whose target is the `__React` namespace, and either spelling of the
         // module object must find the alias.
-        let module_target = self.resolve_alias_fully(module);
+        let module_target = self.resolve_symbol(module);
         for table in tables {
             let mut candidates: Vec<SymbolId> = Vec::new();
             for candidate in table {
@@ -4308,7 +4308,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 }
                 let resolved = self.resolve_alias(candidate);
                 if resolved != Some(module)
-                    && resolved.map(|r| self.resolve_alias_fully(r)) != Some(module_target)
+                    && resolved.map(|r| self.resolve_symbol(r)) != Some(module_target)
                 {
                     continue;
                 }
@@ -4809,7 +4809,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let resolved = self.resolve_alias(candidate);
                 let reaches = (resolved.map(|t| self.binder.merged_symbol(t)) == Some(target)
                     || resolved.is_some_and(|t| {
-                        let full = self.resolve_alias_fully(t);
+                        let full = self.resolve_symbol(t);
                         self.binder.merged_symbol(full) == target
                     }))
                     && !self.alias_targets_module_clone(candidate);
@@ -4824,7 +4824,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                 // a private namespace Hidden may be in scope, but C is reached
                 // through Local = Hidden and therefore prints Local.C.
                 if let Some(resolved) = resolved {
-                    let resolved = self.resolve_alias_fully(resolved);
+                    let resolved = self.resolve_symbol(resolved);
                     let exports: Vec<_> = self
                         .binder
                         .symbols()
@@ -4850,7 +4850,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                         if export_name == "export=" {
                             continue;
                         }
-                        let exported_target = self.resolve_alias_fully(exported);
+                        let exported_target = self.resolve_symbol(exported);
                         if self.binder.merged_symbol(exported_target) == target
                             && !self.is_shadowed_at(
                                 candidate,
