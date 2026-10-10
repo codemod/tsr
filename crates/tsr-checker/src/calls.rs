@@ -49,6 +49,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::calls::counters::{COUNTERS, bump};
 use crate::{
+    call_reports::{ApplicabilityReport, CandidateContext},
     checker::Checker,
     flags::TypeFlags,
     relater::{Relation, Ternary},
@@ -693,7 +694,7 @@ impl Checker<'_, '_> {
                 return CallHead::Unknown;
             };
             if !untyped && call_count == 0 {
-                if self.head_could_contain_type_variables(func_type, 3) {
+                if self.could_contain_type_variables_at_head(func_type, 3) {
                     return CallHead::Unknown;
                 }
                 if construct_count != 0 {
@@ -839,11 +840,11 @@ impl Checker<'_, '_> {
                 && signature.this_parameter.is_some()
                 && let Some(effective) = self.effective_written_arguments(&written)
                 && self.has_correct_arity(signature, &effective, false) == Some(true)
-                && self.check_this_argument(node, signature, true) == Ternary::NotRelated
+                && self.report_this_argument(node, signature, true) == Ternary::NotRelated
             {
                 return CallArity::Reported;
             }
-            if self.head_could_contain_type_variables(apparent, 3) {
+            if self.could_contain_type_variables_at_head(apparent, 3) {
                 return CallArity::Undecided;
             }
         }
@@ -981,126 +982,20 @@ impl Checker<'_, '_> {
         CallArity::Reported
     }
 
-    /// `getSignatureApplicabilityError` (`checker.go`) for a single
-    /// non-generic candidate whose arity matched: the `this` argument
-    /// ([`Checker::check_this_argument`]), then each argument against
-    /// `getTypeAtPosition`, stopping at the first failure (TS2345, or the
-    /// object literal's excess-property elaboration). An unsupported
-    /// parameter type stops the walk.
+    /// `resolveCall`'s report for a single non-generic candidate whose arity
+    /// matched (`isSingleNonGenericCandidate`, `checker.go:9030`):
+    /// `isSignatureApplicable` with `reportErrors` over the effective
+    /// arguments ([`Checker::report_signature_applicability`]). Every argument
+    /// was checked with this signature's parameter as contextual type.
     fn check_single_candidate_arguments(&mut self, node: tsr_ast::NodeId, signature: &Signature) {
-        let Some(written) = self.written_call_arguments(node) else { return };
-        if self.check_this_argument(node, signature, true) != Ternary::Related {
-            return;
-        }
-        // A tagged template's synthetic first argument has the global
-        // `TemplateStringsArray` type (`getGlobalTemplateStringsArrayType`)
-        // and is reported at the template; it is no literal to elaborate.
-        let offset = usize::from(written.template.is_some());
-        if let Some(template) = written.template {
-            let Some(strings) = self.global_template_strings_array_type() else { return };
-            let Some(target) = self.signature_type_at_position(signature, 0) else { return };
-            if self.is_gap(target) || self.report_argument_failure(template, strings, target) {
-                return;
-            }
-        }
-        for (index, argument) in written.arguments.iter().enumerate() {
-            let position = index + offset;
-            let Some(argument_id) = argument.node_id() else { return };
-            let Some(target) = self.signature_type_at_position(signature, position) else {
-                return;
-            };
-            if self.is_gap(target) {
-                return;
-            }
-            if self.argument_type_is_not_upstreams(*argument) {
-                return;
-            }
-            let before = self.diagnostics.len();
-            self.check_excess_properties(target, argument_id);
-            if self.diagnostics.len() != before {
-                return;
-            }
-            let source = self.check_expression(*argument);
-            if self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some()) {
-                // A mapped type with an `as` clause: this port's member
-                // resolution of it over an array source is not upstream's
-                // (`mappedTypeWithNameClauseAppliedToArrayType`).
-                return;
-            }
-            if self.report_argument_failure(argument_id, source, target) {
-                return;
-            }
-        }
-    }
-
-    /// `isSignatureApplicable`'s `this`-argument arm (`checker.go:9260`): a
-    /// signature whose `this` type (`getThisTypeOfSignature`) is present and
-    /// not `void` applies only when the call's `this` argument
-    /// (`getThisArgumentOfCall`/`getThisArgumentType`, `checker.go:9345`;
-    /// `void` for a bare call) is related to it. A `new` call and a call of
-    /// a `super` property skip the arm. With `report`, a failure is
-    /// `checkTypeRelatedToEx` at the `this` argument node (the call node
-    /// when there is none) under
-    /// `The_this_context_of_type_0_is_not_assignable_to_method_s_this_of_type_1`
-    /// (TS2684); no elaboration. `Unknown` when the relation is undecided:
-    /// the caller declines, as for an undecided argument.
-    fn check_this_argument(
-        &mut self,
-        node: tsr_ast::NodeId,
-        signature: &Signature,
-        report: bool,
-    ) -> Ternary {
-        let Some(this_type) =
-            signature.this_parameter.as_ref().map(|parameter| self.parameter_type(parameter))
-        else {
-            return Ternary::Related;
-        };
-        if this_type == self.intrinsics.void {
-            return Ternary::Related;
-        }
-        match self.node_map.get(node) {
-            Some(tsr_ast::Node::CallExpression(call)) => {
-                let super_property =
-                    call.expression.and_then(|callee| callee.node_id()).is_some_and(|callee| {
-                        match self.node_map.get(callee) {
-                            Some(tsr_ast::Node::PropertyAccessExpression(access)) => {
-                                access.expression
-                            }
-                            Some(tsr_ast::Node::ElementAccessExpression(access)) => {
-                                access.expression
-                            }
-                            _ => None,
-                        }
-                        .and_then(|receiver| receiver.node_id())
-                        .is_some_and(|receiver| {
-                            self.nodes.kind(receiver) == tsr_ast::SyntaxKind::SuperKeyword
-                        })
-                    });
-                if super_property {
-                    return Ternary::Related;
-                }
-            }
-            Some(tsr_ast::Node::NewExpression(_)) => return Ternary::Related,
-            _ => {}
-        }
-        let source = self.this_argument_type_of_call(Some(node));
-        let verdict = self.relate_ternary(source, this_type, Relation::Assignable);
-        if verdict == Ternary::NotRelated && report {
-            let at = self
-                .this_argument_of_call(node)
-                .and_then(|(receiver, _)| receiver.node_id())
-                .unwrap_or(node);
-            let span = self.error_span(at);
-            self.report_relation_failure(
-                at,
-                span,
-                None,
-                source,
-                this_type,
-                Some(&messages::THE_THIS_CONTEXT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_METHOD_S_THIS_OF_TYPE_1),
-            );
-        }
-        verdict
+        let Some(arguments) = self.report_call_arguments(node) else { return };
+        self.report_signature_applicability(
+            node,
+            &arguments,
+            signature,
+            CandidateContext::Declared,
+            &[],
+        );
     }
 
     /// The candidates `chooseOverload` (`checker.go:9025`) would check when
@@ -1196,13 +1091,13 @@ impl Checker<'_, '_> {
                     | Expression::ArrayLiteralExpression(_)
                     | Expression::ClassExpression(_)
             ) || self.is_context_sensitive_argument(argument)
-                || self.argument_type_is_not_upstreams(*argument)
+                || self.report_argument_type_is_not_upstreams(*argument)
             {
                 return false;
             }
         }
         for candidate in candidates {
-            let mut applicable = match self.check_this_argument(node, candidate, false) {
+            let mut applicable = match self.report_this_argument(node, candidate, false) {
                 Ternary::Related => true,
                 Ternary::NotRelated => false,
                 Ternary::Unknown => return false,
@@ -1237,7 +1132,7 @@ impl Checker<'_, '_> {
                 // `concat`'s overloads) is not upstream's; declined, the same
                 // refusal as the signature-less callee's.
                 if self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some())
-                    || self.head_could_contain_type_variables(source, 3)
+                    || self.could_contain_type_variables_at_head(source, 3)
                 {
                     return false;
                 }
@@ -1319,7 +1214,7 @@ impl Checker<'_, '_> {
         let before = self.diagnostics.len();
         // The `this` arm precedes the arguments; when it fails it is the
         // report and no argument is related.
-        let arguments = match self.check_this_argument(node, &last, true) {
+        let arguments = match self.report_this_argument(node, &last, true) {
             Ternary::Related => arguments,
             Ternary::NotRelated => &[],
             Ternary::Unknown => return true,
@@ -1331,7 +1226,7 @@ impl Checker<'_, '_> {
                 break;
             }
             let checked = failure.checked.get(position).copied().flatten();
-            if checked.is_none() && self.argument_type_is_not_upstreams(*argument) {
+            if checked.is_none() && self.report_argument_type_is_not_upstreams(*argument) {
                 break;
             }
             let source = checked.unwrap_or_else(|| self.check_expression(*argument));
@@ -1360,9 +1255,9 @@ impl Checker<'_, '_> {
             if (checked.is_none()
                 && (literal
                     || self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some())))
-                || self.head_could_contain_type_variables(source, 3)
-                || self.head_could_contain_type_variables(target, 3)
-                || (literal && self.absent_member_flags_unreadable(source, target))
+                || self.could_contain_type_variables_at_head(source, 3)
+                || self.could_contain_type_variables_at_head(target, 3)
+                || (literal && self.absent_member_is_unreadable(source, target))
             {
                 break;
             }
@@ -1421,53 +1316,6 @@ impl Checker<'_, '_> {
             current = self.nodes.parent(ancestor);
         }
         false
-    }
-
-    /// Whether `source` lacks a member of `target` whose symbol this port
-    /// cannot resolve although it types it (a member inherited through an
-    /// instantiated generic base, `interface Q extends P<string>`). The
-    /// relater reads such a member's optionality from its symbol
-    /// (`property_flags`), so its rejection of the absent member is not
-    /// upstream's `propertiesRelatedTo` verdict and is not reported.
-    fn absent_member_flags_unreadable(&mut self, source: TypeId, target: TypeId) -> bool {
-        let Some(names) = self.get_property_names_of_type(target) else { return false };
-        names.iter().any(|name| {
-            self.get_type_of_property_of_type(source, name).is_none()
-                && self.get_property_of_type(target, name).is_none()
-        })
-    }
-
-    /// Whether `ty` mentions a literal type within `depth` member levels: a
-    /// literal itself, a union/intersection constituent, or a property or
-    /// index-signature value. The contextual types under which
-    /// `isLiteralOfContextualType` (`checker.go`) can keep an object
-    /// literal member's literal type are among these.
-    fn type_mentions_literal(&mut self, ty: TypeId, depth: u32) -> bool {
-        let flags = self.store.get(ty).flags;
-        if flags.intersects(TypeFlags::LITERAL) {
-            return true;
-        }
-        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
-            &self.store.get(ty).data
-        {
-            let types = types.clone();
-            return types.into_iter().any(|part| self.type_mentions_literal(part, depth));
-        }
-        if depth == 0 || !flags.intersects(TypeFlags::OBJECT) {
-            return false;
-        }
-        if let Some(names) = self.get_property_names_of_type(ty) {
-            for name in &names {
-                if let Some(member) = self.get_type_of_property_of_type(ty, name)
-                    && self.type_mentions_literal(member, depth - 1)
-                {
-                    return true;
-                }
-            }
-        }
-        self.get_index_infos_of_type(ty).is_some_and(|infos| {
-            infos.iter().any(|info| self.type_mentions_literal(info.value, depth - 1))
-        })
     }
 
     /// `chooseOverload` (`checker.go:9025`) for a call whose single candidate
@@ -1561,14 +1409,15 @@ impl Checker<'_, '_> {
         if self.signature_non_array_rest_type(&instantiated).is_some() {
             return false;
         }
-        match self.check_this_argument(node, &instantiated, true) {
-            Ternary::Related => {
-                self.check_instantiated_candidate_arguments(call.arguments, &instantiated);
-            }
-            Ternary::NotRelated => {}
-            Ternary::Unknown => return false,
-        }
-        true
+        let Some(arguments) = self.report_call_arguments(node) else { return false };
+        self.report_signature_applicability(
+            node,
+            &arguments,
+            &instantiated,
+            CandidateContext::Instantiated,
+            &[],
+        ) != ApplicabilityReport::Declined
+            || self.report_this_argument(node, &instantiated, false) == Ternary::Related
     }
 
     /// `checkTypeArguments` (`checker.go:9222`) with `reportErrors`, as
@@ -1623,8 +1472,8 @@ impl Checker<'_, '_> {
             let target = self.instantiate_type(constraint, &map, &parameters, &names);
             let source = map[position].1;
             if self.is_gap(target)
-                || self.head_could_contain_type_variables(source, 3)
-                || self.head_could_contain_type_variables(target, 3)
+                || self.could_contain_type_variables_at_head(source, 3)
+                || self.could_contain_type_variables_at_head(target, 3)
             {
                 return None;
             }
@@ -1647,157 +1496,6 @@ impl Checker<'_, '_> {
             }
         }
         Some(true)
-    }
-
-    /// `isSignatureApplicable` (`checker.go:9256`) with `reportErrors` for an
-    /// instantiated generic candidate. Each argument is
-    /// `checkExpressionWithContextualType(arg, paramType)` (`checker.go:7484`):
-    /// its type under the INSTANTIATED parameter as contextual type, which is
-    /// not necessarily the type this port cached while the call's signature
-    /// was still being inferred.
-    ///
-    /// An argument whose cached type relates needs nothing more, and one
-    /// whose type cannot depend on its contextual type reports from the cached
-    /// type. An object literal reports from its cached type unless the target
-    /// mentions a literal type (literal preservation follows the instantiated
-    /// context). The rest decline: an array literal (tuple-ness follows the
-    /// instantiated context), a context-sensitive function
-    /// (`assignContextualParameterTypes`, generic contextual signatures) and a
-    /// class expression (its class identity is re-created by a re-check).
-    fn check_instantiated_candidate_arguments(
-        &mut self,
-        arguments: &[Expression<'_>],
-        signature: &Signature,
-    ) {
-        for (position, argument) in arguments.iter().enumerate() {
-            let Some(argument_id) = argument.node_id() else { return };
-            let Some(target) = self.signature_type_at_position(signature, position) else {
-                return;
-            };
-            if self.is_gap(target) || self.argument_type_is_not_upstreams(*argument) {
-                return;
-            }
-            let source = self.check_expression(*argument);
-            if self.relate_ternary(source, target, Relation::Assignable) == Ternary::Related {
-                continue;
-            }
-            let mut inner = *argument;
-            while let Expression::ParenthesizedExpression(parenthesized) = inner {
-                let Some(expression) = parenthesized.expression else { return };
-                inner = expression;
-            }
-            // A non-context-sensitive object literal: its cached type is
-            // reported through `checkTypeRelatedToAndOptionallyElaborate`
-            // (excess property, then `elaborateError` at the member), as the
-            // overload reporter does for a literal the walk re-checked.
-            // Upstream checks it under the instantiated parameter, whose
-            // literal members keep the literal's own literal types
-            // (`getWidenedLiteralLikeTypeForContextualType`); the cached type
-            // was widened under another context, so a target mentioning a
-            // literal type declines (a superset of the members that differ).
-            if matches!(inner, Expression::ObjectLiteralExpression(_))
-                && !self.is_context_sensitive_argument(argument)
-            {
-                if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
-                {
-                    return;
-                }
-                // hasExcessProperties (relater.go:2714) runs on the fresh
-                // literal before any structural comparison. Against a
-                // non-union target it reads only the literal's property
-                // names, which the instantiated context's literal
-                // preservation does not change, so its report needs no
-                // re-check under the instantiated parameter. A union target's
-                // discriminant reduction reads the members' types, which do
-                // change, and stays behind the literal gate below.
-                if !matches!(self.store.get(target).data, TypeData::Union { .. })
-                    && self.report_fresh_literal_excess_property(argument_id, source, target)
-                {
-                    return;
-                }
-                if self.type_mentions_literal(target, 3)
-                    || self.absent_member_flags_unreadable(source, target)
-                {
-                    return;
-                }
-                let before = self.diagnostics.len();
-                self.check_excess_properties(target, argument_id);
-                if self.diagnostics.len() == before {
-                    let span = self.error_span(argument_id);
-                    self.report_relation_failure(
-                        argument_id,
-                        span,
-                        Some(argument_id),
-                        source,
-                        target,
-                        Some(
-                            &messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1,
-                        ),
-                    );
-                }
-                return;
-            }
-            if matches!(
-                inner,
-                Expression::ObjectLiteralExpression(_)
-                    | Expression::ArrayLiteralExpression(_)
-                    | Expression::ClassExpression(_)
-            ) || self.is_context_sensitive_argument(argument)
-                || self.mapped_types.get(&source).is_some_and(|info| info.name_type.is_some())
-            {
-                return;
-            }
-            if self.report_argument_failure(argument_id, source, target) {
-                return;
-            }
-        }
-    }
-
-    /// Argument shapes whose type this port computes without a mechanism
-    /// upstream applies, so a failed relation is not upstream's answer:
-    ///
-    /// - `a ?? b`, `a || b` and `c ? a : b` union their operands with
-    ///   `UnionReductionSubtype`, which this port does not have;
-    /// - an identifier naming an auto-typed `let x = []` array, whose
-    ///   evolved element types upstream regularizes
-    ///   (`getRegularTypeOfObjectLiteral` in `addEvolvingArrayElementType`)
-    ///   and this port leaves fresh.
-    fn argument_type_is_not_upstreams(&self, argument: Expression<'_>) -> bool {
-        let mut argument = argument;
-        while let Expression::ParenthesizedExpression(inner) = argument {
-            let Some(expression) = inner.expression else { return true };
-            argument = expression;
-        }
-        match argument {
-            Expression::ConditionalExpression(_) => true,
-            Expression::BinaryExpression(binary) => binary.operator_token.is_some_and(|token| {
-                matches!(
-                    token.kind,
-                    tsr_ast::SyntaxKind::QuestionQuestionToken | tsr_ast::SyntaxKind::BarBarToken
-                )
-            }),
-            Expression::Identifier(identifier) => {
-                let Some(id) = identifier.node_id else { return false };
-                let Some(symbol) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    id,
-                    identifier.text,
-                    SymbolFlags::VALUE,
-                ) else {
-                    return false;
-                };
-                let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
-                    return false;
-                };
-                matches!(self.node_map.get(declaration),
-                    Some(tsr_ast::Node::VariableDeclaration(variable))
-                        if variable.r#type.is_none()
-                            && matches!(variable.initializer,
-                                Some(Expression::ArrayLiteralExpression(array)) if array.elements.is_empty()))
-            }
-            _ => false,
-        }
     }
 
     /// The type-argument half of [`Checker::check_resolve_call_arity`] alone.
@@ -2220,7 +1918,7 @@ impl Checker<'_, '_> {
         }
         if self.is_untyped_signatureless_call(tag_type, apparent, call_count, construct_count)
             != Some(false)
-            || self.head_could_contain_type_variables(tag_type, 3)
+            || self.could_contain_type_variables_at_head(tag_type, 3)
         {
             return;
         }
@@ -2308,7 +2006,7 @@ impl Checker<'_, '_> {
         let Some(call_signatures) = self.head_signatures(apparent, SignatureKind::Call) else {
             return CallHead::Unknown;
         };
-        if self.head_could_contain_type_variables(expression_type, 3) {
+        if self.could_contain_type_variables_at_head(expression_type, 3) {
             return CallHead::Unknown;
         }
         match call_signatures.as_slice() {
@@ -2470,49 +2168,6 @@ impl Checker<'_, '_> {
 
     fn head_signature_count(&mut self, t: TypeId, kind: SignatureKind) -> Option<usize> {
         self.head_signatures(t, kind).map(|signatures| signatures.len())
-    }
-
-    /// The type-variable half of `couldContainTypeVariables` (`checker.go`),
-    /// bounded to `depth` levels of reference arguments and signature
-    /// parameters/returns.
-    ///
-    /// A refusal, not an upstream branch: upstream reports a signature-less
-    /// generic callee like any other, but this port's generic machinery
-    /// (non-nullable filtering of a deferred conditional, homomorphic mapped
-    /// apparent types) answers a type upstream does not hold for several such
-    /// callees, and an empty list read off one of those is not "not callable".
-    fn head_could_contain_type_variables(&mut self, t: TypeId, depth: u8) -> bool {
-        let ty = self.store.get(t);
-        if ty.flags.intersects(TypeFlags::INSTANTIABLE) {
-            return true;
-        }
-        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } = &ty.data {
-            let types = types.clone();
-            return types
-                .into_iter()
-                .any(|member| self.head_could_contain_type_variables(member, depth));
-        }
-        if depth == 0 {
-            return false;
-        }
-        if let Some((_, arguments)) = self.type_reference_targets.get(&t).cloned()
-            && arguments
-                .into_iter()
-                .any(|argument| self.head_could_contain_type_variables(argument, depth - 1))
-        {
-            return true;
-        }
-        if let Some(signatures) = self.signature_types.get(&t).cloned() {
-            return signatures.iter().any(|signature| {
-                !signature.type_parameters.is_empty()
-                    || signature.parameters.iter().any(|parameter| {
-                        let parameter_type = self.parameter_type(parameter);
-                        self.head_could_contain_type_variables(parameter_type, depth - 1)
-                    })
-                    || self.head_could_contain_type_variables(signature.r#type, depth - 1)
-            });
-        }
-        false
     }
 
     /// `isUntypedFunctionCall` (`checker.go:9933`), the arms that read no
