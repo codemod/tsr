@@ -8972,7 +8972,9 @@ impl Checker<'_, '_> {
         // has none.
         let Some(body) = accessor.body else { return };
         let Some(body_id) = body.node_id() else { return };
-        if self.subtree_has_return_or_throw(body_id) {
+        // `NodeIsMissing` is `pos == end`: `{ get e, }` recovers an empty Block
+        // the parser reported TS1005 on.
+        if self.nodes.span(body_id).is_empty() || self.subtree_has_return_or_throw(body_id) {
             return;
         }
         let Some(name) = accessor.name.node_id() else { return };
@@ -12517,6 +12519,15 @@ impl Checker<'_, '_> {
             return;
         }
         let specifier = declaration.module_specifier.and_then(|s| s.node_id());
+        // `checkExternalImportOrExportDeclaration` (`checker.go:5333`) returns
+        // before its TS1194 on a missing or non-string-literal name: the
+        // parser's error, or TS1141 (`export * from Aaa;`).
+        if specifier.is_some_and(|specifier| {
+            self.nodes.kind(specifier) != SyntaxKind::StringLiteral
+                || self.nodes.span(specifier).is_empty()
+        }) {
+            return;
+        }
         if specifier.is_none() && in_module_block && self.declaration_is_in_an_ambient_context(node)
         {
             // `inAmbientNamespaceDeclaration` — legal.

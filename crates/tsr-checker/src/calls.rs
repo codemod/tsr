@@ -863,6 +863,15 @@ impl Checker<'_, '_> {
             return CallArity::Undecided;
         };
         let (type_arguments, callee, is_call) = match self.node_map.get(node) {
+            // `resolveCall` reads no type arguments for a super call
+            // (`!isSuperCall(node)`, `checker.go:8851`): `super<T>()` is the
+            // parser's TS2754 alone.
+            Some(tsr_ast::Node::CallExpression(call))
+                if matches!(call.expression, Some(Expression::KeywordExpression(keyword))
+                    if keyword.kind == tsr_ast::SyntaxKind::SuperKeyword) =>
+            {
+                (&[][..], call.expression, true)
+            }
             Some(tsr_ast::Node::CallExpression(call)) => {
                 (call.type_arguments, call.expression, true)
             }
@@ -926,10 +935,21 @@ impl Checker<'_, '_> {
         };
         let no_argument_list =
             !is_call && !tagged && self.new_has_no_argument_list(node, callee, type_arguments);
+        let call_is_incomplete = tagged && self.tagged_template_call_is_incomplete(node);
         let mut applicable = false;
         for candidate in &candidates {
             match self.has_correct_arity(candidate, &effective, no_argument_list) {
                 Some(true) => {
+                    applicable = true;
+                    break;
+                }
+                // `hasCorrectArity`'s `callIsIncomplete` skips the lower bound
+                // and keeps the upper one (`checker.go:9161-9168`).
+                Some(false)
+                    if call_is_incomplete
+                        && (self.signature_has_effective_rest(candidate)
+                            || effective.len() <= self.signature_parameter_count(candidate)) =>
+                {
                     applicable = true;
                     break;
                 }
@@ -1584,6 +1604,37 @@ impl Checker<'_, '_> {
         Some(effective)
     }
 
+    /// `hasCorrectArity`'s tagged-template `callIsIncomplete`
+    /// (`checker.go:9118-9131`): a template whose last span's literal is
+    /// missing or unterminated, or an unterminated no-substitution template,
+    /// may still grow arguments, so too few is not an error.
+    /// `ast.IsUnterminatedLiteral` reads `TokenFlagsUnterminated`;
+    /// `ast.NodeIsMissing` is an empty span.
+    fn tagged_template_call_is_incomplete(&self, node: tsr_ast::NodeId) -> bool {
+        let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
+            return false;
+        };
+        match tagged.template {
+            Some(tsr_ast::TemplateLiteral::TemplateExpression(expression)) => {
+                match expression.template_spans.last().and_then(|span| span.literal) {
+                    Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(tail)) => {
+                        tail.token_flags.contains(tsr_ast::TokenFlags::UNTERMINATED)
+                            || tail.node_id.is_none_or(|id| self.nodes.span(id).is_empty())
+                    }
+                    Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(middle)) => {
+                        middle.token_flags.contains(tsr_ast::TokenFlags::UNTERMINATED)
+                            || middle.node_id.is_none_or(|id| self.nodes.span(id).is_empty())
+                    }
+                    None => true,
+                }
+            }
+            Some(tsr_ast::TemplateLiteral::NoSubstitutionTemplateLiteral(literal)) => {
+                literal.token_flags.contains(tsr_ast::TokenFlags::UNTERMINATED)
+            }
+            None => false,
+        }
+    }
+
     /// `new C` without an argument list (`node.ArgumentList() == nil`): the
     /// node ends where its callee, or its type-argument list's `>`, ends.
     fn new_has_no_argument_list(
@@ -1944,9 +1995,8 @@ impl Checker<'_, '_> {
     /// template), then the argument report of a sole non-generic candidate
     /// or of a non-generic overload set
     /// ([`Checker::check_overload_candidates_arguments`]). A generic tag
-    /// reports no argument error yet. `callIsIncomplete`
-    /// (a template without its tail) is not modelled: such a file has parse
-    /// errors, and no call diagnostic runs in it.
+    /// reports no argument error yet. `callIsIncomplete` (a template without
+    /// its tail) is [`Checker::tagged_template_call_is_incomplete`].
     fn check_tagged_template_resolution(&mut self, node: tsr_ast::NodeId, apparent: TypeId) {
         match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
             CallArity::Applicable(Some(signature)) => {
