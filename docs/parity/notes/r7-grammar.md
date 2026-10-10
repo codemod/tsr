@@ -371,3 +371,13 @@ runs on such a declaration from elsewhere in the walk (module resolution,
 alias checks) are not gated; no corpus case pairs them with an illegal
 context. Converted: `moduleElementsInWrongContext`,
 `moduleElementsInWrongContext3`.
+
+## §14 TS2844 for a constructor-local reference in a property's type
+
+`checkAndReportErrorForInvalidInitializer` (`checker.go:1514`) chooses
+`Type of instance member variable '{0}' cannot reference identifier '{1}'
+declared in the constructor` (TS2844) over the initializer message (TS2301)
+when the reference sits inside the property's type annotation
+(`prop.Type.Loc.ContainsInclusive(errorLocation.Pos())`, `:1522`).
+`check_value_identifier` (`check.rs`, granted) reported TS2301 for both.
+Converted: `initializerReferencingConstructorParameters`.

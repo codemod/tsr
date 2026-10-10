@@ -4518,14 +4518,30 @@ impl Checker<'_, '_> {
                 return;
             }
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::INITIALIZER_OF_INSTANCE_MEMBER_VARIABLE_0_CANNOT_REFERENCE_IDENTIFIER_1_DECLARED_IN_THE_CONSTRUCTOR,
-                    span,
-                    [property, text.to_string()],
-                ),
-            );
+            // `prop.Type != nil && prop.Type.Loc.ContainsInclusive(errorLocation.Pos())`
+            // (`checker.go:1522`): a reference inside the property's type
+            // annotation (`b: typeof x`) takes the type message.
+            let in_annotation = self
+                .nodes
+                .ancestors(node)
+                .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::PropertyDeclaration)
+                .and_then(|declaration| match self.node_map.get(declaration) {
+                    Some(Node::PropertyDeclaration(declaration)) => {
+                        declaration.r#type.and_then(|annotation| annotation.node_id())
+                    }
+                    _ => None,
+                })
+                .is_some_and(|annotation| {
+                    let range = self.nodes.span(annotation);
+                    let at = self.nodes.span(node).start;
+                    range.start <= at && at <= range.end
+                });
+            let message = if in_annotation {
+                &messages::TYPE_OF_INSTANCE_MEMBER_VARIABLE_0_CANNOT_REFERENCE_IDENTIFIER_1_DECLARED_IN_THE_CONSTRUCTOR
+            } else {
+                &messages::INITIALIZER_OF_INSTANCE_MEMBER_VARIABLE_0_CANNOT_REFERENCE_IDENTIFIER_1_DECLARED_IN_THE_CONSTRUCTOR
+            };
+            self.report(file, Diagnostic::with_args(message, span, [property, text.to_string()]));
             return;
         }
         if self
