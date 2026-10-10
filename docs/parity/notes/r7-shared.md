@@ -96,3 +96,97 @@ construct signatures, which `module_clone_type` declines ("variable exports
 whose value happens to be callable are a different symbol shape"). Needs the
 synthetic spread of `PromiseConstructor` plus `default`, printed in the
 spread's member order.
+
+## 2. `mergeSymbol` through an alias target (MERGE-SYMBOL-RESOLVE-ALIAS-TARGET, `.38`)
+
+### Cause
+
+`mergeModuleAugmentation` (`checker.go:1397`) runs `mergeSymbol(mainModule,
+augmentation.Symbol)`, whose `mergeSymbolTable` recursion meets the target
+module's export entries. An entry that is an **alias** (`export default I`,
+`export type { Row } from "./common"`) is not merged as an alias:
+`mergeSymbol` resolves the non-transient target (`resolveSymbol`,
+`:14153`) and either merges the source into a clone of the resolved symbol,
+or — the source's excludes hitting the resolved flags — reports
+`reportMergeSymbolError(target, source)` and **returns `source`**.
+`mergeSymbolTable` stores the return value (`target[id] = merged`,
+`:14117`), so the conflicting augmentation declaration displaces the alias
+in the module's exports. The binder declined every alias-target merge
+(`alias_merges`, "nothing here follows aliases", `bd tsr-y4u.12`); only the
+checker's TS2300/TS2451 report ran.
+
+Second, `mergeSymbolTable` inserts `getMergedSymbol(sourceSymbol)` for a name
+the target lacks. The binder inserted the raw source, so an augmentation's
+`interface EventList` merged through `export *` into the re-exported
+declaration (`:1433-1441`) entered `index`'s exports unmerged, and a second
+augmentation of `./index` merged into that stale symbol instead of the one
+`./eventList` exports.
+
+### The port (`crates/tsr-binder`)
+
+- `BindResult::merge_through_alias_targets`: after each augmentation's
+  `merge_pairs`, every alias merge it declined is re-decided as upstream
+  does. `resolve_alias_for_merge` is `resolveSymbol` over the forms this
+  binder can follow with its own name resolution and the program's module
+  resolution callback — `export default X`/`export = X` of an identifier,
+  local and re-exported export specifiers, import specifiers and default
+  imports of modules without `export =` — to the first non-alias symbol,
+  merged, bounded (16 hops, cycle check). A conflict stores the source in the
+  alias's slot and keeps the pair for `Checker::report_merge_conflicts`
+  (unchanged, so TS2300/TS2451 still land on the alias's declarations); a
+  merge unions the source into the resolved symbol in place (the binder's
+  in-place merge stands for `cloneSymbol`, per `merge_symbol`'s doc), stores
+  it in the slot and drops the pair.
+- `Binder::merge_symbol` inserts `merged_symbol(source)` for a name the
+  target lacks, in both `members` and `exports`.
+
+Rejected: resolving through the checker. `merge_module_augmentations` runs
+before any checker exists and the checker holds the `BindResult` immutably;
+deferring the merge to the checker would make member tables checker-relative,
+which is the shared-across-checkers state ADR-0003's side tables avoid.
+Accepted limitation: an alias the binder cannot follow (an `export =`
+member, a qualified import-equals, a namespace import) keeps the decline,
+and upstream's `unknownSymbol` arm (an unresolvable alias takes the source)
+is not taken, because "cannot follow here" is not "resolves to nothing".
+`mergedParent` (`:14118`, re-parenting the merged symbol to the augmented
+module) is not ported: in-place merging would re-parent the original
+declaration, which upstream's clone never does.
+
+Checker port convention: no cache or side table; the binder's existing
+`merged` redirect map is the publication (written once per merge, before
+the program is shared). The work boundary is one bounded syntactic alias
+walk per declined augmentation merge.
+
+Falsifier: a case where an augmentation merges into an alias whose target
+this walk resolves differently from the checker's `resolve_alias_fully`
+(the two must agree; a TS2300 on a pair the binder merged would show it).
+
+### Measured (against §1's freeze)
+
++4 type lines, +4 diagnostics cases, zero losses:
+`moduleAugmentationOfAlias` (diagnostics and types),
+`mergeSymbolReexportedTypeAliasInstantiation` (diagnostics and types),
+`mergeSymbolRexportFunction`, `mergeMultipleInterfacesReexported`.
+Coverage: `checker_types` 8,681/9,538, `checker_types_configured`
+1,753/1,928, `diagnostics` 4,788/5,502, `diagnostics_configured` 955/1,091.
+Median child-CPU new/old (21 samples, against §1's binary): domain-model
+1.0259, generic-imports 1.0117. Tests pass; clippy clean in touched code
+(`tests/jsdoc_import_duplicates.rs`'s `implicit_clone` is pre-existing).
+
+### Remaining in the augmentation clusters
+
+- `augmentExportEquals3/4/6` and `augmentExportEquals5`'s `typeof e`
+  lines: printer. A symbol with a non-global augmentation declaration is
+  printed as an import type (`symbolToTypeNode`'s
+  `hasNonGlobalAugmentationExternalModuleSymbol` arm): `typeof
+  import("./file1")`. The merge already adds the declaration; routed to
+  r7-printer.
+- `augmentExportEquals5` `x.id` (3 lines), TS2454: `import { Request } from
+  "express"` reads a member of an `export =` namespace; to investigate.
+- `augmentExportEquals7`: `import * as lib` of an `export =` of a
+  `var`+`namespace`: the synthetic default wrapper prints `{ default: () =>
+  void; }`; `module_clone_type` / `getTypeWithSyntheticDefaultOnly` arm.
+- `checkerInitializationCrash`: a `declare global` alias merge (`export
+  import VNode = react.ReactNode` against `type VNode`) needs the
+  qualified import-equals through a UMD `export =`, which the binder walk
+  declines; TS2300 ×2 and `VNode` missing.
