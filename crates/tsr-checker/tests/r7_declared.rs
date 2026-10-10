@@ -164,3 +164,27 @@ fn a_reference_body_to_an_indexed_alias_keeps_the_outer_alias() {
          const h = h1;\n";
     assert_eq!(type_of_last_initializer(source), "Handler<number>");
 }
+
+/// §10: a generic alias whose declared type is a union instantiates to the
+/// union of its instantiated constituents, carrying the alias
+/// (instantiateTypeWithAlias over a union), so an arrow function takes its
+/// contextual signature from the function constituent (tsgo: `w => w :
+/// (w: number) => number`).
+#[test]
+fn a_union_alias_instance_is_a_union_for_contextual_typing() {
+    let source = "type R<T> = string | ((i: T) => any);\n\
+         const r: R<number> = w => w;\n";
+    assert_eq!(type_of_last_initializer(source), "(w: number) => number");
+}
+
+/// §10: a non-generic alias whose body is a reference to a union-bodied
+/// alias declares that union under its own name (getUnionType with the new
+/// alias; tsgo: `xx : X`).
+#[test]
+fn a_union_alias_reference_body_takes_the_declaring_alias() {
+    let source = "type R<T> = string | ((i: T) => any);\n\
+         type X = R<number>;\n\
+         declare const x: X;\n\
+         const xx = x;\n";
+    assert_eq!(type_of_last_initializer(source), "X");
+}
