@@ -250,3 +250,54 @@ context-free type differs from its first candidate check.
 (inferFromGenericFunctionReturnTypes3), 0 lost; types +5 (all in
 inferFromGenericFunctionReturnTypes3), 0 lost. Perf (median child CPU, 21
 samples): domain-model 0.969, generic-imports 0.923.
+
+## 6. A tagged template's single generic candidate reports (TAGGED-TEMPLATE-EFFECTIVE-ARGS)
+
+**Native.** `resolveTaggedTemplateExpression` (`checker.go:8719`) runs
+`resolveCall` over `getEffectiveCallArguments`' tagged arm
+(`checker.go:30042`): a synthetic `TemplateStringsArray` argument, then one
+argument per substitution. A single generic candidate takes `chooseOverload`'s
+generic arm (`checker.go:9046`) like a call's: written type arguments are
+checked against their constraints and instantiate it, otherwise it is
+inferred, and `reportCallResolutionErrors` re-runs `isSignatureApplicable`
+with `reportErrors` over the instantiation.
+
+**Before.** `check_candidates_arity` handed only calls and `new`s a
+`CallArity::ApplicableGeneric`; a tagged template's single generic candidate
+fell to `Applicable(None)`, which the tagged diagnostic walk ignores.
+
+**Port.** `check_single_generic_tag_arguments`:
+
+- written type arguments: `check_call_type_argument_constraints` (now reading
+  a tagged template's type arguments too, through `call_type_arguments`), and
+  the instantiation is `fillMissingTypeArguments`' mapper
+  (`fill_written_type_arguments`, split out of the constraint check so both
+  share it) over the candidate;
+- otherwise the instantiation is inferred the way the tagged template's type
+  road infers it (`check_tagged_template_expression`): over the candidate
+  without its strings parameter, against the substitutions, and the strings
+  parameter is put back;
+- `report_signature_applicability` runs over `report_call_arguments`, which
+  already builds the synthetic `TemplateStringsArray` first.
+
+**Declines** (silent, as before): a strings parameter that mentions type
+variables (that inference site is not modelled on the type road either), a
+context-sensitive substitution with no instantiation published by the type
+road, and a non-array rest (`getSpreadArgumentType`).
+
+**Measured** against `23550f9d` (on `660718af`): diagnostics +3, 0 lost; types
+0/0. Converted: taggedTemplateStringsTypeArgumentInference,
+taggedTemplateStringsTypeArgumentInferenceES6, taggedTemplatesWithTypeArguments2.
+Perf (median child CPU, 41 samples): domain-model 1.010, generic-imports 0.916
+(21 samples: 1.052 / 0.919).
+
+**Remaining in the cluster.** taggedTemplateContextualTyping1/2 miss TS2345
+reported *inside* a callback substitution (`x<number>(undefined)`), where the
+callback's parameter `x` should be contextually typed `<T>(p: T) => T` by an
+overloaded tag. That is the substitutions' contextual typing under an
+overloaded tag (`getContextualTypeForArgument` through the tag's resolved
+signature), not this report. taggedTemplateStringsWithOverloadResolution1/3
+are overloaded tags: the shifted-candidate selection in
+`check_tagged_template_expression` (TS2769/TS2741/TS2551).
+
+Coverage bin on the commit: `diagnostics` 4,853/5,502; type suites unchanged.
