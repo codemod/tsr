@@ -1035,15 +1035,16 @@ pub struct Checker<'a, 'n> {
     /// function reports three times and the `diagnostics` suite compares
     /// multisets.
     pub(crate) function_symbol_checked: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
-    /// Nodes for which `check_modifier_order` — this port's slice of upstream's
-    /// `checkGrammarModifiers` — has already reported. Upstream's callers are
-    /// gated on `!c.checkGrammarModifiers(node)`, and this port dropped that
-    /// return value when it split the chain into several functions. §876.
+    /// Nodes for which `check_grammar_modifiers` (upstream's
+    /// `checkGrammarModifiers`, `grammar.rs`) answered `true`. Upstream's
+    /// callers are gated on `!c.checkGrammarModifiers(node)`.
     pub(crate) modifier_chain_reported: rustc_hash::FxHashSet<tsr_ast::NodeId>,
-    /// Nodes whose decorators were already rejected. `reportObviousDecoratorErrors`
-    /// is the first test in `checkGrammarModifiers` and returns from the whole
-    /// function, so the per-keyword switch never runs for them. §878.
-    pub(crate) decorator_error_reported: rustc_hash::FxHashSet<tsr_ast::NodeId>,
+    /// Nodes `check_grammar_modifiers` has already run for. Upstream calls it
+    /// from each checker that gates on it and reports again each time, and its
+    /// diagnostics collection deduplicates; this port's does not, so the
+    /// chain runs once per node and later callers read
+    /// `modifier_chain_reported` (r7-grammar §1).
+    pub(crate) modifier_chain_checked: rustc_hash::FxHashSet<tsr_ast::NodeId>,
     /// `(element types, readonly) -> the tuple type`.
     ///
     /// Upstream interns a tuple through `createTypeReference` on a target
@@ -1672,7 +1673,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             merged_spaces_checked: rustc_hash::FxHashSet::default(),
             function_symbol_checked: rustc_hash::FxHashSet::default(),
             modifier_chain_reported: rustc_hash::FxHashSet::default(),
-            decorator_error_reported: rustc_hash::FxHashSet::default(),
+            modifier_chain_checked: rustc_hash::FxHashSet::default(),
             tuple_types: FxHashMap::default(),
             mapped_identity_optionality: FxHashMap::default(),
             mapped_identity_sources: FxHashMap::default(),

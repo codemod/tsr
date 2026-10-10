@@ -484,17 +484,14 @@ impl Checker<'_, '_> {
                 self.check_get_accessor_returns(accessor, ambient);
                 ambient
             }
-            Node::PropertyDeclaration(property) => {
+            Node::PropertyDeclaration(_) => {
                 // §271 built this rule and dispatched it only from
                 // `PropertySignatureDeclaration`, so no *class* property ever
                 // reached it — the shape §321 opened, at the dispatch. §379.
+                // A property's `checkAmbientInitializer` is
+                // `checkGrammarProperty`'s (`grammar.rs`), behind
+                // `!checkGrammarModifiers(node)`.
                 self.check_implicit_any_member(node, ambient);
-                self.check_ambient_initializer(
-                    node,
-                    property.initializer,
-                    property.r#type,
-                    ambient,
-                );
                 self.check_annotated_initializer(node, ambient);
                 self.check_jsdoc_annotated_initializer(node, ambient);
                 self.check_subsequent_declaration_type(node);
@@ -878,8 +875,6 @@ impl Checker<'_, '_> {
                 self.check_circular_import_alias(node);
                 self.check_alias_symbol(node);
             }
-            // `NodeCanBeDecorated` rejects every one of these outright.
-            Node::EnumDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ClassDeclaration(class_declaration) => {
                 self.check_object_type_for_duplicate_declarations(node);
                 self.check_merged_namespace_prototype(node);
@@ -888,59 +883,36 @@ impl Checker<'_, '_> {
                 self.check_base_chain_is_acyclic(node);
                 self.check_abstract_members_implemented(node);
             }
-            Node::FunctionDeclaration(n) => self.check_illegal_decorator(n.modifiers),
-            Node::InterfaceDeclaration(n) => {
+            Node::InterfaceDeclaration(_) => {
                 self.check_object_type_for_duplicate_declarations(node);
-                self.check_illegal_decorator(n.modifiers);
                 self.check_type_parameter_lists_identical(node);
             }
-            Node::TypeAliasDeclaration(n) => self.check_illegal_decorator(n.modifiers),
-            Node::VariableStatement(n) => self.check_illegal_decorator(n.modifiers),
-            Node::ImportEqualsDeclaration(n) => {
-                self.check_illegal_decorator(n.modifiers);
+            Node::ImportEqualsDeclaration(_) => {
                 self.check_alias_symbol(node);
                 self.check_module_hidden_by_local(node);
             }
-            Node::ModuleDeclaration(n) => self.check_illegal_decorator(n.modifiers),
             Node::ImportDeclaration(n) => {
                 // `!checkGrammarModifiers(node) && node.Modifiers() != nil`
-                // (`checker.go:5278`), on the declaration's first token — the
-                // modifier itself. The first conjunct defers to the
-                // modifier-order codes, which do not fire for a plain `export`
-                // on an import, so the arm is one condition here. §813.
-                if let Some(first) = n.modifiers.first()
-                    && let Some(at) = tsr_ast::Node::from(*first).node_id()
-                    && let Some(file) = self.source_file_of_for_diagnostics(at)
-                {
-                    let span = self.nodes.span(at);
-                    self.report(
-                        file,
-                        Diagnostic::new(
-                            &messages::AN_IMPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
-                            span,
-                        ),
+                // (`checker.go:5278`), on the declaration's first token.
+                if !self.check_grammar_modifiers(node) && !n.modifiers.is_empty() {
+                    self.grammar_error_on_first_token(
+                        node,
+                        &messages::AN_IMPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
                     );
                 }
-                self.check_illegal_decorator(n.modifiers);
             }
-            Node::ExportDeclaration(n) => self.check_illegal_decorator(n.modifiers),
-            // **Signatures reach the same walk**: TS1070's arm is inside it and
-            // fires only for these two kinds, so without these arms it was
-            // §380's dispatch-never-called for the sixth time. §599.
-            Node::PropertySignatureDeclaration(n) => self.check_modifier_order(node, n.modifiers),
-            Node::MethodSignatureDeclaration(n) => self.check_modifier_order(node, n.modifiers),
-            Node::PropertyDeclaration(n) => self.check_modifier_order(node, n.modifiers),
-            Node::MethodDeclaration(n) => self.check_modifier_order(node, n.modifiers),
-            Node::GetAccessorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
-            Node::SetAccessorDeclaration(n) => self.check_modifier_order(node, n.modifiers),
+            // `checkExportDeclaration`'s twin (`checker.go:5511`).
+            Node::ExportDeclaration(n) => {
+                if !self.check_grammar_modifiers(node) && !n.modifiers.is_empty() {
+                    self.grammar_error_on_first_token(
+                        node,
+                        &messages::AN_EXPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
+                    );
+                }
+            }
             Node::ConstructorDeclaration(n) => {
-                self.check_modifier_order(node, n.modifiers);
                 self.check_constructor_type_parameters(n);
                 self.check_constructor_type_annotation(n);
-            }
-            Node::ParameterDeclaration(n) => self.check_modifier_order(node, n.modifiers),
-            Node::IndexSignatureDeclaration(n) => {
-                self.check_index_signature_modifiers(node, n.modifiers);
             }
             _ => {}
         }
@@ -950,37 +922,10 @@ impl Checker<'_, '_> {
         // must not be filtered through, and §140 recorded a rule silently
         // deleted by exactly that. §156.
         self.check_reserved_declaration_name(typed);
-        // §320 — `checkGrammarModifiers` runs for **every** declaration that
-        // can carry modifiers; this port invoked `check_modifier_order` from
-        // six dispatch arms, all of them class members or a parameter, so
-        // TS1038's arm existed and never fired on a `declare` inside a
-        // `declare namespace`.
-        // `checkGrammarAsyncModifier` (`grammarchecks.go:659`) applies to **any**
-        // node carrying an `async` modifier, including the class-member kinds
-        // the order check below excludes, so it is asked separately. §377.
-        if let Some(modifiers) = modifiers_of(typed) {
-            self.check_grammar_async_modifier(node, modifiers);
-        }
-        if !matches!(
-            typed,
-            Node::PropertyDeclaration(_)
-                | Node::MethodDeclaration(_)
-                | Node::GetAccessorDeclaration(_)
-                | Node::SetAccessorDeclaration(_)
-                | Node::ConstructorDeclaration(_)
-                | Node::ParameterDeclaration(_)
-                // **The two signature kinds are dispatched by kind above** and
-                // were missing from this exclusion list, so every type member
-                // ran `check_modifier_order` twice and every TS1070 was emitted
-                // twice. Nine cases, invisible to every set-comparing
-                // instrument because both copies are *right*. §993.
-                | Node::PropertySignatureDeclaration(_)
-                | Node::MethodSignatureDeclaration(_)
-        ) && let Some(modifiers) = modifiers_of(typed)
-            && !modifiers.is_empty()
-        {
-            self.check_modifier_order(node, modifiers);
-        }
+        // `checkGrammarModifiers` (`grammar.rs`), once per node, from every
+        // checker upstream calls it from; the grammar checks below that
+        // upstream gates on its answer read `modifier_chain_reported`.
+        self.check_grammar_modifiers(node);
         self.check_grammar_heritage_clauses(typed);
         self.check_kinds_of_property_member_overrides(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
@@ -990,10 +935,8 @@ impl Checker<'_, '_> {
         // **Every kind 's default arm names**, not
         // just  — §623, and §600's dispatch class for the
         // ninth time.
-        self.check_modifier_on_nested_statement(node);
         self.check_declaration_statement_container(node, typed);
         self.check_field_named_constructor(node, typed);
-        self.check_decorated_private_name(node, typed);
         self.check_dynamic_import_module_kind(node, typed);
         self.check_dynamic_import_specifier(typed);
         self.check_interface_computed_name(node, typed);
@@ -1045,9 +988,6 @@ impl Checker<'_, '_> {
         }
         if matches!(typed, Node::MethodDeclaration(_)) {
             self.check_abstract_method_has_no_body(node);
-        }
-        if !self.modifier_chain_reported.contains(&node) {
-            self.check_abstract_modifier_position(node, typed);
         }
         if matches!(
             typed,
@@ -1398,56 +1338,6 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// TS1042 — `'{0}' modifier cannot be used here.`
-    ///
-    /// `checkGrammarAsyncModifier` (`grammarchecks.go:659`). `async` is legal
-    /// on exactly four node kinds; everywhere else the modifier itself is the
-    /// error node — `async class C {}` reports at column 1, not at `C`. §377.
-    fn check_grammar_async_modifier(
-        &mut self,
-        node: NodeId,
-        modifiers: &[tsr_ast::ModifierLike<'_>],
-    ) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        if matches!(
-            self.nodes.kind(node),
-            SyntaxKind::MethodDeclaration
-                | SyntaxKind::FunctionDeclaration
-                | SyntaxKind::FunctionExpression
-                | SyntaxKind::ArrowFunction
-                // **A constructor is TS1089's**, and upstream's chain returns
-                // there (`grammarchecks.go:547`) so this arm is never reached
-                // for one. This rule lives outside that chain and must restate
-                // its exclusions; §823 added the arm and this line is what
-                // stops the two from both reporting at the same column. §857.
-                | SyntaxKind::Constructor
-        ) {
-            return;
-        }
-        for modifier in modifiers {
-            let tsr_ast::ModifierLike::Token(token) = modifier else { continue };
-            if token.kind != SyntaxKind::AsyncKeyword {
-                continue;
-            }
-            let Some(file) = token.node_id.and_then(|id| self.source_file_of_for_diagnostics(id))
-            else {
-                continue;
-            };
-            let Some(id) = token.node_id else { continue };
-            let span = self.nodes.span(id);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::_0_MODIFIER_CANNOT_BE_USED_HERE,
-                    span,
-                    ["async".to_string()],
-                ),
-            );
-        }
-    }
-
     /// TS18016 — `Private identifiers are not allowed outside class bodies.`
     ///
     /// `checkGrammarObjectLiteralExpression`'s private-name arm
@@ -1657,15 +1547,11 @@ impl Checker<'_, '_> {
         // Upstream tests `IsExportAssignment`, covering both spellings. §512.
         // `grammarErrorOnFirstToken`, silent in a file with parse diagnostics
         // (`grammarchecks.go:19`); the isolated-module arms below are `c.error`.
-        if !self.file_has_parse_errors
-            && let Some(tsr_ast::ModifierLike::Token(first)) = assignment.modifiers.first()
-            && let Some(id) = first.node_id
-            && let Some(file) = self.source_file_of_for_diagnostics(id)
-        {
-            let span = self.nodes.span(id);
-            self.report(
-                file,
-                Diagnostic::new(&messages::AN_EXPORT_ASSIGNMENT_CANNOT_HAVE_MODIFIERS, span),
+        // `!c.checkGrammarModifiers(node) && … node.Modifiers() != nil`.
+        if !self.check_grammar_modifiers(node) && !assignment.modifiers.is_empty() {
+            self.grammar_error_on_first_token(
+                node,
+                &messages::AN_EXPORT_ASSIGNMENT_CANNOT_HAVE_MODIFIERS,
             );
         }
         // `checker.go:5609`–`5650`, `isolated_alias.rs`.
@@ -2909,58 +2795,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS1184 — `Modifiers cannot appear here.`
-    ///
-    /// `findFirstIllegalModifier`'s **default** arm (`grammarchecks.go:614`): a
-    /// modifier is legal on a statement only at the top level of a file or a
-    /// module block. Bounded to a `VariableStatement`, which has no permitted
-    /// modifier at all — the arm's other sub-cases keep one each (`async` on a
-    /// function, `abstract` on a class) and need `findFirstModifierExcept`.
-    /// §474.
-    fn check_modifier_on_nested_statement(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // `findFirstIllegalModifier`'s default arm (`grammarchecks.go:619`):
-        // each kind keeps at most one modifier at a nested position. §474 built
-        // the `VariableStatement` case and named the rest; §623 built them.
-        let except = match self.node_map.get(node) {
-            Some(Node::FunctionDeclaration(_)) => Some(SyntaxKind::AsyncKeyword),
-            Some(Node::ClassDeclaration(_)) => Some(SyntaxKind::AbstractKeyword),
-            Some(Node::EnumDeclaration(_)) => Some(SyntaxKind::ConstKeyword),
-            // Every modifier is illegal on these at a nested position.
-            Some(
-                Node::VariableStatement(_)
-                | Node::ClassExpression(_)
-                | Node::InterfaceDeclaration(_)
-                | Node::TypeAliasDeclaration(_),
-            ) => None,
-            _ => return,
-        };
-        let legal = self.nodes.parent(node).is_some_and(|parent| {
-            matches!(self.nodes.kind(parent), SyntaxKind::ModuleBlock | SyntaxKind::SourceFile)
-        });
-        if legal {
-            return;
-        }
-        let Some(modifiers) = self.node_map.get(node).and_then(modifiers_of) else { return };
-        let Some(first) = modifiers.iter().find_map(|modifier| match modifier {
-            tsr_ast::ModifierLike::Token(token) if Some(token.kind) != except => Some(token),
-            _ => None,
-        }) else {
-            return;
-        };
-        let Some(id) = first.node_id else { return };
-        // `findFirstIllegalModifier` is an arm of `checkGrammarModifiers`, and
-        // a report returns `true` from it: the rules its callers gate on
-        // `!checkGrammarModifiers(node)` stay quiet (§876; TS1156 for a
-        // variable statement, `r5-smallcodes2.md` §2.1).
-        self.modifier_chain_reported.insert(node);
-        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
-        let span = self.nodes.span(id);
-        self.report(file, Diagnostic::new(&messages::MODIFIERS_CANNOT_APPEAR_HERE, span));
-    }
-
     /// TS1114 — `Duplicate label '{0}'.`
     ///
     /// `checkLabeledStatement` (`checker.go:4209`): walk up from the labeled
@@ -3310,48 +3144,6 @@ impl Checker<'_, '_> {
                 &messages::METHOD_0_CANNOT_HAVE_AN_IMPLEMENTATION_BECAUSE_IT_IS_MARKED_ABSTRACT,
                 span,
                 [text],
-            ),
-        );
-    }
-
-    /// TS1242 — `'abstract' modifier can only appear on a class, method, or
-    /// property declaration.`
-    ///
-    /// `checkGrammarModifiers`' `abstract` arm (`grammarchecks.go:471`), the
-    /// **outer** of two nested kind tests: six permitted kinds, everything else
-    /// an error at the modifier. The inner test — an abstract member outside an
-    /// abstract class — carries a different code and is **not ported here**
-    /// (§501's rule: name the arm you did not take). §505.
-    fn check_abstract_modifier_position(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(modifiers) = modifiers_of(typed) else { return };
-        let Some(tsr_ast::ModifierLike::Token(token)) = modifiers
-            .iter()
-            .find(|m| matches!(m, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword))
-        else {
-            return;
-        };
-        if matches!(
-            self.nodes.kind(node),
-            SyntaxKind::ClassDeclaration
-                | SyntaxKind::ConstructorType
-                | SyntaxKind::MethodDeclaration
-                | SyntaxKind::PropertyDeclaration
-                | SyntaxKind::GetAccessor
-                | SyntaxKind::SetAccessor
-        ) {
-            return;
-        }
-        let Some(id) = token.node_id else { return };
-        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
-        let span = self.nodes.span(id);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::ABSTRACT_MODIFIER_CAN_ONLY_APPEAR_ON_A_CLASS_METHOD_OR_PROPERTY_DECLARATION,
-                span,
             ),
         );
     }
@@ -7707,102 +7499,6 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `checkGrammarModifiers`' arms for a modifier on a type parameter, and
-    /// its `in`/`out` arm on any node (`grammarchecks.go:295`, `:303-312`,
-    /// `:526-543`). Answers whether one was reported, which ends the walk as
-    /// upstream's `return` does.
-    fn check_type_parameter_modifier(
-        &mut self,
-        node: NodeId,
-        token: &tsr_ast::Token<'_>,
-        seen: &[SyntaxKind],
-    ) -> bool {
-        let kind = token.kind;
-        let parent = self
-            .jsdoc_template_owner_kind(node)
-            .or_else(|| self.nodes.parent(node).map(|parent| self.nodes.kind(parent)));
-        let (message, args): (&'static tsr_diagnostics::Message, Vec<String>) = match kind {
-            SyntaxKind::ConstKeyword => {
-                if parent.is_some_and(|parent| {
-                    matches!(
-                        parent,
-                        SyntaxKind::FunctionDeclaration
-                            | SyntaxKind::MethodDeclaration
-                            | SyntaxKind::Constructor
-                            | SyntaxKind::GetAccessor
-                            | SyntaxKind::SetAccessor
-                            | SyntaxKind::FunctionExpression
-                            | SyntaxKind::ArrowFunction
-                            | SyntaxKind::ClassDeclaration
-                            | SyntaxKind::ClassExpression
-                            | SyntaxKind::FunctionType
-                            | SyntaxKind::ConstructorType
-                            | SyntaxKind::CallSignature
-                            | SyntaxKind::ConstructSignature
-                            | SyntaxKind::MethodSignature
-                    )
-                }) {
-                    return false;
-                }
-                (
-                    &messages::_0_MODIFIER_CAN_ONLY_APPEAR_ON_A_TYPE_PARAMETER_OF_A_FUNCTION_METHOD_OR_CLASS,
-                    vec!["const".to_string()],
-                )
-            }
-            SyntaxKind::InKeyword | SyntaxKind::OutKeyword => {
-                let text = if kind == SyntaxKind::InKeyword { "in" } else { "out" };
-                if self.nodes.kind(node) != SyntaxKind::TypeParameter
-                    || parent.is_some_and(|parent| {
-                        !matches!(
-                            parent,
-                            SyntaxKind::InterfaceDeclaration
-                                | SyntaxKind::ClassDeclaration
-                                | SyntaxKind::ClassExpression
-                                | SyntaxKind::TypeAliasDeclaration
-                        )
-                    })
-                {
-                    (
-                        &messages::_0_MODIFIER_CAN_ONLY_APPEAR_ON_A_TYPE_PARAMETER_OF_A_CLASS_INTERFACE_OR_TYPE_ALIAS,
-                        vec![text.to_string()],
-                    )
-                } else if seen.contains(&kind) {
-                    (&messages::_0_MODIFIER_ALREADY_SEEN, vec![text.to_string()])
-                } else if kind == SyntaxKind::InKeyword && seen.contains(&SyntaxKind::OutKeyword) {
-                    (
-                        &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
-                        vec!["in".to_string(), "out".to_string()],
-                    )
-                } else {
-                    return false;
-                }
-            }
-            _ => match modifier_keyword_text(kind) {
-                Some(text) => (
-                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_TYPE_PARAMETER,
-                    vec![text.to_string()],
-                ),
-                None => return false,
-            },
-        };
-        self.report_modifier_error(token, message, &args);
-        true
-    }
-
-    /// TS1029 — `'{0}' modifier must precede '{1}' modifier.`
-    ///
-    /// `checkGrammarModifiers` (`grammarchecks.go:290`), the `must precede`
-    /// arms of its accessibility and `override` cases. A left-to-right scan
-    /// accumulating what has been seen; a modifier that should have come before
-    /// something already seen is the error.
-    ///
-    /// **At most one report per node.** Every arm upstream is
-    /// `return c.grammarErrorOnNode(...)`, so `private static override x` is one
-    /// diagnostic and not three — see `checker-notes-diag2.md` §103.
-    ///
-    /// The `else if` **order is the specification**: `static public async`
-    /// reports *"public must precede static"* because `static` is tested before
-    /// `async`. It is ported in upstream's order for that reason.
     /// TS1092 — `Type parameters cannot appear on a constructor declaration.`
     ///
     /// `checkGrammarConstructorTypeParameters` (`grammarchecks.go:1860`). The
@@ -8310,526 +8006,6 @@ impl Checker<'_, '_> {
         entries
     }
 
-    fn check_modifier_order(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // `reportObviousDecoratorErrors` returns from `checkGrammarModifiers`
-        // before the per-keyword switch (`grammarchecks.go:218`). §878.
-        if self.decorator_error_reported.contains(&node) {
-            return;
-        }
-        if let Some(typed) = self.node_map.get(node)
-            && self.check_grammar_decorator_target(node, typed)
-        {
-            return;
-        }
-        // **A type member takes no modifier but `readonly`**
-        // (`grammarchecks.go:288`), tested in the `else` branch *before* the
-        // per-keyword switch — so it takes precedence over every `must precede`
-        // arm below it. §599.
-        let is_type_member = matches!(
-            self.nodes.kind(node),
-            SyntaxKind::PropertySignature | SyntaxKind::MethodSignature
-        );
-        let mut seen: Vec<SyntaxKind> = Vec::new();
-        for modifier in modifiers {
-            let ModifierLike::Token(token) = modifier else { continue };
-            let kind = token.kind;
-            // **`const` outside an enum or a type parameter** — the first arm
-            // of upstream's per-keyword switch (`grammarchecks.go:302`). The
-            // message says *class member* and the test does not: it fires for
-            // any other node kind, and it reports on the **node**, not the
-            // modifier. §604.
-            if kind == SyntaxKind::ConstKeyword
-                && !matches!(
-                    self.nodes.kind(node),
-                    SyntaxKind::EnumDeclaration | SyntaxKind::TypeParameter
-                )
-            {
-                if let Some(file) = self.source_file_of_for_diagnostics(node) {
-                    let span = self.error_span(node);
-                    self.report(
-                        file,
-                        Diagnostic::with_args(
-                            &messages::A_CLASS_MEMBER_CANNOT_HAVE_THE_0_KEYWORD,
-                            span,
-                            ["const".to_string()],
-                        ),
-                    );
-                }
-                return;
-            }
-            if is_type_member
-                && kind != SyntaxKind::ReadonlyKeyword
-                && let Some(text) = modifier_keyword_text(kind)
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_TYPE_MEMBER,
-                    &[text.to_string()],
-                );
-                return;
-            }
-            // The type-parameter arms (`grammarchecks.go:295`, `:307`, `:526`):
-            // only `in`, `out` and `const`, each on the declarations that take
-            // it. A JSDoc `@template` parameter's parent is the declaration its
-            // list is reparsed into (`jsdoc_template_owner_kind`).
-            if (self.nodes.kind(node) == SyntaxKind::TypeParameter
-                || matches!(kind, SyntaxKind::InKeyword | SyntaxKind::OutKeyword))
-                && self.check_type_parameter_modifier(node, token, &seen)
-            {
-                return;
-            }
-            // TS1028, the **first** arm of the same `if`/`else if` chain
-            // (`grammarchecks.go:336`): `private public x` is *"Accessibility
-            // modifier already seen"*, not *"'public' must precede
-            // 'private'"*. §103's rule — the `else if` order is the
-            // specification — and it binds here in the direction that decides
-            // which of two codes lands on one token. §178.
-            if matches!(
-                kind,
-                SyntaxKind::PublicKeyword
-                    | SyntaxKind::ProtectedKeyword
-                    | SyntaxKind::PrivateKeyword
-            ) && !self.file_has_parse_errors
-                && seen.iter().any(|earlier| {
-                    matches!(
-                        earlier,
-                        SyntaxKind::PublicKeyword
-                            | SyntaxKind::ProtectedKeyword
-                            | SyntaxKind::PrivateKeyword
-                    )
-                })
-            {
-                let Some(id) = token.node_id else { return };
-                let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
-                let span = self.error_span(id);
-                self.report(
-                    file,
-                    Diagnostic::new(&messages::ACCESSIBILITY_MODIFIER_ALREADY_SEEN, span),
-                );
-                return;
-            }
-            // `readonly` already seen — the same shape as TS1028's accessibility
-            // arm above, for a different keyword. §662.
-            if kind == SyntaxKind::ReadonlyKeyword && seen.contains(&SyntaxKind::ReadonlyKeyword) {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_ALREADY_SEEN,
-                    &["readonly".to_string()],
-                );
-                return;
-            }
-            // `private abstract` — `abstract`'s own case reports TS1243 when
-            // `private` has been seen, which §595 guarded against and did not
-            // report. §662.
-            if kind == SyntaxKind::AbstractKeyword && seen.contains(&SyntaxKind::PrivateKeyword) {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
-                    &["private".to_string(), "abstract".to_string()],
-                );
-                return;
-            }
-            let precede: Option<&str> = match kind {
-                SyntaxKind::PublicKeyword
-                | SyntaxKind::ProtectedKeyword
-                | SyntaxKind::PrivateKeyword => [
-                    (SyntaxKind::OverrideKeyword, "override"),
-                    (SyntaxKind::StaticKeyword, "static"),
-                    (SyntaxKind::AccessorKeyword, "accessor"),
-                    (SyntaxKind::ReadonlyKeyword, "readonly"),
-                    (SyntaxKind::AsyncKeyword, "async"),
-                ]
-                .into_iter()
-                .find(|(earlier, _)| seen.contains(earlier))
-                .map(|(_, name)| name),
-                SyntaxKind::OverrideKeyword => [
-                    (SyntaxKind::ReadonlyKeyword, "readonly"),
-                    (SyntaxKind::AccessorKeyword, "accessor"),
-                    (SyntaxKind::AsyncKeyword, "async"),
-                ]
-                .into_iter()
-                .find(|(earlier, _)| seen.contains(earlier))
-                .map(|(_, name)| name),
-                // `export` must precede `declare`, `abstract` and `async`
-                // (`grammarchecks.go:408-412`).
-                SyntaxKind::ExportKeyword => [
-                    (SyntaxKind::DeclareKeyword, "declare"),
-                    (SyntaxKind::AbstractKeyword, "abstract"),
-                    (SyntaxKind::AsyncKeyword, "async"),
-                ]
-                .into_iter()
-                .find(|(earlier, _)| seen.contains(earlier))
-                .map(|(_, name)| name),
-                // **The inverted arm** (`grammarchecks.go:437`): `default`
-                // reports when `export` has *not* been seen, where every other
-                // arm reports when something *has*. Same message, opposite
-                // test. §593.
-                SyntaxKind::DefaultKeyword if !seen.contains(&SyntaxKind::ExportKeyword) => {
-                    Some("default")
-                }
-                // **`abstract`'s pair sits after two `cannot_be_used_with`
-                // checks upstream** (`grammarchecks.go:487-497`), and this
-                // table is consulted before this port's equivalents — so the
-                // arm carries the guard its original position gave it for
-                // free. §595.
-                // `static`'s four (`grammarchecks.go:362-375`). The `override`
-                // entry sits after the `static abstract` check upstream, so it
-                // carries that guard here. §597.
-                SyntaxKind::StaticKeyword if !seen.contains(&SyntaxKind::AbstractKeyword) => [
-                    (SyntaxKind::ReadonlyKeyword, "readonly"),
-                    (SyntaxKind::AsyncKeyword, "async"),
-                    (SyntaxKind::AccessorKeyword, "accessor"),
-                    (SyntaxKind::OverrideKeyword, "override"),
-                ]
-                .into_iter()
-                .find(|(earlier, _)| seen.contains(earlier))
-                .map(|(_, name)| name),
-                SyntaxKind::AbstractKeyword
-                    if !seen.contains(&SyntaxKind::PrivateKeyword)
-                        && !seen.contains(&SyntaxKind::AsyncKeyword) =>
-                {
-                    [
-                        (SyntaxKind::OverrideKeyword, "override"),
-                        (SyntaxKind::AccessorKeyword, "accessor"),
-                    ]
-                    .into_iter()
-                    .find(|(earlier, _)| seen.contains(earlier))
-                    .map(|(_, name)| name)
-                }
-                _ => None,
-            };
-            // The arms below are the rest of each keyword's `else if` chain,
-            // in upstream's order. Every one ends in `return`, which is why a
-            // node gets at most one grammar diagnostic. §183.
-            let parent_is_module_or_file = self.nodes.parent(node).is_some_and(|parent| {
-                matches!(self.nodes.kind(parent), SyntaxKind::ModuleBlock | SyntaxKind::SourceFile)
-            });
-            let parent_is_class_like = self.nodes.parent(node).is_some_and(|parent| {
-                matches!(
-                    self.nodes.kind(parent),
-                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-                )
-            });
-            let is_parameter = self.nodes.kind(node) == SyntaxKind::Parameter;
-            let is_property = self.nodes.kind(node) == SyntaxKind::PropertyDeclaration;
-            let accessibility = |seen: &[SyntaxKind]| {
-                seen.iter().any(|k| {
-                    matches!(
-                        k,
-                        SyntaxKind::PublicKeyword
-                            | SyntaxKind::ProtectedKeyword
-                            | SyntaxKind::PrivateKeyword
-                    )
-                })
-            };
-            let _ = accessibility;
-            let text = modifier_keyword_text(kind);
-            // `X_0_modifier_already_seen` — the head of the `override`,
-            // `static`, `export`, `declare`, `abstract`, `accessor` and
-            // `readonly` chains, and the one arm every keyword shares.
-            if matches!(
-                kind,
-                SyntaxKind::OverrideKeyword
-                    | SyntaxKind::StaticKeyword
-                    | SyntaxKind::ExportKeyword
-                    | SyntaxKind::DeclareKeyword
-                    | SyntaxKind::AbstractKeyword
-                    | SyntaxKind::AccessorKeyword
-                    | SyntaxKind::ReadonlyKeyword
-            ) && seen.contains(&kind)
-                && let Some(text) = text
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_ALREADY_SEEN,
-                    &[text.to_string()],
-                );
-                return;
-            }
-            // **A constructor takes none of `static`, `override` or `async`**
-            // (`grammarchecks.go:547`), tested after the `flags` loop upstream
-            // and therefore after every arm that could claim the same modifier.
-            // Fifth arm placed into this chain (§103, §183, §599, §817). §823.
-            if self.nodes.kind(node) == SyntaxKind::Constructor
-                && matches!(
-                    kind,
-                    SyntaxKind::StaticKeyword
-                        | SyntaxKind::OverrideKeyword
-                        | SyntaxKind::AsyncKeyword
-                )
-                && let Some(text) = modifier_keyword_text(kind)
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
-                    &[text.to_string()],
-                );
-                return;
-            }
-            // `async` in an ambient context (`grammarchecks.go:507`).
-            // Upstream's `flags` accumulates left to right over the modifier
-            // list, so `flags&Ambient != 0` is exactly *"a `declare` earlier in
-            // this same list"* — the `seen` vector already carries it. Placed
-            // after the shared `already seen` arm and before the must-precede
-            // arms, which is upstream's `else if` order. §817.
-            if kind == SyntaxKind::AsyncKeyword
-                && !seen.contains(&SyntaxKind::AsyncKeyword)
-                && (seen.contains(&SyntaxKind::DeclareKeyword)
-                    || self.is_in_ambient_context_for_overloads(node))
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_BE_USED_IN_AN_AMBIENT_CONTEXT,
-                    &["async".to_string()],
-                );
-                return;
-            }
-            // `X_0_modifier_cannot_appear_on_a_module_or_namespace_element` —
-            // in the accessibility chain **after** the must-precede arms below
-            // and in the `static` chain after them too, so it is tested here
-            // only for `static`; the accessibility case falls through to
-            // `precede` first and is handled after it.
-            if kind == SyntaxKind::StaticKeyword
-                && parent_is_module_or_file
-                && let Some(text) = text
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_MODULE_OR_NAMESPACE_ELEMENT,
-                    &[text.to_string()],
-                );
-                return;
-            }
-            // `X_0_modifier_cannot_appear_on_a_parameter` — `static`, `export`
-            // and `declare`.
-            if matches!(
-                kind,
-                SyntaxKind::StaticKeyword | SyntaxKind::ExportKeyword | SyntaxKind::DeclareKeyword
-            ) && is_parameter
-                && let Some(text) = text
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_PARAMETER,
-                    &[text.to_string()],
-                );
-                return;
-            }
-            // `X_0_modifier_cannot_appear_on_class_elements_of_this_kind` —
-            // `export` on any class element, `declare` on any that is not a
-            // property declaration.
-            // **An index signature is TS1071's**, and upstream tests it
-            // (`grammarchecks.go:291`) *before* the per-keyword switch this arm
-            // belongs to, then returns. This port has that test in a separate
-            // function — `check_index_signature_modifiers` — outside this
-            // chain, so without the deferral both fire. Third rule this session
-            // ported outside the chain that kept speaking after it (§857, §858).
-            // §871.
-            if self.nodes.kind(node) != SyntaxKind::IndexSignature
-                && ((kind == SyntaxKind::ExportKeyword && parent_is_class_like)
-                    || (kind == SyntaxKind::DeclareKeyword && parent_is_class_like && !is_property))
-                && let Some(text) = text
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_CLASS_ELEMENTS_OF_THIS_KIND,
-                    &[text.to_string()],
-                );
-                return;
-            }
-            // `A_declare_modifier_cannot_be_used_in_an_already_ambient_context`
-            // — the SIXTH arm of the `declare` chain (`grammarchecks.go:459`),
-            // and the row §179 declined to build alone. `node.Parent.Flags &
-            // NodeFlagsAmbient != 0 && node.Parent.Kind == ModuleBlock`: this
-            // parser has no ambient flag, so the walk-threaded `ambient` and
-            // the parent's kind stand in for it, which is §99's substitute.
-            //
-            // **The `using` / `await using` arms sit between the parameter arm
-            // above and this one and cannot fire here** — this port has no
-            // block-scope kind for them. §183 records that as the reason this
-            // build is barred below its ceiling.
-            // **The predicate is "an enclosing `declare`", not "the file".**
-            // §445 substituted the walk-threaded `ambient` — `file_is_ambient`
-            // OR an enclosing `declare` — and measured −14, because in a `.d.ts`
-            // it is true of every node whether or not any ancestor carries the
-            // modifier. `declaration_is_in_an_ambient_context` walks ancestors
-            // for an actual `declare` and excludes the bare-file case, which is
-            // upstream's `NodeFlagsAmbient` for the shape this arm tests. §508.
-            if kind == SyntaxKind::DeclareKeyword
-                && self
-                    .nodes
-                    .parent(node)
-                    .is_some_and(|parent| self.declaration_is_in_an_ambient_context(parent))
-                && self
-                    .nodes
-                    .parent(node)
-                    .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ModuleBlock)
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::A_DECLARE_MODIFIER_CANNOT_BE_USED_IN_AN_ALREADY_AMBIENT_CONTEXT,
-                    &[],
-                );
-                return;
-            }
-            if let Some(after) = precede {
-                // `visibilityToString` — the keyword's own text.
-                let text = match kind {
-                    SyntaxKind::PublicKeyword => "public",
-                    SyntaxKind::ProtectedKeyword => "protected",
-                    SyntaxKind::PrivateKeyword => "private",
-                    SyntaxKind::ExportKeyword | SyntaxKind::DefaultKeyword => "export",
-                    SyntaxKind::AbstractKeyword => "abstract",
-                    SyntaxKind::StaticKeyword => "static",
-                    _ => "override",
-                };
-                let Some(id) = token.node_id else { return };
-                let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
-                let span = self.error_span(id);
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
-                        span,
-                        [text.to_string(), after.to_string()],
-                    ),
-                );
-                return;
-            }
-            // The accessibility chain's module-or-namespace arm, which sits
-            // **after** its five must-precede arms (`grammarchecks.go:402`).
-            if matches!(
-                kind,
-                SyntaxKind::PublicKeyword
-                    | SyntaxKind::ProtectedKeyword
-                    | SyntaxKind::PrivateKeyword
-            ) && parent_is_module_or_file
-                && let Some(text) = text
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_MODULE_OR_NAMESPACE_ELEMENT,
-                    &[text.to_string()],
-                );
-                return;
-            }
-            // `private` with `abstract` is TS1243; the other two spellings take
-            // the must-precede arm above (`grammarchecks.go:405-409`).
-            if kind == SyntaxKind::PrivateKeyword && seen.contains(&SyntaxKind::AbstractKeyword) {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
-                    &["private".to_string(), "abstract".to_string()],
-                );
-                return;
-            }
-            // The accessibility chain's last arm (`grammarchecks.go:355`),
-            // reached only without `abstract`.
-            if matches!(
-                kind,
-                SyntaxKind::PublicKeyword
-                    | SyntaxKind::ProtectedKeyword
-                    | SyntaxKind::PrivateKeyword
-            ) && !seen.contains(&SyntaxKind::AbstractKeyword)
-                && self.is_private_identifier_class_element_declaration(node)
-            {
-                self.report_modifier_error(
-                    token,
-                    &messages::AN_ACCESSIBILITY_MODIFIER_CANNOT_BE_USED_WITH_A_PRIVATE_IDENTIFIER,
-                    &[],
-                );
-                return;
-            }
-            // `declare` with `accessor`, the last arm of the `declare` chain.
-            if kind == SyntaxKind::DeclareKeyword && seen.contains(&SyntaxKind::AccessorKeyword) {
-                self.report_modifier_error(
-                    token,
-                    &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
-                    &["declare".to_string(), "accessor".to_string()],
-                );
-                return;
-            }
-            seen.push(kind);
-        }
-        self.check_jsdoc_reparsed_modifier_grammar(node, &mut seen);
-    }
-
-    /// `grammarErrorOnNode(modifier, …)` — every arm of
-    /// `checkGrammarModifiers` reports on the modifier token itself.
-    fn report_modifier_error(
-        &mut self,
-        token: &tsr_ast::Token<'_>,
-        message: &'static tsr_diagnostics::Message,
-        args: &[String],
-    ) {
-        // §876: the chain's callers upstream are gated on `!checkGrammarModifiers(node)`,
-        // so a node that got a modifier diagnostic here must not get one from
-        // the rules this port split out of the chain.
-        if let Some(id) = token.node_id.and_then(|id| self.nodes.parent(id)) {
-            self.modifier_chain_reported.insert(id);
-        }
-        let Some(id) = token.node_id else { return };
-        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
-        let span = self.error_span(id);
-        let diagnostic = if args.is_empty() {
-            Diagnostic::new(message, span)
-        } else {
-            Diagnostic::with_args(message, span, args.to_vec())
-        };
-        self.report(file, diagnostic);
-    }
-
-    /// TS1071 — `'{0}' modifier cannot appear on an index signature.`
-    ///
-    /// `checkGrammarModifiers` (`grammarchecks.go:292`), inside the
-    /// non-decorator branch and behind `modifier.Kind != KindReadonlyKeyword`:
-    /// `readonly [k: string]: T` is legal and every other modifier is not.
-    /// `static` is exempt **only** on a class-like parent, which an index
-    /// signature in a type literal or interface never has.
-    ///
-    /// At most one report, like every arm of that function. §178.
-    fn check_index_signature_modifiers(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let class_like = self.nodes.parent(node).is_some_and(|parent| {
-            matches!(
-                self.nodes.kind(parent),
-                SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-            )
-        });
-        for modifier in modifiers {
-            let ModifierLike::Token(token) = modifier else { continue };
-            if token.kind == SyntaxKind::ReadonlyKeyword {
-                continue;
-            }
-            if token.kind == SyntaxKind::StaticKeyword && class_like {
-                continue;
-            }
-            // `scanner.TokenToString(modifier.Kind)` — the keyword's own text.
-            let Some(text) = modifier_keyword_text(token.kind) else { continue };
-            // `checkGrammarIndexSignature` is `checkGrammarModifiers(node) ||
-            // checkGrammarIndexSignatureParameters(node)`: a modifier report
-            // stops the parameter checks (`grammar.rs`).
-            self.modifier_chain_reported.insert(node);
-            let Some(id) = token.node_id else { return };
-            let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
-            let span = self.error_span(id);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_AN_INDEX_SIGNATURE,
-                    span,
-                    [text.to_string()],
-                ),
-            );
-            return;
-        }
-    }
-
     /// TS1155 — `'{0}' declarations must be initialized.`
     ///
     /// `checkGrammarVariableDeclaration` (`grammarchecks.go:1582`). A `const`
@@ -8960,157 +8136,16 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// `checkGrammarModifiers`' parameter-property and `abstract` arms
-    /// (`grammarchecks.go:560`, `:475`).
-    ///
-    /// Three of the seven still-missing codes that function carries, found by
-    /// grouping the gap by the **upstream function** a diagnostic is reported
-    /// from rather than by code — see §278, where nothing that ranks by case
-    /// count puts them near each other.
+    /// The grammar checks upstream runs behind `!checkGrammarModifiers(node)`
+    /// that the parser lane ported (`grammar.rs`), and the object-literal
+    /// member checks. The modifier chain itself is `check_grammar_modifiers`.
     fn check_grammar_modifier_shapes(&mut self, node: NodeId, typed: Node<'_>) {
         if self.file_has_parse_errors {
             return;
         }
-        // The parser lane's `checkGrammar*` ports that upstream runs behind
-        // the same `!checkGrammarModifiers(node)` guard (`grammar.rs`).
         self.check_grammar_behind_modifiers(node, typed);
-        match typed {
-            Node::ParameterDeclaration(parameter) => {
-                // `flags&ast.ModifierFlagsParameterPropertyModifier != 0` —
-                // `public`/`private`/`protected`/`readonly`/`override` on a
-                // parameter make it a parameter property.
-                if !parameter.modifiers.iter().any(|modifier| {
-                    matches!(
-                        modifier,
-                        tsr_ast::ModifierLike::Token(token)
-                            if matches!(
-                                token.kind,
-                                SyntaxKind::PublicKeyword
-                                    | SyntaxKind::PrivateKeyword
-                                    | SyntaxKind::ProtectedKeyword
-                                    | SyntaxKind::ReadonlyKeyword
-                                    | SyntaxKind::OverrideKeyword
-                            )
-                    )
-                }) {
-                    return;
-                }
-                let message =
-                    if matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
-                        &messages::A_PARAMETER_PROPERTY_MAY_NOT_BE_DECLARED_USING_A_BINDING_PATTERN
-                    } else if parameter.dot_dot_dot_token.is_some() {
-                        &messages::A_PARAMETER_PROPERTY_CANNOT_BE_DECLARED_USING_A_REST_PARAMETER
-                    } else {
-                        return;
-                    };
-                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-                // `grammarErrorOnNode(node, …)` — the whole parameter,
-                // modifiers included.
-                let span = self.nodes.span(node);
-                self.report(file, Diagnostic::new(message, span));
-            }
-            // `abstract` on a member whose parent class is not `abstract`
-            // (`grammarchecks.go:475`), split by whether the member is a
-            // property.
-            Node::MethodDeclaration(_) | Node::PropertyDeclaration(_) => {
-                let modifiers = match typed {
-                    Node::MethodDeclaration(n) => n.modifiers,
-                    Node::PropertyDeclaration(n) => n.modifiers,
-                    _ => return,
-                };
-                if !modifiers.iter().any(|modifier| {
-                    matches!(modifier, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword)
-                }) {
-                    return;
-                }
-                let Some(parent) = self.nodes.parent(node) else { return };
-                if self.nodes.kind(parent) != SyntaxKind::ClassDeclaration {
-                    return;
-                }
-                let Some(Node::ClassDeclaration(class)) = self.node_map.get(parent) else { return };
-                if class.modifiers.iter().any(|modifier| {
-                    matches!(modifier, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::AbstractKeyword)
-                }) {
-                    return;
-                }
-                let message = if matches!(typed, Node::PropertyDeclaration(_)) {
-                    &messages::ABSTRACT_PROPERTIES_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
-                } else {
-                    &messages::ABSTRACT_METHODS_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
-                };
-                let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-                let span = self.nodes.span(node);
-                self.report(file, Diagnostic::new(message, span));
-            }
-            _ => {}
-        }
-        self.check_grammar_default_and_const_modifiers(node, typed);
         self.check_grammar_object_literal_modifiers(typed);
         self.check_grammar_object_literal_postfix_tokens(typed);
-    }
-
-    /// `checkGrammarModifiers`' `KindDefaultKeyword` and `KindConstKeyword`
-    /// arms (`grammarchecks.go:423`, `:301`). §280.
-    fn check_grammar_default_and_const_modifiers(&mut self, node: NodeId, typed: Node<'_>) {
-        let Some(modifiers) = modifiers_of(typed) else { return };
-        for modifier in modifiers {
-            let tsr_ast::ModifierLike::Token(token) = modifier else { continue };
-            let message = match token.kind {
-                SyntaxKind::DefaultKeyword => {
-                    // `container = node.Parent.Kind == SourceFile ? node.Parent
-                    // : node.Parent.Parent`. A statement inside a namespace has
-                    // the `ModuleBlock` as its parent and the
-                    // `ModuleDeclaration` as its grandparent; at file scope the
-                    // parent *is* the container.
-                    let Some(parent) = self.nodes.parent(node) else { continue };
-                    let container = if self.nodes.kind(parent) == SyntaxKind::SourceFile {
-                        parent
-                    } else {
-                        let Some(grandparent) = self.nodes.parent(parent) else { continue };
-                        grandparent
-                    };
-                    if self.nodes.kind(container) != SyntaxKind::ModuleDeclaration
-                        || self.module_declaration_is_ambient(container)
-                    {
-                        continue;
-                    }
-                    &messages::A_DEFAULT_EXPORT_CAN_ONLY_BE_USED_IN_AN_ECMASCRIPT_STYLE_MODULE
-                }
-                SyntaxKind::ConstKeyword => {
-                    if matches!(typed, Node::EnumDeclaration(_) | Node::TypeParameterDeclaration(_))
-                    {
-                        continue;
-                    }
-                    &messages::A_CLASS_MEMBER_CANNOT_HAVE_THE_0_KEYWORD
-                }
-                _ => continue,
-            };
-            let Some(token_id) = token.node_id else { continue };
-            let Some(file) = self.source_file_of_for_diagnostics(token_id) else { continue };
-            // `grammarErrorOnNode(modifier, …)` — the modifier, not the
-            // declaration.
-            let span = self.nodes.span(token_id);
-            let diagnostic = if token.kind == SyntaxKind::ConstKeyword {
-                Diagnostic::with_args(message, span, ["const".to_string()])
-            } else {
-                Diagnostic::new(message, span)
-            };
-            self.report(file, diagnostic);
-            // `checkGrammarModifiers` returns on the first offender.
-            return;
-        }
-    }
-
-    /// `ast.IsAmbientModule` — a module with a string-literal name, or one
-    /// carrying `declare`.
-    fn module_declaration_is_ambient(&self, node: NodeId) -> bool {
-        let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return false };
-        if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))) {
-            return true;
-        }
-        module.modifiers.iter().any(|modifier| {
-            matches!(modifier, tsr_ast::ModifierLike::Token(t) if t.kind == SyntaxKind::DeclareKeyword)
-        })
     }
 
     /// `checkTypeNameIsReserved` (`checker.go:6901`) — the eleven predefined
@@ -9339,7 +8374,7 @@ impl Checker<'_, '_> {
     /// (`grammar.rs`). §259 declined property accesses and identifiers while
     /// the enum-reference arm was unported; that decline is gone
     /// (`docs/parity/notes/r4-unused-grammar.md` §6).
-    fn check_ambient_initializer(
+    pub(crate) fn check_ambient_initializer(
         &mut self,
         node: NodeId,
         initializer: Option<tsr_ast::Expression<'_>>,
@@ -11240,45 +10275,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS1206 — `Decorators are not valid here.`
-    ///
-    /// `reportObviousDecoratorErrors` → `findFirstIllegalDecorator`
-    /// (`grammarchecks.go:642`), and the `NodeCanBeDecorated` arm at `:246`.
-    /// A decorator is legal on a class, a method with a body, an accessor, a
-    /// property and a parameter of those; **every other declaration rejects
-    /// it**, and the report lands on the decorator's first token, not on the
-    /// declaration.
-    ///
-    /// Only the declaration kinds that can never be decorated are ported —
-    /// the parameter and private-name arms need `NodeCanBeDecorated`'s
-    /// grandparent tests and are left to their own row
-    /// (`checker-notes-diag2.md` §112).
-    fn check_illegal_decorator(&mut self, modifiers: &[ModifierLike<'_>]) {
-        // `grammarErrorOnFirstToken` is silent in a file with parse
-        // diagnostics (`decoratorOnUsing`).
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(decorator) = modifiers.iter().find_map(|modifier| match modifier {
-            ModifierLike::Decorator(decorator) => decorator.node_id,
-            ModifierLike::Token(_) => None,
-        }) else {
-            return;
-        };
-        let Some(file) = self.source_file_of_for_diagnostics(decorator) else { return };
-        let span = self.nodes.span(decorator);
-        self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
-        // `reportObviousDecoratorErrors(node)` is the **first** test in
-        // `checkGrammarModifiers` and its `true` returns from the whole
-        // function (`grammarchecks.go:218`), so the per-keyword switch never
-        // runs for a node whose decorators are already illegal. §877 wired the
-        // chain's suppression of the rules split out of it; this is the
-        // suppression that runs in the other direction. §878.
-        if let Some(owner) = self.nodes.parent(decorator) {
-            self.decorator_error_reported.insert(owner);
-        }
-    }
-
     /// Does this subtree contain an **assignment** to `this.<text>`?
     ///
     /// [`Self::subtree_accesses_this_member`] answers *"is `this.x` mentioned at
@@ -12651,47 +11647,6 @@ impl Checker<'_, '_> {
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
         self.report(file, Diagnostic::new(message, span));
-    }
-
-    /// TS1206 — `Decorators are not valid here.`
-    ///
-    /// `checkGrammarModifiers`' decorator arm (`grammarchecks.go:246`) when
-    /// `nodeCanBeDecorated` is false, whose first test is
-    /// (`ast/utilities.go:4256`):
-    ///
-    /// ```go
-    /// if useLegacyDecorators && node.Name() != nil && IsPrivateIdentifier(node.Name()) {
-    ///     return false
-    /// }
-    /// ```
-    ///
-    /// A private name is decoratable under standard decorators and not under
-    /// legacy ones, so `experimentalDecorators` decides it. The rest of
-    /// `nodeCanBeDecorated` is not ported (§501), and the overload sibling has
-    /// its own code. §644.
-    fn check_decorated_private_name(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors || !self.legacy_decorators {
-            return;
-        }
-        let name = match typed {
-            Node::PropertyDeclaration(n) => Some(n.name),
-            Node::MethodDeclaration(n) => Some(n.name),
-            Node::GetAccessorDeclaration(n) => Some(n.name),
-            Node::SetAccessorDeclaration(n) => Some(n.name),
-            _ => None,
-        };
-        if !matches!(name, Some(tsr_ast::PropertyName::PrivateIdentifier(_))) {
-            return;
-        }
-        let Some(modifiers) = modifiers_of(typed) else { return };
-        if !modifiers.iter().any(|m| matches!(m, tsr_ast::ModifierLike::Decorator(_))) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        // `grammarErrorOnFirstToken(node)` — the node's own start, which is the
-        // decorator's `@`.
-        let span = self.nodes.span(node);
-        self.report(file, Diagnostic::new(&messages::DECORATORS_ARE_NOT_VALID_HERE, span));
     }
 
     /// TS18006 — `Classes may not have a field named 'constructor'.`
@@ -15397,28 +14352,6 @@ fn type_parameters_of(node: Node<'_>) -> &[&tsr_ast::TypeParameterDeclaration<'_
         Node::ConstructorTypeNode(node) => node.type_parameters,
         _ => &[],
     }
-}
-
-/// `scanner.TokenToString` for the modifier keywords, which is every kind this
-/// module needs it for.
-fn modifier_keyword_text(kind: SyntaxKind) -> Option<&'static str> {
-    Some(match kind {
-        SyntaxKind::PublicKeyword => "public",
-        SyntaxKind::PrivateKeyword => "private",
-        SyntaxKind::ProtectedKeyword => "protected",
-        SyntaxKind::StaticKeyword => "static",
-        SyntaxKind::AbstractKeyword => "abstract",
-        SyntaxKind::AsyncKeyword => "async",
-        SyntaxKind::DeclareKeyword => "declare",
-        SyntaxKind::ExportKeyword => "export",
-        SyntaxKind::DefaultKeyword => "default",
-        SyntaxKind::AccessorKeyword => "accessor",
-        SyntaxKind::OverrideKeyword => "override",
-        SyntaxKind::ConstKeyword => "const",
-        SyntaxKind::InKeyword => "in",
-        SyntaxKind::OutKeyword => "out",
-        _ => return None,
-    })
 }
 
 pub(crate) fn has_modifier(modifiers: &[ModifierLike<'_>], keyword: SyntaxKind) -> bool {
