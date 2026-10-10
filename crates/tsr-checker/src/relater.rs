@@ -5810,12 +5810,17 @@ impl Relater<'_, '_, '_> {
             // Constraint cycles do not justify a coinductive object relation.
             // Stop type-parameter-only cycles before entering the pair cache;
             // a constraint equal to the target keeps its direct identity proof.
+            // A cycle is a circular base constraint: getConstraintOfTypeParameter
+            // answers nil when !hasNonCircularBaseConstraint (checker.go:17059),
+            // and the type-variable arm explores `unknown` for a nil
+            // constraint (relater.go:3668), as for an unconstrained parameter.
             let mut seen = vec![source];
             while constraint != target
                 && self.checker.type_of(constraint).flags.contains(TypeFlags::TYPE_PARAMETER)
             {
                 if seen.contains(&constraint) {
-                    return Some(RelationResult::Unknown);
+                    constraint = self.checker.intrinsics.unknown;
+                    break;
                 }
                 seen.push(constraint);
                 let Some(next) = self.checker.type_parameter_constraint(constraint) else { break };

@@ -140,6 +140,9 @@ fn subtype_follows_parameter_constraints_and_rejects_the_reverse() {
     });
 }
 
+/// A circular constraint is nil (`getConstraintOfTypeParameter`,
+/// `checker.go:17059`), so the source explores `unknown` (`relater.go:3668`):
+/// tsgo reports TS2322 for `y = x` here (r7-reports §7).
 #[test]
 fn circular_parameter_constraints_do_not_prove_an_object_subtype() {
     use tsr_checker::relater::{Relation, Ternary};
@@ -151,7 +154,10 @@ fn circular_parameter_constraints_do_not_prove_an_object_subtype() {
             };
             let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
             let target = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
-            assert_eq!(checker.relate_ternary(source, target, Relation::Subtype), Ternary::Unknown);
+            assert_eq!(
+                checker.relate_ternary(source, target, Relation::Subtype),
+                Ternary::NotRelated
+            );
         },
     );
 }
@@ -207,7 +213,7 @@ fn exact_never_constraints_and_circular_constraints_remain_distinct() {
     use tsr_checker::relater::{Relation, Ternary};
     for (source, expected) in [
         ("function f<T extends never>(x:T,y:never) {}", Ternary::Related),
-        ("function f<T extends U,U extends T>(x:T,y:{value:number}) {}", Ternary::Unknown),
+        ("function f<T extends U,U extends T>(x:T,y:{value:number}) {}", Ternary::NotRelated),
     ] {
         with_checker(source, |checker, statements| {
             let Statement::FunctionDeclaration(function) = statements[0] else {

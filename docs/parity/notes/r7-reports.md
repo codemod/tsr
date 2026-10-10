@@ -271,3 +271,43 @@ primitive against an indexed constituent during narrowing), none lost.
 **Falsifier.** A primitive assigned to a type with an `any` string index
 that TSR now rejects while tsgo accepts would show a target arm ahead of the
 structural one that this arm skips.
+
+## 7. A circular type-parameter constraint explores `unknown`
+
+**Forcing fact.** `typeParameterHasSelfAsConstraint`: `function foo<T
+extends T>(x: T): number { return x; }` is TS2313 and TS2322 at the
+`return`. The relation `T -> number` answered Unknown, so the TS2322 was
+missing.
+
+**Upstream.** The type-variable arm of `structuredTypeRelatedToWorker`
+(`relater.go:3665`) relates `getConstraintOfType(source)`, or `unknown` when
+that is nil. `getConstraintOfTypeParameter` (`checker.go:17059`) is nil when
+`!hasNonCircularBaseConstraint`, which is the case for a cycle of
+type-parameter constraints (`T extends T`, `T extends U, U extends T`, or a
+chain into such a cycle). `unknown -> number` is False.
+
+**Port** (`relater.rs`, `type_variable_source_related_to`). The
+type-parameter chain walk already detected the cycle, and answered Unknown
+there. It now continues with `unknown`, upstream's nil-constraint answer.
+Cycles through non-parameter types (`T extends keyof T`) are not detected
+by this walk and keep their old road.
+
+**Measured** (unfiltered, on top of §6): WRONG → RIGHT
+`typeParameterHasSelfAsConstraint`; no other row changed.
+
+**Refused in the same session: structural `has_members` for every captured
+anonymous type.** `getRestType`'s result (`objectRestNegative`: `({ b,
+...notAssignable } = o)` relating `{ a: number } -> { a: string }`) is an
+ownerless minted object whose captured property list is complete, and the
+relater's `has_members` admits no ownerless type but the import-attributes
+mint, so the walk answered Unknown (`NoMembersTable`). Admitting every
+ownerless type with a complete capture measured **+4 cases, −5**:
+`restElementAssignable`, `excessPropertyCheckWithSpread`,
+`deeplyNestedMappedTypes`,
+`homomorphicMappedTypeWithNonHomomorphicInstantiationSpreadable1`,
+`mappedTypeInferenceToMappedType`. Every loss is a false TS2322/TS2345/TS2416
+on a spread, rest or mapped-type mint, so those captures relate wrongly
+through the general walk. A retry has to separate the rest mint
+(`mint_rest_properties`) from the spread and mapped mints, and it must
+answer `restElementAssignable`'s two false lines first, since that case is
+itself a rest type.
