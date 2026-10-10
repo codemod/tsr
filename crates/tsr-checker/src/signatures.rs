@@ -1042,8 +1042,12 @@ impl<'a> Checker<'a, '_> {
             .copied();
         if let Some(base) = base {
             let base_type = self.check_expression(base.expression?);
+            // `getSignaturesOfType` of an `any` base constructor is empty
+            // (`any` is not a structured type), so a class extending `any`
+            // takes the default signature returning its instance.
             let base_signatures = if base_type == self.intrinsics.null
                 || base_type == self.intrinsics.null_widening
+                || self.store.get(base_type).flags.intersects(crate::flags::TypeFlags::ANY)
             {
                 Vec::new()
             } else {
