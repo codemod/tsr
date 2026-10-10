@@ -393,3 +393,11 @@ value (`checkClassLikeDeclaration` checks its expression) and an interface's
 `implements` stays TS1176 only. Matches `target/tsgo-pinned` on a scratch file
 covering a namespace, an unresolved name (TS2304, not doubled) and a value.
 Converted: `moduleAsBaseType`.
+
+## §16 TS18011: `delete` of a private name
+
+`checkDeleteExpression` (`checker.go:10811`) reports
+`The operand of a 'delete' operator cannot be a private identifier` for a
+property access whose name is a private identifier, then goes on to its
+symbol arms. `delete_operand.rs` (granted) had only the symbol arms.
+Converted: `privateNamesNoDelete`.

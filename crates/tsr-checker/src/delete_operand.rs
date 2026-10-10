@@ -1,6 +1,7 @@
-//! `checkDeleteExpression`'s symbol arms (`checker.go:10814`): TS2704 for a
-//! read-only operand and TS2790 (`checkDeleteExpressionMustBeOptional`,
-//! `checker.go:10825`) for a non-optional one.
+//! `checkDeleteExpression`'s private-name arm (`checker.go:10811`, TS18011)
+//! and its symbol arms (`checker.go:10814`): TS2704 for a read-only operand
+//! and TS2790 (`checkDeleteExpressionMustBeOptional`, `checker.go:10825`) for
+//! a non-optional one.
 //!
 //! Both read `getResolvedSymbolOrNil(expr)` — the property symbol the access
 //! resolved to — and TS2790 tests **that symbol's** type
@@ -28,6 +29,16 @@ impl Checker<'_, '_> {
         let Some(operand) = delete.expression.and_then(|e| e.node_id()) else { return };
         // `expr := ast.SkipParentheses(node.Expression())`.
         let expr = self.skip_reference_spine_parentheses(operand);
+        // `ast.IsPropertyAccessExpression(expr) && ast.IsPrivateIdentifier(expr.Name())`
+        // (`checker.go:10811`): TS18011, and the symbol arms still run.
+        if let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(expr)
+            && matches!(access.name, Some(MemberName::PrivateIdentifier(_)))
+        {
+            self.report_delete_operand(
+                expr,
+                &messages::THE_OPERAND_OF_A_DELETE_OPERATOR_CANNOT_BE_A_PRIVATE_IDENTIFIER,
+            );
+        }
         let Some(symbol) = self.delete_operand_resolved_symbol(expr) else { return };
         if self.delete_operand_is_readonly(symbol) {
             self.report_delete_operand(
