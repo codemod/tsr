@@ -2637,7 +2637,7 @@ impl<'a> Checker<'a, '_> {
         // there — before the type-parameter elaboration and the chain
         // suppressions below it.
         if head.is_none()
-            && std::ptr::eq(message, &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1)
+            && std::ptr::eq(message, &raw const messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1)
             && let Some(suggestion) =
                 self.suggested_type_for_nonexistent_string_literal_type(source, target)
         {
