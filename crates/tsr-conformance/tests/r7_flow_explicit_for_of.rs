@@ -76,3 +76,23 @@ class Foo2 {
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// `narrowTypeByPrivateIdentifierInInExpression` (pinned flow.go:982): `#x in
+/// u` narrows `u` to the declaring class instance, `#s in u` (static) to its
+/// constructor side. Native prints `u : Foo` and `u : typeof Foo`.
+#[test]
+fn private_identifier_in_narrows_to_the_declaring_class() {
+    let lines = type_lines(
+        "// @strict: true
+// @target: es2022
+class Foo {
+    #x = 1;
+    static #s = 2;
+    m(u: object) { if (#x in u) { u; } }
+    n(u: object) { if (#s in u) { u; } }
+}",
+    );
+    for wanted in ["u : Foo", "u : typeof Foo"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}

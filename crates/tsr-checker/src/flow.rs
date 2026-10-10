@@ -6138,6 +6138,16 @@ impl Checker<'_, '_> {
                         return t;
                     };
                     let right_node = self.get_reference_candidate(right_node);
+                    // `flow.go:519`: `#x in obj`.
+                    if let tsr_ast::Expression::PrivateIdentifier(name) = left {
+                        return self.narrow_type_by_private_identifier_in_in_expression(
+                            state,
+                            t,
+                            name,
+                            right_node,
+                            assume_true,
+                        );
+                    }
                     // `flow.go:523`: presence of the accessed property removes
                     // intrinsic missing on the true branch and keeps only it
                     // on the false branch. Written undefined is not missing.
@@ -7977,6 +7987,63 @@ impl Checker<'_, '_> {
             return t;
         }
         self.narrowed_type_worker(t, predicate_type, assume_true, false).unwrap_or(t)
+    }
+
+    /// `narrowTypeByPrivateIdentifierInInExpression` (`flow.go:982`): `#x in
+    /// obj` narrows a matching `obj` to the declaring class's instance type,
+    /// or to the class's static side for a static `#x`, through
+    /// `getNarrowedType(t, target, assumeTrue, checkDerived)`.
+    ///
+    /// `getSymbolForPrivateIdentifierExpression` is
+    /// `lookupSymbolForPrivateIdentifierDeclaration`: the nearest enclosing
+    /// class declaring the name ([`Checker::lexical_private_declaring_class`]).
+    /// Its member's `HasStaticModifier` picks the side. An undecidable
+    /// narrowing keeps `t`, as the other `getNarrowedType` callers here do.
+    fn narrow_type_by_private_identifier_in_in_expression(
+        &mut self,
+        state: &FlowState,
+        t: TypeId,
+        name: &tsr_ast::PrivateIdentifier<'_>,
+        target: NodeId,
+        assume_true: bool,
+    ) -> TypeId {
+        if !self.is_matching_reference(state, target) {
+            return t;
+        }
+        let Some(name_id) = name.node_id else { return t };
+        let Some(class) = self.lexical_private_declaring_class(name_id, name.text) else {
+            return t;
+        };
+        let Some(class_symbol) = self.binder.symbol_of(class) else { return t };
+        let members = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(class)) => class.members,
+            Some(Node::ClassExpression(class)) => class.members,
+            _ => return t,
+        };
+        // The first declaration of the name, which is the symbol's value
+        // declaration (an accessor pair shares one static-ness).
+        let Some(is_static) = members.iter().find_map(|member| {
+            let (member_name, modifiers) = match member {
+                tsr_ast::ClassElement::PropertyDeclaration(p) => (p.name, p.modifiers),
+                tsr_ast::ClassElement::MethodDeclaration(m) => (m.name, m.modifiers),
+                tsr_ast::ClassElement::GetAccessorDeclaration(a) => (a.name, a.modifiers),
+                tsr_ast::ClassElement::SetAccessorDeclaration(a) => (a.name, a.modifiers),
+                _ => return None,
+            };
+            matches!(member_name, tsr_ast::PropertyName::PrivateIdentifier(p) if p.text == name.text)
+                .then(|| tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword))
+        }) else {
+            return t;
+        };
+        let target_type = if is_static {
+            self.get_type_of_symbol(class_symbol)
+        } else {
+            self.get_declared_type_of_symbol(class_symbol)
+        };
+        if target_type == self.intrinsics.error {
+            return t;
+        }
+        self.narrowed_type_worker(t, target_type, assume_true, true).unwrap_or(t)
     }
 
     /// getNarrowedTypeWorker (internal/checker/flow.go:859).
