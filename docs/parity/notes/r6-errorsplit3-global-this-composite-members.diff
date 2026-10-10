@@ -1,0 +1,97 @@
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index f4c5f8b..a9bc835 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -2637,6 +2643,33 @@ impl Checker<'_, '_> {
+         self.get_property_of_type_ex(id, name, false)
+     }
+ 
++    /// A member of `typeof globalThis`: `resolveAnonymousTypeMembers`'
++    /// `globalThisSymbol` arm (`checker.go:20674-20682`) keeps the globals
++    /// that are neither block-scoped nor an ambient module, and
++    /// `getPropertyOfObjectType` returns one only when it is a value
++    /// (`symbolIsValue`). The port's `typeof globalThis` has no symbol, so
++    /// the globals table is read here. The receiver arm in
++    /// [`Self::access_member_lookup`] answers a direct `globalThis.x`; this
++    /// is the road a composite receiver (`Window & typeof globalThis`) takes
++    /// through each constituent.
++    fn global_this_property(&mut self, name: &str) -> Option<SymbolId> {
++        let symbol = self.binder.global(name)?;
++        let data = self.binder.symbols().get(symbol);
++        if data.flags.intersects(
++            SymbolFlags::BLOCK_SCOPED_VARIABLE | SymbolFlags::CLASS | SymbolFlags::ENUM,
++        ) || data.flags.contains(SymbolFlags::VALUE_MODULE)
++            && !data.declarations.is_empty()
++            && data
++                .declarations
++                .clone()
++                .iter()
++                .all(|&declaration| self.is_ambient_module_declaration(declaration))
++        {
++            return None;
++        }
++        self.symbol_is_value(symbol).then_some(symbol)
++    }
++
+     pub(crate) fn get_property_of_type_ex(
+         &mut self,
+         id: TypeId,
+@@ -2680,6 +2713,7 @@ impl Checker<'_, '_> {
+                 let object = self.global_type_symbol_with_arity("Object", 0)?;
+                 return self.get_property_of_declared_symbol_fresh(object, name);
+             }
++            _ if Some(id) == self.global_this_type => return self.global_this_property(name),
+             _ => return None,
+         };
+         let found = if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
+diff --git a/crates/tsr-conformance/tests/global_this_composite_members.rs b/crates/tsr-conformance/tests/global_this_composite_members.rs
+new file mode 100644
+index 0000000..09aab0b
+--- /dev/null
++++ b/crates/tsr-conformance/tests/global_this_composite_members.rs
+@@ -0,0 +1,45 @@
++//! `resolveAnonymousTypeMembers`' `globalThisSymbol` arm (`checker.go:20674-20682`):
++//! `typeof globalThis` has the globals as members, so a composite receiver
++//! such as `Window & typeof globalThis` finds them
++//! (`docs/parity/notes/r6-errorsplit3.md` §2).
++
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Each line of `file` with its top-level error identity.
++fn identities(source: &str, file: &str) -> Vec<(String, types_producer::TopError)> {
++    let case = TestCase::parse("probe/global_this_composite_members", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    let arena = tsr_core::Arena::new();
++    let (rendered, kinds) =
++        types_producer::assertions_for_case_with_error_kinds(&arena, &case, &expected);
++    let index = case.files.iter().position(|unit| unit.name == file).expect("the file");
++    rendered[index].iter().zip(&kinds[index]).map(|(line, kind)| (line.line(), kind.top)).collect()
++}
++
++/// Asserts every `wanted` line is printed, with no error identity.
++fn assert_lines(source: &str, file: &str, wanted: &[&str]) {
++    let lines = identities(source, file);
++    for want in wanted {
++        let line = lines
++            .iter()
++            .find(|(line, _)| line == want)
++            .unwrap_or_else(|| panic!("a `{want}` line: {lines:?}"));
++        assert_eq!(line.1, types_producer::TopError::Other, "{want}: {lines:?}");
++    }
++}
++
++#[test]
++fn window_reads_globals_through_typeof_global_this() {
++    let source = "// @target: es2015
++// @lib: esnext,dom
++// @Filename: a.ts
++declare var myv: number;
++window.console;
++window.myv;
++";
++    assert_lines(source, "a.ts", &["window.console : Console", "window.myv : number"]);
++}

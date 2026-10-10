@@ -1,0 +1,141 @@
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index 2938632..2b28675 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -573,6 +573,25 @@ impl<'a> BindResult<'a> {
+         node_map: &NodeMap<'a>,
+         mut resolve: impl FnMut(&Self, NodeId, &str, NodeId, bool) -> Option<SymbolId>,
+     ) -> Self {
++        // `initializeChecker` merges the global augmentations before the
++        // module ones (`checker.go:1335-1349`), so a global augmentation of a
++        // UMD alias lands in the module first.
++        let umd_merges = self.umd_alias_merges(nodes, node_map);
++        if !umd_merges.is_empty() {
++            self.alias_merges
++                .retain(|&(alias, source)| !umd_merges.iter().any(|m| (m.0, m.2) == (alias, source)));
++            let pairs: Vec<_> = umd_merges.iter().map(|&(_, module, source)| (module, source)).collect();
++            self = binder::Binder::resuming(arena, nodes, self).merge_pairs(&pairs);
++            // `mergeSymbolTable` stores what `mergeSymbol` returns
++            // (`checker.go:14109-14126`): the merged module replaces the
++            // alias in the globals table.
++            for &(alias, module, _) in &umd_merges {
++                let name = self.symbols.get(alias).name;
++                if self.globals.get(name) == Some(&alias) {
++                    self.globals.insert(name, module);
++                }
++            }
++        }
+         let augmentations = std::mem::take(&mut self.module_augmentations);
+         for augmentation in augmentations {
+             if let Some(pattern) =
+@@ -600,6 +619,50 @@ impl<'a> BindResult<'a> {
+         self
+     }
+ 
++    /// The declined `(alias, module, source)` merges whose alias is a UMD global
++    /// (`export as namespace N`) and whose source merges into the module the
++    /// alias names. `mergeSymbol` resolves a non-transient target
++    /// (`checker.go:14153-14164`): the UMD alias resolves through
++    /// `getTargetOfNamespaceExportDeclaration` to its file's module
++    /// (`resolveExternalModuleSymbol(node.Parent.Symbol())`), and the source
++    /// merges into that module when its excludes miss the module's flags.
++    /// A pair they hit stays declined, for
++    /// `Checker::report_merge_conflicts`' `reportMergeSymbolError`.
++    fn umd_alias_merges(
++        &self,
++        nodes: &NodeTable,
++        node_map: &NodeMap<'a>,
++    ) -> Vec<(SymbolId, SymbolId, SymbolId)> {
++        self.alias_merges
++            .iter()
++            .filter_map(|&(alias, source)| {
++                let module = self.umd_alias_module(nodes, node_map, alias)?;
++                let source_flags = self.symbols.get(source).flags;
++                let module_flags = self.symbols.get(module).flags;
++                (!module_flags.intersects(SymbolFlags::ALIAS)
++                    && ((source_flags | module_flags).intersects(SymbolFlags::ASSIGNMENT)
++                        || !source_flags.excludes().intersects(module_flags)))
++                .then_some((alias, module, source))
++            })
++            .collect()
++    }
++
++    /// The module a UMD alias (`export as namespace N`) resolves to.
++    fn umd_alias_module(
++        &self,
++        nodes: &NodeTable,
++        node_map: &NodeMap<'a>,
++        alias: SymbolId,
++    ) -> Option<SymbolId> {
++        let declaration = *self.symbols.get(alias).declarations.first()?;
++        if nodes.kind(declaration) != tsr_ast::SyntaxKind::NamespaceExportDeclaration {
++            return None;
++        }
++        let file = nodes.parent(declaration)?;
++        let module = self.merged_symbol(self.symbol_of(file)?);
++        self.resolve_external_module_symbol(nodes, node_map, module)
++    }
++
+     /// The pattern ambient module an augmentation's name resolves to, when it
+     /// resolves to one (and not to an augmentation already recorded for the
+     /// name, which merges as an ordinary module).
+diff --git a/crates/tsr-conformance/tests/umd_global_augmentation.rs b/crates/tsr-conformance/tests/umd_global_augmentation.rs
+new file mode 100644
+index 0000000..94e6ded
+--- /dev/null
++++ b/crates/tsr-conformance/tests/umd_global_augmentation.rs
+@@ -0,0 +1,54 @@
++//! `mergeSymbol` resolves a non-transient alias target (`checker.go:14153-14164`):
++//! a `declare global` namespace merging into a UMD global (`export as
++//! namespace a`) merges into the module the alias names, and the merged module
++//! replaces the alias in the globals (`docs/parity/notes/r6-errorsplit3.md` §2).
++
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Each line of `file` with its top-level error identity.
++fn identities(source: &str, file: &str) -> Vec<(String, types_producer::TopError)> {
++    let case = TestCase::parse("probe/umd_global_augmentation", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    let arena = tsr_core::Arena::new();
++    let (rendered, kinds) =
++        types_producer::assertions_for_case_with_error_kinds(&arena, &case, &expected);
++    let index = case.files.iter().position(|unit| unit.name == file).expect("the file");
++    rendered[index].iter().zip(&kinds[index]).map(|(line, kind)| (line.line(), kind.top)).collect()
++}
++
++/// Asserts every `wanted` line is printed, with no error identity.
++fn assert_lines(source: &str, file: &str, wanted: &[&str]) {
++    let lines = identities(source, file);
++    for want in wanted {
++        let line = lines
++            .iter()
++            .find(|(line, _)| line == want)
++            .unwrap_or_else(|| panic!("a `{want}` line: {lines:?}"));
++        assert_eq!(line.1, types_producer::TopError::Other, "{want}: {lines:?}");
++    }
++}
++
++#[test]
++fn a_global_augmentation_of_a_umd_alias_reaches_the_module() {
++    let source = "// @module: commonjs
++// @target: es2015
++// @Filename: /a.d.ts
++export as namespace a;
++export const x = 0;
++
++// @Filename: /b.ts
++import * as a2 from \"./a\";
++declare global {
++    namespace a {
++        export const y = 0;
++    }
++}
++a.y;
++a2.y;
++";
++    assert_lines(source, "/b.ts", &["a.y : 0", "a2.y : 0"]);
++}

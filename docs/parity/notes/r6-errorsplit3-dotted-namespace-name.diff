@@ -1,0 +1,98 @@
+diff --git a/crates/tsr-parser/src/module.rs b/crates/tsr-parser/src/module.rs
+index 0774442..b633b60 100644
+--- a/crates/tsr-parser/src/module.rs
++++ b/crates/tsr-parser/src/module.rs
+@@ -471,7 +471,7 @@ impl<'a> Parser<'a> {
+ 
+         let kind = keyword.kind;
+         Statement::ModuleDeclaration(
+-            self.parse_dotted_module_declaration(start, modifiers, kind, keyword),
++            self.parse_dotted_module_declaration(start, modifiers, kind, keyword, false),
+         )
+     }
+ 
+@@ -488,14 +488,24 @@ impl<'a> Parser<'a> {
+     /// reachable through the outer one. Both it and the segment's `namespace`
+     /// keyword are zero-width: the source spells them once, and the node shape
+     /// wants one per level.
++    ///
++    /// A segment after a dot is an identifier *name*
++    /// (`parseModuleOrNamespaceDeclaration`'s `nested` arm, `parser.go:2208`),
++    /// so `namespace chrome.debugger` names its inner namespace `debugger`; the
++    /// first segment is an identifier, and a reserved word there is an error.
+     fn parse_dotted_module_declaration(
+         &mut self,
+         start: u32,
+         modifiers: &[ModifierLike<'a>],
+         keyword_kind: SyntaxKind,
+         keyword: &'a tsr_ast::Token<'a>,
++        nested: bool,
+     ) -> &'a ModuleDeclaration<'a> {
+-        let name = ModuleName::Identifier(self.parse_identifier());
++        let name = ModuleName::Identifier(if nested {
++            self.parse_identifier_name()
++        } else {
++            self.parse_identifier()
++        });
+         let body = if self.eat(SyntaxKind::DotToken) {
+             let nested_start = self.pos();
+             let empty = tsr_core::Span::new(nested_start, nested_start);
+@@ -506,6 +516,7 @@ impl<'a> Parser<'a> {
+                 &[ModifierLike::Token(export)],
+                 keyword_kind,
+                 nested_keyword,
++                true,
+             );
+             Some(ModuleBody::ModuleDeclaration(inner))
+         } else {
+diff --git a/crates/tsr-conformance/tests/dotted_namespace_reserved_name.rs b/crates/tsr-conformance/tests/dotted_namespace_reserved_name.rs
+new file mode 100644
+index 0000000..49c7b7f
+--- /dev/null
++++ b/crates/tsr-conformance/tests/dotted_namespace_reserved_name.rs
+@@ -0,0 +1,45 @@
++//! `parseModuleOrNamespaceDeclaration`'s `nested` arm (`parser.go:2208`): a
++//! segment after a dot is an identifier name, so `namespace chrome.debugger`
++//! declares `debugger` (`docs/parity/notes/r6-errorsplit3.md` §2).
++
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++/// Each line of `file` with its top-level error identity.
++fn identities(source: &str, file: &str) -> Vec<(String, types_producer::TopError)> {
++    let case = TestCase::parse("probe/dotted_namespace_reserved_name", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    let arena = tsr_core::Arena::new();
++    let (rendered, kinds) =
++        types_producer::assertions_for_case_with_error_kinds(&arena, &case, &expected);
++    let index = case.files.iter().position(|unit| unit.name == file).expect("the file");
++    rendered[index].iter().zip(&kinds[index]).map(|(line, kind)| (line.line(), kind.top)).collect()
++}
++
++/// Asserts every `wanted` line is printed, with no error identity.
++fn assert_lines(source: &str, file: &str, wanted: &[&str]) {
++    let lines = identities(source, file);
++    for want in wanted {
++        let line = lines
++            .iter()
++            .find(|(line, _)| line == want)
++            .unwrap_or_else(|| panic!("a `{want}` line: {lines:?}"));
++        assert_eq!(line.1, types_producer::TopError::Other, "{want}: {lines:?}");
++    }
++}
++
++#[test]
++fn a_reserved_word_after_a_dot_names_the_inner_namespace() {
++    let source = "// @module: commonjs
++// @target: es2015
++// @Filename: a.ts
++declare namespace chrome.debugger {
++    var tabId: number;
++}
++export const tabId = chrome.debugger.tabId;
++";
++    assert_lines(source, "a.ts", &["chrome.debugger.tabId : number", "debugger : typeof debugger"]);
++}

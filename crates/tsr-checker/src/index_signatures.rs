@@ -613,6 +613,28 @@ impl<'a> Checker<'a, '_> {
         // constructor, not its __index export. Instance indexes instead
         // inherit independently by key in resolveObjectTypeMembers.
         if static_side {
+            // `resolveAnonymousTypeMembers`' class arm (`checker.go:20683-20702`):
+            // a class whose base constructor type is `anyType` answers
+            // `anyBaseTypeIndexInfo` on its static side when it declares no
+            // static index signature of its own.
+            if infos.is_empty() && self.base_constructor_is_any(owner) {
+                infos.push(self.any_base_type_index_info());
+            }
+            visiting.pop();
+            return Some(infos);
+        }
+        // `resolveObjectTypeMembers`' base loop (`checker.go:19143-19150`):
+        // a base type that is `anyType` contributes `anyBaseTypeIndexInfo`
+        // (`string` keys, `any` values) unless an own index claims `string`.
+        // A class's base types are its one `extends` entry, so the clause
+        // walk below has nothing more to add.
+        if self.binder.symbols().get(owner).flags.contains(tsr_binder::SymbolFlags::CLASS)
+            && self.get_base_types(owner).as_slice() == [self.intrinsics.any]
+        {
+            let info = self.any_base_type_index_info();
+            if !infos.iter().any(|own| own.key == info.key) {
+                infos.push(info);
+            }
             visiting.pop();
             return Some(infos);
         }
@@ -652,6 +674,26 @@ impl<'a> Checker<'a, '_> {
         }
         visiting.pop();
         Some(infos)
+    }
+
+    /// `anyBaseTypeIndexInfo` (`checker.go:1048`): a `string` key with
+    /// `anyType` values, synthesized (no declaration), not readonly.
+    fn any_base_type_index_info(&self) -> IndexInfo {
+        IndexInfo {
+            components: None,
+            declaration: None,
+            key: self.intrinsics.string,
+            value: self.intrinsics.any,
+            readonly: false,
+        }
+    }
+
+    /// `getBaseConstructorTypeOfClass(classType) == c.anyType`
+    /// (`checker.go:20692`): identity with `anyType`, so an `errorType` base
+    /// (an unresolved `extends` expression) does not qualify.
+    fn base_constructor_is_any(&mut self, owner: SymbolId) -> bool {
+        self.binder.symbols().get(owner).flags.contains(tsr_binder::SymbolFlags::CLASS)
+            && self.get_base_constructor_type_of_class(owner) == self.intrinsics.any
     }
 
     /// `getIndexInfosOfIndexSymbol`'s `hasLateBindableIndexSignature` arm
