@@ -76,3 +76,24 @@ The alias/mapper cutover never enters a batch until its own branch passes
 every gate against the then-current main.
 
 ## Batches
+
+### Batch 1 — r7-flow `bc17c1f8`, r7-shared `9dea4118`
+
+Merged onto main `9020aa67` as `ad0c9c22`. Gate against the `9020aa67` freeze:
+types +21 RIGHT / 0 lost / 0 missing, diagnostics +5 cases / 0 lost / 0
+missing; workspace tests pass; fmt clean; perf child-CPU new/old at 21
+samples domain-model 0.960, generic-imports 0.983, diagnostics identical.
+Strict clippy reports the seven errors main already carries (enum_initializer,
+index_signatures, printing, symbols:4513, templates, unique_symbols,
+tsr-dts accessibility test); none is in a line the batch touched.
+
+| Suite | `9020aa67` | Batch 1 |
+|---|---|---|
+| `checker_types` | 8,677 | 8,680 |
+| `checker_types_configured` | 1,752 | 1,753 |
+| `diagnostics` | 4,786 | 4,791 |
+| `diagnostics_configured` | 955 | 955 |
+
+Ownership change: r7-grammar also owns `class_function_merge.rs`,
+`merge_conflicts.rs` and `check.rs::check_merged_namespace_prototype` for the
+two multi-checker drops r7-perf found under `tsr-2zk.1258`.

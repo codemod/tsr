@@ -149,7 +149,7 @@ conformance/classStaticBlock26(target=es2022)
 conformance/classStaticBlock26(target=esnext)
   1 unexpected (first TS18004 at classStaticBlock26.ts(17,12)), 11 missing
 conformance/classStaticBlock6(target=es2015)
-  8 missing (first TS18037 at classStaticBlock6.ts(13,9))
+  6 missing (first TS18037 at classStaticBlock6.ts(13,9))
 conformance/controlFlowAliasingCatchVariables(useunknownincatchvariables=true)
   1 missing (first TS18046 at controlFlowAliasingCatchVariables.ts(20,9))
 conformance/decoratorMetadata-jsdoc(target=es2015)
