@@ -2096,3 +2096,22 @@ Re-landing needs two things:
 - call_reports.rs handles const type parameters' literal inference.
 
 Filed as `tsr-2zk.1267`.
+
+### Batch CJ+CK+CL: r6-parsegate's access-site lift backed out
+
+The CJ+CK+CL gate failed one workspace test,
+`semantic_parse_error_gates::recovery_misses_require_checked_value_roles_and_complete_receiver_ownership`.
+Its expectations come from the pinned native Program.
+
+In a file with a parse error, after `receiver.assertDerived()` (an
+`asserts this is Derived` method) inside a for-of loop, native narrows
+`receiver` and reports no TS2339 on `receiver.z`. The port does not apply that
+assertion narrowing. The access-site parse-error gate, removed by
+r6-parsegate's diff 4, had been hiding the difference in that file.
+
+Diff 4 is reverted. Its corpus gain was +5 diagnostics cases, and it lost
+nothing on the dumps, because the case is not in the corpus.
+
+Re-landing diff 4 needs assertion-predicate narrowing on a for-of binding
+receiver (flow.rs). Filed with r6-parsegate's remainder as `tsr-2zk.1264`.
+The other three parsegate diffs stay.
