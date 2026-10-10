@@ -392,14 +392,27 @@ impl Checker<'_, '_> {
         // `typeof` side through `getPropertyOfType`, so an inherited static
         // (`c2.bar()` with `class C2 extends A`, `bar` static on `A`) is
         // TS2576 too, not TS2339 (`classSideInheritance1`).
-        if self.type_has_static_property(name_text, receiver_type) {
+        //
+        // `checkPropertyAccessExpressionOrQualifiedName` (`checker.go:11349`)
+        // passes `reportNonexistentProperty` the apparent type of a
+        // polymorphic `this` receiver (`isThisTypeParameter(leftType)`), so
+        // every arm below asks about and prints the class, not `this`.
+        let containing =
+            if matches!(self.node_map.get(node), Some(Node::PropertyAccessExpression(_)))
+                && self.is_minted_this_type(receiver_type)
+            {
+                self.apparent_type(receiver_type)
+            } else {
+                receiver_type
+            };
+        if self.type_has_static_property(name_text, containing) {
             let class_name = self
-                .owning_symbol_of(receiver_type)
+                .owning_symbol_of(containing)
                 .map(|symbol| self.binder.symbols().get(symbol).name.to_string())
                 .unwrap_or_default();
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
-            let printed = self.type_to_string(receiver_type);
+            let printed = self.type_to_string(containing);
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -418,7 +431,7 @@ impl Checker<'_, '_> {
         {
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
-            let printed = self.type_to_string(receiver_type);
+            let printed = self.type_to_string(containing);
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -436,7 +449,7 @@ impl Checker<'_, '_> {
         let candidates = if module_element_miss {
             self.get_property_names_of_type(receiver_type).unwrap_or_default()
         } else {
-            self.apparent_property_names(receiver_type, apparent_receiver)
+            self.apparent_property_names(containing, apparent_receiver)
         };
         if let Some(suggestion) = crate::check::spelling_suggestion(
             name_text,
@@ -445,7 +458,7 @@ impl Checker<'_, '_> {
             let suggestion = suggestion.to_string();
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { return };
             let span = self.error_span(name_id);
-            let printed = self.type_to_string(receiver_type);
+            let printed = self.type_to_string(containing);
             self.report(
                 file,
                 Diagnostic::with_args(
@@ -490,18 +503,18 @@ impl Checker<'_, '_> {
         // elaborateNeverIntersection's chain (checker.go:21868) is message
         // text this diagnostic model does not carry.
         let shown = if apparent_receiver == self.intrinsics.never
-            && self.store.get(receiver_type).flags.contains(crate::flags::TypeFlags::INTERSECTION)
+            && self.store.get(containing).flags.contains(crate::flags::TypeFlags::INTERSECTION)
         {
             apparent_receiver
         } else {
-            receiver_type
+            containing
         };
         let printed = self.type_to_string(shown);
         // reportNonexistentProperty's last arm (checker.go:11580); the
         // element-access fallthrough to here is getPropertyTypeForIndexType's
         // plain TS2339, not this report.
         let dom = if matches!(self.node_map.get(node), Some(Node::PropertyAccessExpression(_))) {
-            let Some(dom) = self.container_seems_to_be_empty_dom_element(receiver_type) else {
+            let Some(dom) = self.container_seems_to_be_empty_dom_element(containing) else {
                 return;
             };
             dom

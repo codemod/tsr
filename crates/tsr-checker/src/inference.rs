@@ -5991,6 +5991,10 @@ impl<'a> Checker<'a, '_> {
             Some(Node::FunctionTypeNode(node)) => node.type_parameters,
             _ => return signature,
         };
+        // typeParameterShadowsOtherTypeParameterInScope resolves from the
+        // node builder's enclosing declaration, the assertion's parent
+        // (`type_symbol_baseline.go:394`), never from the printed name.
+        let enclosing = self.nodes.parent(reference).unwrap_or(reference);
         let mut map = Vec::new();
         let mut renames: Vec<Option<String>> = Vec::with_capacity(own.len());
         for ((parameter, &own_type), declaration) in
@@ -6010,7 +6014,7 @@ impl<'a> Checker<'a, '_> {
                         .resolve_name(
                             self.nodes,
                             self.node_map,
-                            reference,
+                            enclosing,
                             &parameter.name,
                             tsr_binder::SymbolFlags::TYPE,
                         )
@@ -6029,7 +6033,7 @@ impl<'a> Checker<'a, '_> {
             // holds ZERO renames at neutral sites — the byText half does not
             // exist in this corpus and regressed 763 lines when built.
             let fresh_name = shadowed.then(|| {
-                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), reference)
+                self.allocate_type_parameter_name(own_type, own_symbol.unwrap(), enclosing)
             });
             if let Some(fresh_name) = fresh_name {
                 let fresh = self.store.new_named(

@@ -1270,6 +1270,12 @@ pub struct Checker<'a, 'n> {
     /// Set only around the freshness query in
     /// [`Checker::check_expression_for_mutable_location`]; nothing else reads it.
     pub(crate) contextual_prefers_uninstantiated: bool,
+    /// `ContextFlagsSkipBindingPatterns` (`checker.go:29431`): while set,
+    /// [`Checker::get_contextual_type`]'s initializer arm does not answer a
+    /// binding pattern's implied type. Set only around
+    /// [`Checker::get_contextual_type_of_call`], which serves
+    /// `inferTypeArguments`' return-type inference; no other state.
+    pub(crate) contextual_skip_binding_patterns: bool,
     /// Raw contextual query for inferTypeArguments applies to this expression
     /// only; nested callback parameter checks still use their fixing mapper.
     pub(crate) uninstantiated_context_node: Option<NodeId>,
@@ -1699,6 +1705,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             empty_type_literal_type: None,
             minted_signature_types: rustc_hash::FxHashSet::default(),
             contextual_prefers_uninstantiated: false,
+            contextual_skip_binding_patterns: false,
             uninstantiated_context_node: None,
             could_contain_parameter_cache: rustc_hash::FxHashMap::default(),
             rendering_composites: rustc_hash::FxHashSet::default(),
@@ -3019,13 +3026,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         // `A`, `A.B` outside). `resolve_name` is the shadow-exact test: a
         // shadowing `B` at the site resolves to the OTHER symbol and the
         // qualifier proceeds.
-        if let Some(resolved) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            reference,
-            name,
-            SymbolFlags::TYPE | SymbolFlags::VALUE,
-        ) {
+        if let Some(resolved) =
+            self.resolve_name_at_print_site(reference, name, SymbolFlags::TYPE | SymbolFlags::VALUE)
+        {
             let resolved = self.binder.merged_symbol(resolved);
             let own = self.binder.merged_symbol(symbol);
             // Identity, or the same written name in the same CONTAINER - the
@@ -3297,10 +3300,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                     });
                 let unresolved_export = same_file
                     && held_by_exports
-                    && self
-                        .binder
-                        .resolve_name(self.nodes, self.node_map, reference, name, meaning)
-                        .is_none();
+                    && self.resolve_name_at_print_site(reference, name, meaning).is_none();
                 if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
                     // `getSpecifierForModuleSymbol`'s spelling
                     // (`crate::module_specifiers`, r5-modules2 §3): the
@@ -3429,7 +3429,7 @@ impl<'a, 'n> Checker<'a, 'n> {
         reference: NodeId,
         meaning: SymbolFlags,
     ) -> bool {
-        match self.binder.resolve_name(self.nodes, self.node_map, reference, name, meaning) {
+        match self.resolve_name_at_print_site(reference, name, meaning) {
             Some(found) => self.binder.merged_symbol(found) != self.binder.merged_symbol(symbol),
             None => true,
         }
@@ -4528,9 +4528,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// §3.4).
     fn own_name_alias_at(&mut self, symbol: SymbolId, reference: NodeId) -> bool {
         let name = self.binder.symbols().get(symbol).name;
-        let Some(hit) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
+        let Some(hit) = self.resolve_name_at_print_site(
             reference,
             name,
             SymbolFlags::TYPE | SymbolFlags::VALUE,

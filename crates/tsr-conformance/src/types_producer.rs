@@ -593,7 +593,7 @@ pub enum ProducerArm {
     IntrinsicJsxTag,
     /// The expression fall-through: `checkExpression`.
     Expression,
-    /// No arm: `errorType`.
+    /// No arm: `getTypeOfNode`'s fall-through, upstream's `errorType`.
     NoArm,
 }
 
@@ -651,10 +651,12 @@ fn type_id_at_location_arm_inner<'a>(
     // sets that context flag on every node of a `with` statement's BODY
     // (`parseWithStatement` parses it under `doInsideOfContext`); this
     // parser does not record it, so the ancestor walk recomputes it.
+    // Upstream's own `errorType`, not the port's gap (ADR-0048): the probe
+    // tags every line it moves `GetErrorType()`
+    // (`docs/parity/notes/r6-errorsplit2.md` §7).
     if in_with_statement_body(id, nodes, map) {
-        *saw_checker_error = true;
         *arm = ProducerArm::WithStatementBody;
-        return error;
+        return checker.intrinsics().native_error;
     }
 
     // The writer's base-class workaround, `type_symbol_baseline.go:370-374`:
@@ -1338,8 +1340,14 @@ fn type_id_at_location_arm_inner<'a>(
         *arm = ProducerArm::Expression;
         return computed;
     }
+    // The fall-through is `getTypeOfNode`'s last line, `return c.errorType`
+    // (`checker.go:32035`): upstream's own identity, not this port's gap
+    // (ADR-0048). The native identity probe confirms it on every line it
+    // moves: 384 of 384 are `GetErrorType()` natively, the `JsxNamespacedName`
+    // halves, unresolved names in no expression position and import
+    // attribute names (`docs/parity/notes/r6-errorsplit2.md` §2).
     *arm = ProducerArm::NoArm;
-    error
+    checker.intrinsics().native_error
 }
 
 /// Render a type as the answer for the line at `reference`.

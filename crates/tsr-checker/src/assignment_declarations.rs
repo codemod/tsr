@@ -387,7 +387,9 @@ impl<'a> Checker<'a, '_> {
         if let Some(resolved) = resolved {
             return self.finish_assignment_declaration_type(symbol, resolved);
         }
-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        let declarations = self
+            .late_bound_assignment_declarations(symbol)
+            .unwrap_or_else(|| self.binder.symbols().get(symbol).declarations.to_vec());
         let mut types = Vec::new();
         for (index, &declaration) in declarations.iter().enumerate() {
             let Some(node) = self.node_map.get(declaration) else { continue };
@@ -485,6 +487,61 @@ impl<'a> Checker<'a, '_> {
         }
         let t = if types.is_empty() { self.intrinsics.any } else { self.get_union_type(&types) };
         self.finish_assignment_declaration_type(symbol, t)
+    }
+
+    /// `lateBindMember` (`checker.go:16005`) gathers every late-bound
+    /// assignment declaration with one late name into one symbol, and
+    /// `getWidenedTypeForAssignmentDeclaration` reads all of them. The binder
+    /// gives each `foo[k] = v` its own `__computed` symbol and files the
+    /// assignment in the target's `__assignment` table; this answers, for
+    /// such a symbol, every declaration of that table that late-binds to the
+    /// same name, in declaration order. `None` for any other symbol, or when
+    /// the receiver is not an identifier naming the table's owner.
+    ///
+    /// Checker port boundary: no new cache. The names are
+    /// [`Checker::late_bound_members_of`]'s `(owner, static)` entry; the key
+    /// is the owner symbol, resolved from the receiver identifier as the
+    /// binder resolved it; the work is one name resolution and a scan of the
+    /// owner's late list, paid once per symbol (the type is cached by
+    /// `get_type_of_symbol`).
+    fn late_bound_assignment_declarations(&mut self, symbol: SymbolId) -> Option<Vec<NodeId>> {
+        let record = self.binder.symbols().get(symbol);
+        if record.name != "__computed" {
+            return None;
+        }
+        let declaration = record.value_declaration?;
+        let Some(Node::BinaryExpression(binary)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let Some(Expression::ElementAccessExpression(access)) = binary.left else {
+            return None;
+        };
+        let Some(Expression::Identifier(receiver)) = access.expression else {
+            return None;
+        };
+        let target = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            receiver.node_id?,
+            receiver.text,
+            SymbolFlags::VALUE,
+        )?;
+        let owner = [target, self.binder.merged_symbol(target)].into_iter().find(|&owner| {
+            self.binder.symbols().get(owner).exports.get("__assignment").is_some_and(|&table| {
+                self.binder.symbols().get(table).declarations.contains(&declaration)
+            })
+        })?;
+        let members = self.late_bound_members_of(owner, true);
+        let name = members.iter().find(|(_, member)| *member == declaration)?.0.clone();
+        Some(
+            members
+                .into_iter()
+                .filter(|(member_name, member)| {
+                    *member_name == name && self.nodes.kind(*member) == SyntaxKind::BinaryExpression
+                })
+                .map(|(_, member)| member)
+                .collect(),
+        )
     }
 
     /// The tail of `getWidenedTypeForAssignmentDeclaration`, shared by every

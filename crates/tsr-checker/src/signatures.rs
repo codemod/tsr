@@ -7685,7 +7685,7 @@ impl<'a> Checker<'a, '_> {
         // method declares the parameter (§107's first refusal). The §102
         // composite arm keeps the assertion anchor: its per-site layouts
         // ([T,T_1] vs [T_1,T]) are the decoded evidence for it.
-        let site_anchor = signature.declaration;
+        let site_anchor = reference;
         let names_depth = self.render_type_parameter_names.allocations.len();
         let mut renamed =
             self.rename_type_parameters_for_site(signature.clone(), site_anchor, &mut throwaway);

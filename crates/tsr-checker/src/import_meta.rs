@@ -27,21 +27,55 @@ impl Checker<'_, '_> {
             .map_or(self.intrinsics.empty_object, |symbol| self.get_declared_type_of_symbol(symbol))
     }
 
-    /// The type half of `checkMetaProperty` (`checker.go:10753`) for
-    /// `import.*`: `checkImportMetaProperty` (`:10782`) answers the global
-    /// `ImportMeta` for `import.meta` and `errorType` for any other name, and
-    /// `import.defer` is `errorType` too.
-    ///
-    /// `new.target` (`checkNewTargetMetaProperty`, `:10768`) keeps this
-    /// dispatch's previous `errorType` answer; its type arm is not ported by
-    /// this lane (r5-modules §2.3).
+    /// The type half of `checkMetaProperty` (`checker.go:10753`):
+    /// `checkImportMetaProperty` (`:10782`) answers the global `ImportMeta`
+    /// for `import.meta` and `errorType` for any other name, `import.defer`
+    /// is `errorType` too, and `new.target` is
+    /// [`Checker::check_new_target_meta_property_type`].
     pub(crate) fn check_meta_property_type(&mut self, node: &tsr_ast::MetaProperty<'_>) -> TypeId {
+        if node.keyword_token.kind == SyntaxKind::NewKeyword {
+            return match node.node_id {
+                Some(id) => self.check_new_target_meta_property_type(id),
+                None => self.intrinsics.error,
+            };
+        }
         if node.keyword_token.kind != SyntaxKind::ImportKeyword {
             return self.intrinsics.error;
         }
         match node.name {
             Some(name) if name.text == "meta" => self.global_import_meta_type(),
-            _ => self.intrinsics.error,
+            _ => self.intrinsics.native_error,
+        }
+    }
+
+    /// The type half of `checkNewTargetMetaProperty` (`checker.go:10768`):
+    /// `GetNewTargetContainer` (`ast/utilities.go`) is the `this` container
+    /// when it is a constructor or a function declaration or expression. No
+    /// container is reported (TS17013, `check_new_target_meta_property`)
+    /// and answers `errorType`; a constructor answers its class symbol's
+    /// type, a function its own symbol's.
+    fn check_new_target_meta_property_type(&mut self, node: NodeId) -> TypeId {
+        let Some(container) = self.new_target_this_container(node).filter(|&container| {
+            matches!(
+                self.nodes.kind(container),
+                SyntaxKind::Constructor
+                    | SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+            )
+        }) else {
+            return self.intrinsics.native_error;
+        };
+        let declaration = if self.nodes.kind(container) == SyntaxKind::Constructor {
+            match self.nodes.parent(container) {
+                Some(class) => class,
+                None => return self.intrinsics.error,
+            }
+        } else {
+            container
+        };
+        match self.binder.symbol_of(declaration) {
+            Some(symbol) => self.get_type_of_symbol(symbol),
+            None => self.intrinsics.error,
         }
     }
 

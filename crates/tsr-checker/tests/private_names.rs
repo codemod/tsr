@@ -108,7 +108,10 @@ fn an_absent_private_name_is_a_gap() {
     // spell that `any` only in files that have an errors baseline, which is
     // the SS180 printing guard and not the type. The conformance board is
     // the evidence: the lexical rule measured +10 whole cases, 0 lost.
-    assert_eq!(type_of_private_access(absent), "error");
+    // r6-errorsplit2 §4: the answer is now upstream's own `errorType`
+    // (`native_error`, which the checker prints `any`), not the port's gap
+    // (`checker.go:11300`, confirmed by the native identity probe).
+    assert_eq!(type_of_private_access(absent), "any");
 }
 
 /// The printed type of the first element access in the fixture.

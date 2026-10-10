@@ -544,3 +544,130 @@ spells the token too. No state.
 the shorthand name's own `.types` line still reads the unresolved value symbol
 (`s : any`), so the property symbol's type is not recorded from this path.
 The member previously gapped the literal. No state.
+
+## 27. Omitted elements of a destructuring-target array literal (tsr-2zk.16.288)
+
+`checkArrayLiteral` (`checker.go:8021`) keeps the `inDestructuringPattern`
+tuple when the target has holes: an `OmittedExpression` is a Required
+`undefinedWideningType` element (`checkExpressionWorker`), or under
+`exactOptionalPropertyTypes` an Optional `undefinedOrMissingType` that makes
+each later ordinary element Optional (`addOptionalityEx`). The destructuring
+mint declined holes, so `[, nameA] = robotA` printed `(string | undefined)[]`
+for native's `[undefined, string]`; with exact optional properties native and
+TSR both print `[never?, string?]`. No state.
+
+## 28. An unannotated binding-pattern declaration contextually types its initializer (tsr-2zk.16.95)
+
+`getContextualTypeForInitializerExpression` (`checker.go:29423`) falls back,
+after `getContextualTypeForVariableLikeDeclaration` answers nil, to
+`getTypeFromBindingPattern(name, true, false)` for a non-empty binding-pattern
+name unless the caller passes `ContextFlagsSkipBindingPatterns`.
+`get_contextual_type`'s `VariableDeclaration` arm now answers
+`binding_pattern_implied_type` there (its existing declines stay declines).
+`var [b2 = 3, b3 = true] = [3, false]` keeps `false` (context `boolean`), and
+`var {e: [e1, e2, e3 = {…}]} = { e: [1, 2, {…}] }` makes the nested literal a
+tuple (tsgo control, `destructuringVariableDeclaration1ES5`).
+
+`inferTypeArguments` reads the call's contextual type with
+`SkipBindingPatterns` (`checker.go:9400`); the pattern reaches only
+`returnMapper` through `binding_pattern_return_context`.
+`get_contextual_type_of_call` therefore sets
+`Checker::contextual_skip_binding_patterns` around its read: a boolean
+query flag with no cache, owner the private Checker, restored on exit.
+
+Two declines keep the previous answer (no implied context), each for a native
+mechanism this port lacks:
+- an element initializer reading a name bound by the same pattern
+  (`const [a, b = a] = [1]`): native's `checkIdentifier` answers
+  `nonInferrableAnyType` for it while `contextualBindingPatterns` holds the
+  pattern (`checker.go:11070`); resolving the element instead cycles through
+  the initializer (TS7022, `…SiblingInitializer` cases);
+- a top-level rest element over a reference initializer
+  (`const { kind, ...r1 } = t`): native reads the rest's parent under
+  `CheckModeRestBindingElement`, uncached and skipping binding patterns in
+  `hasContextualTypeWithNoGenericTypes`, so only the other elements see the
+  constraint-substituted reference; this port checks the initializer once
+  (`genericObjectSpreadResultInSwitch`, `narrowingDestructuring`).
+
+## 29. discriminateContextualTypeByObjectMembers (tsr-2zk.16.95)
+
+`getApparentTypeOfContextualType` narrows a union contextual type of an
+object literal with `discriminateContextualTypeByObjectMembers`
+(`checker.go:30755`). `discriminate_contextual_type_by_object_members` ports
+it: discriminators are the `PropertyAssignment`s with an
+`isPossiblyDiscriminantValue` initializer and the shorthand members, each only
+when `isDiscriminantProperty(contextual, name)`, then the union's optional
+discriminant members the literal does not write (matched as `undefined`);
+`ObjectLiteralDiscriminator.matches` relates each constituent of the
+context-free source type to `getTypeOfPropertyOrIndexSignatureOfType`; the
+elimination is `discriminateTypeByDiscriminableItems` (`relater.go:1212`).
+Its answer feeds the property-of-contextual-type union map
+(`mapTypeEx(…, noReductions)`) and the object-literal `this` type, so the
+undiscriminated walk's unit/base declines (§927's guard, symbols.rs'
+`mixed_unit_and_base`) no longer stand in for it: `foo2({ type2: 'y', value:
+'done', … })` against `X2 | Y2` keeps `value: "done"` (neither `type2` nor
+`value` narrows; the member is `string | "none" | "done"`), and
+`invoke({ kind: "a", method(a) {…} })` types `a: string` (tsgo control,
+`contextualTypeShouldBeLiteral`, `contextuallyTypedByDiscriminableUnion`).
+
+Declines (the previous `discriminate_union_root` slice answers): ten or more
+object constituents (`getMatchingUnionConstituentForObjectLiteral`'s
+key-property map is unported), an unfolded template-expression discriminant
+in a syntactic const context (its context-free type is otherwise the constant
+fold's fresh literal or `string`, `getContextFreeTypeOfExpression` pushing
+`any`), and any undecidable
+discriminant test, member read or relation. No state: native memoizes per
+`(node, type)` in `discriminatedContextualTypes`; this recomputes per member
+read, members × constituents relation checks.
+
+## 30. getContextualType's ShorthandPropertyAssignment arm (tsr-2zk.16.95)
+
+`getContextualType` (`checker.go:29376`) sends a shorthand member's name (and
+its object-assignment initializer) to `getContextualTypeForObjectLiteralElement`
+like a `PropertyAssignment`'s initializer; a shorthand has no type node, so the
+answer is the literal's contextual property type. `get_contextual_type` had no
+arm, so `const kind = "a"; invoke({ kind, method(a) {…} })` widened `kind` to
+`string` where tsgo keeps `"a"` (`contextuallyTypedByDiscriminableUnion`).
+No state.
+
+## 31. A gap callee gives its arguments no context (tsr-2zk.31)
+
+`contextual_type_for_argument`'s resolving road answered `any` for a callee
+typed `Intrinsics::error`, as if it were upstream's `errorType`
+(`resolveErrorCall`, `checker.go:9902`). `error` is this port's gap marker
+(ADR-0048); native's `errorType` is `Intrinsics::native_error`, which (with
+untyped callees) keeps the `any` answer. A gap callee now answers `None`
+(unknown context): `import.defer("./a.js").then(ns => …)`, whose
+`import.defer` call this port does not type, no longer hands `ns` a
+fabricated `any` context (native types `then` from `Promise`). No state.
+
+## 32. TS7006 reads getContextualSignature's nil (tsr-2zk.16.95)
+
+`getContextuallyTypedParameterType` (`checker.go:29458`) answers nil, and
+`widenTypeForVariableLikeDeclaration` reports TS7006, when
+`getContextualSignature` is nil (no signature, `isAritySmaller` filtering, a
+union whose signatures differ) or the signature is too short.
+`contextual_parameter_type_is_absent` (implicit_any.rs) now reads
+`contextual_signature_result` directly: `Absent` reports, a present signature
+reports past its last parameter. It no longer asks
+`get_contextually_typed_parameter_type` first, whose read of the function's
+own checked signature answered `any` for exactly the implicit-any parameter
+(`<{ (): number }> function (a) {…}`, `contextualTyping38`).
+
+`implicit-any-widening.md` §3 distrusted `Absent` because it lost twelve RIGHT
+cases; §29 (discrimination), §31 (gap callees) and the context-free template
+discriminant remove all but one shape: inside an argument of a call whose
+callee has a generic signature, the contextual type passes through
+`instantiateContextualType`'s inference mapper, which this port applies in
+part (`contextualSignatureConditionalTypeInstantiationUsingDefault` keeps both
+conditional branches). `within_generic_call_argument` declines there (syntax
+up to the first enclosing call, plus the callee's signatures). No state.
+
+## 33. An array-literal hole is the widening undefined (tsr-2zk.16.288)
+
+`checkExpressionWorker` answers `undefinedWideningType` for an
+`OmittedExpression` (`checker.go:7815`). `check_array_literal_value` pushed
+the plain `undefined`, which prints alike but survives `getWidenedType`:
+without strictNullChecks `var a6 = [, , ]` declared `undefined[]` where tsgo
+declares `any[]` (`trailingCommasES5`); the literal's own row stays
+`undefined[]`. Both value-path arms now push `undefined_widening`. No state.

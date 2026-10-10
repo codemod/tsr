@@ -1,0 +1,132 @@
+diff --git a/crates/tsr-checker/src/assignment_declarations.rs b/crates/tsr-checker/src/assignment_declarations.rs
+index d1f45af..6e7e162 100644
+--- a/crates/tsr-checker/src/assignment_declarations.rs
++++ b/crates/tsr-checker/src/assignment_declarations.rs
+@@ -387,7 +387,9 @@ impl<'a> Checker<'a, '_> {
+         if let Some(resolved) = resolved {
+             return self.finish_assignment_declaration_type(symbol, resolved);
+         }
+-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
++        let declarations = self
++            .late_bound_assignment_declarations(symbol)
++            .unwrap_or_else(|| self.binder.symbols().get(symbol).declarations.to_vec());
+         let mut types = Vec::new();
+         for (index, &declaration) in declarations.iter().enumerate() {
+             let Some(node) = self.node_map.get(declaration) else { continue };
+@@ -487,6 +489,61 @@ impl<'a> Checker<'a, '_> {
+         self.finish_assignment_declaration_type(symbol, t)
+     }
+ 
++    /// `lateBindMember` (`checker.go:16005`) gathers every late-bound
++    /// assignment declaration with one late name into one symbol, and
++    /// `getWidenedTypeForAssignmentDeclaration` reads all of them. The binder
++    /// gives each `foo[k] = v` its own `__computed` symbol and files the
++    /// assignment in the target's `__assignment` table; this answers, for
++    /// such a symbol, every declaration of that table that late-binds to the
++    /// same name, in declaration order. `None` for any other symbol, or when
++    /// the receiver is not an identifier naming the table's owner.
++    ///
++    /// Checker port boundary: no new cache. The names are
++    /// [`Checker::late_bound_members_of`]'s `(owner, static)` entry; the key
++    /// is the owner symbol, resolved from the receiver identifier as the
++    /// binder resolved it; the work is one name resolution and a scan of the
++    /// owner's late list, paid once per symbol (the type is cached by
++    /// `get_type_of_symbol`).
++    fn late_bound_assignment_declarations(&mut self, symbol: SymbolId) -> Option<Vec<NodeId>> {
++        let record = self.binder.symbols().get(symbol);
++        if record.name != "__computed" {
++            return None;
++        }
++        let declaration = record.value_declaration?;
++        let Some(Node::BinaryExpression(binary)) = self.node_map.get(declaration) else {
++            return None;
++        };
++        let Some(Expression::ElementAccessExpression(access)) = binary.left else {
++            return None;
++        };
++        let Some(Expression::Identifier(receiver)) = access.expression else {
++            return None;
++        };
++        let target = self.binder.resolve_name(
++            self.nodes,
++            self.node_map,
++            receiver.node_id?,
++            receiver.text,
++            SymbolFlags::VALUE,
++        )?;
++        let owner = [target, self.binder.merged_symbol(target)].into_iter().find(|&owner| {
++            self.binder.symbols().get(owner).exports.get("__assignment").is_some_and(|&table| {
++                self.binder.symbols().get(table).declarations.contains(&declaration)
++            })
++        })?;
++        let members = self.late_bound_members_of(owner, true);
++        let name = members.iter().find(|(_, member)| *member == declaration)?.0.clone();
++        Some(
++            members
++                .into_iter()
++                .filter(|(member_name, member)| {
++                    *member_name == name && self.nodes.kind(*member) == SyntaxKind::BinaryExpression
++                })
++                .map(|(_, member)| member)
++                .collect(),
++        )
++    }
++
+     /// The tail of `getWidenedTypeForAssignmentDeclaration`, shared by every
+     /// exit that upstream routes through it.
+     fn finish_assignment_declaration_type(&mut self, symbol: SymbolId, t: TypeId) -> TypeId {
+diff --git a/crates/tsr-checker/tests/late_bound_assignment_union.rs b/crates/tsr-checker/tests/late_bound_assignment_union.rs
+new file mode 100644
+index 0000000..2e3473f
+--- /dev/null
++++ b/crates/tsr-checker/tests/late_bound_assignment_union.rs
+@@ -0,0 +1,49 @@
++//! `lateBindMember` (`checker.go:16005`) gathers every late-bound assignment
++//! with one late name into one symbol, typed over all of its declarations by
++//! `getWidenedTypeForAssignmentDeclaration`
++//! (`docs/parity/notes/r6-errorsplit2.md` §12).
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++/// The printed type of the file's last element access expression. The reads
++/// sit in a function, where no assignment's flow narrows them.
++fn last_element_access(source: &str) -> String {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
++    let bound = tsr_binder::bind(
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    #[allow(clippy::cast_possible_truncation)]
++    let id = (0..parsed.nodes.len() as u32)
++        .map(tsr_ast::NodeId::new)
++        .filter(|&id| parsed.nodes.kind(id) == tsr_ast::SyntaxKind::ElementAccessExpression)
++        .last()
++        .expect("an element access");
++    let node = parsed.node_map.get(id).expect("a mapped node");
++    let expression = tsr_ast::Expression::try_from(node).expect("an expression");
++    let type_id = checker.check_expression(expression);
++    checker.type_to_string(type_id)
++}
++
++#[test]
++fn two_late_assignments_to_one_name_union_their_types() {
++    let source = "function foo() {}\n\
++                  const k = \"x\";\n\
++                  foo[k] = 1;\n\
++                  foo[k] = \"s\";\n\
++                  function read() { return foo[k]; }";
++    let answer = last_element_access(source);
++    assert!(answer == "string | number" || answer == "number | string", "{answer}");
++}
++
++#[test]
++fn one_late_assignment_keeps_its_type() {
++    let source =
++        "function foo() {}\nconst k = \"x\";\nfoo[k] = 1;\nfunction read() { return foo[k]; }";
++    assert_eq!(last_element_access(source), "number");
++}

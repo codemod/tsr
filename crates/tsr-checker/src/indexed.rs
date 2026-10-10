@@ -829,6 +829,87 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// Whether a failed property-access lookup at `access` over `receiver`
+    /// is upstream's `errorType` (`checker.go:11353-11369`) rather than a gap
+    /// in the port's view of the receiver. The property road's twin of
+    /// [`Checker::element_access_receiver_is_complete`], with two more
+    /// exclusions the native identity probe found false claims under
+    /// (`docs/parity/notes/r6-errorsplit2.md` §3):
+    ///
+    /// - a receiver that is a flow reference (`isMatchingReference`'s source
+    ///   kinds, `flow.go:1606`): its type is the port's narrowing at the
+    ///   access, and where that narrowing falls short of upstream's
+    ///   (`instanceof`, `in`, aliased conditions, truthiness) upstream's
+    ///   receiver has the member and the port's does not (40 false claims);
+    /// - a primitive receiver that `getApparentType` maps to a global
+    ///   interface (`String`, `Number`, `BigInt`, `Boolean`, `Symbol`): the
+    ///   caller passes the apparent type, and such a primitive is still
+    ///   itself only when its global interface is missing
+    ///   (`Checker::apparent_type`), the port's gap rather than upstream's
+    ///   empty global (`tests/members_apparent_type.rs`);
+    /// - a union or intersection with a mapped constituent: the port's
+    ///   mapped member image is short (`Pick<T, …> & Partial<Omit<T, …>>`,
+    ///   `complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound`). The
+    ///   element road keeps such receivers: its probed lines there are
+    ///   `errorType` (`narrowingMutualSubtypes`' `Record<string, any>`).
+    pub(crate) fn property_access_receiver_is_complete(
+        &mut self,
+        access: tsr_ast::NodeId,
+        receiver: TypeId,
+        key: TypeId,
+    ) -> bool {
+        if self.access_receiver_is_flow_reference(access)
+            || self.store.get(receiver).flags.intersects(
+                crate::flags::TypeFlags::STRING_LIKE
+                    | crate::flags::TypeFlags::NUMBER_LIKE
+                    | crate::flags::TypeFlags::BIG_INT_LIKE
+                    | crate::flags::TypeFlags::BOOLEAN_LIKE
+                    | crate::flags::TypeFlags::ES_SYMBOL_LIKE,
+            )
+        {
+            return false;
+        }
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
+            &self.store.get(receiver).data
+            && types.iter().any(|member| self.mapped_types.contains_key(member))
+        {
+            return false;
+        }
+        self.element_access_receiver_is_complete(receiver, key)
+    }
+
+    /// Whether the receiver of the access at `access` is a flow reference:
+    /// `isMatchingReference`'s source kinds (`flow.go:1606-1621`), through
+    /// its parenthesized, non-null and `satisfies` wrappers. A qualified
+    /// name's left is an entity name, also a reference.
+    fn access_receiver_is_flow_reference(&self, access: tsr_ast::NodeId) -> bool {
+        let mut receiver = match self.node_map.get(access) {
+            Some(tsr_ast::Node::PropertyAccessExpression(node)) => node.expression,
+            Some(tsr_ast::Node::ElementAccessExpression(node)) => node.expression,
+            _ => return true,
+        };
+        while let Some(expression) = receiver {
+            match expression {
+                tsr_ast::Expression::ParenthesizedExpression(node) => receiver = node.expression,
+                tsr_ast::Expression::NonNullExpression(node) => receiver = node.expression,
+                tsr_ast::Expression::SatisfiesExpression(node) => receiver = node.expression,
+                tsr_ast::Expression::Identifier(_)
+                | tsr_ast::Expression::PrivateIdentifier(_)
+                | tsr_ast::Expression::MetaProperty(_)
+                | tsr_ast::Expression::PropertyAccessExpression(_)
+                | tsr_ast::Expression::ElementAccessExpression(_) => return true,
+                tsr_ast::Expression::KeywordExpression(keyword) => {
+                    return matches!(
+                        keyword.kind,
+                        tsr_ast::SyntaxKind::ThisKeyword | tsr_ast::SyntaxKind::SuperKeyword
+                    );
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+
     /// `getPropertyNameFromType`'s third arm (`utilities.go`): a `unique
     /// symbol` index names the member whose late-bound key is that same
     /// symbol, whatever expression spells the index (`o[N["s"]]` reads the

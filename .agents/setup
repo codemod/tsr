@@ -117,8 +117,10 @@ install_bd() {
   export PATH="$HOME/.local/bin:$PATH"
   chmod 700 .beads  # bd warns on group/world-readable .beads
   # Creates the embedded Dolt database from the tracked JSONL on a fresh clone;
-  # validates and leaves an existing database alone.
-  bd bootstrap --yes --quiet
+  # validates and leaves an existing database alone. Lane boxes do not use bd,
+  # and the ~3 minute import is where Box exec connections dropped (tsr-2zk.50),
+  # so it runs detached; its log is /tmp/bd-bootstrap.log.
+  (nohup bd bootstrap --yes --quiet >/tmp/bd-bootstrap.log 2>&1 &)
 }
 
 build_tsgo() {

@@ -1646,3 +1646,76 @@ moduleResolutionWithSymlinks is not a symlink case. r6-smallcodes5 §4's
 routing of it was wrong: an export-specifier alias's declared type reads
 `any`. The remainder is in `tsr-2zk.1149`. The root trackers .16.59 and
 .16.77 are reopened unassigned.
+
+### r6-errorsplit2 finished (batch BT); r6-errorsplit3 dispatched
+
+Batch BT lands r6-errorsplit2's eight diffs, in this order (N, P, Q, W, M, C,
+A, B):
+- getTypeOfNode's fall-through (checker.go:32035) and its in-with-statement
+  exit (:31932);
+- the complete-receiver property-access miss (:11353-11369);
+- a private name that no class declares;
+- checkMetaProperty's type half;
+- getContextualTypeForAssignmentExpression's `F[xxx] = expr` arm;
+- lateBindMember's merged declarations;
+- the binder's JS `this[k] = v` arm.
+
+Measured by the box against `b9ede2e`, with zero losses on both dumps:
+- 555 lines go to errorType, every one errorType natively;
+- +11 types and +1 diagnostics case;
+- the credited gap goes from 2,131 to 1,602.
+
+Diff C shifts domain-model Ir by +0.045% from codegen layout; its path runs 0
+times there (notes §11).
+
+The box refused the reference-receiver property miss: +391 to +430 lines
+against 40 to 46 false claims. Its causes are the narrowing and augmentation
+ports. The remainder is in `tsr-2zk.1150`.
+
+### r6-typesroots2 finished (batch BU); r6-typesroots3 dispatched
+
+Batch BU lands r6-typesroots2's new files and three diffs:
+- import-type value meaning (checker.go:24575);
+- the shadowed type-parameter rename: enterNewScope's render scope, the
+  binder's ComputedPropertyName arm, and native's collision condition;
+- the mapped contextual property read through getTypeOfMappedSymbol. This one
+  is a correctness prerequisite; it is byte-identical on both dumps.
+
+Measured by the box against `e6eadf4`: +67 types and +2 diagnostics cases,
+0 lost. Ir is ×1.0007 on domain-model and ×1.0001 on generic-imports.
+
+The conditional-node consumers diff (+35 types) is held. It loses
+complicatedIndexesOfIntersectionsAreInferencable until reverse-mapped
+intersection inference lands (`inference.rs`, MAIN).
+
+Closed: .16.7, .16.79, .16.73 and .16.65 (their roots). .16.6 and .16.76 are
+reopened unassigned, waiting on `tsr-2zk.39`'s naming. r6-typesroots3 takes
+.16.69, .16.74 and `tsr-2zk.1151`.
+
+### main merged into round 6 (batch BV)
+
+Batch BV merges the 23 commits main gained since `17265fac`:
+- property reads through extends expressions and `this` receivers (.16.88, .4);
+- contextual-type arms (.16.95, .16.288, .31);
+- the shared-contract alias carriers (.16.56, .16.57, .47.5);
+- parser recovery spans (.2);
+- the box setup's detached bd bootstrap (.50).
+
+The gate measures the merge against the batch-BU tip, like any box batch.
+
+### Batch BV: main merge, plus the IsImportCall fix the gate required
+
+BV's first gate lost 6 diagnostics cases, all variants of dynamicImportDefer.
+Each one gained a TS7006 on the `ns =>` callback of
+`import.defer("./a.js").then(...)`. Main's eebc8123 now reports TS7006 when
+getContextualSignature is nil.
+
+That exposed a pre-existing gap. The port typed only `import(…)` through
+checkImportCallExpression; native's `ast.IsImportCall` also admits the
+`import.defer(…)` MetaProperty callee. The port instead checked
+`import.defer` as an errorType meta property, so the `then` callback had no
+contextual signature.
+
+calls.rs now admits both forms, as IsImportCall does. That is the
+integrator's fix for a merge interaction: it ports the native predicate
+and suppresses nothing.

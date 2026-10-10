@@ -240,17 +240,29 @@ impl Checker<'_, '_> {
         // `Base` and `any` (its errorType) inside `Derived`
         // (`privateNameFieldDerivedClasses`).
         let mut lexical_private_class = None;
+        let mut private_without_lexical_symbol = None;
         if let tsr_ast::MemberName::PrivateIdentifier(_) = member
             && let Some(access_id) = node.node_id
         {
             lexical_private_class = self.lexical_private_declaring_class(access_id, name);
             if lexical_private_class.is_none() {
-                return error;
+                private_without_lexical_symbol = Some(access_id);
             }
         }
         let receiver_type = self.check_expression(receiver);
         if receiver_type == error {
             return error;
+        }
+        // `checkPropertyAccessExpressionOrQualifiedName`'s private-name arm
+        // with no lexically scoped symbol (`checker.go:11284-11310`): an
+        // any-like receiver outside every class body answers `anyType`;
+        // anything else finds no property and answers `errorType`, the
+        // shadowing report and the JS-literal and `globalThis` exits aside
+        // (`docs/parity/notes/r6-errorsplit2.md` §4).
+        if let Some(access) = private_without_lexical_symbol
+            && receiver_type == self.intrinsics.native_error
+        {
+            return self.private_name_without_lexical_symbol(access, receiver_type, name);
         }
         // ADR-0048: an any-like receiver that is upstream's `errorType`
         // answers `errorType` (`checker.go:11314-11320`, `isAnyLike` then
@@ -316,6 +328,9 @@ impl Checker<'_, '_> {
         });
         if widen_receiver {
             stripped = self.widen_object_literal_freshness(stripped);
+        }
+        if let Some(access) = private_without_lexical_symbol {
+            return self.private_name_without_lexical_symbol(access, stripped, name);
         }
         // §471 the shadow half of upstream's mangled-name lookup: the
         // property the receiver's type serves under this spelling must be
@@ -725,6 +740,49 @@ impl Checker<'_, '_> {
         self.access_member_lookup(stripped, right.text, node.node_id)
     }
 
+    /// The private-name arm of `checkPropertyAccessExpressionOrQualifiedName`
+    /// when `lookupSymbolForPrivateIdentifierDeclaration` finds nothing
+    /// (`checker.go:11284-11310`, then the `prop == nil` exits at
+    /// `:11327-11353`). `stripped` is the receiver's non-null, widened type.
+    fn private_name_without_lexical_symbol(
+        &mut self,
+        access: tsr_ast::NodeId,
+        stripped: TypeId,
+        name: &str,
+    ) -> TypeId {
+        let apparent = self.apparent_type(stripped);
+        if self.is_type_any(apparent)
+            && self.containing_class_excluding_class_decorators(access).is_none()
+        {
+            // Reported as TS18016, `Private identifiers are not allowed
+            // outside class bodies`.
+            return self.intrinsics.any;
+        }
+        // `checkPrivateIdentifierPropertyAccess` (`:11494`): a property with
+        // the same private spelling on the type is reported (not accessible,
+        // or shadowed) and answers `errorType`.
+        if let Some(property) = self.get_property_of_type(stripped, name)
+            && self
+                .binder
+                .symbols()
+                .get(property)
+                .value_declaration
+                .is_some_and(|declaration| self.declaration_names_a_private(declaration))
+        {
+            return self.intrinsics.native_error;
+        }
+        // `leftType.symbol == globalThisSymbol` answers `anyType` (`:11336`).
+        if Some(apparent) == self.global_this_type {
+            return self.intrinsics.any;
+        }
+        // A JS file keeps the gap: its `isUncheckedJSSuggestion` and
+        // `isJSLiteralType` exits are not consulted on this road.
+        if self.in_js_file(access) {
+            return self.intrinsics.error;
+        }
+        self.intrinsics.native_error
+    }
+
     /// The shared tail of `checkPropertyAccessExpressionOrQualifiedName`
     /// (`checker.go:11244`): apparent type, the `any` fast path, the member
     /// lookup, and flow narrowing keyed on the access node itself.
@@ -881,6 +939,16 @@ impl Checker<'_, '_> {
                 // JS positions excluded — unchecked-JS misses answer
                 // differently upstream (spellingUncheckedJS's 7 R→W).
                 self.intrinsics.any
+            } else if let Some(access) = node_id
+                && !self.in_js_file(access)
+                && self.property_access_receiver_is_complete(access, receiver_type, key)
+            {
+                // `checkPropertyAccessExpressionOrQualifiedName`'s `prop ==
+                // nil` exit (`checker.go:11353-11369`): the miss is reported
+                // and answers `errorType`. ADR-0048: only where the receiver
+                // is complete, which the native identity probe confirmed on
+                // every moved line (`docs/parity/notes/r6-errorsplit2.md` §3).
+                self.intrinsics.native_error
             } else {
                 error
             }
@@ -1696,6 +1764,9 @@ impl Checker<'_, '_> {
         if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
             return Some(member);
         }
+        if let Some(member) = self.expression_heritage_member(id, name, this_argument) {
+            return Some(member);
+        }
         // §770: a TUPLE's non-numeric members come from `Array<T>`.
         //
         // Upstream's tuple is a REFERENCE to a target synthesised by
@@ -1825,6 +1896,52 @@ impl Checker<'_, '_> {
         (property.postfix_token.is_none()
             && matches!(property.r#type, Some(tsr_ast::TypeNode::KeywordTypeNode(keyword)) if keyword.kind == tsr_ast::SyntaxKind::NumberKeyword))
         .then_some(body)
+    }
+
+    /// `resolveObjectTypeMembers`' base merge (pinned 5b1047d,
+    /// `checker.go:19127`) for a class whose `extends` expression names no
+    /// class or interface symbol (`extends class { a = 1 }`, `extends
+    /// (await import("./0")).B`, `extends mixin(B)`): the members of
+    /// `getTypeWithThisArgument(base, thisArgument)` for each base of
+    /// `getBaseTypes` (`base_types.rs`, which types the expression through
+    /// `getBaseConstructorTypeOfClass`). The symbol walk
+    /// (`base_symbols_of_ex`) gaps on such an entry, so the type answer was
+    /// `errorType`. Only the class's own declared type is read this way: a
+    /// generic class's reference would need the base instantiated with its
+    /// arguments, which this arm does not do. No cache: `getBaseTypes` is
+    /// published in `base_type_links`; one member read per base after the
+    /// own and symbol roads miss.
+    fn expression_heritage_member(
+        &mut self,
+        id: TypeId,
+        name: &str,
+        this_argument: TypeId,
+    ) -> Option<TypeId> {
+        for base in self.expression_heritage_bases(id) {
+            if let Some(member) =
+                self.get_type_of_property_with_this_argument(base, name, this_argument, false)
+            {
+                return Some(member);
+            }
+        }
+        None
+    }
+
+    /// `getBaseTypes` of `id`'s class when [`Self::expression_heritage_member`]
+    /// applies: `id` is a non-generic class's own declared type whose symbol
+    /// walk gaps on an `extends` expression. Empty otherwise.
+    pub(crate) fn expression_heritage_bases(&mut self, id: TypeId) -> Vec<TypeId> {
+        let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+            return Vec::new();
+        };
+        if !self.binder.symbols().get(owner).flags.contains(SymbolFlags::CLASS)
+            || self.type_reference_targets.contains_key(&id)
+            || !self.local_type_parameters_of(owner).is_empty()
+            || self.base_symbols_of_ex(owner, false).is_some()
+        {
+            return Vec::new();
+        }
+        self.get_base_types(owner)
     }
 
     /// Resolve inherited members through each instantiated base, guarded by
@@ -2165,6 +2282,7 @@ impl Checker<'_, '_> {
         let Some(symbol) = self.reference_target_symbol(receiver) else {
             return declared;
         };
+        self.ensure_generic_reference_this_type(symbol, receiver);
         let binder = self.binder;
         let Some(frames) = self.memo_frames(&binder.symbols().get(symbol).declarations, None)
         else {
@@ -2242,6 +2360,61 @@ impl Checker<'_, '_> {
             return Some(symbol);
         }
         None
+    }
+
+    /// `getDeclaredTypeOfClassOrInterface` (pinned 5b1047d, `checker.go`)
+    /// gives a class or interface with local type parameters its `thisType`
+    /// when the declared type is created, and `resolveTypeReferenceMembers`
+    /// pads every reference's arguments with the reference itself, so a
+    /// member read through `getTypeWithThisArgument` is instantiated per
+    /// this argument whether or not any `this` node was resolved before
+    /// (`sliceResultCast`: `x.slice` on `[number, string] | [number, string,
+    /// string]` is two signature instantiations, one per tuple receiver).
+    /// This port mints `this` lazily on the first `this` node, so the read
+    /// depended on check order. Mint it here for a generic reference target
+    /// that has none: a class into `this_types` (`class_instance_this_type`),
+    /// an interface into `this_type_nodes` for each of its interface
+    /// declarations not yet minted, so a later `this` node of any of them
+    /// resolves to the one per-symbol identity native has. A declaration
+    /// minted earlier keeps its own (`members.rs` §166, the split mint).
+    /// Owner: those existing tables; no new cache. Work: one lookup per
+    /// generic reference read, one store push per symbol. The non-generic
+    /// arms (`kind == Class`, `!isThislessInterface`) are not minted here.
+    fn ensure_generic_reference_this_type(&mut self, symbol: SymbolId, receiver: TypeId) {
+        if self.polymorphic_this_of(symbol).is_some()
+            || self
+                .type_reference_targets
+                .get(&receiver)
+                .is_none_or(|(_, arguments)| arguments.is_empty())
+        {
+            return;
+        }
+        let symbols = self.binder.symbols();
+        let entry = symbols.get(symbol);
+        if entry.flags.contains(SymbolFlags::CLASS) {
+            self.class_instance_this_type(symbol);
+            return;
+        }
+        if !entry.flags.contains(SymbolFlags::INTERFACE) {
+            return;
+        }
+        let declarations: Vec<tsr_ast::NodeId> = entry
+            .declarations
+            .iter()
+            .copied()
+            .filter(|&declaration| {
+                self.nodes.kind(declaration) == tsr_ast::SyntaxKind::InterfaceDeclaration
+            })
+            .collect();
+        let Some(&first) = declarations.first() else { return };
+        let minted = self.store.new_named(
+            TypeFlags::TYPE_PARAMETER,
+            "this".to_string(),
+            self.binder.symbol_of(first),
+        );
+        for declaration in declarations {
+            self.this_type_nodes.entry(declaration).or_insert(minted);
+        }
     }
 
     /// The target's polymorphic `this` type if one has been minted yet; it is
