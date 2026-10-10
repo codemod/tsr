@@ -1,0 +1,87 @@
+diff --git a/crates/tsr-checker/src/inference.rs b/crates/tsr-checker/src/inference.rs
+index f3d5bb76..63774c82 100644
+--- a/crates/tsr-checker/src/inference.rs
++++ b/crates/tsr-checker/src/inference.rs
+@@ -1764,7 +1764,7 @@ impl<'a> Checker<'a, '_> {
+             return None;
+         }
+         let id = argument.node_id()?;
+-        (!self.literal_subtree_resolves(id)).then_some(id)
++        (!self.literal_subtree_holds_function(id)).then_some(id)
+     }
+ 
+     /// Forget the expression answers under a literal argument that holds no
+@@ -1777,9 +1777,23 @@ impl<'a> Checker<'a, '_> {
+     /// previous check — the reverse-mapped inference of `Readonly<Options>`
+     /// from this very literal — still reads the previous symbols' types
+     /// instead of re-entering the member being re-checked (TS7022).
++    ///
++    /// The walk stops at a call, `new` or tagged template: native re-checks
++    /// the literal per candidate, but `getResolvedSignature` returns the
++    /// nested call's cached `links.resolvedSignature`, so its answer is reused
++    /// (`Promise.all([fa(), fb()])` keeps its tuple context).
+     fn evict_literal_subtree(&mut self, root: NodeId) {
++        use tsr_ast::SyntaxKind as K;
+         let mut stack = vec![root];
+         while let Some(id) = stack.pop() {
++            if id != root
++                && matches!(
++                    self.nodes.kind(id),
++                    K::CallExpression | K::NewExpression | K::TaggedTemplateExpression
++                )
++            {
++                continue;
++            }
+             self.node_types.remove(&id);
+             if let Some(node) = self.node_map.get(id) {
+                 tsr_ast::for_each_child_id(node, |child| stack.push(child));
+@@ -1787,26 +1801,32 @@ impl<'a> Checker<'a, '_> {
+         }
+     }
+ 
+-    /// Whether a literal argument's subtree holds a node whose check resolves
+-    /// and caches a signature or a function's own type upstream (the work
+-    /// boundary of [`Checker::recheck_literal_arguments_in_resolved_signature`]).
+-    fn literal_subtree_resolves(&self, root: NodeId) -> bool {
++    /// Whether a literal argument's subtree holds a function, method, accessor
++    /// or class (the work boundary of
++    /// [`Checker::recheck_literal_arguments_in_resolved_signature`]). Native
++    /// keeps a function's type on its symbol from the first check; this port
++    /// re-derives a re-checked member's function type, and its return
++    /// widening then follows the new context
++    /// (`reverseMappedContravariantInference`'s `(v: string) => false` read
++    /// `boolean`), so such a literal is not re-checked. Nested calls are not
++    /// below the boundary: [`Checker::evict_literal_subtree`] reuses them.
++    fn literal_subtree_holds_function(&self, root: NodeId) -> bool {
+         use tsr_ast::SyntaxKind as K;
+         let mut stack = vec![root];
+         while let Some(id) = stack.pop() {
+-            if matches!(
+-                self.nodes.kind(id),
+-                K::CallExpression
+-                    | K::NewExpression
+-                    | K::TaggedTemplateExpression
+-                    | K::FunctionExpression
+-                    | K::ArrowFunction
+-                    | K::ClassExpression
+-                    | K::MethodDeclaration
+-                    | K::GetAccessor
+-                    | K::SetAccessor
+-            ) {
+-                return true;
++            match self.nodes.kind(id) {
++                K::FunctionExpression
++                | K::ArrowFunction
++                | K::ClassExpression
++                | K::MethodDeclaration
++                | K::GetAccessor
++                | K::SetAccessor => return true,
++                K::CallExpression | K::NewExpression | K::TaggedTemplateExpression
++                    if id != root =>
++                {
++                    continue;
++                }
++                _ => {}
+             }
+             if let Some(node) = self.node_map.get(id) {
+                 tsr_ast::for_each_child_id(node, |child| stack.push(child));
