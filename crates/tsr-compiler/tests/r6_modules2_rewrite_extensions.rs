@@ -1,6 +1,10 @@
 //! r6-modules2's rewrite-extensions diff (`docs/parity/notes/r6-modules2.md`
 //! §7): `resolveExternalModule`'s `rewriteRelativeImportExtensions` arm
 //! (TS2876, TS2877), over a real program so specifiers resolve.
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_checker::check::FileContext;
 use tsr_compiler::{LoadOptions, Program};

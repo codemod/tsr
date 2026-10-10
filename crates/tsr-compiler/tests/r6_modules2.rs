@@ -1,5 +1,9 @@
 //! r6-modules2's ports over a real program, so imports resolve.
 //! `docs/parity/notes/r6-modules2.md`.
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_checker::check::FileContext;
 use tsr_compiler::{LoadOptions, Program};

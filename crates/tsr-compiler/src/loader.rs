@@ -2136,6 +2136,19 @@ fn library_name_from_lib_file_name(lib_file_name: &str) -> String {
     path
 }
 
+/// [`ResolutionRequest::extension`]: one of `tspath`'s extension constants
+/// as a `'static` string, else an owned copy.
+fn static_extension(extension: &str) -> std::borrow::Cow<'static, str> {
+    const KNOWN: [&str; 13] = [
+        "", ".ts", ".tsx", ".d.ts", ".js", ".jsx", ".json", ".mts", ".mjs", ".d.mts", ".cts",
+        ".cjs", ".d.cts",
+    ];
+    match KNOWN.iter().find(|known| **known == extension) {
+        Some(known) => std::borrow::Cow::Borrowed(known),
+        None => std::borrow::Cow::Owned(extension.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use tsr_core::{ModuleKind, ModuleResolutionKind, ScriptTarget, Tristate};
@@ -2687,18 +2700,5 @@ mod tests {
             [ResolutionMode::CommonJS],
             "a lib file resolves as CommonJS however its package.json reads"
         );
-    }
-}
-
-/// [`ResolutionRequest::extension`]: one of `tspath`'s extension constants
-/// as a `'static` string, else an owned copy.
-fn static_extension(extension: &str) -> std::borrow::Cow<'static, str> {
-    const KNOWN: [&str; 13] = [
-        "", ".ts", ".tsx", ".d.ts", ".js", ".jsx", ".json", ".mts", ".mjs", ".d.mts", ".cts",
-        ".cjs", ".d.cts",
-    ];
-    match KNOWN.iter().find(|known| **known == extension) {
-        Some(known) => std::borrow::Cow::Borrowed(known),
-        None => std::borrow::Cow::Owned(extension.to_string()),
     }
 }

@@ -34,7 +34,7 @@ fn codes(source: &str, has_parse_errors: bool) -> Vec<String> {
     let mut codes: Vec<String> = checker
         .diagnostics()
         .iter()
-        .map(|(_, d)| d.code().to_string())
+        .map(|(_, d)| d.code().clone())
         .filter(|code| matches!(code.as_str(), "TS2532" | "TS18048" | "TS18050"))
         .collect();
     codes.sort();

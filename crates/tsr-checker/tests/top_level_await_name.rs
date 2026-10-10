@@ -34,7 +34,7 @@ fn lines(source: &str) -> Vec<u32> {
     let mut lines: Vec<u32> = checker
         .diagnostics()
         .iter()
-        .filter(|(_, d)| d.code().to_string() == "TS1262")
+        .filter(|(_, d)| d.code().clone() == "TS1262")
         .map(|(_, d)| u32::try_from(source[..d.span.start as usize].lines().count()).unwrap())
         .collect();
     lines.sort_unstable();

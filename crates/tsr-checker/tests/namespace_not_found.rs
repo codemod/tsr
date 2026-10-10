@@ -35,7 +35,7 @@ fn reports(source: &str) -> Vec<String> {
     let mut reports: Vec<String> = checker
         .diagnostics()
         .iter()
-        .filter(|(_, d)| matches!(d.code().to_string().as_str(), "TS2503" | "TS2833"))
+        .filter(|(_, d)| matches!(d.code().clone().as_str(), "TS2503" | "TS2833"))
         .map(|(_, d)| format!("{}: {}", d.code(), d.text()))
         .collect();
     reports.sort();

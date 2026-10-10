@@ -85,7 +85,7 @@ fn marked(source: &str) -> Vec<usize> {
 
 #[test]
 fn generic_mapped_targets_end_false_after_their_arms() {
-    let source = r#"type Denullified<T> = { [P in keyof T]-?: NonNullable<T[P]> };
+    let source = r"type Denullified<T> = { [P in keyof T]-?: NonNullable<T[P]> };
 type NonNullable<T> = T & {};
 function f1<T>(x: Required<T>, y: T, z: Partial<T>, w: Denullified<T>) {
     x = y; // error
@@ -98,25 +98,25 @@ function f1<T>(x: Required<T>, y: T, z: Partial<T>, w: Denullified<T>) {
     x = {}; // error
     z = {};
 }
-"#;
+";
     assert_eq!(ts2322_lines(source), marked(source));
 }
 
 #[test]
 fn generic_mapped_sources_meet_string_indexes_through_their_template() {
-    let source = r#"type N2<T> = { [K in keyof T]: number };
+    let source = r"type N2<T> = { [K in keyof T]: number };
 function f<T, K extends string>(x: { [key: string]: T }, y: Record<K, T>, m: N2<T>) {
     x = y;
     const d: { [name: string]: number } = m;
     y = x; // error
 }
-"#;
+";
     assert_eq!(ts2322_lines(source), marked(source));
 }
 
 #[test]
 fn decidable_pairs_no_longer_fall_off_the_worker() {
-    let source = r#"function f3<T, U extends T>(x: T, y: U, k: keyof T) {
+    let source = r"function f3<T, U extends T>(x: T, y: U, k: keyof T) {
     x[k] = y[k];
     y[k] = x[k]; // error
 }
@@ -127,7 +127,7 @@ function f5<T, U>(k: keyof T | keyof U, j: keyof T & keyof U) {
     k = j;
     j = k; // error
 }
-"#;
+";
     assert_eq!(ts2322_lines(source), marked(source));
 }
 
@@ -136,7 +136,7 @@ function f5<T, U>(k: keyof T | keyof U, j: keyof T & keyof U) {
 /// `T[K] | undefined` and `Readonly<U>[K]` as `U[K]`.
 #[test]
 fn indexed_access_of_a_generic_mapped_type_is_substituted() {
-    let source = r#"function f10<T>(x: T, y: Partial<T>, k: keyof T) {
+    let source = r"function f10<T>(x: T, y: Partial<T>, k: keyof T) {
     x[k] = y[k]; // error
     y[k] = x[k];
 }
@@ -151,6 +151,6 @@ function f20<T, U extends T, K extends keyof T>(x: T, y: Readonly<U>, k: K) {
 function f30<T, K extends keyof T>(y: Required<Partial<T>>, k: K) {
     const v: T[K] = y[k]; // error
 }
-"#;
+";
     assert_eq!(ts2322_lines(source), marked(source));
 }

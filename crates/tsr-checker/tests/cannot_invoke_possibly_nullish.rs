@@ -33,7 +33,7 @@ fn codes(source: &str) -> Vec<String> {
     let mut codes: Vec<String> = checker
         .diagnostics()
         .iter()
-        .map(|(_, d)| d.code().to_string())
+        .map(|(_, d)| d.code().clone())
         .filter(|code| matches!(code.as_str(), "TS2721" | "TS2722" | "TS2723"))
         .collect();
     codes.sort();

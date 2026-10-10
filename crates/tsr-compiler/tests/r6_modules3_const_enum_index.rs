@@ -1,6 +1,10 @@
 //! r6-modules3's const-enum index diff (`docs/parity/notes/r6-modules3.md`
 //! §2): `checkElementAccessExpression`'s const-enum arm (`checker.go:8157`)
 //! reports TS2476 at an index that is not string-literal-like.
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_checker::check::FileContext;
 use tsr_compiler::{LoadOptions, Program};

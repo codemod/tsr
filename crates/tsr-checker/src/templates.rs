@@ -4,6 +4,7 @@ use crate::{
     flags::TypeFlags,
     types::{TypeData, TypeId},
 };
+use std::fmt::Write as _;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TemplateLiteralParts {
     pub(crate) texts: Vec<String>,
@@ -177,9 +178,11 @@ impl Checker<'_, '_> {
                     });
                 }
                 '\u{2028}' | '\u{2029}' | '\u{0085}' => {
-                    out.push_str(&format!("\\u{:04X}", u32::from(ch)));
+                    let _ = write!(out, "\\u{:04X}", u32::from(ch));
                 }
-                c if u32::from(c) <= 0x1f => out.push_str(&format!("\\u{:04X}", u32::from(c))),
+                c if u32::from(c) <= 0x1f => {
+                    let _ = write!(out, "\\u{:04X}", u32::from(c));
+                }
                 c => out.push(c),
             }
         }

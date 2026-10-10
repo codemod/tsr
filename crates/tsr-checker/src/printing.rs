@@ -955,7 +955,7 @@ impl Checker<'_, '_> {
     }
 }
 
-impl<'a> Checker<'a, '_> {
+impl Checker<'_, '_> {
     /// `scanner.DeclarationNameToString` (`scanner/utilities.go:76`) for an
     /// identifier name: the name's **source text**, which keeps a unicode
     /// escape the scanner cooked out of the identifier's value

@@ -73,7 +73,7 @@ fn an_alias_of_a_normalized_tuple_alias_prints_the_structure() {
 }
 
 /// A variadic body whose rest is a deferred conditional instantiates through
-/// the conditional (`partiallyNamedTuples` AddMixedConditional).
+/// the conditional (`partiallyNamedTuples` `AddMixedConditional`).
 #[test]
 fn a_conditional_rest_instantiates_with_its_alias_arguments() {
     let source = "type S<T> = [T, ...(T extends 0 ? [x: \"c\"] : [])];\n\

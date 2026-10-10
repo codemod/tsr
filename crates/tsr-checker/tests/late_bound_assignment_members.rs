@@ -21,8 +21,7 @@ fn last_of(source: &str, kind: tsr_ast::SyntaxKind) -> String {
     #[allow(clippy::cast_possible_truncation)]
     let id = (0..parsed.nodes.len() as u32)
         .map(tsr_ast::NodeId::new)
-        .filter(|&id| parsed.nodes.kind(id) == kind)
-        .last()
+        .rfind(|&id| parsed.nodes.kind(id) == kind)
         .expect("an expression of the kind");
     let node = parsed.node_map.get(id).expect("a mapped node");
     let expression = tsr_ast::Expression::try_from(node).expect("an expression");

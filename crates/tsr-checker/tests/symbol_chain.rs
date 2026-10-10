@@ -1062,6 +1062,7 @@ fn function_namespace_copies_preserve_default_and_runtime_member_identity() {
 /// Native 5b1047d: copies have no signatures, but a complete empty Function
 /// target admits an untyped call. Every unsupported target stays a gap.
 #[test]
+#[allow(clippy::match_same_arms, reason = "one arm per expected-row family")]
 fn module_copy_calls_require_a_certified_empty_global_function() {
     for strict_null_checks in [false, true] {
         for (global, empty) in [

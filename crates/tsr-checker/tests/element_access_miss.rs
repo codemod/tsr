@@ -37,8 +37,7 @@ fn last_element_access(source: &str) -> Identity {
     #[allow(clippy::cast_possible_truncation)]
     let id = (0..parsed.nodes.len() as u32)
         .map(tsr_ast::NodeId::new)
-        .filter(|&id| parsed.nodes.kind(id) == tsr_ast::SyntaxKind::ElementAccessExpression)
-        .last()
+        .rfind(|&id| parsed.nodes.kind(id) == tsr_ast::SyntaxKind::ElementAccessExpression)
         .expect("an element access");
     let node = parsed.node_map.get(id).expect("a mapped node");
     let expression = tsr_ast::Expression::try_from(node).expect("an expression");

@@ -42,7 +42,7 @@ fn check(source: &str) -> (Vec<String>, Vec<String>) {
         }
     }
     checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
-    let codes = checker.diagnostics().iter().map(|(_, d)| d.code().to_string()).collect();
+    let codes = checker.diagnostics().iter().map(|(_, d)| d.code().clone()).collect();
     (printed, codes)
 }
 

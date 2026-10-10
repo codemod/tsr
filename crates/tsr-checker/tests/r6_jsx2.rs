@@ -1,6 +1,10 @@
 //! r6-jsx2's JSX checks (`docs/parity/notes/r6-jsx2.md`). Each expectation is
 //! what the native tsgo oracle (pinned `5b1047d`, `--strict --jsx preserve`)
 //! reports for the same source, columns included.
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_ast::{NodeMap, NodeTable};
 use tsr_binder::BindResult;

@@ -1,6 +1,10 @@
 //! r6-modules2's export-equals entity diff (`docs/parity/notes/r6-modules2.md`
 //! §5): `export = a.b` is an alias (`ExpressionIsAlias`) resolved by
 //! `resolveEntityName`, `globalThis` included.
+#![allow(
+    clippy::cast_possible_truncation,
+    reason = "line/column arithmetic over small test sources"
+)]
 
 use tsr_checker::check::FileContext;
 use tsr_compiler::{LoadOptions, Program};

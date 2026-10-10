@@ -104,7 +104,7 @@ fn a_type_parameter_operand_of_or_reduces_by_subtype() {
     // `logicalOrOperatorWithTypeParameters`: `t || u` is
     // `NonNullable<T> | U` (getUnionType's subtype reduction keeps both),
     // which is not assignable to `{}`; `t || t` reduces to `NonNullable<T>`.
-    let source = r#"function fn1<T, U>(t: T, u: U) {
+    let source = r"function fn1<T, U>(t: T, u: U) {
     var r1 = t || t;
     var r2: T = t || t;
     var r3 = t || u;
@@ -115,7 +115,7 @@ function fn3<T extends { a: string; b: string }, U extends { a: string; b: numbe
     var r2: {} = t || u;
     var r4: { a: string } = t || u;
 }
-"#;
+";
     assert_eq!(ts2322_lines(source), marked(source));
 }
 
@@ -125,7 +125,7 @@ fn a_context_free_jsx_discriminant_meets_its_pushed_any_context() {
     // so its narrowable type asks for its contextual type, which
     // discriminates the attributes by `v` again. getContextFreeTypeOfExpression
     // pushes `any` as the initializer's context, and the cycle ends there.
-    let source = r#"declare namespace JSX { interface Element {} interface IntrinsicElements {} }
+    let source = r"declare namespace JSX { interface Element {} interface IntrinsicElements {} }
 interface IData<V extends Variant = Variant.One> {
     variant?: V;
 }
@@ -136,6 +136,6 @@ function Menu<V extends Variant = Variant.One>(data: IData<V>) {
 type ItemData = { variant: Variant.Two } | { variant: Variant.One };
 enum Variant { One, Two }
 function Item(_data: ItemData) { return null; }
-"#;
+";
     assert_eq!(lines_in("a.tsx", source, &[2322, 2769, 2786]), Vec::<usize>::new());
 }
