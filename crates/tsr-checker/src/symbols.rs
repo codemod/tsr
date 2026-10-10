@@ -635,11 +635,19 @@ impl<'a> Checker<'a, '_> {
                 };
                 entity.take()
             };
+            // An exported alias of the module (`export import b = a`, which
+            // has no local symbol) is a root that resolves: the import-equals
+            // worker finds it through `resolve_name_with_export_alias`. Every
+            // root the binder walk already found keeps its classification
+            // (`docs/parity/notes/r7-shared.md` §6).
             if let Some(root) = root
                 && let Some(id) = root.node_id
                 && self
                     .binder
                     .resolve_name(self.nodes, self.node_map, id, root.text, SymbolFlags::NAMESPACE)
+                    .is_none()
+                && self
+                    .resolve_name_with_export_alias(id, root.text, SymbolFlags::NAMESPACE)
                     .is_none()
             {
                 let any = self.intrinsics.any;
@@ -1414,9 +1422,14 @@ impl<'a> Checker<'a, '_> {
         };
         match node.module_reference? {
             ModuleReference::Identifier(name) => {
-                let found = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
+                // `resolveEntityName(…, Namespace, …)` reaches an exported
+                // alias of the enclosing module (`export import a =
+                // require(…)`, then `export import b = a`) through `getSymbol`
+                // on the module's exports, admitting it by its target's
+                // meaning (`checker.go:2176`): the export-alias-aware walk,
+                // as `export_specifier_target` uses
+                // (`docs/parity/notes/r7-shared.md` §6).
+                let found = self.resolve_name_with_export_alias(
                     name.node_id?,
                     name.text,
                     SymbolFlags::NAMESPACE,
