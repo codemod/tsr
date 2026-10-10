@@ -3322,9 +3322,10 @@ impl<'a, 'n> Checker<'a, 'n> {
     }
 
     /// Where a dotted entity name ending in `name` sits in `printed`, if
-    /// `printed` is `Q1.….name`, possibly under `typeof` and possibly with
-    /// type arguments: `(start, end)` of the whole dotted path. `None` for a
-    /// bare name ([`Checker::split_around_name`]'s shape) or anything else.
+    /// `printed` is `Q1.….name` or `import("…").….name` (a baked import
+    /// type, r7-printer §10), possibly under `typeof` and possibly with type
+    /// arguments: `(start, end)` of the whole path. `None` for a bare name
+    /// ([`Checker::split_around_name`]'s shape) or anything else.
     fn split_around_qualified_name(printed: &str, name: &str) -> Option<(usize, usize)> {
         if name.is_empty() {
             return None;
@@ -3336,16 +3337,38 @@ impl<'a, 'n> Checker<'a, 'n> {
             return None;
         }
         let path = &rest[..path_len];
-        let qualifier = path.strip_suffix(name)?.strip_suffix('.')?;
-        let is_identifier = |segment: &str| {
-            let mut chars = segment.chars();
-            chars.next().is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
-                && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
+        // A baked import type root (`import("pkg").I`, as written) is the
+        // qualifier's first segment: `symbolToTypeNode` spells it from the
+        // chain's module root, so it is re-spelled with the rest.
+        let path = match path.strip_prefix("import(") {
+            Some(argument) => {
+                let close = argument.find(").")?;
+                &argument[close + 2..]
+            }
+            None => path,
         };
-        if qualifier.is_empty() || !qualifier.split('.').all(is_identifier) {
+        let qualifier = if path == name {
+            if rest.starts_with("import(") { "" } else { return None }
+        } else {
+            path.strip_suffix(name)?.strip_suffix('.')?
+        };
+        if rest.starts_with("import(") {
+            if !qualifier.is_empty() && !qualifier.split('.').all(Self::is_identifier_segment) {
+                return None;
+            }
+            return Some((start, start + path_len));
+        }
+        if qualifier.is_empty() || !qualifier.split('.').all(Self::is_identifier_segment) {
             return None;
         }
         Some((start, start + path_len))
+    }
+
+    /// One dotted segment of a printed entity name.
+    fn is_identifier_segment(segment: &str) -> bool {
+        let mut chars = segment.chars();
+        chars.next().is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
+            && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
     }
 
     /// `getSymbolChain(symbol, meaning, true, true)` spelled as

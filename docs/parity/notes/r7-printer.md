@@ -551,3 +551,58 @@ pinned tsgo: none added, none lost. Test: `tests/module_rooted_symbol_chain.rs`'
 sixth case. Still open in the cluster: `nodeColonModuleResolution` (`typeof
 ph.constants` for a member of an ambient module reached through an
 import), which takes the namespace-member road, not this arm.
+
+## 10. A baked import type is re-spelled from the chain's module root
+
+**Forcing constraint.** `nodeModulesImportAttributesTypeModeDeclarationEmit{,Errors}`
+and `nodeModulesImportTypeModeDeclarationEmit1` (four module modes each):
+in a CommonJS `index.ts`,
+`import("pkg", { with: {"resolution-mode": "import"} }).ImportInterface`
+types `b`, and native prints `b : import("./node_modules/pkg/import").ImportInterface`.
+The port printed `import("pkg").ImportInterface`.
+
+**Cause.** The port bakes an import type node's text as written (without
+its attributes). `qualified_name_at` re-spells only a bare or dotted
+identifier path (§5), so the baked `import("pkg")` root was printed as is.
+Native names the interface through `symbolToTypeNode`: the chain is
+`[import.d.ts, ImportInterface]`, and `getSpecifierForModuleSymbol` asks
+`GetModuleSpecifiers` under the importing file's default mode (CommonJS;
+the `.types` writer's `FlagsIgnoreErrors` carries
+`AllowNodeModulesRelativePaths`, so no mode swap is tried).
+`tryDirectoryWithPackageJson` finds `pkg`'s `exports` and, under the
+`require` conditions, no entry for `import.d.ts`: blocked, so the specifier
+is the relative path through `node_modules`. The port's
+`import_type_argument` already computed exactly that; it was never asked.
+
+**The port.** `split_around_qualified_name` also accepts a baked
+`import("…")` root followed by `.`-separated identifiers ending in the
+type's name, so §5's re-spell replaces the whole path from
+`symbol_chain_text_at`.
+
+**A prerequisite in `module_specifiers.rs`: case-folding `HasPrefix`.** The
+first build measured +44 / **−3** (`symbolLinkDeclarationEmitModuleNamesImportRef`
+0:0–0:2, `useCaseSensitiveFileNames: false`): the re-spell printed
+`import("../../../folder/node_modules/styled-components/typings/styled-components")`
+where native keeps `import("styled-components")`. The loader spells the
+realpath'd module `/.src/folder/…` while the importing file is
+`/.src/Folder/…`, and `node_module_specifier` compared the
+top-level `node_modules` prefix with a case-sensitive `starts_with`.
+Native's `tryGetModuleNameAsNodeModule` uses
+`stringutil.HasPrefix(info.SourceDirectory, pathToTopLevelNodeModules,
+caseSensitive)`, which folds case on a case-insensitive host. The port now
+reads the host's `compare_paths_options` and folds ASCII case there. (Why
+the loader lower-cases the realpath'd name was not investigated; native's
+file names keep the file system's spelling. Routed to the loader's owner.)
+
+**Measured** against §9's commit (`fd274090`), both dumps unfiltered: types
+**+44 / −0** (the three `nodeModules*TypeModeDeclarationEmit*` cases ×4
+modes, 3 lines each; `declarationEmitUsingTypeAlias1` 6;
+`allowsImportingTsExtension` 2), diagnostics unchanged. jsTyping error lines
+against pinned tsgo: none added, none lost. Coverage: `checker_types`
+8,799 → 8,802, `checker_types_configured` 1,787 → 1,809. Callgrind Ir
+(`--singleThreaded --noEmit`): domain-model 944,901,321 → 944,972,902
+(+0.008%), generic-imports 223,701,625 → 223,696,421 (−0.002%). Child-CPU
+new/old measured 1.044 (21 samples) and 1.038 (41) on domain-model while
+the host's absolute times were twice their earlier values (load ≈ 3.5 on
+four cores); the flat Ir says the work did not change. Test:
+`tests/module_rooted_symbol_chain.rs`' seventh case.
