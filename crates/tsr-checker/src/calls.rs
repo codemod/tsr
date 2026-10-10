@@ -4830,6 +4830,7 @@ impl Checker<'_, '_> {
                     || matches!(argument, Expression::ArrayLiteralExpression(_))
                     || (candidates.iter().all(|candidate| candidate.type_parameters.is_empty())
                         && matches!(argument, Expression::ObjectLiteralExpression(_)))
+                    || self.is_unchecked_resolving_argument(**argument)
             })
             .filter_map(tsr_ast::Expression::node_id)
             .collect();
@@ -4935,19 +4936,40 @@ impl Checker<'_, '_> {
                 }
             }
         }
+        // `chooseOverload` never checks an argument outside a candidate's
+        // context: `inferTypeArguments` and `isSignatureApplicable` check it
+        // with `checkExpressionWithContextualType(arg, paramType, ...)`
+        // (`checker.go:9485`, `:9289`). For most arguments the context-free
+        // check below is the same type. A call or `new` argument not yet
+        // checked is not: its own resolution infers from the contextual
+        // return type (`inferTypeArguments`' return-type inference,
+        // `checker.go:9419`), and that resolution is cached for the node
+        // (`signatureLinks.resolvedSignature`) from its first check. Its
+        // first check is deferred to the first candidate that relates it
+        // ([`Checker::overload_pass`]), which checks it in that candidate's
+        // context, as native's first `inferTypeArguments` does.
+        let deferred: Vec<bool> = arguments
+            .iter()
+            .map(|&argument| self.is_unchecked_resolving_argument(argument))
+            .collect();
         let argument_types: Vec<TypeId> = arguments
             .iter()
-            .map(|&argument| {
-                if self.is_context_sensitive_argument(&argument) {
+            .zip(&deferred)
+            .map(|(&argument, &deferred)| {
+                if self.is_context_sensitive_argument(&argument) || deferred {
                     self.intrinsics.error
                 } else {
                     self.check_expression(argument)
                 }
             })
             .collect();
-        if argument_types.iter().zip(arguments).any(|(&ty, argument)| {
-            ty == self.intrinsics.error && !self.is_context_sensitive_argument(argument)
-        }) {
+        if argument_types.iter().zip(arguments).zip(&deferred).any(
+            |((&ty, argument), &deferred)| {
+                ty == self.intrinsics.error
+                    && !deferred
+                    && !self.is_context_sensitive_argument(argument)
+            },
+        ) {
             return None;
         }
         let mut checked_contexts = vec![None; arguments.len()];
@@ -4989,6 +5011,24 @@ impl Checker<'_, '_> {
         let mut instantiated = None;
         let _ = self.check_generic_call_with(best, call, arguments, Some(&mut instantiated));
         instantiated
+    }
+
+    /// A call, `new` or tagged-template argument (through parentheses) with
+    /// no published type yet: its check resolves a signature whose inference
+    /// reads the argument's contextual type, so the overload walk makes its
+    /// first check under a candidate (see `transcribed_generic_set_walk_worker`).
+    fn is_unchecked_resolving_argument(&self, argument: Expression<'_>) -> bool {
+        let mut inner = argument;
+        while let Expression::ParenthesizedExpression(parenthesized) = inner {
+            let Some(expression) = parenthesized.expression else { return false };
+            inner = expression;
+        }
+        matches!(
+            inner,
+            Expression::CallExpression(_)
+                | Expression::NewExpression(_)
+                | Expression::TaggedTemplateExpression(_)
+        ) && inner.node_id().is_some_and(|id| !self.node_types.contains_key(&id))
     }
 
     fn longest_candidate_index(
@@ -5118,6 +5158,16 @@ impl Checker<'_, '_> {
     ) -> OverloadPass {
         // `chooseOverload` resets `candidatesForArgumentError` at entry.
         let mut failures = OverloadArgumentFailure::default();
+        // The walk's placeholder for an argument whose first check is
+        // deferred to a candidate (`transcribed_generic_set_walk_worker`):
+        // `errorType` on an argument that is not context sensitive.
+        let deferred: Vec<bool> = arguments
+            .iter()
+            .zip(argument_types)
+            .map(|(argument, &ty)| {
+                ty == self.intrinsics.error && !self.is_context_sensitive_argument(argument)
+            })
+            .collect();
         let retain_context =
             candidates.iter().all(|candidate| candidate.type_parameters.is_empty());
         // A call's array-literal argument checked under a candidate's
@@ -5161,7 +5211,8 @@ impl Checker<'_, '_> {
                 // an empty global Array<T> can accept primitives under noLib.
                 if argument_types.iter().enumerate().any(|(index, &argument)| {
                     let flags = self.store.get(argument).flags;
-                    if self.is_context_sensitive_argument(&arguments[index])
+                    if deferred[index]
+                        || self.is_context_sensitive_argument(&arguments[index])
                         || !flags.intersects(TypeFlags::PRIMITIVE)
                         || flags.intersects(
                             TypeFlags::NULLABLE | TypeFlags::UNION | TypeFlags::ANY_OR_UNKNOWN,
@@ -5222,6 +5273,27 @@ impl Checker<'_, '_> {
                         self.evict_subtree(id);
                     }
                 }
+                // A deferred argument's first check is `inferTypeArguments`'
+                // `checkExpressionWithContextualType(arg, paramType, context)`
+                // (`checker.go:9485`): the candidate's uninstantiated
+                // parameter is its contextual type. The candidate is the
+                // call's memo for that one check, as for a context-sensitive
+                // argument's intra-expression inference (`inference.rs`).
+                if let Some(call) = call
+                    && !self.call_inference_signatures.contains_key(&call)
+                {
+                    for (index, argument) in arguments.iter().enumerate() {
+                        if deferred[index]
+                            && argument
+                                .node_id()
+                                .is_some_and(|id| !self.node_types.contains_key(&id))
+                        {
+                            self.call_inference_signatures.insert(call, candidate.clone());
+                            self.check_expression(*argument);
+                            self.call_inference_signatures.remove(&call);
+                        }
+                    }
+                }
                 let mut instantiated = None;
                 let _ = self.check_generic_call_with(
                     candidate,
@@ -5236,6 +5308,21 @@ impl Checker<'_, '_> {
                 };
                 signature
             };
+            // A deferred argument's first check is this candidate's: a generic
+            // candidate's inference made it under its context; a non-generic
+            // candidate's is made now under its parameter. Later candidates
+            // read the cached check, as native reads the cached resolution.
+            let mut argument_types = argument_types.to_vec();
+            for (index, argument) in arguments.iter().enumerate() {
+                if deferred[index] {
+                    argument_types[index] =
+                        self.check_argument_in_candidate_context(call, Some(candidate), *argument);
+                    if argument_types[index] == self.intrinsics.error {
+                        return OverloadPass::Undecidable;
+                    }
+                }
+            }
+            let argument_types = argument_types.as_slice();
             // chooseOverload rechecks arity after instantiating a non-array
             // rest parameter (checker.go:9067).
             if !self.overload_has_correct_arity(&concrete, arguments.len()) {

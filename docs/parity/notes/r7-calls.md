@@ -201,3 +201,52 @@ which the check now exposes:
 The port is kept as
 [`r7-calls-assertion-target.diff`](r7-calls-assertion-target.diff) until those
 arms land in `flow.rs` (routed).
+
+## 5. The overload walk checks a nested call argument under its first candidate
+
+Routed by the integrator from r7-perf's jsTyping delta (cluster 5):
+`new Map(xs.map((x, i) => [x, i]))` reported a false TS2769.
+
+**Forcing constraint.** The failure is not specific to `new`: any overload
+set of two generic signatures fails the same way
+(`declare function f3<K, V>(entries?: readonly (readonly [K, V])[] | null)`
+plus an `Iterable<readonly [K, V]>` overload, called `f3(xs.map(...))`); a
+single generic signature passes. `transcribed_generic_set_walk_worker`
+(native `chooseOverload`, `checker.go:9025`) checked every
+non-context-sensitive argument once, with no candidate context, before trying
+any candidate. Native never does: `inferTypeArguments` checks each argument
+with `checkExpressionWithContextualType(arg, paramType, context)`
+(`checker.go:9485`). For most arguments the type is the same either way. A
+call argument's is not, because its own resolution infers from the
+contextual return type (`checker.go:9419`) and is cached for the node
+(`signatureLinks.resolvedSignature`) from its first check. Checked without
+context, `xs.map((x, i) => [x, i])` resolves `U = (string | number)[]` and
+no candidate relates. Under candidate 1's `readonly (readonly [K, V])[]`
+the arrow's array literal is a tuple and `U = [string, number]`.
+
+**Change.**
+
+- `is_unchecked_resolving_argument`: a call, `new` or tagged-template
+  argument (through parentheses) with no published type yet;
+- the walk defers such an argument's first check;
+- `overload_pass` makes it under the first candidate that relates it: a
+  generic candidate publishes itself as the call's memo
+  (`call_inference_signatures`, the uninstantiated parameter is the
+  contextual type, as `inference.rs` already does for intra-expression
+  inference sites) for that one check, before `check_generic_call_with`; a
+  non-generic candidate checks it through `check_argument_in_candidate_context`;
+- later candidates and the second relation read the cached check, as native
+  reads the cached resolution;
+- a declined walk restores the deferred subtrees (they join the restore
+  stack).
+
+**Rejected: deferring every argument.** Native defers all of them, but this
+port's walk relates the context-free types in its subtype/skip passes, and an
+identifier or literal argument's type does not depend on a nested resolution.
+Widening the deferral is the move if a non-call argument is found whose
+context-free type differs from its first candidate check.
+
+**Measured** against `9137c27c` rebased on `7e9f37eb`: diagnostics +1
+(inferFromGenericFunctionReturnTypes3), 0 lost; types +5 (all in
+inferFromGenericFunctionReturnTypes3), 0 lost. Perf (median child CPU, 21
+samples): domain-model 0.969, generic-imports 0.923.
