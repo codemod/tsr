@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 970/1091 (88.91%)
-Failed         : 121
+Passed         : 972/1091 (89.09%)
+Failed         : 119
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 121 failures:
+First 100 of 119 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -123,17 +123,17 @@ conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=false)
 conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=true)
   6 missing (first TS2554 at jsfile.js(6,1))
 conformance/classStaticBlock22(target=es2022)
-  1 unexpected (first TS1109 at classStaticBlock22.ts(25,16)), 7 missing
+  7 missing (first TS1359 at classStaticBlock22.ts(4,9))
 conformance/classStaticBlock22(target=esnext)
-  1 unexpected (first TS1109 at classStaticBlock22.ts(25,16)), 7 missing
+  7 missing (first TS1359 at classStaticBlock22.ts(4,9))
 conformance/classStaticBlock23(target=es2022)
   2 missing (first TS18038 at classStaticBlock23.ts(5,9))
 conformance/classStaticBlock23(target=esnext)
   2 missing (first TS18038 at classStaticBlock23.ts(5,9))
 conformance/classStaticBlock26(target=es2022)
-  1 unexpected (first TS18004 at classStaticBlock26.ts(17,12)), 11 missing
+  8 missing (first TS18037 at classStaticBlock26.ts(3,9))
 conformance/classStaticBlock26(target=esnext)
-  1 unexpected (first TS18004 at classStaticBlock26.ts(17,12)), 11 missing
+  8 missing (first TS18037 at classStaticBlock26.ts(3,9))
 conformance/classStaticBlock6(target=es2015)
   5 missing (first TS18037 at classStaticBlock6.ts(13,9))
 conformance/controlFlowAliasingCatchVariables(useunknownincatchvariables=true)
@@ -209,7 +209,7 @@ conformance/objectSpreadNegative(target=es2015)
 conformance/optionalChainingInParameterBindingPattern.2(target=es2015)
   1 unexpected (first TS2537 at optionalChainingInParameterBindingPattern.2.ts(6,6)), 0 missing
 conformance/parser.asyncGenerators.classMethods.es2018(alwaysstrict=true)
-  3 unexpected (first TS2389 at asyncGeneratorGetAccessorIsError.ts(2,17)), 2 missing
+  3 unexpected (first TS2389 at asyncGeneratorGetAccessorIsError.ts(2,17)), 0 missing
 conformance/parser.asyncGenerators.objectLiteralMethods.es2018(alwaysstrict=true)
   2 unexpected (first TS2322 at asyncGeneratorPropertyIsError.ts(2,16)), 0 missing
 conformance/parserES5ComputedPropertyName6(target=es2015)

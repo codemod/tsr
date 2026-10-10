@@ -178,3 +178,26 @@ profile (ADR-0054) lands here; gates stay on `release`.
 | `checker_types_configured` | 1,771 | 1,771 |
 | `diagnostics` | 4,849 | 4,852 |
 | `diagnostics_configured` | 968 | 970 |
+
+### Batch 6 — r7-calls `23550f9d`, r7-contextual `90967e42`, r7-declared `e291ff89`, r7-flow `533e29b6`, r7-parser `41c141b2`, r7-printer `eacaa674`, r7-shared `f11e37b8`
+
+Merged onto main `20501307`. Gate against the batch-5 freeze: types +609
+RIGHT / 0 lost / 0 missing, diagnostics +15 cases / 0 lost / 0 missing;
+tests, fmt and strict clippy green. Perf child-CPU new/old: generic-imports
+0.940 (21); domain-model read 1.057 at 21 samples and was re-run at 41
+twice, 1.009 and 1.000, inside the threshold. Diagnostics identical.
+
+| Suite | Batch 5 | Batch 6 |
+|---|---|---|
+| `checker_types` | 8,737 | 8,755 |
+| `checker_types_configured` | 1,771 | 1,783 |
+| `diagnostics` | 4,852 | 4,863 |
+| `diagnostics_configured` | 970 | 972 |
+
+Function grants: r7-calls adds the `Node::Decorator` dispatch arm in
+`check.rs`; r7-parser takes `implicit_any.rs::check_implicit_any_return`,
+the signatures.rs missing-body return reader and
+`check.rs::check_function_or_constructor_symbol` for the missing-block
+recovery; r7-declared takes `members.rs::access_member_lookup`'s
+this-substitution for the mapped stack (`.1266`); r7-grammar owns
+`name_slots.rs::names_in_unchecked_region`.
