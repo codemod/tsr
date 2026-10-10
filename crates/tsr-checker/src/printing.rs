@@ -1753,6 +1753,36 @@ mod tests {
         );
     }
 
+    /// `getTypeNameForErrorDisplay` (`relater.go:1297`): with no enclosing
+    /// declaration a namespace member is qualified by every container, and a
+    /// type parameter prints bare (r7-printer §7).
+    #[test]
+    fn a_name_for_error_display_is_fully_qualified() {
+        let source =
+            "namespace M { export namespace N { export class C {} } } class D<T> { t!: T }";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let outer = checker.binder.lookup_local(root, "M").unwrap();
+        let inner = *checker.binder.symbols().get(outer).exports.get("N").unwrap();
+        let class = *checker.binder.symbols().get(inner).exports.get("C").unwrap();
+        let c_type = checker.get_declared_type_of_symbol(class);
+        assert_eq!(checker.type_to_string(c_type), "C");
+        assert_eq!(checker.type_name_for_error_display(c_type), "M.N.C");
+        let generic = checker.binder.lookup_local(root, "D").unwrap();
+        let parameter = *checker.binder.symbols().get(generic).members.get("T").unwrap();
+        let t_type = checker.get_declared_type_of_symbol(parameter);
+        assert_eq!(checker.type_name_for_error_display(t_type), "T");
+    }
+
     #[test]
     fn an_unparseable_literal_keeps_its_text_rather_than_inventing_a_value() {
         assert_eq!(normalise_number("not-a-number"), "not-a-number");
