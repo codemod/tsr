@@ -190,3 +190,51 @@ An intersection target whose matching leaves exactly the naked variable plus
 a constituent identical to a source constituent under `isTypeIdenticalTo` but
 not under `TypeId` equality: native infers at the current priority there,
 this port at the lower one.
+
+## 3. Const-context literal images keep their literal markers (routed from r7-calls)
+
+### Forcing constraint
+
+`unionObjectAndArrayLiteralCandidates` (`inference.go:1470`) unions the
+candidates flagged `ObjectFlagsObjectLiteral | ObjectFlagsArrayLiteral` with
+subtype reduction. Native's const-context candidate *is* such a literal:
+`checkObjectLiteral` flags it (`checker.go:13205`) and `checkArrayLiteral`
+wraps the readonly tuple in `createArrayLiteralType` (`checker.go:8103`).
+This port builds the const view afterwards, in
+`const_inference.rs::const_literal_inference_source`, and minted it without
+the markers. `widening.rs` then saw two plain object types, and the first
+candidate won:
+
+```ts
+declare function f5<const T>(obj: { x: T, y: T }): T;
+f5({ x: [1, 'x'], y: [2, 'y'] });   // native readonly [1, "x"] | readonly [2, "y"]; TSR readonly [1, "x"]
+```
+
+### What was ported
+
+The tuple image passes through `create_array_literal_type` when its source
+was an array-literal image. The object image copies the source's
+`object_literal_spread_flags` entry, which is this port's
+`ObjectFlagsObjectLiteral`, together with the source's printed members
+(`object_literal_members`) and index infos. Normalization reads the members:
+with the marker but without them, the union normalized to
+`{ readonly b?: undefined; } | …`, which dropped the real members. All three
+are existing side tables keyed by the new image's `TypeId`. Each is written
+once, when the image is minted, and holds the same kind of value the source's
+entry holds. No new table and no new traversal.
+
+### Result (commit 3)
+
+Against the merged base (main `7e9f37eb` + `3c301c08`): types +16 RIGHT,
+0 lost (`typeParameterConstModifiers` 8, `jsdocTemplateTag6` 8); diagnostics
+unchanged. This unblocks r7-calls' temporary const-type-parameter decline
+(`typeParameterConstModifiers`).
+
+### How to know this is wrong
+
+A const image whose members differ from the source's printed members. The
+copy is taken from the *source* literal, while the image's own properties are
+rewritten readonly. `widening.rs` would then normalize with the non-readonly
+member text. No corpus line shows this, because the members are re-rendered
+from `anonymous_properties` on print. A falsifier is a normalized const union
+member that prints a mutable property.

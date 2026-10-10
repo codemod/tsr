@@ -177,7 +177,17 @@ impl Checker<'_, '_> {
                 if images == elements && readonly == source_readonly {
                     return source;
                 }
-                self.create_tuple_type(images, readonly)
+                let tuple = self.create_tuple_type(images, readonly);
+                // Native checks the literal in its const context, and
+                // `checkArrayLiteral` wraps that tuple in `createArrayLiteralType`
+                // (`checker.go:8103`): the image keeps the source's
+                // `ObjectFlagsArrayLiteral`, which
+                // `unionObjectAndArrayLiteralCandidates` (`inference.go:1470`)
+                // selects on.
+                if self.array_literal_bases.contains_key(&source) {
+                    return self.create_array_literal_type(tuple);
+                }
+                tuple
             }
             Expression::ObjectLiteralExpression(object) => {
                 let Some((mut properties, _)) = self.anonymous_properties.get(&source).cloned()
@@ -261,6 +271,18 @@ impl Checker<'_, '_> {
                     owner,
                 );
                 self.anonymous_properties.insert(image, (properties, true));
+                // Likewise `checkObjectLiteral` gives the const-context literal
+                // `ObjectFlagsObjectLiteral` (`checker.go:13205`); this port
+                // spells that as the `object_literal_spread_flags` key, with
+                // the members as printed and the index infos the literal
+                // widening and normalization (`widening.rs`) read.
+                if let Some(&spread) = self.object_literal_spread_flags.get(&source) {
+                    self.object_literal_spread_flags.insert(image, spread);
+                    self.object_literal_members.insert(image, members);
+                    if let Some(indexes) = self.object_literal_index_infos.get(&source).cloned() {
+                        self.object_literal_index_infos.insert(image, indexes);
+                    }
+                }
                 image
             }
             _ => source,
