@@ -920,15 +920,21 @@ impl<'a> Parser<'a> {
             Some(ForInitializer::from(self.parse_expression_no_in()))
         };
 
-        if self.at(SyntaxKind::InKeyword) || self.at(SyntaxKind::OfKeyword) {
-            let is_of = self.at(SyntaxKind::OfKeyword);
-            self.next_token();
+        // `parseForOrForInOrForOfStatement`'s switch (`parser.go:1307`): after
+        // `for await` the `of` is expected (`'of' expected` at an `in` or a
+        // `;`), and a for-in loses the `await`.
+        let is_of = if is_await {
+            self.expect(SyntaxKind::OfKeyword)
+        } else {
+            self.eat(SyntaxKind::OfKeyword)
+        };
+        if is_of || self.eat(SyntaxKind::InKeyword) {
             let expression =
                 if is_of { self.parse_assignment_expression() } else { self.parse_expression() };
             self.expect(SyntaxKind::CloseParenToken);
             let body = self.parse_statement();
             let kind = if is_of { SyntaxKind::ForOfStatement } else { SyntaxKind::ForInStatement };
-            let await_token = if is_await {
+            let await_token = if is_await && is_of {
                 Some(self.alloc_token(SyntaxKind::AwaitKeyword, await_span))
             } else {
                 None
