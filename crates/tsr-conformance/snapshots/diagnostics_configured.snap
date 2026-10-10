@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 981/1091 (89.92%)
-Failed         : 110
+Passed         : 1003/1091 (91.93%)
+Failed         : 88
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,6 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 110 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/ambientWithStatements(alwaysstrict=true)
@@ -70,10 +69,6 @@ compiler/divergentAccessorsTypes3(target=es2015)
   5 unexpected (first TS2322 at divergentAccessorsTypes3.ts(30,1)), 0 missing
 compiler/downlevelLetConst16(target=es2015)
   2 missing (first TS2339 at downlevelLetConst16.ts(202,15))
-compiler/duplicateIdentifierBindingElementInParameterDeclaration1(target=es2015)
-  1 missing (first TS7006 at duplicateIdentifierBindingElementInParameterDeclaration1.ts(8,24))
-compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)
-  1 missing (first TS7006 at duplicateIdentifierBindingElementInParameterDeclaration2.ts(9,24))
 compiler/es5-asyncFunctionWithStatements(alwaysstrict=true,target=es2015)
   1 unexpected (first TS2410 at es5-asyncFunctionWithStatements.ts(25,9)), 4 missing
 compiler/es5ExportDefaultClassDeclaration3(target=es2015)
@@ -100,14 +95,10 @@ compiler/multipleBaseInterfaesWithIncompatibleProperties2(exactoptionalpropertyt
   1 missing (first TS2320 at multipleBaseInterfaesWithIncompatibleProperties2.ts(19,11))
 compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)
   1 unexpected (first TS18004 at shorthandPropertyAssignmentsInDestructuring.ts(111,12)), 1 missing
-compiler/sourceMapValidationDecorators(target=es2015)
-  4 missing (first TS1239 at sourceMapValidationDecorators.ts(12,8))
 compiler/strictNullEmptyDestructuring(target=es2015)
   11 missing (first TS2531 at strictNullEmptyDestructuring.ts(3,5))
 compiler/trivialSubtypeReductionNoStructuralCheck(target=es2015)
   1 missing (first TS7023 at trivialSubtypeReductionNoStructuralCheck.ts(3,7))
-compiler/unusedSetterInClass(target=es2015)
-  1 missing (first TS6133 at unusedSetterInClass.ts(4,17))
 compiler/useBeforeDeclaration_classDecorators.2(experimentaldecorators=false)
   6 unexpected (first TS2449 at useBeforeDeclaration_classDecorators.2.ts(46,22)), 0 missing
 conformance/ES5For-of30(target=es2015)
@@ -124,38 +115,14 @@ conformance/classStaticBlock22(target=es2022)
   7 missing (first TS1359 at classStaticBlock22.ts(4,9))
 conformance/classStaticBlock22(target=esnext)
   7 missing (first TS1359 at classStaticBlock22.ts(4,9))
-conformance/classStaticBlock23(target=es2022)
-  2 missing (first TS18038 at classStaticBlock23.ts(5,9))
-conformance/classStaticBlock23(target=esnext)
-  2 missing (first TS18038 at classStaticBlock23.ts(5,9))
-conformance/classStaticBlock26(target=es2022)
-  8 missing (first TS18037 at classStaticBlock26.ts(3,9))
-conformance/classStaticBlock26(target=esnext)
-  8 missing (first TS18037 at classStaticBlock26.ts(3,9))
 conformance/classStaticBlock6(target=es2015)
-  5 missing (first TS18037 at classStaticBlock6.ts(13,9))
+  2 missing (first TS2815 at classStaticBlock6.ts(41,13))
 conformance/controlFlowAliasingCatchVariables(useunknownincatchvariables=true)
   1 missing (first TS18046 at controlFlowAliasingCatchVariables.ts(20,9))
 conformance/decoratorMetadata-jsdoc(target=es2015)
   1 missing (first TS8020 at decoratorMetadata-jsdoc.ts(9,9))
-conformance/decoratorOnClass8(target=es2015)
-  1 missing (first TS1238 at decoratorOnClass8.ts(3,1))
-conformance/decoratorOnClassConstructor2(target=es2015)
-  1 missing (first TS1239 at 2.ts(4,18))
-conformance/decoratorOnClassConstructor3(target=es2015)
-  1 missing (first TS1239 at 2.ts(6,18))
-conformance/decoratorOnClassConstructorParameter1(target=es2015)
-  1 missing (first TS1239 at decoratorOnClassConstructorParameter1.ts(4,18))
-conformance/decoratorOnClassMethod10(target=es2015)
-  1 missing (first TS1241 at decoratorOnClassMethod10.ts(4,6))
 conformance/decoratorOnClassMethod8(target=es2015)
-  2 missing (first TS1241 at decoratorOnClassMethod8.ts(4,6))
-conformance/decoratorOnClassProperty11(target=es2015)
-  1 missing (first TS1329 at decoratorOnClassProperty11.ts(4,5))
-conformance/decoratorOnClassProperty6(target=es2015)
-  1 missing (first TS1240 at decoratorOnClassProperty6.ts(4,6))
-conformance/decoratorOnClassProperty7(target=es2015)
-  1 missing (first TS1240 at decoratorOnClassProperty7.ts(4,5))
+  1 missing (first TS1270 at decoratorOnClassMethod8.ts(4,6))
 conformance/derivedClassSuperProperties(target=es2015)
   3 unexpected (first TS2376 at derivedClassSuperProperties.ts(113,5)), 11 missing
 conformance/derivedClassSuperStatementPosition(target=es2015)
@@ -202,12 +169,8 @@ conformance/objectSpreadNegative(target=es2015)
   1 unexpected (first TS2322 at objectSpreadNegative.ts(23,1)), 3 missing
 conformance/optionalChainingInParameterBindingPattern.2(target=es2015)
   1 unexpected (first TS2537 at optionalChainingInParameterBindingPattern.2.ts(6,6)), 0 missing
-conformance/parser.asyncGenerators.classMethods.es2018(alwaysstrict=true)
-  3 unexpected (first TS2389 at asyncGeneratorGetAccessorIsError.ts(2,17)), 0 missing
 conformance/parser.asyncGenerators.objectLiteralMethods.es2018(alwaysstrict=true)
   2 unexpected (first TS2322 at asyncGeneratorPropertyIsError.ts(2,16)), 0 missing
-conformance/parserES5ComputedPropertyName6(target=es2015)
-  1 unexpected (first TS2552 at parserES5ComputedPropertyName6.ts(2,4)), 0 missing
 conformance/parserES5SymbolProperty4(target=es2015)
   1 missing (first TS2339 at parserES5SymbolProperty4.ts(2,13))
 conformance/privateNameBadSuperUseDefineForClassFields(target=es2022)
@@ -218,11 +181,23 @@ conformance/privateNameInInExpression(target=es2022)
   5 missing (first TS2571 at privateNameInInExpression.ts(21,29))
 conformance/privateNameInInExpression(target=esnext)
   5 missing (first TS2571 at privateNameInInExpression.ts(21,29))
-conformance/privateNameInInExpressionUnused(target=es2022)
-  1 unexpected (first TS6133 at privateNameInInExpressionUnused.ts(3,5)), 0 missing
-conformance/privateNameInInExpressionUnused(target=esnext)
-  1 unexpected (first TS6133 at privateNameInInExpressionUnused.ts(3,5)), 0 missing
 conformance/privateNameInObjectLiteral-3(target=es2015)
   2 unexpected (first TS18004 at privateNameInObjectLiteral-3.ts(2,5)), 1 missing
 conformance/restPropertyWithBindingPattern(target=es2015)
   5 missing (first TS2501 at restPropertyWithBindingPattern.ts(1,6))
+conformance/trailingCommasInFunctionParametersAndArguments(target=es2015)
+  1 missing (first TS1013 at trailingCommasInFunctionParametersAndArguments.ts(5,20))
+conformance/typeOfThisInStaticMembers12(target=es2022)
+  2 missing (first TS2339 at typeOfThisInStaticMembers12.ts(4,22))
+conformance/typeOfThisInStaticMembers12(target=es6)
+  2 missing (first TS2339 at typeOfThisInStaticMembers12.ts(4,22))
+conformance/typeOfThisInStaticMembers12(target=esnext)
+  2 missing (first TS2339 at typeOfThisInStaticMembers12.ts(4,22))
+conformance/typeOfThisInStaticMembers13(target=es2022)
+  2 missing (first TS2339 at typeOfThisInStaticMembers13.ts(4,22))
+conformance/typeOfThisInStaticMembers13(target=es6)
+  2 missing (first TS2339 at typeOfThisInStaticMembers13.ts(4,22))
+conformance/typeOfThisInStaticMembers13(target=esnext)
+  2 missing (first TS2339 at typeOfThisInStaticMembers13.ts(4,22))
+conformance/usingDeclarationsWithObjectLiterals2(noimplicitany=true)
+  2 missing (first TS7018 at usingDeclarationsWithObjectLiterals2.ts(2,38))

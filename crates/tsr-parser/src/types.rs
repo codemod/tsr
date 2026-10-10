@@ -112,7 +112,19 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a type.
+    ///
+    /// `parseType` (`parser.go:2606`) parses every type outside the yield
+    /// and await contexts (`setContextFlags(NodeFlagsTypeExcludesFlags,
+    /// false)`): `var v: await` in an async function names a type `await`,
+    /// and its nodes carry no `NodeFlagsAwaitContext`.
     pub(crate) fn parse_type(&mut self) -> TypeNode<'a> {
+        if !self.in_await_context && !self.in_yield_context {
+            return self.parse_type_worker();
+        }
+        self.with_function_context(false, false, Self::parse_type_worker)
+    }
+
+    fn parse_type_worker(&mut self) -> TypeNode<'a> {
         let Some(type_node) = self.descend(Parser::parse_conditional_type) else {
             // Depth limit reached; a missing node beats a stack overflow.
             self.error_at_current(&messages::TYPE_EXPECTED);

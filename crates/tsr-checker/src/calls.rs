@@ -49,7 +49,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::calls::counters::{COUNTERS, bump};
 use crate::{
-    call_reports::{ApplicabilityReport, CandidateContext},
+    call_reports::{ApplicabilityReport, CandidateContext, ReportArgument},
     checker::Checker,
     flags::TypeFlags,
     relater::{Relation, Ternary},
@@ -420,6 +420,7 @@ enum CallArity {
 /// One entry of `getEffectiveCallArguments`: the written argument (or the
 /// spread a synthetic element came from) and whether it is spread-like
 /// (`isSpreadArgument`).
+#[derive(Clone, Copy)]
 struct EffectiveArgument {
     node: tsr_ast::NodeId,
     spread: bool,
@@ -781,6 +782,250 @@ impl Checker<'_, '_> {
                 self.check_call_arity(node, true);
                 self.check_call_type_argument_arity(node);
             }
+        }
+    }
+
+    /// `checkDecorator` (`checker.go:6061`) over `resolveDecorator`
+    /// (`checker.go:8743`): a decorator resolves as a call of its expression
+    /// with the synthetic arguments of the decorated declaration's decorator
+    /// call signature (`getEffectiveDecoratorArguments`, `checker.go:30142`,
+    /// typed by [`Checker::decorator_call_signature`]), and every resolution
+    /// error is chained under the declaration kind's head
+    /// (`getDiagnosticHeadMessageForDecoratorResolution`, `checker.go:8778`:
+    /// TS1238/TS1239/TS1240/TS1241). The resolved signature's return type is
+    /// then checked against the decorator call signature's
+    /// (TS1270/TS1271).
+    ///
+    /// Ported arms: the untyped call; `isPotentiallyUncalledDecorator`
+    /// (TS1329); no call signature (`invocationErrorDetails`); the arity
+    /// pass with `getDecoratorArgumentCount` (`checker.go:9183`) and its
+    /// decorator messages; the applicability report of a single non-generic
+    /// candidate; the return check over that candidate (applicable or not,
+    /// `getCandidateForOverloadFailure`'s single-candidate answer). A generic
+    /// or overloaded decorator declines after its arity pass (inference over
+    /// synthetic arguments is not ported), as does a candidate with a `this`
+    /// parameter.
+    pub(crate) fn check_decorator_diagnostics(&mut self, node: tsr_ast::NodeId) {
+        use tsr_ast::SyntaxKind as K;
+        let Some(tsr_ast::Node::Decorator(decorator)) = self.node_map.get(node) else { return };
+        let Some(expression) = decorator.expression.map(Expression::from) else { return };
+        let Some(expression_id) = expression.node_id() else { return };
+        let Some(parent) = self.nodes.parent(node) else { return };
+        // `checkDecorators` (`checker.go:6022`) checks a declaration's
+        // decorators only when `NodeCanBeDecorated` accepts it (the grammar
+        // check reports the rest, TS1206).
+        let Some(parent_node) = self.node_map.get(parent) else { return };
+        if !self.node_can_be_decorated(parent, parent_node) {
+            return;
+        }
+        // `CanHaveDecorators(node.Parent)`, else `resolveErrorCall`.
+        let head = match self.nodes.kind(parent) {
+            K::ClassDeclaration | K::ClassExpression => {
+                &messages::UNABLE_TO_RESOLVE_SIGNATURE_OF_CLASS_DECORATOR_WHEN_CALLED_AS_AN_EXPRESSION
+            }
+            K::Parameter => {
+                &messages::UNABLE_TO_RESOLVE_SIGNATURE_OF_PARAMETER_DECORATOR_WHEN_CALLED_AS_AN_EXPRESSION
+            }
+            K::PropertyDeclaration => {
+                &messages::UNABLE_TO_RESOLVE_SIGNATURE_OF_PROPERTY_DECORATOR_WHEN_CALLED_AS_AN_EXPRESSION
+            }
+            K::MethodDeclaration | K::GetAccessor | K::SetAccessor => {
+                &messages::UNABLE_TO_RESOLVE_SIGNATURE_OF_METHOD_DECORATOR_WHEN_CALLED_AS_AN_EXPRESSION
+            }
+            _ => return,
+        };
+        let func_type = self.check_expression(expression);
+        let apparent = self.apparent_type(func_type);
+        if self.is_error(apparent) || self.is_untyped_any_callee(func_type, apparent) {
+            return;
+        }
+        let Some(signatures) = self.head_signatures(apparent, SignatureKind::Call) else { return };
+        let Some(construct_count) = self.head_signature_count(apparent, SignatureKind::Construct)
+        else {
+            return;
+        };
+        if self.is_untyped_signatureless_call(
+            func_type,
+            apparent,
+            signatures.len(),
+            construct_count,
+        ) != Some(false)
+        {
+            return;
+        }
+        // `isPotentiallyUncalledDecorator` (`checker.go:8769`), unless the
+        // expression is parenthesized: TS1329 at the decorator.
+        if !signatures.is_empty() && !matches!(expression, Expression::ParenthesizedExpression(_)) {
+            let mut uncalled = true;
+            for signature in &signatures {
+                let count = self.decorator_argument_count(parent, signature);
+                if self.signature_min_argument_count(signature) != 0
+                    || signature.parameters.iter().any(|parameter| parameter.rest)
+                    || signature.parameters.len() >= count
+                {
+                    uncalled = false;
+                    break;
+                }
+            }
+            if uncalled {
+                // `scanner.GetTextOfNode(node.Expression())`: the checker
+                // holds no source bytes, so a dotted name is spelled and any
+                // other expression declines.
+                let Some(text) = self.entity_name_expression_text(expression_id) else { return };
+                let span = self.error_span(node);
+                self.report_at_node(
+                    node,
+                    Diagnostic::with_args(
+                        &messages::_0_ACCEPTS_TOO_FEW_ARGUMENTS_TO_BE_USED_AS_A_DECORATOR_HERE_DID_YOU_MEAN_TO_CALL_IT_FIRST_AND_WRITE_0,
+                        span,
+                        [text],
+                    ),
+                );
+                return;
+            }
+        }
+        if signatures.is_empty() {
+            let before = self.diagnostics.len();
+            self.invocation_error(expression_id, false, SignatureKind::Call);
+            self.chain_reports_under(before, head);
+            return;
+        }
+        let Some(decorator_signature) = self.decorator_call_signature(node) else { return };
+        let arguments: Vec<ReportArgument<'_>> = decorator_signature
+            .parameters
+            .iter()
+            .map(|parameter| ReportArgument::Synthetic {
+                at: expression_id,
+                r#type: self.parameter_type(parameter),
+                spread: false,
+            })
+            .collect();
+        // `resolveCall`: `reorderCandidates`, then `chooseOverload`'s
+        // `hasCorrectArity` with the decorator's argument count.
+        let candidates = self.reorder_candidates(signatures);
+        let mut arity_matched = Vec::new();
+        for candidate in &candidates {
+            let count = self.decorator_argument_count(parent, candidate);
+            let effective = vec![EffectiveArgument { node: expression_id, spread: false }; count];
+            match self.has_correct_arity(candidate, &effective, false) {
+                Some(true) => arity_matched.push(candidate.clone()),
+                Some(false) => {}
+                None => return,
+            }
+        }
+        let resolved = if arity_matched.is_empty() {
+            // `getArgumentArityError` over every candidate (no type
+            // arguments), with the synthetic arguments' count.
+            let effective =
+                vec![EffectiveArgument { node: expression_id, spread: false }; arguments.len()];
+            let before = self.diagnostics.len();
+            // `getErrorNodeForCallNode` is the decorator itself; a surplus
+            // is reported over the synthetic arguments (the expression).
+            self.report_argument_arity_error(node, node, &candidates, &effective);
+            self.chain_reports_under(before, head);
+            match candidates.as_slice() {
+                [single] if single.type_parameters.is_empty() => single.clone(),
+                _ => return,
+            }
+        } else {
+            let [candidate] = arity_matched.as_slice() else { return };
+            if !candidate.type_parameters.is_empty() || candidate.this_parameter.is_some() {
+                return;
+            }
+            let before = self.diagnostics.len();
+            if self.report_signature_applicability(
+                node,
+                &arguments,
+                candidate,
+                CandidateContext::Declared,
+                &[],
+            ) == ApplicabilityReport::Declined
+            {
+                return;
+            }
+            self.chain_reports_under(before, head);
+            candidate.clone()
+        };
+        self.check_decorator_return(node, parent, expression_id, &resolved, &decorator_signature);
+    }
+
+    /// `checkDecorator`'s return check (`checker.go:6065-6092`): an `any`
+    /// return is not checked; otherwise it must be assignable to the
+    /// decorator call signature's return type, reported at the expression
+    /// under TS1270 (or TS1271 for a legacy property or parameter
+    /// decorator).
+    fn check_decorator_return(
+        &mut self,
+        _node: tsr_ast::NodeId,
+        parent: tsr_ast::NodeId,
+        expression: tsr_ast::NodeId,
+        resolved: &Signature,
+        decorator_signature: &Signature,
+    ) {
+        use tsr_ast::SyntaxKind as K;
+        let returned = resolved.r#type;
+        if self.store.get(returned).flags.intersects(TypeFlags::ANY) || self.is_gap(returned) {
+            return;
+        }
+        let expected = decorator_signature.r#type;
+        let head = match self.nodes.kind(parent) {
+            K::PropertyDeclaration if self.legacy_decorators => {
+                &messages::DECORATOR_FUNCTION_RETURN_TYPE_IS_0_BUT_IS_EXPECTED_TO_BE_VOID_OR_ANY
+            }
+            K::Parameter => {
+                &messages::DECORATOR_FUNCTION_RETURN_TYPE_IS_0_BUT_IS_EXPECTED_TO_BE_VOID_OR_ANY
+            }
+            _ => &messages::DECORATOR_FUNCTION_RETURN_TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1,
+        };
+        // An undecided relation (this port's decorator function types,
+        // `decorator_function_type`, are not yet structural function types
+        // to the relater) reports nothing.
+        if self.relate_ternary(returned, expected, Relation::Assignable) != Ternary::NotRelated {
+            return;
+        }
+        let span = self.error_span(expression);
+        self.report_relation_failure(expression, span, None, returned, expected, Some(head));
+    }
+
+    /// `getDecoratorArgumentCount` (`checker.go:9183`): with
+    /// `experimentalDecorators`, the legacy count by the decorated
+    /// declaration's kind (a method decorator of at most two parameters is
+    /// given two); otherwise the parameter count clamped to 1..=2.
+    fn decorator_argument_count(
+        &mut self,
+        parent: tsr_ast::NodeId,
+        signature: &Signature,
+    ) -> usize {
+        use tsr_ast::SyntaxKind as K;
+        if !self.legacy_decorators {
+            return self.signature_parameter_count(signature).clamp(1, 2);
+        }
+        match self.nodes.kind(parent) {
+            K::PropertyDeclaration => {
+                let accessor = match self.node_map.get(parent) {
+                    Some(tsr_ast::Node::PropertyDeclaration(property)) => {
+                        crate::check::has_modifier(property.modifiers, K::AccessorKeyword)
+                    }
+                    _ => false,
+                };
+                if accessor { 3 } else { 2 }
+            }
+            K::MethodDeclaration | K::GetAccessor | K::SetAccessor => {
+                if signature.parameters.len() <= 2 { 2 } else { 3 }
+            }
+            K::Parameter => 3,
+            _ => 1,
+        }
+    }
+
+    /// `ast.NewDiagnosticChain(diagnostic, headMessage)` over every report
+    /// made since `before`: each keeps its location and becomes the child of
+    /// `head`.
+    fn chain_reports_under(&mut self, before: usize, head: &'static tsr_diagnostics::Message) {
+        for (_, diagnostic) in &mut self.diagnostics[before..] {
+            let span = diagnostic.span;
+            let child = std::mem::replace(diagnostic, Diagnostic::new(head, span));
+            *diagnostic = Diagnostic::new_chain(Some(child), head, []);
         }
     }
 
@@ -1849,7 +2094,8 @@ impl Checker<'_, '_> {
     }
 
     /// `getArgumentArityError` (`checker.go:9705`), without the related
-    /// information and the decorator messages.
+    /// information. A decorator's report is the runtime-invocation message
+    /// (`The_runtime_will_invoke_the_decorator_with_1_arguments…`).
     fn report_argument_arity_error(
         &mut self,
         node: tsr_ast::NodeId,
@@ -1894,7 +2140,13 @@ impl Checker<'_, '_> {
         };
         let void_promise =
             !has_rest && range == "1" && count == 0 && self.is_promise_resolve_arity_error(node);
-        let message = if has_rest {
+        let message = if self.nodes.kind(node) == tsr_ast::SyntaxKind::Decorator {
+            if has_rest {
+                &messages::THE_RUNTIME_WILL_INVOKE_THE_DECORATOR_WITH_1_ARGUMENTS_BUT_THE_DECORATOR_EXPECTS_AT_LEAST_0
+            } else {
+                &messages::THE_RUNTIME_WILL_INVOKE_THE_DECORATOR_WITH_1_ARGUMENTS_BUT_THE_DECORATOR_EXPECTS_0
+            }
+        } else if has_rest {
             &messages::EXPECTED_AT_LEAST_0_ARGUMENTS_BUT_GOT_1
         } else if void_promise {
             &messages::EXPECTED_0_ARGUMENTS_BUT_GOT_1_DID_YOU_FORGET_TO_INCLUDE_VOID_IN_YOUR_TYPE_ARGUMENT_TO_PROMISE

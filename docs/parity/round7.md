@@ -295,3 +295,55 @@ r7-contextual's const-literal markers.
 | `checker_types_configured` | 1,787 | 1,787 |
 | `diagnostics` | 4,895 | 4,896 |
 | `diagnostics_configured` | 981 | 981 |
+
+### Batch 12 — r7-calls `5937dd79`, r7-contextual `63a147ac`, r7-declared `db7f69d6`, r7-parser `c83bb41b`, r7-printer `deda2594` (cherry-picked)
+
+The first candidate carried r7-calls' spread-argument report (`ea1a1286`).
+The corpus compare passed, but a new jsTyping check found three false TS2345
+that tsgo does not report: checker.ts 9968/9981/51482. These were type-road
+defects that the report exposed. The batch was cut back to `5937dd79` and
+re-gated. From this batch on, the gate also diffs jsTyping's unique error
+lines against `target/tsgo-pinned`, and refuses on `new_false` or
+`lost_true` > 0.
+
+Re-gated against the batch-11 freeze: types +70 RIGHT / 0 lost / 0 missing,
+diagnostics +23 cases / 0 lost / 0 missing; jsTyping 141 → 127 unique error
+lines (tsgo 86), new_false 0, lost_true 0; tests, fmt and strict clippy
+green. Perf child-CPU new/old: domain-model 1.000. generic-imports read
+1.080 at 21 samples and 0.963/0.949 at 41 against batch 11. Against batch 9
+it reads 1.035/1.075, so a cumulative generic-imports drift since batch 9
+has gone to r7-perf to attribute.
+
+| Suite | Batch 11 | Batch 12 |
+|---|---|---|
+| `checker_types` | 8,799 | 8,807 |
+| `checker_types_configured` | 1,787 | 1,788 |
+| `diagnostics` | 4,896 | 4,908 |
+| `diagnostics_configured` | 981 | 991 |
+
+### Batch 13 — r7-contextual `5c037c96`, r7-declared `8d4c10cc`, r7-flow `ec55197d`, r7-grammar `4f331d0c` minus `1055c38c`, r7-reports `a38c2ffc`, r7-shared `2fd5c9f4`
+
+The first candidate's compare refused two diagnostics losses,
+errorLocationForInterfaceExtension and interfacedeclWithIndexerErrors
+(RIGHT→WRONG). r7-grammar's `1055c38c` checks an interface's extends element
+as a type reference and adds a TS2552 beside native's lone TS2840. That
+commit was reverted on the integration pin and returned to the lane. The
+batch was then re-gated against the batch-12 freeze: types +67 RIGHT / 0 lost /
+0 missing, diagnostics +34 cases / 0 lost / 0 missing; jsTyping new_false 0,
+lost_true 0; tests, fmt and strict clippy green. Perf child-CPU new/old at
+21 samples: domain-model 1.022, generic-imports 0.973. Callgrind Ir
+single-threaded: generic-imports 1.0001, domain-model 1.0011.
+
+**Gate change:** r7-perf showed that the median child CPU swings about 13%
+between binaries with identical instruction counts on this orb (the "batch
+9→12 generic-imports creep" was host noise: Ir −0.08% end to end). From batch
+14 on, callgrind Ir on generic-imports and domain-model (`--singleThreaded`)
+is the deterministic hot-path guard; the timing check stays as a secondary
+signal. `.agents/setup` installs valgrind.
+
+| Suite | Batch 12 | Batch 13 |
+|---|---|---|
+| `checker_types` | 8,807 | 8,811 |
+| `checker_types_configured` | 1,788 | 1,796 |
+| `diagnostics` | 4,908 | 4,927 |
+| `diagnostics_configured` | 991 | 1,003 |

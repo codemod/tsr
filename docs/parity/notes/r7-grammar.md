@@ -137,13 +137,13 @@ gap, `GRAMMAR-EMPTY-TYPE-PARAMETER-OR-ARGUMENT-LIST`).
 `member.Name()` when `ast.IsComputedNonLiteralName`; a computed name whose
 expression is a string, no-substitution template or numeric literal is named
 by its text and goes through the numeric-name arm (TS2452). Ported in
-`check_enum_member_name`. Upstream's `checkEnumMember` never checks the name,
-so its expression is never resolved. This port's check walk resolves every
-value identifier, so `[e]` still draws TS2552/TS2304 and the five cases stay
-WRONG on that extra line. The faithful hook is a third arm in
-`names_in_unchecked_region` (`name_slots.rs`, not this lane's): a
-`ComputedPropertyName` whose parent is an `EnumMember` is a region native never
-checks. Routed in the report.
+`check_enum_member_name`. Upstream's `checkEnumMember` never checks the name, so its expression is
+never resolved; this port's check walk resolves every value identifier, so
+`[e]` drew TS2552/TS2304. The integrator granted `name_slots.rs`'s
+`names_in_unchecked_region`, which now has a third arm: a
+`ComputedPropertyName` whose parent is an `EnumMember` is a region native
+never checks. With it the five cases convert (`parserComputedPropertyName16`,
+`26`, `30`, `34`, `parserES5ComputedPropertyName6(target=es2015)`).
 
 ## §4 `tsr-2zk.1258`: two diagnostics reported from the wrong checker
 
@@ -264,3 +264,155 @@ for each decorator of a declaration that `NodeCanBeDecorated` accepts;
 to is the calls lane's. Verified against `target/tsgo-pinned` on a scratch
 file; `esDecorators-decoratorExpression.1` still has parse errors on this
 base and converts once r7-parser's decorator-expression parsing lands.
+
+## §9 `checkGrammarAwaitOrAwaitUsing` on `NodeFlagsAwaitContext` (CHECK-GRAMMAR-AWAIT-YIELD-CONTEXT)
+
+**Forcing fact.** The function's arms were spread over three stand-ins:
+`check_await_in_non_async_function` and `check_for_await_context`
+(`check.rs`), which read "the containing function has no `async` modifier"
+in place of `NodeFlagsAwaitContext` and special-cased property initializers
+(§613), `check_await_in_parameter_initializer` (`check.rs`), and
+`check_top_level_await` (`module_format.rs`), whose top-level arm ran with no
+`AwaitContext` test at all, so a top-level `await` the parser reparses
+reported TS1378. The class-static-block arms (TS18037, TS18054, TS18038) had
+no emitter. r7-parser `1321f0aa` stamps `NodeFlags::AWAIT_CONTEXT` on every
+node finished in an await context (`finishNode`'s `contextFlags`), which is
+the flag the function reads.
+
+**Port** (`module_format.rs`):
+- `check_grammar_await_or_await_using` is the function whole, for an
+  `AwaitExpression` (`checkAwaitExpression`, `checker.go:10846`) and for an
+  `await using` list: the static-block arm (`c.error`, no parse-error gate),
+  the `AwaitContext` gate with the top-level arms (`check_top_level_await`)
+  and the TS1308/TS2852 arm with TS1356 related at a non-constructor,
+  non-`async` container, and TS2524.
+- `check_for_await_grammar` is `checkGrammarForInOrForOfStatement`'s
+  `for await` arms behind the same gate (top level, or TS1103 with TS1356
+  related at `GetContainingFunction`) and `checkForOfStatement`'s TS18038.
+- `checkGrammarVariableDeclarationList`'s last step: `grammar.rs`'s list
+  check now ends in `check_await_using_declaration_list` when no earlier arm
+  reported. In a file with parse diagnostics every earlier arm (and the
+  `checkGrammarModifiers` gate) is a silent `false` upstream, so the tail
+  always runs there; this port skips its list check wholesale in such a file,
+  so `module_format.rs` asks the tail directly for statement and `for`-head
+  lists in that case.
+- The `await` of `await using` is eaten by this parser, so its position is
+  recovered as before (`await_using_keyword_start`, or the token in front of
+  a `for`-head list).
+- The dispatch (`check_await_grammar_of`) runs ahead of
+  `check_module_format`'s `module: none` return: the grammar is not a
+  module-format check, and the top-level arm reads the module kind itself.
+
+**Held: `binder.go:1311`'s TS1359 arm** (`await` as an identifier in an
+`AwaitContext`, `strict_mode.rs`'s `check_contextual_identifier`). Ported and
+measured on this base at 15 cases gained and 8 lost: `var v: await;` inside an
+async function (`asyncFunctionDeclaration13`, `asyncArrowFunction10`,
+`parser.asyncGenerators.*`, `awaitAsTypeIsOk`) drew TS1359 because this
+parser's `parse_type` does not clear the await and yield contexts
+(`parseType`'s `setContextFlags(NodeFlagsTypeExcludesFlags, false)`,
+`parser.go:2608`), so a type's identifiers carry `AWAIT_CONTEXT`. Routed to
+r7-parser; the arm lands once types are parsed outside the contexts. The
+`yield` arm and `checkGrammarYieldExpression`'s TS1163 read
+`NodeFlagsYieldContext`, which the parser now stamps, and wait on the same fix.
+
+`topLevelAwaitErrors.1`'s TS2863 on `string` in `class C extends await<string>`
+was first read as a `check.rs` decline; r7-parser's dump of native's tree shows
+`string` is the class's only base expression, and r7-parser `f44a4956`
+converts the case. Nothing here.
+
+## §10 A private set accessor is checked for use
+
+`checkUnusedClassMembers` (`checker.go:7115`) skips a set accessor only when
+its symbol also has `GetAccessor` ("Already would have reported an error on
+the getter"); `check_unused_class_members` skipped every set accessor, so a
+lone private setter was never reported (`unusedSetterInClass`). And
+`markPropertyAsReferenced` (`checker.go:27718`) drops a write-only access
+*unless the property is a set accessor*, so a write keeps a setter used where
+it leaves a field unread. The member-name pass records write-only accesses
+under their own key (`member_write_key`), read only for set accessors, with
+the same self-access rule as reads. Converted: `unusedSetterInClass(target=es2015)`.
+
+## §11 `#x in obj` reads `#x`
+
+`checkPrivateIdentifierExpression` (`checker.go:7837`), which `#x in obj`
+reaches for its left operand, calls `markPropertyAsReferenced` with no
+write-only node and `isSelfTypeAccess` false, so a private member used only
+as a brand check is not unused. The member-name pass (`note_member_name_at`)
+now records a private identifier that is a binary expression's operand.
+Converted: `privateNameInInExpressionUnused` (es2022, esnext).
+
+## §12 `export { undefined }` resolves before it is judged global
+
+`checkExportSpecifier` (`checker.go:5563`) resolves the exported name and
+reports TS2661 when the symbol *is* `c.undefinedSymbol` or
+`c.globalThisSymbol`, or is declared in a script. `check_export_specifier_is_local`
+(`meaning_mismatch.rs`) took the spellings `undefined` and `globalThis` as
+global before resolving, so a module's own `var undefined` re-exported drew
+TS2661 (`reExportUndefined2`). It now resolves first: the binder's synthesised
+`undefined` symbol is the global one; an unresolved `globalThis` still stands
+for upstream's `globalThisSymbol`, which this port does not synthesise.
+
+## §13 `checkGrammarModuleElementContext` for every caller (CHECK-MODULE-ELEMENT-CONTEXT-GRAMMAR)
+
+`check_grammar_module_element_context` (`grammar.rs`, replacing `check.rs`'s
+namespace-only version) is `checkGrammarModuleElementContext`
+(`grammarchecks.go:206`) with each caller's message:
+`checkModuleDeclaration` (TS2435 for an ambient module, TS1235 for a
+namespace; the ambient arm had been declined), `checkImportDeclaration` and
+`checkImportEqualsDeclaration` (TS1232, TS1473 in JavaScript),
+`checkExportDeclaration` (TS1233, TS1474 in JavaScript), on the statement's
+first token. It answers `true` in an illegal context whether or not parse
+diagnostics silence the report, and each caller bails out. This port's
+callers that sit behind the bail-out now read it: TS1191/TS1193 and the
+declaration's grammar (`checkGrammarImportClause`, `checkGrammarExportDeclaration`,
+TS1392), `check_export_declaration_in_namespace` (TS1194) and the specifier
+checks (`check_export_specifier_is_local`, TS2661). Other checks this port
+runs on such a declaration from elsewhere in the walk (module resolution,
+alias checks) are not gated; no corpus case pairs them with an illegal
+context. Converted: `moduleElementsInWrongContext`,
+`moduleElementsInWrongContext3`.
+
+## §14 TS2844 for a constructor-local reference in a property's type
+
+`checkAndReportErrorForInvalidInitializer` (`checker.go:1514`) chooses
+`Type of instance member variable '{0}' cannot reference identifier '{1}'
+declared in the constructor` (TS2844) over the initializer message (TS2301)
+when the reference sits inside the property's type annotation
+(`prop.Type.Loc.ContainsInclusive(errorLocation.Pos())`, `:1522`).
+`check_value_identifier` (`check.rs`, granted) reported TS2301 for both.
+Converted: `initializerReferencingConstructorParameters`.
+
+## §15 An interface's `extends` element is a type reference
+
+`checkInterfaceDeclaration` (`checker.go:5023`) runs `checkTypeReferenceNode`
+on each `extends` element, so a namespace there is TS2709 and a value TS2749
+(`moduleAsBaseType`). The type-name reporter in `check.rs` (granted) admitted
+an `ExpressionWithTypeArguments` only under a class's `implements` clause; it
+now admits an interface's `extends` clause too. A class's `extends` stays a
+value (`checkClassLikeDeclaration` checks its expression) and an interface's
+`implements` stays TS1176 only. Matches `target/tsgo-pinned` on a scratch file
+covering a namespace, an unresolved name (TS2304, not doubled) and a value.
+Converted: `moduleAsBaseType`.
+
+## §16 TS18011: `delete` of a private name
+
+`checkDeleteExpression` (`checker.go:10811`) reports
+`The operand of a 'delete' operator cannot be a private identifier` for a
+property access whose name is a private identifier, then goes on to its
+symbol arms. `delete_operand.rs` (granted) had only the symbol arms.
+Converted: `privateNamesNoDelete`.
+
+## §17 `checkGrammarYieldExpression` on `NodeFlagsYieldContext`
+
+With the parser stamping `NodeFlagsYieldContext` and building a
+`YieldExpression` only where `isYieldExpression` does (r7-parser `f44a4956`),
+`check_grammar_yield_expression` (`grammar.rs`) is
+`checkGrammarYieldExpression` (`grammarchecks.go:1777`) whole: TS1163 on the
+`yield` keyword without the flag, and TS2523 (`c.error`) in a parameter
+initializer. It replaces `check.rs`'s `check_yield_grammar` (an ancestor walk
+for a generator with three operand-shape bounds standing in for the parser's
+yield context) and `check_yield_in_parameter_initializer` (the same bounds).
+A decorator is parsed in its class's enclosing context, so
+`@(yield "")` in a generator is legal (`generatorTypeCheck59`), and an enum
+member initializer is parsed outside it (`awaitAndYield`). Converted:
+`awaitAndYield`, `generatorTypeCheck59`.

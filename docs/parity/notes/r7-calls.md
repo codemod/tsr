@@ -318,3 +318,80 @@ are overloaded tags: the shifted-candidate selection in
 `check_tagged_template_expression` (TS2769/TS2741/TS2551).
 
 Coverage bin on the commit: `diagnostics` 4,853/5,502; type suites unchanged.
+
+## 7. Decorators resolve as calls (RESOLVE-DECORATOR-CALL-ERRORS)
+
+**Forcing constraint.** `resolveDecorator` (`checker.go:8743`) and
+`checkDecorator` (`checker.go:6061`) were unported: no decorator ever
+reported TS1238/TS1239/TS1240/TS1241 (resolution under the declaration
+kind's head), TS1329 (potentially uncalled), or TS1270/TS1271 (return type).
+`decorators.rs` already computed the decorator call signature
+(`getDecoratorCallSignature`, `checker.go:30155`) for contextual typing.
+
+**Port** (`calls.rs` `check_decorator_diagnostics`, dispatched from
+`check.rs`'s node walk by the one arm the integrator granted):
+
+- `checkDecorators`' gate: `NodeCanBeDecorated` (the shared
+  `node_can_be_decorated`; a legacy private-named member is TS1206's alone,
+  privateNamesAndDecorators);
+- `resolveDecorator`: the untyped call; `isPotentiallyUncalledDecorator`
+  with `getDecoratorArgumentCount` (`checker.go:9183`), TS1329 at the
+  decorator, spelled from the dotted name (the checker holds no source text,
+  so another expression shape declines); no call signature
+  (`invocationErrorDetails` chained under the head);
+- `resolveCall` over `getEffectiveDecoratorArguments` (`checker.go:30142`):
+  synthetic arguments typed by the decorator call signature's parameters,
+  `reorderCandidates`, then `hasCorrectArity` with the decorator argument
+  count. No candidate of the right arity is `getArgumentArityError` with the
+  decorator messages (`The_runtime_will_invoke_the_decorator_with…`) and the
+  decorator as `getErrorNodeForCallNode`'s node; a single non-generic
+  candidate is reported by `call_reports.rs`. Every report is chained under
+  the head with `Diagnostic::new_chain` (`chain_reports_under`);
+- `checkDecorator`'s return check against the decorator call signature's
+  return type, TS1270, or TS1271 for a legacy property or parameter
+  decorator, over the resolved candidate (the single candidate itself when
+  resolution failed, `getCandidateForOverloadFailure`).
+
+`decorators.rs` gains `decorator_call_signature`, which reads the signature
+off the function type `contextual_type_for_decorator` already publishes for
+the declaration. It adds no cache, owner or traversal (the existing
+`DecoratorTypes` cache is the one key).
+
+**Synthetic arguments are not elaborated.** Native `elaborateError` never
+elaborates a `SyntheticExpression`, so `report_signature_applicability` now
+relates a synthetic argument (a decorator's, a tagged template's strings
+array, a spread tuple's element) and reports it through
+`report_relation_failure` with no source node. Before, a synthetic argument
+went through `report_argument_failure`, which elaborates at the node it is
+given: for a decorator that is the decorator expression, an arrow function
+in `@((a: any) => {})`. The same change reads `ReportArgument::Synthetic`'s
+`spread` flag (`checkSyntheticExpression`: a spread synthetic is its element
+type).
+
+**Declines, stated:**
+
+- a generic or overloaded decorator after its arity pass: inference over
+  synthetic arguments (`inferTypeArguments` with no argument expressions) is
+  not ported (decoratorCallGeneric, decoratorOnClassMethod8's TS1270);
+- a candidate with a `this` parameter;
+- the return check when the relation is undecided. ES member decorators'
+  expected returns hold `decorator_function_type`'s function types, which
+  are `TypeData::Named` with `signature_types`, not anonymous function types
+  the relater decides, so potentiallyUncalledDecorators' member TS1270s stay
+  missing. Re-minting them as `TypeData::Anonymous` needs a symbol choice
+  for a type native creates symbol-less, and moves the contextual types
+  those same types serve. It is a separate measured change.
+
+The detail chain of `invocationErrorDetails` ("Type 'typeof CtorDtor' has no
+call signatures") is not built (`invocation_error` emits the head only).
+
+**Measured** against `f2f6696f`: diagnostics +12, 0 lost; types 0/0.
+Converted: sourceMapValidationDecorators, constructableDecoratorOnClass01,
+decoratorOnClass8, decoratorOnClassConstructor2, decoratorOnClassConstructor3,
+decoratorOnClassConstructorParameter1, decoratorOnClassMethod10,
+decoratorOnClassMethod6, decoratorOnClassProperty11, decoratorOnClassProperty6,
+decoratorOnClassProperty7, esDecorators-arguments. A first draft without the
+`NodeCanBeDecorated` gate lost privateNamesAndDecorators (TS1240/TS1241 on a
+legacy private-named member, which native never checks). Perf (21 samples):
+domain-model 1.002, generic-imports 1.005. Coverage: `diagnostics` 4,869,
+`diagnostics_configured` 981.

@@ -5915,6 +5915,11 @@ impl<'a> Checker<'a, '_> {
         {
             return image;
         }
+        if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id))
+            && let Some(image) = self.new_alias_union_instantiation(result, symbol, alias)
+        {
+            return image;
+        }
         if let Some(alias) = node.node_id.and_then(|id| self.alias_symbol_for_type_node(id)) {
             return self.new_alias_instantiation(result, symbol, alias);
         }
@@ -6034,6 +6039,56 @@ impl<'a> Checker<'a, '_> {
         let image = self.store.intern_intersection(
             self.store.get(result).flags,
             crate::types::TypeData::Intersection { types, text, symbol: Some(alias) },
+        );
+        self.type_reference_targets.insert(image, (target, arguments));
+        self.alias_of.insert(image, (alias, Vec::new()));
+        self.deferred_alias_references.insert((alias, result), image);
+        Some(image)
+    }
+
+    /// [`Self::new_alias_intersection_instantiation`]'s union twin:
+    /// instantiateTypeWorker hands the new alias to getUnionType
+    /// (`checker.go:22176`), so `type IStringContainer = Container<string>`
+    /// over `type Container<T> = T | { [i: string]: Container<T> }` declares
+    /// the union printed `IStringContainer`. The target's aliased union
+    /// (the union arm of [`Checker::create_type_reference`]) is re-created
+    /// under the declaring alias's name with the same constituents;
+    /// `type_reference_targets` keeps the canonical pair and `alias_of`
+    /// records the new alias. Cache: `deferred_alias_references[(alias,
+    /// canonical)]`. `None` for anything else (r7-declared §10).
+    fn new_alias_union_instantiation(
+        &mut self,
+        result: TypeId,
+        symbol: SymbolId,
+        alias: SymbolId,
+    ) -> Option<TypeId> {
+        let crate::types::TypeData::Union { types, symbol: Some(owner), .. } =
+            self.store.get(result).data.clone()
+        else {
+            return None;
+        };
+        if owner != symbol
+            || !self.local_type_parameters_of(alias).is_empty()
+            || !matches!(
+                self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::UnionTypeNode(_))
+            )
+        {
+            return None;
+        }
+        let (target, arguments) = self.type_reference_targets.get(&result).cloned()?;
+        if target != symbol {
+            return None;
+        }
+        if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
+            return Some(cached);
+        }
+        let text = self.binder.symbols().get(alias).name.to_string();
+        let image = crate::unions::create_union(
+            &mut self.store,
+            TypeFlags::empty(),
+            types,
+            Some((alias, text)),
         );
         self.type_reference_targets.insert(image, (target, arguments));
         self.alias_of.insert(image, (alias, Vec::new()));
@@ -7328,6 +7383,68 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// getTypeAliasInstantiation (checker.go:23641) over a declared type that
+    /// is a union: instantiateTypeWithAlias maps the union's constituents and
+    /// hands the alias to getUnionType (`checker.go:22176`), so `R<number>`
+    /// over `type R<T> = string | ((i: T) => any)` IS `string | ((i:
+    /// number) => any)` printed `R<number>`. This port minted a print-only
+    /// `Named` for any union body outside the closed literal slice, which no
+    /// structural reader could see into (contextual typing through
+    /// `React.Ref<C>` answered nothing). Admitted: a union body
+    /// (parentheses skipped) at full arity, not already being instantiated,
+    /// whose constituents are keywords, literals and function or constructor
+    /// types. That is the slice measured with no loss. Admitting every union
+    /// body measured +79 / −13 types and +4 / −1 diagnostics. Those losses
+    /// are other readers of the named mint (r7-declared §10), so the wider
+    /// slice waits on them.
+    fn is_union_alias_body(&self, symbol: SymbolId, arguments: &[TypeId]) -> bool {
+        let Some(TypeNode::UnionTypeNode(union)) =
+            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)
+        else {
+            return false;
+        };
+        !arguments.is_empty()
+            && self.local_type_parameters_of(symbol).len() == arguments.len()
+            && !self.instantiation_expressions.union_alias_in_progress.contains(&symbol)
+            && union.types.iter().all(|&constituent| {
+                matches!(
+                    Self::skip_type_parentheses(constituent),
+                    Some(
+                        TypeNode::KeywordTypeNode(_)
+                            | TypeNode::LiteralTypeNode(_)
+                            | TypeNode::FunctionTypeNode(_)
+                            | TypeNode::ConstructorTypeNode(_)
+                    )
+                )
+            })
+    }
+
+    /// [`Checker::evaluate_alias_body`] for the indexed and union arms of
+    /// [`Checker::create_type_reference`]. A union body's instantiation is
+    /// guarded per alias symbol: a reference to the alias met while its own
+    /// constituents are instantiated (`type Tree<T> = T | { left: Tree<T> }`)
+    /// is one native reaches only through a lazily resolved member, so it
+    /// keeps the named mint rather than recursing. Key: the alias symbol;
+    /// owner: `instantiation_expressions.union_alias_in_progress`; inserted
+    /// before the body is evaluated, removed after; never published.
+    fn evaluate_union_or_indexed_alias_body(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+        union_body: bool,
+    ) -> Option<TypeId> {
+        if !union_body {
+            return self.evaluate_alias_body(symbol, arguments);
+        }
+        self.instantiation_expressions.union_alias_in_progress.insert(symbol);
+        let evaluated = self.evaluate_alias_body(symbol, arguments);
+        self.instantiation_expressions.union_alias_in_progress.remove(&symbol);
+        evaluated.filter(|&evaluated| {
+            !self.is_gap(evaluated)
+                && matches!(self.store.get(evaluated).data, crate::types::TypeData::Union { .. })
+        })
+    }
+
     /// A closed concrete slice of native getTypeAliasInstantiation (5b1047d).
     /// Prove dependencies before entering the existing alias worker: its
     /// Checker-local (symbol, ordered arguments) key omits captured frames and
@@ -7684,8 +7801,10 @@ impl<'a> Checker<'a, '_> {
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
             && alias.r#type.is_some()
             && let indexed = self.alias_body_is_indexed_access(symbol, 0)
-            && (indexed || self.is_closed_literal_union_alias(symbol, &arguments))
-            && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
+            && let union_body = (!indexed && self.is_union_alias_body(symbol, &arguments))
+            && (indexed || union_body || self.is_closed_literal_union_alias(symbol, &arguments))
+            && let Some(evaluated) =
+                self.evaluate_union_or_indexed_alias_body(symbol, &arguments, union_body)
         {
             let text = self.type_reference_text(symbol, &arguments);
             // getTypeAliasInstantiation hands a new alias only to a body that

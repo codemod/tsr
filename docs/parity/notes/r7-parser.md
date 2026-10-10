@@ -167,12 +167,71 @@ parser" is superseded by this. The parser still does not report
 `checkJSSyntax`'s TypeScript-only-syntax diagnostics (`:6696`); routed to
 this lane by r7-grammar, queued.
 
-## 5. Measurements
+## 5. `parseFunctionBlockOrSemicolon`'s missing body
+
+Native's `parseFunctionBlockOrSemicolon` (`parser.go:3481`) returns no body
+only at a `;` or an ASI point. Otherwise it calls `parseFunctionBlock` →
+`parseBlock`, and when the `{` is missing, that returns an empty `Block` that
+covers no text (`createMissingList`, pos == end at the next token's full
+start). The checker then asks two different questions of that body
+(r5-smallcodes3 §4.1 measured both):
+
+- `Body() == nil` — `checkFunctionOrConstructorSymbol`'s last test
+  (`checker.go:3681`). The body exists, so there is no TS2391.
+- `ast.NodeIsMissing(body)` / `NodeIsPresent` — `getReturnTypeOfSignature`
+  (return type `any`), `checkFunctionOrMethodDeclaration`'s TS7010, and
+  `checkFunctionOrConstructorSymbolWorker`'s `bodyIsPresent` (`:3627`) and
+  `reportImplementationExpectedError`'s subsequent-body test. The body is
+  missing, so the declaration counts as an overload.
+
+This port returned `None`, which answers both questions "no body". The
+parser half builds the empty block, zero-width at `node_end()` (it also
+corrects `parse_block_ex`'s missing-brace span, which ran from the next
+token's start back to the previous token's end). The checker half, granted by
+the integrator for this commit only, makes the four `NodeIsMissing` readers
+test the block's zero width: `signatures.rs`' return-type arm,
+`implicit_any.rs::check_implicit_any_return`, and in `check.rs` the
+`bodyIsPresent` test and `report_implementation_expected`'s subsequent-body
+test (both native `checkFunctionOrConstructorSymbolWorker`).
+
+`check_implicit_any_return` also stops answering for object-literal methods.
+TSR's walk calls it for every `MethodDeclaration`. Native reaches
+`checkFunctionOrMethodDeclaration` only for class members through
+`checkSourceElement`; an object-literal method goes through
+`checkObjectLiteralMethod` (`checker.go:13865`), which never asks TS7010.
+Before this commit the two agreed only by accident, because the object-literal
+body was a recovery block with an inverted span that never read as missing.
+
+Measured: diagnostics +8 (dottedModuleName, reservedWords3,
+destructuringParameterDeclaration6, objectTypesWithOptionalProperties2,
+parser.asyncGenerators.classMethods.es2018, parserErrantEqualsGreaterThan
+AfterFunction1/2, parserSkippedTokens16), types +18, 0 lost. The three
+losses of the first draft (overloadConsecutiveness,
+objectLiteralMemberWithoutBlock1, FunctionPropertyAssignments4_es6) were
+the subsequent-body reader and the object-literal dispatch above.
+
+Still open in the cluster: parser.asyncGenerators.objectLiteralMethods
+(`async * x: 1;` — native reads `: 1` as a return type), and
+parserErrorRecovery_ParameterList6 (`x: break` — native's
+`parseTypeReference` admits a reserved word as the type name; this port's
+`parse_non_array_type` reports TS1110 because of the type-parameter-list
+recovery noted there).
+
+## 5a. Types parse outside the yield and await contexts
+
+`parseType` (`parser.go:2606`) clears `NodeFlagsTypeExcludesFlags`
+(`YieldContext | AwaitContext`) for the whole type. Without it, `var v:
+await` in an async function stamped `NodeFlagsAwaitContext` on the type
+reference, which the binder's TS1359 arm and `checkGrammarYieldExpression`
+read (routed by r7-grammar). No dump moves on its own: it unblocks those
+checker ports.
+
+## 6. Measurements
 
 See the commit messages and the box-protocol §6 reports for per-commit
-numbers; §6 below keeps the running table.
+numbers; §7 below keeps the running table.
 
-## 6. Running table
+## 7. Running table
 
 | commit | port | diag cases | types lines | perf (CPU ratio, dm / gi) |
 |---|---|---|---|---|
@@ -180,4 +239,6 @@ numbers; §6 below keeps the running table.
 | `1321f0aa` | §2 top-level await reparse | +4 / −0 | +460 / −0 | 1.009 / 1.008 |
 | `f44a4956` | §3 yield context | +10 / −0 | +95 / −0 | 0.992 / 1.007 (vs `1b466dc8`) |
 | `41c141b2` | `ParseOptions::module_indicator` | 0 | 0 | — |
-| (this) | §4 JavaScript JSX variant | +4 / −0 | +29 / −0 | see report |
+| `2d64b1ee` | §4 JavaScript JSX variant | +4 / −0 | +29 / −0 | 1.000 / 0.967 |
+| `696d4c4f` | §5 missing function body | +8 / −0 | +18 / −0 | 1.009 / 1.002 |
+| (this) | §5a type contexts | 0 | 0 | — |

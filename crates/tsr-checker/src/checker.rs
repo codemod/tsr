@@ -3222,6 +3222,93 @@ impl<'a, 'n> Checker<'a, 'n> {
         Some(out)
     }
 
+    /// `getTypeNameForErrorDisplay` (`relater.go:1297`):
+    /// `typeToStringEx(t, nil, TypeFormatFlagsUseFullyQualifiedType)`, the
+    /// spelling `reportRelationError` uses when a source and a target print
+    /// alike (TS2719). With no enclosing declaration `lookupSymbolChainWorker`
+    /// still builds a chain (`nodebuilderimpl.go:1070`), but
+    /// `someSymbolTableInScope` visits only `c.globals`, so a name is
+    /// accessible only as a global and otherwise qualified by its containers
+    /// up to a global or a module, whose specifier is its file's name
+    /// (`getSpecifierForModuleSymbol` with no `enclosingFile`,
+    /// `nodebuilderimpl.go:1265`).
+    ///
+    /// Reduced to the outer name of a reference, a class or interface, an
+    /// alias-named composite or an enum: a type parameter prints bare (no
+    /// chain, `nodebuilderimpl.go:1069`), and type arguments and members keep
+    /// their site-free print (r7-printer §7). No cache.
+    // Consumer: r7-reports' TS2719 arm of `reportRelationError`
+    // (`relater.rs`), routed by the integrator; until it lands, the
+    // printing test below is the only caller.
+    #[allow(dead_code)]
+    pub(crate) fn type_name_for_error_display(&mut self, id: TypeId) -> String {
+        let printed = self.type_to_string(id);
+        if self.type_parameter_symbols.contains_key(&id) {
+            return printed;
+        }
+        let symbol = match &self.store.get(id).data {
+            crate::types::TypeData::Named { members, .. } => *members,
+            crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            crate::types::TypeData::Union { symbol, .. }
+            | crate::types::TypeData::Intersection { symbol, .. } => *symbol,
+            _ => None,
+        };
+        let Some(symbol) = symbol else { return printed };
+        let name = self.binder.symbols().get(symbol).name;
+        let span = Self::split_around_qualified_name(&printed, name).or_else(|| {
+            let end = Self::split_around_name(&printed, name)?;
+            Some((end - name.len(), end))
+        });
+        let (Some((start, end)), Some(qualified)) =
+            (span, self.fully_qualified_symbol_text(symbol))
+        else {
+            return printed;
+        };
+        format!("{}{qualified}{}", &printed[..start], &printed[end..])
+    }
+
+    /// The chain [`Checker::type_name_for_error_display`] spells: the
+    /// symbol's own name when the global table holds it, else its container's
+    /// chain followed by it; a file module roots it as
+    /// `import("<file name>")`, an ambient module as `import("<name>")`.
+    #[allow(dead_code)]
+    fn fully_qualified_symbol_text(&self, symbol: SymbolId) -> Option<String> {
+        let mut parts: Vec<String> = Vec::new();
+        let mut current = self.binder.merged_symbol(symbol);
+        for _ in 0..Self::MAX_SYMBOL_CHAIN {
+            let entry = self.binder.symbols().get(current);
+            parts.push(entry.name.to_string());
+            if self
+                .binder
+                .globals()
+                .get(entry.name)
+                .is_some_and(|&global| self.binder.merged_symbol(global) == current)
+            {
+                break;
+            }
+            let Some(parent) = entry.parent.map(|parent| self.binder.merged_symbol(parent)) else {
+                break;
+            };
+            if self.is_module_symbol(parent) {
+                let file =
+                    self.binder.symbols().get(parent).declarations.iter().copied().find(
+                        |&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile,
+                    )?;
+                let path = self.module_host.and_then(|host| host.file_path(file))?;
+                parts.push(format!("import({})", crate::printing::quote(&path)));
+                break;
+            }
+            if self.is_ambient_module(parent) {
+                let module = tsr_core::strip_quotes(self.binder.symbols().get(parent).name);
+                parts.push(format!("import({})", crate::printing::quote(module)));
+                break;
+            }
+            current = parent;
+        }
+        parts.reverse();
+        Some(parts.join("."))
+    }
+
     /// Where a dotted entity name ending in `name` sits in `printed`, if
     /// `printed` is `Q1.….name`, possibly under `typeof` and possibly with
     /// type arguments: `(start, end)` of the whole dotted path. `None` for a

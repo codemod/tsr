@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1787/1928 (92.69%)
-Assertion lines: 77809/78552 (99.05%)  — a gradient, not a pass rate
-Failed         : 141
+Passed         : 1796/1928 (93.15%)
+Assertion lines: 77857/78552 (99.12%)  — a gradient, not a pass rate
+Failed         : 132
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 141 failures:
+First 100 of 132 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -82,10 +82,6 @@ compiler/divergentAccessorsTypes3(target=es2015)
   divergentAccessorsTypes3.ts: >u1.prop1 : string — expected >u1.prop1 : string | number
 compiler/downlevelLetConst16(target=es2015)
   downlevelLetConst16.ts: >y : any — expected >y : undefined
-compiler/duplicateIdentifierBindingElementInParameterDeclaration1(target=es2015)
-  duplicateIdentifierBindingElementInParameterDeclaration1.ts: >f7 : any — expected >f7 : (a: any, func?: (a: any) => number) => void
-compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)
-  duplicateIdentifierBindingElementInParameterDeclaration2.ts: >f7 : any — expected >f7 : (a: any, func?: (a: any) => number) => void
 compiler/duplicateObjectLiteralProperty(target=es2015)
   duplicateObjectLiteralProperty.ts: >y : { a: number; } — expected >y : { readonly a: number; }
 compiler/es5-yieldFunctionObjectLiterals(target=es2015)
@@ -227,4 +223,8 @@ conformance/nodeModulesCjsFormatFileAlwaysHasDefault(module=node18)
 conformance/nodeModulesCjsFormatFileAlwaysHasDefault(module=node20)
   index.ts: >mod : any — expected >mod : typeof mod
 conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node16)
+  /index.ts: >b : import("pkg").ImportInterface — expected >b : import("./node_modules/pkg/import").ImportInterface
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node18)
+  /index.ts: >b : import("pkg").ImportInterface — expected >b : import("./node_modules/pkg/import").ImportInterface
+conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node20)
   /index.ts: >b : import("pkg").ImportInterface — expected >b : import("./node_modules/pkg/import").ImportInterface

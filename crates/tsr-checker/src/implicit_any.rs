@@ -835,21 +835,40 @@ impl Checker<'_, '_> {
         if !self.no_implicit_any {
             return;
         }
+        // An object-literal method never reaches this arm: native checks it
+        // through `checkObjectLiteralMethod` (`checker.go:13865`), not
+        // `checkFunctionOrMethodDeclaration`, which `checkSourceElement`
+        // reaches only for a class member. Its body is the parser's empty
+        // recovery `Block` when the `{` is missing (`{ foo(); }`), which reads
+        // as missing below.
+        if self.nodes.kind(node) == SyntaxKind::MethodDeclaration
+            && self.nodes.parent(node).is_some_and(|parent| {
+                self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression
+            })
+        {
+            return;
+        }
         let private_name = |name: tsr_ast::PropertyName<'_>| {
             matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
+        };
+        // `ast.NodeIsMissing(body)`: no body, or the parser's empty recovery
+        // `Block` for a body whose `{` was missing, which covers no text.
+        let missing = |body: Option<tsr_ast::FunctionBody<'_>>| {
+            body.and_then(|body| tsr_ast::Node::from(body).node_id())
+                .is_none_or(|id| self.nodes.span(id).is_empty())
         };
         let (annotation, body_is_missing, modifiers, name, name_is_private_identifier) =
             match self.node_map.get(node) {
                 Some(Node::FunctionDeclaration(n)) => (
                     n.r#type,
-                    n.body.is_none(),
+                    missing(n.body),
                     n.modifiers,
                     n.name.map(|name| name.text.to_string()),
                     false,
                 ),
                 Some(Node::MethodDeclaration(n)) => (
                     n.r#type,
-                    n.body.is_none(),
+                    missing(n.body),
                     n.modifiers,
                     crate::check::declaration_name_to_string(n.name),
                     private_name(n.name),

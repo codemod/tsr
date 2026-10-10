@@ -671,10 +671,18 @@ impl Checker<'_, '_> {
     }
 
     /// `Checker.checkGrammarVariableDeclarationList` (`grammarchecks.go:1646`)
-    /// without its ambient arm (the parser does not set `NodeFlags::AMBIENT`)
-    /// and its trailing `checkGrammarAwaitOrAwaitUsing`, which is reported
-    /// elsewhere. Returns whether it reported.
+    /// without its ambient arm (the parser does not set `NodeFlags::AMBIENT`).
+    /// Its last step, `checkGrammarAwaitOrAwaitUsing` for an `await using`
+    /// list, runs when no earlier arm reported (`module_format.rs`). Returns
+    /// whether it reported.
     pub(crate) fn check_grammar_variable_declaration_list(&mut self, list: NodeId) -> bool {
+        self.check_grammar_variable_declaration_list_arms(list)
+            || self.check_await_using_declaration_list(list)
+    }
+
+    /// The arms of [`Checker::check_grammar_variable_declaration_list`]
+    /// before its `await using` tail.
+    fn check_grammar_variable_declaration_list_arms(&mut self, list: NodeId) -> bool {
         if self.report_disallowed_trailing_comma(list, &messages::TRAILING_COMMA_NOT_ALLOWED) {
             return true;
         }
@@ -2994,5 +3002,95 @@ impl Checker<'_, '_> {
         )));
         self.report(file, diagnostic);
         true
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarModuleElementContext` (`grammarchecks.go:206`)
+    /// with each caller's message: `checkModuleDeclaration` (`checker.go:5146`,
+    /// an ambient module or a namespace), `checkImportDeclaration` (`:5274`),
+    /// `checkImportEqualsDeclaration` (`:5465`) and `checkExportDeclaration`
+    /// (`:5507`), the last three with a JavaScript twin. Outside a source
+    /// file, module block or module declaration the statement is reported on
+    /// its first token and the answer is `true` — whether or not parse
+    /// diagnostics silence the report — so each caller "bails out to avoid
+    /// cascading errors". `checkExportAssignment`'s use is
+    /// `check_export_assignment`'s own (`check.rs`).
+    pub(crate) fn check_grammar_module_element_context(&mut self, node: NodeId) -> bool {
+        if !self.module_element_context_is_illegal(node) {
+            return false;
+        }
+        let js = self.in_js_file(node);
+        let message = match self.node_map.get(node) {
+            Some(Node::ModuleDeclaration(module)) => {
+                if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                    || module.keyword.kind == SyntaxKind::GlobalKeyword
+                {
+                    &messages::AN_AMBIENT_MODULE_DECLARATION_IS_ONLY_ALLOWED_AT_THE_TOP_LEVEL_IN_A_FILE
+                } else {
+                    &messages::A_NAMESPACE_DECLARATION_IS_ONLY_ALLOWED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE
+                }
+            }
+            Some(Node::ImportDeclaration(_) | Node::ImportEqualsDeclaration(_)) => {
+                if js {
+                    &messages::AN_IMPORT_DECLARATION_CAN_ONLY_BE_USED_AT_THE_TOP_LEVEL_OF_A_MODULE
+                } else {
+                    &messages::AN_IMPORT_DECLARATION_CAN_ONLY_BE_USED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE
+                }
+            }
+            Some(Node::ExportDeclaration(_)) => {
+                if js {
+                    &messages::AN_EXPORT_DECLARATION_CAN_ONLY_BE_USED_AT_THE_TOP_LEVEL_OF_A_MODULE
+                } else {
+                    &messages::AN_EXPORT_DECLARATION_CAN_ONLY_BE_USED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE
+                }
+            }
+            _ => return false,
+        };
+        self.grammar_error_on_first_token(node, message);
+        true
+    }
+
+    /// `isInAppropriateContext`'s negation: the statement's parent is not a
+    /// source file, module block or module declaration.
+    pub(crate) fn module_element_context_is_illegal(&self, node: NodeId) -> bool {
+        self.nodes.parent(node).is_some_and(|parent| {
+            !matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
+            )
+        })
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarYieldExpression` (`grammarchecks.go:1777`), from
+    /// `checkYieldExpression` (`checker.go:10953`): TS1163 on the `yield`
+    /// keyword when the parser did not stamp `NodeFlagsYieldContext`
+    /// (r7-parser `f44a4956`), and TS2523 with `c.error` in a parameter
+    /// initializer. Answers native's `hasError`.
+    pub(crate) fn check_grammar_yield_expression(&mut self, node: NodeId) -> bool {
+        let mut has_error = false;
+        if !self.nodes.flags(node).contains(NodeFlags::YIELD_CONTEXT) {
+            self.grammar_error_on_first_token(
+                node,
+                &messages::A_YIELD_EXPRESSION_IS_ONLY_ALLOWED_IN_A_GENERATOR_BODY,
+            );
+            has_error = true;
+        }
+        if self.is_in_parameter_initializer_before_containing_function(node)
+            && let Some(file) = self.source_file_of_for_diagnostics(node)
+        {
+            let span = self.nodes.span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::YIELD_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
+                    span,
+                ),
+            );
+            has_error = true;
+        }
+        has_error
     }
 }

@@ -766,6 +766,10 @@ impl Checker<'_, '_> {
                 self.check_tagged_template_diagnostics(node);
                 ambient
             }
+            Node::Decorator(_) => {
+                self.check_decorator_diagnostics(node);
+                ambient
+            }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
                 self.check_type_argument_arity(node);
                 self.check_type_argument_constraints(node);
@@ -853,15 +857,12 @@ impl Checker<'_, '_> {
         // is the statement-level shape and is declined, §103.
         match typed {
             Node::YieldExpression(_) => {
-                self.check_yield_grammar(node);
-                self.check_yield_in_parameter_initializer(node);
+                // `checkGrammarYieldExpression` (`grammar.rs`).
+                self.check_grammar_yield_expression(node);
                 self.check_yield_expression_assignability(node);
             }
-            Node::AwaitExpression(_) => {
-                self.check_await_in_parameter_initializer(node);
-                self.check_await_in_non_async_function(node);
-                self.check_await_operand_awaited(node);
-            }
+            // `checkGrammarAwaitOrAwaitUsing` is `module_format.rs`'s.
+            Node::AwaitExpression(_) => self.check_await_operand_awaited(node),
             Node::ImportSpecifier(_) | Node::ExportSpecifier(_) => {
                 self.report_missing_module_export(node);
                 self.check_circular_import_alias(node);
@@ -893,12 +894,20 @@ impl Checker<'_, '_> {
             Node::ImportEqualsDeclaration(_) => {
                 self.check_alias_symbol(node);
                 self.check_module_hidden_by_local(node);
-                self.check_grammar_import_equals_type_only(node);
+                // `checkImportEqualsDeclaration` bails out on an illegal
+                // context (`checker.go:5465`).
+                if !self.check_grammar_module_element_context(node) {
+                    self.check_grammar_import_equals_type_only(node);
+                }
             }
             Node::ImportDeclaration(n) => {
-                // `!checkGrammarModifiers(node) && node.Modifiers() != nil`
-                // (`checker.go:5278`), on the declaration's first token.
-                if !self.check_grammar_modifiers(node) && !n.modifiers.is_empty() {
+                // `checkGrammarModuleElementContext` bails out first
+                // (`checker.go:5274`); then `!checkGrammarModifiers(node) &&
+                // node.Modifiers() != nil` (`:5278`), on the first token.
+                if !self.check_grammar_module_element_context(node)
+                    && !self.check_grammar_modifiers(node)
+                    && !n.modifiers.is_empty()
+                {
                     self.grammar_error_on_first_token(
                         node,
                         &messages::AN_IMPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
@@ -907,13 +916,18 @@ impl Checker<'_, '_> {
             }
             // `checkExportDeclaration`'s twin (`checker.go:5511`).
             Node::ExportDeclaration(n) => {
-                if !self.check_grammar_modifiers(node) && !n.modifiers.is_empty() {
-                    self.grammar_error_on_first_token(
-                        node,
-                        &messages::AN_EXPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
-                    );
+                if self.check_grammar_module_element_context(node) {
+                    // "If we hit an export in an illegal context, just bail
+                    // out to avoid cascading errors" (`checker.go:5507`).
+                } else {
+                    if !self.check_grammar_modifiers(node) && !n.modifiers.is_empty() {
+                        self.grammar_error_on_first_token(
+                            node,
+                            &messages::AN_EXPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
+                        );
+                    }
+                    self.check_grammar_export_declaration(node);
                 }
-                self.check_grammar_export_declaration(node);
             }
             Node::ConstructorDeclaration(n) => {
                 self.check_constructor_type_parameters(n);
@@ -1028,7 +1042,6 @@ impl Checker<'_, '_> {
             self.check_for_in_right_operand(node);
             self.check_for_in_reference_expression(node);
             self.check_for_in_or_of_declarations(node);
-            self.check_for_await_context(node);
             self.check_for_of_iteration(node);
             self.check_for_of_reference_assignment(node, ambient);
             self.check_for_of_reference_target(node);
@@ -1086,10 +1099,16 @@ impl Checker<'_, '_> {
             }
             _ => {}
         }
-        if matches!(typed, Node::ExportDeclaration(_)) {
+        // Both behind `checkGrammarModuleElementContext`'s bail-out
+        // (`checker.go:5507`, `:5274`).
+        if matches!(typed, Node::ExportDeclaration(_))
+            && !self.module_element_context_is_illegal(node)
+        {
             self.check_export_declaration_in_namespace(node, typed);
         }
-        if matches!(typed, Node::ImportDeclaration(_)) {
+        if matches!(typed, Node::ImportDeclaration(_))
+            && !self.module_element_context_is_illegal(node)
+        {
             self.check_grammar_import_clause(node);
         }
         if matches!(typed, Node::IndexSignatureDeclaration(_)) {
@@ -4503,14 +4522,30 @@ impl Checker<'_, '_> {
                 return;
             }
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::INITIALIZER_OF_INSTANCE_MEMBER_VARIABLE_0_CANNOT_REFERENCE_IDENTIFIER_1_DECLARED_IN_THE_CONSTRUCTOR,
-                    span,
-                    [property, text.to_string()],
-                ),
-            );
+            // `prop.Type != nil && prop.Type.Loc.ContainsInclusive(errorLocation.Pos())`
+            // (`checker.go:1522`): a reference inside the property's type
+            // annotation (`b: typeof x`) takes the type message.
+            let in_annotation = self
+                .nodes
+                .ancestors(node)
+                .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::PropertyDeclaration)
+                .and_then(|declaration| match self.node_map.get(declaration) {
+                    Some(Node::PropertyDeclaration(declaration)) => {
+                        declaration.r#type.and_then(|annotation| annotation.node_id())
+                    }
+                    _ => None,
+                })
+                .is_some_and(|annotation| {
+                    let range = self.nodes.span(annotation);
+                    let at = self.nodes.span(node).start;
+                    range.start <= at && at <= range.end
+                });
+            let message = if in_annotation {
+                &messages::TYPE_OF_INSTANCE_MEMBER_VARIABLE_0_CANNOT_REFERENCE_IDENTIFIER_1_DECLARED_IN_THE_CONSTRUCTOR
+            } else {
+                &messages::INITIALIZER_OF_INSTANCE_MEMBER_VARIABLE_0_CANNOT_REFERENCE_IDENTIFIER_1_DECLARED_IN_THE_CONSTRUCTOR
+            };
+            self.report(file, Diagnostic::with_args(message, span, [property, text.to_string()]));
             return;
         }
         if self
@@ -6141,53 +6176,6 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// TS1235 — `A namespace declaration is only allowed at the top level of a
-    /// namespace or module.`
-    ///
-    /// `checkGrammarModuleElementContext` (`checker.go:5146`). A module
-    /// declaration belongs to a source file or a module block; the **only**
-    /// other legal parent is another module declaration, which is how
-    /// `namespace A.B { }` is spelled. §990.
-    ///
-    /// The ambient-module variant of the message is chosen upstream when
-    /// `isAmbientModule(node)`; it is not built — `diagsole` prices it at zero
-    /// cases.
-    fn check_grammar_module_element_context(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(parent) = self.nodes.parent(node) else { return };
-        if matches!(
-            self.nodes.kind(parent),
-            SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
-        ) {
-            return;
-        }
-        // `declare module "x"` in an illegal context takes a different message,
-        // which is not ported.
-        if matches!(
-            self.node_map.get(node),
-            Some(Node::ModuleDeclaration(module))
-                if module.name.and_then(|n| n.node_id())
-                    .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::StringLiteral)
-        ) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        // **`grammarErrorOnNode(node, …)`, not the declaration's name.** Most
-        // rules in this file fold to the name (§11), and doing so here put every
-        // line ten columns right: `label: namespace M { }` wants column 8, the
-        // `namespace` keyword, not column 18. §991.
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::A_NAMESPACE_DECLARATION_IS_ONLY_ALLOWED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE,
-                span,
-            ),
-        );
-    }
-
     /// TS2480 — `'let' is not allowed to be used as a name in 'let' or 'const'
     /// declarations.`
     ///
@@ -7543,68 +7531,6 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
-    }
-
-    /// TS1103 — `'for await' loops are only allowed within async functions and
-    /// at the top levels of modules.`
-    ///
-    /// `checkGrammarForInOrForOfStatement` (`grammarchecks.go:1205`) gates on
-    /// `Flags&NodeFlagsAwaitContext == 0`. That flag is set by upstream's parser
-    /// inside async bodies and **this port never sets it** (§829's inventory),
-    /// so the test is vacuously true and a literal port would report every
-    /// `for await`. The stand-in is what the flag records: the containing
-    /// function carries no `async` modifier.
-    ///
-    /// Top-level `for await` is a different message (TS1431/TS1432, on module
-    /// kind and target) and is not built here, so a `for await` with no
-    /// containing function is skipped.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §830.
-    fn check_for_await_context(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        if self.nodes.kind(node) != SyntaxKind::ForOfStatement {
-            return;
-        }
-        let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
-        let Some(modifier) = statement.await_modifier else { return };
-        let Some(at) = modifier.node_id else { return };
-        let Some(function) = self.containing_function_for_await(node) else { return };
-        if self.has_async_modifier(function) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        let span = self.nodes.span(at);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::FOR_AWAIT_LOOPS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
-                span,
-            ),
-        );
-    }
-
-    /// `GetContainingFunction` for §830, including the `Constructor` that
-    /// upstream's related-info arm treats specially.
-    fn containing_function_for_await(&self, node: NodeId) -> Option<NodeId> {
-        let mut current = self.nodes.parent(node);
-        while let Some(id) = current {
-            if matches!(
-                self.nodes.kind(id),
-                SyntaxKind::FunctionDeclaration
-                    | SyntaxKind::FunctionExpression
-                    | SyntaxKind::ArrowFunction
-                    | SyntaxKind::MethodDeclaration
-                    | SyntaxKind::GetAccessor
-                    | SyntaxKind::SetAccessor
-                    | SyntaxKind::Constructor
-            ) {
-                return Some(id);
-            }
-            current = self.nodes.parent(id);
-        }
-        None
     }
 
     /// TS2532 — `Object is possibly 'undefined'`, for an **empty** binding
@@ -9190,166 +9116,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS2524 — `'await' expressions cannot be used in a parameter initializer.`
-    ///
-    /// `checkGrammarAwaitOrAwaitUsing`'s last arm (`grammarchecks.go:1768`):
-    ///
-    /// ```go
-    /// if ast.IsAwaitExpression(node) && c.isInParameterInitializerBeforeContainingFunction(node) {
-    ///     // NOTE: We report this regardless as to whether there are parse diagnostics.
-    ///     c.error(node, diagnostics.X_await_expressions_cannot_be_used_in_a_parameter_initializer)
-    /// }
-    /// ```
-    ///
-    /// The comment is upstream's own and is the reason this rule does not take
-    /// the `file_has_parse_errors` guard every neighbouring grammar check takes.
-    fn check_await_in_parameter_initializer(&mut self, node: NodeId) {
-        if !self.is_in_parameter_initializer_before_containing_function(node) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AWAIT_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
-                span,
-            ),
-        );
-    }
-
-    /// TS2523 — `'yield' expressions cannot be used in a parameter initializer.`
-    ///
-    /// `checkGrammarYieldExpression`'s second arm (`grammarchecks.go:1783`),
-    /// an ungated `c.error(node, …)` as TS2524's is.
-    ///
-    /// Upstream only reaches it for a node its parser built as a
-    /// `YieldExpression`. Parameters are parsed in their function's yield
-    /// context (`parseParametersWorker`), so inside a generator's parameter
-    /// list every `yield` is one; elsewhere `isYieldExpression` takes `yield`
-    /// only before an identifier, keyword or literal on the same line, and a
-    /// bare `yield` is a name. This parser builds a `YieldExpression` in both
-    /// places, so outside a generator the rule asks for the operand shapes
-    /// [`Self::check_yield_grammar`] already bounds itself to.
-    fn check_yield_in_parameter_initializer(&mut self, node: NodeId) {
-        if !self.is_in_parameter_initializer_before_containing_function(node) {
-            return;
-        }
-        let Some(Node::YieldExpression(yielded)) = self.node_map.get(node) else { return };
-        let operand_shape = yielded.asterisk_token.is_none()
-            && yielded.expression.is_some_and(|operand| {
-                !matches!(operand, tsr_ast::Expression::ParenthesizedExpression(_))
-            });
-        let in_generator_parameters = self
-            .nodes
-            .ancestors(node)
-            .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::Parameter)
-            .and_then(|parameter| self.nodes.parent(parameter))
-            .is_some_and(|function| match self.node_map.get(function) {
-                Some(Node::FunctionDeclaration(f)) => f.asterisk_token.is_some(),
-                Some(Node::FunctionExpression(f)) => f.asterisk_token.is_some(),
-                Some(Node::MethodDeclaration(f)) => f.asterisk_token.is_some(),
-                _ => false,
-            });
-        if !in_generator_parameters && !operand_shape {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::YIELD_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
-                span,
-            ),
-        );
-    }
-
-    /// TS1308 — `'await' expressions are only allowed within async functions
-    /// and at the top levels of modules.`
-    ///
-    /// `checkGrammarAwaitOrAwaitUsing`'s `else` arm (`grammarchecks.go:1689`).
-    /// Upstream tests `node.Flags&ast.NodeFlagsAwaitContext == 0`, a flag its
-    /// **parser** sets inside an async function and which this port declares
-    /// and never sets (`flags.rs`).
-    ///
-    /// The decidable equivalent is one modifier lookup — `AwaitContext` *is*
-    /// "the nearest enclosing function is async", and that function is right
-    /// here. §268/§269.
-    ///
-    /// # What is declined
-    ///
-    /// `IsInTopLevelContext`'s four messages are gated on `moduleKind` against
-    /// six module kinds, `ImpliedNodeFormat` and `languageVersion >= ES2017`;
-    /// the class-static-block arm has its own message. Both decline, so this
-    /// reports only where the answer needs no options at all.
-    fn check_await_in_non_async_function(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // `getContainingFunctionOrClassStaticBlock`.
-        // **A class field initializer is an await-context boundary.** Upstream
-        // reads `NodeFlagsAwaitContext`, which the parser does not set past a
-        // property declaration's initializer — it is evaluated as its own
-        // function at construction — so `class { x = await f() }` inside an
-        // `async` function is still an error. The container walk has to stop
-        // there or it finds the enclosing async function and stays silent.
-        // §613, and §515 for the same shape from the failing side.
-        let Some(container) = self.nodes.ancestors(node).find(|&ancestor| {
-            self.is_function_like_or_static_block(ancestor)
-                || self.nodes.kind(ancestor) == SyntaxKind::PropertyDeclaration
-        }) else {
-            // No container: `IsInTopLevelContext`, declined above.
-            return;
-        };
-        if self.nodes.kind(container) == SyntaxKind::PropertyDeclaration {
-            let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-            let span = self.nodes.span(node);
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
-                    span,
-                ),
-            );
-            return;
-        }
-        if self.nodes.kind(container) == SyntaxKind::ClassStaticBlockDeclaration {
-            return;
-        }
-        if self.has_async_modifier(container) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        // `GetRangeOfTokenAtPosition(sourceFile, node.Pos())` — the `await`
-        // keyword, which is the node's first token.
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AWAIT_EXPRESSIONS_ARE_ONLY_ALLOWED_WITHIN_ASYNC_FUNCTIONS_AND_AT_THE_TOP_LEVELS_OF_MODULES,
-                span,
-            ),
-        );
-    }
-
-    /// `hasAsyncModifier` — an `async` modifier on a function-like.
-    fn has_async_modifier(&self, node: NodeId) -> bool {
-        let modifiers = match self.node_map.get(node) {
-            Some(Node::FunctionDeclaration(n)) => n.modifiers,
-            Some(Node::FunctionExpression(n)) => n.modifiers,
-            Some(Node::ArrowFunction(n)) => n.modifiers,
-            Some(Node::MethodDeclaration(n)) => n.modifiers,
-            Some(Node::GetAccessorDeclaration(n)) => n.modifiers,
-            Some(Node::SetAccessorDeclaration(n)) => n.modifiers,
-            Some(Node::ConstructorDeclaration(n)) => n.modifiers,
-            _ => return false,
-        };
-        modifiers.iter().any(|modifier| {
-            matches!(modifier, tsr_ast::ModifierLike::Token(token) if token.kind == SyntaxKind::AsyncKeyword)
-        })
-    }
-
     /// `Checker.isInParameterInitializerBeforeContainingFunction`
     /// (`checker.go:12235`).
     ///
@@ -10096,105 +9862,6 @@ impl Checker<'_, '_> {
                 &messages::NAMESPACE_0_HAS_NO_EXPORTED_MEMBER_1,
                 span,
                 [namespace_name, member],
-            ),
-        );
-    }
-
-    /// TS1163 — `A 'yield' expression is only allowed in a generator body.`
-    ///
-    /// `checkGrammarYieldExpression` (`grammarchecks.go:1777`), whose test is
-    /// `node.Flags&ast.NodeFlagsYieldContext == 0`. This port declares
-    /// [`tsr_ast::NodeFlags::YIELD_CONTEXT`] and never sets it, so the context
-    /// is derived from the tree instead: **the nearest enclosing function-like
-    /// must be a generator.** An arrow function and an accessor can never be
-    /// one, and a class property initialiser or static block starts a fresh
-    /// context. See `checker-notes-diag2.md` §104.
-    ///
-    /// `grammarErrorOnFirstToken` reports the `yield` keyword, which is the
-    /// expression's own start — so the span is `nodes.span`, not `error_span`.
-    fn check_yield_grammar(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // **A bare `yield` is an IDENTIFIER outside a generator**, in
-        // non-strict code — `function f(yield = yield) {}` and
-        // `{ [yield]: foo }` are legal and upstream's parser builds an
-        // identifier there. This parser builds a `YieldExpression`, so the rule
-        // would report on a name. Requiring an operand bounds it to the
-        // unambiguous form. **Owner: `tsr_parser`'s yield-context tracking** —
-        // 11 wrong lines measured, `FunctionDeclaration3_es6` and
-        // `FunctionDeclaration8_es6` at the head of them (§104).
-        let Some(Node::YieldExpression(yielded)) = self.node_map.get(node) else { return };
-        if yielded.expression.is_none() {
-            return;
-        }
-        // The other two shapes `nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine`
-        // (`parser.go:4171`) rejects, both decidable from the finished tree:
-        //
-        // - **`yield(foo)` is a CALL.** `(` is not an identifier, keyword or
-        //   literal, so upstream reads `yield` as the callee. This parser builds
-        //   a yield whose operand is a parenthesized expression.
-        // - **`yield * []` is a MULTIPLICATION.** `*` fails the lookahead too,
-        //   so outside a generator the asterisk is the operator. Inside one it
-        //   is `yield*`, which is why this is guarded by the context below
-        //   rather than declined outright.
-        //
-        // Both are §104's wrong column and both belong to `tsr_parser` (§106);
-        // these bounds keep the rule quiet until it is fixed there.
-        if matches!(yielded.expression, Some(tsr_ast::Expression::ParenthesizedExpression(_))) {
-            return;
-        }
-        if yielded.asterisk_token.is_some() {
-            return;
-        }
-        // A **computed property name is evaluated in the ENCLOSING context**,
-        // where the member it names is not — so in
-        // `async function* t() { class C { [yield 1] = yield 2; } }` the name is
-        // inside the generator and the initialiser is not. The walk therefore
-        // passes *through* a class member it reached via a
-        // `ComputedPropertyName`, and stops at it otherwise. §107 measured the
-        // four wrong lines this fixes, all in `awaitAndYieldInProperty`.
-        let mut came_from = node;
-        let mut in_generator = false;
-        for ancestor in self.nodes.ancestors(node) {
-            let verdict = match self.node_map.get(ancestor) {
-                Some(Node::FunctionDeclaration(n)) => Some(n.asterisk_token.is_some()),
-                Some(Node::FunctionExpression(n)) => Some(n.asterisk_token.is_some()),
-                // A method's computed name is outside its body too:
-                // `{ [yield 0]() {} }` in a generator (`generatorTypeCheck42`).
-                Some(Node::MethodDeclaration(n))
-                    if self.nodes.kind(came_from) != SyntaxKind::ComputedPropertyName =>
-                {
-                    Some(n.asterisk_token.is_some())
-                }
-                // Cannot be generators; they still bound the context — unless
-                // this is their computed name rather than their body.
-                Some(
-                    Node::ArrowFunction(_)
-                    | Node::GetAccessorDeclaration(_)
-                    | Node::SetAccessorDeclaration(_)
-                    | Node::ConstructorDeclaration(_)
-                    | Node::PropertyDeclaration(_)
-                    | Node::ClassStaticBlockDeclaration(_),
-                ) if self.nodes.kind(came_from) != SyntaxKind::ComputedPropertyName => Some(false),
-                _ => None,
-            };
-            if let Some(verdict) = verdict {
-                in_generator = verdict;
-                break;
-            }
-            came_from = ancestor;
-        }
-        if in_generator {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::A_YIELD_EXPRESSION_IS_ONLY_ALLOWED_IN_A_GENERATOR_BODY,
-                span,
             ),
         );
     }
@@ -12396,7 +12063,12 @@ impl Checker<'_, '_> {
                 continue;
             }
             function_declarations.push(declaration);
-            let body_present = self.declaration_has_body(declaration);
+            // `bodyIsPresent := ast.NodeIsPresent(node.Body())` (`checker.go:3627`):
+            // the parser's empty recovery `Block` for a body whose `{` was
+            // missing is not present, though the final `Body() == nil` test
+            // below still sees a body.
+            let body_present = self.declaration_has_body(declaration)
+                && !self.declaration_body_covers_no_text(declaration);
             if body_present && body_declaration.is_some() {
                 if is_constructor {
                     multiple_constructor_implementations = true;
@@ -12754,7 +12426,9 @@ impl Checker<'_, '_> {
                     None => return,
                 }
             }
-            if self.declaration_has_body(next) {
+            // `ast.NodeIsPresent(subsequentNode.Body())`: not the parser's
+            // empty recovery `Block`.
+            if self.declaration_has_body(next) && !self.declaration_body_covers_no_text(next) {
                 // `scanner.DeclarationNameToString(name)`; a declaration
                 // without a name (a constructor) has nothing to print.
                 let Some(expected) = name.and_then(|name| self.overload_name_to_string(name))
@@ -12985,6 +12659,19 @@ impl Checker<'_, '_> {
             Some(Node::ConstructorDeclaration(declaration)) => declaration.body.is_some(),
             _ => false,
         }
+    }
+
+    /// `ast.NodeIsMissing(node.Body())` for a declaration that has a body:
+    /// the parser's empty recovery `Block`, which covers no text.
+    fn declaration_body_covers_no_text(&self, node: NodeId) -> bool {
+        let body = match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(declaration)) => declaration.body,
+            Some(Node::MethodDeclaration(declaration)) => declaration.body,
+            Some(Node::ConstructorDeclaration(declaration)) => declaration.body,
+            _ => None,
+        };
+        body.and_then(|body| Node::from(body).node_id())
+            .is_some_and(|id| self.nodes.span(id).is_empty())
     }
 
     fn declaration_is_abstract(&self, node: NodeId) -> bool {
