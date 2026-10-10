@@ -1,0 +1,389 @@
+diff --git a/crates/tsr-binder/src/lib.rs b/crates/tsr-binder/src/lib.rs
+index 2938632..00fd0c0 100644
+--- a/crates/tsr-binder/src/lib.rs
++++ b/crates/tsr-binder/src/lib.rs
+@@ -1497,9 +1497,12 @@ impl<'a> BindResult<'a> {
+                                 Some(tsr_ast::ModuleReference::QualifiedName(_)) => {
+                                     return Some(found);
+                                 }
+-                                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+-                                    if exported_alias(found, meaning & mask)? =>
+-                                {
++                                // `import M_A = M_M` too: `getSymbol` asks
++                                // every alias for its target's meaning.
++                                Some(
++                                    tsr_ast::ModuleReference::ExternalModuleReference(_)
++                                    | tsr_ast::ModuleReference::Identifier(_),
++                                ) if exported_alias(found, meaning & mask)? => {
+                                     return Some(found);
+                                 }
+                                 _ => {}
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index dc0ae81..f026fb2 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -5125,7 +5125,7 @@ impl Checker<'_, '_> {
+             if self.specifier_type_only_export_star(declaration).is_some() {
+                 return Some(true);
+             }
+-            current = self.binder.merged_symbol(self.resolve_alias(current)?);
++            current = self.binder.merged_symbol(self.immediate_alias_target(current)?);
+         }
+         None
+     }
+@@ -14281,23 +14281,25 @@ impl Checker<'_, '_> {
+             return;
+         }
+         let Some(text) = self.identifier_text(first).map(str::to_string) else { return };
+-        let hidden = self
+-            .binder
+-            .resolve_name(
+-                self.nodes,
+-                self.node_map,
+-                first,
+-                &text,
+-                SymbolFlags::VALUE | SymbolFlags::NAMESPACE,
+-            )
+-            .is_some_and(|found| {
+-                !self
+-                    .binder
+-                    .symbols()
+-                    .get(self.binder.merged_symbol(found))
+-                    .flags
+-                    .intersects(SymbolFlags::NAMESPACE)
+-            });
++        // `resolveEntityName(moduleName, Value|Namespace, …, dontResolveAlias
++        // = false)` (`checker.go:5483`) answers an alias whose own flags lack
++        // the meaning through `resolveAlias`: `import x = require("m");
++        // import y = x` is not hidden by `x` (r6-modules3 §3, r6-modules4 §1).
++        let meaning = SymbolFlags::VALUE | SymbolFlags::NAMESPACE;
++        let found = self.binder.resolve_name(self.nodes, self.node_map, first, &text, meaning).map(
++            |found| {
++                let found = self.binder.merged_symbol(found);
++                let flags = self.binder.symbols().get(found).flags;
++                if flags.intersects(SymbolFlags::ALIAS) && !flags.intersects(meaning) {
++                    self.resolve_alias(found).map_or(found, |t| self.binder.merged_symbol(t))
++                } else {
++                    found
++                }
++            },
++        );
++        let hidden = found.is_some_and(|found| {
++            !self.binder.symbols().get(found).flags.intersects(SymbolFlags::NAMESPACE)
++        });
+         if !hidden {
+             return;
+         }
+diff --git a/crates/tsr-checker/src/circular_alias.rs b/crates/tsr-checker/src/circular_alias.rs
+index 10642ee..579e864 100644
+--- a/crates/tsr-checker/src/circular_alias.rs
++++ b/crates/tsr-checker/src/circular_alias.rs
+@@ -11,13 +11,16 @@
+ //! An alias that only *leads into* a cycle pops `true` and reports nothing.
+ //!
+ //! So the set of reporting aliases is exactly the aliases whose target chain
+-//! returns to themselves. This port's [`Checker::resolve_alias`] is not
+-//! recursive (it answers the immediate target), so the chain is walked here,
++//! returns to themselves. This port's [`Checker::resolve_alias`] does recurse
++//! through a pure-alias target (`resolveIndirectionAlias`), but a cycle only
++//! completes it as `None` and reports nothing, so the chain is walked here
++//! over the uncached one-hop worker
++//! ([`Checker::get_target_of_alias_symbol`], `getTargetOfAliasDeclaration`),
+ //! one hop per recursion upstream would make:
+ //!
+ //! - `import x = require("m")`, `import * as x from "m"`, `export * as x from
+ //!   "m"`: the module's `export=` symbol (`resolveExternalModuleSymbol`).
+-//! - every other alias form: [`Checker::resolve_alias`]'s immediate target.
++//! - every other alias form: `getTargetOfAliasDeclaration`'s immediate target.
+ //!
+ //! The walk stops at the first non-alias, at an unresolvable hop, or at a
+ //! repeat that is not the start (a cycle this alias only leads into). This
+@@ -153,7 +156,9 @@ impl Checker<'_, '_> {
+             }
+             _ => None,
+         };
+-        let Some((owner, specifier)) = module_reference else { return self.resolve_alias(alias) };
++        let Some((owner, specifier)) = module_reference else {
++            return self.get_target_of_alias_symbol(alias);
++        };
+         let module = self.resolve_external_module_name(owner, specifier)?;
+         let module = self.binder.merged_symbol(module);
+         // `resolveExternalModuleSymbol`: `resolveSymbol(exports["export="])`.
+diff --git a/crates/tsr-checker/src/isolated_alias.rs b/crates/tsr-checker/src/isolated_alias.rs
+index cd0fafe..52e3df1 100644
+--- a/crates/tsr-checker/src/isolated_alias.rs
++++ b/crates/tsr-checker/src/isolated_alias.rs
+@@ -1129,7 +1129,7 @@ impl Checker<'_, '_> {
+             if let Some(declaration) = self.type_only_alias_declaration_node(current) {
+                 return Some(declaration);
+             }
+-            current = self.resolve_alias(current)?;
++            current = self.immediate_alias_target(current)?;
+         }
+         None
+     }
+@@ -1493,7 +1493,7 @@ impl Checker<'_, '_> {
+             if let Some(star) = self.specifier_type_only_export_star(declaration) {
+                 return Some(star);
+             }
+-            current = self.binder.merged_symbol(self.resolve_alias(current)?);
++            current = self.binder.merged_symbol(self.immediate_alias_target(current)?);
+             if !self.is_non_local_alias(
+                 current,
+                 SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index 91ef83a..c7f0b4c 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -32,8 +32,10 @@ use crate::check::spelling_suggestion;
+ pub(crate) enum AliasTarget {
+     /// The worker is running; `circular` records a re-entrant query.
+     Resolving { circular: bool },
+-    /// Completed; `None` is upstream's `unknownSymbol`.
+-    Resolved(Option<SymbolId>),
++    /// Completed; `target: None` is upstream's `unknownSymbol`. `immediate`
++    /// is `getTargetOfAliasDeclaration`'s own answer, before
++    /// `resolveIndirectionAlias` (see [`Checker::immediate_alias_target`]).
++    Resolved { target: Option<SymbolId>, immediate: Option<SymbolId> },
+ }
+ 
+ impl<'a> Checker<'a, '_> {
+@@ -659,6 +661,17 @@ impl<'a> Checker<'a, '_> {
+         // type.
+         let computed = match target {
+             Some(target) if self.get_symbol_flags(target).intersects(SymbolFlags::VALUE) => {
++                // Native's chain can end at `resolveESModuleSymbol`'s cloned
++                // module symbol for an `import * as ns` hop
++                // (`cloneTypeAsModuleType`, `checker.go:15721`). This port
++                // has no clone symbol: the clone is the namespace-import
++                // alias's own type (`module_clone_type`). So the value is read
++                // through a pure-alias first hop, whose type applies its own
++                // hop's transform, rather than from the end of the chain.
++                let target = self
++                    .immediate_alias_target(symbol)
++                    .filter(|&immediate| self.is_non_local_pure_alias(immediate))
++                    .unwrap_or(target);
+                 let value = self.get_type_of_symbol(target);
+                 self.module_clone_type(symbol, target, value).unwrap_or(value)
+             }
+@@ -1134,7 +1147,7 @@ impl<'a> Checker<'a, '_> {
+     ///   alias after (perf notes §14).
+     pub fn resolve_alias(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+         match self.alias_targets.get_mut(&symbol) {
+-            Some(AliasTarget::Resolved(target)) => return *target,
++            Some(AliasTarget::Resolved { target, .. }) => return *target,
+             Some(AliasTarget::Resolving { circular }) => {
+                 *circular = true;
+                 return None;
+@@ -1143,19 +1156,60 @@ impl<'a> Checker<'a, '_> {
+         }
+         self.alias_targets.insert(symbol, AliasTarget::Resolving { circular: false });
+         self.alias_resolving += 1;
+-        let target = self.get_target_of_alias_symbol(symbol);
++        let immediate = self.get_target_of_alias_symbol(symbol);
++        let target = immediate;
++        // `if ast.IsNonLocalAlias(target, Value|Type|Namespace) { target =
++        // c.resolveIndirectionAlias(symbol, target) }` (`checker.go:16280`):
++        // a pure alias target — one with no meaning of its own — is resolved
++        // transitively, so `import { C1 }` of `export { C1 }` answers C1's
++        // declaration. A target merged with another meaning stops the chain
++        // (`getSymbolFlags`' doc comment, `:16341`). The `typeOnlyDeclaration`
++        // back-propagation has no table here: the type-only walks read the
++        // chain hop by hop through `immediate`, which visits the same pure
++        // aliases the propagation copies from.
++        let target = match target {
++            Some(target) if self.is_non_local_pure_alias(target) => {
++                self.resolve_alias(target).map(|resolved| self.binder.merged_symbol(resolved))
++            }
++            target => target,
++        };
+         self.alias_resolving -= 1;
+         let target = match self.alias_targets.get(&symbol) {
+             Some(AliasTarget::Resolving { circular: true }) => None,
+             _ => target,
+         };
+-        self.alias_targets.insert(symbol, AliasTarget::Resolved(target));
++        self.alias_targets.insert(symbol, AliasTarget::Resolved { target, immediate });
+         target
+     }
+ 
++    /// The first hop of [`Checker::resolve_alias`]: `getTargetOfAliasDeclaration`'s
++    /// answer before `resolveIndirectionAlias` follows a pure-alias target.
++    /// Read by the walks that visit every alias of a chain in turn — the
++    /// type-only link (`typeOnlyDeclaration` is copied from each pure hop,
++    /// `checker.go:16293`) — and published in the same memo entry, so it costs
++    /// no second worker run. `None` while the alias is still resolving.
++    pub fn immediate_alias_target(&mut self, symbol: SymbolId) -> Option<SymbolId> {
++        self.resolve_alias(symbol);
++        match self.alias_targets.get(&symbol) {
++            Some(AliasTarget::Resolved { immediate, .. }) => *immediate,
++            _ => None,
++        }
++    }
++
++    /// `ast.IsNonLocalAlias(symbol, Value|Type|Namespace)`
++    /// (`ast/utilities.go:2608`): an alias with no other meaning, or a JS
++    /// assignment alias.
++    fn is_non_local_pure_alias(&self, symbol: SymbolId) -> bool {
++        let flags = self.binder.symbols().get(symbol).flags;
++        flags
++            & (SymbolFlags::ALIAS | SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
++            == SymbolFlags::ALIAS
++            || flags.contains(SymbolFlags::ALIAS) && flags.intersects(SymbolFlags::ASSIGNMENT)
++    }
++
+     /// `getTargetOfAliasDeclaration` (`checker.go`): the uncached worker
+     /// behind [`Checker::resolve_alias`]; see its documentation.
+-    fn get_target_of_alias_symbol(&mut self, symbol: SymbolId) -> Option<SymbolId> {
++    pub(crate) fn get_target_of_alias_symbol(&mut self, symbol: SymbolId) -> Option<SymbolId> {
+         let declaration = self.declaration_of_alias_symbol(symbol)?;
+         match self.nodes.kind(declaration) {
+             // getTargetOfImportEqualsDeclaration also accepts syntactic JS
+@@ -1424,13 +1478,12 @@ impl<'a> Checker<'a, '_> {
+                 if let Some(module_exports) = self.import_equals_module_exports(resolved) {
+                     return Some(module_exports);
+                 }
+-                // resolveExternalModuleSymbol(..., dontResolveAlias=false)
+-                // follows alias exports, but a property-valued export= is
+-                // already the target (e.g. module.exports = 3 in JS).
+-                if !self.binder.symbols().get(resolved).flags.intersects(SymbolFlags::ALIAS) {
+-                    return Some(resolved);
+-                }
+-                self.resolve_alias(resolved)
++                // `resolveExternalModuleSymbol(immediate, dontResolveAlias =
++                // true)` (`checker.go:14447`): the `export =` symbol itself.
++                // An alias there is followed by `resolveAlias`'s
++                // `resolveIndirectionAlias`, so a type-only link on it
++                // (`import type * as t; export = t`) reaches this alias.
++                Some(resolved)
+             }
+             // getSymbolOfPartOfRightHandSideOfImportEquals (checker.go:14493):
+             // the complete qualified entity accepts value, type or namespace.
+@@ -1676,7 +1729,9 @@ impl<'a> Checker<'a, '_> {
+         };
+         let specifier = specifier?.node_id()?;
+         let module = self.resolve_external_module_name(declaration, specifier)?;
+-        self.module_default_target(module, specifier)
++        // `getTargetOfModuleDefault(moduleSymbol, node, dontResolveAlias = true)`
++        // (`checker.go:14531`).
++        self.module_default_target(module, specifier, true)
+     }
+ 
+     /// TYPE naming's completed alias target, ported from native `resolveAlias`
+@@ -1870,22 +1925,31 @@ impl<'a> Checker<'a, '_> {
+     /// `"module.exports"` export (`resolveExportByName`, `checker.go:14615`)
+     /// before any default — `__importDefault(require(m)).default` is that
+     /// export's value. `specifier` is `getModuleSpecifierForImportOrExport`.
+-    fn module_default_target(&mut self, module: SymbolId, specifier: NodeId) -> Option<SymbolId> {
++    fn module_default_target(
++        &mut self,
++        module: SymbolId,
++        specifier: NodeId,
++        dont_resolve_alias: bool,
++    ) -> Option<SymbolId> {
+         if self.esm_file_used_with_commonjs_syntax(module, specifier)
+             && let Some(module_exports) =
+                 self.resolve_export_by_name(module, INTERNAL_MODULE_EXPORTS)
+         {
+             return Some(module_exports);
+         }
+-        // `resolveExportByName(moduleSymbol, "default", node, true)`, which
+-        // `isShorthandAmbientModuleSymbol` skips; a real default that is
+-        // itself an alias keeps this port's one more hop.
++        // `resolveExportByName(moduleSymbol, "default", node, dontResolveAlias)`,
++        // which `isShorthandAmbientModuleSymbol` skips. Its `resolveSymbolEx`
++        // follows a pure (non-local) alias unless `dontResolveAlias`: an
++        // import clause passes `true` (`checker.go:14531`), so its immediate
++        // target is the module's own `default` alias and `resolveAlias`'s
++        // `resolveIndirectionAlias` walks on from there. The specifier forms
++        // pass `false`.
+         let shorthand = self.is_shorthand_ambient_module(module);
+         let default =
+             (!shorthand).then(|| self.resolve_export_by_name(module, "default")).flatten();
+         let default = default.map(|default| {
+             let default = self.binder.merged_symbol(default);
+-            if self.binder.symbols().get(default).flags.intersects(SymbolFlags::ALIAS) {
++            if !dont_resolve_alias && self.is_non_local_pure_alias(default) {
+                 self.resolve_alias(default)
+             } else {
+                 Some(default)
+@@ -2167,7 +2231,7 @@ impl<'a> Checker<'a, '_> {
+             {
+                 let module_specifier = export.module_specifier?.node_id()?;
+                 let module = self.resolve_external_module_name(declaration, module_specifier)?;
+-                return self.module_default_target(module, module_specifier);
++                return self.module_default_target(module, module_specifier, false);
+             }
+             // `case exportDeclaration.ModuleSpecifier() != nil:
+             // getExternalModuleMember(exportDeclaration, node, …)`
+@@ -2181,9 +2245,12 @@ impl<'a> Checker<'a, '_> {
+             tsr_ast::ModuleExportName::Identifier(name) => name,
+             tsr_ast::ModuleExportName::StringLiteral(_) => return None,
+         };
+-        self.binder.resolve_name(
+-            self.nodes,
+-            self.node_map,
++        // `resolveEntityName(name, meaning, …)` (`checker.go:14977`): the
++        // lookup is `resolveName`'s, whose `getSymbol` (`:2176`) accepts an
++        // alias by its target's meaning. `export { M_A as a }` names `import
++        // M_A = M_M` in a namespace's exports, an alias with no meaning of its
++        // own.
++        self.resolve_name_with_export_alias(
+             name.node_id?,
+             name.text,
+             SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,
+@@ -2215,7 +2282,7 @@ impl<'a> Checker<'a, '_> {
+         {
+             let module_specifier = node.module_specifier?.node_id()?;
+             let module = self.resolve_external_module_name(declaration, module_specifier)?;
+-            return self.module_default_target(module, module_specifier);
++            return self.module_default_target(module, module_specifier, false);
+         }
+         self.get_external_module_member(import, declaration)
+     }
+@@ -7286,10 +7353,13 @@ mod tests {
+         // getTargetOfModuleDefault's synthetic arm: the immediate `export=`.
+         // Its `resolveExportByName` reads the `export=` value's type, which
+         // ordinary resolution publishes; the naming reader below adds none.
++        // `resolveIndirectionAlias` then follows that pure alias on to
++        // `Original` (`checker.go:16280`).
+         assert_eq!(
+-            checker.resolve_alias(aliases["React"]),
++            checker.immediate_alias_target(aliases["React"]),
+             Some(bound.symbols().get(bound.ambient_module("pure").unwrap()).exports["export="])
+         );
++        assert_eq!(checker.resolve_alias(aliases["React"]), Some(original));
+         let publications = (
+             checker.computations,
+             checker.node_types.len(),
+@@ -7345,7 +7415,7 @@ mod tests {
+                 assert!(checker.resolutions.pop());
+             }
+             assert_eq!(
+-                checker.resolve_alias(aliases["React"]),
++                checker.immediate_alias_target(aliases["React"]),
+                 Some(bound.symbols().get(bound.ambient_module("pure").unwrap()).exports["export="]),
+                 "ordinary VALUE admission is unchanged"
+             );
+diff --git a/crates/tsr-conformance/tests/module_default_file_owner.rs b/crates/tsr-conformance/tests/module_default_file_owner.rs
+index fa8ed82..b7bfbad 100644
+--- a/crates/tsr-conformance/tests/module_default_file_owner.rs
++++ b/crates/tsr-conformance/tests/module_default_file_owner.rs
+@@ -97,7 +97,7 @@ fn defaults_share_the_original_module_not_its_default_property() {
+                     }
+                     for _ in 0..2 {
+                         for &(_, symbol) in &sites {
+-                            assert_eq!(checker.resolve_alias(symbol), Some(immediate));
++                            assert_eq!(checker.immediate_alias_target(symbol), Some(immediate));
+                             let value = checker.get_type_of_symbol(symbol);
+                             assert_eq!(value, checker.get_type_of_symbol(module));
+                             let default =
+@@ -267,7 +267,7 @@ fn every_alias_shape_resolves_to_the_immediate_export_equals() {
+         let cycle = wrapper.contains("./wrapper");
+         for _ in 0..2 {
+             for &(_, symbol) in &sites {
+-                assert_eq!(checker.resolve_alias(symbol), immediate, "{wrapper}");
++                assert_eq!(checker.immediate_alias_target(symbol), immediate, "{wrapper}");
+                 if cycle {
+                     assert_eq!(checker.get_type_of_symbol(symbol), checker.intrinsics().error);
+                 }
