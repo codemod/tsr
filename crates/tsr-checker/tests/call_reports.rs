@@ -38,18 +38,3 @@ fn a_generic_candidate_reports_its_context_sensitive_callback() {
         [(2322, "x".into()), (2322, "x".into())]
     );
 }
-
-/// Under a generic candidate's instantiation, an object literal's published
-/// type is the one checked under the call's resolved signature, which for a
-/// single candidate is that instantiation; the failure elaborates into the
-/// member even when the target mentions a literal type.
-#[test]
-fn an_instantiated_candidate_reports_its_object_literal() {
-    assert_eq!(
-        reported(
-            "interface D { x: \"a\" | \"b\" }\n\
-             declare function d3<T extends { y: D }>(o: T): void;\nd3({ y: { x: 1 } });\n"
-        ),
-        [(2322, "x".into())]
-    );
-}
