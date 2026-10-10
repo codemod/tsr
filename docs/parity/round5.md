@@ -1902,3 +1902,18 @@ Measured by the box: +6 diagnostics cases and +19 type lines across bases,
 The binding-pattern-image diff is WIP and unmeasured, so it is not landed.
 Items 4–8 were not started. `tsr-2zk.1148` is reopened unassigned. The 112-row
 triage table is in the box's notes §1.
+
+### Checkpoint wrap-up: r6-jsdoc2 (batch CE)
+
+Batch CE lands r6-jsdoc2's owned handshakes and four diffs:
+- ScanJSDocToken's escape arms;
+- implicit any in JS (TS7006/TS7031 JS gates lifted);
+- the TS2703 JS decline lifted;
+- checkLabeledStatement's TS7028.
+
+Measured by the box against `2e26f22`: +5 diagnostics cases and +8 type
+lines, 0 lost. Ir −0.07% on domain-model.
+
+The js-return-check WIP diff (+2/−2) is not landed. One of its losses traces
+to a JSDoc @template constraint lost in relations. `.1165`, `.1178` and
+`.1254` are reopened unassigned.
