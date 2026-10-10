@@ -1111,18 +1111,12 @@ impl Checker<'_, '_> {
         {
             self.check_grammar_import_clause(node);
         }
-        if matches!(typed, Node::IndexSignatureDeclaration(_)) {
-            self.check_index_signature_key_type(node);
-        }
         if matches!(typed, Node::ExportAssignment(_)) {
             self.check_export_assignment_alone(node, ambient);
             self.check_jsdoc_annotated_initializer(node, ambient);
         }
         if self.nodes.kind(node) == SyntaxKind::NewExpression {
             self.check_new_on_abstract_class(node);
-        }
-        if self.nodes.kind(node) == SyntaxKind::IndexSignature {
-            self.check_index_signature_parameter_type(node);
         }
         if self.nodes.kind(node) == SyntaxKind::SuperKeyword {
             self.check_super_expression_diagnostics(node);
@@ -2760,63 +2754,6 @@ impl Checker<'_, '_> {
             !self.is_function_like_or_static_block(child)
                 && self.subtree_references_super_or_this(child)
         })
-    }
-
-    /// TS1268 — `An index signature parameter type must be 'string', 'number',
-    /// 'symbol', or a template literal type.`
-    ///
-    /// `checkGrammarIndexSignature`'s fourth guard (`grammarchecks.go:831`),
-    /// bounded to a **written keyword** annotation: the literal/generic guard
-    /// (TS1337) runs before it, so a keyword reaches here only by being neither.
-    /// Anything else — a reference, a template literal, a union — declines,
-    /// because `isValidIndexKeyType` walks the type and this port would guess.
-    ///
-    /// §292 built seven of this function's guards for `+0`; this row's
-    /// `occupied` is `0/4` where those were taken, which is the difference.
-    /// §472.
-    fn check_index_signature_key_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.index_signature_parameter_shape_error(node).is_some()
-        {
-            return;
-        }
-        let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
-            return;
-        };
-        let [parameter] = signature.parameters else { return };
-        let Some(annotation) = parameter.r#type.and_then(|t| t.node_id()) else { return };
-        let Some(Node::KeywordTypeNode(keyword)) = self.node_map.get(annotation) else { return };
-        if matches!(
-            keyword.kind,
-            SyntaxKind::StringKeyword | SyntaxKind::NumberKeyword | SyntaxKind::SymbolKeyword
-        ) {
-            // TS1021 — the **fifth** guard of `checkGrammarIndexSignature`,
-            // immediately after this one: the signature itself must carry a
-            // return annotation. §230's rule — the remaining branch of a
-            // half-ported function. §496.
-            if signature.r#type.is_none()
-                && let Some(file) = self.source_file_of_for_diagnostics(node)
-            {
-                let span = self.error_span(node);
-                self.report(
-                    file,
-                    Diagnostic::new(
-                        &messages::AN_INDEX_SIGNATURE_MUST_HAVE_A_TYPE_ANNOTATION,
-                        span,
-                    ),
-                );
-            }
-            return;
-        }
-        let Some(name) = parameter.name.and_then(|name| name.node_id()) else { return };
-        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
-        let span = self.error_span(name);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AN_INDEX_SIGNATURE_PARAMETER_TYPE_MUST_BE_STRING_NUMBER_SYMBOL_OR_A_TEMPLATE_LITERAL_TYPE,
-                span,
-            ),
-        );
     }
 
     /// TS1114 — `Duplicate label '{0}'.`
@@ -5644,89 +5581,6 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
-    }
-
-    /// TS1268 — `An index signature parameter type must be 'string', 'number',
-    /// 'symbol', or a template literal type.`
-    ///
-    /// `checkGrammarIndexSignature` (`grammarchecks.go:832`) asks
-    /// `everyType(t, isValidIndexKeyType)`. The **written** annotation answers
-    /// it for the corpus's shapes, and the arms *above* it in the same function
-    /// bound the slice: a literal or generic type is **TS1337** and a missing
-    /// annotation is TS1148, so a type parameter must stay silent here even
-    /// though it is not a valid key type. §1033.
-    fn check_index_signature_parameter_type(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.index_signature_parameter_shape_error(node).is_some()
-        {
-            return;
-        }
-        let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
-            return;
-        };
-        let [parameter] = signature.parameters else { return };
-        if parameter.dot_dot_dot_token.is_some()
-            || parameter.question_token.is_some()
-            || parameter.initializer.is_some()
-            || !parameter.modifiers.is_empty()
-        {
-            return;
-        }
-        let Some(annotation) = parameter.r#type.and_then(|t| t.node_id()) else { return };
-        let invalid = match self.nodes.kind(annotation) {
-            SyntaxKind::AnyKeyword
-            | SyntaxKind::BooleanKeyword
-            | SyntaxKind::VoidKeyword
-            | SyntaxKind::NeverKeyword
-            | SyntaxKind::UnknownKeyword
-            | SyntaxKind::ObjectKeyword
-            | SyntaxKind::BigIntKeyword => true,
-            // **This rule's own answer, not §985's.** That helper asks *is this
-            // definitely a class or interface* and says `false` when unsure,
-            // which suits TS2370. `isValidIndexKeyType` is a small allow-list,
-            // so a reference here is invalid **unless** something says it might
-            // be valid — an alias (`type S = string`) or a type parameter
-            // (TS1337's cell). §1035.
-            SyntaxKind::TypeReference => !self.type_reference_may_be_a_key(annotation),
-            _ => false,
-        };
-        if !invalid {
-            return;
-        }
-        let Some(name) = parameter.name.and_then(|n| n.node_id()) else { return };
-        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
-        let span = self.nodes.span(name);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::AN_INDEX_SIGNATURE_PARAMETER_TYPE_MUST_BE_STRING_NUMBER_SYMBOL_OR_A_TEMPLATE_LITERAL_TYPE,
-                span,
-            ),
-        );
-    }
-
-    /// Might this written type reference be a valid index key? A **type alias**
-    /// could name one, and a **type parameter** is TS1337's cell rather than
-    /// this rule's. Everything else — an interface, a class, an unresolved
-    /// name — is not. §1035.
-    fn type_reference_may_be_a_key(&mut self, annotation: NodeId) -> bool {
-        let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(annotation) else {
-            return true;
-        };
-        let Some(name) = reference.type_name.and_then(|n| n.node_id()) else { return true };
-        let Some(text) = self.identifier_text(name).map(str::to_string) else { return true };
-        let Some(symbol) =
-            self.binder.resolve_name(self.nodes, self.node_map, name, &text, SymbolFlags::TYPE)
-        else {
-            return false;
-        };
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-        declarations.iter().any(|&declaration| {
-            matches!(
-                self.nodes.kind(declaration),
-                SyntaxKind::TypeAliasDeclaration | SyntaxKind::TypeParameter
-            )
-        })
     }
 
     /// TS2499 — `An interface can only extend an identifier/qualified-name with

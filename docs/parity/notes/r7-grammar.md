@@ -421,3 +421,22 @@ A decorator is parsed in its class's enclosing context, so
 `@(yield "")` in a generator is legal (`generatorTypeCheck59`), and an enum
 member initializer is parsed outside it (`awaitAndYield`). Converted:
 `awaitAndYield`, `generatorTypeCheck59`.
+
+## §18 `checkGrammarIndexSignatureParameters` on types (CHECK-GRAMMAR-INDEX-SIGNATURE-PARAMETERS)
+
+`check_grammar_index_signature_parameters` (`grammar.rs`) is
+`checkGrammarIndexSignatureParameters` (`grammarchecks.go:796`) arm for arm,
+behind `checkGrammarIndexSignature`'s `checkGrammarModifiers`. Its type arms
+read `getTypeFromTypeNode` of the parameter's annotation: a literal,
+unique-symbol or generic type is TS1337 (`someType(t,
+StringOrNumberLiteralOrUnique) || isGenericType(t)`), one that is not
+every-way `isValidIndexKeyType` TS1268, and a signature without its own
+annotation TS1021. It replaces `index_signature_parameter_shape_error`
+(`grammar.rs`) and `check.rs`'s `check_index_signature_key_type` and
+`check_index_signature_parameter_type`, which judged the written annotation
+syntactically (keyword lists and a type-alias test) and had no TS1337. A type
+this port cannot build answers nothing for the two type arms (`is_gap`).
+Not ported: the parameter list's trailing-comma arm (TS1025,
+`indexSignatureWithTrailingComma`), which needs the parser to record a
+parameter list's trailing comma. Converted: `indexerConstraints2`,
+`genericIndexTypeHasSensibleErrorMessage`.
