@@ -5462,6 +5462,18 @@ impl Checker<'_, '_> {
                         self.publish_array_argument(is_new, id, &mut published);
                         self.evict_subtree(id);
                     }
+                    // An object literal's member literals keep or widen by the
+                    // candidate's contextual type
+                    // (`checkExpressionWithContextualType`, uncached upstream,
+                    // then `checkExpressionForMutableLocation`'s
+                    // `isLiteralOfContextualType`), so the context-free
+                    // answer the walk checked first must not stand in for
+                    // this candidate's inference.
+                    if matches!(argument, Expression::ObjectLiteralExpression(_))
+                        && let Some(id) = argument.node_id()
+                    {
+                        self.evict_subtree(id);
+                    }
                 }
                 let mut instantiated = None;
                 let _ = self.check_generic_call_with(
