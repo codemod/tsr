@@ -61,6 +61,16 @@ use crate::types::{TypeData, TypeId};
 /// `c.instantiationExpressionTypes` and the reports its computations park
 /// for the check walk. Owned by the Checker; see the module header for the
 /// key identity and publication states.
+/// One extends type's entry in `InstantiationExpressionLinks::conditional_extends`:
+/// the registered type parameters it mentions (in registry order) with their
+/// printed names, and its permissive and restrictive instantiations once made.
+pub(crate) struct ExtendsInstantiations {
+    pub(crate) parameters: std::rc::Rc<[TypeId]>,
+    pub(crate) names: std::rc::Rc<[String]>,
+    pub(crate) permissive: Option<TypeId>,
+    pub(crate) restrictive: Option<TypeId>,
+}
+
 #[derive(Default)]
 pub(crate) struct InstantiationExpressionLinks {
     /// `(node, expression type, open alias frames) -> result`: `None` while
@@ -82,11 +92,17 @@ pub(crate) struct InstantiationExpressionLinks {
     pub(crate) deferred_keyof_mints: rustc_hash::FxHashMap<(TypeId, String), TypeId>,
     /// getPermissiveInstantiation / getRestrictiveInstantiation's per-type
     /// caches for a conditional's extends type, read by
-    /// `Checker::conditional_extends_instantiations` (declared.rs): `extends
-    /// -> (permissive, restrictive)`, or `None` when it mentions no type
-    /// parameter. Written once per type, never invalidated
-    /// (`r6-declared.md` §2.2).
-    pub(crate) conditional_extends: rustc_hash::FxHashMap<TypeId, Option<(TypeId, TypeId)>>,
+    /// `Checker::extends_instantiation` (declared.rs): `extends -> entry`,
+    /// or `None` when it mentions no type parameter. The entry's parameter
+    /// list is written with it; each instantiation slot is written once, when
+    /// first asked for; never invalidated (`r6-declared3.md` §1).
+    pub(crate) conditional_extends: rustc_hash::FxHashMap<TypeId, Option<ExtendsInstantiations>>,
+    /// getRestrictiveTypeParameter's per-parameter clone
+    /// (`CachedTypeKindRestrictiveTypeParameter`), read by
+    /// `Checker::restrictive_type_parameter` (declared.rs): `parameter ->
+    /// unconstrained clone`. Written once per parameter, never invalidated
+    /// (`r6-declared3.md` §1).
+    pub(crate) restrictive_type_parameters: rustc_hash::FxHashMap<TypeId, TypeId>,
     /// The merged symbols of the global `Iterable`, `IterableIterator`,
     /// `AsyncIterable` and `AsyncIterableIterator` at arity 3, whose printed
     /// references elide default-identical trailing arguments

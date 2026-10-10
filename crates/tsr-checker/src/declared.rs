@@ -9826,10 +9826,9 @@ impl<'a> Checker<'a, '_> {
                     } else if check_is_any {
                         // Upstream answers `true | false` here; declined.
                         None
-                    } else if let Some((permissive, restrictive)) =
-                        self.conditional_extends_instantiations(extends)
+                    } else if let Some(permissive) = self.permissive_extends_instantiation(extends)
                     {
-                        self.definite_conditional_outcome(check, permissive, restrictive)
+                        self.definite_conditional_outcome(check, extends, permissive)
                     } else {
                         match self.relate_ternary(
                             check,
@@ -9880,100 +9879,264 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
-    /// getConditionalType's definite outcomes for a non-deferred extends type
-    /// that still mentions type parameters (checker.go:24372-24429): the
-    /// permissive instantiation maps them to the wildcard, the restrictive one
-    /// to unconstrained clones (getPermissiveInstantiation and
-    /// getRestrictiveInstantiation). `None` when the extends type mentions no
-    /// type parameter, so both instantiations are the type itself.
+    /// getConditionalType's permissive instantiation of a non-deferred extends
+    /// type that still mentions type parameters (checker.go:24377): every
+    /// type parameter maps to the wildcard (getPermissiveInstantiation,
+    /// :24479). `None` when the extends type mentions no type parameter, so
+    /// both instantiations are the type itself.
     ///
     /// This port has no wildcard distinct from `any`; relating to `any` is the
-    /// wildcard's relation. A failed instantiation answers `error` for both,
-    /// which [`Checker::definite_conditional_outcome`] defers.
-    fn conditional_extends_instantiations(&mut self, extends: TypeId) -> Option<(TypeId, TypeId)> {
-        // `permissiveInstantiation` and `restrictiveInstantiation` are cached
-        // on the type (getPermissiveInstantiation, getRestrictiveInstantiation):
-        // one pair per extends type (`r6-declared.md` §2.2).
-        if let Some(&cached) = self.instantiation_expressions.conditional_extends.get(&extends) {
-            return cached;
-        }
-        let answer = self.conditional_extends_instantiations_worker(extends);
-        self.instantiation_expressions.conditional_extends.insert(extends, answer);
-        answer
+    /// wildcard's relation. A failed instantiation answers `error`, which
+    /// [`Checker::definite_conditional_outcome`] defers.
+    fn permissive_extends_instantiation(&mut self, extends: TypeId) -> Option<TypeId> {
+        self.extends_instantiation(extends, false)
     }
 
-    fn conditional_extends_instantiations_worker(
-        &mut self,
-        extends: TypeId,
-    ) -> Option<(TypeId, TypeId)> {
-        if !self.mentions_registered_type_parameter(extends) {
-            return None;
-        }
-        let candidates: Vec<TypeId> = self.type_parameter_symbols.keys().copied().collect();
-        let mut mentioned = Vec::new();
-        self.collect_mentioned_type_parameters(extends, &candidates, &mut mentioned);
-        let names: Vec<String> =
-            mentioned.iter().map(|&parameter| self.type_to_string(parameter)).collect();
+    /// getRestrictiveInstantiation (checker.go:24492) of an extends type the
+    /// permissive instantiation did not reject: every type parameter maps to
+    /// its restrictive form (getRestrictiveTypeParameter). Native computes it
+    /// only after the permissive relation holds (:24415), and so does this.
+    fn restrictive_extends_instantiation(&mut self, extends: TypeId) -> TypeId {
+        self.extends_instantiation(extends, true).unwrap_or(extends)
+    }
+
+    /// The shared body of the two instantiations above. The cached entry
+    /// holds the mentioned parameters (gathered once per extends type) and
+    /// each instantiation as it is first asked for: native caches
+    /// `CachedTypeKindPermissiveInstantiation` and
+    /// `CachedTypeKindRestrictiveInstantiation` separately, keyed by the
+    /// type. Key: the extends type's identity; owner:
+    /// `instantiation_expressions.conditional_extends`; each slot written
+    /// once, never invalidated (`r6-declared3.md` §1).
+    fn extends_instantiation(&mut self, extends: TypeId, restrictive: bool) -> Option<TypeId> {
+        let (parameters, names) =
+            match self.instantiation_expressions.conditional_extends.get(&extends) {
+                Some(None) => return None,
+                Some(Some(entry)) => {
+                    let slot = if restrictive { entry.restrictive } else { entry.permissive };
+                    if let Some(image) = slot {
+                        return Some(image);
+                    }
+                    (entry.parameters.clone(), entry.names.clone())
+                }
+                None => {
+                    let parameters = self.collect_registered_type_parameters(extends);
+                    if parameters.is_empty() {
+                        self.instantiation_expressions.conditional_extends.insert(extends, None);
+                        return None;
+                    }
+                    let names: std::rc::Rc<[String]> = parameters
+                        .iter()
+                        .map(|&parameter| self.type_to_string(parameter))
+                        .collect();
+                    let parameters: std::rc::Rc<[TypeId]> = parameters.into();
+                    self.instantiation_expressions.conditional_extends.insert(
+                        extends,
+                        Some(crate::instantiation_expressions::ExtendsInstantiations {
+                            parameters: parameters.clone(),
+                            names: names.clone(),
+                            permissive: None,
+                            restrictive: None,
+                        }),
+                    );
+                    (parameters, names)
+                }
+            };
+        let map: Vec<(TypeId, TypeId)> = if restrictive {
+            parameters
+                .iter()
+                .zip(names.iter())
+                .map(|(&parameter, name)| {
+                    (parameter, self.restrictive_type_parameter(parameter, name))
+                })
+                .collect()
+        } else {
+            let any = self.intrinsics.any;
+            parameters.iter().map(|&parameter| (parameter, any)).collect()
+        };
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
-        let any = self.intrinsics.any;
-        let permissive_map: Vec<(TypeId, TypeId)> =
-            mentioned.iter().map(|&parameter| (parameter, any)).collect();
-        let permissive = self.instantiate_type(extends, &permissive_map, &mentioned, &name_refs);
-        // getRestrictiveTypeParameter: a clone whose constraint is
-        // noConstraintType. The clone is not registered as a declared
-        // parameter, so no constraint is found for it.
-        let restrictive_map: Vec<(TypeId, TypeId)> = mentioned
-            .iter()
-            .zip(&names)
-            .map(|(&parameter, name)| {
-                (parameter, self.store.new_named(TypeFlags::TYPE_PARAMETER, name.clone(), None))
-            })
-            .collect();
-        let restrictive = self.instantiate_type(extends, &restrictive_map, &mentioned, &name_refs);
-        let error = self.intrinsics.error;
-        if permissive == error || restrictive == error {
-            return Some((error, error));
+        let image = self.instantiate_type(extends, &map, &parameters, &name_refs);
+        if let Some(Some(entry)) =
+            self.instantiation_expressions.conditional_extends.get_mut(&extends)
+        {
+            if restrictive {
+                entry.restrictive = Some(image);
+            } else {
+                entry.permissive = Some(image);
+            }
         }
-        Some((permissive, restrictive))
+        Some(image)
     }
 
-    /// The candidates `extends` mentions, in candidate order. One graph walk
-    /// per candidate made every conditional evaluation linear in the whole
-    /// type-parameter registry (`ramdaToolsNoInfinite2` spent its 25 s here,
-    /// `r6-declared.md` §2.2). Native's permissive and restrictive mappers are
-    /// built once over the type's parameters. A walk asks a whole slice at
-    /// once and a slice no node mentions is dropped whole, so the cost is
-    /// O(k log n) walks for k mentioned of n candidates. The answer is
-    /// exactly the per-candidate filter's.
-    fn collect_mentioned_type_parameters(
+    /// getRestrictiveTypeParameter (checker.go:24514): a clone of `parameter`
+    /// whose constraint is noConstraintType. The clone is not registered as a
+    /// declared parameter, so no constraint is found for it.
+    ///
+    /// Native caches the clone on the parameter
+    /// (`CachedTypeKindRestrictiveTypeParameter`), so every restrictive
+    /// instantiation maps a parameter to the same type; minting one per
+    /// extends type gave each instantiation fresh identities that no
+    /// downstream cache could reuse (`r6-declared3.md` §1). Key: the
+    /// parameter's identity; owner: `instantiation_expressions.restrictive_type_parameters`;
+    /// written once on first use, never invalidated.
+    fn restrictive_type_parameter(&mut self, parameter: TypeId, name: &str) -> TypeId {
+        if let Some(&clone) =
+            self.instantiation_expressions.restrictive_type_parameters.get(&parameter)
+        {
+            return clone;
+        }
+        let clone = self.store.new_named(TypeFlags::TYPE_PARAMETER, name.to_string(), None);
+        self.instantiation_expressions.restrictive_type_parameters.insert(parameter, clone);
+        clone
+    }
+
+    /// The registered type parameters `extends` mentions, in registry order:
+    /// the parameters getPermissiveInstantiation's and
+    /// getRestrictiveInstantiation's function mappers (checker.go:24372,
+    /// `permissiveMapper`/`restrictiveMapper`) would meet while instantiating
+    /// it. Native needs no list, since its mappers are functions over every
+    /// type parameter; this port's `instantiate_type` takes an explicit map,
+    /// so the list is gathered first.
+    ///
+    /// One walk over the type graph (`r6-declared3.md` §1). It follows
+    /// exactly the edges of `mentions_type_parameter_inner` (inference.rs),
+    /// table for table and in the same first-match order, but never stops
+    /// early: a parameter is mentioned iff that walk reaches it, so the set is
+    /// the per-candidate filter's. It replaced r6-declared §2.2's bisection
+    /// over the whole registry, which paid O(k log n) graph walks for k
+    /// mentioned of n registered parameters, each with a linear `visited`
+    /// scan. Key: the extends type's identity; owner: the caller's
+    /// `conditional_extends` cache, which publishes the instantiation pair
+    /// once per extends type. Nothing is stored here.
+    fn collect_registered_type_parameters(&self, extends: TypeId) -> Vec<TypeId> {
+        let mut found = rustc_hash::FxHashSet::default();
+        let mut visited = rustc_hash::FxHashSet::default();
+        let mut stack = vec![extends];
+        while let Some(id) = stack.pop() {
+            self.registered_type_parameter_edges(id, &mut found, &mut visited, &mut stack);
+        }
+        if found.is_empty() {
+            return Vec::new();
+        }
+        // Registry order, as the bisection gave: the restrictive clones are
+        // minted in this order.
+        self.type_parameter_symbols.keys().copied().filter(|p| found.contains(p)).collect()
+    }
+
+    /// One node of [`Checker::collect_registered_type_parameters`]: records a
+    /// registered parameter, or pushes the node's followed edges.
+    fn registered_type_parameter_edges(
         &self,
-        extends: TypeId,
-        candidates: &[TypeId],
-        mentioned: &mut Vec<TypeId>,
+        id: TypeId,
+        found: &mut rustc_hash::FxHashSet<TypeId>,
+        visited: &mut rustc_hash::FxHashSet<TypeId>,
+        stack: &mut Vec<TypeId>,
     ) {
-        if candidates.is_empty() || !self.mentions_type_parameter(extends, candidates, &[]) {
+        if self.type_parameter_symbols.contains_key(&id) {
+            found.insert(id);
             return;
         }
-        if let [single] = candidates {
-            mentioned.push(*single);
+        if !visited.insert(id) {
             return;
         }
-        let (left, right) = candidates.split_at(candidates.len() / 2);
-        self.collect_mentioned_type_parameters(extends, left, mentioned);
-        self.collect_mentioned_type_parameters(extends, right, mentioned);
+        if let Some((_, target)) = self.string_mapping_types.get(&id) {
+            stack.push(*target);
+            return;
+        }
+        if let Some(parts) = self.template_literal_parts.get(&id) {
+            stack.extend(parts.types.iter().copied());
+            return;
+        }
+        let ty = self.store.get(id);
+        if ty.flags.intersects(
+            TypeFlags::TYPE_PARAMETER
+                | TypeFlags::PRIMITIVE
+                | TypeFlags::ANY_OR_UNKNOWN
+                | TypeFlags::NEVER,
+        ) {
+            return;
+        }
+        if let Some(&operand) = self.deferred_keyof_operands.get(&id) {
+            stack.push(operand);
+            return;
+        }
+        if let Some(&(object, index, _)) = self.deferred_indexed_access_types.get(&id) {
+            stack.extend([object, index]);
+            return;
+        }
+        if let Some((_, arguments)) = self.type_reference_targets.get(&id) {
+            stack.extend(arguments.iter().copied());
+            return;
+        }
+        if let Some(info) = self.mapped_conditionals.get(&id) {
+            stack.extend(info.operands.iter().copied());
+            return;
+        }
+        if let Some(info) = self.mapped_types.get(&id) {
+            stack.extend([info.constraint, info.template]);
+            stack.extend(info.name_type);
+            return;
+        }
+        // Not a returning arm in the walker: a type with index infos goes on
+        // to its signatures and properties when no index info mentions one.
+        if let Some(infos) = self.object_literal_index_infos.get(&id) {
+            stack.extend(infos.iter().flat_map(|info| [info.key, info.value]));
+        }
+        if let Some(signatures) = self.signature_types.get(&id) {
+            for signature in signatures {
+                stack.extend(
+                    signature
+                        .parameters
+                        .iter()
+                        .filter_map(|p| self.peek_parameter_type(p))
+                        .chain(
+                            signature
+                                .this_parameter
+                                .iter()
+                                .filter_map(|p| self.peek_parameter_type(p)),
+                        )
+                        .chain(std::iter::once(signature.r#type))
+                        .chain(signature.predicate.iter().filter_map(|predicate| predicate.r#type))
+                        .chain(
+                            signature
+                                .type_parameters
+                                .iter()
+                                .flat_map(|p| [p.constraint, p.default].into_iter().flatten()),
+                        ),
+                );
+            }
+            if let Some((properties, _)) = self.anonymous_properties.get(&id) {
+                stack.extend(properties.iter().filter_map(|p| self.peek_property_type(p)));
+            }
+            return;
+        }
+        if let Some((properties, _)) = self.anonymous_properties.get(&id) {
+            stack.extend(properties.iter().filter_map(|p| self.peek_property_type(p)));
+            return;
+        }
+        if let Some((elements, _)) = self.tuple_element_lists.get(&id) {
+            stack.extend(elements.iter().copied());
+            return;
+        }
+        if let crate::types::TypeData::Union { types, .. }
+        | crate::types::TypeData::Intersection { types, .. } = &ty.data
+        {
+            stack.extend(types.iter().copied());
+        }
     }
 
     /// FALSE when even the permissive extends type rejects the check, TRUE when
     /// the restrictive one accepts it, otherwise deferred (checker.go:24377
-    /// and :24415).
+    /// and :24415). The restrictive instantiation is made only when the
+    /// permissive relation holds, as native's `||` short-circuit makes it.
     fn definite_conditional_outcome(
         &mut self,
         check: TypeId,
+        extends: TypeId,
         permissive: TypeId,
-        restrictive: TypeId,
     ) -> Option<bool> {
         let error = self.intrinsics.error;
-        if permissive == error || restrictive == error {
+        if permissive == error {
             return None;
         }
         match self.relate_ternary(check, permissive, crate::relater::Relation::Assignable) {
@@ -9981,15 +10144,9 @@ impl<'a> Checker<'a, '_> {
             crate::relater::Ternary::Unknown => return None,
             crate::relater::Ternary::Related => {}
         }
-        if crate::debug_env::is_set("TSR_DBG") {
-            let n = self.get_property_names_of_type(restrictive);
-            let t = self.get_type_of_property_of_type(restrictive, "name");
-            eprintln!(
-                "DBG names={:?} t={:?} data={:?}",
-                n,
-                t.map(|t| self.type_to_string(t)),
-                self.store.get(restrictive)
-            );
+        let restrictive = self.restrictive_extends_instantiation(extends);
+        if restrictive == error {
+            return None;
         }
         match self.relate_ternary(check, restrictive, crate::relater::Relation::Assignable) {
             crate::relater::Ternary::Related => Some(true),
