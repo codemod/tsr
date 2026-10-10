@@ -833,6 +833,9 @@ impl Checker<'_, '_> {
                 // resolution, before `checkIdentifier`'s flow section.
                 self.check_used_before_its_declaration(node, identifier.text);
                 self.check_used_before_assigned(node, identifier.text);
+                // `checkIdentifier`'s auto arm (`checker.go:11182`),
+                // `implicit_any.rs` (r7-reports §15).
+                self.check_implicit_any_auto_reference(node, identifier.text);
                 self.mark_identifier_reference(node, identifier.text);
                 ambient
             }
