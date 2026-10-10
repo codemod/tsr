@@ -1760,3 +1760,26 @@ r6-jsdoc2 takes the JSDoc remainder (`tsr-2zk.1254`), r6-triage's
 JSDOC-TAG-SEMANTICS (`tsr-2zk.1178`) and JS-FILE-CHECK-DECLINE
 (`tsr-2zk.1165`). The calls.rs/call_arity.rs JS gates in `.1165` go to
 r6-callreport.
+
+### r6-declared2 finished (batch BY); r6-declared3 dispatched
+
+Batch BY lands r6-declared2's three commits and its non-strict optional-read
+diff:
+- a deferred conditional alias reference falls through only when
+  getConditionalType would defer;
+- isExcludedMappedPropertyName reads the conditional root;
+- instantiateConstituent's unmapped-constituent test;
+- an optional member read adds `| undefined` without strictNullChecks.
+
+Measured by the box against `f334de9`: +74 types and +1 diagnostics case,
+0 lost. Ir is +0.07% on domain-model and +0.05% on generic-imports.
+
+The mapped-source-members diff is held at +4 diagnostics / −2 types. Its two
+losses wait on destructure/contextual (MAIN).
+
+The box found a performance root: collect_mentioned_type_parameters bisects
+the whole type-parameter registry. It is 42% of callgrind on deferred
+conditionals, and item 1 adds callers to it. It goes first in r6-declared3's
+brief (`tsr-2zk.1255`). r6-declared3 also takes r6-triage's declared clusters
+`.1154`, `.1184`, `.1190`, `.1209` and `.1240`. `.1188` (inline conditional
+instantiation) goes to r6-typesroots3, beside `.16.74`.
