@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8768/9538 (91.93%)
-Assertion lines: 474835/478853 (99.16%)  — a gradient, not a pass rate
-Failed         : 770
+Passed         : 8782/9538 (92.07%)
+Assertion lines: 474925/478853 (99.18%)  — a gradient, not a pass rate
+Failed         : 756
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 770 failures:
+First 100 of 756 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -137,8 +137,6 @@ compiler/computedPropertiesInDestructuring1_ES6
   computedPropertiesInDestructuring1_ES6.ts: >{[foo]: bar} : any — expected >{[foo]: bar} : { [foo]: any; }
 compiler/computedPropertiesWithSetterAssignment
   /a.ts: >foo[k] : Set<string> — expected >foo[k] : Iterable<string>
-compiler/computedPropertyBindingElementDeclarationNoCrash1
-  computedPropertyBindingElementDeclarationNoCrash1.ts: >key : any — expected >key : string
 compiler/computedTypesKeyofNoIndexSignatureType
   computedTypesKeyofNoIndexSignatureType.ts: >Compute : { [K in keyof A]: Compute<A[K]>; } — expected >Compute : { [K in keyof A]: A[K] extends infer T ? { [K_1 in keyof T]: T[K_1] extends infer T_1 ? { [K_2 in keyof T_1]: T_1[K_2] extends infer T_2 ? { [K_3 in keyof T_2]: T_2[K_3] extends infer T_3 ? { [K_4 in keyof T_3]: T_3[K_4] extends infer T_4 ? { [K_5 in keyof T_4]: T_4[K_5] extends infer T_5 ? { [K_6 in keyof T_5]: T_5[K_6] extends infer T_6 ? { [K_7 in keyof T_6]: T_6[K_7] extends infer T_7 ? { [K_8 in keyof T_7]: T_7[K_8] extends infer T_8 ? { [K_9 in keyof T_8]: T_8[K_9] extends infer T_9 ? { [K_10 in keyof T_9]: any; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; } : never; }
 compiler/concatTuples
@@ -213,3 +211,5 @@ compiler/controlFlowFunctionLikeCircular1
   controlFlowFunctionLikeCircular_3.ts: >test : { (arg: () => string): void; (arg: () => string): void; (arg: string | number): (() => typeof arg) | undefined; (arg: string | number): (() => typeof arg) | undefined; (arg: string | number): (() => typeof arg) | undefined; (arg: string | number, whatever: any): any; (arg: string | number, whatever: any): (() => void) | undefined; (arg: string | number, whatever: any): (() => typeof arg) | undefined; } — expected >test : { (arg: () => string): void; (arg: () => string): void; (arg: string | number): (() => typeof arg) | undefined; (arg: string | number): (() => typeof arg) | undefined; (arg: string | number): (() => typeof arg) | undefined; (arg: string | number, whatever: any): ((arg: unknown) => arg is any) | undefined; (arg: string | number, whatever: any): (() => void) | undefined; (arg: string | number, whatever: any): (() => typeof arg) | undefined; }
 compiler/controlFlowInstanceofWithSymbolHasInstance
   controlFlowInstanceofWithSymbolHasInstance.ts: >[Symbol.hasInstance] : error — expected >[Symbol.hasInstance] : <T>(this: T, value: unknown) => value is (T extends (abstract new (...args: any) => infer U) ? U : never)
+compiler/controlFlowNoImplicitAny
+  controlFlowNoImplicitAny.ts: >y : any — expected >y : string | number | undefined
