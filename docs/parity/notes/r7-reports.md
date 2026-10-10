@@ -684,3 +684,31 @@ WRONG → RIGHT the five cases above; no other row changed; type lines
 identical. Not covered: the auto-array track (`autoArrayType`,
 `controlFlowArrayErrors`, `evolvingArrayResolvedAssert`), which the flow
 query does not answer.
+
+## 16. TS2719: `reportRelationError`'s same-name arm
+
+**Forcing fact.** `incompatibleAssignmentOfIdenticallyNamedTypes`: `this.x
+= a` with `a: T` (an interface) and `x: T` (the class's type parameter) is
+TS2719, `Type 'T' is not assignable to type 'T'. Two different types with
+this name exist, but they are unrelated.`. TSR printed TS2322. §4 left the
+arm unported because the printer had no fully-qualified mode.
+
+**Upstream.** `reportRelationError` (`relater.go:4751`) takes its names from
+`getTypeNamesForErrorDisplay` (`relater.go:1277`): when the plain prints
+collide, both sides are re-printed with `getTypeNameForErrorDisplay`
+(`TypeFormatFlagsUseFullyQualifiedType`). Then, with no head message,
+`sourceType == targetType` selects TS2719 ahead of the exact-optional and
+default arms. The re-printed names are also what any other head prints.
+
+**Port** (`assignreport.rs`, `report_relation_head`). r7-printer's
+`type_name_for_error_display` (`checker.rs`, `deda2594`) is the qualified
+print; its `allow(dead_code)` is removed (granted). When the plain prints
+collide, both sides take the qualified print, and equal qualified prints
+select TS2719. That comes after a caller's head and TSR's TS2412 head arm
+(native's `checkAssignmentOperator` head), and before the exact-optional
+arm, in upstream's order. A literal source keeps its generalized display
+text, as upstream's `generalizedSourceType` does.
+
+**Measured** (unfiltered, against `f960020e` plus §11–§15): WRONG → RIGHT
+`incompatibleAssignmentOfIdenticallyNamedTypes`; no other row changed; type
+lines identical.

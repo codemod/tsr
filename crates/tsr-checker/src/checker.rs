@@ -3250,9 +3250,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// chain, `nodebuilderimpl.go:1069`), and type arguments and members keep
     /// their site-free print (r7-printer §7). No cache.
     // Consumer: r7-reports' TS2719 arm of `reportRelationError`
-    // (`relater.rs`), routed by the integrator; until it lands, the
-    // printing test below is the only caller.
-    #[allow(dead_code)]
+    // (`assignreport.rs`, `report_relation_head`).
     pub(crate) fn type_name_for_error_display(&mut self, id: TypeId) -> String {
         let printed = self.type_to_string(id);
         if self.type_parameter_symbols.contains_key(&id) {

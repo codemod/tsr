@@ -2619,12 +2619,29 @@ impl<'a> Checker<'a, '_> {
         chain: Option<Diagnostic>,
     ) {
         let displayed_source = self.assignability_source_for_error_display(source, target);
-        let source_text = self.type_to_string(displayed_source);
-        let target_text = self.type_to_string(target);
+        let mut source_text = self.type_to_string(displayed_source);
+        let mut target_text = self.type_to_string(target);
+        // `getTypeNamesForErrorDisplay` (`relater.go:1277`): when the two
+        // print alike, both are re-printed fully qualified
+        // (`getTypeNameForErrorDisplay`), and `reportRelationError`'s
+        // `sourceType == targetType` arm (TS2719) asks whether even those
+        // collide: two different types with one name.
+        let mut same_name = false;
+        if self.type_to_string(source) == target_text {
+            let qualified_source = self.type_name_for_error_display(source);
+            let qualified_target = self.type_name_for_error_display(target);
+            same_name = qualified_source == qualified_target;
+            if displayed_source == source {
+                source_text = qualified_source;
+            }
+            target_text = qualified_target;
+        }
         let message = if let Some(head) = head {
             head
         } else if self.exact_optional_property_assignment_mismatch(at, source) {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPE_OF_THE_TARGET
+        } else if same_name {
+            &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_TWO_DIFFERENT_TYPES_WITH_THIS_NAME_EXIST_BUT_THEY_ARE_UNRELATED
         } else if source_text != target_text && self.exact_optional_object_mismatch(source, target)
         {
             &messages::TYPE_0_IS_NOT_ASSIGNABLE_TO_TYPE_1_WITH_EXACTOPTIONALPROPERTYTYPES_COLON_TRUE_CONSIDER_ADDING_UNDEFINED_TO_THE_TYPES_OF_THE_TARGET_S_PROPERTIES
