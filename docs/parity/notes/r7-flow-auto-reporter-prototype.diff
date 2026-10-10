@@ -1,0 +1,53 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d74c7341..d7aaf81c 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -826,6 +826,7 @@ impl Checker<'_, '_> {
+                 // resolution, before `checkIdentifier`'s flow section.
+                 self.check_used_before_its_declaration(node, identifier.text);
+                 self.check_used_before_assigned(node, identifier.text);
++                self.prototype_check_auto(node, identifier.text);
+                 self.mark_identifier_reference(node, identifier.text);
+                 ambient
+             }
+diff --git a/crates/tsr-checker/src/implicit_any.rs b/crates/tsr-checker/src/implicit_any.rs
+index 8e2e659b..4a516f74 100644
+--- a/crates/tsr-checker/src/implicit_any.rs
++++ b/crates/tsr-checker/src/implicit_any.rs
+@@ -970,6 +970,36 @@ impl Checker<'_, '_> {
+         }
+     }
+ 
++    pub(crate) fn prototype_check_auto(&mut self, node: NodeId, text: &str) {
++        if !self.no_implicit_any || !self.is_value_reference(node) { return; }
++        if self.assignment_target_kind(node) == crate::expressions::AssignmentTargetKind::Definite { return; }
++        if self.nodes.parent(node).is_some_and(|p| self.nodes.kind(p) == SyntaxKind::ExportAssignment) { return; }
++        let Some(symbol) = self.resolve_identifier_memo(node, text, tsr_binder::SymbolFlags::VALUE | tsr_binder::SymbolFlags::EXPORT_VALUE) else { return };
++        let r = self.identifier_flow_type_is_auto(node, symbol);
++        if !r { return; }
++        self.prototype_report_auto(node, symbol, text);
++    }
++
++    pub(crate) fn prototype_report_auto(&mut self, node: NodeId, symbol: tsr_binder::SymbolId, text: &str) {
++        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else { return };
++        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else { return };
++        let Some(name) = variable.name.and_then(|n| n.node_id()) else { return };
++        if let Some(file) = self.source_file_of_for_diagnostics(name) {
++            let span = self.nodes.span(name);
++            let d = Diagnostic::with_args(&messages::VARIABLE_0_IMPLICITLY_HAS_TYPE_1_IN_SOME_LOCATIONS_WHERE_ITS_TYPE_CANNOT_BE_DETERMINED, span, [text.to_string(), "any".to_string()]);
++            if !self.diagnostics.iter().any(|(f, e)| *f == file && e.span == d.span && e.message.code() == 7034) {
++                self.report(file, d);
++            }
++        }
++        if let Some(file) = self.source_file_of_for_diagnostics(node) {
++            let span = self.nodes.span(node);
++            let d = Diagnostic::with_args(&messages::VARIABLE_0_IMPLICITLY_HAS_AN_1_TYPE, span, [text.to_string(), "any".to_string()]);
++            if !self.diagnostics.iter().any(|(f, e)| *f == file && e.span == d.span && e.message.code() == 7005) {
++                self.report(file, d);
++            }
++        }
++    }
++
+     /// TS7005 — `Variable '{0}' implicitly has an '{1}' type.`
+     ///
+     /// The variable arm of `reportImplicitAny`. Restricted to declarations
