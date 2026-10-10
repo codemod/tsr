@@ -9582,8 +9582,24 @@ impl<'a> Checker<'a, '_> {
                 })
             });
         let extends_node = conditional.extends_type.filter(|_| !has_infer_parameters);
-        // getConditionalType's checkTuples: both nodes are simple tuple types
-        // of the same length (isSimpleTupleType, checker.go:24310).
+        let check_tuples = Self::conditional_check_tuples(conditional);
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let check = self.get_type_from_type_node(check_node);
+        let extends = extends_node.map(|node| self.get_type_from_type_node(node));
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        let deferred = |checker: &mut Self, t: TypeId| {
+            !checker.is_error(t) && checker.is_deferred_type(t, check_tuples)
+        };
+        !self.is_error(check)
+            && (deferred(self, check) || extends.is_some_and(|extends| deferred(self, extends)))
+    }
+
+    /// getConditionalType's `checkTuples` (checker.go:24310): the check and
+    /// extends nodes are simple tuple types (`isSimpleTupleType`: no
+    /// optional, rest or named member) of the same length.
+    fn conditional_check_tuples(conditional: &tsr_ast::ConditionalTypeNode<'a>) -> bool {
         let simple_tuple_length = |node: TypeNode<'a>| match Self::skip_type_parentheses(node) {
             Some(TypeNode::TupleTypeNode(tuple))
                 if !tuple.elements.iter().any(|element| {
@@ -9599,21 +9615,11 @@ impl<'a> Checker<'a, '_> {
             }
             _ => None,
         };
-        let check_tuples = conditional.extends_type.is_some_and(|extends_node| {
-            simple_tuple_length(check_node)
-                .is_some_and(|length| simple_tuple_length(extends_node) == Some(length))
-        });
-        self.instantiation_depth += 1;
-        self.alias_evaluation_bindings.push(frame);
-        let check = self.get_type_from_type_node(check_node);
-        let extends = extends_node.map(|node| self.get_type_from_type_node(node));
-        self.alias_evaluation_bindings.pop();
-        self.instantiation_depth -= 1;
-        let deferred = |checker: &mut Self, t: TypeId| {
-            !checker.is_error(t) && checker.is_deferred_type(t, check_tuples)
-        };
-        !self.is_error(check)
-            && (deferred(self, check) || extends.is_some_and(|extends| deferred(self, extends)))
+        match (conditional.check_type, conditional.extends_type) {
+            (Some(check), Some(extends)) => simple_tuple_length(check)
+                .is_some_and(|length| simple_tuple_length(extends) == Some(length)),
+            _ => false,
+        }
     }
 
     /// isDeferredType (checker.go:24475): generic, or, under `check_tuples`, a
@@ -10099,12 +10105,15 @@ impl<'a> Checker<'a, '_> {
             if self.is_error(check) {
                 return None;
             }
-            // A deferred check must stay under its conditional mapper. Walk
-            // semantic operands, including keyof and deeply nested references.
-            if !self.signature_types.contains_key(&check)
-                && (self.store.get(check).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
-                    || self.mentions_registered_type_parameter(check))
-            {
+            // A deferred check must stay under its conditional mapper:
+            // getConditionalType defers when `isDeferredType(checkType,
+            // checkTuples)` (checker.go:24475), i.e. the check is generic
+            // (getGenericObjectFlags). A check that merely mentions a type
+            // parameter (`{ a: T }`, `T[]`, a signature binding its own `T`)
+            // is not generic; native relates its permissive and restrictive
+            // instantiations below (r7-declared §3).
+            let check_tuples = Self::conditional_check_tuples(conditional);
+            if self.is_deferred_type(check, check_tuples) {
                 return None;
             }
             // getConditionalTypeInstantiation distributes a naked parameter's
@@ -10317,11 +10326,11 @@ impl<'a> Checker<'a, '_> {
                 // a branch that must remain open for later instantiations.
                 if extends != error
                     && !self.conditional_extends_is_generic(extends)
+                    && !self.is_deferred_type(extends, check_tuples)
                     // getConditionalType also defers generic check types. A
                     // retained keyof operand (including polymorphic this) need
                     // not contain a registered type parameter in this port.
                     && !self.indexed_access_index_is_generic(check)
-                    && !self.mentions_any_type_parameter(check, 2)
                 {
                     let extends_is_any_or_unknown = self
                         .store
@@ -10335,9 +10344,8 @@ impl<'a> Checker<'a, '_> {
                     } else if check_is_any {
                         // Upstream answers `true | false` here; declined.
                         None
-                    } else if let Some(permissive) = self.permissive_extends_instantiation(extends)
-                    {
-                        self.definite_conditional_outcome(check, extends, permissive)
+                    } else if self.conditional_mentions_type_parameters(check, extends) {
+                        self.definite_conditional_outcome(check, extends)
                     } else {
                         match self.relate_ternary(
                             check,
@@ -10634,33 +10642,52 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
-    /// FALSE when even the permissive extends type rejects the check, TRUE when
-    /// the restrictive one accepts it, otherwise deferred (checker.go:24377
-    /// and :24415). The restrictive instantiation is made only when the
-    /// permissive relation holds, as native's `||` short-circuit makes it.
-    fn definite_conditional_outcome(
-        &mut self,
-        check: TypeId,
-        extends: TypeId,
-        permissive: TypeId,
-    ) -> Option<bool> {
+    /// FALSE when even the permissive instantiations of the check and extends
+    /// types are unrelated, TRUE when the restrictive ones are related,
+    /// otherwise deferred (checker.go:24377 and :24415). Both operands are
+    /// instantiated, as native's `getPermissiveInstantiation(checkType)` and
+    /// `getRestrictiveInstantiation(checkType)` are (r7-declared §3). The
+    /// restrictive instantiations are made only when the permissive relation
+    /// holds, as native's `||` short-circuit makes them.
+    fn definite_conditional_outcome(&mut self, check: TypeId, extends: TypeId) -> Option<bool> {
         let error = self.intrinsics.error;
-        if permissive == error {
+        let permissive_check = self.permissive_extends_instantiation(check).unwrap_or(check);
+        let permissive = self.permissive_extends_instantiation(extends).unwrap_or(extends);
+        if permissive == error || permissive_check == error {
             return None;
         }
-        match self.relate_ternary(check, permissive, crate::relater::Relation::Assignable) {
+        match self.relate_ternary(
+            permissive_check,
+            permissive,
+            crate::relater::Relation::Assignable,
+        ) {
             crate::relater::Ternary::NotRelated => return Some(false),
             crate::relater::Ternary::Unknown => return None,
             crate::relater::Ternary::Related => {}
         }
+        let restrictive_check = self.restrictive_extends_instantiation(check);
         let restrictive = self.restrictive_extends_instantiation(extends);
-        if restrictive == error {
+        if restrictive == error || restrictive_check == error {
             return None;
         }
-        match self.relate_ternary(check, restrictive, crate::relater::Relation::Assignable) {
+        match self.relate_ternary(
+            restrictive_check,
+            restrictive,
+            crate::relater::Relation::Assignable,
+        ) {
             crate::relater::Ternary::Related => Some(true),
             _ => None,
         }
+    }
+
+    /// Whether the check or extends type of a non-deferred conditional
+    /// mentions a registered type parameter, so that its permissive and
+    /// restrictive instantiations (checker.go:24377, :24415) differ from the
+    /// type itself. With neither, both instantiations are identities and
+    /// the plain relation decides.
+    fn conditional_mentions_type_parameters(&mut self, check: TypeId, extends: TypeId) -> bool {
+        self.permissive_extends_instantiation(extends).is_some()
+            || self.permissive_extends_instantiation(check).is_some()
     }
 
     /// getGenericObjectFlags/isDeferredType (checker.go): unions and
