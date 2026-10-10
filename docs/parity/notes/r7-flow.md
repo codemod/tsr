@@ -207,3 +207,73 @@ The other two TS2775 gaps r7-calls named:
 The `Mutable<A>|Mutable<B>` TS2540 (r7-declared's
 `r7-declared-readonly-union-mapped-member.diff`) is the same mapped-symbol
 root as held diff R (§4).
+
+## §6 A union's readonly property reads each constituent's mapped member (routed from r7-declared)
+
+`createUnionOrIntersectionProperty` (`checker.go:21452`) sets the union
+property's `CheckFlagsReadonly` when any constituent's property is readonly
+by `isReadonlySymbol`. A mapped constituent's property is the transient
+mapped symbol whose `CheckFlagsReadonly` comes from the mapping's modifiers
+(`resolveMappedTypeMembers`, `checker.go:20930-20937`). The port's union arm
+of `is_assignment_to_readonly_property` asked the modifiers type's symbol
+instead, so `Mutable<A> | Mutable<B>` lost its `-readonly` (a false TS2540,
+8 in jsTyping) and `Readonly<A> | A` lost its `+readonly` on a member `A`
+declares writable (a missed TS2540). r7-declared's
+`r7-declared-readonly-union-mapped-member.diff` adds
+`constituent_property_is_readonly`, which reads `mapped_identity_optionality`
+and the member image first, as the non-union tail already did. Applied
+unchanged.
+
+Measured on `533e29b6`: corpus neutral (types and diagnostics verdicts
+unchanged, 0 lost). The probe in
+`tests/r7_flow_readonly_union_mapped.rs` matches native exactly; the base
+reported the false `m.flags` TS2540 and missed `r.kind`/`mr.kind`. No cache:
+one image lookup per union constituent at an assignment target, the image
+resolved on first read as the non-union tail already does.
+
+## §7 `getFlowTypeOfDestructuring`'s synthetic reference (requested by r7-contextual)
+
+`getBindingElementTypeFromParentType` (`checker.go:17743`, `:17771`) and the
+destructuring-assignment checks (`:12612`, `:12678`) pass a destructured
+name's indexed-access type through `getFlowTypeOfDestructuring`
+(`checker.go:17849`). That walks a synthetic `parentAccess["name"]`
+(`getSyntheticElementAccess`, `:17857`; `getParentElementAccess`, `:17882`;
+`getDestructuringPropertyName`, `flow.go:1792`) from the parent access's flow
+node, so `if (!state.cache) return; const { cache } = state; cache.x` reads
+`cache` narrowed.
+
+**Representation.** Native builds a fresh element-access node. This tree is
+immutable (ADR-0012), so `FlowState` gains `synthetic: Option<SyntheticAccess>`:
+the reference is its root (`FlowState::reference`, the real parent access,
+whose flow node starts the walk) plus the accessed names, innermost first.
+Every reader of `state.reference` was audited:
+
+- `is_matching_reference` → `synthetic_reference_matches`: native's access
+  arm (same `getAccessedPropertyName`, matching receiver), down to the
+  root's own `isMatchingReference`;
+- `contains_matching_reference`: the parts are the shorter synthetic
+  prefixes, the root, then the root's own parts;
+- the `in`/`hasOwnProperty` missing-type arms read the receiver and name
+  through `reference_receiver_name`;
+- the START arm treats it as the access it is (no creation-site edge);
+- `isConstantReference` answers false (a synthetic access has no resolved
+  symbol);
+- loop-cache keys use the destructuring node's id, the fresh node's
+  stand-in;
+- the tail converts only the unreachable sentinel: the synthetic access's
+  parent is the destructuring node, never `x!`.
+
+**Checker port boundary.** No cache or side table; one walk per call as
+native's `getFlowTypeOfReference`, sharing `flow_loop_cache` under the
+destructuring node's identity. Nested patterns chain without a walk of their
+own.
+
+**Measured.** The entry point lands unused (`#[allow(dead_code)]`):
+corpus-neutral by construction. Its callers are r7-contextual's.
+`r7-flow-destructuring-call-site.diff` wires the binding-element site
+(object arm and array-like positional arm): on `4a4b5b5b` that measured
+types **+20** (`destructuringTypeGuardFlow` 8, `destructuringControlFlow` 7,
+`dependentDestructuredVariables` 3, `narrowingDestructuring` 2) and
+diagnostics **+2** (`destructuringTypeGuardFlow` EMPTY_WRONG→EMPTY_RIGHT,
+`dependentDestructuredVariables`), 0 lost. A probe of the three shapes
+(object, nested object, array under an object) matches native.

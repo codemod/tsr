@@ -603,9 +603,7 @@ impl Checker<'_, '_> {
             for part in types {
                 let apparent = self.apparent_type(part);
                 if let Some(property) = self.get_property_of_type(apparent, &name) {
-                    if self.is_readonly_symbol(property)
-                        || self.property_signature_is_readonly(property)
-                    {
+                    if self.constituent_property_is_readonly(apparent, &name, property) {
                         return true;
                     }
                 } else if self
@@ -662,6 +660,43 @@ impl Checker<'_, '_> {
         // TYPE as much as the diagnostic: inside the declaring constructor the
         // assignment is legal and the reference is not erroneous.
         !self.assignment_is_inside_the_declaring_constructor(node, property)
+    }
+
+    /// `isReadonlySymbol` of a union constituent's property `name`, as
+    /// createUnionOrIntersectionProperty (`checker.go:21452`) reads it for
+    /// the union's `CheckFlagsReadonly`. A mapped member has no symbol of its
+    /// own (native's is the transient mapped symbol): `property` is the
+    /// modifiers type's, so a homomorphic mapping's `readonly`/`-readonly`
+    /// (`mapped_identity_optionality`) or the member image's modifier
+    /// decides, as [`Self::is_assignment_to_readonly_property`] decides for
+    /// a non-union receiver. `Mutable<A | B>` distributes to `Mutable<A> |
+    /// Mutable<B>`, whose `flags` is writable though `A.flags` is readonly.
+    fn constituent_property_is_readonly(
+        &mut self,
+        part: crate::types::TypeId,
+        name: &str,
+        property: SymbolId,
+    ) -> bool {
+        if let Some(&(_, Some(readonly))) = self.mapped_identity_optionality.get(&part) {
+            return readonly;
+        }
+        let image = self.binding_type_alias_body(part);
+        self.resolve_mapped_type_members(image);
+        for owner in [part, image] {
+            if let Some(member) = self
+                .anonymous_properties
+                .get(&owner)
+                .and_then(|(properties, _)| properties.iter().find(|member| member.name == name))
+            {
+                if member.readonly {
+                    return true;
+                }
+                if self.mapped_types.contains_key(&owner) {
+                    return false;
+                }
+            }
+        }
+        self.is_readonly_symbol(property) || self.property_signature_is_readonly(property)
     }
 
     /// `getDeclarationModifierFlagsFromSymbol(symbol)&ModifierFlagsReadonly`

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4863/5502 (88.39%)
-Failed         : 639
+Passed         : 4877/5502 (88.64%)
+Failed         : 625
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 639 failures:
+First 100 of 625 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -48,8 +48,6 @@ compiler/arrowFunctionErrorSpan
   1 missing (first TS1200 at arrowFunctionErrorSpan.ts(18,5))
 compiler/arrowFunctionsMissingTokens
   1 unexpected (first TS2304 at arrowFunctionsMissingTokens.ts(6,14)), 0 missing
-compiler/assignmentCompat1
-  2 missing (first TS2322 at assignmentCompat1.ts(8,1))
 compiler/assignmentToAnyArrayRestParameters
   1 missing (first TS2536 at assignmentToAnyArrayRestParameters.ts(18,16))
 compiler/augmentExportEquals1
@@ -120,8 +118,6 @@ compiler/coAndContraVariantInferences5
   1 missing (first TS2322 at coAndContraVariantInferences5.ts(9,9))
 compiler/coAndContraVariantInferences6
   1 missing (first TS2322 at coAndContraVariantInferences6.ts(34,42))
-compiler/commonSourceDirectory_dts
-  1 missing (first TS5011 at /app/tsconfig.json(3,9))
 compiler/complexRecursiveCollections
   8 missing (first TS2344 at immutable.ts(261,76))
 compiler/complicatedGenericRecursiveBaseClassReference
@@ -180,8 +176,6 @@ compiler/declarationEmitPrivatePromiseLikeInterface
   3 missing (first TS7056 at Api.ts(6,5))
 compiler/declarationEmitRelativeModuleError
   1 missing (first TS2436 at declarationEmitRelativeModuleError.ts(5,16))
-compiler/declarationEmitToDeclarationDirWithoutCompositeAndDeclarationOptions
-  1 missing (first TS5069 at /foo/tsconfig.json(2,26))
 compiler/declarationEmitUsingTypeAlias1
   2 missing (first TS2883 at src/index.ts(3,14))
 compiler/deepComparisons
@@ -212,3 +206,9 @@ compiler/dynamicNamesErrors
   1 missing (first TS2717 at dynamicNamesErrors.ts(19,5))
 compiler/emptyGenericParamList
   1 missing (first TS1099 at emptyGenericParamList.ts(2,9))
+compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject1
+  1 missing (first TS2322 at emptyObjectNotSubtypeOfIndexSignatureContainingObject1.ts(41,3))
+compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject2
+  1 missing (first TS2322 at emptyObjectNotSubtypeOfIndexSignatureContainingObject2.ts(42,3))
+compiler/emptyTypeArgumentList
+  4 unexpected (first TS1109 at emptyTypeArgumentList.ts(2,5)), 2 missing

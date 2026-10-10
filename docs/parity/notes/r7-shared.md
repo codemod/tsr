@@ -258,3 +258,45 @@ Coverage: `checker_types` 8,738/9,538, `checker_types_configured`
 Median child-CPU new/old (21 samples): domain-model 1.0009,
 generic-imports 1.0108. Workspace clippy (`--all-targets -D warnings`) clean;
 `cargo test --workspace --release` passes.
+
+## 5. ROUTED: native `resolveSymbol` for the symbol-chain comparisons (RESOLVE-ALIAS-INDIRECTION remainder)
+
+### Cause
+
+`resolveSymbolEx` (`checker.go:16258`) follows an alias only when it is pure
+(`IsNonLocalAlias`); a symbol merged with another meaning (`import * as B`
+merged with `interface B` and re-exported, `noCrashOnImportShadowing`) is its
+own answer. `resolve_alias_fully` walks on through such merged symbols to the
+end of the chain. In the printer's `trySymbolTable` comparisons
+(`module_alias_at` and its siblings in `checker.rs`) that made `import { B }
+from "./a"` look like an alias of module `./b`, so the module printed `typeof
+B` where native, finding `B` resolves to a.ts's merged symbol, names it
+through `import * as OriginalB` (`typeof OriginalB`).
+
+### Measured and why it is not one global change
+
+Making `resolve_alias_fully` itself stop at merged symbols: +11 type lines,
+**3 losses** (`mergedWithLocalValue` 1:0, `shadowedInternalModule` 0:36,
+`verbatimModuleSyntaxNoElisionCJS` 5:3). Those reach
+`get_declared_type_of_alias`, which is native `getDeclaredTypeOfAlias` —
+`getDeclaredTypeOfSymbol(resolveAlias(symbol))`, recursing through a merged
+alias — so the walking form is the native one there. The 34 callers mirror
+different native operations and have to be switched one by one.
+
+`r7-shared-printer-resolve-symbol.diff` adds `Checker::resolve_symbol`
+(symbols.rs, native `resolveSymbol`) and switches the seven `checker.rs`
+symbol-chain call sites to it, keeping `get_declared_type_of_alias` on
+`resolve_alias_fully`. Against `f11e37b8`'s freeze: **+11 type lines, 0
+lost**, diagnostics unchanged; cases `noCrashOnImportShadowing` and
+`typeAndNamespaceExportMerge`, plus five lines of
+`exportTypeMergedWithExportStarAsNamespace`. `cargo clippy -p tsr-checker
+--all-targets -D warnings` is clean with it applied. It cannot land from this
+lane: the call sites are r7-printer's, and `resolve_symbol` alone would be
+dead code under the clippy gate. Routed whole to the integrator.
+
+Remaining `resolve_alias_fully` callers to audit against their native
+operation (resolveSymbol vs resolveAlias vs getSymbolFlags' chain walk):
+declared.rs ×3, flow.rs ×2, jsx_*.rs ×3, node_reuse.rs ×2,
+import_type_meaning.rs ×2, symbols.rs ×6, one each in emit_helpers,
+enum_initializer, members, meaning_mismatch, merge_conflicts, printing,
+symbol_accessibility.

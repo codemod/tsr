@@ -675,7 +675,10 @@ fn angle_bracket_means_different_things_per_dialect() {
 fn script_kind_is_inferred_from_the_file_name() {
     use tsr_parser::ScriptKind;
     assert_eq!(ScriptKind::from_file_name("a.tsx"), ScriptKind::Tsx);
-    assert_eq!(ScriptKind::from_file_name("a.jsx"), ScriptKind::Tsx);
+    assert_eq!(ScriptKind::from_file_name("a.jsx"), ScriptKind::JavaScript);
+    assert_eq!(ScriptKind::from_file_name("a.js"), ScriptKind::JavaScript);
+    assert!(ScriptKind::JavaScript.allows_jsx());
+    assert!(ScriptKind::JavaScript.is_javascript());
     assert_eq!(ScriptKind::from_file_name("a.ts"), ScriptKind::TypeScript);
     assert_eq!(ScriptKind::from_file_name("a.d.ts"), ScriptKind::TypeScript);
     assert!(ScriptKind::Tsx.allows_jsx());

@@ -225,3 +225,139 @@ Gen2<ABC.A>`): the source answers a type for `a`, which upstream's
 `Gen2<ABC.B>` lacks. The mapped type's key set over
 `keyof (… & ({ v: A, a } | { v: B, b }))` is the declared-type lane's
 (`mapped.rs`).
+
+## 6. `indexSignaturesRelatedTo`'s `sourceIsPrimitive`
+
+**Forcing fact.** `assignmentCompat1` expects TS2322 for `y = "foo"` with
+`y: { [index: string]: any }` and for `z = false` with
+`z: { [index: number]: any }`. TSR reported nothing, because the relation
+answered Unknown.
+
+**Upstream.** `structuredTypeRelatedToWorker` (`relater.go:3814`) records
+`sourceIsPrimitive` and then relates the apparent wrapper (`String`,
+`Boolean`) through the structural arm (`:3864`): properties, call and
+construct signatures, then `indexSignaturesRelatedTo(source, target,
+sourceIsPrimitive, …)` (`:4578`). With `sourceIsPrimitive` the
+`any`-valued string-index shortcut (`:4588`) is skipped, so each target
+index goes to `typeRelatedToIndexInfo`. `String` has no applicable string
+index (its index is numeric), and an interface has no inferable index
+(`isObjectTypeWithInferableIndex`), so the answer is False. `Boolean` fails
+the same way against a number index.
+
+**Port** (`relater.rs`). The primitive-source arm of
+`is_related_to_with_flags` declined everything against an indexed target
+except a property rejection. It now runs the structural trio over the
+apparent type, threading `source_is_primitive` into
+`related_index_signatures_ex`. The trio is computed in place rather than
+through `is_related_to(apparent, target)`, because that result would be
+published under the wrapper's own pair, where the shortcut does apply
+(`String` *is* assignable to `{ [k: string]: any }`). Upstream keys the
+answer by the primitive source. The member relations inside the trio are
+ordinary pairs and publish as before. A mapped or generic mapped target
+keeps the old decline after the property conjunct: its own arms precede the
+structural one upstream (`relater.go:3593`).
+
+**Not a new cache.** No table is added. The only publication change is that
+this arm no longer publishes a wrapper-keyed pair, which it never did
+before either (it returned Unknown).
+
+**Measured** (unfiltered, on top of §5): WRONG → RIGHT `assignmentCompat1`
+and `indexTypeCheck`; one row fixed in `unknownType1`; no other row changed.
+Types: +5 RIGHT lines (`deeplyNestedConstraints` 0:6–0:8,
+`typeGuardConstructorNarrowPrimitivesInUnion` 0:14,
+`typeGuardConstructorPrimitiveTypes` 0:6: the relation now rejects a
+primitive against an indexed constituent during narrowing), none lost.
+
+**Falsifier.** A primitive assigned to a type with an `any` string index
+that TSR now rejects while tsgo accepts would show a target arm ahead of the
+structural one that this arm skips.
+
+## 7. A circular type-parameter constraint explores `unknown`
+
+**Forcing fact.** `typeParameterHasSelfAsConstraint`: `function foo<T
+extends T>(x: T): number { return x; }` is TS2313 and TS2322 at the
+`return`. The relation `T -> number` answered Unknown, so the TS2322 was
+missing.
+
+**Upstream.** The type-variable arm of `structuredTypeRelatedToWorker`
+(`relater.go:3665`) relates `getConstraintOfType(source)`, or `unknown` when
+that is nil. `getConstraintOfTypeParameter` (`checker.go:17059`) is nil when
+`!hasNonCircularBaseConstraint`, which is the case for a cycle of
+type-parameter constraints (`T extends T`, `T extends U, U extends T`, or a
+chain into such a cycle). `unknown -> number` is False.
+
+**Port** (`relater.rs`, `type_variable_source_related_to`). The
+type-parameter chain walk already detected the cycle, and answered Unknown
+there. It now continues with `unknown`, upstream's nil-constraint answer.
+Cycles through non-parameter types (`T extends keyof T`) are not detected
+by this walk and keep their old road.
+
+**Measured** (unfiltered, on top of §6): WRONG → RIGHT
+`typeParameterHasSelfAsConstraint`; no other row changed.
+
+**Refused in the same session: structural `has_members` for every captured
+anonymous type.** `getRestType`'s result (`objectRestNegative`: `({ b,
+...notAssignable } = o)` relating `{ a: number } -> { a: string }`) is an
+ownerless minted object whose captured property list is complete, and the
+relater's `has_members` admits no ownerless type but the import-attributes
+mint, so the walk answered Unknown (`NoMembersTable`). Admitting every
+ownerless type with a complete capture measured **+4 cases, −5**:
+`restElementAssignable`, `excessPropertyCheckWithSpread`,
+`deeplyNestedMappedTypes`,
+`homomorphicMappedTypeWithNonHomomorphicInstantiationSpreadable1`,
+`mappedTypeInferenceToMappedType`. Every loss is a false TS2322/TS2345/TS2416
+on a spread, rest or mapped-type mint, so those captures relate wrongly
+through the general walk. A retry has to separate the rest mint
+(`mint_rest_properties`) from the spread and mapped mints, and it must
+answer `restElementAssignable`'s two false lines first, since that case is
+itself a rest type.
+
+## 8. ENUM-RELATION-SAME-NAME: `isEnumTypeRelatedTo` read the wrong table
+
+**Forcing fact.** `enumAssignmentCompat3` (70,1): `abc = secondCd`, with
+`First.E { a, b, c }` and `Cd.E { c, d }`, is TS2322 (`Each declaration of
+'E.c' differs in its value, where '2' was expected but '0' was given.`).
+TSR related the two.
+
+**Root cause.** `is_enum_type_related_to` (`relater.rs`, the port of
+`isEnumTypeRelatedTo`, `relater.go`) walked `members` of the two enum
+symbols. This binder files an enum's members in its **exports**, as
+upstream's does (`binder.go:436`, `GetExports(container.Symbol())`;
+`binder.rs` routes `EnumMember` under an `EnumDeclaration` to `Exports`).
+The walk therefore saw no members and answered true for any two same-named
+regular enums. Only the per-literal value match in `is_simple_type_related_to`
+(`Cd.E.c = 0` equals `First.E.a = 0`; `Cd.E.d = 1` equals `First.E.b = 1`)
+decided anything. A source member absent from the target, or a same-named
+member with another value, never rejected.
+
+**Port.** Both tables are read from `exports`. No other change. The value
+comparison and the string/unknown arms were already upstream's.
+
+**Measured** (unfiltered, both dumps, against the round-7 batch-4 base
+`660718af`): WRONG → RIGHT `enumAssignmentCompat3`; no other row changed.
+
+**Falsifier.** Two same-named enums with identical members in different
+containers that tsgo relates and TSR now rejects would show a member-table
+difference (merged declarations across files read through
+`merged_symbol`, not the declaration's own symbol).
+
+## 9. TS7008 is not reported on a static `prototype` property
+
+**Forcing fact.** `staticPrototypeProperty` reports only TS2699 for `class
+C2 { static prototype; }`. TSR added TS7008 at (6,11).
+
+**Upstream.** `bindClassLikeDeclaration` (`binder.go:962`) seeds every
+class's exports with a `Property | Prototype` symbol named `prototype`
+before the members are bound. A static property of that name merges into
+it, because `PropertyExcludes` is none. The method form collides and is
+TS2300, as the same case shows at (2,11). The merged symbol's type is
+`getTypeOfPrototypeProperty` (`checker.go:16580`), the instance type, so
+the implicit-`any` fallback never runs for it.
+
+**Port** (`implicit_any.rs`, `check_implicit_any_member`). A static class
+member named `prototype` is skipped. This binder does not create the
+prototype symbol (`SymbolFlags::PROTOTYPE` is declared and never set), so
+the test reads the declaration that would have merged into it.
+
+**Measured** (unfiltered diagnostics against `660718af` plus §5–§8): WRONG
+→ RIGHT `staticPrototypeProperty`; no other row changed.

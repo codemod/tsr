@@ -293,3 +293,94 @@ The check and extends types keep the written-text rules and still decline.
 **Measured** (alone, unfiltered against `660718af`): types +1
 (conditionalTypeAssignabilityWhenDeferred:0:94 WRONG → RIGHT), 0 lost;
 diagnostics 0 / 0.
+
+## 6. `.1266` re-measured on `660718af`: two more prerequisites, one outside this lane, and a relater blocker
+
+The four cherry-picks rebase cleanly onto `660718af` (refreshed
+[`r7-declared-HELD-mapped-stack.diff`](r7-declared-HELD-mapped-stack.diff)).
+Measured unfiltered against `660718af` with r7-calls' strip on main: types
++59 / −2 (destructuringUnspreadableIntoRest:0:23, :0:25), diagnostics −1
+(deeplyNestedMappedTypes). Neither loss is the stack's own error.
+
+**destructuringUnspreadableIntoRest: the receiver's `this` substitution
+(`members.rs`, r7-shared).** `rest1 : Omit<this, "getter" | "method" |
+"setter">`. With the stack, `Omit` carries `Pick`'s mapped parts, so
+`rest1.publicProp` reads the template `this["publicProp"]`, native's print.
+Then `access_member_lookup`'s §164/§165 arm replaced the minted `this` with
+the receiver, giving `Omit<this, …>["publicProp"]`. Native substitutes a
+this-argument only through `getTypeWithThisArgument` on a class or interface
+reference. resolveMappedTypeMembers (`checker.go:20894`) instantiates a
+template with the key alone, so the `this` stays as written. On main the
+same line was RIGHT through `property_type_via_shape`'s `Omit` arm, which
+the mapped parts now pre-empt.
+[`r7-declared-members-mapped-receiver-this.diff`](r7-declared-members-mapped-receiver-this.diff)
+skips the substitution for a receiver in `mapped_types`.
+
+**deeplyNestedMappedTypes: the template never built.** That is §5,
+committed (`e291ff89`). It turned the case's TypeBox types native
+(deeplyNestedMappedTypes +11 type lines: `{ level1: { level2: { foo: string; }; }; }[]`
+where main printed `PropertiesReduce<…>[]`).
+
+**Stack + §5 + the `members.rs` diff**, against §5's freeze: types **+69,
+0 lost** (mappedTypeIndexedAccessConstraint 39, mappedTypeGenericIndexedAccess
+11, deeplyNestedMappedTypes 11, reverseMappedPartiallyInferableTypes 4,
+declarationQuotedMembers 3, thislessFunctionsNotContextSensitive1 1). It
+still loses **one diagnostics case**: deeplyNestedMappedTypes'
+TS2322 at (69,5) and (77,5) (`Input[]` to `Output[]`). On main these were
+RIGHT by coincidence over the unevaluated `PropertiesReduce<…>` types.
+
+**The blocker is in the relater.** A trace of `is_related_to` on a cut-down
+file (`declare const i: Input; const o2: Output = i;`) shows the top-level
+`{ level1: { level2: { foo: string; }; }; } :: { level1: { level2: { foo:
+string; bar: string; }; }; }` answering `Unknown` with no nested walk.
+`cached_object_relation` holds a `ComplexityOverflow`/`StackDepthOverflow`
+entry for the pair, recorded by an earlier nested walk through
+`TObject<…>`'s `static: PropertiesReduce<T, this['params']>`. `Unknown`
+reports nothing. Native reports TS2322 with the elaboration, so its walk
+neither overflows nor caches an overflow: isDeeplyNestedType's recursion
+identities stop it first. The result also depends on statement order: with
+more statements after the assignment, the same `o2 = i` reports. That is
+the cached-overflow signature. Owner: `relater.rs` (r7-reports), the
+deeply-nested detection and recursion identities for these evaluated
+mapped types. Not attempted here.
+
+`.1266` stays held. It lands once the overflow is fixed, together with the
+`members.rs` diff.
+
+## 7. A self-mentioned type-literal alias's placeholder gets its members (prerequisite of §8)
+
+**Forcing constraint.** `get_declared_type_of_type_alias`'s §29 arm answers
+a mention of an alias inside a construct native resolves lazily with a NAME
+placeholder, `Named { text: "F", members: None }`. For
+
+```ts
+type F = { kind: 'foo'; children: N };  type B = { kind: 'bar' };  type N = F | B;
+```
+
+`N`'s union is built while `F`'s literal is printed, so its constituent is
+the placeholder. `F`'s declared type is published afterwards as `Named {
+text: "F", members: Some(literal) }`, and nothing ever reached the
+placeholder again. Native creates the literal's type once
+(getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode, `checker.go:24210`)
+and resolves its members lazily, so `N`'s constituent is `F` itself. A
+`B :: F` relation inside `N` answered `Unknown` from the member-less side
+(traced: `src=Named B members Some, tgt=Named F members None`). So
+`isNode(d)` narrowing `B | { kind: "document" }` by `N` stayed whole, the
+loss r6-typesroots §9 held the slice gate on.
+
+**Port.** `complete_alias_placeholder`: once the declared type is published,
+a placeholder minted for the alias is completed in place with it
+(`TypeStore::complete_object`). Same printed name, same members symbol, so
+every place that stored it reads the declared type. Only a
+`Named` with the body literal's members symbol is copied: its members live
+in the binder table, so the copy needs no side-table entry keyed by the
+declared type's own id. Checker port convention: key the alias symbol
+(`alias_placeholders`, owner `get_declared_type_of_type_alias`);
+publication: written once, when the declared type completes; no new table;
+receiver/alias context unchanged. The twin keeps a distinct `TypeId` from
+the declared type, where native has one identity: identity-keyed caches
+see two types with one structure.
+
+**Measured** (alone, unfiltered against §5's freeze): types 0 / 0,
+diagnostics 0 / 0. It only matters once §8 lets these unions exist. Probe:
+`isNode(d)` now narrows to `B` (tsgo: `B`).

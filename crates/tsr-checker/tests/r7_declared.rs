@@ -111,3 +111,19 @@ fn a_parenthesized_conditional_branch_in_a_mapped_template_instantiates() {
          const r = m.a;\n";
     assert_eq!(type_of_last_initializer(source), "0");
 }
+
+/// §7: a type-literal alias mentioned inside its own body through a union
+/// alias (`N = F | B` inside `F`) is `F` itself in `N`'s constituents
+/// (getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode creates it once,
+/// members lazy), so relating `N` reads `F`'s members (tsgo: `r : 1`). The
+/// placeholder had no members table and the relation was undecidable.
+#[test]
+fn a_self_mentioned_type_literal_alias_has_its_members_in_the_union() {
+    let source = "type F = { kind: 'foo'; children: N };\n\
+         type B = { kind: 'bar' };\n\
+         type N = F | B;\n\
+         type R = N extends { kind: 'foo' | 'bar' } ? 1 : 0;\n\
+         declare const x: R;\n\
+         const r = x;\n";
+    assert_eq!(type_of_last_initializer(source), "1");
+}
