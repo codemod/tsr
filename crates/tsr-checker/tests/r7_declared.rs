@@ -99,3 +99,15 @@ fn a_definitely_false_check_mentioning_a_parameter_takes_the_false_branch() {
          function f<T>(b: Box<T>) { const q = b.v; }\n";
     assert_eq!(type_of_last_initializer(source), "0");
 }
+
+/// §5: a mapped template whose conditional has a parenthesized nested
+/// conditional branch is a deferred conditional native prints from its
+/// parts; the member reads the instantiated template (tsgo: `r : 0`). The
+/// mint had no written text, so the template was `error`.
+#[test]
+fn a_parenthesized_conditional_branch_in_a_mapped_template_instantiates() {
+    let source = "type M<T> = { [K in keyof T]: T[K] extends number ? (T[K] extends string ? 2 : 1) : 0 };\n\
+         declare const m: M<{ a: boolean }>;\n\
+         const r = m.a;\n";
+    assert_eq!(type_of_last_initializer(source), "0");
+}
