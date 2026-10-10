@@ -1490,28 +1490,9 @@ impl<'a> Checker<'a, '_> {
         self.publish_mapped_symbol_type(owner, index, self.intrinsics.error);
         let mut value =
             self.instantiate_type(info.template, &[(info.parameter, key)], &[info.parameter], &[]);
-        // getTypeOfMappedSymbol (checker.go:20993): an optional mapped
-        // property's type includes `undefined` under strictNullChecks
-        // (getOptionalType(propType, isProperty)), unless the instantiated
-        // template already admits it; otherwise excluding optionality strips
-        // missing in exact mode, else undefined. The property's own type
-        // therefore prints `a?: 1 | undefined`, as native's
-        // addPropertyToElementList reads getNonMissingTypeOfSymbol. Readers
-        // that add the optional `undefined` themselves see the same union.
-        let optional = self
-            .anonymous_properties
-            .get(&owner)
-            .and_then(|(properties, _)| properties.get(index as usize))
-            .is_some_and(|property| property.optional);
-        if self.strict_null_checks
-            && optional
-            && !self.maybe_type_of_kind(
-                value,
-                crate::flags::TypeFlags::UNDEFINED | crate::flags::TypeFlags::VOID,
-            )
-        {
-            value = self.get_optional_type(value, true);
-        } else if strip_optional {
+        // getTypeOfMappedSymbol (checker.go:20993). Excluding optionality
+        // strips missing in exact mode, otherwise undefined.
+        if strip_optional {
             value = self.remove_missing_or_undefined_type(value);
         }
         self.publish_mapped_symbol_type(owner, index, value);
