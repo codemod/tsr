@@ -810,10 +810,16 @@ impl Printer<'_> {
         match member {
             // Ported from `Printer.emitPropertyAssignment` (`internal/printer/printer.go`).
             Member::PropertyAssignment(node) => {
+                // The recovery modifiers (`{ export a: 1 }`, `{ public foo: 1 }`)
+                // the parser keeps for the checker's grammar report round-trip
+                // too. Upstream's emitter drops them, which would change the
+                // reparsed tree (docs/parity/notes/r7-printer.md §11).
+                self.emit_modifier_list(node.modifiers);
                 self.emit_property_name(&node.name);
-                // §405: the recovery `?` (`{ a?: 1 }`) round-trips.
-                if node.postfix_token.is_some() {
-                    self.write("?");
+                // §405: the recovery `?` (`{ a?: 1 }`) round-trips, and so does
+                // a `!` (`{ a!: 1 }`): the token's own kind.
+                if let Some(token) = node.postfix_token {
+                    self.emit_token_node(token);
                 }
                 self.write(": ");
                 if let Some(initializer) = &node.initializer {
@@ -822,11 +828,14 @@ impl Printer<'_> {
             }
             // Ported from `Printer.emitShorthandPropertyAssignment` (`internal/printer/printer.go`).
             Member::ShorthandPropertyAssignment(node) => {
+                // As for a property assignment: recovery modifiers round-trip.
+                self.emit_modifier_list(node.modifiers);
                 self.emit_property_name(&node.name);
                 // §405: the recovery `?` the parser now keeps (`{ name?, id? }`)
-                // round-trips — upstream emits the postfix token too.
-                if node.postfix_token.is_some() {
-                    self.write("?");
+                // round-trips — upstream emits the postfix token too — and so
+                // does a definite-assignment `!` (`{ a! }`): the token's kind.
+                if let Some(token) = node.postfix_token {
+                    self.emit_token_node(token);
                 }
                 if let Some(initializer) = &node.object_assignment_initializer {
                     self.write(" = ");
