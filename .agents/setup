@@ -136,6 +136,16 @@ build_tsgo() {
   target/tsgo-pinned --version
 }
 
+install_valgrind() {
+  # The integration gate's deterministic hot-path guard is callgrind Ir on the
+  # bench projects (docs/parity/round7.md, batch 13); wall/CPU medians on a
+  # 4-vCPU orb swing by more than the 1.03 threshold.
+  if ! command -v valgrind >/dev/null 2>&1; then
+    sudo -n apt-get install -y -q valgrind >/dev/null 2>&1 || true
+  fi
+  command -v valgrind >/dev/null 2>&1 && valgrind --version || echo "valgrind unavailable"
+}
+
 step "rust toolchain" install_rust
 step "offline bootstrap Python" install_offline_python
 step "login shell PATH" persist_path
@@ -143,6 +153,7 @@ step "git submodules" init_submodules
 step "tsgo oracle toolchain" install_go
 step "beads (bd)" install_bd
 step "pinned tsgo (target/tsgo-pinned)" build_tsgo
+step "valgrind (callgrind Ir guard)" install_valgrind
 # Fetch locked dependencies, but leave compilation to the task that needs it.
 # Building every debug, test, Clippy and release target here took over five
 # minutes on a 2-CPU orb and produced a roughly 12 GB snapshot.
