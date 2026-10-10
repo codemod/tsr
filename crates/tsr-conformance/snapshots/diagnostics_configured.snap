@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 938/1091 (85.98%)
-Failed         : 153
+Passed         : 941/1091 (86.25%)
+Failed         : 150
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 153 failures:
+First 100 of 150 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -210,12 +210,6 @@ conformance/esDecorators-decoratorExpression.3(experimentaldecorators=false)
   1 unexpected (first TS2635 at esDecorators-decoratorExpression.3.ts(7,8)), 4 missing
 conformance/esDecorators-decoratorExpression.3(experimentaldecorators=true)
   1 unexpected (first TS2635 at esDecorators-decoratorExpression.3.ts(7,8)), 4 missing
-conformance/importAttributes6(module=node18)
-  10 missing (first TS2322 at mod.mts(1,37))
-conformance/importAttributes6(module=node20)
-  10 missing (first TS2322 at mod.mts(1,37))
-conformance/importAttributes6(module=nodenext)
-  10 missing (first TS2322 at mod.mts(1,37))
 conformance/importTag15(module=es2015)
   2 missing (first TS2823 at 1.js(1,30))
 conformance/importTag15(module=esnext)
@@ -226,3 +220,9 @@ conformance/jsDeclarationsDefaultsErr(target=es2015)
   2 missing (first TS2300 at index2.js(2,22))
 conformance/jsDeclarationsInterfaces(target=es2015)
   46 unexpected (first TS8010 at index.js(16,9)), 0 missing
+conformance/labeledStatementDeclarationListInLoopNoCrash3(target=es2015)
+  1 missing (first TS1344 at labeledStatementDeclarationListInLoopNoCrash3.ts(16,12))
+conformance/labeledStatementDeclarationListInLoopNoCrash4(target=es2015)
+  2 missing (first TS1344 at labeledStatementDeclarationListInLoopNoCrash4.ts(14,12))
+conformance/nodeModulesCJSEmit1(module=node18)
+  1 missing (first TS1192 at /5.cjs(2,8))
