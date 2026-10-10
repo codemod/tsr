@@ -526,3 +526,23 @@ a union's alias identity:
   EMPTY_WRONG, false TS2345 at 77 and 87): inference into `C &
   ComponentType<P>` and `T & AB<U>` now that the alias instances are
   unions. Owner: `inference.rs`.
+
+## 11. TYPE-ALIAS-INSTANTIATION-NEW-ALIAS (part): the new alias follows the declared type's flags
+
+**Forcing constraint.** instantiateTypeWorker (`checker.go:22220`) picks its
+arm by the declared type's flags. A declared type that is a union reaches
+getUnionTypeEx with the new alias whatever its syntax. `type T02<T> = keyof
+(T & B)` declares `"b" | keyof T`, so `type T05 = T02<A>` declares `"a" |
+"b"` printed `T05` (keyofIntersection T05/T06/T07, Result1, Result5).
+`new_alias_union_instantiation` (§10.1) gated on a `UnionTypeNode` body,
+the node-versus-type split r6-declared3 §2 recorded for `.1184`.
+
+**Port.** An unaliased union result whose target's declared type
+(`get_declared_type_of_symbol`) is a union is re-named with the declaring
+alias through the existing `get_named_union_type`, as the indexed arm above
+it already does. The alias's own union keeps the `type_reference_targets`
+road. No new state.
+
+**Measured** (unfiltered against `8d4c10cc` on `86d9406e`): types **+5,
+0 lost** (keyofIntersection 0:8/9/10/12/19); diagnostics 0 / 0. jsTyping
+gate: new_false 0, lost_true 0.

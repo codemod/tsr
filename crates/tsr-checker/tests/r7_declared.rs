@@ -188,3 +188,17 @@ fn a_union_alias_reference_body_takes_the_declaring_alias() {
          const xx = x;\n";
     assert_eq!(type_of_last_initializer(source), "X");
 }
+
+/// §11: an alias whose declared type is a union by its type, not its syntax
+/// (`keyof (T & B)` is `"b" | keyof T`), hands the declaring alias to the
+/// instantiated union (instantiateTypeWorker's union arm; tsgo: `t5 : T05`).
+#[test]
+fn a_declared_union_type_takes_the_declaring_alias_whatever_its_syntax() {
+    let source = "type A = { a: string };\n\
+         type B = { b: string };\n\
+         type T02<T> = keyof (T & B);\n\
+         type T05 = T02<A>;\n\
+         declare const t: T05;\n\
+         const t5 = t;\n";
+    assert_eq!(type_of_last_initializer(source), "T05");
+}
