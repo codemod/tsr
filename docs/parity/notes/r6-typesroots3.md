@@ -332,3 +332,63 @@ Steps 1 and 2 above:
 (defaultDeclarationEmitNamedCorrectly), zero losses on both dumps, slowcases
 clean, Ir ×1.00044 / ×1.00000. Small alone; it is the half of the held pair
 this lane can reach. The test pins both arms and fails without the diff.
+
+## 5. The import-type print (importTypeGenericTypes/Local)
+
+On base `BU`, 6 failing lines across importTypeGenericTypes, importTypeLocal
+and importTypeGeneric.
+
+- **Landed in this lane's own file** (`import_type_meaning.rs`, commit
+  below): `unqualified_import_type_meaning` takes the import node's written
+  type arguments when their count equals the parameter count
+  (`getTypeReferenceType` → `getTypeFromClassOrInterfaceReference` reads
+  `node.TypeArguments()`), so `import("./foo")<{x: number}>` over `export =
+  Point` is `Point<{ x: number }>`; `export_equals_class_instance_text_at`
+  prints an interface as well as a class, and a generic reference with its
+  arguments after the specifier, `import("./foo")<{ x: number; }>`.
+  Measured alone on base `BU`: types **+2 WRONG→RIGHT** (importTypeLocal 1,
+  importTypeGenericTypes 1), zero losses on both dumps.
+- **`r6-typesroots3-import-type-qualifier-alias.diff`** (`declared.rs`,
+  r6-declared2): the qualified import-type walk resolves the alias each
+  segment finds (`resolveEntityName`'s `resolveSymbol`), so
+  `import("./foo2").Bar.I` through `export { Bar }` resolves. Stacked on the
+  above: types **+1** (importTypeLocal), zero losses. Applies to `f334de9`
+  as well as to base `BU`.
+- **Remaining, with causes:** `import("./foo2").Bar.I<{ x: number; }>`
+  (generic qualified): the qualified arm mints written text and declines
+  written arguments; a real reference would print through the symbol-chain
+  printer (`tsr-2zk.39`, routed). importTypeGeneric's `import(T).Foo`: a
+  generic module specifier, not attempted.
+
+Ir and slowcases for §5 were not separately measured (UNMEASURED); the
+change is per import-type node.
+
+## 6. Not started (wrap-up called): `.16.69` constraint reuse, by-text renames
+
+- typeParameterConstraints1 (`T extends any` → native `unknown` constraint,
+  `getConstraintFromTypeParameter`) and declFileRestParametersOfFunctionAndFunctionType
+  (`(...args: any)`): both in `signatures.rs` (r6-printer4); not investigated.
+- `typeParameterToName`'s by-text half (T_2, fn_1, [T_1, T]): refused before
+  at 763 R→W; no design measured here.
+
+## 7. Diffs, in apply order
+
+On `f334de9`:
+1. `r6-typesroots3-mapped-alias-reference-keys.diff` (mapped.rs): +27.
+2. `r6-typesroots3-mapped-member-names.diff` (mapped.rs): +3.
+3. `r6-typesroots3-mapped-optional-type.diff` (mapped.rs): +22.
+4. `r6-typesroots3-intersection-new-alias.diff` (declared.rs): +23.
+   Stack 1-4: +75, zero losses, Ir ×1.00098 / ×0.99986.
+5. `r6-typesroots3-overload-object-literal-context.diff` (calls.rs, main):
+   +29 types, +1 diagnostics, zero losses, Ir ×1.00011 / ×0.99991.
+   Independent of 1-4.
+
+On base `BU` (BU's diffs 1-3 applied):
+6. `r6-typesroots3-inference-intersection-indexed-access.diff`
+   (inference.rs, main): +2, zero losses, Ir ×1.00044.
+7. `r6-typesroots3-import-type-qualifier-alias.diff` (declared.rs): +1 on
+   top of this lane's §5 commit, zero losses.
+
+Held, unchanged: r6-typesroots2's conditional-node consumers diff (§4: still
+−1 diagnostics; waits on getLowerBoundOfKeyType's conditional arm and the
+candidate-free-parameter refusal).
