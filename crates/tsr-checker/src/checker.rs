@@ -888,6 +888,12 @@ pub struct Checker<'a, 'n> {
     /// The first identifier of `jsxFragmentFactory`, when that option parses
     /// as an entity name (`getJsxFragmentFactoryEntity`, `jsx.go:1431`).
     pub(crate) jsx_fragment_namespace: Option<String>,
+    /// The text of `c._jsxFactoryEntity` (`getJsxNamespace`, `jsx.go:1373-1386`):
+    /// `jsxFactory` when it parses as an entity name, else
+    /// `{jsx_namespace}.createElement`. A file's `@jsx` pragma overrides it
+    /// (`getJsxFactoryEntity`, `jsx.go:1406`); the host keeps only that
+    /// pragma's first identifier.
+    pub(crate) jsx_factory_entity: String,
     /// `checkJsxFragment`'s option half (`jsx.go:114`): `Some` when the JSX
     /// transform is enabled and `jsxFragmentFactory` is unset, carrying
     /// whether `jsxFactory` is set.
@@ -1618,6 +1624,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             pattern_implied_members: rustc_hash::FxHashMap::default(),
             jsx_namespace: "React".to_string(),
             jsx_fragment_namespace: None,
+            jsx_factory_entity: "React.createElement".to_string(),
             jsx_fragment_factory_missing: None,
             jsx_emit: tsr_core::JsxEmit::None,
             exact_optional_property_types: false,
@@ -1854,6 +1861,16 @@ impl<'a, 'n> Checker<'a, 'n> {
                 .unwrap_or("React")
                 .to_string()
         };
+        self.jsx_factory_entity =
+            match crate::jsx_factory::isolated_entity_name_root(&options.jsx_factory) {
+                Some(_) => options
+                    .jsx_factory
+                    .split('.')
+                    .map(|part| part.trim_matches(char::is_whitespace))
+                    .collect::<Vec<_>>()
+                    .join("."),
+                None => format!("{}.createElement", self.jsx_namespace),
+            };
         // `getJsxFragmentFactoryEntity`'s option arm (`jsx.go:1431`).
         self.jsx_fragment_namespace =
             crate::jsx_factory::isolated_entity_name_root(&options.jsx_fragment_factory)
