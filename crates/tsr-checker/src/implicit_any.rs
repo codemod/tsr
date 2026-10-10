@@ -894,7 +894,7 @@ impl Checker<'_, '_> {
     /// arm at the pinned commit), so `new F()` of one reports here as in TS.
     pub(crate) fn check_implicit_any_new_expression(&mut self, node: NodeId) {
         use crate::{flags::TypeFlags, signatures::SignatureKind};
-        if !self.no_implicit_any || self.file_has_parse_errors {
+        if !self.no_implicit_any {
             return;
         }
         let Some(Node::NewExpression(new)) = self.node_map.get(node) else { return };

@@ -735,9 +735,6 @@ impl Checker<'_, '_> {
 
     /// Every diagnostic `resolveCallExpression` issues for one call node.
     pub(crate) fn check_call_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         if let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node)
             && let Some(Expression::KeywordExpression(keyword)) = call.expression
             && keyword.kind == tsr_ast::SyntaxKind::SuperKeyword
@@ -1896,9 +1893,6 @@ impl Checker<'_, '_> {
     /// `noImplicitAny`, a non-`void` return is TS2350; else
     /// `invocationError(Construct)` is TS2351 on the callee.
     pub(crate) fn check_new_expression_diagnostics(&mut self, node: tsr_ast::NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         match self.check_new_expression_head(node) {
             CallHead::Done => {}
             CallHead::Resolve(apparent) => {
@@ -1940,9 +1934,6 @@ impl Checker<'_, '_> {
     /// `invocationError` (TS2349) on the tag, or TS2796 when the tagged
     /// template is an array element (a likely missing comma).
     pub(crate) fn check_tagged_template_diagnostics(&mut self, node: tsr_ast::NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
             return;
         };

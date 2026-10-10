@@ -5976,7 +5976,7 @@ impl Checker<'_, '_> {
     /// adjacent lines to catch a rule that walks the heritage chain. §999 walks
     /// that chain for a different rule, which is why this one must not. §1029.
     fn check_new_on_abstract_class(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::NewExpression(expression)) = self.node_map.get(node) else { return };

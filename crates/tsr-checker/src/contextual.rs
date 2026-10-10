@@ -3457,9 +3457,7 @@ impl<'a> Checker<'a, '_> {
         node: NodeId,
         arguments: &[Expression<'_>],
     ) {
-        if self.file_has_parse_errors
-            || !arguments.iter().any(|argument| self.is_context_sensitive_argument(argument))
-        {
+        if !arguments.iter().any(|argument| self.is_context_sensitive_argument(argument)) {
             return;
         }
         self.check_expression_at_node(node);

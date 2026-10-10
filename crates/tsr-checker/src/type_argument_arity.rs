@@ -36,9 +36,6 @@ use crate::checker::Checker;
 impl Checker<'_, '_> {
     /// The arity check for one written type reference.
     pub(crate) fn check_type_argument_arity(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let (name, written) = match self.node_map.get(node) {
             Some(Node::TypeReferenceNode(reference)) => (
                 reference.type_name.and_then(|name| name.node_id()),
@@ -242,7 +239,7 @@ impl Checker<'_, '_> {
     /// declaration, a function or a class. The overload arm needs a signature
     /// set this port does not build and carries a different message.
     pub(crate) fn check_call_type_argument_arity(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let (callee, type_arguments) = match self.node_map.get(node) {
