@@ -1,0 +1,113 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index ccc94b0e..c8d56ef2 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -778,6 +778,95 @@ impl Checker<'_, '_> {
+                 self.check_call_type_argument_arity(node);
+             }
+         }
++        self.check_assertion_call_target(node);
++    }
++
++    /// `checkCallExpression`'s assertion-target rule (`checker.go:8353`): a
++    /// call statement (no `?.`) whose resolved signature returns `void` and
++    /// has a type predicate (an `asserts` signature) needs a call target that
++    /// is a dotted name (`IsDottedName`), else TS2776 at the callee; and every
++    /// name in it declared with an explicit type, which is what
++    /// `getEffectsSignature` (`flow.go:2047`) finds the signature through
++    /// (`getTypeOfDottedName`), else TS2775 at the callee.
++    ///
++    /// The resolved signature is read as `getEffectsSignature` reads it in
++    /// this port: the non-nullable callee's sole non-generic call signature,
++    /// else `resolve_call_signature_at` over the call. A callee list with no
++    /// asserting candidate answers before any resolution. Native's related
++    /// information (`getTypeOfDottedName`'s TS2782 "needs an explicit type
++    /// annotation" on the first unannotated name) is not attached.
++    fn check_assertion_call_target(&mut self, node: tsr_ast::NodeId) {
++        let Some(tsr_ast::Node::CallExpression(call)) = self.node_map.get(node) else { return };
++        if call.question_dot_token.is_some()
++            || !self
++                .nodes
++                .parent(node)
++                .is_some_and(|parent| self.nodes.kind(parent) == tsr_ast::SyntaxKind::ExpressionStatement)
++        {
++            return;
++        }
++        let Some(callee) = call.expression else { return };
++        let Some(callee_id) = callee.node_id() else { return };
++        let raw = self.check_expression(callee);
++        let callee_type = self.check_non_null_type(raw);
++        if self.is_error(callee_type) {
++            return;
++        }
++        let apparent = self.apparent_type(callee_type);
++        let Some(signatures) = self.call_signatures_of_type(apparent) else { return };
++        if !signatures.iter().any(|signature| signature.predicate.is_some()) {
++            return;
++        }
++        let signature = match signatures.as_slice() {
++            [single] if single.type_parameters.is_empty() => single.clone(),
++            _ => {
++                let Some(signature) = self.resolve_call_signature_at(
++                    Some(node),
++                    callee_type,
++                    Some(call.arguments),
++                    !call.type_arguments.is_empty(),
++                ) else {
++                    return;
++                };
++                signature
++            }
++        };
++        if signature.predicate.is_none()
++            || !self.store.get(signature.r#type).flags.intersects(TypeFlags::VOID)
++        {
++            return;
++        }
++        let message = if !self.is_dotted_name(callee_id) {
++            &messages::ASSERTIONS_REQUIRE_THE_CALL_TARGET_TO_BE_AN_IDENTIFIER_OR_QUALIFIED_NAME
++        } else if self.get_effects_signature(node, call).is_none() {
++            &messages::ASSERTIONS_REQUIRE_EVERY_NAME_IN_THE_CALL_TARGET_TO_BE_DECLARED_WITH_AN_EXPLICIT_TYPE_ANNOTATION
++        } else {
++            return;
++        };
++        let span = self.error_span(callee_id);
++        self.report_at_node(callee_id, Diagnostic::new(message, span));
++    }
++
++    /// `IsDottedName` (`ast/utilities.go:1632`): an identifier, `this`,
++    /// `super` or a meta-property, or a property access or parenthesized
++    /// expression over one.
++    fn is_dotted_name(&self, node: tsr_ast::NodeId) -> bool {
++        match self.node_map.get(node) {
++            Some(tsr_ast::Node::Identifier(_) | tsr_ast::Node::MetaProperty(_)) => true,
++            Some(tsr_ast::Node::KeywordExpression(keyword)) => matches!(
++                keyword.kind,
++                tsr_ast::SyntaxKind::ThisKeyword | tsr_ast::SyntaxKind::SuperKeyword
++            ),
++            Some(tsr_ast::Node::PropertyAccessExpression(access)) => access
++                .expression
++                .and_then(|expression| expression.node_id())
++                .is_some_and(|expression| self.is_dotted_name(expression)),
++            Some(tsr_ast::Node::ParenthesizedExpression(parenthesized)) => parenthesized
++                .expression
++                .and_then(|expression| expression.node_id())
++                .is_some_and(|expression| self.is_dotted_name(expression)),
++            _ => false,
++        }
+     }
+ 
+     /// The arity half of `resolveCall` (`checker.go:8843`) and its
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index 76eb5f37..e9110a99 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -2807,7 +2807,7 @@ impl Checker<'_, '_> {
+     /// their lazy publication is tracked in tsr-1yb.11.3.2.
+     /// The `[Symbol.hasInstance]` binary-expression arm is not ported (no
+     /// `instanceof` flow-call nodes in this binder).
+-    fn get_effects_signature(
++    pub(crate) fn get_effects_signature(
+         &mut self,
+         call_node: NodeId,
+         call: &tsr_ast::CallExpression<'_>,
