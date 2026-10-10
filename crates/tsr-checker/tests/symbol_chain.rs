@@ -830,6 +830,15 @@ fn module_class_clone_boundary_does_not_admit_other_export_meanings() {
         let mut checker = Checker::with_module_host(&bound, &nodes, &map, Some(&host));
         let head = checker.get_type_of_symbol(locals["Head"]);
         let raw = checker.get_type_of_symbol(locals["Raw"]);
+        if library.contains("= function") {
+            // `resolveESModuleSymbol`'s `hasSignatures(typ)` arm
+            // (checker.go:15610) clones a callable variable `export =`: the
+            // namespace import is the synthetic-default object, without the
+            // call signature (r7-shared.md §7).
+            assert_ne!(head, raw, "callable variable export= is cloned: {library}");
+            assert!(checker.signatures_of_type(head).is_none_or(Vec::is_empty));
+            continue;
+        }
         assert_eq!(head, raw, "outside declaration-symbol module copies: {library}");
         // A type-only `export =` target is upstream's `errorType`
         // (`checker.go:18614`, r5-errorsplit5 §6); the self-import cycle

@@ -243,16 +243,16 @@ impl<'a> Checker<'a, '_> {
             if self.is_gap(target) {
                 return ApplicabilityReport::Declined;
             }
-            let (at, source, expression) = match *argument {
+            let (at, source, expression, written) = match *argument {
                 // `checkSyntheticExpression`: a spread synthetic argument (a
                 // tuple's rest or variadic element) is its element type.
                 ReportArgument::Synthetic { at, r#type, spread: true } => {
                     match self.array_spread_element_type(r#type) {
-                        Some(element) => (at, element, None),
+                        Some(element) => (at, element, None, None),
                         None => return ApplicabilityReport::Declined,
                     }
                 }
-                ReportArgument::Synthetic { at, r#type, spread: false } => (at, r#type, None),
+                ReportArgument::Synthetic { at, r#type, spread: false } => (at, r#type, None, None),
                 ReportArgument::Written(expression) => {
                     if matches!(expression, Expression::OmittedExpression(_)) {
                         continue;
@@ -268,7 +268,7 @@ impl<'a> Checker<'a, '_> {
                     let Some(at) = Self::effective_check_expression(expression).node_id() else {
                         return ApplicabilityReport::Declined;
                     };
-                    (at, source, checked.is_none().then_some(expression))
+                    (at, source, checked.is_none().then_some(expression), Some(expression))
                 }
             };
             // `elaborateError` never elaborates a synthetic expression (a
@@ -295,7 +295,9 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
             }
-            let literal = expression.is_some_and(|expression| {
+            // A fresh object literal, whether its type is the published one
+            // or the one a caller checked it as under this candidate.
+            let literal = written.is_some_and(|expression| {
                 matches!(
                     Self::effective_check_expression(expression),
                     Expression::ObjectLiteralExpression(_)

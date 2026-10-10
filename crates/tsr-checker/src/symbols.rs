@@ -827,8 +827,22 @@ impl<'a> Checker<'a, '_> {
             .get(value)
             .flags
             .intersects(TypeFlags::OBJECT | TypeFlags::UNION | TypeFlags::INTERSECTION)
-            || self.get_property_of_type_ex(value, "default", true).is_none()
         {
+            return None;
+        }
+        // `c.hasSignatures(typ) || getPropertyOfTypeEx(typ, "default", …) != nil`
+        // (`checker.go:15610`): a callable or constructable value reaches this
+        // arm too when its symbol is not a class or function declaration
+        // (`const Bluebird: typeof Promise; export = Bluebird`), which
+        // `module_clone_type`'s own arms leave here (r7-shared.md §7).
+        let has_signatures =
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+                .into_iter()
+                .any(|kind| {
+                    self.signatures_of_type_kind(value, kind)
+                        .is_some_and(|signatures| !signatures.is_empty())
+                });
+        if !has_signatures && self.get_property_of_type_ex(value, "default", true).is_none() {
             return None;
         }
         let owner = self.nodes.parent(declaration).and_then(|clause| self.nodes.parent(clause))?;
@@ -839,6 +853,12 @@ impl<'a> Checker<'a, '_> {
         }
         let module = self.resolve_external_module_name(declaration, specifier)?;
         let synthetic = self.get_type_with_synthetic_default_import_type(value, module, specifier);
+        // A spread this port cannot build (a class constructor value's
+        // static side) is the gap; keep the uncloned value rather than
+        // introduce one (r7-shared.md §7).
+        if self.is_gap(synthetic) {
+            return None;
+        }
         if synthetic != value {
             return Some(synthetic);
         }

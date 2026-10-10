@@ -683,14 +683,12 @@ impl Checker<'_, '_> {
         // an Optional `undefinedOrMissingType` that makes every later
         // ordinary element Optional (`addOptionalityEx`): `[, a] = robot`
         // records `[undefined, string]`.
+        // A spread at any position is a Variadic (array-like operand) or Rest
+        // element (`checker.go:8034-8065`); the normalizer places both, so
+        // `[...a, x] = [1, 2, 3]` with `a: [number, number, number]` is
+        // `[number, number, number, number]`.
         if let Some(id) = node.node_id
             && self.assignment_target_kind(id) != crate::expressions::AssignmentTargetKind::None
-            && !node.elements.iter().enumerate().any(|(index, element)| {
-                // A trailing rest-only target normalizes to an array, not a
-                // one-element tuple. It must still use the assignment-target
-                // index/iteration/unknown fallback rather than spread's any.
-                matches!(element, Expression::SpreadElement(_)) && index + 1 != node.elements.len()
-            })
         {
             let mut has_omitted = false;
             // §371: the EMPTY target included — `[] = iterable` records

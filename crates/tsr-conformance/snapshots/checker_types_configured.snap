@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1796/1928 (93.15%)
-Assertion lines: 77857/78552 (99.12%)  — a gradient, not a pass rate
-Failed         : 132
+Passed         : 1818/1928 (94.29%)
+Assertion lines: 77933/78552 (99.21%)  — a gradient, not a pass rate
+Failed         : 110
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 132 failures:
+First 100 of 110 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -50,8 +50,6 @@ compiler/computerPropertiesInES5ShouldBeTransformed(target=es2015)
   computerPropertiesInES5ShouldBeTransformed.ts: >b : error — expected >b : ({ [`key`]: renamed }: { key: any; }) => any
 compiler/contextuallyTypedOptionalProperty(exactoptionalpropertytypes=true)
   contextuallyTypedOptionalProperty.ts: >{ y: match(y => y > 0) } : { y: number | undefined; } — expected >{ y: match(y => y > 0) } : { y: number; }
-compiler/declFileTypeAnnotationTupleType(target=es2015)
-  declFileTypeAnnotationTupleType.ts: >[new c(), new m.c()] : [c, c] — expected >[new c(), new m.c()] : [c, m.c]
 compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=false)
   declarationEmitExactOptionalPropertyTypesNodeNotReused.ts: >x : { foo?: string | undefined; baz?: undefined; } & { bar: number; } & A — expected >x : { foo?: string; baz?: undefined; } & { bar: number; } & A
 compiler/declarationEmitExactOptionalPropertyTypesNodeNotReused(exactoptionalpropertytypes=true)
@@ -137,7 +135,7 @@ compiler/taggedTemplateWithoutDeclaredHelper(target=es2015)
 compiler/taggedTemplatesInModuleAndGlobal(target=es2015)
   global.ts: >templateObjectFactory : () => any — expected >templateObjectFactory : () => TemplateStringsArray
 compiler/transformNestedGeneratorsWithTry(target=es2015)
-  main.ts: >Bluebird : PromiseConstructor — expected >Bluebird : { all<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>[]>; all<T extends readonly unknown[] | []>(values: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]>; }>; race<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>>; race<T extends readonly unknown[] | []>(values: T): Promise<Awaited<T[number]>>; prototype: Promise<any>; reject<T = never>(reason?: any): Promise<T>; resolve(): Promise<void>; resolve<T>(value: T): Promise<Awaited<T>>; resolve<T>(value: T | PromiseLike<T>): Promise<Awaited<T>>; [Symbol.species]: PromiseConstructor; default: PromiseConstructor; }
+  main.ts: >await b() : any — expected >await b() : void
 conformance/asyncArrowFunctionCapturesThis_es5(target=es2015)
   asyncArrowFunctionCapturesThis_es5.ts: >fn : error — expected >fn : () => Promise<this>
 conformance/asyncFunctionDeclaration15_es5(target=es2015)
@@ -182,24 +180,6 @@ conformance/esDecorators-classDeclaration-outerThisReference(target=esnext)
   esDecorators-classDeclaration-outerThisReference.ts: >this : this — expected >this : typeof globalThis
 conformance/esnextmodulekindWithES5Target11(target=es2015)
   esnextmodulekindWithES5Target11.ts: >C : any — expected >C : typeof C
-conformance/exportAsNamespace1(module=commonjs)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportAsNamespace1(module=es2015)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportAsNamespace1(module=esnext)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportAsNamespace2(module=commonjs)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportAsNamespace2(module=es2015)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportAsNamespace2(module=esnext)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportAsNamespace3(module=commonjs)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportAsNamespace3(module=es2015)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
-conformance/exportAsNamespace3(module=esnext)
-  2.ts: >foo.ns : typeof import("./0") — expected >foo.ns : typeof foo.ns
 conformance/jsDeclarationsDefault(target=es2015)
   index2.js: >foo : () => typeof default — expected >foo : () => typeof foo
 conformance/jsDeclarationsReexportAliases(target=es2015)
@@ -222,9 +202,29 @@ conformance/nodeModulesCjsFormatFileAlwaysHasDefault(module=node18)
   index.ts: >mod : any — expected >mod : typeof mod
 conformance/nodeModulesCjsFormatFileAlwaysHasDefault(module=node20)
   index.ts: >mod : any — expected >mod : typeof mod
-conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node16)
-  /index.ts: >b : import("pkg").ImportInterface — expected >b : import("./node_modules/pkg/import").ImportInterface
-conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node18)
-  /index.ts: >b : import("pkg").ImportInterface — expected >b : import("./node_modules/pkg/import").ImportInterface
-conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node20)
-  /index.ts: >b : import("pkg").ImportInterface — expected >b : import("./node_modules/pkg/import").ImportInterface
+conformance/nodeModulesJson(module=node16)
+  /main.mts: >typed : {} — expected >typed : typeof typed
+conformance/nodeModulesJson(module=node18)
+  /main.mts: >typed : {} — expected >typed : typeof typed
+conformance/nodeModulesJson(module=node20)
+  /main.mts: >typed : {} — expected >typed : typeof typed
+conformance/nodeModulesJson(module=nodenext)
+  /main.mts: >typed : {} — expected >typed : typeof typed
+conformance/nodeModulesSynchronousCallErrors(module=node16)
+  subfolder/index.ts: >mod4 : { f(): Promise<void>; default: typeof import("./index.js"); } — expected >mod4 : { f(): Promise<void>; default: typeof mod2; }
+conformance/nodeModulesSynchronousCallErrors(module=node18)
+  subfolder/index.ts: >mod4 : { f(): Promise<void>; default: typeof import("./index.js"); } — expected >mod4 : { f(): Promise<void>; default: typeof mod2; }
+conformance/nodeModulesSynchronousCallErrors(module=node20)
+  subfolder/index.ts: >mod4 : { f(): Promise<void>; default: typeof import("./index.js"); } — expected >mod4 : { f(): Promise<void>; default: typeof mod2; }
+conformance/nodeModulesSynchronousCallErrors(module=nodenext)
+  subfolder/index.ts: >mod4 : { f(): Promise<void>; default: typeof import("./index.js"); } — expected >mod4 : { f(): Promise<void>; default: typeof mod2; }
+conformance/objectLiteralErrors(target=es2015)
+  objectLiteralErrors.ts: >f3 : { readonly a: number; } — expected >f3 : { readonly a: string; }
+conformance/parserMemberAccessorDeclaration16(target=es2015)
+  parserMemberAccessorDeclaration16.ts: >a : any — expected >a : number
+conformance/parserMemberAccessorDeclaration18(target=es2015)
+  parserMemberAccessorDeclaration18.ts: >a : any — expected >a : any[]
+conformance/parserStatementIsNotAMemberVariableDeclaration1(alwaysstrict=true)
+  parserStatementIsNotAMemberVariableDeclaration1.ts: >{  "set": function (key, value) {    // 'private' should not be considered a member variable here.    private[key] = value;  }} : any — expected >{  "set": function (key, value) {    // 'private' should not be considered a member variable here.    private[key] = value;  }} : { set: (key: any, value: any) => void; }
+conformance/privateNameInObjectLiteral-3(target=es2015)
+  privateNameInObjectLiteral-3.ts: 5 assertion(s), expected 4

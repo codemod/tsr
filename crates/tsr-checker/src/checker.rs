@@ -2535,6 +2535,18 @@ impl<'a, 'n> Checker<'a, 'n> {
         // declarations, moduleAugmentationExtend*'s bare-name wants) gate
         // out; FILE modules wait for the relative-specifier half.
         if self.module_alias_at(module, reference, SymbolFlags::VALUE).is_none() {
+            // r7-printer §9: `getSymbolChain` over the module itself
+            // (`nodebuilderimpl.go:1087`). No in-scope alias names it, but
+            // `trySymbolTable`'s `getCandidateListForSymbol` may reach it
+            // through an alias's exports: `import * as foo from "./1"` where
+            // `1` writes `export * as ns from "./0"` names `0` as `foo.ns`.
+            // A chain rooted at the module is the import form below.
+            if self.module_host.is_some()
+                && let Some(text) = self.symbol_chain_text_at(module, reference, SymbolFlags::VALUE)
+                && !text.starts_with("import(")
+            {
+                return Some(format!("typeof {text}"));
+            }
             return self
                 .module_specifier_for_symbol(module, reference)
                 .map(|specifier| format!("typeof import({specifier})"));
@@ -3310,9 +3322,10 @@ impl<'a, 'n> Checker<'a, 'n> {
     }
 
     /// Where a dotted entity name ending in `name` sits in `printed`, if
-    /// `printed` is `Q1.….name`, possibly under `typeof` and possibly with
-    /// type arguments: `(start, end)` of the whole dotted path. `None` for a
-    /// bare name ([`Checker::split_around_name`]'s shape) or anything else.
+    /// `printed` is `Q1.….name` or `import("…").….name` (a baked import
+    /// type, r7-printer §10), possibly under `typeof` and possibly with type
+    /// arguments: `(start, end)` of the whole path. `None` for a bare name
+    /// ([`Checker::split_around_name`]'s shape) or anything else.
     fn split_around_qualified_name(printed: &str, name: &str) -> Option<(usize, usize)> {
         if name.is_empty() {
             return None;
@@ -3324,16 +3337,38 @@ impl<'a, 'n> Checker<'a, 'n> {
             return None;
         }
         let path = &rest[..path_len];
-        let qualifier = path.strip_suffix(name)?.strip_suffix('.')?;
-        let is_identifier = |segment: &str| {
-            let mut chars = segment.chars();
-            chars.next().is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
-                && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
+        // A baked import type root (`import("pkg").I`, as written) is the
+        // qualifier's first segment: `symbolToTypeNode` spells it from the
+        // chain's module root, so it is re-spelled with the rest.
+        let path = match path.strip_prefix("import(") {
+            Some(argument) => {
+                let close = argument.find(").")?;
+                &argument[close + 2..]
+            }
+            None => path,
         };
-        if qualifier.is_empty() || !qualifier.split('.').all(is_identifier) {
+        let qualifier = if path == name {
+            if rest.starts_with("import(") { "" } else { return None }
+        } else {
+            path.strip_suffix(name)?.strip_suffix('.')?
+        };
+        if rest.starts_with("import(") {
+            if !qualifier.is_empty() && !qualifier.split('.').all(Self::is_identifier_segment) {
+                return None;
+            }
+            return Some((start, start + path_len));
+        }
+        if qualifier.is_empty() || !qualifier.split('.').all(Self::is_identifier_segment) {
             return None;
         }
         Some((start, start + path_len))
+    }
+
+    /// One dotted segment of a printed entity name.
+    fn is_identifier_segment(segment: &str) -> bool {
+        let mut chars = segment.chars();
+        chars.next().is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
+            && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
     }
 
     /// `getSymbolChain(symbol, meaning, true, true)` spelled as
@@ -3360,8 +3395,15 @@ impl<'a, 'n> Checker<'a, 'n> {
             self.binder.symbols().get(root).name.to_string()
         };
         for &part in rest {
+            // `createAccessFromSymbolChain` spells a member whose name is no
+            // identifier (a quoted module name) as an indexed access, which
+            // this spelling does not port: decline to the callers' roads.
+            let name = self.binder.symbols().get(part).name;
+            if !crate::objects::is_identifier_text(name) {
+                return None;
+            }
             text.push('.');
-            text.push_str(self.binder.symbols().get(part).name);
+            text.push_str(name);
         }
         Some(text)
     }

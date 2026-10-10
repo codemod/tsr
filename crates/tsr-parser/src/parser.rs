@@ -468,7 +468,7 @@ impl<'a> Parser<'a> {
         scanner.set_jsx_language_variant(script_kind.allows_jsx());
         let token = scanner.scan();
         let token_value = capture_value(&scanner);
-        Self {
+        let mut parser = Self {
             arena,
             source,
             script_kind,
@@ -506,37 +506,30 @@ impl<'a> Parser<'a> {
             carried_scanner_diagnostics: Vec::new(),
             module_indicator: options.module_indicator,
             first_node,
-        }
+        };
+        parser.sync_scanner_diagnostics();
+        parser
     }
 
     /// Consume the parser, returning its diagnostics and node table.
     #[must_use]
     pub fn finish(mut self) -> (Vec<Diagnostic>, NodeTable, JSDocTable<'a>, tsr_ast::NodeMap<'a>) {
-        // Scanner diagnostics are interleaved by position so a caller sees one
-        // ordered list rather than two.
-        //
-        // **And `parseErrorAtRange`'s same-position guard is applied across
-        // both** (`parser.go:327`). Upstream has a single list — the scanner's
-        // error callback routes through the same function — so its guard
-        // compares across the two sources by construction. Here the scanner
-        // owns a `Vec` and the guard in `error_at` can only see the parser's,
-        // which left a parser error surviving at a position the scanner had
-        // already reported: `parserErrorRecovery_Block2` wants `TS1127` alone
-        // and got `TS1012` beside it. §195.
-        //
-        // The scanner's entries go first at an equal start because upstream
-        // keeps whichever was reported **first**, and the scanner reports while
-        // scanning the token — before the parser can say anything about it.
-        // Tagged before sorting rather than counted during it: `sort_by_key`
-        // calls its key function an unpredictable number of times, so a
-        // positional counter inside one is not a source ordinal.
-        let mut tagged: Vec<(u8, Diagnostic)> =
-            self.scanner.take_diagnostics().into_iter().map(|d| (0, d)).collect();
-        tagged.extend(self.carried_scanner_diagnostics.into_iter().map(|d| (0, d)));
-        tagged.extend(self.diagnostics.into_iter().map(|d| (1, d)));
-        tagged.sort_by_key(|(source, d)| (d.span.start, *source, d.span.end));
-        let mut diagnostics: Vec<Diagnostic> = tagged.into_iter().map(|(_, d)| d).collect();
-        diagnostics.dedup_by_key(|d| d.span.start);
+        // The scanner's reports were moved into `self.diagnostics` as each
+        // token was scanned ([`Self::sync_scanner_diagnostics`]), through the
+        // same-position guard native's single sink applies (`parser.go:327`);
+        // only the reparse's carried scanner reports remain separate. The
+        // list is then sorted by position, and an exact repeat (same span and
+        // code: a token re-scanned after a speculative parse rewound past it)
+        // is folded as `SortAndDeduplicateDiagnostics` folds it. An earlier
+        // version deduplicated by start alone across both lists, which also
+        // dropped a parser error the scanner had not reported just before it
+        // (§195's TS1127-alone case is the consecutive guard's, and still
+        // holds). docs/parity/notes/r7-parser.md §7.
+        self.sync_scanner_diagnostics();
+        let mut diagnostics = self.diagnostics;
+        diagnostics.extend(self.carried_scanner_diagnostics);
+        diagnostics.sort_by_key(|d| (d.span.start, d.span.end));
+        diagnostics.dedup_by(|a, b| a.span == b.span && a.message.code() == b.message.code());
         let mut jsdoc_diagnostics = self.jsdoc_diagnostics;
         // A comment re-read after a speculative parse rewinds reports again;
         // upstream's `SortAndDeduplicateDiagnostics` folds the repeats.
@@ -576,7 +569,36 @@ impl<'a> Parser<'a> {
         let previous = self.token;
         self.token = self.scanner.scan();
         self.token_value = capture_value(&self.scanner);
+        self.sync_scanner_diagnostics();
         previous
+    }
+
+    /// Route what the scanner reported while scanning the token just read
+    /// through [`Self::error_at`]'s same-position guard, in report order.
+    ///
+    /// Native's scanner reports through the parser's own sink (`scanError`
+    /// → `parseErrorAtRange`, `parser.go:318`), so one list holds both, and
+    /// the guard compares a parser error with a scanner error reported just
+    /// before it — and only with that one. This port's scanner keeps its own
+    /// list; moving each report over as the token is scanned keeps native's
+    /// order and its consecutive-only rule (`<test1 32data={32} />` keeps
+    /// TS1351 at `data` beside the TS1005 at `data`, because TS1003 at `32`
+    /// was reported between them). docs/parity/notes/r7-parser.md §7.
+    #[inline]
+    pub(crate) fn sync_scanner_diagnostics(&mut self) {
+        if !self.scanner.diagnostics().is_empty() {
+            self.drain_scanner_diagnostics();
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn drain_scanner_diagnostics(&mut self) {
+        for diagnostic in self.scanner.take_diagnostics() {
+            if !self.would_repeat_last_error(diagnostic.span) {
+                self.diagnostics.push(diagnostic);
+            }
+        }
     }
 
     /// Source text of the current token.
@@ -628,41 +650,57 @@ impl<'a> Parser<'a> {
     /// Re-scan the current `>`-family token as a single `>`.
     pub(crate) fn rescan_greater_than(&mut self) {
         self.token = self.scanner.rescan_greater_than();
+        self.sync_scanner_diagnostics();
     }
 
     /// Re-scan a compound `<` token as a single `<`.
     pub(crate) fn rescan_less_than(&mut self) {
         self.token = self.scanner.rescan_less_than();
+        self.sync_scanner_diagnostics();
     }
 
     /// Re-scan a `/` as a regular expression literal.
     pub(crate) fn rescan_regular_expression(&mut self) {
         self.token = self.scanner.rescan_as_regular_expression();
         self.token_value = capture_value(&self.scanner);
+        self.sync_scanner_diagnostics();
     }
 
     /// Re-scan the current token as JSX child content.
     pub(crate) fn rescan_jsx_token(&mut self) {
         self.token = self.scanner.rescan_jsx_token();
         self.token_value = capture_value(&self.scanner);
+        self.sync_scanner_diagnostics();
     }
 
     /// Scan the next token as JSX child content.
     pub(crate) fn scan_jsx_token(&mut self) {
         self.token = self.scanner.scan_jsx_token();
         self.token_value = capture_value(&self.scanner);
+        self.sync_scanner_diagnostics();
     }
 
     /// Extend the current identifier with JSX's `-`.
     pub(crate) fn scan_jsx_identifier(&mut self) {
         self.token = self.scanner.scan_jsx_identifier();
         self.token_value = capture_value(&self.scanner);
+        self.sync_scanner_diagnostics();
     }
 
     /// Re-scan the current token as a JSX attribute value.
     pub(crate) fn rescan_jsx_attribute_value(&mut self) {
+        // The scanner discards what the expression-rules scan of this token
+        // reported (an unterminated string across lines); those reports
+        // already moved to this list, so they are discarded here too. Native
+        // never scans the value with expression rules (`scanJsxAttributeValue`
+        // replaces the `nextToken` after `=`).
+        let from = self.scanner.full_start();
+        while self.diagnostics.last().is_some_and(|d| d.span.start >= from) {
+            self.diagnostics.pop();
+        }
         self.token = self.scanner.rescan_jsx_attribute_value();
         self.token_value = capture_value(&self.scanner);
+        self.sync_scanner_diagnostics();
     }
 
     /// `reScanTemplateToken(isTaggedTemplate)` (`parser.go:3692`) for a
@@ -672,12 +710,14 @@ impl<'a> Parser<'a> {
     pub(crate) fn rescan_template(&mut self, is_tagged: bool) {
         self.token = self.scanner.rescan_template(is_tagged);
         self.token_value = capture_value(&self.scanner);
+        self.sync_scanner_diagnostics();
     }
 
     /// Re-scan a `}` as the continuation of a template literal.
     pub(crate) fn rescan_template_continuation(&mut self) {
         self.token = self.scanner.rescan_template_continuation();
         self.token_value = capture_value(&self.scanner);
+        self.sync_scanner_diagnostics();
     }
 
     /// Run `f` on a saved position, rewinding if it returns `None`.
@@ -1221,6 +1261,7 @@ impl<'a> Parser<'a> {
         self.token = scanner.scan();
         self.token_value = capture_value(&scanner);
         self.scanner = scanner;
+        self.sync_scanner_diagnostics();
         self.no_in = 0;
         self.in_await_context = false;
         self.in_decorator_context = false;

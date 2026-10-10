@@ -226,12 +226,60 @@ reference, which the binder's TS1359 arm and `checkGrammarYieldExpression`
 read (routed by r7-grammar). No dump moves on its own: it unblocks those
 checker ports.
 
-## 6. Measurements
+## 6. Recovery ports, one parse function each
+
+PARSER-RECOVERY-DIVERGENCE was a family; it splits by the native parse
+function whose recovery differed. Each landed as its own commit:
+
+| native function | divergence | cases |
+|---|---|---|
+| `parsePropertyAccessExpressionRest` (`:5402`) | no TS18030 for a private name in an optional chain | privateIdentifierChain.1, privateNameUncheckedJsOptionalChain |
+| `parseMemberExpressionRest` / `parseTaggedTemplateRest` (`:5512`) | a template after `?.` read as a member name (TS1003) | taggedTemplateChain still needs the checker's TS1358 (`checkGrammarTaggedTemplateChain`, unported) |
+| `tryParseImportClause` (`:2329`) | a clause and `from` expected with no binding, `*` or `{` | importCallExpressionIncorrect1 |
+| `parseTypeReference` (`:2858`) | a reserved word as a type name reported TS1110 | parserErrorRecovery_ParameterList6, derivedClassSuperCallsInNonConstructorMembers |
+| `parseMappedType` (`:3158`) | trailing type members not parsed | mappedTypeProperties (types; diagnostics wait on TS7061) |
+| `parseForOrForInOrForOfStatement` (`:1307`) | `for await` did not expect `of` | parser.forAwait.es2018 |
+| `typeHasArrowFunctionBlockingParseError` (`:4450`) | `(a): => {}` taken as an arrow | parserX_ArrowFunction3, ArrowFunction3 |
+| `parseThisTag` (`jsdoc.go:985`) | `@this` required braces | thisPrototypeMethodCompoundAssignmentJs |
+
+Held, with the reason:
+
+- `await using` as `NodeFlagsAwaitUsing` (`Const | Using`, `:1563`): the
+  parser half is three lines, but `using_declaration.rs::is_await_using_list`
+  recovers `await` from the source text before the list's span, and the
+  list's span then starts at the `await`. Alone it adds TS2741 on every
+  `await using` case. It needs that reader to read the flags in the same
+  commit (routed).
+- parserSuperExpression2: the tree matches native's; the extra TS2304 on
+  `super<T>` is the checker resolving the type arguments of a super call
+  outside a constructor, which native does not.
+
+## 7. Scanner reports go through the parser's sink
+
+Native's scanner reports through `scanError` → `parseErrorAtRange`
+(`parser.go:318`, `:327`): one list, whose guard drops an error only when the
+**previous** report is at the same position. This port's scanner keeps its own
+list, and `finish` used to merge the two by position and keep one diagnostic
+per start (§195). That also dropped a parser error the scanner had reported
+at the same start earlier, with another report in between:
+`<test1 32data={32} />` reports TS1351 at `data` while `32` is scanned, then
+TS1003 at `32`, then TS1005 at `data`. Native keeps all three.
+
+Now each scan moves the scanner's reports into the parser's list through the
+same guard, in report order (`sync_scanner_diagnostics`: one emptiness test
+per scanned token, and the move itself is out of line). `finish` sorts by
+position and folds only exact repeats (same span and code), as
+`SortAndDeduplicateDiagnostics` does. A speculative parse rewinds both
+together, because the reports are in the list `save_state` measures.
+§195's case (TS1127 alone at an invalid character) is the consecutive guard's,
+and still holds.
+
+## 8. Measurements
 
 See the commit messages and the box-protocol §6 reports for per-commit
-numbers; §7 below keeps the running table.
+numbers; §9 below keeps the running table.
 
-## 7. Running table
+## 9. Running table
 
 | commit | port | diag cases | types lines | perf (CPU ratio, dm / gi) |
 |---|---|---|---|---|

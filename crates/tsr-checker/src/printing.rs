@@ -661,7 +661,10 @@ impl Checker<'_, '_> {
     /// `typeToTypeNodeHelper`'s tuple arm (`nodebuilderimpl.go`,
     /// `NewTupleTypeNode` over `mapToTypeNodes`) for a tuple with no
     /// labels, optional, rest or variadic elements: each element printed at
-    /// the site. The other shapes keep their minted text.
+    /// the site. The other shapes keep their minted text. An array literal's
+    /// image of a plain tuple (`createArrayLiteralType`, `widening.rs`)
+    /// prints as its base does: the `ArrayLiteral` flag never reaches
+    /// `typeReferenceToTypeNode` (r7-printer §8).
     pub(crate) fn tuple_text_at(
         &mut self,
         id: TypeId,
@@ -673,7 +676,8 @@ impl Checker<'_, '_> {
             || self.tuple_rest_tails.contains_key(&id)
             || self.variadic_tuple_nodes.contains_key(&id)
             || self.variadic_tuple_elements.contains_key(&id)
-            || self.tuple_types.get(&(elements.clone(), readonly)) != Some(&id)
+            || self.tuple_types.get(&(elements.clone(), readonly))
+                != Some(&self.array_literal_bases.get(&id).copied().unwrap_or(id))
         {
             return None;
         }

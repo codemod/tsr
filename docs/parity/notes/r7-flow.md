@@ -366,3 +366,26 @@ Measured on `8f08f3a2`: corpus-neutral (types text and diagnostics verdicts
 identical) and jsTyping identical. It is r7-declared's prerequisite: once
 every union-bodied alias is admitted, `typeGuardsAsAssertions` 0:23/0:31
 print `Optional<r>` through this arm instead of `None | Some<r>`.
+
+## §11 `signature_shapes_of_type_kind`: the ephemeral view only while resolving (routed from r7-declared)
+
+`signature_shapes_of_type_kind` serves inference and relater parameter
+consumers (`inference.go:838`, `relater.go:4452`), which read signature
+links without forcing returns. For an anonymous function type it returned
+`parameter_only_signature_of_active_function(..)?` unconditionally, so any
+function that view declines — a function merged with a namespace
+(`function log` plus `namespace log`, flagged `MODULE`), or one whose
+return is not resolving — answered `None` and the relation went undecided:
+`typeof log extends AnyFunction ? 1 : 0` stayed unevaluated (native `1`),
+which kept jsTyping's `MatchingKeys<typeof Debug, AnyFunction>` from
+evaluating.
+
+The view exists to stand in for a vector this port would otherwise
+materialize *while the function's own return is resolving*. It is now taken
+only then (some declaration of the symbol has an active signature key on
+the resolution stack); otherwise the ordinary kind-specific lists answer,
+as native's `getSignaturesOfType` does.
+
+Measured on `ec55197d`: corpus-neutral (types text and diagnostics verdicts
+identical, slowcases clean); jsTyping one false TS2322 fixed
+(`debug.ts(189,13)`), no new false line, no lost true line.
