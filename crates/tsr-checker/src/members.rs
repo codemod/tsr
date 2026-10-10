@@ -2744,6 +2744,34 @@ impl Checker<'_, '_> {
         self.get_property_of_type_ex(id, name, false)
     }
 
+    /// A member of `typeof globalThis`: `resolveAnonymousTypeMembers`'
+    /// `globalThisSymbol` arm (`checker.go:20674-20682`) keeps the globals
+    /// that are neither block-scoped nor an ambient module, and
+    /// `getPropertyOfObjectType` returns one only when it is a value
+    /// (`symbolIsValue`). The port's `typeof globalThis` has no symbol, so
+    /// the globals table is read here. The receiver arm in
+    /// [`Self::access_member_lookup`] answers a direct `globalThis.x`; this
+    /// is the road a composite receiver (`Window & typeof globalThis`) takes
+    /// through each constituent.
+    fn global_this_property(&mut self, name: &str) -> Option<SymbolId> {
+        let symbol = self.binder.global(name)?;
+        let data = self.binder.symbols().get(symbol);
+        if data
+            .flags
+            .intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE | SymbolFlags::CLASS | SymbolFlags::ENUM)
+            || data.flags.contains(SymbolFlags::VALUE_MODULE)
+                && !data.declarations.is_empty()
+                && data
+                    .declarations
+                    .clone()
+                    .iter()
+                    .all(|&declaration| self.is_ambient_module_declaration(declaration))
+        {
+            return None;
+        }
+        self.symbol_is_value(symbol).then_some(symbol)
+    }
+
     pub(crate) fn get_property_of_type_ex(
         &mut self,
         id: TypeId,
@@ -2787,6 +2815,7 @@ impl Checker<'_, '_> {
                 let object = self.global_type_symbol_with_arity("Object", 0)?;
                 return self.get_property_of_declared_symbol_fresh(object, name);
             }
+            _ if Some(id) == self.global_this_type => return self.global_this_property(name),
             _ => return None,
         };
         let found = if let Some(&(alias, source)) = self.module_value_clones.get(&id) {
