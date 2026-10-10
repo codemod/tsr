@@ -641,3 +641,24 @@ still carries ALIAS is followed through its own alias
 **Measured** (unfiltered against `77418645`): types **+1, 0 lost**
 (exportNamespace9:3:2); diagnostics 0 / 0; jsTyping new_false 0 /
 lost_true 0.
+
+## 15. A variadic or rest tuple's Array base members (granted: `members.rs`, the Array-base fallback only)
+
+**Forcing constraint.** getTupleBaseType (`checker.go:19206`) gives every
+tuple target the base `Array<E>` (`ReadonlyArray<E>` when readonly), with
+`E` the union of its element type arguments, a variadic element
+contributing `T[number]`. `get_type_of_property_with_this_argument`'s
+Array-base fallback handled only fixed tuples (`tuple_element_lists`). A rest
+tuple (`variadic_tuple_elements`) never reached `Array<E>`, so `.slice` on
+`[string, ...any[]]` was `error` (mappedTypesGenericTuples2 0:20-27 once
+r7-contextual's Promise.all boundary types the receiver). The integrator
+granted this one fallback.
+
+**Port.** The same fallback with `E = variadic_tuple_index_union(id)`
+(`tuples.rs`, which computes getTupleBaseType's element union for these
+tuples already). `.length` keeps its own arm.
+
+**Measured** (alone, unfiltered against `77418645`): types **+3, 0 lost**
+(variadicTuples2); diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0.
+Probe: `[string, ...any[]]`'s `slice(1)` is `any[]`, and `[string,
+...number[]]`'s is `(string | number)[]`, as in tsgo.

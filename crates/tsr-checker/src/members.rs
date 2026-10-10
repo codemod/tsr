@@ -1793,21 +1793,32 @@ impl Checker<'_, '_> {
         // replace a deliberate decline with a confidently wrong answer:
         // measured at 2 R→W on `tupleTypes`' `readonly [number?]`, whose
         // baseline wants `0 | 1` and got `number`.
-        if name != "length"
-            && let Some((elements, readonly)) = self.tuple_element_lists.get(&id)
-        {
+        // A variadic or rest tuple (`[string, ...any[]]`) inherits the same
+        // base, `Array<E>` with `E` the union of its element type arguments,
+        // a variadic element contributing `T[number]` (getTupleBaseType,
+        // checker.go:19206; `variadic_tuple_index_union`).
+        let tuple_base = if name == "length" {
+            None
+        } else if let Some((elements, readonly)) = self.tuple_element_lists.get(&id) {
             let (elements, readonly) = (elements.clone(), *readonly);
+            // The element type is the UNION of the tuple's elements, which
+            // is what upstream's target is instantiated over. An empty
+            // tuple has no elements and takes `never`, so `[].length` is
+            // still `number` and `[].some` still resolves.
+            let element = if elements.is_empty() {
+                self.intrinsics.never
+            } else {
+                self.get_union_type(&elements)
+            };
+            Some((element, readonly))
+        } else if let Some(&(_, readonly)) = self.variadic_tuple_elements.get(&id) {
+            self.variadic_tuple_index_union(id).map(|element| (element, readonly))
+        } else {
+            None
+        };
+        if let Some((element, readonly)) = tuple_base {
             let target = if readonly { "ReadonlyArray" } else { "Array" };
             if let Some(target) = self.global_type_symbol(target) {
-                // The element type is the UNION of the tuple's elements, which
-                // is what upstream's target is instantiated over. An empty
-                // tuple has no elements and takes `never`, so `[].length` is
-                // still `number` and `[].some` still resolves.
-                let element = if elements.is_empty() {
-                    self.intrinsics.never
-                } else {
-                    self.get_union_type(&elements)
-                };
                 let array = self.create_type_reference(target, vec![element]);
                 if array != self.intrinsics.error
                     && let Some(property) = self.get_property_of_type(array, name)
