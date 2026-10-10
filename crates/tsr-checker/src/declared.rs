@@ -5567,10 +5567,18 @@ impl<'a> Checker<'a, '_> {
             ) {
                 return evaluated;
             }
-            // Upstream evaluates conditional aliases in alias-declared
-            // positions even through type-parameter arguments
-            // (`PrefixData<P>` answers `\`${P}:baz\``).
-            return error;
+            // getConditionalType (checker.go:24339) defers when the
+            // instantiated check type is generic: the result is a
+            // ConditionalType carrying the reference's alias
+            // (getTypeAliasInstantiation, checker.go:23641), which is the
+            // named reference below (`type_reference_targets` records its
+            // root and arguments; `alias_declares_conditional` reads it as a
+            // conditional). Every other refusal keeps the gap: a decided
+            // check whose branch this port cannot evaluate, and native's
+            // own errorType at the instantiation guard (r6-declared2 §1).
+            if !self.conditional_alias_check_is_deferred(symbol, &arguments) {
+                return error;
+            }
         }
         // The same alias-declared position through an alias whose body is a
         // reference to a conditional alias (`type N3 = Not<boolean>` over
@@ -9519,6 +9527,147 @@ impl<'a> Checker<'a, '_> {
         result
     }
 
+    /// Whether getConditionalType (checker.go:24339) defers the conditional
+    /// body of `symbol` under `arguments` because its check type, resolved
+    /// under the alias's bindings, is deferred (`isDeferredType`,
+    /// checker.go:24475), or its extends type is
+    /// (`isDeferredType(inferredExtendsType)`). A non-conditional body, a
+    /// binding that cannot be built, or the instantiation guard answers
+    /// `false`.
+    ///
+    /// The test is native's [`Checker::is_generic_type`], not the
+    /// evaluator's broader mention gate: a check type that mentions only a
+    /// type parameter its own signature binds (`{ isAny: <T>(obj: any) =>
+    /// obj is T }`) is not generic, and native evaluates the conditional
+    /// (r7-declared §2). Native also defers a non-generic check whose
+    /// restrictive relation fails; this port's evaluator declines those
+    /// before that relation, and they keep the gap.
+    pub(crate) fn conditional_alias_check_is_deferred(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> bool {
+        if self.instantiation_depth == 100 || self.instantiation_count >= 5_000_000 {
+            return false;
+        }
+        let Some(declaration) = self.type_alias_declaration_of(symbol) else { return false };
+        let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        let Some(TypeNode::ConditionalTypeNode(conditional)) =
+            alias.r#type.and_then(Self::skip_type_parentheses)
+        else {
+            return false;
+        };
+        let Some(check_node) = conditional.check_type else { return false };
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() {
+            return false;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let Some(parameter) = parameter.node_id.and_then(|id| self.binder.symbol_of(id)) else {
+                return false;
+            };
+            frame.insert(parameter, argument);
+        }
+        // The extends type defers too (`!isDeferredType(inferredExtendsType)`).
+        // With infer parameters, inferredExtendsType is the extends type under
+        // the inference mapper, which this test cannot form; only the check
+        // type is asked then.
+        let has_infer_parameters =
+            conditional.node_id.and_then(|id| self.binder.locals(id)).is_some_and(|locals| {
+                locals.values().any(|&symbol| {
+                    self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER)
+                })
+            });
+        let extends_node = conditional.extends_type.filter(|_| !has_infer_parameters);
+        // getConditionalType's checkTuples: both nodes are simple tuple types
+        // of the same length (isSimpleTupleType, checker.go:24310).
+        let simple_tuple_length = |node: TypeNode<'a>| match Self::skip_type_parentheses(node) {
+            Some(TypeNode::TupleTypeNode(tuple))
+                if !tuple.elements.iter().any(|element| {
+                    matches!(
+                        element,
+                        TypeNode::OptionalTypeNode(_)
+                            | TypeNode::RestTypeNode(_)
+                            | TypeNode::NamedTupleMember(_)
+                    )
+                }) =>
+            {
+                Some(tuple.elements.len())
+            }
+            _ => None,
+        };
+        let check_tuples = conditional.extends_type.is_some_and(|extends_node| {
+            simple_tuple_length(check_node)
+                .is_some_and(|length| simple_tuple_length(extends_node) == Some(length))
+        });
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let check = self.get_type_from_type_node(check_node);
+        let extends = extends_node.map(|node| self.get_type_from_type_node(node));
+        self.alias_evaluation_bindings.pop();
+        self.instantiation_depth -= 1;
+        let deferred = |checker: &mut Self, t: TypeId| {
+            !checker.is_error(t) && checker.is_deferred_type(t, check_tuples)
+        };
+        !self.is_error(check)
+            && (deferred(self, check) || extends.is_some_and(|extends| deferred(self, extends)))
+    }
+
+    /// isDeferredType (checker.go:24475): generic, or, under `check_tuples`, a
+    /// tuple with a generic element.
+    fn is_deferred_type(&mut self, t: TypeId, check_tuples: bool) -> bool {
+        if self.is_generic_type(t) {
+            return true;
+        }
+        check_tuples
+            && self
+                .tuple_element_lists
+                .get(&t)
+                .map(|(elements, _)| elements.clone())
+                .is_some_and(|elements| elements.into_iter().any(|e| self.is_generic_type(e)))
+    }
+
+    /// isGenericType (checker.go:24868): getGenericObjectFlags (`:24880`)
+    /// answers `IsGenericObjectType` or `IsGenericIndexType`. A union or
+    /// intersection is generic when a constituent is; otherwise an
+    /// instantiable non-primitive (a type variable, conditional or
+    /// substitution), an index type or generic string-like type
+    /// ([`Checker::is_generic_index_type`]), a generic mapped type or a
+    /// generic tuple. This port mints three of native's instantiable kinds
+    /// without the flag, and each is asked by its table: a deferred indexed
+    /// access (`deferred_indexed_access_types`), an inline conditional
+    /// (`mapped_conditionals`), and a deferred reference to a conditional
+    /// alias (`type_reference_targets` whose target declares a conditional,
+    /// [`Checker::alias_declares_conditional`]). An anonymous object, a
+    /// signature type or a class/interface reference is never generic, even
+    /// when it mentions a type parameter. Reads only; no table.
+    pub(crate) fn is_generic_type(&mut self, t: TypeId) -> bool {
+        if let crate::types::TypeData::Union { types, .. }
+        | crate::types::TypeData::Intersection { types, .. } = &self.store.get(t).data
+        {
+            let types = types.clone();
+            return types.into_iter().any(|part| self.is_generic_type(part));
+        }
+        if self.store.get(t).flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE)
+            || self.is_generic_index_type(t)
+            || self.deferred_indexed_access_types.contains_key(&t)
+            || self.mapped_conditionals.contains_key(&t)
+        {
+            return true;
+        }
+        if let Some(&(target, _)) = self.type_reference_targets.get(&t)
+            && self.alias_declares_conditional(target)
+        {
+            return true;
+        }
+        // getConstraintTypeFromMappedType resolves the parts on first use.
+        self.ensure_mapped_type_info(t);
+        self.is_generic_mapped_type(t) || self.is_generic_tuple_type(t)
+    }
+
     /// Whether a type alias's declared type is a conditional type: its body is
     /// a conditional, or a reference to another generic alias whose declared
     /// type is (the chain [`Checker::evaluate_conditional_alias_reference`]
@@ -9663,6 +9812,28 @@ impl<'a> Checker<'a, '_> {
                 checker.get_type_from_type_node(node.true_type?),
                 checker.get_type_from_type_node(node.false_type?),
             ))
+        })
+    }
+
+    /// A deferred conditional's `[checkType, extendsType, trueType,
+    /// falseType]` under its root mapper (`ConditionalType.checkType`/
+    /// `extendsType`, getTrueTypeFromConditionalType,
+    /// getFalseTypeFromConditionalType), for an inline conditional mint or a
+    /// reference to a conditional alias. `None` when any operand is not
+    /// computable.
+    pub(crate) fn conditional_root_operands(&mut self, id: TypeId) -> Option<[TypeId; 4]> {
+        if let Some(info) = self.mapped_conditionals.get(&id) {
+            return Some(info.operands);
+        }
+        let error = self.intrinsics.error;
+        self.with_conditional_inference_node(id, |checker, node| {
+            let operands = [
+                checker.get_type_from_type_node(node.check_type?),
+                checker.get_type_from_type_node(node.extends_type?),
+                checker.get_type_from_type_node(node.true_type?),
+                checker.get_type_from_type_node(node.false_type?),
+            ];
+            (!operands.contains(&error)).then_some(operands)
         })
     }
 
