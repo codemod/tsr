@@ -76,6 +76,27 @@ impl<'a> Checker<'a, '_> {
         })
     }
 
+    /// Whether `function` has a `@type` full signature this port cannot
+    /// read: its type is the error type (a gap, `tsr-2zk.31`) or one of the
+    /// lists `getSingleCallSignature` reads is undecided. Upstream reads a
+    /// signature or none; the caller declines rather than answer "none" for
+    /// a type this port did not compute.
+    #[expect(dead_code, reason = "called by docs/parity/notes/r6-jsdoc2-js-implicit-any.diff")]
+    pub(crate) fn jsdoc_full_signature_undecided(&mut self, function: NodeId) -> bool {
+        let Some(annotation) = self.jsdoc_full_signature_node(function) else { return false };
+        let ty = self.get_type_from_type_node(annotation);
+        if self.is_error(ty) {
+            return true;
+        }
+        if !self.store.get(ty).flags.contains(TypeFlags::OBJECT) {
+            return false;
+        }
+        self.get_property_names_of_type(ty).is_none()
+            || self.get_index_infos_of_type(ty).is_none()
+            || self.signatures_of_type_kind(ty, SignatureKind::Call).is_none()
+            || self.signatures_of_type_kind(ty, SignatureKind::Construct).is_none()
+    }
+
     /// `getReturnTypeOfFullSignature` (`checker/checker.go:20089`), the last
     /// arm of `getReturnTypeFromAnnotation`: a JS function whose `@type` tag
     /// is its full signature returns that signature's return type.

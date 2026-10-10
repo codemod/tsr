@@ -236,6 +236,68 @@ impl<'a> Checker<'a, '_> {
         self.check_satisfies_worker(at, expression, annotation, span);
     }
 
+    /// Whether, in a JS file, a reparsed JSDoc node gives `position` (an
+    /// expression, the child of its parent being asked) a contextual type
+    /// where the written tree has none: `getContextualType` (`checker.go:29343`)
+    /// meets a `makeNewCast` wrapper (`reparseHosted`'s `@type` cast on a
+    /// `return` or a parenthesized expression, `parser/reparser.go:378`, or
+    /// any `@satisfies`, `:396`), or the parent's `Type()` is a reparsed
+    /// `@type` (`:346`–`:376`): a variable, property or property assignment
+    /// read by `getContextualTypeForInitializerExpression`, an export
+    /// assignment, or an assignment declaration's binary.
+    ///
+    /// The written-tree proof of absence (`has_no_contextual_type`,
+    /// `signatures.rs`) asks this first, so a JS position with one of these
+    /// is never shown context-free. It never answers for a TypeScript node.
+    ///
+    /// No cache: the readers are `jsdoc_entries` probes that almost always
+    /// miss; the caller asks `in_js_file` once per walk.
+    #[expect(dead_code, reason = "called by docs/parity/notes/r6-jsdoc2-js-implicit-any.diff")]
+    pub(crate) fn jsdoc_reparse_gives_context(&self, position: NodeId) -> bool {
+        let Some(parent) = self.nodes.parent(position) else { return false };
+        if self.jsdoc_satisfies_tag_of(position).is_some() {
+            return true;
+        }
+        let is = |e: Option<tsr_ast::Expression<'_>>| e.and_then(|e| e.node_id()) == Some(position);
+        match self.node_map.get(parent) {
+            Some(Node::ParenthesizedExpression(node)) if is(node.expression) => {
+                self.jsdoc_first_cast_tag(parent)
+            }
+            Some(Node::ReturnStatement(node)) if is(node.expression) => {
+                self.jsdoc_first_cast_tag(parent)
+            }
+            Some(Node::VariableDeclaration(node)) if is(node.initializer) => {
+                self.jsdoc_type_annotation(parent).is_some()
+            }
+            Some(Node::PropertyDeclaration(node)) if is(node.initializer) => {
+                self.jsdoc_self_hosted_type(parent).is_some()
+            }
+            Some(Node::PropertyAssignment(node)) if is(node.initializer) => {
+                self.jsdoc_self_hosted_type(parent).is_some()
+            }
+            Some(Node::ExportAssignment(node)) if is(node.expression) => {
+                self.jsdoc_export_assignment_type(parent).is_some()
+            }
+            Some(Node::BinaryExpression(binary)) if is(binary.right) => {
+                self.jsdoc_binary_type(parent, binary).is_some()
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `host`'s last comment has a typed `@type` tag, the one
+    /// [`Checker::jsdoc_cast_contextual_type`] reads as a cast.
+    #[expect(dead_code, reason = "called by docs/parity/notes/r6-jsdoc2-js-implicit-any.diff")]
+    fn jsdoc_first_cast_tag(&self, host: NodeId) -> bool {
+        self.jsdoc_entries.get(&host).and_then(|docs| docs.last()).is_some_and(|doc| {
+            top_level_tags(doc.tags).into_iter().any(|tag| {
+                matches!(tag, tsr_ast::JSDocTag::JSDocTypeTag(tag)
+                    if matches!(tag.type_expression,
+                        Some(Node::JSDocTypeExpression(expression)) if expression.r#type.is_some()))
+            })
+        }) && self.in_js_file(host)
+    }
+
     /// The expression `reparseHosted`'s satisfies arm wraps for `host`.
     pub(crate) fn jsdoc_satisfies_target(&self, host: NodeId) -> Option<tsr_ast::Expression<'a>> {
         match self.node_map.get(host)? {

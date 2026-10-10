@@ -1,0 +1,146 @@
+diff --git a/crates/tsr-parser/src/jsdoc.rs b/crates/tsr-parser/src/jsdoc.rs
+index 510e6cf..381f456 100644
+--- a/crates/tsr-parser/src/jsdoc.rs
++++ b/crates/tsr-parser/src/jsdoc.rs
+@@ -1735,7 +1735,11 @@ impl<'a> Parser<'a> {
+             return self.missing_identifier();
+         }
+         let start = self.pos();
+-        let text = self.jsdoc_token_text();
++        // `p.scanner.TokenValue()`: the name with its unicode escapes decoded.
++        let text = match self.scanner.decoded_value() {
++            Some(decoded) => self.arena.alloc_str(decoded),
++            None => self.jsdoc_token_text(),
++        };
+         self.next_jsdoc_token();
+         self.finish_jsdoc_node(Identifier::new(text), SyntaxKind::Identifier, start)
+     }
+diff --git a/crates/tsr-parser/tests/jsdoc_name_escapes.rs b/crates/tsr-parser/tests/jsdoc_name_escapes.rs
+new file mode 100644
+index 0000000..7b9a23e
+--- /dev/null
++++ b/crates/tsr-parser/tests/jsdoc_name_escapes.rs
+@@ -0,0 +1,29 @@
++//! `ScanJSDocToken` (`scanner/scanner.go:1490`, `:1515`) at the pinned
++//! 5b1047d: a unicode escape that starts or continues a JSDoc name is part of
++//! it, and `parseJSDocIdentifierName` reads the decoded token value
++//! (`docs/parity/notes/r6-jsdoc2.md` §2).
++use tsr_ast::{EntityName, JSDocTag};
++use tsr_core::Arena;
++
++fn param_names(source: &str) -> Vec<String> {
++    let arena = Arena::new();
++    let parsed = tsr_parser::parse(&arena, source);
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    parsed
++        .jsdoc
++        .iter()
++        .flat_map(|(_, docs)| docs.iter().flat_map(|doc| doc.tags.iter()))
++        .map(|tag| {
++            let JSDocTag::JSDocParameterOrPropertyTag(tag) = tag else { panic!("expected @param") };
++            let Some(EntityName::Identifier(name)) = tag.name else { panic!("a simple name") };
++            name.text.to_string()
++        })
++        .collect()
++}
++
++#[test]
++fn escapes_in_param_names_are_decoded() {
++    let source = "/**\n * @param {number} \\u0061\n * @param {number} a\\u0061\n \
++                  * @param {number} \\u{0062}c\n */\nfunction foo(a, aa, bc) {}";
++    assert_eq!(param_names(source), ["a", "aa", "bc"]);
++}
+diff --git a/crates/tsr-scanner/src/jsdoc.rs b/crates/tsr-scanner/src/jsdoc.rs
+index ca6d8e7..2a45ed9 100644
+--- a/crates/tsr-scanner/src/jsdoc.rs
++++ b/crates/tsr-scanner/src/jsdoc.rs
+@@ -114,22 +114,88 @@ impl Scanner<'_> {
+             '.' => SyntaxKind::DotToken,
+             '`' => SyntaxKind::BacktickToken,
+             '#' => SyntaxKind::HashToken,
++            // `ScanJSDocToken`'s backslash arm (`scanner.go:1490`): a unicode
++            // escape that can start an identifier begins one, decoded into
++            // the token's value (`@param {number} \u0061` names `a`).
++            '\\' => {
++                self.pos = self.token_start;
++                match self.peek_unicode_escape().and_then(char::from_u32) {
++                    Some(decoded) if is_identifier_start(decoded) => {
++                        self.bump();
++                        let mut value = String::new();
++                        if let Some(first) = self.scan_unicode_escape().and_then(char::from_u32) {
++                            value.push(first);
++                        }
++                        self.scan_jsdoc_identifier_parts(&mut value);
++                        let kind = keyword_kind(&value).unwrap_or(SyntaxKind::Identifier);
++                        self.value = Some(value);
++                        kind
++                    }
++                    _ => {
++                        self.bump();
++                        SyntaxKind::Unknown
++                    }
++                }
++            }
+             c if is_identifier_start(c) => {
+                 // `-` is an identifier part here so that `@my-custom-tag` is one
+                 // name rather than a subtraction.
+                 while self.peek().is_some_and(|c| is_identifier_part(c) || c == '-') {
+                     self.bump();
+                 }
+-                let text = &self.source[self.token_start as usize..self.pos as usize];
++                let end = self.pos;
++                // `if char == '\\' { s.tokenValue += s.scanIdentifierParts() }`
++                // (`scanner.go:1515`): an escape continues the name.
++                if self.peek() == Some('\\') {
++                    let mut value =
++                        self.source[self.token_start as usize..end as usize].to_string();
++                    self.scan_jsdoc_identifier_parts(&mut value);
++                    if self.pos != end {
++                        let kind = keyword_kind(&value).unwrap_or(SyntaxKind::Identifier);
++                        self.value = Some(value);
++                        return self.finish_jsdoc_token(kind, flags);
++                    }
++                }
++                let text = &self.source[self.token_start as usize..end as usize];
+                 keyword_kind(text).unwrap_or(SyntaxKind::Identifier)
+             }
+             _ => SyntaxKind::Unknown,
+         };
+ 
++        self.finish_jsdoc_token(kind, flags)
++    }
++
++    fn finish_jsdoc_token(&mut self, kind: SyntaxKind, flags: TokenFlags) -> Token {
+         self.token = Token::new(kind, Span::new(self.token_start, self.pos), flags);
+         self.token
+     }
+ 
++    /// `scanIdentifierParts` (`scanner.go:1562`): identifier parts and the
++    /// unicode escapes that spell one, decoded onto `value`. Stops, without
++    /// consuming it, at a backslash whose escape does not continue a name.
++    fn scan_jsdoc_identifier_parts(&mut self, value: &mut String) {
++        while let Some(ch) = self.peek() {
++            if is_identifier_part(ch) {
++                self.bump();
++                value.push(ch);
++                continue;
++            }
++            if ch == '\\'
++                && self
++                    .peek_unicode_escape()
++                    .and_then(char::from_u32)
++                    .is_some_and(is_identifier_part)
++            {
++                self.bump();
++                if let Some(decoded) = self.scan_unicode_escape().and_then(char::from_u32) {
++                    value.push(decoded);
++                }
++                continue;
++            }
++            break;
++        }
++    }
++
+     /// Scan a run of comment prose, or fall back to [`Scanner::scan_jsdoc_token`].
+     ///
+     /// A run ends at a line break, a backtick, and — outside backticks — at `{`

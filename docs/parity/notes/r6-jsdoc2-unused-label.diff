@@ -1,0 +1,140 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index dc0ae81..b6b25c6 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1061,6 +1061,7 @@ impl Checker<'_, '_> {
+         }
+         if matches!(typed, Node::LabeledStatement(_)) {
+             self.check_duplicate_label(node, ambient);
++            self.check_unused_label(node);
+             self.check_label_is_allowed(node);
+         }
+         if matches!(typed, Node::ForInOrOfStatement(_)) {
+@@ -3000,6 +3001,28 @@ impl Checker<'_, '_> {
+         }
+     }
+ 
++    /// TS7028 — `Unused label.`
++    ///
++    /// `checkLabeledStatement`'s second arm (`checker.go:4219`): the binder
++    /// marks a label no `break`/`continue` names (`bindLabeledStatement`,
++    /// `binder.go:2158`, this port's [`tsr_binder::NodeFacts::UNUSED_LABEL`]),
++    /// and the checker reports it at the label when `allowUnusedLabels` is
++    /// explicitly `false` (unset is a suggestion, never in `.errors.txt`).
++    /// No ambient or parse-error gate upstream.
++    fn check_unused_label(&mut self, node: NodeId) {
++        if !self.unused_label_is_error {
++            return;
++        }
++        let Some(Node::LabeledStatement(statement)) = self.node_map.get(node) else { return };
++        let Some(label) = statement.label.and_then(|label| label.node_id) else { return };
++        if !self.binder.facts(label).contains(tsr_binder::NodeFacts::UNUSED_LABEL) {
++            return;
++        }
++        let Some(file) = self.source_file_of_for_diagnostics(label) else { return };
++        let span = self.error_span(label);
++        self.report(file, Diagnostic::new(&messages::UNUSED_LABEL, span));
++    }
++
+     /// TS1192 — `Module '{0}' has no default export.`
+     ///
+     /// `reportNonDefaultExport`'s **second** arm (`checker.go:14595`). The
+diff --git a/crates/tsr-checker/src/checker.rs b/crates/tsr-checker/src/checker.rs
+index d1953a6..0740f95 100644
+--- a/crates/tsr-checker/src/checker.rs
++++ b/crates/tsr-checker/src/checker.rs
+@@ -719,6 +719,10 @@ pub struct Checker<'a, 'n> {
+     pub(crate) allow_unreachable_code: bool,
+     /// `unreachableCodeIsError` — the option written **explicitly** `false`.
+     pub(crate) unreachable_code_is_error: bool,
++    /// `AllowUnusedLabels == core.TSFalse` (`checkLabeledStatement`,
++    /// `checker.go:4219`): unset is a suggestion, so only an explicit
++    /// `false` reports TS7028.
++    pub(crate) unused_label_is_error: bool,
+     /// `CompilerOptions.ShouldPreserveConstEnums()` — see
+     /// [`Checker::set_preserve_const_enums`].
+     pub(crate) preserve_const_enums: bool,
+@@ -1568,6 +1572,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+             assignability_probe: Vec::new(),
+             allow_unreachable_code: false,
+             unreachable_code_is_error: false,
++            unused_label_is_error: false,
+             preserve_const_enums: false,
+             isolated_modules: false,
+             isolated_modules_option: false,
+@@ -1867,6 +1872,7 @@ impl<'a, 'n> Checker<'a, 'n> {
+         // Two reads of one option, deliberately not each other's negation.
+         self.allow_unreachable_code = options.allow_unreachable_code.is_true();
+         self.unreachable_code_is_error = options.allow_unreachable_code.is_false();
++        self.unused_label_is_error = options.allow_unused_labels.is_false();
+ 
+         // `ShouldPreserveConstEnums`, which folds in `isolatedModules` — and, via
+         // `GetIsolatedModules`, `verbatimModuleSyntax` too.
+diff --git a/crates/tsr-checker/tests/unused_label.rs b/crates/tsr-checker/tests/unused_label.rs
+new file mode 100644
+index 0000000..991287d
+--- /dev/null
++++ b/crates/tsr-checker/tests/unused_label.rs
+@@ -0,0 +1,62 @@
++//! `checkLabeledStatement`'s unused-label arm (`checker/checker.go:4219`),
++//! at the pinned 5b1047d. Each expectation was checked against native `tsgo`
++//! (`docs/parity/notes/r6-jsdoc2.md` §2.2).
++use tsr_ast::Node;
++use tsr_binder::BindResult;
++use tsr_checker::{Checker, check::FileContext};
++use tsr_core::{Arena, CompilerOptions, Tristate};
++
++/// Every diagnostic of a checked file, as `(code, text at its span)`.
++fn diagnostics(
++    source: &str,
++    javascript: bool,
++    allow_unused_labels: Tristate,
++) -> Vec<(u32, String)> {
++    let name = if javascript { "t.js" } else { "t.ts" };
++    let arena = Arena::new();
++    let mut parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
++    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
++    if javascript {
++        parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++    }
++    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name, text: source },
++        &jsdoc,
++    );
++    let options = CompilerOptions { allow_unused_labels, ..CompilerOptions::default() };
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.apply_compiler_options(&options);
++    checker.set_jsdoc(parsed.jsdoc.iter());
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    checker
++        .diagnostics()
++        .iter()
++        .map(|(_, d)| {
++            let text = &source[d.span.start as usize..d.span.end as usize];
++            (d.message.code(), text.to_string())
++        })
++        .collect()
++}
++
++/// A label no `break` names is TS7028 under `allowUnusedLabels: false`, and
++/// only then (unset is a suggestion).
++#[test]
++fn an_unused_label_is_ts7028_only_when_disallowed() {
++    let source = "function f() {\n  label1: for (;;) {}\n  outer: for (;;) { break outer; }\n}\n";
++    let unused = |allow| {
++        diagnostics(source, false, allow)
++            .into_iter()
++            .filter(|(code, _)| *code == 7028)
++            .map(|(_, text)| text)
++            .collect::<Vec<_>>()
++    };
++    assert_eq!(unused(Tristate::False), ["label1"]);
++    assert!(unused(Tristate::Unknown).is_empty());
++    assert!(unused(Tristate::True).is_empty());
++}

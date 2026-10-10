@@ -1,0 +1,103 @@
+diff --git a/crates/tsr-checker/src/assignreport.rs b/crates/tsr-checker/src/assignreport.rs
+index f484501..723b5b3 100644
+--- a/crates/tsr-checker/src/assignreport.rs
++++ b/crates/tsr-checker/src/assignreport.rs
+@@ -1064,7 +1064,10 @@ impl<'a> Checker<'a, '_> {
+     /// from the very returns being checked, so a mismatch against it is not a
+     /// diagnostic upstream would ever report.
+     pub(crate) fn check_return_statement(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.in_js_file(node) {
++        // No JS arm upstream: a JS function's annotation is its reparsed
++        // `@returns`/`@type`, read by `return_type_from_annotation`
++        // (r6-jsdoc2 §2.3).
++        if ambient {
+             return;
+         }
+         let Some(Node::ReturnStatement(statement)) = self.node_map.get(node) else { return };
+@@ -1176,12 +1179,20 @@ impl<'a> Checker<'a, '_> {
+             Node::GetAccessorDeclaration(n) => (n.r#type, false, n.modifiers),
+             _ => return None,
+         };
++        // In JS `declaration.Type()` is the reparsed `@returns` (or a
++        // `@type` that is not the full signature); the full signature is
++        // `getReturnTypeOfFullSignature`, the last arm (`checker.go:20069`).
++        let annotation = annotation.or_else(|| self.jsdoc_reparsed_function(container).return_type);
++        let annotated = |checker: &mut Self| match annotation {
++            Some(annotation) => Some(checker.get_type_from_type_node(annotation)),
++            None => checker.jsdoc_full_signature_return_type(container),
++        };
+         if generator {
+             let is_async = has_async(modifiers);
+             if is_async {
+                 return None;
+             }
+-            let return_type = self.get_type_from_type_node(annotation?);
++            let return_type = annotated(self)?;
+             // Native's nil (an `any` annotation, a missing slot) is
+             // `errorType`, which relates to everything; a gap declines.
+             let slot = self
+@@ -1194,7 +1205,7 @@ impl<'a> Checker<'a, '_> {
+             return Some((return_type, slot, false));
+         }
+         if has_async(modifiers) {
+-            let return_type = self.get_type_from_type_node(annotation?);
++            let return_type = annotated(self)?;
+             let target = self.awaited_type_no_alias(return_type)?;
+             return Some((return_type, target, true));
+         }
+@@ -1202,8 +1213,11 @@ impl<'a> Checker<'a, '_> {
+             let return_type = self.get_type_from_type_node(annotation);
+             return Some((return_type, return_type, false));
+         }
+-        let annotation = self.set_accessor_parameter_annotation(container)?;
+-        let return_type = self.get_type_from_type_node(annotation);
++        if let Some(annotation) = self.set_accessor_parameter_annotation(container) {
++            let return_type = self.get_type_from_type_node(annotation);
++            return Some((return_type, return_type, false));
++        }
++        let return_type = self.jsdoc_full_signature_return_type(container)?;
+         Some((return_type, return_type, false))
+     }
+ 
+@@ -1258,11 +1272,14 @@ impl<'a> Checker<'a, '_> {
+     /// annotation. The error node is the body itself. An async arrow relates
+     /// against the annotation's `getAwaitedTypeNoAlias`, as a statement does.
+     pub(crate) fn check_arrow_expression_body(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.in_js_file(node) {
++        if ambient {
+             return;
+         }
+         let Some(Node::ArrowFunction(arrow)) = self.node_map.get(node) else { return };
+-        let (Some(annotation), Some(body)) = (arrow.r#type, arrow.body) else { return };
++        // In JS the annotation is the reparsed `@returns` (r6-jsdoc2 §2.3).
++        let annotation =
++            arrow.r#type.or_else(|| self.jsdoc_reparsed_function(node).return_type);
++        let (Some(annotation), Some(body)) = (annotation, arrow.body) else { return };
+         let Some(body_id) = body.node_id() else { return };
+         if self.nodes.kind(body_id) == SyntaxKind::Block {
+             return;
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index dc0ae81..245f84d 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -5971,12 +5971,19 @@ impl Checker<'_, '_> {
+             return;
+         }
+         let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
+-        if parameter.initializer.is_some() || parameter.question_token.is_none() {
++        if parameter.initializer.is_some() {
+             return;
+         }
+         if !matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+             return;
+         }
++        // `isOptionalDeclaration` is `ast.HasQuestionToken`, which in JS
++        // includes the `?` `makeQuestionIfOptional` reparses from a
++        // bracketed or `T=` `@param` (`optionalBindingParameters3`;
++        // r6-jsdoc2 §3).
++        if parameter.question_token.is_none() && !self.jsdoc_reparsed_parameter_question(node) {
++            return;
++        }
+         let Some(owner) = self.nodes.parent(node) else { return };
+         if !self.declaration_has_body(owner) {
+             return;

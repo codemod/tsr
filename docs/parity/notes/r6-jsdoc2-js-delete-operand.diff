@@ -1,0 +1,90 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index dc0ae81..aa51c5a 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -10484,10 +10484,12 @@ impl Checker<'_, '_> {
+     /// is kept: TS2364 skips assertions and parentheses, TS2703 parentheses
+     /// only. §181.
+     fn check_reference_expression(&mut self, node: NodeId) {
+-        // A plain JavaScript file reaches these positions through a different
+-        // path upstream and this port's parser does not agree with it there —
+-        // `plainJSBinderErrors.js` is three wrong TS2703 lines and nothing
+-        // right. The same decline every other rule in this module carries.
++        // **No JS arm upstream.** The decline this rule carried was for
++        // `plainJSBinderErrors.js`'s three TS2703 lines, which native also
++        // produces in the checker and the program then drops: TS2703 is not
++        // a `plainJSErrors` code (`tsr_compiler::program_diagnostics`), so a
++        // plain JS file never shows it and a checked one does
++        // (`jsFileCompilationBindStrictModeErrors`; r6-jsdoc2 §2.2).
+         // **The `file_has_parse_errors` bail is port-local** — upstream has no
+         // counterpart and checks a file with parse errors like any other. All
+         // five of this rule's blocked cases are parser error-recovery fixtures,
+@@ -10495,9 +10497,6 @@ impl Checker<'_, '_> {
+         // exactly what recovery preserves. §524 took the same guard off
+         // `checkFunctionOrConstructorSymbol` for +4; §526 measured the blanket
+         // removal and concluded the collection must be per-rule. §541.
+-        if self.in_js_file(node) {
+-            return;
+-        }
+         let (target, message, optional_message, skip_assertions) = match self.node_map.get(node) {
+             // **Every assignment operator, not just `=`.** Upstream's
+             // `checkBinaryLikeExpression` calls `checkAssignmentOperator` for
+diff --git a/crates/tsr-checker/tests/js_delete_operand.rs b/crates/tsr-checker/tests/js_delete_operand.rs
+new file mode 100644
+index 0000000..3ef65ff
+--- /dev/null
++++ b/crates/tsr-checker/tests/js_delete_operand.rs
+@@ -0,0 +1,53 @@
++//! `checkDeleteExpression` (`checker/checker.go:10808`) in a checked JS
++//! file, at the pinned 5b1047d. Each expectation was checked against native `tsgo`
++//! (`docs/parity/notes/r6-jsdoc2.md` §2.2).
++use tsr_ast::Node;
++use tsr_binder::BindResult;
++use tsr_checker::{Checker, check::FileContext};
++use tsr_core::{Arena, CompilerOptions, Tristate};
++
++/// Every diagnostic of a checked file, as `(code, text at its span)`.
++fn diagnostics(
++    source: &str,
++    javascript: bool,
++    allow_unused_labels: Tristate,
++) -> Vec<(u32, String)> {
++    let name = if javascript { "t.js" } else { "t.ts" };
++    let arena = Arena::new();
++    let mut parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
++    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
++    if javascript {
++        parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++    }
++    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name, text: source },
++        &jsdoc,
++    );
++    let options = CompilerOptions { allow_unused_labels, ..CompilerOptions::default() };
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.apply_compiler_options(&options);
++    checker.set_jsdoc(parsed.jsdoc.iter());
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    checker
++        .diagnostics()
++        .iter()
++        .map(|(_, d)| {
++            let text = &source[d.span.start as usize..d.span.end as usize];
++            (d.message.code(), text.to_string())
++        })
++        .collect()
++}
++
++/// `delete (o)` is TS2703 in a checked JS file as in TypeScript: the operand
++/// skips parentheses only, and `o` is not an access.
++#[test]
++fn delete_of_a_non_access_is_ts2703_in_js() {
++    let reported = diagnostics("var o = { p: 1 };\ndelete (o);\n", true, Tristate::Unknown);
++    assert!(reported.iter().any(|(code, text)| *code == 2703 && text == "o"));
++}
