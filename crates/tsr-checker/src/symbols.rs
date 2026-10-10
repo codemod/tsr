@@ -1628,8 +1628,34 @@ impl<'a> Checker<'a, '_> {
             SymbolFlags::NAMESPACE,
         )?;
         for segment in segments.iter().rev() {
-            let merged = self.binder.merged_symbol(symbol);
-            symbol = *self.binder.symbols().get(merged).exports.get(*segment)?;
+            // `resolveQualifiedName` (`checker.go:15828`) resolves the left
+            // side with `resolveEntityName(left, Namespace, …,
+            // dontResolveAlias = false)`, whose `resolveSymbol` follows a pure
+            // alias: `import EnumA = Enum.A` through `import { Enum }` reads
+            // the enum's exports. A merged alias keeps its own exports, then
+            // falls back to its target's ("a symbol merge with a re-export",
+            // `:15852`). `docs/parity/notes/r7-shared.md` §4.
+            let namespace = self.binder.merged_symbol(symbol);
+            let namespace = if self.is_non_local_pure_alias(namespace) {
+                self.binder.merged_symbol(self.resolve_alias(namespace)?)
+            } else {
+                namespace
+            };
+            let own = self.binder.symbols().get(namespace).exports.get(*segment).copied();
+            symbol = match own {
+                Some(found) => found,
+                None if self
+                    .binder
+                    .symbols()
+                    .get(namespace)
+                    .flags
+                    .intersects(SymbolFlags::ALIAS) =>
+                {
+                    let target = self.binder.merged_symbol(self.resolve_alias(namespace)?);
+                    *self.binder.symbols().get(target).exports.get(*segment)?
+                }
+                None => return None,
+            };
         }
         Some(symbol)
     }

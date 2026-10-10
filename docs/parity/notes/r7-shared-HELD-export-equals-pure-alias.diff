@@ -1,0 +1,26 @@
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -2376,11 +2376,19 @@
+         let name = crate::module_exports::module_export_name_text(name);
+         // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
+         // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
+-        // for both callers here: its synthetic-default and
+-        // `cloneTypeAsModuleType` arms are guarded by `namespaceImport != nil ||
+-        // IsImportCall(referenceParent)`, and a *named* import or re-export is
+-        // neither.
++        // and its pure-alias step for both callers here: its synthetic-default
++        // and `cloneTypeAsModuleType` arms are guarded by `namespaceImport !=
++        // nil || IsImportCall(referenceParent)`, and a *named* import or
++        // re-export is neither. The step (`:15570`): an `export =` symbol that
++        // is a pure alias (`export = e`) is resolved through
++        // `resolveIndirectionAlias`, so the members are `e`'s, merged with any
++        // augmentation of the module.
+         let target = self.resolve_external_module_symbol(module_symbol);
++        let target = if target != module_symbol && self.is_non_local_pure_alias(target) {
++            self.resolve_alias(target).map_or(target, |resolved| self.binder.merged_symbol(resolved))
++        } else {
++            target
++        };
+         if target == module_symbol {
+             return self.get_export_of_module(module_symbol, name);
+         }
