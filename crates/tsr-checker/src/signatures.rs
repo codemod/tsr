@@ -1628,7 +1628,17 @@ impl<'a> Checker<'a, '_> {
                                     }
                                 }
                                 tsr_ast::JSDocTag::JSDocReturnTag(tag) if return_tag.is_none() => {
-                                    return_tag = tag.type_expression;
+                                    // `reparseHosted`'s `KindJSDocReturnTag` arm
+                                    // (`parser/reparser.go:514`) clones
+                                    // `tag.TypeExpression().Type()`: the
+                                    // braces' content, so a `{x is T}`
+                                    // predicate node is the return type.
+                                    return_tag = match tag.type_expression {
+                                        Some(TypeNode::JSDocTypeExpression(expression)) => {
+                                            expression.r#type
+                                        }
+                                        other => other,
+                                    };
                                 }
                                 // §110 slice 3: `@this {T}` supplies the
                                 // synthetic this-parameter's type.

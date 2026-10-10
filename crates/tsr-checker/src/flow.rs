@@ -3216,12 +3216,20 @@ impl Checker<'_, '_> {
         }
         if flags.intersects(SymbolFlags::VARIABLE | SymbolFlags::PROPERTY) {
             let declaration = self.binder.symbols().get(symbol).value_declaration?;
-            // `isDeclarationWithExplicitTypeAnnotation`.
+            // `isDeclarationWithExplicitTypeAnnotation`. In a JS file
+            // `node.Type()` is also the type the reparser hosted from JSDoc
+            // (`@type`, `@param`; ADR-0046's queries).
             let explicit = match self.node_map.get(declaration) {
-                Some(Node::VariableDeclaration(v)) => v.r#type.is_some(),
-                Some(Node::PropertyDeclaration(p)) => p.r#type.is_some(),
+                Some(Node::VariableDeclaration(v)) => {
+                    v.r#type.is_some() || self.jsdoc_type_annotation(declaration).is_some()
+                }
+                Some(Node::PropertyDeclaration(p)) => {
+                    p.r#type.is_some() || self.jsdoc_self_hosted_type(declaration).is_some()
+                }
                 Some(Node::PropertySignatureDeclaration(p)) => p.r#type.is_some(),
-                Some(Node::ParameterDeclaration(p)) => p.r#type.is_some(),
+                Some(Node::ParameterDeclaration(p)) => {
+                    p.r#type.is_some() || self.jsdoc_reparsed_parameter_type(declaration).is_some()
+                }
                 _ => false,
             };
             if explicit {
