@@ -1790,7 +1790,14 @@ impl<'a> Checker<'a, '_> {
             })
         });
         let named = if module_member {
-            self.parameter_source_symbol_name_at(symbol, site, meaning, 0)
+            // `symbolToTypeNode(resolvedSymbol, meaning, typeArguments)`
+            // (`nodecopy.go:449`): past the bounded in-scope table walk, the
+            // module member is named by the chain printer, which spells an
+            // unimported module's member `import("sc").SC`
+            // (`docs/parity/notes/r6-specifiers2.md` §2).
+            self.parameter_source_symbol_name_at(symbol, site, meaning, 0).or_else(|| {
+                self.symbol_chain(symbol, site, meaning, 0).map(|prefix| format!("{prefix}{text}"))
+            })
         } else if !is_type_of {
             self.reference_text_at(symbol, &[], site)
         } else if !self.needs_qualification(symbol, text, site, meaning) {
