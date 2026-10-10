@@ -70,15 +70,7 @@ pub(crate) enum ReportArgument<'a> {
     /// `createSyntheticExpression(parent, type, isSpread, …)`: a tagged
     /// template's `TemplateStringsArray` (located at the template) or one
     /// element of a spread tuple (located at the spread).
-    Synthetic {
-        at: NodeId,
-        r#type: TypeId,
-        #[expect(
-            dead_code,
-            reason = "isSpreadArgument; read once getSpreadArgumentType is ported (r7-calls note §1)"
-        )]
-        spread: bool,
-    },
+    Synthetic { at: NodeId, r#type: TypeId, spread: bool },
 }
 
 /// What [`Checker::report_signature_applicability`] concluded.
@@ -252,7 +244,15 @@ impl<'a> Checker<'a, '_> {
                 return ApplicabilityReport::Declined;
             }
             let (at, source, expression) = match *argument {
-                ReportArgument::Synthetic { at, r#type, .. } => (at, r#type, None),
+                // `checkSyntheticExpression`: a spread synthetic argument (a
+                // tuple's rest or variadic element) is its element type.
+                ReportArgument::Synthetic { at, r#type, spread: true } => {
+                    match self.array_spread_element_type(r#type) {
+                        Some(element) => (at, element, None),
+                        None => return ApplicabilityReport::Declined,
+                    }
+                }
+                ReportArgument::Synthetic { at, r#type, spread: false } => (at, r#type, None),
                 ReportArgument::Written(expression) => {
                     if matches!(expression, Expression::OmittedExpression(_)) {
                         continue;
@@ -271,6 +271,30 @@ impl<'a> Checker<'a, '_> {
                     (at, source, checked.is_none().then_some(expression))
                 }
             };
+            // `elaborateError` never elaborates a synthetic expression (a
+            // decorator's, a tagged template's strings array, a spread
+            // tuple's element): `checkTypeRelatedToEx` reports at it.
+            if matches!(argument, ReportArgument::Synthetic { .. }) {
+                match self.relate_ternary(source, target, Relation::Assignable) {
+                    Ternary::Related => continue,
+                    Ternary::Unknown => return ApplicabilityReport::Declined,
+                    Ternary::NotRelated => {
+                        let span = self.error_span(at);
+                        return if self.report_relation_failure(
+                            at,
+                            span,
+                            None,
+                            source,
+                            target,
+                            Some(&messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1),
+                        ) {
+                            ApplicabilityReport::Reported
+                        } else {
+                            ApplicabilityReport::Declined
+                        };
+                    }
+                }
+            }
             let literal = expression.is_some_and(|expression| {
                 matches!(
                     Self::effective_check_expression(expression),

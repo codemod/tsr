@@ -766,6 +766,10 @@ impl Checker<'_, '_> {
                 self.check_tagged_template_diagnostics(node);
                 ambient
             }
+            Node::Decorator(_) => {
+                self.check_decorator_diagnostics(node);
+                ambient
+            }
             Node::TypeReferenceNode(_) | Node::ExpressionWithTypeArguments(_) => {
                 self.check_type_argument_arity(node);
                 self.check_type_argument_constraints(node);
