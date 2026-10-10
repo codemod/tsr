@@ -7306,7 +7306,15 @@ impl Checker<'_, '_> {
         let mut parts = Vec::with_capacity(constituents.len());
         for constituent in constituents {
             let flags = self.store.get(constituent).flags;
-            if constituent == self.intrinsics.error || flags.contains(TypeFlags::NEVER) {
+            // `getPropertyOfType` reads the reduced apparent type
+            // (`getReducedApparentType`): an intersection whose discriminants
+            // conflict (`a & b` from distributing `(a | b | c) & (b | c)`)
+            // reduces to `never`, which `createUnionOrIntersectionProperty`
+            // skips like any `never` constituent.
+            if constituent == self.intrinsics.error
+                || flags.contains(TypeFlags::NEVER)
+                || self.intersection_has_never_discriminant(constituent)
+            {
                 continue;
             }
             let apparent = self.apparent_type(constituent);

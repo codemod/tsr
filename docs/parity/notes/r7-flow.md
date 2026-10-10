@@ -142,3 +142,31 @@ The rest of the instanceof arm is still not native's shape: the
 class-identity road are port constructs layered over `getNarrowedType`. A
 rewrite onto `narrowed_type_worker` alone is NARROW-INSTANCEOF-CONSTRUCT-SIGNATURES'
 remaining work (§ below when measured).
+
+## §4 A never-reduced intersection leaves the discriminant's union property (r6-errorsplit3 diff N)
+
+`getPropertyOfType` reads `getReducedApparentType` (`checker.go`
+`getReducedType`, `:21819`): a union constituent that is an intersection
+whose discriminants conflict (`a & b` from distributing `(a | b | c) & (b | c)`)
+reduces to `never` and drops out, so `createUnionOrIntersectionProperty`
+never sees it. The port's `union_property_type_for_discriminant` declined on
+it. Diff N (`r6-errorsplit3-never-discriminant-constituent.diff`) skips such a
+constituent through the shared `intersection_has_never_discriminant`
+(`isDiscriminantWithNeverType`). Applied unchanged.
+
+Measured on `0633293e`, unfiltered: types **+12** (`discriminatedUnionTypes2`),
+diagnostics unchanged, 0 lost. No cache or traversal: one existing predicate
+per constituent of a discriminant read.
+
+**Held: diff R (`isReadonlySymbol` on property signatures).** Measured on
+`0633293e`: types +16 (`controlFlowAliasing`) against **2 lost**,
+`mappedTypes6` 277/279 (`x5.b` where `x5: Readwrite<Bar>`, `Bar`'s `b` is
+`readonly`), RIGHT `number` → WRONG `any`. Cause: a mapped type's member is
+answered by its modifiers-type symbol (`b` of `Bar`), so widening
+`is_readonly_symbol` to property signatures makes the `-readonly` member
+read as readonly at members.rs' `isAssignmentToReadonlyEntity` arm
+(`is_readonly_property_of_type`). Native's mapped symbol has no value
+declaration and carries `CheckFlagsReadonly` from the mapped modifiers
+(`checker.go:20930-20937`). Reopens when `is_readonly_property_of_type`
+reads the mapped member image's `readonly` (members.rs, r7-shared) — the
+same root as the routed `Mutable<A>|Mutable<B>` TS2540 (§5).
