@@ -320,7 +320,8 @@ pub(crate) fn top_level_tags<'a>(tags: &'a [JSDocTag<'a>]) -> Vec<&'a JSDocTag<'
     while let Some(tag) = tags.get(index) {
         index += 1;
         match tag {
-            JSDocTag::JSDocOverloadTag(_) => {
+            // A flat-parsed run: no signature folded into the tag.
+            JSDocTag::JSDocOverloadTag(overload) if overload.type_expression.is_none() => {
                 top.push(tag);
                 while matches!(
                     tags.get(index),

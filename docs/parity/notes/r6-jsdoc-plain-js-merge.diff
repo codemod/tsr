@@ -1,0 +1,222 @@
+diff --git a/crates/tsr-checker/src/merge_conflicts.rs b/crates/tsr-checker/src/merge_conflicts.rs
+index 64e90f9..864e75d 100644
+--- a/crates/tsr-checker/src/merge_conflicts.rs
++++ b/crates/tsr-checker/src/merge_conflicts.rs
+@@ -50,6 +50,16 @@ impl Checker<'_, '_> {
+         }
+     }
+ 
++    /// Whether `declaration` is in a plain JavaScript file
++    /// (`ast.IsPlainJSFile`, `ast/utilities.go:2889`).
++    fn is_plain_js_declaration(&self, declaration: tsr_ast::NodeId) -> bool {
++        if !self.in_js_file(declaration) {
++            return false;
++        }
++        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return true };
++        self.module_host.and_then(|host| host.is_plain_js_file(file)).unwrap_or(true)
++    }
++
+     /// `mergeSymbol`'s alias arm (`checker.go:14152-14164`), for a pair the
+     /// binder declined because the target is an alias.
+     ///
+@@ -166,32 +176,24 @@ impl Checker<'_, '_> {
+         // not ported — `Diagnostic` carries no related information, and the
+         // `errors_baseline` parser treats `!!! related` lines as hints rather
+         // than diagnostics (`errors_baseline.rs:22`), so the suite never asks.
+-        let declarations: Vec<tsr_ast::NodeId> = self
+-            .binder
+-            .symbols()
+-            .get(target)
+-            .declarations
+-            .iter()
+-            .chain(self.binder.symbols().get(source).declarations.iter())
+-            .copied()
+-            .collect();
+-        for declaration in declarations {
+-            // `isSourcePlainJS` / `isTargetPlainJS` (`checker.go:14218-14219`):
+-            // upstream suppresses the report **per side**, for whichever of the
+-            // two symbols is declared in a plain JavaScript file. That is why
+-            // `plainJSReservedStrict`'s `const eval` reports nothing — its own
+-            // side is skipped, and the other side is `lib.d.ts`, which the
+-            // suite does not walk.
+-            //
+-            // `IsPlainJSFile` also requires `checkJs` to be off; this port has
+-            // no per-file `checkJs` in the checker, so the test is JS-ness
+-            // alone. The difference can only *suppress* a report upstream would
+-            // make, never invent one — the safe direction, and it is why
+-            // `allowJscheckJsTypeParameterNoCrash` is left where it was rather
+-            // than converted.
+-            if self.in_js_file(declaration) {
++        // `isSourcePlainJS` / `isTargetPlainJS` (`checker.go:14215-14218`):
++        // upstream suppresses the report **per side**, for whichever of the
++        // two symbols' first declaration is in a plain JavaScript file
++        // (`ast.IsPlainJSFile`: no `@ts-check` directive and `checkJs`
++        // unset). That is why `plainJSReservedStrict`'s `const eval` reports
++        // nothing — its own side is skipped, and the other side is
++        // `lib.d.ts`, which the suite does not walk. The program answers the
++        // file's plainness; a host that cannot tell leaves every JavaScript
++        // file plain, which can only suppress a report upstream would make.
++        let mut declarations: Vec<tsr_ast::NodeId> = Vec::new();
++        for side in [source, target] {
++            let side_declarations = self.binder.symbols().get(side).declarations.to_vec();
++            if side_declarations.first().is_some_and(|&first| self.is_plain_js_declaration(first)) {
+                 continue;
+             }
++            declarations.extend(side_declarations);
++        }
++        for declaration in declarations {
+             let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
+             // `getAdjustedNodeForError` then `NewDiagnosticForNode` — the
+             // declaration's *name*, which is what `error_span` centralises
+@@ -205,6 +207,19 @@ impl Checker<'_, '_> {
+                     .name
+                     .and_then(|name| name.node_id)
+                     .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
++                // The reparsed `JSTypeAliasDeclaration`'s name.
++                Some(
++                    tsr_ast::Node::JSDocTypedefTag(tsr_ast::JSDocTypedefTag {
++                        name: Some(tsr_ast::JSDocFullName::Identifier(name)),
++                        ..
++                    })
++                    | tsr_ast::Node::JSDocCallbackTag(tsr_ast::JSDocCallbackTag {
++                        name: Some(tsr_ast::JSDocFullName::Identifier(name)),
++                        ..
++                    }),
++                ) => name
++                    .node_id
++                    .map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id)),
+                 _ => self.error_span(declaration),
+             };
+             let diagnostic = if needs_name {
+diff --git a/crates/tsr-checker/src/resolution.rs b/crates/tsr-checker/src/resolution.rs
+index 36cd22a..c0308d4 100644
+--- a/crates/tsr-checker/src/resolution.rs
++++ b/crates/tsr-checker/src/resolution.rs
+@@ -330,6 +330,15 @@ pub trait ModuleHost {
+         false
+     }
+ 
++    /// `ast.IsPlainJSFile(file, compilerOptions.CheckJs)`
++    /// (`ast/utilities.go:2889`): a JavaScript file with no `@ts-check` /
++    /// `@ts-nocheck` directive under a `checkJs` that is unset. `None` from a
++    /// host that cannot tell; the checker then treats every JavaScript file
++    /// as plain, the suppressing direction.
++    fn is_plain_js_file(&self, _file: NodeId) -> Option<bool> {
++        None
++    }
++
+     /// `resolveHelpersModule`'s program half (`checker.go:28676`): what the
+     /// synthetic `tslib` import the loader adds under `importHelpers`
+     /// (`fileloader.go:543`) resolved to, for this file. Defaulted to
+diff --git a/crates/tsr-compiler/src/lib.rs b/crates/tsr-compiler/src/lib.rs
+index 07f82f1..47d66f6 100644
+--- a/crates/tsr-compiler/src/lib.rs
++++ b/crates/tsr-compiler/src/lib.rs
+@@ -1385,6 +1385,11 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
+                 && tsr_binder::is_declaration_file(self.files[index].file_name())
+         })
+     }
++
++    fn is_plain_js_file(&self, file: tsr_ast::NodeId) -> Option<bool> {
++        let &index = self.files_by_source_file.get(&file)?;
++        Some(program_diagnostics::is_plain_js_file(&self.files[index], &self.options))
++    }
+ }
+ 
+ /// Each file's `SourceFile` node id to its index in `files`.
+diff --git a/crates/tsr-compiler/tests/plain_js_merge_conflicts.rs b/crates/tsr-compiler/tests/plain_js_merge_conflicts.rs
+new file mode 100644
+index 0000000..f596a18
+--- /dev/null
++++ b/crates/tsr-compiler/tests/plain_js_merge_conflicts.rs
+@@ -0,0 +1,90 @@
++//! `reportMergeSymbolError`'s plain-JavaScript test (`checker.go:14215`),
++//! over a real program: a cross-file redeclaration is suppressed only for a
++//! side declared in a plain JS file (`ast.IsPlainJSFile`: no directive and
++//! `checkJs` unset). `docs/parity/notes/r6-jsdoc.md` §7.
++
++use tsr_checker::check::FileContext;
++use tsr_compiler::{LoadOptions, Program};
++use tsr_core::{CompilerOptions, ModuleKind, ScriptTarget, Tristate};
++
++struct Host {
++    fs: tsr_vfs::InMemoryFileSystem,
++}
++
++impl tsr_module::types::ResolutionHost for Host {
++    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
++        &self.fs
++    }
++
++    fn current_directory(&self) -> &'static str {
++        "/"
++    }
++}
++
++/// Every diagnostic the checker reports for the program's files, as
++/// `(file, line, code)`, sorted.
++fn diagnostics(files: &[(&str, &str)], check_js: Tristate) -> Vec<(String, usize, u32)> {
++    let host = Host {
++        fs: tsr_vfs::InMemoryFileSystem::new(
++            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
++            [],
++            true,
++        ),
++    };
++    let arena = tsr_core::Arena::new();
++    let program = Program::from_root_files(
++        &arena,
++        &host,
++        LoadOptions {
++            compiler_options: CompilerOptions {
++                module: ModuleKind::CommonJS,
++                target: ScriptTarget::ES2015,
++                allow_js: Tristate::True,
++                check_js,
++                ..Default::default()
++            },
++            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
++            ..Default::default()
++        },
++    );
++    let mut checker = tsr_checker::Checker::with_module_host(
++        program.binder(),
++        program.nodes(),
++        program.node_map(),
++        Some(&program),
++    );
++    checker.apply_compiler_options(program.compiler_options());
++    let mut ids = Vec::new();
++    for (name, _) in files {
++        let id = program.source_file(name).expect("loaded").source_file().node_id.expect("id");
++        ids.push((id, *name));
++        checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
++    }
++    let mut out: Vec<_> = checker
++        .diagnostics()
++        .iter()
++        .filter_map(|(file, diagnostic)| {
++            let (_, name) = ids.iter().find(|(id, _)| id == file)?;
++            let text = files.iter().find(|(n, _)| n == name)?.1;
++            let line = text[..diagnostic.span.start as usize].matches('\n').count() + 1;
++            Some(((*name).to_string(), line, diagnostic.message.code()))
++        })
++        .collect();
++    out.sort();
++    out
++}
++
++const FILES: [(&str, &str); 2] = [("/m1.js", "class Bar {}\n"), ("/m2.js", "const Bar = 3;\n")];
++
++#[test]
++fn checked_js_files_report_a_cross_file_redeclaration() {
++    assert_eq!(
++        diagnostics(&FILES, Tristate::True),
++        [("/m1.js".to_string(), 1, 2451), ("/m2.js".to_string(), 1, 2451)]
++    );
++}
++
++#[test]
++fn plain_js_files_do_not() {
++    assert_eq!(diagnostics(&FILES, Tristate::Unknown), []);
++}

@@ -1,0 +1,343 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index d1facaf..57fac2c 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1000,6 +1000,13 @@ impl Checker<'_, '_> {
+         }
+         self.check_contextual_identifier(node, ambient);
+         self.check_type_parameter_list(type_parameters_of(typed));
++        // `checkTypeParameters` on each `@template` list the JS reparser
++        // makes from the comments this node hosts (`jsdoc_template_lists`).
++        if self.file_is_js {
++            for (_, list) in self.jsdoc_template_lists(node) {
++                self.check_type_parameter_list(&list);
++            }
++        }
+         if self.nodes.kind(node) == SyntaxKind::SwitchStatement {
+             self.check_switch_case_comparable(node);
+         }
+@@ -7469,9 +7476,32 @@ impl Checker<'_, '_> {
+     /// `checker-notes-diag2.md` §88.
+     ///
+     /// The report lands on the **later** declaration only (`for j := range i`).
+-    fn check_type_parameter_list(&mut self, parameters: &[&tsr_ast::TypeParameterDeclaration<'_>]) {
++    ///
++    /// With its two default rules (`checker.go:7006-7012`): a parameter
++    /// without a default after one with a default is TS2706 at the
++    /// parameter, and a default's reference to this or a later parameter of
++    /// the list is TS2744 at the reference (`checkTypeParametersNotReferenced`,
++    /// `:7022`).
++    pub(crate) fn check_type_parameter_list(
++        &mut self,
++        parameters: &[&tsr_ast::TypeParameterDeclaration<'_>],
++    ) {
++        let mut seen_default = false;
+         for (index, parameter) in parameters.iter().enumerate() {
+             let Some(id) = parameter.node_id else { continue };
++            if let Some(default) = parameter.default_type {
++                seen_default = true;
++                self.check_type_parameters_not_referenced(default, parameters, index);
++            } else if seen_default && let Some(file) = self.source_file_of_for_diagnostics(id) {
++                let span = self.error_span(id);
++                self.report(
++                    file,
++                    Diagnostic::new(
++                        &messages::REQUIRED_TYPE_PARAMETERS_MAY_NOT_FOLLOW_OPTIONAL_TYPE_PARAMETERS,
++                        span,
++                    ),
++                );
++            }
+             let Some(symbol) = self.binder.symbol_of(id) else { continue };
+             let duplicate = parameters[..index].iter().any(|earlier| {
+                 earlier
+@@ -7497,6 +7527,131 @@ impl Checker<'_, '_> {
+         }
+     }
+ 
++    /// `checkTypeParametersNotReferenced` (`checker.go:7022`): every type
++    /// reference in `root` whose type is the parameter at `index` or a later
++    /// one of `parameters` is TS2744.
++    fn check_type_parameters_not_referenced(
++        &mut self,
++        root: tsr_ast::TypeNode<'_>,
++        parameters: &[&tsr_ast::TypeParameterDeclaration<'_>],
++        index: usize,
++    ) {
++        let Some(root) = tsr_ast::Node::from(root).node_id() else { return };
++        let mut stack = vec![root];
++        while let Some(current) = stack.pop() {
++            let Some(typed) = self.node_map.get(current) else { continue };
++            if let Node::TypeReferenceNode(reference) = typed {
++                let t =
++                    self.get_type_from_type_node(tsr_ast::TypeNode::TypeReferenceNode(reference));
++                if self.store.get(t).flags.contains(crate::flags::TypeFlags::TYPE_PARAMETER) {
++                    for later in &parameters[index..] {
++                        let Some(symbol) = later.node_id.and_then(|id| self.binder.symbol_of(id))
++                        else {
++                            continue;
++                        };
++                        if self.get_declared_type_of_symbol(symbol) == t
++                            && let Some(file) = self.source_file_of_for_diagnostics(current)
++                        {
++                            let span = self.error_span(current);
++                            self.report(
++                                file,
++                                Diagnostic::new(
++                                    &messages::TYPE_PARAMETER_DEFAULTS_CAN_ONLY_REFERENCE_PREVIOUSLY_DECLARED_TYPE_PARAMETERS,
++                                    span,
++                                ),
++                            );
++                        }
++                    }
++                }
++            }
++            let mut children = Vec::new();
++            tsr_ast::for_each_child_id(typed, |child| children.push(child));
++            stack.extend(children.into_iter().rev());
++        }
++    }
++
++    /// `checkGrammarModifiers`' arms for a modifier on a type parameter, and
++    /// its `in`/`out` arm on any node (`grammarchecks.go:295`, `:303-312`,
++    /// `:526-543`). Answers whether one was reported, which ends the walk as
++    /// upstream's `return` does.
++    fn check_type_parameter_modifier(
++        &mut self,
++        node: NodeId,
++        token: &tsr_ast::Token<'_>,
++        seen: &[SyntaxKind],
++    ) -> bool {
++        let kind = token.kind;
++        let parent = self
++            .jsdoc_template_owner_kind(node)
++            .or_else(|| self.nodes.parent(node).map(|parent| self.nodes.kind(parent)));
++        let (message, args): (&'static tsr_diagnostics::Message, Vec<String>) = match kind {
++            SyntaxKind::ConstKeyword => {
++                if parent.is_some_and(|parent| {
++                    matches!(
++                        parent,
++                        SyntaxKind::FunctionDeclaration
++                            | SyntaxKind::MethodDeclaration
++                            | SyntaxKind::Constructor
++                            | SyntaxKind::GetAccessor
++                            | SyntaxKind::SetAccessor
++                            | SyntaxKind::FunctionExpression
++                            | SyntaxKind::ArrowFunction
++                            | SyntaxKind::ClassDeclaration
++                            | SyntaxKind::ClassExpression
++                            | SyntaxKind::FunctionType
++                            | SyntaxKind::ConstructorType
++                            | SyntaxKind::CallSignature
++                            | SyntaxKind::ConstructSignature
++                            | SyntaxKind::MethodSignature
++                    )
++                }) {
++                    return false;
++                }
++                (
++                    &messages::_0_MODIFIER_CAN_ONLY_APPEAR_ON_A_TYPE_PARAMETER_OF_A_FUNCTION_METHOD_OR_CLASS,
++                    vec!["const".to_string()],
++                )
++            }
++            SyntaxKind::InKeyword | SyntaxKind::OutKeyword => {
++                let text = if kind == SyntaxKind::InKeyword { "in" } else { "out" };
++                if self.nodes.kind(node) != SyntaxKind::TypeParameter
++                    || parent.is_some_and(|parent| {
++                        !matches!(
++                            parent,
++                            SyntaxKind::InterfaceDeclaration
++                                | SyntaxKind::ClassDeclaration
++                                | SyntaxKind::ClassExpression
++                                | SyntaxKind::TypeAliasDeclaration
++                        )
++                    })
++                {
++                    (
++                        &messages::_0_MODIFIER_CAN_ONLY_APPEAR_ON_A_TYPE_PARAMETER_OF_A_CLASS_INTERFACE_OR_TYPE_ALIAS,
++                        vec![text.to_string()],
++                    )
++                } else if seen.contains(&kind) {
++                    (&messages::_0_MODIFIER_ALREADY_SEEN, vec![text.to_string()])
++                } else if kind == SyntaxKind::InKeyword && seen.contains(&SyntaxKind::OutKeyword) {
++                    (
++                        &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
++                        vec!["in".to_string(), "out".to_string()],
++                    )
++                } else {
++                    return false;
++                }
++            }
++            _ => match modifier_keyword_text(kind) {
++                Some(text) => (
++                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_TYPE_PARAMETER,
++                    vec![text.to_string()],
++                ),
++                None => return false,
++            },
++        };
++        self.report_modifier_error(token, message, &args);
++        true
++    }
++
+     /// TS1029 — `'{0}' modifier must precede '{1}' modifier.`
+     ///
+     /// `checkGrammarModifiers` (`grammarchecks.go:290`), the `must precede`
+@@ -8082,6 +8237,16 @@ impl Checker<'_, '_> {
+                 );
+                 return;
+             }
++            // The type-parameter arms (`grammarchecks.go:295`, `:307`, `:526`):
++            // only `in`, `out` and `const`, each on the declarations that take
++            // it. A JSDoc `@template` parameter's parent is the declaration its
++            // list is reparsed into (`jsdoc_template_owner_kind`).
++            if (self.nodes.kind(node) == SyntaxKind::TypeParameter
++                || matches!(kind, SyntaxKind::InKeyword | SyntaxKind::OutKeyword))
++                && self.check_type_parameter_modifier(node, token, &seen)
++            {
++                return;
++            }
+             // TS1028, the **first** arm of the same `if`/`else if` chain
+             // (`grammarchecks.go:336`): `private public x` is *"Accessibility
+             // modifier already seen"*, not *"'public' must precede
+diff --git a/crates/tsr-checker/src/jsdoc_checks.rs b/crates/tsr-checker/src/jsdoc_checks.rs
+index 16658d7..1a4fe3f 100644
+--- a/crates/tsr-checker/src/jsdoc_checks.rs
++++ b/crates/tsr-checker/src/jsdoc_checks.rs
+@@ -335,10 +335,6 @@ impl<'a> Checker<'a, '_> {
+     /// is reparsed into ([`Self::jsdoc_template_lists`]), which
+     /// `checkGrammarModifiers` reads as the parameter's `Parent`; `None` for
+     /// a written parameter or one no declaration takes.
+-    #[expect(
+-        dead_code,
+-        reason = "called from the hooks in docs/parity/notes/r6-jsdoc-template-grammar.diff"
+-    )]
+     pub(crate) fn jsdoc_template_owner_kind(&self, parameter: NodeId) -> Option<SyntaxKind> {
+         let tag = self.nodes.parent(parameter)?;
+         if self.nodes.kind(tag) != SyntaxKind::JSDocTemplateTag {
+diff --git a/crates/tsr-checker/tests/type_parameter_grammar.rs b/crates/tsr-checker/tests/type_parameter_grammar.rs
+new file mode 100644
+index 0000000..b25aa88
+--- /dev/null
++++ b/crates/tsr-checker/tests/type_parameter_grammar.rs
+@@ -0,0 +1,102 @@
++//! `checkTypeParameters`' default rules and `checkGrammarModifiers`'
++//! type-parameter arms, pinned to 5b1047d1, for written lists and for the
++//! `@template` lists the JS reparser makes (`gatherTypeParameters`,
++//! `parser/reparser.go:293`). `docs/parity/notes/r6-jsdoc.md` §6.
++use tsr_ast::Node;
++use tsr_binder::BindResult;
++use tsr_checker::{Checker, check::FileContext};
++use tsr_core::Arena;
++
++/// Every diagnostic of a checked file, as `(code, line, text at its span)`.
++fn diagnostics(source: &str, javascript: bool) -> Vec<(u32, usize, String)> {
++    let name = if javascript { "t.js" } else { "t.ts" };
++    let arena = Arena::new();
++    let mut parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file(name));
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    let root = Node::SourceFile(parsed.source_file).node_id().unwrap();
++    if javascript {
++        parsed.nodes.add_flags(root, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++        for (_, docs) in parsed.jsdoc.iter() {
++            for doc in docs {
++                if let Some(id) = doc.node_id {
++                    parsed.nodes.add_flags(id, tsr_ast::NodeFlags::JAVASCRIPT_FILE);
++                }
++            }
++        }
++    }
++    let jsdoc: Vec<_> = parsed.jsdoc.iter().collect();
++    let bound = tsr_binder::bind_into_with_jsdoc(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name, text: source },
++        &jsdoc,
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.set_jsdoc(parsed.jsdoc.iter());
++    checker.check_source_file(root, FileContext { ambient: false, has_parse_errors: false });
++    let mut out: Vec<_> = checker
++        .diagnostics()
++        .iter()
++        .map(|(_, d)| {
++            let start = d.span.start as usize;
++            let line = source[..start].matches('\n').count() + 1;
++            (d.message.code(), line, source[start..d.span.end as usize].to_string())
++        })
++        .collect();
++    out.sort();
++    out
++}
++
++#[test]
++fn written_lists_report_defaults_and_modifiers() {
++    let source = "type A<T = U, U = string> = [T, U];\ntype B<T = string, U> = [T, U];\nclass C<private T> {}\n";
++    assert_eq!(
++        diagnostics(source, false),
++        [(1273, 3, "private".to_string()), (2706, 2, "U".to_string()), (2744, 1, "U".to_string()),]
++    );
++}
++
++#[test]
++fn template_lists_report_defaults_and_modifiers() {
++    let source = "/**
++ * @template const T
++ * @typedef {[T]} X
++ */
++/**
++ * @template private T
++ * @param {T} x
++ * @returns {T}
++ */
++function f(x) { return x; }
++/**
++ * @template in T
++ * @param {T} x
++ */
++function g(x) {}
++/**
++ * @template [T=string]
++ * @template U
++ * @typedef {[T, U]} E
++ */
++var e;
++/**
++ * @template [T=U]
++ * @template [U=T]
++ * @typedef {[T, U]} G
++ */
++var g2;
++";
++    assert_eq!(
++        diagnostics(source, true),
++        [
++            (1273, 6, "private".to_string()),
++            (1274, 12, "in".to_string()),
++            (1277, 2, "const".to_string()),
++            (2706, 18, "U".to_string()),
++            (2744, 23, "U".to_string()),
++        ]
++    );
++}
+diff --git a/crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs b/crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs
+index 2cc9074..64e9588 100644
+--- a/crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs
++++ b/crates/tsr-conformance/tests/jsdoc_typedef_aliases.rs
+@@ -472,7 +472,11 @@ fn diagnostic_traversal_respects_native_declared_variance() {
+         .map(|diagnostic| (diagnostic.line, diagnostic.column, diagnostic.code))
+         .collect();
+     actual.sort_unstable();
+-    // Native rejects 36:1 and accepts 37:1. The separate TS1274 grammar
+-    // diagnostic at 59:14 remains unsupported; no assignment is suppressed.
+-    assert_eq!(actual, [(18, 1, 2322), (36, 1, 2322), (55, 1, 2322), (56, 1, 2322)]);
++    // Native rejects 36:1 and accepts 37:1, and reports TS1274 at 59:14 —
++    // `@template in T` on a function (`checkGrammarModifiers`,
++    // `grammarchecks.go:526`); no assignment is suppressed.
++    assert_eq!(
++        actual,
++        [(18, 1, 2322), (36, 1, 2322), (55, 1, 2322), (56, 1, 2322), (59, 14, 1274)]
++    );
+ }

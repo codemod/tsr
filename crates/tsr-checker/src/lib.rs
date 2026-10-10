@@ -169,6 +169,7 @@ mod jsdoc_checks;
 mod jsdoc_full_signature;
 mod jsdoc_links;
 mod jsdoc_modifiers;
+mod jsdoc_overloads;
 mod jsdoc_params;
 mod jsx_attributes;
 mod jsx_component;

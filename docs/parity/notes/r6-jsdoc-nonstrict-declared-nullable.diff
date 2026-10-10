@@ -1,0 +1,103 @@
+diff --git a/crates/tsr-checker/src/symbols.rs b/crates/tsr-checker/src/symbols.rs
+index b1368e0..f6ff203 100644
+--- a/crates/tsr-checker/src/symbols.rs
++++ b/crates/tsr-checker/src/symbols.rs
+@@ -5413,13 +5413,13 @@ impl<'a> Checker<'a, '_> {
+             // read from the case's options; the paired control fixture
+             // asserts `null` stays `null` under `@strict: true`.
+             // Explicit annotations retain their non-widening null/undefined
+-            // types, including the BuiltinIteratorReturn intrinsic alias.
++            // types, including the BuiltinIteratorReturn intrinsic alias; so
++            // does any initializer whose type is the plain `null`/`undefined`
++            // (a declared `undefined`, a call returning one): only
++            // `createWideningType`'s twins widen (`isWideningNullable`).
+             if !self.strict_null_checks
+                 && self.type_annotation_of(declaration).is_none()
+-                && (id == self.intrinsics.null
+-                    || id == self.intrinsics.null_widening
+-                    || id == self.intrinsics.undefined
+-                    || id == self.intrinsics.undefined_widening)
++                && self.intrinsics.is_widening_nullable(id)
+             {
+                 return self.intrinsics.any;
+             }
+diff --git a/crates/tsr-checker/tests/contextual.rs b/crates/tsr-checker/tests/contextual.rs
+index 35ec38e..764967d 100644
+--- a/crates/tsr-checker/tests/contextual.rs
++++ b/crates/tsr-checker/tests/contextual.rs
+@@ -1197,15 +1197,19 @@ fn provided_iife_identities_and_omitted_defaults_remain_separate_from_missing_ar
+             "((observed?) => observed)(undefined as undefined);",
+             "((observed?) => observed)(...([undefined as undefined] as [undefined]));",
+             "((observed = 37) => observed)(undefined as undefined);",
+-            // The synthetic global still supplies ordinary undefined. Its
+-            // loose native widening identity is a separate, held prerequisite.
++            // The synthetic global's type is `undefinedWideningType`
++            // (`checker.go:1345`), the one argument that widens loose.
+             "((observed?) => observed)(undefined);",
+         ] {
+             let (signature, parameter, i) = iife_parameter_ids(source, "observed", strict);
+-            // Native ordinary assertions stay undefined even loose. The
+-            // current declaration consumer widens them to genuine any; this
+-            // known residual must not be mistaken for a raw supplier result.
+-            let expected = if strict { i.undefined } else { i.any };
++            // Native ordinary assertions stay undefined even loose: only
++            // `createWideningType`'s twin widens to any (`getWidenedType`,
++            // `checker.go:16090`; `tsgo` declares `a: undefined` for
++            // `((observed) => observed)(undefined as undefined)` and `b: any`
++            // for `((observed?) => observed)(undefined)` under
++            // `strictNullChecks: false`).
++            let widening = source.ends_with("(undefined);");
++            let expected = if strict || !widening { i.undefined } else { i.any };
+             assert_eq!(signature, expected, "strict={strict}: {source}");
+             assert_eq!(parameter, expected);
+         }
+diff --git a/crates/tsr-checker/tests/nonstrict_declared_nullable.rs b/crates/tsr-checker/tests/nonstrict_declared_nullable.rs
+new file mode 100644
+index 0000000..cb3fb92
+--- /dev/null
++++ b/crates/tsr-checker/tests/nonstrict_declared_nullable.rs
+@@ -0,0 +1,44 @@
++//! `getWidenedType` under `strictNullChecks: false`, pinned to 5b1047d1:
++//! only `createWideningType`'s `null`/`undefined` twins widen to `any`
++//! (`checker.go:25027`, `:16090`), so a declared `undefined` keeps its type
++//! through a variable's initializer. `docs/parity/notes/r6-jsdoc.md` §9.
++use tsr_ast::{Node, NodeId, SyntaxKind};
++use tsr_binder::BindResult;
++use tsr_checker::Checker;
++use tsr_core::Arena;
++
++fn variable_types(source: &str) -> Vec<String> {
++    let arena = Arena::new();
++    let parsed =
++        tsr_parser::parse_with_options(&arena, source, tsr_parser::ParseOptions::for_file("t.ts"));
++    assert!(parsed.diagnostics.is_empty(), "fixture must parse");
++    let bound = tsr_binder::bind_into(
++        BindResult::empty(),
++        &arena,
++        parsed.source_file,
++        &parsed.nodes,
++        tsr_binder::FileInfo { name: "t.ts", text: source },
++    );
++    let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
++    checker.set_strict_null_checks(false);
++    let mut out = Vec::new();
++    for index in 0..parsed.nodes.len() {
++        let id = NodeId::new(u32::try_from(index).unwrap());
++        if parsed.nodes.kind(id) != SyntaxKind::VariableDeclaration {
++            continue;
++        }
++        let Some(Node::VariableDeclaration(_)) = parsed.node_map.get(id) else { continue };
++        let symbol = bound.symbol_of(id).expect("bound variable");
++        let ty = checker.get_type_of_symbol(symbol);
++        out.push(checker.type_to_string(ty));
++    }
++    out
++}
++
++/// `typeFromJSInitializer3`'s shape: the declared `undefined` and `null`
++/// survive; the literals widen.
++#[test]
++fn only_widening_nullables_widen() {
++    let source = "declare const u: undefined;\ndeclare const n: null;\nconst a = u;\nconst b = n;\nconst c = undefined;\nconst d = null;\n";
++    assert_eq!(variable_types(source), ["undefined", "null", "undefined", "null", "any", "any"]);
++}
