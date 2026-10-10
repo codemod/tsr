@@ -1254,10 +1254,7 @@ impl Checker<'_, '_> {
         // `errorOrSuggestion(AllowUmdGlobalAccess != TSTrue, …)`
         // (`checker.go:1846`): with the option on it is a suggestion, which
         // no diagnostic list here carries (`r5-modfmt.md` §2).
-        if self.file_has_parse_errors
-            || self.module_format_options.allow_umd_global_access
-            || !self.is_value_reference(node)
-        {
+        if self.module_format_options.allow_umd_global_access || !self.is_value_reference(node) {
             return;
         }
         // Upstream's guard is `meaning&SymbolFlagsValue == SymbolFlagsValue`
@@ -1367,9 +1364,6 @@ impl Checker<'_, '_> {
     /// participant of `U extends T, T extends U` and none outside the cycle.
     /// `T extends Array<T>` is legal because an object type ends the walk.
     fn check_circular_type_parameter_constraint(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER) {
             return;
@@ -1536,9 +1530,6 @@ impl Checker<'_, '_> {
     /// consumer was the *merge*, and the diagnostic that fires otherwise was
     /// never emitted. §418.
     fn check_global_augmentation_position(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
         // `ast.IsGlobalScopeAugmentation` — the parser gives the block a
         // synthetic `global` identifier, so only the keyword distinguishes it
@@ -1839,12 +1830,7 @@ impl Checker<'_, '_> {
         has_expression: bool,
         ambient: bool,
     ) {
-        if !self.no_implicit_returns
-            || self.strict_null_checks
-            || has_expression
-            || ambient
-            || self.file_has_parse_errors
-        {
+        if !self.no_implicit_returns || self.strict_null_checks || has_expression || ambient {
             return;
         }
         let Some(container) =
@@ -1885,9 +1871,6 @@ impl Checker<'_, '_> {
     /// top-level, non-type declaration in a non-module file named `undefined`
     /// or `globalThis`. §442.
     fn check_builtin_global_redeclaration(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let name = match self.node_map.get(node) {
             Some(Node::VariableDeclaration(declaration)) => {
                 declaration.name.and_then(|name| name.node_id())
@@ -2100,9 +2083,6 @@ impl Checker<'_, '_> {
     /// parameter constrained to a primitive, a branded intersection, `never`)
     /// declines. `docs/parity/notes/misc-checks.md` §11.
     fn check_instanceof_left_operand(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
         if binary.operator_token.is_none_or(|t| t.kind != SyntaxKind::InstanceOfKeyword) {
             return;
@@ -2159,9 +2139,6 @@ impl Checker<'_, '_> {
     ///
     /// Everything else declines. `docs/parity/notes/misc-checks.md` §3.
     fn check_instanceof_right_operand(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
         if binary.operator_token.is_none_or(|t| t.kind != SyntaxKind::InstanceOfKeyword) {
             return;
@@ -2296,9 +2273,6 @@ impl Checker<'_, '_> {
     /// that names a constant or another member declines (a gap).
     /// `docs/parity/notes/misc-checks.md` §4.
     fn check_enum_member_overshift(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
         let Some(operator) = binary.operator_token.map(|t| t.kind) else { return };
         let text = match operator {
@@ -2657,9 +2631,6 @@ impl Checker<'_, '_> {
     /// stopping early at one that references `super` or `this`. Entirely
     /// syntactic, gate included. §470.
     fn check_super_call_is_first(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
         let Some(extends) = class
             .heritage_clauses
@@ -3054,9 +3025,6 @@ impl Checker<'_, '_> {
     /// §186's rule holds: an **empty** exports table cannot be asked whether a
     /// member is missing, because the answer would be "all of them". §487.
     fn check_module_has_default_export(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ImportClause(clause)) = self.node_map.get(node) else { return };
         let Some(name) = clause.name.and_then(|name| name.node_id) else { return };
         let Some(text) = self.identifier_text(name).map(str::to_string) else { return };
@@ -3329,9 +3297,6 @@ impl Checker<'_, '_> {
     /// shape — the `abstract` modifier, the node kind, and a present body.
     /// §503.
     fn check_abstract_method_has_no_body(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::MethodDeclaration(method)) = self.node_map.get(node) else { return };
         if method.body.is_none() || !has_modifier(method.modifiers, SyntaxKind::AbstractKeyword) {
             return;
@@ -3582,9 +3547,6 @@ impl Checker<'_, '_> {
     /// A `for` initialiser is a declaration *list*, not a `VariableStatement`,
     /// so it never reaches here — the seven kinds are about body position. §395.
     fn check_block_scoped_statement_container(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::VariableStatement(statement)) = self.node_map.get(node) else { return };
         let Some(list) = statement.declaration_list.and_then(|l| l.node_id) else { return };
         let flags = self.nodes.flags(list);
@@ -4538,7 +4500,6 @@ impl Checker<'_, '_> {
             // r6-names: see the cascade's region check below.
             && !self.names_in_unchecked_region(node)
             && !self.in_js_file(node)
-            && !self.file_has_parse_errors
             && !self.reference_has_non_arrow_function_container(node)
             // Outside a function `resolveName` is the ordinary walk, so a
             // declared `var arguments` resolves (`emitArrowFunctionWhenUsingArguments03`).
@@ -5822,9 +5783,6 @@ impl Checker<'_, '_> {
     /// A string name is an ambient module and takes neither this nor §1017's
     /// relative-path error. §1041.
     fn check_module_keyword_deprecated(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
         if module.keyword.kind != SyntaxKind::ModuleKeyword {
             return;
@@ -5936,9 +5894,6 @@ impl Checker<'_, '_> {
     /// name* rather than as a list of what is not, because the rule reports on
     /// a **negative** — §1019's decision about defaults. §1031.
     fn check_interface_extends_entity_name(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else { return };
         let mut reports = Vec::new();
         for clause in interface.heritage_clauses {
@@ -6020,9 +5975,6 @@ impl Checker<'_, '_> {
     /// initializer, a `?`, a **binding pattern** name, and an owner **with a
     /// body** — §1015's question asked the other way round. §1025.
     fn check_optional_binding_pattern_parameter(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
         if parameter.initializer.is_some() || parameter.question_token.is_none() {
             return;
@@ -6054,7 +6006,7 @@ impl Checker<'_, '_> {
     /// and anything else are not. The `for (var a in b)` form never reaches
     /// here — its initializer is a declaration list. §1019.
     fn check_for_in_reference_expression(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(node) {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
@@ -6096,7 +6048,7 @@ impl Checker<'_, '_> {
     /// `export =` (whose exports are the target's). §1011 restricted it to
     /// `default`; this is the declared-name generalisation.
     fn check_exported_redeclarations(&mut self, file: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(file) {
+        if self.in_js_file(file) {
             return;
         }
         let Some(module) = self.binder.symbol_of(file) else { return };
@@ -6329,9 +6281,6 @@ impl Checker<'_, '_> {
     /// dot alone is not relative, which is why the predicate is written out.
     /// §1017.
     fn check_ambient_module_relative_name(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         // **`IsGlobalSourceFile` is a *script*, not merely a source file.** A
         // `declare module "./x"` at the top of an external module is an
         // *augmentation* and takes a different arm; reading the predicate as
@@ -6652,9 +6601,6 @@ impl Checker<'_, '_> {
     }
 
     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(symbol) = self
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
             .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
@@ -7266,8 +7212,7 @@ impl Checker<'_, '_> {
         node: NodeId,
         text: &str,
     ) -> bool {
-        if self.file_has_parse_errors || !self.strict_null_checks || !self.is_value_reference(node)
-        {
+        if !self.strict_null_checks || !self.is_value_reference(node) {
             return false;
         }
         // §839.1's guard — decline a reference under a condition naming it
@@ -7979,7 +7924,7 @@ impl Checker<'_, '_> {
         declaration: &tsr_ast::VariableDeclaration<'_>,
         ambient: bool,
     ) {
-        if ambient || !self.strict_null_checks || self.file_has_parse_errors {
+        if ambient || !self.strict_null_checks {
             return;
         }
         // `IsArrayBindingPattern` takes the iterated-type path instead, so only
@@ -8029,9 +7974,6 @@ impl Checker<'_, '_> {
     /// so the collision has nothing to collide with. The question is exact and
     /// needs no type. §908.
     fn check_merged_namespace_prototype(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
         let Some(&exported) = self.binder.symbols().get(symbol).exports.get("prototype") else {
@@ -8080,7 +8022,7 @@ impl Checker<'_, '_> {
         node: NodeId,
         members: &[tsr_ast::ClassElement<'_>],
     ) {
-        if self.file_has_parse_errors || self.is_in_ambient_context_for_overloads(node) {
+        if self.is_in_ambient_context_for_overloads(node) {
             return;
         }
         let Some(symbol) = self.binder.symbol_of(node) else { return };
@@ -8980,7 +8922,7 @@ impl Checker<'_, '_> {
         accessor: &tsr_ast::GetAccessorDeclaration<'_>,
         ambient: bool,
     ) {
-        if ambient || self.file_has_parse_errors {
+        if ambient {
             return;
         }
         // `ast.NodeIsPresent(node.Body())` — an overload or a `.d.ts` accessor
@@ -9869,9 +9811,6 @@ impl Checker<'_, '_> {
     /// error; one where both share a hoisting scope is a duplicate identifier
     /// and a different code. §298.
     fn check_outer_scoped_variable(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         // **A binding element declares a variable too.** `var { x } = …` puts
         // an object pattern on the `VariableDeclaration` and declares `x` on
         // the element inside it; upstream reaches both through
@@ -10892,9 +10831,6 @@ impl Checker<'_, '_> {
     /// and an ambient declaration are all that. Reported on the parameter or
     /// the element. §181; `docs/parity/notes/r5-vardecl.md` §4.
     fn check_parameter_initializer_needs_body(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         // `IsPartOfParameterDeclaration(node)`: the parameter itself, or a
         // binding element nested in its pattern (`type Foo = ({ first = 0 }:
         // …) => unknown`, `defaultValueInFunctionTypes`). A renamed element
@@ -10985,9 +10921,6 @@ impl Checker<'_, '_> {
     /// [`Checker::resolve_alias`] has been in `symbols.rs` throughout, with
     /// arms for every import and export form including import-equals. §187.
     fn check_qualified_type_name(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         // Only as the `type_name` of a bare type reference — the same slot
         // `check_type_reference_name` claims, so the two are disjoint.
         let Some(parent) = self.nodes.parent(node) else { return };
@@ -11519,9 +11452,6 @@ impl Checker<'_, '_> {
     /// why it needs none of the bounds the four rules above do. The one decline
     /// is the parse-error gate every rule in this module shares.
     fn check_parameter_property_position(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
-        if self.file_has_parse_errors {
-            return;
-        }
         if !modifiers.iter().any(|modifier| {
             matches!(modifier, ModifierLike::Token(token)
             if matches!(
@@ -11557,20 +11487,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS2695 — `Left side of comma operator is unused and has no side effects.`
-    ///
-    /// `checkBinaryLikeExpression`'s comma arm (`checker.go:12533`). Reported at
-    /// the **left operand**, gated on three things upstream tests in order:
-    /// `allowUnreachableCode` is not `true`, the left side is side-effect free
-    /// (`isSideEffectFree`, `checker.go:13011`), and the expression is not an
-    /// *indirect call* — `(0, x.f)()` and `(0, eval)()`, the idiom for calling
-    /// without passing `this` (`isIndirectCall`, `checker.go:13039`).
-    ///
-    /// Upstream additionally suppresses it where a
-    /// `JSX_expressions_must_have_one_parent_element` parse diagnostic covers
-    /// the position (`checker.go:12537`); that whole class is already excluded
-    /// here by the parse-error gate, which is the first time that gate has paid
-    /// for something other than tree shape.
     /// TS7027 — `Unreachable code detected.`
     ///
     /// `Binder.checkUnreachable` (`binder.go`) upstream, and **not a binder rule
@@ -11604,7 +11520,7 @@ impl Checker<'_, '_> {
     /// `AllowUnreachableCode == TSFalse`, explicitly — see
     /// [`Checker::set_unreachable_code_is_error`].
     fn check_unreachable(&mut self, node: NodeId, ambient: bool) {
-        if self.file_has_parse_errors || !self.is_unreachable_run_member(node) {
+        if !self.is_unreachable_run_member(node) {
             return;
         }
         let Some(parent) = self.nodes.parent(node) else { return };
@@ -11716,7 +11632,7 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §548.
     fn check_namespace_merge_position(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+        if ambient {
             return;
         }
         let Some(Node::ModuleDeclaration(declaration)) = self.node_map.get(node) else { return };
@@ -11773,9 +11689,6 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §550.
     fn check_label_is_allowed(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::LabeledStatement(labeled)) = self.node_map.get(node) else { return };
         let Some(statement) = labeled.statement.and_then(|s| s.node_id()) else { return };
         if !matches!(
@@ -11888,9 +11801,6 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §563.
     fn check_recursive_base_type(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(symbol) = self.binder.symbol_of(node) else { return };
         let symbol = self.binder.merged_symbol(symbol);
         let declarations = self.binder.symbols().get(symbol).declarations.clone();
@@ -12521,9 +12431,6 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §619.
     fn check_export_declaration_in_namespace(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Node::ExportDeclaration(declaration) = typed else { return };
         let Some(parent) = self.nodes.parent(node) else { return };
         if self.nodes.kind(parent) == SyntaxKind::SourceFile {
@@ -12675,9 +12582,6 @@ impl Checker<'_, '_> {
     /// `checkExternalImportOrExportDeclaration`'s position test, which a call
     /// nested in an expression cannot pass. §755.
     fn check_dynamic_import_specifier(&mut self, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Node::CallExpression(call) = typed else { return };
         if !matches!(
             call.expression,
@@ -12877,6 +12781,17 @@ impl Checker<'_, '_> {
             && (kind as u16) <= (SyntaxKind::LAST_STATEMENT as u16)
     }
 
+    /// TS2695 — `Left side of comma operator is unused and has no side effects.`
+    ///
+    /// `checkBinaryLikeExpression`'s comma arm (`checker.go:12533`). Reported at
+    /// the **left operand**, gated on three things upstream tests in order:
+    /// `allowUnreachableCode` is not `true`, the left side is side-effect free
+    /// (`isSideEffectFree`, `checker.go:13011`), and the expression is not an
+    /// *indirect call* — `(0, x.f)()` and `(0, eval)()`, the idiom for calling
+    /// without passing `this` (`isIndirectCall`, `checker.go:13039`).
+    /// Upstream additionally suppresses it where a
+    /// `JSX_expressions_must_have_one_parent_element` parse diagnostic covers
+    /// the position (`checker.go:12537`).
     fn check_comma_left(&mut self, node: NodeId, left: Option<NodeId>) {
         // **`allowUnreachableCode` is upstream's; `file_has_parse_errors` is
         // not.** `checkComma` suppresses on the first and asks nothing about
@@ -13768,9 +13683,6 @@ impl Checker<'_, '_> {
         body: NodeId,
         overloads: &[NodeId],
     ) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(implementation) = self.get_signature_from_declaration(body) else { return };
         let Some(implementation) = self.complete_signature_return(implementation) else { return };
         for &declaration in overloads {
@@ -14500,9 +14412,6 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §743.
     fn check_module_hidden_by_local(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ImportEqualsDeclaration(declaration)) = self.node_map.get(node) else {
             return;
         };
@@ -14579,9 +14488,6 @@ impl Checker<'_, '_> {
     /// which is why the walk starts afresh from each class rather than sharing
     /// a visited set. §745.
     fn check_base_chain_is_acyclic(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let mut at = self.base_class_declaration_of(node);
         for _ in 0..MAX_ALIAS_HOPS {
             let Some(base) = at else { return };
@@ -14684,9 +14590,6 @@ impl Checker<'_, '_> {
     /// the plural ones join a list of names this port would have to spell the
     /// same way. §679 declined TS2460 on the same ground. §761.
     fn check_abstract_members_implemented(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
         if has_modifier(class.modifiers, SyntaxKind::AbstractKeyword) {
             return;
@@ -14809,9 +14712,6 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §804.
     fn check_renamed_binding_element_in_signature(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
         let Some(property_name) = element.property_name else { return };
         let Some(tsr_ast::BindingName::Identifier(name)) = element.name else { return };

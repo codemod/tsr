@@ -18,7 +18,7 @@ use crate::checker::Checker;
 impl Checker<'_, '_> {
     /// One identifier in a value position.
     pub(crate) fn check_parameter_self_reference(&mut self, node: NodeId, text: &str) {
-        if self.file_has_parse_errors || !self.is_value_reference(node) {
+        if !self.is_value_reference(node) {
             return;
         }
         // The resolver's associated declaration and `getIsDeferredContext`

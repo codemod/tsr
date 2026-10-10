@@ -692,13 +692,14 @@ pub struct Checker<'a, 'n> {
     pub(crate) no_implicit_returns: bool,
     /// Did the parser report a diagnostic in the file currently being walked?
     ///
-    /// Set by [`Checker::check_source_file`] and read by the rules that cannot
-    /// trust a recovered tree. Upstream needs no equivalent: its recovery is the
-    /// recovery the baselines were produced from, so a node it built in a broken
-    /// file is still the node the diagnostic is about. Here the two parsers
-    /// disagree about *what tree a broken file has*, and a rule that reports on
-    /// a node one parser invented is reporting about a program the other never
-    /// saw. `crate::check` measures what this refusal costs.
+    /// Set by [`Checker::check_source_file`]. Mirrors `hasParseDiagnostics`
+    /// (`checker.go:14066`), which native reads only in its grammar helpers
+    /// (`grammarErrorOnNode` and friends, `grammarchecks.go:19-127`) and a
+    /// handful of explicit tests (TS2410, for-await and top-level-await
+    /// arms). Plain `c.error` sites are never gated; the inventory of every
+    /// read here and its native anchor is `docs/parity/notes/r6-parsegate.md`
+    /// §2, and the sites lifted since are listed there and in
+    /// `docs/parity/notes/r7-flow.md` §2.
     pub(crate) file_has_parse_errors: bool,
     /// Whether [`Checker::report_merge_conflicts`] has already run.
     ///
