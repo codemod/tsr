@@ -1783,3 +1783,26 @@ conditionals, and item 1 adds callers to it. It goes first in r6-declared3's
 brief (`tsr-2zk.1255`). r6-declared3 also takes r6-triage's declared clusters
 `.1154`, `.1184`, `.1190`, `.1209` and `.1240`. `.1188` (inline conditional
 instantiation) goes to r6-typesroots3, beside `.16.74`.
+
+### r6-modules3 finished (batch BZ); r6-modules4 dispatched
+
+Batch BZ lands r6-modules3's isolated_alias.rs hook and four diffs:
+- `export default a.b` as an alias, named by its first named declaration
+  (nodebuilderimpl.go:988);
+- TS2476 in the const-enum index exit (checker.go:8157);
+- resolveExternalModule's sourceFile condition (:15214), so a TS6263 file
+  answers no module symbol;
+- the module-alias exports arm admits internal import-equals aliases.
+
+Measured by the box: +17 types, 0 lost. domain-model Ir +0.13%, which
+callgrind attributes to layout: the hook costs 290k Ir across its 264 runs.
+
+The binder module-body-locals fix is refused alone at −15 types, plus a
+slowcase that went from 240 ms to 41.8 s. Filed as `tsr-2zk.1256`; it blocks
+the qualified-entity diff (+13/−1).
+
+The box also saw a possible multi-thread CLI diagnostic drop once, unmeasured.
+Filed as `tsr-2zk.1258`.
+
+r6-modules4 takes `.1256`, `.1257` and `.1258`, plus r6-triage's module
+clusters `.1162`, `.1180`, `.1181`, `.1194`, `.1208`, `.1210` and `.1211`.
