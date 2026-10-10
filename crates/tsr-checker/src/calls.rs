@@ -428,6 +428,10 @@ struct EffectiveArgument {
 /// [`Checker::written_call_arguments`]: the written argument expressions and,
 /// for a tagged template, the template node that locates the synthetic
 /// `TemplateStringsArray` argument preceding them.
+/// [`Checker::fill_written_type_arguments`]' mapper: (type parameter, type
+/// argument) pairs, the type parameters, and their names.
+type WrittenTypeArgumentMap = (Vec<(TypeId, TypeId)>, Vec<TypeId>, Vec<String>);
+
 struct WrittenArguments<'a> {
     arguments: std::borrow::Cow<'a, [Expression<'a>]>,
     template: Option<tsr_ast::NodeId>,
@@ -972,10 +976,9 @@ impl Checker<'_, '_> {
             // already filtered out above.
             if let [candidate] = candidates.as_slice()
                 && !candidate.type_parameters.is_empty()
-                && !tagged
                 && !no_argument_list
                 && !effective.iter().any(|argument| argument.spread)
-                && effective.len() == arguments.len()
+                && effective.len() == arguments.len() + usize::from(tagged)
             {
                 return CallArity::ApplicableGeneric(Box::new(candidate.clone()));
             }
@@ -1496,32 +1499,9 @@ impl Checker<'_, '_> {
         candidate: &Signature,
         call: tsr_ast::NodeId,
     ) -> Option<bool> {
-        let nodes = match self.node_map.get(call) {
-            Some(tsr_ast::Node::CallExpression(call)) => call.type_arguments,
-            Some(tsr_ast::Node::NewExpression(new)) => new.type_arguments,
-            _ => return None,
-        };
-        let parameters = self.type_parameter_types(candidate)?;
-        if nodes.len() > parameters.len() {
-            return None;
-        }
-        let names: Vec<String> =
-            candidate.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let nodes = self.call_type_arguments(call);
+        let (map, parameters, names) = self.fill_written_type_arguments(candidate, call)?;
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
-        let mut map: Vec<(TypeId, TypeId)> = Vec::with_capacity(parameters.len());
-        for (position, &parameter) in parameters.iter().enumerate() {
-            let argument = match nodes.get(position) {
-                Some(&node) => self.get_type_from_type_node(node),
-                None => match candidate.type_parameters.get(position).and_then(|p| p.default) {
-                    Some(default) => self.instantiate_type(default, &map, &parameters, &names),
-                    None => self.intrinsics.unknown,
-                },
-            };
-            if self.is_gap(argument) {
-                return None;
-            }
-            map.push((parameter, argument));
-        }
         for (position, &node) in nodes.iter().enumerate() {
             let Some(constraint) = self.type_parameter_constraint(parameters[position]) else {
                 continue;
@@ -1553,6 +1533,148 @@ impl Checker<'_, '_> {
             }
         }
         Some(true)
+    }
+
+    /// `fillMissingTypeArguments` (`checker.go`) over the written type
+    /// arguments of a call, `new` or tagged template: each written argument's type, then the
+    /// parameter's default instantiated over the prefix, else `unknown`.
+    /// Answers the mapper (parameter type to argument), the parameter types
+    /// and their names; `None` when more are written than declared or an
+    /// argument is a gap.
+    fn fill_written_type_arguments(
+        &mut self,
+        candidate: &Signature,
+        call: tsr_ast::NodeId,
+    ) -> Option<WrittenTypeArgumentMap> {
+        let nodes = self.call_type_arguments(call);
+        let parameters = self.type_parameter_types(candidate)?;
+        if nodes.len() > parameters.len() {
+            return None;
+        }
+        let names: Vec<String> =
+            candidate.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut map: Vec<(TypeId, TypeId)> = Vec::with_capacity(parameters.len());
+        for (position, &parameter) in parameters.iter().enumerate() {
+            let argument = match nodes.get(position) {
+                Some(&node) => self.get_type_from_type_node(node),
+                None => match candidate.type_parameters.get(position).and_then(|p| p.default) {
+                    Some(default) => self.instantiate_type(default, &map, &parameters, &name_refs),
+                    None => self.intrinsics.unknown,
+                },
+            };
+            if self.is_gap(argument) {
+                return None;
+            }
+            map.push((parameter, argument));
+        }
+        Some((map, parameters, names))
+    }
+
+    /// `chooseOverload`'s generic arm (`checker.go:9046`) for a tagged
+    /// template whose single candidate is generic, then
+    /// `reportCallResolutionErrors` (`checker.go:9649`): written type
+    /// arguments are checked against their constraints
+    /// (`candidateForTypeArgumentError`) and instantiate the candidate;
+    /// otherwise the candidate is inferred, and the instantiation is checked
+    /// with `reportErrors` over `getEffectiveCallArguments`' tagged arm (the
+    /// synthetic `TemplateStringsArray`, then the substitutions).
+    ///
+    /// Inference runs as the tagged template's type road runs it
+    /// (`check_tagged_template_expression`): over the candidate without its
+    /// first parameter, against the substitutions, so a candidate whose
+    /// strings parameter mentions its own type parameters declines (that
+    /// inference site is not modelled). A context-sensitive substitution
+    /// reads the instantiation the type road published
+    /// (`resolved_call_signatures`) rather than re-running inference over a
+    /// callback whose parameters were already assigned; none published
+    /// declines, as does a non-array rest (`getSpreadArgumentType`).
+    fn check_single_generic_tag_arguments(&mut self, node: tsr_ast::NodeId, candidate: &Signature) {
+        let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
+            return;
+        };
+        if self.signature_non_array_rest_type(candidate).is_some() {
+            return;
+        }
+        let instantiated = if tagged.type_arguments.is_empty() {
+            let Some(strings) = candidate.parameters.first() else { return };
+            let strings = self.parameter_type(strings);
+            if self.could_contain_type_variables_at_head(strings, 3) {
+                return;
+            }
+            let substitutions: Vec<Expression<'_>> = match tagged.template {
+                Some(tsr_ast::TemplateLiteral::TemplateExpression(expression)) => {
+                    let substitutions: Vec<_> = expression
+                        .template_spans
+                        .iter()
+                        .filter_map(|span| span.expression)
+                        .collect();
+                    if substitutions.len() != expression.template_spans.len() {
+                        return;
+                    }
+                    substitutions
+                }
+                Some(_) => Vec::new(),
+                None => return,
+            };
+            if substitutions.iter().any(|argument| self.is_context_sensitive_argument(argument)) {
+                self.check_expression(Expression::TaggedTemplateExpression(tagged));
+                match self.resolved_call_signatures.get(&node) {
+                    Some(resolved) if resolved.type_parameters.is_empty() => resolved.clone(),
+                    _ => return,
+                }
+            } else {
+                let mut shifted = candidate.clone();
+                let first = shifted.parameters.remove(0);
+                let mut instantiated = None;
+                let answer = self.check_generic_call_with(
+                    &shifted,
+                    Some(node),
+                    &substitutions,
+                    Some(&mut instantiated),
+                );
+                match instantiated {
+                    Some(mut instantiated) if answer != self.intrinsics.error => {
+                        instantiated.parameters.insert(0, first);
+                        instantiated
+                    }
+                    _ => return,
+                }
+            }
+        } else {
+            match self.check_call_type_argument_constraints(candidate, node) {
+                Some(true) => {}
+                Some(false) | None => return,
+            }
+            let Some((map, parameters, names)) = self.fill_written_type_arguments(candidate, node)
+            else {
+                return;
+            };
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            let Some(mut instantiated) =
+                self.instantiate_signature(candidate.clone(), &map, &parameters, &names)
+            else {
+                return;
+            };
+            instantiated.type_parameters.clear();
+            instantiated
+        };
+        if self.signature_non_array_rest_type(&instantiated).is_some() {
+            return;
+        }
+        let Some(arguments) = self.report_call_arguments(node) else { return };
+        self.report_signature_applicability(
+            node,
+            &arguments,
+            &instantiated,
+            CandidateContext::Instantiated {
+                const_type_parameters: candidate
+                    .type_parameters
+                    .iter()
+                    .any(|parameter| parameter.is_const),
+            },
+            &[],
+        );
     }
 
     /// The type-argument half of [`Checker::check_resolve_call_arity`] alone.
@@ -2041,10 +2163,10 @@ impl Checker<'_, '_> {
             CallArity::ApplicableOverloads(candidates) => {
                 self.check_overload_candidates_arguments(node, &candidates);
             }
-            CallArity::Reported
-            | CallArity::Applicable(None)
-            | CallArity::ApplicableGeneric(_)
-            | CallArity::Undecided => {}
+            CallArity::ApplicableGeneric(candidate) => {
+                self.check_single_generic_tag_arguments(node, &candidate);
+            }
+            CallArity::Reported | CallArity::Applicable(None) | CallArity::Undecided => {}
         }
     }
 
