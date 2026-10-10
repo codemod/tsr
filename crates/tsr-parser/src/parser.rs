@@ -276,13 +276,12 @@ pub struct Parser<'a> {
     /// because the context is *set to a value* at each boundary and not merely
     /// pushed: a non-async function nested inside an async one turns it back
     /// **off**, which a counter cannot express. Use
-    /// [`Parser::with_await_context`].
+    /// [`Parser::with_await_context`] or [`Parser::with_function_context`].
     ///
-    /// Only `await` is tracked. Upstream carries `YieldContext` and
-    /// `DisallowInContext` in the same word; `no_in` below is this port's
-    /// counter for the third, and the yield context has no reader here yet —
-    /// `is_binding_identifier` is upstream's own context-free test, and
-    /// `isYieldExpression`'s context half is unported. §193.
+    /// Upstream carries `YieldContext`, `DecoratorContext` and
+    /// `DisallowInContext` in the same word: [`Self::in_yield_context`] and
+    /// [`Self::in_decorator_context`] are the first two, and `no_in` above is
+    /// this port's counter for the third.
     pub(crate) in_await_context: bool,
     /// Upstream's `NodeFlagsDecoratorContext` bit of `Parser.contextFlags`:
     /// set while parsing the expression after `@`, cleared by
@@ -290,6 +289,13 @@ pub struct Parser<'a> {
     /// bodies. Its one reader is the member-expression loop, which leaves a
     /// `[` to the decorated member's computed name.
     pub(crate) in_decorator_context: bool,
+    /// Upstream's `NodeFlagsYieldContext` bit of `Parser.contextFlags`
+    /// (`parser.go:6365`): on in a generator's parameters and body, off in
+    /// every other signature, an arrow function, a class static block, a
+    /// property initializer and an enum. Set with
+    /// [`Parser::with_function_context`]. `yield` is an identifier outside
+    /// it unless `isYieldExpression`'s same-line lookahead says otherwise.
+    pub(crate) in_yield_context: bool,
     /// The await context [`Self::with_await_context`] replaced: the one
     /// around a signature, in which `parseParametersWorker` parses each
     /// parameter's decorators (`inOuterAwaitContext`, `parser.go:3296`).
@@ -453,6 +459,7 @@ impl<'a> Parser<'a> {
             // still goes through `isAwaitExpression`'s lookahead half. §193.
             in_await_context: false,
             in_decorator_context: false,
+            in_yield_context: false,
             outer_await_context: false,
             disallow_conditional_types: 0,
             parsing_contexts: 0,
@@ -714,6 +721,23 @@ impl<'a> Parser<'a> {
         result
     }
 
+    /// Run `f` in a signature's own context: `parseParametersWorker`'s and
+    /// `parseFunctionBlock`'s `setContextFlags(YieldContext, flags&Yield)` /
+    /// `setContextFlags(AwaitContext, flags&Await)` (`parser.go:3298`,
+    /// `:3498`), restored after. [`Self::with_await_context`] is the await
+    /// half alone, for the places native sets only that bit.
+    pub(crate) fn with_function_context<T>(
+        &mut self,
+        is_await: bool,
+        is_yield: bool,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let saved_yield = std::mem::replace(&mut self.in_yield_context, is_yield);
+        let result = self.with_await_context(is_await, f);
+        self.in_yield_context = saved_yield;
+        result
+    }
+
     fn save_state(&self) -> ParserState {
         ParserState {
             scanner: self.scanner.save(),
@@ -820,17 +844,21 @@ impl<'a> Parser<'a> {
     }
 
     /// The context flags `finishNode` ORs into every node (`parser.go`'s
-    /// `node.Flags |= p.contextFlags`). Only `NodeFlagsAwaitContext` is
-    /// tracked: the checker reads it on a top-level `await`
-    /// (`checkGrammarAwaitOrAwaitUsing`, `grammarchecks.go:1690`) and on an
-    /// `await` identifier (`checkContextualIdentifier`, `binder.go:1311`).
+    /// `node.Flags |= p.contextFlags`). `NodeFlagsAwaitContext` and
+    /// `NodeFlagsYieldContext` are tracked: the checker reads the first on a
+    /// top-level `await` (`checkGrammarAwaitOrAwaitUsing`,
+    /// `grammarchecks.go:1690`) and on an `await` identifier
+    /// (`checkContextualIdentifier`, `binder.go:1311`).
     #[inline]
     fn context_node_flags(&self) -> tsr_ast::NodeFlags {
+        let mut flags = tsr_ast::NodeFlags::empty();
         if self.in_await_context {
-            tsr_ast::NodeFlags::AWAIT_CONTEXT
-        } else {
-            tsr_ast::NodeFlags::empty()
+            flags |= tsr_ast::NodeFlags::AWAIT_CONTEXT;
         }
+        if self.in_yield_context {
+            flags |= tsr_ast::NodeFlags::YIELD_CONTEXT;
+        }
+        flags
     }
 
     /// Record `id` as the parent of every immediate child of `node`.
@@ -1177,6 +1205,7 @@ impl<'a> Parser<'a> {
         self.no_in = 0;
         self.in_await_context = false;
         self.in_decorator_context = false;
+        self.in_yield_context = false;
         self.outer_await_context = false;
         self.disallow_conditional_types = 0;
         self.parsing_contexts = 0;

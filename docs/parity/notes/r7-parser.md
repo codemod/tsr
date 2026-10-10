@@ -127,14 +127,36 @@ compiler's loader sets it, a declaration file that is a module and has a
 top-level `await` identifier is reparsed where native does not, and a
 format-forced module with no import/export is not. Routed in the report.
 
-## 3. Measurements
+## 3. The yield context and `isYieldExpression`
+
+Native tracks `NodeFlagsYieldContext` beside the await bit: a generator's
+parameters and body are in it (`parseParametersWorker` and
+`parseFunctionBlock`, `parser.go:3298`, `:3498`); every other signature, an
+arrow body (`:4485`), a class static block (`:1910`), a property initializer
+(`:1972`) and an enum (`:2139`) are not. `isYieldExpression` (`:4150`)
+opens a yield expression inside the context, and outside it only when the
+next token is an identifier, keyword or literal on the same line;
+`isIdentifier` refuses `yield` inside it. This port built a yield expression
+for every `yield`, so `yield(foo)` at the top of a script, `yield * []` and
+`{ [yield]: foo }` outside a generator were yield expressions (no TS1212 /
+TS2304 / TS2363). Ported as `in_yield_context`, set with the await bit by
+`with_function_context(is_await, is_yield, …)` at native's signature sites;
+the places native sets only the await bit keep `with_await_context`.
+`parseYieldExpression` (`:4172`) is ported with it: an operand follows only
+on the same line and only after `*` or at the start of an expression, which
+replaces the old token blacklist. `isStartOfLeftHandSideExpression` now ends
+in `isIdentifier` as native's does; its context-free stand-in existed only
+because there was no yield context.
+
+## 4. Measurements
 
 See the commit messages and the box-protocol §6 reports for per-commit
-numbers; §4 below keeps the running table.
+numbers; §5 below keeps the running table.
 
-## 4. Running table
+## 5. Running table
 
 | commit | port | diag cases | types lines | perf (CPU ratio, dm / gi) |
 |---|---|---|---|---|
 | `dd6f9d88` | §1 decorator expression, unary type assertion | +9 / −0 | +242 / −0 | 0.996 / 0.996 |
-| (this) | §2 top-level await reparse | +4 / −0 | +460 / −0 | see report |
+| `1321f0aa` | §2 top-level await reparse | +4 / −0 | +460 / −0 | 1.009 / 1.008 |
+| (this) | §3 yield context | +10 / −0 | +95 / −0 | 0.992 / 1.007 (vs `1b466dc8`) |
