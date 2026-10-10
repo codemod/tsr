@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 942/1091 (86.34%)
-Failed         : 149
+Passed         : 943/1091 (86.43%)
+Failed         : 148
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -25,7 +25,7 @@ Skipped        : 3077 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 149 failures:
+First 100 of 148 failures:
 compiler/abstractPropertyNegative(target=es2015)
   5 missing (first TS2654 at abstractPropertyNegative.ts(13,7))
 compiler/accessorWithInitializer(target=es2015)
@@ -96,8 +96,6 @@ compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties2.ts(21,1)), 2 missing
 compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties3.ts(19,1)), 2 missing
-compiler/jsFileCompilationBindReachabilityErrors(alwaysstrict=true)
-  1 missing (first TS7028 at a.js(19,1))
 compiler/jsxChildrenArrayWrongType(target=es2015)
   2 missing (first TS2769 at index.tsx(12,9))
 compiler/moduleAugmentationGlobal8_1(target=es2015)
@@ -225,4 +223,6 @@ conformance/labeledStatementDeclarationListInLoopNoCrash4(target=es2015)
 conformance/nodeModulesCJSEmit1(module=node18)
   1 missing (first TS1192 at /5.cjs(2,8))
 conformance/nodeModulesCJSEmit1(module=node20)
+  1 missing (first TS1192 at /5.cjs(2,8))
+conformance/nodeModulesCJSEmit1(module=nodenext)
   1 missing (first TS1192 at /5.cjs(2,8))

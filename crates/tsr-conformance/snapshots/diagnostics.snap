@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4734/5502 (86.04%)
-Failed         : 768
+Passed         : 4747/5502 (86.28%)
+Failed         : 755
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 768 failures:
+First 100 of 755 failures:
 compiler/TransportStream
   1 missing (first TS1434 at TransportStream.ts(1,1))
 compiler/abstractClassUnionInstantiation
@@ -39,7 +39,7 @@ compiler/argumentsPropertyNameInJsMode1
 compiler/argumentsPropertyNameInJsMode2
   1 missing (first TS2554 at a.js(5,6))
 compiler/argumentsReferenceInFunction1_Js
-  2 missing (first TS7006 at index.js(1,25))
+  1 missing (first TS2345 at index.js(13,29))
 compiler/argumentsUsedInClassFieldInitializerOrStaticInitializationBlock
   11 missing (first TS2815 at argumentsUsedInClassFieldInitializerOrStaticInitializationBlock.ts(3,10))
 compiler/arrayCast
@@ -48,8 +48,6 @@ compiler/arrayConcatMap
   1 missing (first TS2769 at arrayConcatMap.ts(1,20))
 compiler/arrayFakeFlatNoCrashInferenceDeclarations
   1 missing (first TS5088 at arrayFakeFlatNoCrashInferenceDeclarations.ts(13,10))
-compiler/arrowExpressionBodyJSDoc
-  2 missing (first TS2322 at mytest.js(6,44))
 compiler/arrowFunctionErrorSpan
   1 missing (first TS1200 at arrowFunctionErrorSpan.ts(18,5))
 compiler/arrowFunctionsMissingTokens
@@ -140,8 +138,6 @@ compiler/coAndContraVariantInferences6
   1 missing (first TS2322 at coAndContraVariantInferences6.ts(34,42))
 compiler/commonSourceDirectory_dts
   1 missing (first TS5011 at /app/tsconfig.json(3,9))
-compiler/commonjsAccessExports
-  1 missing (first TS7009 at /a.js(12,18))
 compiler/complexRecursiveCollections
   8 missing (first TS2344 at immutable.ts(261,76))
 compiler/complicatedGenericRecursiveBaseClassReference
@@ -212,3 +208,7 @@ compiler/declarationEmitToDeclarationDirWithoutCompositeAndDeclarationOptions
   1 missing (first TS5069 at /foo/tsconfig.json(2,26))
 compiler/declarationEmitUsingTypeAlias1
   2 missing (first TS2883 at src/index.ts(3,14))
+compiler/declareModifierOnImport1
+  1 missing (first TS1079 at declareModifierOnImport1.ts(1,1))
+compiler/deepComparisons
+  1 missing (first TS2322 at deepComparisons.ts(4,9))
