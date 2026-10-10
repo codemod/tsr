@@ -627,3 +627,19 @@ the tree, including a histogram of optional-token kinds (`printer_suite.rs`).
    `?.`, which would reparse as a plain tagged template; the printer writes
    the token. A deliberate deviation for tree preservation, as §405's
    recovery `?`.
+3. **Object-literal member modifiers and postfix tokens**
+   (`plainJSGrammarErrors`, and on main already `modifiersInObjectLiterals`
+   and `definiteAssignmentAssertionsWithObjectShortHand`): the parser keeps
+   `{ export a: 1 }`'s modifiers and a `!` postfix for the checker's grammar
+   reports. `emitPropertyAssignment` and `emitShorthandPropertyAssignment`
+   (`printer.go:4511`, `:4532`) write neither; the printer writes the
+   modifiers, and the postfix token by its own kind (it wrote `?` for any
+   postfix token, so `{ a! }` printed `{ a? }`).
+
+**Measured.** `printer_round_trip` on a local merge of `origin/box/r7-parser`
+(not pushed): 11,802 → **11,807** passes, 0 newly failing
+(`mappedTypeProperties`, `taggedTemplateChain`, `plainJSGrammarErrors`,
+`modifiersInObjectLiterals`, `definiteAssignmentAssertionsWithObjectShortHand`
+pass). On main alone: 11,804 → 11,806 (the last two), 0 newly failing.
+The checker does not depend on `tsr-printer`; both corpus dumps are
+unchanged.
