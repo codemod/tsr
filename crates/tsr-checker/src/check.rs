@@ -12520,7 +12520,12 @@ impl Checker<'_, '_> {
                 continue;
             }
             function_declarations.push(declaration);
-            let body_present = self.declaration_has_body(declaration);
+            // `bodyIsPresent := ast.NodeIsPresent(node.Body())` (`checker.go:3627`):
+            // the parser's empty recovery `Block` for a body whose `{` was
+            // missing is not present, though the final `Body() == nil` test
+            // below still sees a body.
+            let body_present = self.declaration_has_body(declaration)
+                && !self.declaration_body_covers_no_text(declaration);
             if body_present && body_declaration.is_some() {
                 if is_constructor {
                     multiple_constructor_implementations = true;
@@ -12878,7 +12883,9 @@ impl Checker<'_, '_> {
                     None => return,
                 }
             }
-            if self.declaration_has_body(next) {
+            // `ast.NodeIsPresent(subsequentNode.Body())`: not the parser's
+            // empty recovery `Block`.
+            if self.declaration_has_body(next) && !self.declaration_body_covers_no_text(next) {
                 // `scanner.DeclarationNameToString(name)`; a declaration
                 // without a name (a constructor) has nothing to print.
                 let Some(expected) = name.and_then(|name| self.overload_name_to_string(name))
@@ -13109,6 +13116,19 @@ impl Checker<'_, '_> {
             Some(Node::ConstructorDeclaration(declaration)) => declaration.body.is_some(),
             _ => false,
         }
+    }
+
+    /// `ast.NodeIsMissing(node.Body())` for a declaration that has a body:
+    /// the parser's empty recovery `Block`, which covers no text.
+    fn declaration_body_covers_no_text(&self, node: NodeId) -> bool {
+        let body = match self.node_map.get(node) {
+            Some(Node::FunctionDeclaration(declaration)) => declaration.body,
+            Some(Node::MethodDeclaration(declaration)) => declaration.body,
+            Some(Node::ConstructorDeclaration(declaration)) => declaration.body,
+            _ => None,
+        };
+        body.and_then(|body| Node::from(body).node_id())
+            .is_some_and(|id| self.nodes.span(id).is_empty())
     }
 
     fn declaration_is_abstract(&self, node: NodeId) -> bool {

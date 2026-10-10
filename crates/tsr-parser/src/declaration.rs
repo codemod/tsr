@@ -541,14 +541,18 @@ impl<'a> Parser<'a> {
         self.parse_error_for_missing_semicolon_after_name(text, span);
     }
 
-    /// typescript-go's `Parser.parseFunctionBlockOrSemicolon` (`parser.go`):
+    /// typescript-go's `Parser.parseFunctionBlockOrSemicolon` (`parser.go:3481`):
     /// a body, or `None` for an overload signature. `is_type` is
     /// `ParseFlagsType`; `missing_open_brace` replaces `'{' expected`.
     ///
-    /// Without its `{`, upstream's `parseBlock` builds an empty block that
-    /// covers no text, and `ast.NodeIsMissing` makes every consumer treat the
-    /// function as bodiless (`f(), f()` is two overloads returning `any`).
-    /// This port has no zero-width node, so that body is `None`.
+    /// Without its `{` (and not at a `;` or ASI point), upstream falls through
+    /// to `parseFunctionBlock` → `parseBlock`, whose missing-brace arm builds an
+    /// empty `Block` covering no text. The declaration HAS a body
+    /// (`Body() != nil`, so no TS2391 from `checkFunctionOrConstructorSymbol`'s
+    /// last test), and the body is missing (`ast.NodeIsMissing`, so the return
+    /// type is `any`, TS7010 applies, and it counts as an overload). The
+    /// checker readers that ask the second question test the block's zero
+    /// width. docs/parity/notes/r7-parser.md §5.
     pub(crate) fn parse_function_block_or_semicolon(
         &mut self,
         is_type: bool,
@@ -563,15 +567,8 @@ impl<'a> Parser<'a> {
                 self.parse_semicolon();
                 return None;
             }
-            match missing_open_brace {
-                Some(message) => self.error_at_current(message),
-                None => {
-                    self.expect(SyntaxKind::OpenBraceToken);
-                }
-            }
-            return None;
         }
-        Some(FunctionBody::Block(self.parse_function_block()))
+        Some(FunctionBody::Block(self.parse_function_block_with(missing_open_brace)))
     }
 
     /// typescript-go's `Parser.parseTypeMemberSemicolon` (`parser.go`): type
