@@ -175,3 +175,53 @@ argument check), not because of the head.
 **Falsifier.** A TS2820 TSR emits where the baseline has TS2322 would show
 the suggestion's candidate set or distance differs from
 `GetSpellingSuggestionWithMaxCandidateCount`.
+
+## 5. `reportUnmatchedProperty` heads: two over-wide declines in `unmatched_property_report`
+
+**Forcing fact.** Five cases print TS2322 (or TS2345) where tsgo prints
+TS2740/TS2741 at the same position: `assignmentToObjectAndFunction`
+(`var errFun: Function = {}`), `templateStringsArrayTypeDefinedInES5Mode`,
+`…NotDefinedES5Mode`, `…RedefinedInES6Mode` (`f({})` against
+`TemplateStringsArray`) and `assignmentCompatWithEnumIndexer`
+(`let foo: Record<E, any> = {}`). The relation answers NotRelated in each.
+The certified-table road (`missing_required_property`) cannot name the
+missing members because `Function`, `TemplateStringsArray` and
+`Record<E, any>` have no certified table, and the relater's own road
+(`unmatched_property_report`, `relater.rs`) declined for one of two reasons.
+
+**Upstream.** `propertiesRelatedTo` (`relater.go:4100`) finds the first
+`getUnmatchedProperty` and calls `reportUnmatchedProperty` (`:4345`). For
+the top-level pair, `reportRelationError`'s suppression (`:4816`) then drops
+the head when the chain's missing-property message names the same pair
+(`chainArgsMatch`).
+
+1. *A fresh object literal.* The decline exists because `hasExcessProperties`
+   (`relater.go:2714`) runs first and could own the failure. An **empty**
+   literal has no member for it to report (`isKnownProperty` is asked once
+   per source property), so the failure is the property walk's. The decline
+   now requires at least one source property.
+2. *An alias-owned object type.* The decline exists because
+   `reportErrorResults` (`relater.go:4705`) displays the aliased original
+   while the missing-property message names the normalized structure. But
+   `getNormalizedType` (`relater.go:2619`) rewrites only fresh literals,
+   references, unions/intersections, substitutions and simplifiable types.
+   An alias whose body is a type literal or mapped type denotes an
+   anonymous/mapped object type that is its own normal form, so both
+   messages print `Record<E, any>`. `alias_object_body_is_its_own_normal_form`
+   admits exactly that: every declaration's body is a `TypeLiteralNode` or
+   `MappedTypeNode`, and the instantiation is not an array or tuple
+   (`instantiateMappedArrayType`'s result is a reference). An alias of a
+   reference, union, conditional or anything else keeps the decline.
+
+**Measured** (unfiltered diagnostics, on top of §4): WRONG → RIGHT the five
+cases above, two rows fixed in `destructuringParameterDeclaration2`; no other
+row changed.
+
+**Still declined, each with its blocker.** `mappedTypeWithAny`
+(`Objectish<any> -> any[]`): `signatures_of_type_kind` cannot enumerate a
+mapped type's call signatures, and `shouldReportUnmatchedPropertyError`
+needs them. `mappedTypeNotMistakenlyHomomorphic` (`Gen2<ABC.B> ->
+Gen2<ABC.A>`): the source answers a type for `a`, which upstream's
+`Gen2<ABC.B>` lacks. The mapped type's key set over
+`keyof (… & ({ v: A, a } | { v: B, b }))` is the declared-type lane's
+(`mapped.rs`).
