@@ -362,6 +362,15 @@ pub trait ModuleHost {
         false
     }
 
+    /// `ast.IsPlainJSFile(file, compilerOptions.CheckJs)`
+    /// (`ast/utilities.go:2889`): a JavaScript file with no `@ts-check` /
+    /// `@ts-nocheck` directive under a `checkJs` that is unset. `None` from a
+    /// host that cannot tell; the checker then treats every JavaScript file
+    /// as plain, the suppressing direction.
+    fn is_plain_js_file(&self, _file: NodeId) -> Option<bool> {
+        None
+    }
+
     /// `resolveHelpersModule`'s program half (`checker.go:28676`): what the
     /// synthetic `tslib` import the loader adds under `importHelpers`
     /// (`fileloader.go:543`) resolved to, for this file. Defaulted to

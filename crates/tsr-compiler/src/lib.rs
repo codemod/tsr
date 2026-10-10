@@ -1555,6 +1555,11 @@ impl tsr_checker::resolution::ModuleHost for Program<'_> {
                 && tsr_binder::is_declaration_file(self.files[index].file_name())
         })
     }
+
+    fn is_plain_js_file(&self, file: tsr_ast::NodeId) -> Option<bool> {
+        let &index = self.files_by_source_file.get(&file)?;
+        Some(program_diagnostics::is_plain_js_file(&self.files[index], &self.options))
+    }
 }
 
 /// Each file's `SourceFile` node id to its index in `files`.

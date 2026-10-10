@@ -50,6 +50,16 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// Whether `declaration` is in a plain JavaScript file
+    /// (`ast.IsPlainJSFile`, `ast/utilities.go:2889`).
+    fn is_plain_js_declaration(&self, declaration: tsr_ast::NodeId) -> bool {
+        if !self.in_js_file(declaration) {
+            return false;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return true };
+        self.module_host.and_then(|host| host.is_plain_js_file(file)).unwrap_or(true)
+    }
+
     /// `mergeSymbol`'s alias arm (`checker.go:14152-14164`), for a pair the
     /// binder declined because the target is an alias.
     ///
@@ -166,32 +176,24 @@ impl Checker<'_, '_> {
         // not ported — `Diagnostic` carries no related information, and the
         // `errors_baseline` parser treats `!!! related` lines as hints rather
         // than diagnostics (`errors_baseline.rs:22`), so the suite never asks.
-        let declarations: Vec<tsr_ast::NodeId> = self
-            .binder
-            .symbols()
-            .get(target)
-            .declarations
-            .iter()
-            .chain(self.binder.symbols().get(source).declarations.iter())
-            .copied()
-            .collect();
-        for declaration in declarations {
-            // `isSourcePlainJS` / `isTargetPlainJS` (`checker.go:14218-14219`):
-            // upstream suppresses the report **per side**, for whichever of the
-            // two symbols is declared in a plain JavaScript file. That is why
-            // `plainJSReservedStrict`'s `const eval` reports nothing — its own
-            // side is skipped, and the other side is `lib.d.ts`, which the
-            // suite does not walk.
-            //
-            // `IsPlainJSFile` also requires `checkJs` to be off; this port has
-            // no per-file `checkJs` in the checker, so the test is JS-ness
-            // alone. The difference can only *suppress* a report upstream would
-            // make, never invent one — the safe direction, and it is why
-            // `allowJscheckJsTypeParameterNoCrash` is left where it was rather
-            // than converted.
-            if self.in_js_file(declaration) {
+        // `isSourcePlainJS` / `isTargetPlainJS` (`checker.go:14215-14218`):
+        // upstream suppresses the report **per side**, for whichever of the
+        // two symbols' first declaration is in a plain JavaScript file
+        // (`ast.IsPlainJSFile`: no `@ts-check` directive and `checkJs`
+        // unset). That is why `plainJSReservedStrict`'s `const eval` reports
+        // nothing — its own side is skipped, and the other side is
+        // `lib.d.ts`, which the suite does not walk. The program answers the
+        // file's plainness; a host that cannot tell leaves every JavaScript
+        // file plain, which can only suppress a report upstream would make.
+        let mut declarations: Vec<tsr_ast::NodeId> = Vec::new();
+        for side in [source, target] {
+            let side_declarations = self.binder.symbols().get(side).declarations.to_vec();
+            if side_declarations.first().is_some_and(|&first| self.is_plain_js_declaration(first)) {
                 continue;
             }
+            declarations.extend(side_declarations);
+        }
+        for declaration in declarations {
             let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
             // `getAdjustedNodeForError` then `NewDiagnosticForNode` — the
             // declaration's *name*, which is what `error_span` centralises
@@ -205,6 +207,19 @@ impl Checker<'_, '_> {
                     .name
                     .and_then(|name| name.node_id)
                     .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
+                // The reparsed `JSTypeAliasDeclaration`'s name.
+                Some(
+                    tsr_ast::Node::JSDocTypedefTag(tsr_ast::JSDocTypedefTag {
+                        name: Some(tsr_ast::JSDocFullName::Identifier(name)),
+                        ..
+                    })
+                    | tsr_ast::Node::JSDocCallbackTag(tsr_ast::JSDocCallbackTag {
+                        name: Some(tsr_ast::JSDocFullName::Identifier(name)),
+                        ..
+                    }),
+                ) => name
+                    .node_id
+                    .map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id)),
                 _ => self.error_span(declaration),
             };
             let diagnostic = if needs_name {
