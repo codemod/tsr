@@ -137,13 +137,13 @@ gap, `GRAMMAR-EMPTY-TYPE-PARAMETER-OR-ARGUMENT-LIST`).
 `member.Name()` when `ast.IsComputedNonLiteralName`; a computed name whose
 expression is a string, no-substitution template or numeric literal is named
 by its text and goes through the numeric-name arm (TS2452). Ported in
-`check_enum_member_name`. Upstream's `checkEnumMember` never checks the name,
-so its expression is never resolved. This port's check walk resolves every
-value identifier, so `[e]` still draws TS2552/TS2304 and the five cases stay
-WRONG on that extra line. The faithful hook is a third arm in
-`names_in_unchecked_region` (`name_slots.rs`, not this lane's): a
-`ComputedPropertyName` whose parent is an `EnumMember` is a region native never
-checks. Routed in the report.
+`check_enum_member_name`. Upstream's `checkEnumMember` never checks the name, so its expression is
+never resolved; this port's check walk resolves every value identifier, so
+`[e]` drew TS2552/TS2304. The integrator granted `name_slots.rs`'s
+`names_in_unchecked_region`, which now has a third arm: a
+`ComputedPropertyName` whose parent is an `EnumMember` is a region native
+never checks. With it the five cases convert (`parserComputedPropertyName16`,
+`26`, `30`, `34`, `parserES5ComputedPropertyName6(target=es2015)`).
 
 ## §4 `tsr-2zk.1258`: two diagnostics reported from the wrong checker
 
