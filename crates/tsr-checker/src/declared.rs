@@ -2067,7 +2067,32 @@ impl<'a> Checker<'a, '_> {
         }
         if let Some(required_name) = alias_road {
             if let Some(target) = self.resolve_alias(symbol) {
-                let merged = self.binder.merged_symbol(target);
+                let mut merged = self.binder.merged_symbol(target);
+                // `resolveAlias` (`checker.go:16266`) follows a target that is
+                // a pure alias (`ast.IsNonLocalAlias(target, Value|Type|
+                // Namespace)`, `utilities.go:2608`) through
+                // `resolveIndirectionAlias` (`:16293`): `import { T }` of a
+                // module writing `type T = number; export { T }` names the
+                // type alias, not the export specifier's symbol. A followed
+                // chain may rename (`export { I as J }`); the printer names
+                // the type at its site, so no name gate is needed
+                // (`docs/parity/notes/r6-specifiers2.md` §1).
+                for _ in 0..8 {
+                    let flags = self.binder.symbols().get(merged).flags;
+                    let pure = flags.intersection(
+                        SymbolFlags::ALIAS
+                            | SymbolFlags::VALUE
+                            | SymbolFlags::TYPE
+                            | SymbolFlags::NAMESPACE,
+                    ) == SymbolFlags::ALIAS
+                        || flags.contains(SymbolFlags::ALIAS)
+                            && flags.intersects(SymbolFlags::ASSIGNMENT);
+                    if !pure {
+                        break;
+                    }
+                    let Some(next) = self.resolve_alias(merged) else { break };
+                    merged = self.binder.merged_symbol(next);
+                }
                 if let Some(required) = required_name
                     && self.declaration_written_name(merged) != Some(required)
                 {

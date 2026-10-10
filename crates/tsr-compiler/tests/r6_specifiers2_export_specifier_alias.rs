@@ -1,0 +1,92 @@
+//! `import { T }` of a module that writes `type T = number; export { T }`:
+//! `resolveAlias` (`checker.go:16266`) follows the pure export-specifier alias
+//! to the type alias (`resolveIndirectionAlias`, `:16293`).
+//! `docs/parity/notes/r6-specifiers2.md` §1.
+
+use tsr_checker::check::FileContext;
+use tsr_compiler::{LoadOptions, Program};
+use tsr_core::{CompilerOptions, ModuleKind, ScriptTarget, Tristate};
+
+struct Host {
+    fs: tsr_vfs::InMemoryFileSystem,
+}
+
+impl tsr_module::types::ResolutionHost for Host {
+    fn fs(&self) -> &dyn tsr_vfs::FileSystem {
+        &self.fs
+    }
+
+    fn current_directory(&self) -> &'static str {
+        "/"
+    }
+}
+
+/// The codes the checker reports in `file`, sorted.
+fn codes(files: &[(&str, &str)], options: CompilerOptions, file: &str) -> Vec<u32> {
+    let host = Host {
+        fs: tsr_vfs::InMemoryFileSystem::new(
+            files.iter().map(|(name, text)| ((*name).to_string(), (*text).to_string())),
+            [],
+            true,
+        ),
+    };
+    let arena = tsr_core::Arena::new();
+    let program = Program::from_root_files(
+        &arena,
+        &host,
+        LoadOptions {
+            compiler_options: options,
+            root_file_names: files.iter().map(|(name, _)| (*name).to_string()).collect(),
+            ..Default::default()
+        },
+    );
+    let id = program.source_file(file).expect("loaded").source_file().node_id.expect("id");
+    let mut checker = tsr_checker::Checker::with_module_host(
+        program.binder(),
+        program.nodes(),
+        program.node_map(),
+        Some(&program),
+    );
+    checker.apply_compiler_options(program.compiler_options());
+    checker.check_source_file(id, FileContext { ambient: false, has_parse_errors: false });
+    let mut codes: Vec<u32> = checker
+        .diagnostics()
+        .iter()
+        .filter(|(at, _)| *at == id)
+        .map(|(_, diagnostic)| diagnostic.message.code())
+        .collect();
+    codes.sort_unstable();
+    codes
+}
+
+fn options() -> CompilerOptions {
+    CompilerOptions {
+        module: ModuleKind::CommonJS,
+        target: ScriptTarget::ES2015,
+        strict: Tristate::True,
+        ..Default::default()
+    }
+}
+
+/// `w` is `number`, so TS2322 (and TS2454: used before assigned); with the
+/// import stopping at the export specifier it was `any` and reported nothing.
+#[test]
+fn import_of_local_export_specifier_names_the_type_alias() {
+    let files = [
+        ("/b.ts", "type T = number; export { T }\n"),
+        ("/app.ts", "import { T } from './b';\nlet w: T;\nconst q: string = w;\n"),
+    ];
+    assert_eq!(codes(&files, options(), "/app.ts"), vec![2322, 2454]);
+}
+
+/// A renaming chain through two modules: `C` -> `B` -> class `A`.
+#[test]
+fn import_through_renaming_reexports_reaches_the_class() {
+    let files = [
+        ("/a.ts", "export class A { a!: string }\n"),
+        ("/b.ts", "import { A } from './a';\nexport { A as B };\n"),
+        ("/c.ts", "export { B as C } from './b';\n"),
+        ("/d.ts", "import { C } from './c';\nconst d: C = {};\n"),
+    ];
+    assert_eq!(codes(&files, options(), "/d.ts"), vec![2741]);
+}
