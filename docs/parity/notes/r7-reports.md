@@ -361,3 +361,90 @@ the test reads the declaration that would have merged into it.
 
 **Measured** (unfiltered diagnostics against `660718af` plus §5–§8): WRONG
 → RIGHT `staticPrototypeProperty`; no other row changed.
+
+## 10. `reportErrorsFromWidening` for initialized variables and parameters
+
+**Forcing fact.** With `strictNullChecks` off, `var b = a = [undefined,
+null]` is TS7005 `Variable 'b' implicitly has an '[any, any]' type.`
+(`wideningTuples3`). `const bar = { p: null, s: null, ...f() }` is TS7018 on
+`p` and `s` (`noImplicitAnyUnionNormalizedObjectLiteral1`). A JS
+`function f(a = null, l = [])` is TS7006 on `a` (`any`) and `l` (`any[]`)
+(`typeFromJSInitializer4`). The implicit-any rules only ever looked at
+declarations without an initializer.
+
+**Upstream.** `widenTypeForVariableLikeDeclaration` (`checker.go:18242`)
+calls `reportErrorsFromWidening` (`:20452`) on the declaration's
+pre-widening type. Under `noImplicitAny`, a type with
+`ObjectFlagsContainsWideningType` reports inside the type where
+`reportWideningErrorsInType` (`:20497`) can:
+
+- a union through a member (an empty-object member counts as reported);
+- an array or tuple through a type argument;
+- an object literal on each widening property it cannot descend, as TS7018
+  at that property's declaration in this literal.
+
+Otherwise it reports on the declaration (`reportImplicitAny`). The flag is
+set only on `createWideningType`'s nullable twins (`checker.go:25027`,
+non-strict) and on `nonInferrableAnyType`. `ObjectFlagsPropagatingFlags`
+carries it into unions, intersections, type references and object literals.
+
+**Port** (`implicit_any.rs`). `type_contains_widening_type` mirrors the
+propagation over this port's shapes: the widening nullables
+(`is_widening_nullable`), union/intersection constituents, tuple elements,
+reference type arguments, and object-literal property types.
+`report_widening_errors_in_type` and `report_implicit_any_for_widening`
+are the two reporters. The literal's own declaration is the owner symbol's
+value declaration, or its first declaration, since the binder sets none for
+`__object`. The type whose flag is read is the initializer's checked type.
+`getTypeForVariableLikeDeclaration` answers that type for an unannotated
+identifier declaration once its earlier arms decline: the for-in/of heads,
+the JSDoc tags, the full signature, the contextual parameter type (asked
+through `contextual_parameter_type_is_absent`), and the two auto arms
+(`[]`, and `null`/`undefined` on a non-`const`, non-exported, non-ambient
+variable), which are mirrored before the check. Literal widening does not
+change the flag.
+
+**Declined: an initializer holding a deferred body.** Upstream checks a
+function expression's, arrow's, method's, accessor's or class expression's
+body deferred (`checkNodeDeferred`). This port types such bodies eagerly
+when the enclosing expression is first checked. Checking the initializer
+from this rule (pre-order, before the walk reaches it) moved three RIGHT
+cases on the first unfiltered run:
+
+- `thisInObjectLiterals`: TS2339 under an object-literal `this`, reported
+  twice;
+- `checkingObjectWithThisInNamePositionNoCrash`: once forcing the symbol
+  type first, the same TS2339 was not reported at all;
+- `declarationsWithRecursiveInternalTypesProduceUniqueTypeParams`: a TS7024
+  the deferred order never reaches.
+
+`subtree_holds_deferred_body` declines those initializers, which leaves
+`usingDeclarationsWithObjectLiterals2` (a `[Symbol.dispose]()` method beside
+`value: null`) WRONG. It waits for the deferred-check order (proposed issue
+in §11).
+
+**A consequence that is upstream's.** `checkVariableLikeDeclaration` always
+checks an unannotated initializer (`getTypeOfSymbol` →
+`checkDeclarationInitializer` → `checkExpressionCached`). This port's walk
+did not, so `checkConstEnumAccess`'s TS2475 on `var x = E` (inside
+`checkExpression`) never ran for one. The widening rule checks the
+initializer and supplies it: `constEnumErrors` and
+`constEnumPropertyAccess2` convert. `es2020IntlAPIs` loses four false
+TS2322 for the same reason (its initializers are typed in declaration order
+now). `keyofIsLiteralContexualType` fixes one row.
+
+**Not a new cache.** Nothing is stored. The containment walk keeps an
+active-set guard (and a depth bound of 32) against cyclic references.
+
+**Measured** (unfiltered diagnostics, against batch-5 main `20501307` with
+§5–§9): WRONG → RIGHT `wideningTuples3`,
+`noImplicitAnyUnionNormalizedObjectLiteral1`, `typeFromJSInitializer4`,
+`constEnumErrors`, `constEnumPropertyAccess2`, `es2020IntlAPIs`; one row in
+`keyofIsLiteralContexualType`; no RIGHT or EMPTY_RIGHT case lost.
+
+**Not reached:** `wideningTuples5` (binding elements of a variable pattern
+take the parent tuple's element types, which needs
+`getTypeForBindingElement`), `wideningTuples7` (the function-return arm,
+`WideningKindFunctionReturn`; `check_implicit_any_return` is held for
+r7-parser), and `destructuringWithLiteralInitializers2` (strict mode, so the
+flag comes from `nonInferrableAnyType`, which is not ported).

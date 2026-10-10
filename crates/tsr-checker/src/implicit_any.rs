@@ -45,7 +45,9 @@ use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_binder::SymbolFlags;
 use tsr_diagnostics::{Diagnostic, messages};
 
-use crate::{check::has_modifier, checker::Checker, contextual::ContextualSignature};
+use crate::{
+    check::has_modifier, checker::Checker, contextual::ContextualSignature, types::TypeId,
+};
 
 /// See [`Checker::implicit_any_parameter_owner`].
 enum ParameterOwner {
@@ -242,7 +244,32 @@ impl Checker<'_, '_> {
             let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
                 continue;
             };
-            if declaration.r#type.is_some() || declaration.initializer.is_some() {
+            if declaration.r#type.is_some() {
+                continue;
+            }
+            if let Some(initializer) = declaration.initializer {
+                // An initialized parameter's type is its initializer's when
+                // nothing earlier in `getTypeForVariableLikeDeclaration`
+                // supplies one (the JSDoc tags, the full signature, the
+                // contextual parameter type); the widening of that type is
+                // what reports (`widenTypeForVariableLikeDeclaration`,
+                // `checker.go:18250`).
+                let documented = self.file_is_js
+                    && (self.jsdoc_reparsed_parameter_type(parameter).is_some()
+                        || self.jsdoc_full_signature_parameter_type(parameter).is_some()
+                        || self.jsdoc_full_signature_undecided(node));
+                let uncontextual =
+                    !contextual || self.contextual_parameter_type_is_absent(node, parameter);
+                let private_member = (ambient || self.file_is_ambient) && private_within_ambient;
+                if !documented
+                    && uncontextual
+                    && !private_member
+                    && matches!(declaration.name, Some(tsr_ast::BindingName::Identifier(_)))
+                    && !initializer.node_id().is_some_and(|id| self.subtree_holds_deferred_body(id))
+                {
+                    let initializer_type = self.check_expression(initializer);
+                    self.report_errors_from_widening(parameter, initializer_type);
+                }
                 continue;
             }
             // `tryGetTypeFromTypeNode` over the reparsed `@param`/`@type`, then
@@ -1003,7 +1030,11 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(node) else { return };
-        if variable.r#type.is_some() || variable.initializer.is_some() {
+        if variable.r#type.is_none() && variable.initializer.is_some() {
+            self.check_widening_of_variable_initializer(node);
+            return;
+        }
+        if variable.r#type.is_some() {
             return;
         }
         // In JS `node.Type()` is the reparsed `@type` (`reparseHosted`).
@@ -1173,6 +1204,315 @@ impl Checker<'_, '_> {
                 span,
             ),
         );
+    }
+
+    /// The widening report of an unannotated variable's initializer.
+    ///
+    /// `getTypeForVariableLikeDeclaration` (`checker.go:16652`) answers the
+    /// initializer's type for an unannotated `var`/`let`/`const` with an
+    /// identifier name, except where its auto arms answer first: under
+    /// `noImplicitAny` a non-exported, non-ambient declaration initialized
+    /// with `[]` is `autoArrayType`, and a non-`const` one initialized with
+    /// `null`/`undefined` is `autoType` (`:16697`–`:16710`), neither of which
+    /// widens. A `for…in`/`for…of` head takes its type from the loop.
+    /// Literal widening (`widenTypeInferredFromInitializer`) does not change
+    /// whether a type contains a widening type, so the initializer's checked
+    /// type is the type `widenTypeForVariableLikeDeclaration` reports on.
+    fn check_widening_of_variable_initializer(&mut self, node: NodeId) {
+        if self.jsdoc_type_annotation(node).is_some() {
+            return;
+        }
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(node) else { return };
+        let Some(initializer) = variable.initializer else { return };
+        if !matches!(variable.name, Some(tsr_ast::BindingName::Identifier(_))) {
+            return;
+        }
+        let Some(list) = self.nodes.parent(node) else { return };
+        let Some(owner) = self.nodes.parent(list) else { return };
+        if matches!(self.nodes.kind(owner), SyntaxKind::ForInStatement | SyntaxKind::ForOfStatement)
+        {
+            return;
+        }
+        let exported = matches!(
+            self.node_map.get(owner),
+            Some(Node::VariableStatement(statement))
+                if has_modifier(statement.modifiers, SyntaxKind::ExportKeyword)
+        );
+        let flags = self.combined_node_flags(node);
+        let ambient = flags.intersects(tsr_ast::NodeFlags::AMBIENT)
+            || matches!(
+                self.node_map.get(owner),
+                Some(Node::VariableStatement(statement))
+                    if has_modifier(statement.modifiers, SyntaxKind::DeclareKeyword)
+            );
+        if !exported && !ambient {
+            let empty_array = matches!(initializer,
+                tsr_ast::Expression::ArrayLiteralExpression(array) if array.elements.is_empty());
+            if empty_array
+                || (!flags.intersects(tsr_ast::NodeFlags::CONSTANT)
+                    && self.is_null_or_undefined_expression(initializer))
+            {
+                return;
+            }
+        }
+        if initializer.node_id().is_some_and(|id| self.subtree_holds_deferred_body(id)) {
+            return;
+        }
+        let initializer_type = self.check_expression(initializer);
+        self.report_errors_from_widening(node, initializer_type);
+    }
+
+    /// Does the expression contain a function-like or class expression?
+    ///
+    /// **A decline, owed to check order.** Upstream checks a function
+    /// expression's, arrow's, object-literal method's or class expression's
+    /// body deferred (`checkNodeDeferred`, run after the file's walk). This
+    /// port types such a body eagerly when its enclosing expression is first
+    /// checked, so checking an initializer that holds one ahead of the walk
+    /// changes what the body sees: measured, a TS2339 under an object-literal
+    /// `this` reported twice (`thisInObjectLiterals`) or not at all
+    /// (`checkingObjectWithThisInNamePositionNoCrash`), and a TS7024 the
+    /// deferred order never reaches
+    /// (`declarationsWithRecursiveInternalTypesProduceUniqueTypeParams`).
+    /// Such an initializer is left to the walk and reports no widening here
+    /// until the deferred-check order exists (r7-reports §10).
+    fn subtree_holds_deferred_body(&self, node: NodeId) -> bool {
+        if matches!(
+            self.nodes.kind(node),
+            SyntaxKind::FunctionExpression
+                | SyntaxKind::ArrowFunction
+                | SyntaxKind::MethodDeclaration
+                | SyntaxKind::GetAccessor
+                | SyntaxKind::SetAccessor
+                | SyntaxKind::ClassExpression
+        ) {
+            return true;
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| self.subtree_holds_deferred_body(child))
+    }
+
+    /// `reportErrorsFromWidening` (`checker.go:20452`) for a variable-like
+    /// declaration (`WideningKindNormal`): under `noImplicitAny`, a type
+    /// carrying `ObjectFlagsContainsWideningType` reports inside the type
+    /// where it can (`reportWideningErrorsInType`), else on the declaration
+    /// (`reportImplicitAny`).
+    pub(crate) fn report_errors_from_widening(&mut self, declaration: NodeId, t: TypeId) {
+        if !self.no_implicit_any || !self.type_contains_widening_type(t, &mut Vec::new()) {
+            return;
+        }
+        if !self.report_widening_errors_in_type(t) {
+            self.report_implicit_any_for_widening(declaration);
+        }
+    }
+
+    /// `ObjectFlagsContainsWideningType` (`types.go:609`): set on
+    /// `createWideningType`'s nullable twins (`checker.go:25027`, only with
+    /// `strictNullChecks` off) and propagated by
+    /// `ObjectFlagsPropagatingFlags` into unions and intersections
+    /// (`getUnionType`/`getIntersectionType`), type references from their
+    /// type arguments (`createTypeReference`, so arrays and tuples), and
+    /// object literal types from their property types (`checkObjectLiteral`,
+    /// `getSpreadType`). `nonInferrableAnyType` carries it too, and is not
+    /// ported (no binding-pattern `any` here is distinguishable).
+    fn type_contains_widening_type(&mut self, t: TypeId, active: &mut Vec<TypeId>) -> bool {
+        if self.intrinsics.is_widening_nullable(t) {
+            return true;
+        }
+        if active.contains(&t) || active.len() > 32 {
+            return false;
+        }
+        active.push(t);
+        let parts: Vec<TypeId> = match &self.store.get(t).data {
+            crate::types::TypeData::Union { types, .. }
+            | crate::types::TypeData::Intersection { types, .. } => types.clone(),
+            _ => {
+                if let Some((elements, _)) = self.tuple_element_lists.get(&t) {
+                    elements.clone()
+                } else if let Some((_, arguments)) = self.type_reference_targets.get(&t) {
+                    arguments.clone()
+                } else if self.is_object_literal_type(t) {
+                    self.anonymous_properties
+                        .get(&t)
+                        .map(|(properties, _)| {
+                            properties
+                                .iter()
+                                .filter_map(|property| self.peek_property_type(property))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
+            }
+        };
+        let contains = parts.into_iter().any(|part| self.type_contains_widening_type(part, active));
+        active.pop();
+        contains
+    }
+
+    /// `reportWideningErrorsInType` (`checker.go:20497`): a union reports
+    /// through its first reporting member (none when a member is an empty
+    /// object type, which counts as reported), an array or tuple through its
+    /// first reporting type argument, and an object literal type on each
+    /// widening property it cannot report inside: TS7018 at the property's
+    /// declaration in this literal. The object-literal loop overwrites its
+    /// answer per property, as upstream's does.
+    fn report_widening_errors_in_type(&mut self, t: TypeId) -> bool {
+        if !self.type_contains_widening_type(t, &mut Vec::new()) {
+            return false;
+        }
+        if let crate::types::TypeData::Union { types, .. } = &self.store.get(t).data {
+            let types = types.clone();
+            if types.iter().any(|&member| self.is_empty_object_type_for_widening(member)) {
+                return true;
+            }
+            return types.into_iter().any(|member| self.report_widening_errors_in_type(member));
+        }
+        let arguments = if let Some((elements, _)) = self.tuple_element_lists.get(&t) {
+            Some(elements.clone())
+        } else if self.is_array_reference(t) {
+            self.type_reference_targets.get(&t).map(|(_, arguments)| arguments.clone())
+        } else {
+            None
+        };
+        if let Some(arguments) = arguments {
+            return arguments
+                .into_iter()
+                .any(|argument| self.report_widening_errors_in_type(argument));
+        }
+        if !self.is_object_literal_type(t) {
+            return false;
+        }
+        let literal = match self.store.get(t).data {
+            // `t.symbol.ValueDeclaration`: an object literal's symbol is
+            // declared by the literal expression itself.
+            crate::types::TypeData::Named { members: Some(owner), .. } => {
+                let owner = self.binder.symbols().get(owner);
+                owner.value_declaration.or_else(|| owner.declarations.first().copied())
+            }
+            _ => None,
+        };
+        let properties = self
+            .anonymous_properties
+            .get(&t)
+            .map(|(properties, _)| properties.clone())
+            .unwrap_or_default();
+        let mut reported = false;
+        for property in properties {
+            let Some(property_type) = self.peek_property_type(&property) else { continue };
+            if !self.type_contains_widening_type(property_type, &mut Vec::new()) {
+                continue;
+            }
+            reported = self.report_widening_errors_in_type(property_type);
+            if reported {
+                continue;
+            }
+            // "we need to account for property types coming from object
+            // literal type normalization in unions": the declaration whose
+            // own value declaration sits in this literal.
+            let declaration = property.origin.and_then(|origin| {
+                self.binder.symbols().get(origin).declarations.iter().copied().find(
+                    |&declaration| {
+                        let value = self
+                            .binder
+                            .symbol_of(declaration)
+                            .and_then(|symbol| self.binder.symbols().get(symbol).value_declaration);
+                        value.is_some_and(|value| {
+                            literal.is_some() && self.nodes.parent(value) == literal
+                        })
+                    },
+                )
+            });
+            let Some(declaration) = declaration else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
+            let widened = if self.intrinsics.is_widening_nullable(property_type) {
+                "any".to_string()
+            } else {
+                self.type_to_string(property_type)
+            };
+            let span = self.error_span(declaration);
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::OBJECT_LITERAL_S_PROPERTY_0_IMPLICITLY_HAS_AN_1_TYPE,
+                    span,
+                    [property.printed_name.clone(), widened],
+                ),
+            );
+            reported = true;
+        }
+        reported
+    }
+
+    /// `isEmptyObjectType` for `reportWideningErrorsInType`'s union arm: an
+    /// object type with no properties, signatures or index signatures.
+    fn is_empty_object_type_for_widening(&mut self, t: TypeId) -> bool {
+        t == self.intrinsics.empty_object
+            || (self.store.get(t).flags.contains(crate::flags::TypeFlags::OBJECT)
+                && self
+                    .anonymous_properties
+                    .get(&t)
+                    .is_some_and(|(properties, complete)| *complete && properties.is_empty())
+                && self.get_index_infos_of_type(t).is_some_and(|infos| infos.is_empty()))
+    }
+
+    /// Whether `t` is an `Array<T>`/`ReadonlyArray<T>` reference.
+    fn is_array_reference(&self, t: TypeId) -> bool {
+        let Some(&(target, _)) = self.type_reference_targets.get(&t) else { return false };
+        let target = self.binder.merged_symbol(target);
+        ["Array", "ReadonlyArray"].into_iter().any(|name| {
+            self.global_type_symbol(name)
+                .is_some_and(|symbol| self.binder.merged_symbol(symbol) == target)
+        })
+    }
+
+    /// `reportImplicitAny` (`checker.go:18275`) for a widened declaration:
+    /// the declaration kind picks the message, and the type argument is the
+    /// widened type, which is the declaration's own type here.
+    fn report_implicit_any_for_widening(&mut self, declaration: NodeId) {
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
+        let widened = match self.binder.symbol_of(declaration) {
+            Some(symbol) => {
+                let symbol = self.binder.merged_symbol(symbol);
+                let t = self.get_type_of_symbol(symbol);
+                self.type_to_string(t)
+            }
+            None => "any".to_string(),
+        };
+        let span = self.error_span(declaration);
+        let diagnostic = match self.node_map.get(declaration) {
+            Some(Node::VariableDeclaration(variable)) => {
+                let Some(tsr_ast::BindingName::Identifier(name)) = variable.name else { return };
+                let Some(name_id) = name.node_id else { return };
+                Diagnostic::with_args(
+                    &messages::VARIABLE_0_IMPLICITLY_HAS_AN_1_TYPE,
+                    self.nodes.span(name_id),
+                    [name.text.to_string(), widened],
+                )
+            }
+            Some(Node::ParameterDeclaration(parameter)) => {
+                let Some(tsr_ast::BindingName::Identifier(name)) = parameter.name else { return };
+                if parameter.dot_dot_dot_token.is_some() {
+                    Diagnostic::with_args(
+                        &messages::REST_PARAMETER_0_IMPLICITLY_HAS_AN_ANY_TYPE,
+                        span,
+                        [name.text.to_string()],
+                    )
+                } else {
+                    Diagnostic::with_args(
+                        &messages::PARAMETER_0_IMPLICITLY_HAS_AN_1_TYPE,
+                        span,
+                        [name.text.to_string(), widened],
+                    )
+                }
+            }
+            _ => return,
+        };
+        self.report(file, diagnostic);
     }
 
     /// `expressionResultIsUnused` (`utilities.go:1159`).
