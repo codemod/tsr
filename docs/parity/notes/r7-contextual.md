@@ -392,3 +392,29 @@ diff is not landed:
   deep conditional/mapped evaluation of `PropertiesReduce` (r7-declared).
 
 It lands once either root is fixed and its re-measurement shows no loss.
+
+## 9. `inferToMultipleTypes`' intersection-only union arm (routed from r7-declared)
+
+`inferToMultipleTypes` (`inference.go:448`) on a union target with no naked
+type variable among its constituents returns after the per-target pass.
+First, though, when every target is an intersection holding the same single
+naked variable (`getSingleTypeVariableFromIntersectionTypes`, `:532`), it
+infers the whole source to that variable at `NakedTypeVariable` priority
+(`:481-490`). That arm is what infers `A | B` for `T` from `A | B` to
+`T & (X | Y)`, which normalizes to `T & X | T & Y`. `infer_to_union` lacked
+it, so only the per-constituent `T` candidates survived and the common
+supertype picked one of them:
+
+```ts
+declare function foo<T, U>(obj: T & ({ a: U } | { b: U })): [T, U];
+foo(ab /* { a: string } | { b: string } */); // native [{ a: string } | { b: string }, string]
+```
+
+Without it, `withRouter(MyComponent)` (`C & (FunctionComponent<P> | ComponentClass<P>)`)
+reported a false TS2345. Both shapes appear in `unionAndIntersectionInference3`
+once its aliases are unions (r7-declared's held "every union body" slice,
+`r7-declared.md` §10.1). On main the aliases are print-only names, so the
+commit is corpus-neutral: types 0 / 0 and diagnostics 0 / 0 against the
+`5c037c96` freeze, jsTyping unchanged (127, new_false 0, lost_true 0). The
+alias-free repro of both shapes now matches tsgo-pinned (no diagnostic). It
+is a prerequisite for r7-declared's wider slice, not a gain of its own.

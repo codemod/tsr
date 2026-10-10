@@ -5400,6 +5400,31 @@ impl<'a> Checker<'a, '_> {
                 self.inference_observed_priority = self.inference_observed_priority.min(saved);
             }
         }
+        // inferToMultipleTypes' `typeVariableCount == 0` arm
+        // (`inference.go:481-490`): when every target is an intersection
+        // holding the same single naked type variable
+        // (`getSingleTypeVariableFromIntersectionTypes`, `:532`), infer the
+        // whole source to it at NakedTypeVariable priority, so `A | B` to
+        // `T & (X | Y)` (normalized `T & X | T & Y`) infers `A | B` for `T`.
+        if variables.is_empty() {
+            if let Some(variable) =
+                self.single_type_variable_from_intersections(&targets, parameters)
+            {
+                let saved = self.inference_priority;
+                self.inference_priority |= InferencePriority::NAKED_TYPE_VARIABLE;
+                let source = self.get_union_type(&sources);
+                self.infer_from_types_within(
+                    source,
+                    variable,
+                    original,
+                    parameters,
+                    out,
+                    depth + 1,
+                );
+                self.inference_priority = saved;
+            }
+            return;
+        }
         if let [variable] = variables.as_slice()
             && !circular
         {
@@ -5429,6 +5454,29 @@ impl<'a> Checker<'a, '_> {
             self.infer_from_types_within(source, variable, original, parameters, out, depth + 1);
         }
         self.inference_priority = saved;
+    }
+
+    /// `getSingleTypeVariableFromIntersectionTypes` (`inference.go:532`): the
+    /// naked inference variable every target intersection holds, when they
+    /// all hold the same one; `None` when a target is not an intersection,
+    /// lacks one, or holds a different one.
+    fn single_type_variable_from_intersections(
+        &self,
+        targets: &[TypeId],
+        parameters: &[TypeId],
+    ) -> Option<TypeId> {
+        let mut variable = None;
+        for &target in targets {
+            let TypeData::Intersection { types, .. } = &self.store.get(target).data else {
+                return None;
+            };
+            let found = types.iter().copied().find(|t| parameters.contains(t))?;
+            if variable.is_some_and(|v| v != found) {
+                return None;
+            }
+            variable = Some(found);
+        }
+        variable
     }
 
     /// getTypeDepth (internal/checker/inference.go), bounded generic nesting.
