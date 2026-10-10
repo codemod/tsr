@@ -329,6 +329,13 @@ still loses **one diagnostics case**: deeplyNestedMappedTypes'
 TS2322 at (69,5) and (77,5) (`Input[]` to `Output[]`). On main these were
 RIGHT by coincidence over the unevaluated `PropertiesReduce<…>` types.
 
+**Corrected (later in the round):** r7-reports found the real cause of the
+deeplyNestedMappedTypes loss. It is not a cached overflow. It is the
+relater's NoMembersTable fall-through plus isDeeplyNestedType's
+instantiation-order count, which r7-reports fixes with a
+`MappedTypeInfo.evaluation_start` field (stack + fix measured +83 / 0 by
+r7-reports). The paragraph below records the first, wrong reading.
+
 **The blocker is in the relater.** A trace of `is_related_to` on a cut-down
 file (`declare const i: Input; const o2: Output = i;`) shows the top-level
 `{ level1: { level2: { foo: string; }; }; } :: { level1: { level2: { foo:
@@ -546,3 +553,28 @@ road. No new state.
 **Measured** (unfiltered against `8d4c10cc` on `86d9406e`): types **+5,
 0 lost** (keyofIntersection 0:8/9/10/12/19); diagnostics 0 / 0. jsTyping
 gate: new_false 0, lost_true 0.
+
+## 12. unwrapAwaitedType keeps an unchanged union (granted: `expressions.rs`, that function only)
+
+**Forcing constraint.** unwrapAwaitedType (`checker.go:31440`) maps a union
+through mapType, which answers the union itself when no constituent
+changed. `unwrap_awaited_type` always rebuilt the union. Once §10's union
+alias instances exist, an async function returning `IteratorResult<U, R>`
+printed `Promise<IteratorReturnResult<R> | IteratorYieldResult<U>>`
+(discriminateWithOptionalProperty2 ×6, a wide-slice loss in §10.1). The
+integrator granted this one function.
+
+**Port.** If every constituent comes back identical, return the union. No
+state.
+
+**Measured** (alone, unfiltered against §11's tree): types 0 / 0,
+diagnostics 0 / 0, jsTyping new_false 0 / lost_true 0. With §10's wide
+slice it removes the six discriminateWithOptionalProperty2 losses (probed:
+`async function g() { return ir; }` is `() =>
+Promise<IteratorResult<number, string>>`, as in tsgo). The wide slice's
+remaining losses are typeGuardsAsAssertions ×2 (r7-flow),
+unionAndIntersectionInference3 (r7-contextual) and
+jsxComplexSignatureHasApplicabilityError 0:52 (`HandlerRendererResult`'s
+own declaration prints its constituents). A cut-down file with
+`React.ComponentType` does not reproduce 0:52, so its reader is not
+located yet.
