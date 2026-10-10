@@ -3062,3 +3062,35 @@ impl Checker<'_, '_> {
         })
     }
 }
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarYieldExpression` (`grammarchecks.go:1777`), from
+    /// `checkYieldExpression` (`checker.go:10953`): TS1163 on the `yield`
+    /// keyword when the parser did not stamp `NodeFlagsYieldContext`
+    /// (r7-parser `f44a4956`), and TS2523 with `c.error` in a parameter
+    /// initializer. Answers native's `hasError`.
+    pub(crate) fn check_grammar_yield_expression(&mut self, node: NodeId) -> bool {
+        let mut has_error = false;
+        if !self.nodes.flags(node).contains(NodeFlags::YIELD_CONTEXT) {
+            self.grammar_error_on_first_token(
+                node,
+                &messages::A_YIELD_EXPRESSION_IS_ONLY_ALLOWED_IN_A_GENERATOR_BODY,
+            );
+            has_error = true;
+        }
+        if self.is_in_parameter_initializer_before_containing_function(node)
+            && let Some(file) = self.source_file_of_for_diagnostics(node)
+        {
+            let span = self.nodes.span(node);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::YIELD_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
+                    span,
+                ),
+            );
+            has_error = true;
+        }
+        has_error
+    }
+}

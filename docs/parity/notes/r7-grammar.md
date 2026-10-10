@@ -401,3 +401,18 @@ Converted: `moduleAsBaseType`.
 property access whose name is a private identifier, then goes on to its
 symbol arms. `delete_operand.rs` (granted) had only the symbol arms.
 Converted: `privateNamesNoDelete`.
+
+## §17 `checkGrammarYieldExpression` on `NodeFlagsYieldContext`
+
+With the parser stamping `NodeFlagsYieldContext` and building a
+`YieldExpression` only where `isYieldExpression` does (r7-parser `f44a4956`),
+`check_grammar_yield_expression` (`grammar.rs`) is
+`checkGrammarYieldExpression` (`grammarchecks.go:1777`) whole: TS1163 on the
+`yield` keyword without the flag, and TS2523 (`c.error`) in a parameter
+initializer. It replaces `check.rs`'s `check_yield_grammar` (an ancestor walk
+for a generator with three operand-shape bounds standing in for the parser's
+yield context) and `check_yield_in_parameter_initializer` (the same bounds).
+A decorator is parsed in its class's enclosing context, so
+`@(yield "")` in a generator is legal (`generatorTypeCheck59`), and an enum
+member initializer is parsed outside it (`awaitAndYield`). Converted:
+`awaitAndYield`, `generatorTypeCheck59`.

@@ -853,8 +853,8 @@ impl Checker<'_, '_> {
         // is the statement-level shape and is declined, §103.
         match typed {
             Node::YieldExpression(_) => {
-                self.check_yield_grammar(node);
-                self.check_yield_in_parameter_initializer(node);
+                // `checkGrammarYieldExpression` (`grammar.rs`).
+                self.check_grammar_yield_expression(node);
                 self.check_yield_expression_assignability(node);
             }
             // `checkGrammarAwaitOrAwaitUsing` is `module_format.rs`'s.
@@ -9116,53 +9116,6 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS2523 — `'yield' expressions cannot be used in a parameter initializer.`
-    ///
-    /// `checkGrammarYieldExpression`'s second arm (`grammarchecks.go:1783`),
-    /// an ungated `c.error(node, …)` as TS2524's is.
-    ///
-    /// Upstream only reaches it for a node its parser built as a
-    /// `YieldExpression`. Parameters are parsed in their function's yield
-    /// context (`parseParametersWorker`), so inside a generator's parameter
-    /// list every `yield` is one; elsewhere `isYieldExpression` takes `yield`
-    /// only before an identifier, keyword or literal on the same line, and a
-    /// bare `yield` is a name. This parser builds a `YieldExpression` in both
-    /// places, so outside a generator the rule asks for the operand shapes
-    /// [`Self::check_yield_grammar`] already bounds itself to.
-    fn check_yield_in_parameter_initializer(&mut self, node: NodeId) {
-        if !self.is_in_parameter_initializer_before_containing_function(node) {
-            return;
-        }
-        let Some(Node::YieldExpression(yielded)) = self.node_map.get(node) else { return };
-        let operand_shape = yielded.asterisk_token.is_none()
-            && yielded.expression.is_some_and(|operand| {
-                !matches!(operand, tsr_ast::Expression::ParenthesizedExpression(_))
-            });
-        let in_generator_parameters = self
-            .nodes
-            .ancestors(node)
-            .find(|&ancestor| self.nodes.kind(ancestor) == SyntaxKind::Parameter)
-            .and_then(|parameter| self.nodes.parent(parameter))
-            .is_some_and(|function| match self.node_map.get(function) {
-                Some(Node::FunctionDeclaration(f)) => f.asterisk_token.is_some(),
-                Some(Node::FunctionExpression(f)) => f.asterisk_token.is_some(),
-                Some(Node::MethodDeclaration(f)) => f.asterisk_token.is_some(),
-                _ => false,
-            });
-        if !in_generator_parameters && !operand_shape {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::YIELD_EXPRESSIONS_CANNOT_BE_USED_IN_A_PARAMETER_INITIALIZER,
-                span,
-            ),
-        );
-    }
-
     /// `Checker.isInParameterInitializerBeforeContainingFunction`
     /// (`checker.go:12235`).
     ///
@@ -9909,105 +9862,6 @@ impl Checker<'_, '_> {
                 &messages::NAMESPACE_0_HAS_NO_EXPORTED_MEMBER_1,
                 span,
                 [namespace_name, member],
-            ),
-        );
-    }
-
-    /// TS1163 — `A 'yield' expression is only allowed in a generator body.`
-    ///
-    /// `checkGrammarYieldExpression` (`grammarchecks.go:1777`), whose test is
-    /// `node.Flags&ast.NodeFlagsYieldContext == 0`. This port declares
-    /// [`tsr_ast::NodeFlags::YIELD_CONTEXT`] and never sets it, so the context
-    /// is derived from the tree instead: **the nearest enclosing function-like
-    /// must be a generator.** An arrow function and an accessor can never be
-    /// one, and a class property initialiser or static block starts a fresh
-    /// context. See `checker-notes-diag2.md` §104.
-    ///
-    /// `grammarErrorOnFirstToken` reports the `yield` keyword, which is the
-    /// expression's own start — so the span is `nodes.span`, not `error_span`.
-    fn check_yield_grammar(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        // **A bare `yield` is an IDENTIFIER outside a generator**, in
-        // non-strict code — `function f(yield = yield) {}` and
-        // `{ [yield]: foo }` are legal and upstream's parser builds an
-        // identifier there. This parser builds a `YieldExpression`, so the rule
-        // would report on a name. Requiring an operand bounds it to the
-        // unambiguous form. **Owner: `tsr_parser`'s yield-context tracking** —
-        // 11 wrong lines measured, `FunctionDeclaration3_es6` and
-        // `FunctionDeclaration8_es6` at the head of them (§104).
-        let Some(Node::YieldExpression(yielded)) = self.node_map.get(node) else { return };
-        if yielded.expression.is_none() {
-            return;
-        }
-        // The other two shapes `nextTokenIsIdentifierOrKeywordOrLiteralOnSameLine`
-        // (`parser.go:4171`) rejects, both decidable from the finished tree:
-        //
-        // - **`yield(foo)` is a CALL.** `(` is not an identifier, keyword or
-        //   literal, so upstream reads `yield` as the callee. This parser builds
-        //   a yield whose operand is a parenthesized expression.
-        // - **`yield * []` is a MULTIPLICATION.** `*` fails the lookahead too,
-        //   so outside a generator the asterisk is the operator. Inside one it
-        //   is `yield*`, which is why this is guarded by the context below
-        //   rather than declined outright.
-        //
-        // Both are §104's wrong column and both belong to `tsr_parser` (§106);
-        // these bounds keep the rule quiet until it is fixed there.
-        if matches!(yielded.expression, Some(tsr_ast::Expression::ParenthesizedExpression(_))) {
-            return;
-        }
-        if yielded.asterisk_token.is_some() {
-            return;
-        }
-        // A **computed property name is evaluated in the ENCLOSING context**,
-        // where the member it names is not — so in
-        // `async function* t() { class C { [yield 1] = yield 2; } }` the name is
-        // inside the generator and the initialiser is not. The walk therefore
-        // passes *through* a class member it reached via a
-        // `ComputedPropertyName`, and stops at it otherwise. §107 measured the
-        // four wrong lines this fixes, all in `awaitAndYieldInProperty`.
-        let mut came_from = node;
-        let mut in_generator = false;
-        for ancestor in self.nodes.ancestors(node) {
-            let verdict = match self.node_map.get(ancestor) {
-                Some(Node::FunctionDeclaration(n)) => Some(n.asterisk_token.is_some()),
-                Some(Node::FunctionExpression(n)) => Some(n.asterisk_token.is_some()),
-                // A method's computed name is outside its body too:
-                // `{ [yield 0]() {} }` in a generator (`generatorTypeCheck42`).
-                Some(Node::MethodDeclaration(n))
-                    if self.nodes.kind(came_from) != SyntaxKind::ComputedPropertyName =>
-                {
-                    Some(n.asterisk_token.is_some())
-                }
-                // Cannot be generators; they still bound the context — unless
-                // this is their computed name rather than their body.
-                Some(
-                    Node::ArrowFunction(_)
-                    | Node::GetAccessorDeclaration(_)
-                    | Node::SetAccessorDeclaration(_)
-                    | Node::ConstructorDeclaration(_)
-                    | Node::PropertyDeclaration(_)
-                    | Node::ClassStaticBlockDeclaration(_),
-                ) if self.nodes.kind(came_from) != SyntaxKind::ComputedPropertyName => Some(false),
-                _ => None,
-            };
-            if let Some(verdict) = verdict {
-                in_generator = verdict;
-                break;
-            }
-            came_from = ancestor;
-        }
-        if in_generator {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::A_YIELD_EXPRESSION_IS_ONLY_ALLOWED_IN_A_GENERATOR_BODY,
-                span,
             ),
         );
     }
