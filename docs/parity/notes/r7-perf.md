@@ -642,3 +642,39 @@ mint (`objects.rs:2318`), so laziness needs the store to accept deferred
 text. That is the printer lane's (`printing.rs`, `symbol_accessibility.rs`)
 and the contextual lane's (`objects.rs`) to build. It is routed through
 the integrator, not built here.
+
+## §16 generic-imports' CPU creep across batches 10–12: no instruction regression
+
+**Question** (integrator, 2026-10-10): main at batch 12 (`cd4afbcb`)
+read 1.035 wall / 1.075 child CPU against the batch-9 binary (`92fe8f05`)
+at 41 samples, although each batch passed against its predecessor.
+
+**Instruction counts** (callgrind, release binaries built from each batch
+merge; deterministic across runs):
+
+| binary | gi `--singleThreaded` Ir | gi default-mode Ir | dm single Ir | dml single Ir |
+|---|---:|---:|---:|---:|
+| batch 9 `92fe8f05` | 223,596,128 | 224,873,307 | 944,778,143 | 4,474,034,191 |
+| batch 10 `0f7a1165` | 223,702,543 | — | — | — |
+| batch 11 `86d9406e` | 223,703,391 | — | — | — |
+| batch 12 `cd4afbcb` | 223,423,953 | 224,964,732 | 944,980,303 | 4,475,624,882 |
+
+Every column moves by at most 0.08% (dml +0.04%, gi default +0.04%, gi
+single −0.08%). Minor page faults (404–428 per run, `perf stat -r 15`) and
+peak RSS (55.6–57.7 MB) are flat too.
+
+**CPU on this orb.** Interleaved, 61 samples, all four binaries in one run.
+At p10 the batch-9 → 12 ratios are 1.000 / 1.012 / 0.994 / 0.994, and at
+the minimum 1.000 / 1.021 / 0.960 / 0.968. The median moves 13% between
+binaries with identical Ir, because the orb's run-to-run noise is large
+(medians 76–87 ms against p10s of 44–45 ms). The box-protocol harness at
+41 samples gives batch 12 / batch 9 = 0.995 wall · 0.989 CPU. A second
+`ab.py` run gives 0.876 · 0.879 the other way.
+
+**Conclusion.** No commit in batches 10–12 adds work on generic-imports,
+domain-model or domain-model-large. The 1.075 reading is measurement
+spread: on a shared 4-vCPU host the median child CPU of identical work
+drifts by more than the 3% gate. Two things would separate the series
+from noise: callgrind Ir as the hot-path guard on the bench projects, and
+p10 rather than median CPU when two binaries' Ir agree. Nothing to fix or
+route.
