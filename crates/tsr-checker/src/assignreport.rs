@@ -1053,18 +1053,20 @@ impl<'a> Checker<'a, '_> {
         Some((bound, format!("[{written}]")))
     }
 
-    /// `checkReturnStatement` (`checker.go:12400`) — the returned expression
-    /// against the function's **written** return annotation.
+    /// `checkReturnStatement` (`checker.go:4086`) — the returned expression
+    /// against the function's annotated return type
+    /// ([`Checker::annotated_return_type`]: written, a JS `@returns`, or a JS
+    /// `@type` full signature).
     ///
     /// The error node is the **return statement**, not the expression:
     /// `arrayAssignmentTest1.ts(6,16)` for `IM1():void[] {return null;}` is
     /// column 16, which is the `r` of `return`.
     ///
-    /// Only a *written* annotation is used. An inferred return type is computed
-    /// from the very returns being checked, so a mismatch against it is not a
-    /// diagnostic upstream would ever report.
+    /// Only an annotation is used (`getReturnTypeFromAnnotation != nil`). An
+    /// inferred return type is computed from the very returns being checked,
+    /// so a mismatch against it is not a diagnostic upstream would ever report.
     pub(crate) fn check_return_statement(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.in_js_file(node) {
+        if ambient {
             return;
         }
         let Some(Node::ReturnStatement(statement)) = self.node_map.get(node) else { return };
@@ -1073,7 +1075,13 @@ impl<'a> Checker<'a, '_> {
         match self.node_map.get(container) {
             Some(Node::SetAccessorDeclaration(_)) => return,
             Some(Node::ConstructorDeclaration(_)) => {
-                if let Some(expression) = expression {
+                // Declined in JS: a class's `@template {C} T` constraint is
+                // not read there, so `return a` with `@param {T} a` relates
+                // an unconstrained `T` to the instance type and reports a
+                // TS2409 native does not (`extendsTag5`).
+                if let Some(expression) = expression
+                    && !self.in_js_file(node)
+                {
                     self.check_constructor_return(container, node, expression);
                 }
                 return;
@@ -1148,9 +1156,8 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// `getReturnTypeFromAnnotation` (`checker.go:20058`) for a non-constructor
-    /// container, unwrapped as `unwrapReturnType` would for a plain function: the
-    /// written annotation, or for an unannotated get accessor with a bindable
-    /// name its set accessor's parameter annotation (`getAnnotatedAccessorType`).
+    /// container ([`Checker::annotated_return_type`]), unwrapped as
+    /// `unwrapReturnType` would for a plain function.
     ///
     /// Answers `(returnType, unwrappedReturnType, isAsync)`. An async
     /// function's target is `unwrapReturnType`'s `getAwaitedTypeNoAlias` of
@@ -1159,7 +1166,7 @@ impl<'a> Checker<'a, '_> {
     /// target is `unwrapReturnType`'s generator arm: the annotation's return
     /// iteration type (`getIterationTypeOfGeneratorFunctionReturnType`; for
     /// an async generator native then takes `getAwaitedTypeNoAlias(
-    /// unwrapAwaitedType(…))`). A generator has no set-accessor fallback, so no annotation is no check.
+    /// unwrapAwaitedType(…))`). No annotated return type is no check.
     ///
     /// **Async generators are declined**, as `check_yield_expression_assignability`
     /// declines them: the contextual type of an async generator's return
@@ -1168,12 +1175,12 @@ impl<'a> Checker<'a, '_> {
     /// relates a source native never sees (`generatorReturnContextualType`
     /// 23:3, 27:3; `docs/parity/notes/r5-ts2322.md` §2.2).
     fn return_type_from_annotation(&mut self, container: NodeId) -> Option<(TypeId, TypeId, bool)> {
-        let (annotation, generator, modifiers) = match self.node_map.get(container)? {
-            Node::FunctionDeclaration(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
-            Node::FunctionExpression(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
-            Node::ArrowFunction(n) => (n.r#type, false, n.modifiers),
-            Node::MethodDeclaration(n) => (n.r#type, n.asterisk_token.is_some(), n.modifiers),
-            Node::GetAccessorDeclaration(n) => (n.r#type, false, n.modifiers),
+        let (generator, modifiers) = match self.node_map.get(container)? {
+            Node::FunctionDeclaration(n) => (n.asterisk_token.is_some(), n.modifiers),
+            Node::FunctionExpression(n) => (n.asterisk_token.is_some(), n.modifiers),
+            Node::ArrowFunction(n) => (false, n.modifiers),
+            Node::MethodDeclaration(n) => (n.asterisk_token.is_some(), n.modifiers),
+            Node::GetAccessorDeclaration(n) => (false, n.modifiers),
             _ => return None,
         };
         if generator {
@@ -1181,7 +1188,7 @@ impl<'a> Checker<'a, '_> {
             if is_async {
                 return None;
             }
-            let return_type = self.get_type_from_type_node(annotation?);
+            let return_type = self.annotated_return_type(container)?;
             // Native's nil (an `any` annotation, a missing slot) is
             // `errorType`, which relates to everything; a gap declines.
             let slot = self
@@ -1193,18 +1200,45 @@ impl<'a> Checker<'a, '_> {
                 .ok()??;
             return Some((return_type, slot, false));
         }
+        let return_type = self.annotated_return_type(container)?;
         if has_async(modifiers) {
-            let return_type = self.get_type_from_type_node(annotation?);
             let target = self.awaited_type_no_alias(return_type)?;
             return Some((return_type, target, true));
         }
-        if let Some(annotation) = annotation {
-            let return_type = self.get_type_from_type_node(annotation);
-            return Some((return_type, return_type, false));
-        }
-        let annotation = self.set_accessor_parameter_annotation(container)?;
-        let return_type = self.get_type_from_type_node(annotation);
         Some((return_type, return_type, false))
+    }
+
+    /// `getReturnTypeFromAnnotation` (`checker.go:20058`) for a
+    /// non-constructor function-like, before unwrapping:
+    /// - `declaration.Type()`: the written annotation, or in a JS file the
+    ///   `@returns` type `reparseHosted` stores there
+    ///   ([`Checker::jsdoc_reparsed_function`]'s `return_type`);
+    /// - an unannotated get accessor's set accessor annotation
+    ///   (`getAnnotatedAccessorType`);
+    /// - `getReturnTypeOfFullSignature` (`checker.go:20091`): a JS function's
+    ///   `@type` signature ([`Checker::jsdoc_full_signature_return_type`],
+    ///   which reads function and method declarations).
+    fn annotated_return_type(&mut self, container: NodeId) -> Option<TypeId> {
+        let written = match self.node_map.get(container)? {
+            Node::FunctionDeclaration(n) => n.r#type,
+            Node::FunctionExpression(n) => n.r#type,
+            Node::ArrowFunction(n) => n.r#type,
+            Node::MethodDeclaration(n) => n.r#type,
+            Node::GetAccessorDeclaration(n) => n.r#type,
+            _ => return None,
+        };
+        let annotation = written.or_else(|| {
+            self.in_js_file(container)
+                .then(|| self.jsdoc_reparsed_function(container).return_type)
+                .flatten()
+        });
+        if let Some(annotation) = annotation {
+            return Some(self.get_type_from_type_node(annotation));
+        }
+        if let Some(annotation) = self.set_accessor_parameter_annotation(container) {
+            return Some(self.get_type_from_type_node(annotation));
+        }
+        self.jsdoc_full_signature_return_type(container)
     }
 
     /// `getAnnotatedAccessorType` of the set accessor paired with an
@@ -1254,21 +1288,21 @@ impl<'a> Checker<'a, '_> {
     /// `checkFunctionExpressionOrObjectLiteralMethodDeferred`
     /// (`checker.go:10206`), the concise-body arm: an arrow function whose body
     /// is an expression relates that expression, through
-    /// `checkReturnExpression`, to `unwrapReturnType` of its written return
-    /// annotation. The error node is the body itself. An async arrow relates
+    /// `checkReturnExpression`, to `unwrapReturnType` of its annotated return
+    /// type (`getReturnTypeFromAnnotation`, in JS the `@returns` tag). The error node is the body itself. An async arrow relates
     /// against the annotation's `getAwaitedTypeNoAlias`, as a statement does.
     pub(crate) fn check_arrow_expression_body(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.in_js_file(node) {
+        if ambient {
             return;
         }
         let Some(Node::ArrowFunction(arrow)) = self.node_map.get(node) else { return };
-        let (Some(annotation), Some(body)) = (arrow.r#type, arrow.body) else { return };
+        let Some(body) = arrow.body else { return };
         let Some(body_id) = body.node_id() else { return };
         if self.nodes.kind(body_id) == SyntaxKind::Block {
             return;
         }
+        let Some(mut target) = self.annotated_return_type(node) else { return };
         let is_async = has_async(arrow.modifiers);
-        let mut target = self.get_type_from_type_node(annotation);
         if is_async {
             let Some(awaited) = self.awaited_type_no_alias(target) else { return };
             target = awaited;
@@ -1396,8 +1430,14 @@ impl<'a> Checker<'a, '_> {
     }
 
     /// `ast.SkipParentheses`.
+    ///
+    /// A JS `@type` cast's parentheses hold a reparsed `AsExpression`
+    /// natively (`ast.IsJSDocTypeAssertion`, `ast/utilities.go:759`), where
+    /// `SkipParentheses` stops; the port keeps the cast in a side table, so
+    /// the walk stops at those parentheses instead.
     fn skip_outer_parentheses(&self, mut node: NodeId) -> NodeId {
         while let Some(Node::ParenthesizedExpression(inner)) = self.node_map.get(node)
+            && !self.is_jsdoc_cast_parentheses(node)
             && let Some(expression) = inner.expression.and_then(|e| e.node_id())
         {
             node = expression;
@@ -1405,12 +1445,21 @@ impl<'a> Checker<'a, '_> {
         node
     }
 
+    /// `ast.IsJSDocTypeAssertion` (`ast/utilities.go:759`): parentheses in a
+    /// JS file carrying a `@type` cast.
+    fn is_jsdoc_cast_parentheses(&self, node: NodeId) -> bool {
+        self.in_js_file(node) && self.jsdoc_cast_annotation(node).is_some()
+    }
+
     /// `getEffectiveCheckNode` (`checker.go:9381`): `ast.SkipOuterExpressions`
-    /// over parentheses and `satisfies`, repeatedly (TS files; the JS-only
-    /// JSDoc-assertion exclusion never applies because JS files are declined).
+    /// over parentheses and `satisfies`, repeatedly; in a JS file a JSDoc type
+    /// assertion's parentheses are kept (`OEKExcludeJSDocTypeAssertion`).
     fn effective_check_node(&self, mut node: NodeId) -> NodeId {
         loop {
             let inner = match self.node_map.get(node) {
+                Some(Node::ParenthesizedExpression(_)) if self.is_jsdoc_cast_parentheses(node) => {
+                    return node;
+                }
                 Some(Node::ParenthesizedExpression(inner)) => inner.expression,
                 Some(Node::SatisfiesExpression(inner)) => inner.expression,
                 _ => return node,
