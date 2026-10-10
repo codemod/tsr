@@ -606,3 +606,17 @@ new/old measured 1.044 (21 samples) and 1.038 (41) on domain-model while
 the host's absolute times were twice their earlier values (load ≈ 3.5 on
 four cores); the flat Ir says the work did not change. Test:
 `tests/module_rooted_symbol_chain.rs`' seventh case.
+
+## 11. `tsr-printer`: three round-trip gaps under r7-parser's trees
+
+Routed by the integrator (r7-printer owns `crates/tsr-printer` for these):
+r7-parser's stack (`cf833a47..1482cfad`) builds three recovery shapes the
+printer did not write back, and `printer_round_trip` went 11,804 → 11,802
+passes on a local merge. The suite reparses the printed text and compares
+the tree, including a histogram of optional-token kinds (`printer_suite.rs`).
+
+1. **`MappedTypeNode.members`** (`mappedTypeProperties`): `parseMappedType`
+   (`parser.go:3158`) keeps type members after the mapped member as
+   recovery, and the checker reports them. `emitMappedType`
+   (`printer.go:2137`) writes them after a line break (a space on one
+   line) as an `LFPreserveLines` list; ported.
