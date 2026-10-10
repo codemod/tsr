@@ -5913,29 +5913,6 @@ impl<'a> Checker<'a, '_> {
         {
             return result;
         }
-        // instantiateTypeWithAlias over an INTERSECTION body
-        // (getIntersectionTypeEx(types, flags, alias), checker.go:26056):
-        // the new alias is attached to the instantiated intersection, so
-        // `type PartMappings = SetOptional<Mappings, "foo">` declares a type
-        // printed `PartMappings` (an intersection type is keyed by its
-        // constituents AND its alias). The alias-free reduction case already
-        // returned above (`alias_union_body_receives_new_alias`).
-        if let crate::types::TypeData::Intersection { types, .. } =
-            self.store.get(result).data.clone()
-        {
-            if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
-                return cached;
-            }
-            let name = self.binder.symbols().get(alias).name.to_string();
-            let image = self.store.intern_intersection(
-                self.store.get(result).flags,
-                crate::types::TypeData::Intersection { types, text: name, symbol: Some(alias) },
-            );
-            self.type_reference_targets.insert(image, (target, arguments));
-            self.alias_of.insert(image, (alias, Vec::new()));
-            self.deferred_alias_references.insert((alias, result), image);
-            return image;
-        }
         let crate::types::TypeData::Named { members, .. } = self.store.get(result).data else {
             return result;
         };
