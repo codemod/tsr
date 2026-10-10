@@ -379,3 +379,24 @@ stays as the record and is never merged. r7-shared keeps the harvest list (its
 lane note §C) and the five cutover unit tests as behaviour specs. Each
 still-missing behaviour is re-ported from native in the lane that owns its
 file, through the normal gate.
+
+### Batch 15 — r7-calls `9c79de88`, r7-contextual `fb76bab8`, r7-flow `71db0715`, r7-printer `1e0f8ac7`, r7-shared `57c4920a`
+
+Merged onto main `9db14f99`. Gate against the batch-14 freeze: types +94
+RIGHT / 0 lost / 0 missing, diagnostics +7 cases / 0 lost / 0 missing;
+jsTyping 127 → 126 unique error lines, new_false 0, lost_true 0; tests,
+fmt, strict clippy green; callgrind Ir generic-imports 1.0000,
+domain-model 1.0001. No suite's failure count rose. r7-flow's autoType
+identity (`Intrinsics::auto`) and `identifier_flow_type_is_auto` land here.
+
+| Suite | Batch 14 | Batch 15 |
+|---|---|---|
+| `checker_types` | 8,812 | 8,817 |
+| `checker_types_configured` | 1,796 | 1,818 |
+| `diagnostics` | 4,927 | 4,934 |
+| `diagnostics_configured` | 1,003 | 1,003 |
+
+Grants: r7-declared adds the variadic/rest tuple arm to `members.rs`
+`get_type_of_property_with_this_argument`'s Array-base fallback
+(getTupleBaseType). r7-printer applies r7-shared's `resolve_symbol` diff,
+including its `symbols.rs` definition.
