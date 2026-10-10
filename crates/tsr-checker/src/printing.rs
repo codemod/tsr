@@ -1105,6 +1105,172 @@ impl<'a> Checker<'a, '_> {
         text
     }
 
+    /// The print-time plans of ADR-0052 that read structure already recorded
+    /// at the mint, made where the site renderer would otherwise read a
+    /// type's baked text (after its alias, origin and reference arms, beside
+    /// the deferred conditional of `r6-lazytext.md` §2): a generic mapped
+    /// type's mapped form, a deferred indexed access's parts and a deferred
+    /// `keyof`'s operand (`docs/parity/notes/r6-printer4.md` §1). `None`
+    /// keeps the baked text.
+    // Its caller is the site renderer's baked-text arm (checker.rs), which
+    // ships as `r6-printer4-print-time-plans.diff`.
+    #[allow(dead_code)]
+    pub(crate) fn print_time_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        if let Some(text) = self.generic_mapped_text_at(id, reference) {
+            return Some(text);
+        }
+        if let Some(text) = self.deferred_indexed_access_text_at(id, reference) {
+            return Some(text);
+        }
+        self.deferred_keyof_text_at(id, reference)
+    }
+
+    /// A deferred indexed access (`IndexedAccessType`) printed by
+    /// typeToTypeNode's `TypeFlagsIndexedAccess` arm (`nodebuilderimpl.go`):
+    /// the object and index types' own prints at the site, the object
+    /// parenthesised as the mint's `wrap_array_element_text` does
+    /// (`ParenthesizeElementTypeOfArrayType`'s precedence). The mint baked
+    /// both parts site-free (`indexed.rs`, `tuples.rs`); a mint named by an
+    /// alias reference carries a `type_reference_targets` entry, and the
+    /// renderer's reference arm prints it before this one is asked. `None`
+    /// keeps the baked text.
+    pub(crate) fn deferred_indexed_access_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let &(object, index, _) = self.deferred_indexed_access_types.get(&id)?;
+        if self.type_reference_targets.contains_key(&id) || !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let object_text = self.type_to_string_at(object, reference);
+        let index_text = self.type_to_string_at(index, reference);
+        self.rendering_composites.remove(&id);
+        let object_text = self.wrap_array_element_text(object, &object_text?);
+        Some(format!("{object_text}[{}]", index_text?))
+    }
+
+    /// createMappedTypeNodeFromType (`nodebuilderimpl.go:1458`) at print
+    /// time, for a mapped type that is still isGenericMappedType
+    /// (`createAnonymousTypeNode`'s mapped arm): the mapped form printed from
+    /// its parts at the site, where the mint baked them site-free
+    /// (`mapped.rs`' `mapped_type_text`, the same parts and order). Each part
+    /// goes through the site renderer, so a part that is itself a plan (the
+    /// `as` clause's deferred conditional, a nested mapped form) is made too.
+    ///
+    /// Native's order: the constraint (`keyof` of the modifiers type when the
+    /// declaration is `keyof`-constrained) is printed before the new scope;
+    /// then `enterNewScope` with the iteration type parameter, its name
+    /// (`typeParameterToName`), the name type and the template, the template
+    /// as `removeMissingType(template, isOptional)`. The baseline's
+    /// `typeToString` flags have no `GenerateNamesForShadowedTypeParams`, so
+    /// the homomorphic-wrapper and modifier-preserving arms do not apply.
+    /// `None` keeps the baked text: not a generic mapped type, re-entry into
+    /// `id`, or a modifier token the mint would also have refused.
+    pub(crate) fn generic_mapped_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let info = self.mapped_types.get(&id)?.clone();
+        if !self.is_generic_mapped_type(id) || !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let text = self.mapped_form_text_at(&info, reference);
+        self.rendering_composites.remove(&id);
+        text
+    }
+
+    fn mapped_form_text_at(
+        &mut self,
+        info: &crate::mapped::MappedTypeInfo,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        let Some(tsr_ast::Node::MappedTypeNode(node)) = self.node_map.get(info.declaration) else {
+            return None;
+        };
+        let readonly = match node.readonly_token.map(|token| token.kind) {
+            None => "",
+            Some(tsr_ast::SyntaxKind::ReadonlyKeyword) => "readonly ",
+            Some(tsr_ast::SyntaxKind::PlusToken) => "+readonly ",
+            Some(tsr_ast::SyntaxKind::MinusToken) => "-readonly ",
+            _ => return None,
+        };
+        let optional = match node.question_token.map(|token| token.kind) {
+            None => "",
+            Some(tsr_ast::SyntaxKind::QuestionToken) => "?",
+            Some(tsr_ast::SyntaxKind::PlusToken) => "+?",
+            Some(tsr_ast::SyntaxKind::MinusToken) => "-?",
+            _ => return None,
+        };
+        let constraint = if let Some(source) = info.modifiers_source
+            && info.keyof_constraint
+        {
+            // emitTypeOperator's operand precedence (`printer.go:2274`).
+            let text = self.type_to_string_at(source, reference)?;
+            if crate::node_reuse::binds_below_type_operator(&text) {
+                format!("keyof ({text})")
+            } else {
+                format!("keyof {text}")
+            }
+        } else {
+            self.type_to_string_at(info.constraint, reference)?
+        };
+        let symbol = self.type_parameter_symbols.get(&info.parameter).copied();
+        let name = match symbol {
+            Some(symbol) => self.type_parameter_name_at(info.parameter, symbol, reference),
+            None => node.type_parameter?.name?.text.to_string(),
+        };
+        let scope_depth = self.render_type_parameter_scope.len();
+        if let Some(symbol) = symbol {
+            self.render_type_parameter_scope.push((name.clone(), symbol));
+        }
+        let remapping = match info.name_type {
+            Some(ty) => self.type_to_string_at(ty, reference).map(|text| format!(" as {text}")),
+            None => Some(String::new()),
+        };
+        let template = if self.exact_optional_property_types {
+            info.template
+        } else {
+            self.mapped_template_type(info)
+        };
+        let template = self.type_to_string_at(template, reference);
+        self.render_type_parameter_scope.truncate(scope_depth);
+        let (remapping, template) = (remapping?, template?);
+        Some(format!("{{ {readonly}[{name} in {constraint}{remapping}]{optional}: {template}; }}"))
+    }
+
+    /// getIndexType's deferred form (`newIndexType`), printed by
+    /// typeToTypeNode's `TypeFlagsIndex` arm (`nodebuilderimpl.go`):
+    /// `keyof` and the operand's own print at the site, the operand at
+    /// `TypePrecedenceTypeOperator` (`printer.go:2274`). The mint baked the
+    /// operand site-free (`declared.rs`); `None` keeps that text.
+    pub(crate) fn deferred_keyof_text_at(
+        &mut self,
+        id: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<String> {
+        if !self.deferred_keyof_types.contains(&id) {
+            return None;
+        }
+        let operand = *self.deferred_keyof_operands.get(&id)?;
+        if !self.rendering_composites.insert(id) {
+            return None;
+        }
+        let text = self.type_to_string_at(operand, reference);
+        self.rendering_composites.remove(&id);
+        let text = text?;
+        Some(if crate::node_reuse::binds_below_type_operator(&text) {
+            format!("keyof ({text})")
+        } else {
+            format!("keyof {text}")
+        })
+    }
+
     /// conditionalTypeToTypeNode (`nodebuilderimpl.go:2916`) and
     /// emitConditionalType (`printer.go:2058`): a deferred conditional printed
     /// from its typed parts under the current alias-evaluation frames. The
@@ -1639,5 +1805,66 @@ mod tests {
             assert_eq!(checker.get_regular_type_of_object_literal(id), regular);
             assert_eq!(checker.widen_object_literal_freshness(id), widened);
         }
+    }
+
+    /// The return type of the variable `name`'s function type, and its
+    /// declaration, the print site.
+    fn return_type_and_site(
+        checker: &mut Checker<'_, '_>,
+        bound: &tsr_binder::BindResult<'_>,
+        nodes: usize,
+        name: &str,
+    ) -> (TypeId, tsr_ast::NodeId) {
+        let symbol = (0..nodes)
+            .find_map(|index| {
+                #[allow(clippy::cast_possible_truncation)]
+                let id = tsr_ast::NodeId::new(index as u32);
+                bound.lookup_local(id, name)
+            })
+            .unwrap();
+        let function = checker.get_type_of_symbol(symbol);
+        let signature = checker.signatures_of_type(function).unwrap()[0].clone();
+        let returned = checker.get_return_type_of_signature(&signature).unwrap();
+        (returned, bound.symbols().get(symbol).declarations[0])
+    }
+
+    #[test]
+    fn a_generic_mapped_form_and_an_indexed_access_print_their_parts_at_the_site() {
+        // createMappedTypeNodeFromType and the indexed-access arm print each
+        // part at the print site; the mint baked them inside the namespace.
+        // Native: `<T>(t: T) => { [P in keyof T]: N.X; }` and
+        // `<K extends keyof N.X>(k: K) => N.X[K]` at `r` and `s`.
+        let source = "namespace N {
+            export interface X { a: string }
+            export declare function f<T>(t: T): { [P in keyof T]: X };
+            export declare function k<K extends keyof X>(k: K): X[K];
+        }
+        const r = N.f;
+        const s = N.k;";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "/plans.ts", text: source },
+        );
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let count = parsed.nodes.len();
+        let (mapped, site) = return_type_and_site(&mut checker, &bound, count, "r");
+        assert_eq!(checker.type_to_string(mapped), "{ [P in keyof T]: X; }");
+        assert_eq!(
+            checker.generic_mapped_text_at(mapped, site).as_deref(),
+            Some("{ [P in keyof T]: N.X; }")
+        );
+        let (access, site) = return_type_and_site(&mut checker, &bound, count, "s");
+        assert_eq!(checker.type_to_string(access), "X[K]");
+        assert_eq!(
+            checker.deferred_indexed_access_text_at(access, site).as_deref(),
+            Some("N.X[K]")
+        );
+        // Neither plan is the other's: each declines a type it does not own.
+        assert_eq!(checker.generic_mapped_text_at(access, site), None);
+        assert_eq!(checker.deferred_indexed_access_text_at(mapped, site), None);
     }
 }
