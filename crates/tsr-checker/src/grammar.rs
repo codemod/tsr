@@ -6,8 +6,8 @@
 //! already guarantees.
 
 use tsr_ast::{
-    Expression, ModifierLike, Node, NodeFlags, NodeId, ObjectLiteralElementLike, Statement,
-    SyntaxKind, TypeNode,
+    Expression, ModifierFlags, ModifierLike, Node, NodeFlags, NodeId, ObjectLiteralElementLike,
+    Statement, SyntaxKind, TypeNode,
 };
 use tsr_diagnostics::{Diagnostic, messages};
 
@@ -47,59 +47,6 @@ impl Checker<'_, '_> {
                 self.report_modifier_cannot_be_used_here(id, token.kind);
             }
         }
-    }
-
-    /// The two `checkGrammarModifiers` tests (`grammarchecks.go:221`, `:245`)
-    /// that run before its per-keyword switch and return from it:
-    ///
-    /// - TS1433 — a `this` parameter takes neither decorators nor modifiers;
-    /// - TS1206 / TS1249 — a decorator on a node `ast.NodeCanBeDecorated`
-    ///   rejects, reported on the node's first token (its first decorator).
-    ///
-    /// Returns whether it reported; the caller then skips the rest of the
-    /// modifier chain, and `modifier_chain_reported` keeps the rules split out
-    /// of the chain quiet, as upstream's `!checkGrammarModifiers(node)` does.
-    ///
-    /// The kinds `reportObviousDecoratorErrors` rejects outright are
-    /// `check_illegal_decorator`'s; the legacy private-name arm of
-    /// `NodeCanBeDecorated` is `check_decorated_private_name`'s, so it answers
-    /// "can be decorated" here rather than reporting twice.
-    pub(crate) fn check_grammar_decorator_target(&mut self, node: NodeId, typed: Node<'_>) -> bool {
-        let Some(modifiers) = crate::check::modifiers_of(typed) else { return false };
-        if modifiers.is_empty() {
-            return false;
-        }
-        let message = if let Node::ParameterDeclaration(parameter) = typed
-            && matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
-        {
-            &messages::NEITHER_DECORATORS_NOR_MODIFIERS_MAY_BE_APPLIED_TO_THIS_PARAMETERS
-        } else if !modifiers.iter().any(|m| matches!(m, ModifierLike::Decorator(_)))
-            || self.node_can_be_decorated(node, typed)
-            // `NodeCanBeDecorated`'s legacy private-name exit is
-            // `check_decorated_private_name`'s report, so it is not reported
-            // a second time here.
-            || (self.legacy_decorators && member_name_is_private(typed))
-        {
-            return false;
-        } else if matches!(typed, Node::MethodDeclaration(method) if method.body.is_none()) {
-            &messages::A_DECORATOR_CAN_ONLY_DECORATE_A_METHOD_IMPLEMENTATION_NOT_AN_OVERLOAD
-        } else {
-            &messages::DECORATORS_ARE_NOT_VALID_HERE
-        };
-        // `return grammarErrorOnFirstToken(node, …)`: silent in a file with
-        // parse diagnostics (the parser already reported TS1433 on a `this`
-        // parameter, `parser.go:3334`), and then `false`, so the callers'
-        // `!checkGrammarModifiers(node)` rules still run; the node starts at
-        // its first decorator or modifier.
-        if self.file_has_parse_errors {
-            return false;
-        }
-        self.modifier_chain_reported.insert(node);
-        self.decorator_error_reported.insert(node);
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
-        let start = self.nodes.span(node).start;
-        self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, start + 1)));
-        true
     }
 
     /// `ast.NodeCanBeDecorated(c.legacyDecorators, node, node.Parent,
@@ -383,12 +330,6 @@ impl Checker<'_, '_> {
                 self.check_grammar_throw_expression(node, statement);
                 None
             }
-            // `checkClassExpression` → `checkGrammarModifiers`; a class
-            // expression never reaches `check_modifier_order`.
-            Node::ClassExpression(_) => {
-                self.check_grammar_decorator_target(node, typed);
-                None
-            }
             Node::TypeOperatorNode(operator) => {
                 self.check_grammar_type_operator_node(node, operator);
                 None
@@ -418,16 +359,17 @@ impl Checker<'_, '_> {
     /// | parent | arm | code |
     /// |---|---|---|
     /// | class-like | `checkGrammarForInvalidDynamicName` | TS1166 |
+    /// | class-like | `accessor` property with `?` | TS1276 |
     /// | interface | initializer | TS1246 |
     /// | type literal | initializer | TS1247 |
+    /// | ambient (`NodeFlagsAmbient`) | `checkAmbientInitializer` | TS1039 / TS1254 |
     /// | any (property declaration) | `!` with an initializer / without a type / where not permitted | TS1263 / TS1264 / TS1255 |
     ///
     /// Ported elsewhere, and consulted here only for the short-circuit:
     /// `check_field_named_constructor` (TS18006) and
     /// `check_interface_computed_name` (TS1169/TS1170). Not ported: the mapped
     /// type arm (TS7061, a computed `in` expression) — such a name returns
-    /// before anything here — and `checkAmbientInitializer`, which is
-    /// `check_ambient_initializer`'s.
+    /// before anything here. The caller is behind `!checkGrammarModifiers`.
     fn check_grammar_property(&mut self, node: NodeId, typed: Node<'_>) {
         let (name, postfix, annotation, initializer, modifiers) = match typed {
             Node::PropertyDeclaration(n) => {
@@ -459,6 +401,19 @@ impl Checker<'_, '_> {
                     );
                     return;
                 }
+                // `ast.IsAutoAccessorPropertyDeclaration(node) &&
+                // checkGrammarForInvalidQuestionMark(node.PostfixToken(), …)`.
+                if matches!(typed, Node::PropertyDeclaration(_))
+                    && has_modifier(modifiers, SyntaxKind::AccessorKeyword)
+                    && let Some(question) = postfix.filter(|t| t.kind == SyntaxKind::QuestionToken)
+                    && let Some(at) = question.node_id
+                {
+                    self.grammar_error_on_node(
+                        at,
+                        &messages::AN_ACCESSOR_PROPERTY_CANNOT_BE_DECLARED_OPTIONAL,
+                    );
+                    return;
+                }
             }
             kind @ (SyntaxKind::InterfaceDeclaration | SyntaxKind::TypeLiteral) => {
                 if invalid_dynamic_name.is_some() {
@@ -475,6 +430,10 @@ impl Checker<'_, '_> {
                 }
             }
             _ => {}
+        }
+        // `if node.Flags&ast.NodeFlagsAmbient != 0 { c.checkAmbientInitializer(node) }`.
+        if self.has_ambient_flag(node) {
+            self.check_ambient_initializer(node, initializer, annotation, true);
         }
         if !matches!(typed, Node::PropertyDeclaration(_)) {
             return;
@@ -1509,15 +1468,1186 @@ fn is_bigint_literal_initializer(checker: &Checker<'_, '_>, node: NodeId) -> boo
     }
 }
 
-/// Whether a class member's name is a `#private` identifier: the members
-/// `ast.NodeCanBeDecorated`'s legacy private-name exit can apply to.
-fn member_name_is_private(typed: Node<'_>) -> bool {
-    let name = match typed {
-        Node::PropertyDeclaration(property) => property.name,
-        Node::MethodDeclaration(method) => method.name,
-        Node::GetAccessorDeclaration(accessor) => accessor.name,
-        Node::SetAccessorDeclaration(accessor) => accessor.name,
-        _ => return false,
-    };
-    matches!(name, tsr_ast::PropertyName::PrivateIdentifier(_))
+/// One written entry of `node.ModifierNodes()` as `checkGrammarModifiers`
+/// walks it: a decorator or a modifier keyword.
+#[derive(Clone, Copy)]
+enum ModifierEntry {
+    Decorator(NodeId),
+    Modifier { kind: SyntaxKind, at: NodeId },
+}
+
+/// `ast.ModifierFlagsModifier`: every modifier flag but `Decorator`.
+const MODIFIER_FLAGS_MODIFIER: ModifierFlags = ModifierFlags::all()
+    .difference(ModifierFlags::DECORATOR)
+    .difference(ModifierFlags::IMMEDIATE)
+    .difference(ModifierFlags::DEFERRED);
+
+/// `ast.ModifierFlagsParameterPropertyModifier`.
+const PARAMETER_PROPERTY_MODIFIER: ModifierFlags = ModifierFlags::ACCESSIBILITY_MODIFIER
+    .union(ModifierFlags::READONLY)
+    .union(ModifierFlags::OVERRIDE);
+
+/// `ast.ModifierToFlag` for the keywords `checkGrammarModifiers` sets.
+fn modifier_to_flag(kind: SyntaxKind) -> ModifierFlags {
+    match kind {
+        SyntaxKind::PublicKeyword => ModifierFlags::PUBLIC,
+        SyntaxKind::PrivateKeyword => ModifierFlags::PRIVATE,
+        SyntaxKind::ProtectedKeyword => ModifierFlags::PROTECTED,
+        _ => ModifierFlags::empty(),
+    }
+}
+
+/// `node.ModifierNodes()` for the kinds whose checker calls
+/// `checkGrammarModifiers`: `checkTypeParameter`, `checkParameter`,
+/// `checkPropertyDeclaration` (and property signatures),
+/// `checkClassStaticBlockDeclaration`, `checkInterfaceDeclaration`,
+/// `checkEnumDeclaration`, `checkModuleDeclaration`, `checkImportDeclaration`,
+/// `checkImportEqualsDeclaration`, `checkExportDeclaration`,
+/// `checkExportAssignment`, `checkVariableStatement`,
+/// `checkTypeAliasDeclaration` (`checker.go:2605`-`:6878`),
+/// `checkGrammarFunctionLikeDeclaration` (function-likes, methods and
+/// accessors, `grammarchecks.go:762`), `checkGrammarIndexSignature` (`:842`)
+/// and `checkGrammarClassDeclarationHeritageClauses` (`:898`, both class
+/// kinds). `None` for every other kind: an object literal member's modifiers
+/// are `checkGrammarObjectLiteralExpression`'s
+/// ([`Checker::check_grammar_object_literal_modifiers`]).
+fn grammar_modifier_nodes(typed: Node<'_>) -> Option<&[ModifierLike<'_>]> {
+    Some(match typed {
+        Node::ClassStaticBlockDeclaration(n) => n.modifiers,
+        Node::ClassDeclaration(_)
+        | Node::ClassExpression(_)
+        | Node::InterfaceDeclaration(_)
+        | Node::TypeAliasDeclaration(_)
+        | Node::EnumDeclaration(_)
+        | Node::ModuleDeclaration(_)
+        | Node::FunctionDeclaration(_)
+        | Node::VariableStatement(_)
+        | Node::ImportDeclaration(_)
+        | Node::ImportEqualsDeclaration(_)
+        | Node::ExportDeclaration(_)
+        | Node::ExportAssignment(_)
+        | Node::PropertyDeclaration(_)
+        | Node::MethodDeclaration(_)
+        | Node::ParameterDeclaration(_)
+        | Node::TypeParameterDeclaration(_)
+        | Node::FunctionExpression(_)
+        | Node::ArrowFunction(_)
+        | Node::ConstructorDeclaration(_)
+        | Node::GetAccessorDeclaration(_)
+        | Node::SetAccessorDeclaration(_)
+        | Node::PropertySignatureDeclaration(_)
+        | Node::MethodSignatureDeclaration(_)
+        | Node::IndexSignatureDeclaration(_)
+        | Node::FunctionTypeNode(_)
+        | Node::ConstructorTypeNode(_) => crate::check::modifiers_of(typed)?,
+        _ => return None,
+    })
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarModifiers` (`grammarchecks.go:214`): the
+    /// decorator and modifier grammar of one declaration. Every arm is
+    /// `return grammarErrorOn…`, so a node gets at most one report, and the
+    /// answer gates the grammar checks its callers run after it
+    /// (`!c.checkGrammarModifiers(node)`), which read
+    /// `modifier_chain_reported`.
+    ///
+    /// Runs once per node (`modifier_chain_checked`): upstream calls it from
+    /// each checker that gates on it and its program-level
+    /// `SortAndDeduplicateDiagnostics` folds the repeats, where this port's
+    /// collection keeps every report.
+    ///
+    /// `grammarErrorOnNode` is silent in a file with parse diagnostics and
+    /// answers `false`, which makes the whole function `false` there; the
+    /// one `c.error` arm (TS8038) has the same guard.
+    pub(crate) fn check_grammar_modifiers(&mut self, node: NodeId) -> bool {
+        if !self.modifier_chain_checked.insert(node) {
+            return self.modifier_chain_reported.contains(&node);
+        }
+        let Some(typed) = self.node_map.get(node) else { return false };
+        let Some(written) = grammar_modifier_nodes(typed) else { return false };
+        let entries: Vec<ModifierEntry> = written
+            .iter()
+            .filter_map(|modifier| match modifier {
+                ModifierLike::Decorator(decorator) => {
+                    decorator.node_id.map(ModifierEntry::Decorator)
+                }
+                ModifierLike::Token(token) => {
+                    token.node_id.map(|at| ModifierEntry::Modifier { kind: token.kind, at })
+                }
+            })
+            .collect();
+        // The JS reparser appends the JSDoc modifiers (`@public`, `@private`,
+        // `@protected`, `@readonly`, `@override`) to the written list of
+        // these hosts, so the list is not empty when only they are present.
+        let reparsed_host = self.file_is_js
+            && matches!(
+                typed,
+                Node::MethodDeclaration(_)
+                    | Node::GetAccessorDeclaration(_)
+                    | Node::SetAccessorDeclaration(_)
+                    | Node::PropertyDeclaration(_)
+                    | Node::ConstructorDeclaration(_)
+            );
+        // `if node.Modifiers() == nil { return false }`.
+        if (entries.is_empty() && !reparsed_host) || self.file_has_parse_errors {
+            return false;
+        }
+        let reported = self.check_grammar_modifiers_worker(node, typed, &entries, reparsed_host);
+        if reported {
+            self.modifier_chain_reported.insert(node);
+        }
+        reported
+    }
+
+    /// The body of `checkGrammarModifiers` past its `nil` test, in upstream's
+    /// order. Answers whether it reported.
+    #[expect(clippy::too_many_lines, reason = "one native function, ported arm for arm")]
+    fn check_grammar_modifiers_worker(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+        entries: &[ModifierEntry],
+        reparsed_host: bool,
+    ) -> bool {
+        if self.report_obvious_decorator_errors(node, typed, entries)
+            || self.report_obvious_modifier_errors(node, typed, entries)
+        {
+            return true;
+        }
+        let kind = self.nodes.kind(node);
+        // `ast.IsThisParameter(node)`.
+        if let Node::ParameterDeclaration(parameter) = typed
+            && matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        {
+            return self.grammar_error_on_first_token(
+                node,
+                &messages::NEITHER_DECORATORS_NOR_MODIFIERS_MAY_BE_APPLIED_TO_THIS_PARAMETERS,
+            );
+        }
+        let block_scope_kind = match typed {
+            Node::VariableStatement(statement) => statement
+                .declaration_list
+                .and_then(|list| list.node_id)
+                .map_or(NodeFlags::empty(), |list| {
+                    self.nodes.flags(list) & NodeFlags::BLOCK_SCOPED
+                }),
+            _ => NodeFlags::empty(),
+        };
+        let is_await_using = block_scope_kind == NodeFlags::CONST | NodeFlags::USING
+            || self.is_await_using_statement(typed);
+        let is_using = block_scope_kind == NodeFlags::USING && !is_await_using;
+        let parent = self.nodes.parent(node);
+        let parent_kind = parent.map(|parent| self.nodes.kind(parent));
+        let parent_is_module_or_file =
+            matches!(parent_kind, Some(SyntaxKind::ModuleBlock | SyntaxKind::SourceFile));
+        let parent_is_class_like =
+            matches!(parent_kind, Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression));
+        let mut last_static = None;
+        let mut last_declare = None;
+        let mut last_async = None;
+        let mut last_override = None;
+        let mut first_decorator: Option<NodeId> = None;
+        let mut flags = ModifierFlags::empty();
+        let mut saw_export_before_decorators = false;
+        let mut has_leading_decorators = false;
+        for &entry in entries {
+            let (modifier_kind, at) = match entry {
+                ModifierEntry::Decorator(decorator) => {
+                    if !self.node_can_be_decorated(node, typed) {
+                        let message = if matches!(typed, Node::MethodDeclaration(method) if method.body.is_none())
+                        {
+                            &messages::A_DECORATOR_CAN_ONLY_DECORATE_A_METHOD_IMPLEMENTATION_NOT_AN_OVERLOAD
+                        } else {
+                            &messages::DECORATORS_ARE_NOT_VALID_HERE
+                        };
+                        return self.grammar_error_on_first_token(node, message);
+                    } else if self.legacy_decorators
+                        && matches!(kind, SyntaxKind::GetAccessor | SyntaxKind::SetAccessor)
+                        && self.is_second_accessor_after_decorated_first(node, kind)
+                    {
+                        return self.grammar_error_on_first_token(
+                            node,
+                            &messages::DECORATORS_CANNOT_BE_APPLIED_TO_MULTIPLE_GET_SLASHSET_ACCESSORS_OF_THE_SAME_NAME,
+                        );
+                    }
+                    // Any modifier but `export`/`default` before a decorator.
+                    if flags.intersects(
+                        !(ModifierFlags::EXPORT
+                            | ModifierFlags::DEFAULT
+                            | ModifierFlags::DECORATOR),
+                    ) {
+                        return self.grammar_modifier_error(
+                            node,
+                            decorator,
+                            &messages::DECORATORS_ARE_NOT_VALID_HERE,
+                            &[],
+                        );
+                    }
+                    // Leading decorators, then modifiers, then trailing ones.
+                    if has_leading_decorators && flags.intersects(MODIFIER_FLAGS_MODIFIER) {
+                        let Some(first) = first_decorator else { return false };
+                        let Some(file) = self.source_file_of_for_diagnostics(node) else {
+                            return true;
+                        };
+                        let mut diagnostic = Diagnostic::new(
+                            &messages::DECORATORS_MAY_NOT_APPEAR_AFTER_EXPORT_OR_EXPORT_DEFAULT_IF_THEY_ALSO_APPEAR_BEFORE_EXPORT,
+                            self.error_span(decorator),
+                        );
+                        diagnostic.add_related_information(Some(Diagnostic::new(
+                            &messages::DECORATOR_USED_BEFORE_EXPORT_HERE,
+                            self.error_span(first),
+                        )));
+                        self.report(file, diagnostic);
+                        return true;
+                    }
+                    flags |= ModifierFlags::DECORATOR;
+                    if !flags.intersects(MODIFIER_FLAGS_MODIFIER) {
+                        has_leading_decorators = true;
+                    } else if flags.contains(ModifierFlags::EXPORT) {
+                        saw_export_before_decorators = true;
+                    }
+                    if first_decorator.is_none() {
+                        first_decorator = Some(decorator);
+                    }
+                    continue;
+                }
+                ModifierEntry::Modifier { kind, at } => (kind, at),
+            };
+            let text = modifier_text(modifier_kind);
+            if modifier_kind != SyntaxKind::ReadonlyKeyword {
+                if matches!(kind, SyntaxKind::PropertySignature | SyntaxKind::MethodSignature) {
+                    return self.grammar_modifier_error(
+                        node,
+                        at,
+                        &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_TYPE_MEMBER,
+                        &[text],
+                    );
+                }
+                if kind == SyntaxKind::IndexSignature
+                    && (modifier_kind != SyntaxKind::StaticKeyword || !parent_is_class_like)
+                {
+                    return self.grammar_modifier_error(
+                        node,
+                        at,
+                        &messages::_0_MODIFIER_CANNOT_APPEAR_ON_AN_INDEX_SIGNATURE,
+                        &[text],
+                    );
+                }
+            }
+            if !matches!(
+                modifier_kind,
+                SyntaxKind::InKeyword | SyntaxKind::OutKeyword | SyntaxKind::ConstKeyword
+            ) && kind == SyntaxKind::TypeParameter
+            {
+                return self.grammar_modifier_error(
+                    node,
+                    at,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_TYPE_PARAMETER,
+                    &[text],
+                );
+            }
+            // Every must-precede arm also tests `modifier.Flags&
+            // ast.NodeFlagsReparsed == 0`, which a written modifier passes;
+            // the reparsed ones are walked after the loop.
+            match modifier_kind {
+                SyntaxKind::ConstKeyword => {
+                    if !matches!(kind, SyntaxKind::EnumDeclaration | SyntaxKind::TypeParameter) {
+                        return self.grammar_modifier_error(
+                            node,
+                            node,
+                            &messages::A_CLASS_MEMBER_CANNOT_HAVE_THE_0_KEYWORD,
+                            &["const"],
+                        );
+                    }
+                    if kind == SyntaxKind::TypeParameter
+                        && !self.type_parameter_parent_kind(node).is_some_and(|parent| {
+                            matches!(
+                                parent,
+                                SyntaxKind::FunctionDeclaration
+                                    | SyntaxKind::MethodDeclaration
+                                    | SyntaxKind::Constructor
+                                    | SyntaxKind::GetAccessor
+                                    | SyntaxKind::SetAccessor
+                                    | SyntaxKind::FunctionExpression
+                                    | SyntaxKind::ArrowFunction
+                                    | SyntaxKind::ClassDeclaration
+                                    | SyntaxKind::ClassExpression
+                                    | SyntaxKind::FunctionType
+                                    | SyntaxKind::ConstructorType
+                                    | SyntaxKind::CallSignature
+                                    | SyntaxKind::ConstructSignature
+                                    | SyntaxKind::MethodSignature
+                            )
+                        })
+                    {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_CAN_ONLY_APPEAR_ON_A_TYPE_PARAMETER_OF_A_FUNCTION_METHOD_OR_CLASS,
+                            &[text],
+                        );
+                    }
+                }
+                SyntaxKind::OverrideKeyword => {
+                    let report: Option<(&'static tsr_diagnostics::Message, &[&str])> =
+                        if flags.contains(ModifierFlags::OVERRIDE) {
+                            Some((&messages::_0_MODIFIER_ALREADY_SEEN, &["override"]))
+                        } else if flags.contains(ModifierFlags::AMBIENT) {
+                            Some((
+                                &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                                &["override", "declare"],
+                            ))
+                        } else if flags.contains(ModifierFlags::READONLY) {
+                            Some((
+                                &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                                &["override", "readonly"],
+                            ))
+                        } else if flags.contains(ModifierFlags::ACCESSOR) {
+                            Some((
+                                &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                                &["override", "accessor"],
+                            ))
+                        } else if flags.contains(ModifierFlags::ASYNC) {
+                            Some((
+                                &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                                &["override", "async"],
+                            ))
+                        } else {
+                            None
+                        };
+                    if let Some((message, args)) = report {
+                        return self.grammar_modifier_error(node, at, message, args);
+                    }
+                    flags |= ModifierFlags::OVERRIDE;
+                    last_override = Some(at);
+                }
+                SyntaxKind::PublicKeyword
+                | SyntaxKind::ProtectedKeyword
+                | SyntaxKind::PrivateKeyword => {
+                    // `visibilityToString(ast.ModifierToFlag(modifier.Kind))`.
+                    let report: Option<(&'static tsr_diagnostics::Message, &[&str])> = if flags
+                        .intersects(ModifierFlags::ACCESSIBILITY_MODIFIER)
+                    {
+                        Some((&messages::ACCESSIBILITY_MODIFIER_ALREADY_SEEN, &[]))
+                    } else if flags.contains(ModifierFlags::OVERRIDE) {
+                        Some((&messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER, &["override"]))
+                    } else if flags.contains(ModifierFlags::STATIC) {
+                        Some((&messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER, &["static"]))
+                    } else if flags.contains(ModifierFlags::ACCESSOR) {
+                        Some((&messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER, &["accessor"]))
+                    } else if flags.contains(ModifierFlags::READONLY) {
+                        Some((&messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER, &["readonly"]))
+                    } else if flags.contains(ModifierFlags::ASYNC) {
+                        Some((&messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER, &["async"]))
+                    } else if parent_is_module_or_file {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_MODULE_OR_NAMESPACE_ELEMENT,
+                            &[],
+                        ))
+                    } else if flags.contains(ModifierFlags::ABSTRACT) {
+                        if modifier_kind == SyntaxKind::PrivateKeyword {
+                            Some((
+                                &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                                &["abstract"],
+                            ))
+                        } else {
+                            Some((&messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER, &["abstract"]))
+                        }
+                    } else if self.is_private_identifier_class_element_declaration(node) {
+                        Some((
+                                &messages::AN_ACCESSIBILITY_MODIFIER_CANNOT_BE_USED_WITH_A_PRIVATE_IDENTIFIER,
+                                &[],
+                            ))
+                    } else {
+                        None
+                    };
+                    if let Some((message, rest)) = report {
+                        // Every message here but the two argument-free ones
+                        // leads with the keyword's own text.
+                        let args: Vec<&str> = if message.code() == 1028 || message.code() == 18010 {
+                            Vec::new()
+                        } else {
+                            std::iter::once(text).chain(rest.iter().copied()).collect()
+                        };
+                        return self.grammar_modifier_error(node, at, message, &args);
+                    }
+                    flags |= modifier_to_flag(modifier_kind);
+                }
+                SyntaxKind::StaticKeyword => {
+                    let report: Option<(&'static tsr_diagnostics::Message, &[&str])> = if flags
+                        .contains(ModifierFlags::STATIC)
+                    {
+                        Some((&messages::_0_MODIFIER_ALREADY_SEEN, &["static"]))
+                    } else if flags.contains(ModifierFlags::READONLY) {
+                        Some((
+                            &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                            &["static", "readonly"],
+                        ))
+                    } else if flags.contains(ModifierFlags::ASYNC) {
+                        Some((&messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER, &["static", "async"]))
+                    } else if flags.contains(ModifierFlags::ACCESSOR) {
+                        Some((
+                            &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                            &["static", "accessor"],
+                        ))
+                    } else if parent_is_module_or_file {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_MODULE_OR_NAMESPACE_ELEMENT,
+                            &["static"],
+                        ))
+                    } else if kind == SyntaxKind::Parameter {
+                        Some((&messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_PARAMETER, &["static"]))
+                    } else if flags.contains(ModifierFlags::ABSTRACT) {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                            &["static", "abstract"],
+                        ))
+                    } else if flags.contains(ModifierFlags::OVERRIDE) {
+                        Some((
+                            &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                            &["static", "override"],
+                        ))
+                    } else {
+                        None
+                    };
+                    if let Some((message, args)) = report {
+                        return self.grammar_modifier_error(node, at, message, args);
+                    }
+                    flags |= ModifierFlags::STATIC;
+                    last_static = Some(at);
+                }
+                SyntaxKind::AccessorKeyword => {
+                    let report: Option<(&'static tsr_diagnostics::Message, &[&str])> =
+                        if flags.contains(ModifierFlags::ACCESSOR) {
+                            Some((&messages::_0_MODIFIER_ALREADY_SEEN, &["accessor"]))
+                        } else if flags.contains(ModifierFlags::READONLY) {
+                            Some((
+                                &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                                &["accessor", "readonly"],
+                            ))
+                        } else if flags.contains(ModifierFlags::AMBIENT) {
+                            Some((
+                                &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                                &["accessor", "declare"],
+                            ))
+                        } else if kind != SyntaxKind::PropertyDeclaration {
+                            Some((
+                            &messages::ACCESSOR_MODIFIER_CAN_ONLY_APPEAR_ON_A_PROPERTY_DECLARATION,
+                            &[],
+                        ))
+                        } else {
+                            None
+                        };
+                    if let Some((message, args)) = report {
+                        return self.grammar_modifier_error(node, at, message, args);
+                    }
+                    flags |= ModifierFlags::ACCESSOR;
+                }
+                SyntaxKind::ReadonlyKeyword => {
+                    let report: Option<(&'static tsr_diagnostics::Message, &[&str])> = if flags
+                        .contains(ModifierFlags::READONLY)
+                    {
+                        Some((&messages::_0_MODIFIER_ALREADY_SEEN, &["readonly"]))
+                    } else if !matches!(
+                        kind,
+                        SyntaxKind::PropertyDeclaration
+                            | SyntaxKind::PropertySignature
+                            | SyntaxKind::IndexSignature
+                            | SyntaxKind::Parameter
+                    ) {
+                        Some((
+                                &messages::READONLY_MODIFIER_CAN_ONLY_APPEAR_ON_A_PROPERTY_DECLARATION_OR_INDEX_SIGNATURE,
+                                &[],
+                            ))
+                    } else if flags.contains(ModifierFlags::ACCESSOR) {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                            &["readonly", "accessor"],
+                        ))
+                    } else {
+                        None
+                    };
+                    if let Some((message, args)) = report {
+                        return self.grammar_modifier_error(node, at, message, args);
+                    }
+                    flags |= ModifierFlags::READONLY;
+                }
+                SyntaxKind::ExportKeyword => {
+                    if self.verbatim_module_syntax
+                        && !self.has_ambient_flag(node)
+                        && !matches!(
+                            kind,
+                            SyntaxKind::TypeAliasDeclaration
+                                | SyntaxKind::InterfaceDeclaration
+                                | SyntaxKind::ModuleDeclaration
+                        )
+                        && parent_kind == Some(SyntaxKind::SourceFile)
+                        && parent.is_some_and(|file| {
+                            self.emit_module_format_of(file) == tsr_core::ModuleKind::CommonJS
+                        })
+                    {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::A_TOP_LEVEL_EXPORT_MODIFIER_CANNOT_BE_USED_ON_VALUE_DECLARATIONS_IN_A_COMMONJS_MODULE_WHEN_VERBATIMMODULESYNTAX_IS_ENABLED,
+                            &[],
+                        );
+                    }
+                    let report: Option<(&'static tsr_diagnostics::Message, &[&str])> = if flags
+                        .contains(ModifierFlags::EXPORT)
+                    {
+                        Some((&messages::_0_MODIFIER_ALREADY_SEEN, &["export"]))
+                    } else if flags.contains(ModifierFlags::AMBIENT) {
+                        Some((
+                            &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                            &["export", "declare"],
+                        ))
+                    } else if flags.contains(ModifierFlags::ABSTRACT) {
+                        Some((
+                            &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                            &["export", "abstract"],
+                        ))
+                    } else if flags.contains(ModifierFlags::ASYNC) {
+                        Some((&messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER, &["export", "async"]))
+                    } else if parent_is_class_like {
+                        // `!ast.IsJSTypeAliasDeclaration(node)`: a JSDoc
+                        // typedef is not a node of this tree.
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_CLASS_ELEMENTS_OF_THIS_KIND,
+                            &["export"],
+                        ))
+                    } else if kind == SyntaxKind::Parameter {
+                        Some((&messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_PARAMETER, &["export"]))
+                    } else if is_using {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_USING_DECLARATION,
+                            &["export"],
+                        ))
+                    } else if is_await_using {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_AN_AWAIT_USING_DECLARATION,
+                            &["export"],
+                        ))
+                    } else {
+                        None
+                    };
+                    if let Some((message, args)) = report {
+                        return self.grammar_modifier_error(node, at, message, args);
+                    }
+                    flags |= ModifierFlags::EXPORT;
+                }
+                SyntaxKind::DefaultKeyword => {
+                    // `container = node.Parent` at file scope, else
+                    // `node.Parent.Parent`.
+                    let container = if parent_kind == Some(SyntaxKind::SourceFile) {
+                        parent
+                    } else {
+                        parent.and_then(|parent| self.nodes.parent(parent))
+                    };
+                    if container.is_some_and(|container| {
+                        self.nodes.kind(container) == SyntaxKind::ModuleDeclaration
+                            && !self.is_ambient_module_declaration_node(container)
+                    }) {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::A_DEFAULT_EXPORT_CAN_ONLY_BE_USED_IN_AN_ECMASCRIPT_STYLE_MODULE,
+                            &[],
+                        );
+                    } else if is_using {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_USING_DECLARATION,
+                            &["default"],
+                        );
+                    } else if is_await_using {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_AN_AWAIT_USING_DECLARATION,
+                            &["default"],
+                        );
+                    } else if !flags.contains(ModifierFlags::EXPORT) {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                            &["export", "default"],
+                        );
+                    } else if saw_export_before_decorators && let Some(first) = first_decorator {
+                        return self.grammar_modifier_error(
+                            node,
+                            first,
+                            &messages::DECORATORS_ARE_NOT_VALID_HERE,
+                            &[],
+                        );
+                    }
+                    flags |= ModifierFlags::DEFAULT;
+                }
+                SyntaxKind::DeclareKeyword => {
+                    let report: Option<(&'static tsr_diagnostics::Message, &[&str])> = if flags
+                        .contains(ModifierFlags::AMBIENT)
+                    {
+                        Some((&messages::_0_MODIFIER_ALREADY_SEEN, &["declare"]))
+                    } else if flags.contains(ModifierFlags::ASYNC) {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_IN_AN_AMBIENT_CONTEXT,
+                            &["async"],
+                        ))
+                    } else if flags.contains(ModifierFlags::OVERRIDE) {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_IN_AN_AMBIENT_CONTEXT,
+                            &["override"],
+                        ))
+                    } else if parent_is_class_like && kind != SyntaxKind::PropertyDeclaration {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_CLASS_ELEMENTS_OF_THIS_KIND,
+                            &["declare"],
+                        ))
+                    } else if kind == SyntaxKind::Parameter {
+                        Some((&messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_PARAMETER, &["declare"]))
+                    } else if is_using {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_USING_DECLARATION,
+                            &["declare"],
+                        ))
+                    } else if is_await_using {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_AN_AWAIT_USING_DECLARATION,
+                            &["declare"],
+                        ))
+                    } else if parent_kind == Some(SyntaxKind::ModuleBlock)
+                        && parent.is_some_and(|parent| self.has_ambient_flag(parent))
+                    {
+                        Some((&messages::A_DECLARE_MODIFIER_CANNOT_BE_USED_IN_AN_ALREADY_AMBIENT_CONTEXT, &[]))
+                    } else if self.is_private_identifier_class_element_declaration(node) {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_A_PRIVATE_IDENTIFIER,
+                            &["declare"],
+                        ))
+                    } else if flags.contains(ModifierFlags::ACCESSOR) {
+                        Some((
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                            &["declare", "accessor"],
+                        ))
+                    } else {
+                        None
+                    };
+                    if let Some((message, args)) = report {
+                        return self.grammar_modifier_error(node, at, message, args);
+                    }
+                    flags |= ModifierFlags::AMBIENT;
+                    last_declare = Some(at);
+                }
+                SyntaxKind::AbstractKeyword => {
+                    if flags.contains(ModifierFlags::ABSTRACT) {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_ALREADY_SEEN,
+                            &["abstract"],
+                        );
+                    }
+                    if !matches!(kind, SyntaxKind::ClassDeclaration | SyntaxKind::ConstructorType) {
+                        if !matches!(
+                            kind,
+                            SyntaxKind::MethodDeclaration
+                                | SyntaxKind::PropertyDeclaration
+                                | SyntaxKind::GetAccessor
+                                | SyntaxKind::SetAccessor
+                        ) {
+                            return self.grammar_modifier_error(
+                                node,
+                                at,
+                                &messages::ABSTRACT_MODIFIER_CAN_ONLY_APPEAR_ON_A_CLASS_METHOD_OR_PROPERTY_DECLARATION,
+                                &[],
+                            );
+                        }
+                        let parent_is_abstract_class = parent_kind
+                            == Some(SyntaxKind::ClassDeclaration)
+                            && parent.is_some_and(|parent| {
+                                matches!(
+                                    self.node_map.get(parent),
+                                    Some(Node::ClassDeclaration(class))
+                                        if has_modifier(class.modifiers, SyntaxKind::AbstractKeyword)
+                                )
+                            });
+                        if !parent_is_abstract_class {
+                            let message = if kind == SyntaxKind::PropertyDeclaration {
+                                &messages::ABSTRACT_PROPERTIES_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
+                            } else {
+                                &messages::ABSTRACT_METHODS_CAN_ONLY_APPEAR_WITHIN_AN_ABSTRACT_CLASS
+                            };
+                            return self.grammar_modifier_error(node, at, message, &[]);
+                        }
+                        if flags.contains(ModifierFlags::STATIC) {
+                            return self.grammar_modifier_error(
+                                node,
+                                at,
+                                &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                                &["static", "abstract"],
+                            );
+                        }
+                        if flags.contains(ModifierFlags::PRIVATE) {
+                            return self.grammar_modifier_error(
+                                node,
+                                at,
+                                &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                                &["private", "abstract"],
+                            );
+                        }
+                        if flags.contains(ModifierFlags::ASYNC)
+                            && let Some(async_modifier) = last_async
+                        {
+                            return self.grammar_modifier_error(
+                                node,
+                                async_modifier,
+                                &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                                &["async", "abstract"],
+                            );
+                        }
+                        if flags.contains(ModifierFlags::OVERRIDE) {
+                            return self.grammar_modifier_error(
+                                node,
+                                at,
+                                &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                                &["abstract", "override"],
+                            );
+                        }
+                        if flags.contains(ModifierFlags::ACCESSOR) {
+                            return self.grammar_modifier_error(
+                                node,
+                                at,
+                                &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                                &["abstract", "accessor"],
+                            );
+                        }
+                    }
+                    if self
+                        .declaration_name_of(node)
+                        .is_some_and(|name| self.nodes.kind(name) == SyntaxKind::PrivateIdentifier)
+                    {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_A_PRIVATE_IDENTIFIER,
+                            &["abstract"],
+                        );
+                    }
+                    flags |= ModifierFlags::ABSTRACT;
+                }
+                SyntaxKind::AsyncKeyword => {
+                    if flags.contains(ModifierFlags::ASYNC) {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_ALREADY_SEEN,
+                            &["async"],
+                        );
+                    } else if flags.contains(ModifierFlags::AMBIENT)
+                        || parent.is_some_and(|parent| self.has_ambient_flag(parent))
+                    {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_IN_AN_AMBIENT_CONTEXT,
+                            &["async"],
+                        );
+                    } else if kind == SyntaxKind::Parameter {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_PARAMETER,
+                            &["async"],
+                        );
+                    }
+                    if flags.contains(ModifierFlags::ABSTRACT) {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_CANNOT_BE_USED_WITH_1_MODIFIER,
+                            &["async", "abstract"],
+                        );
+                    }
+                    flags |= ModifierFlags::ASYNC;
+                    last_async = Some(at);
+                }
+                SyntaxKind::InKeyword | SyntaxKind::OutKeyword => {
+                    let in_out_flag = if modifier_kind == SyntaxKind::InKeyword {
+                        ModifierFlags::IN
+                    } else {
+                        ModifierFlags::OUT
+                    };
+                    let parent = self.type_parameter_parent_kind(node);
+                    if kind != SyntaxKind::TypeParameter
+                        || parent.is_some_and(|parent| {
+                            !matches!(
+                                parent,
+                                SyntaxKind::InterfaceDeclaration
+                                    | SyntaxKind::ClassDeclaration
+                                    | SyntaxKind::ClassExpression
+                                    | SyntaxKind::TypeAliasDeclaration
+                            )
+                        })
+                    {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_CAN_ONLY_APPEAR_ON_A_TYPE_PARAMETER_OF_A_CLASS_INTERFACE_OR_TYPE_ALIAS,
+                            &[text],
+                        );
+                    }
+                    if flags.contains(in_out_flag) {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_ALREADY_SEEN,
+                            &[text],
+                        );
+                    }
+                    if in_out_flag == ModifierFlags::IN && flags.contains(ModifierFlags::OUT) {
+                        return self.grammar_modifier_error(
+                            node,
+                            at,
+                            &messages::_0_MODIFIER_MUST_PRECEDE_1_MODIFIER,
+                            &["in", "out"],
+                        );
+                    }
+                    flags |= in_out_flag;
+                }
+                _ => {}
+            }
+        }
+        // The reparsed JSDoc modifiers follow the written ones in upstream's
+        // list; `check_jsdoc_reparsed_modifier_grammar` walks them with the
+        // arms a reparsed modifier can reach, continuing from this walk's
+        // state.
+        if reparsed_host {
+            let mut seen: Vec<SyntaxKind> = [
+                (ModifierFlags::PUBLIC, SyntaxKind::PublicKeyword),
+                (ModifierFlags::PRIVATE, SyntaxKind::PrivateKeyword),
+                (ModifierFlags::PROTECTED, SyntaxKind::ProtectedKeyword),
+                (ModifierFlags::READONLY, SyntaxKind::ReadonlyKeyword),
+                (ModifierFlags::OVERRIDE, SyntaxKind::OverrideKeyword),
+                (ModifierFlags::AMBIENT, SyntaxKind::DeclareKeyword),
+                (ModifierFlags::ABSTRACT, SyntaxKind::AbstractKeyword),
+                (ModifierFlags::ACCESSOR, SyntaxKind::AccessorKeyword),
+            ]
+            .into_iter()
+            .filter(|(flag, _)| flags.contains(*flag))
+            .map(|(_, keyword)| keyword)
+            .collect();
+            let before = self.diagnostics.len();
+            self.check_jsdoc_reparsed_modifier_grammar(node, &mut seen);
+            if self.diagnostics.len() != before {
+                return true;
+            }
+        }
+        if kind == SyntaxKind::Constructor {
+            if let Some(at) = last_static {
+                return self.grammar_modifier_error(
+                    node,
+                    at,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                    &["static"],
+                );
+            }
+            if let Some(at) = last_override {
+                return self.grammar_modifier_error(
+                    node,
+                    at,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                    &["override"],
+                );
+            }
+            if let Some(at) = last_async {
+                return self.grammar_modifier_error(
+                    node,
+                    at,
+                    &messages::_0_MODIFIER_CANNOT_APPEAR_ON_A_CONSTRUCTOR_DECLARATION,
+                    &["async"],
+                );
+            }
+            return false;
+        } else if matches!(
+            kind,
+            SyntaxKind::ImportDeclaration | SyntaxKind::ImportEqualsDeclaration
+        ) && let Some(at) = last_declare
+        {
+            return self.grammar_modifier_error(
+                node,
+                at,
+                &messages::A_0_MODIFIER_CANNOT_BE_USED_WITH_AN_IMPORT_DECLARATION,
+                &["declare"],
+            );
+        } else if let Node::ParameterDeclaration(parameter) = typed
+            && flags.intersects(PARAMETER_PROPERTY_MODIFIER)
+        {
+            if matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_))) {
+                return self.grammar_modifier_error(
+                    node,
+                    node,
+                    &messages::A_PARAMETER_PROPERTY_MAY_NOT_BE_DECLARED_USING_A_BINDING_PATTERN,
+                    &[],
+                );
+            }
+            if parameter.dot_dot_dot_token.is_some() {
+                return self.grammar_modifier_error(
+                    node,
+                    node,
+                    &messages::A_PARAMETER_PROPERTY_CANNOT_BE_DECLARED_USING_A_REST_PARAMETER,
+                    &[],
+                );
+            }
+        }
+        if flags.contains(ModifierFlags::ASYNC)
+            && let Some(at) = last_async
+        {
+            // `checkGrammarAsyncModifier` (`grammarchecks.go:659`).
+            if matches!(
+                kind,
+                SyntaxKind::MethodDeclaration
+                    | SyntaxKind::FunctionDeclaration
+                    | SyntaxKind::FunctionExpression
+                    | SyntaxKind::ArrowFunction
+            ) {
+                return false;
+            }
+            return self.grammar_modifier_error(
+                node,
+                at,
+                &messages::_0_MODIFIER_CANNOT_BE_USED_HERE,
+                &["async"],
+            );
+        }
+        false
+    }
+
+    /// `grammarErrorOnNode(at, message, args…)` from inside
+    /// `checkGrammarModifiers`: the file has no parse diagnostics (the caller
+    /// returned before the walk otherwise), so it reports and answers `true`.
+    fn grammar_modifier_error(
+        &mut self,
+        node: NodeId,
+        at: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        args: &[&str],
+    ) -> bool {
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+        let span = self.error_span(at);
+        let diagnostic = if args.is_empty() {
+            Diagnostic::new(message, span)
+        } else {
+            Diagnostic::with_args(message, span, args.iter().map(|arg| (*arg).to_string()))
+        };
+        self.report(file, diagnostic);
+        true
+    }
+
+    /// `reportObviousDecoratorErrors` (`grammarchecks.go:642`): a decorator
+    /// on a kind `ast.CanHaveIllegalDecorators` lists, on its first token.
+    fn report_obvious_decorator_errors(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+        entries: &[ModifierEntry],
+    ) -> bool {
+        if !matches!(
+            typed,
+            Node::FunctionDeclaration(_)
+                | Node::ConstructorDeclaration(_)
+                | Node::IndexSignatureDeclaration(_)
+                | Node::ClassStaticBlockDeclaration(_)
+                | Node::VariableStatement(_)
+                | Node::InterfaceDeclaration(_)
+                | Node::TypeAliasDeclaration(_)
+                | Node::EnumDeclaration(_)
+                | Node::ModuleDeclaration(_)
+                | Node::ImportEqualsDeclaration(_)
+                | Node::ImportDeclaration(_)
+                | Node::ExportDeclaration(_)
+                | Node::ExportAssignment(_)
+        ) {
+            return false;
+        }
+        let _ = node;
+        let Some(decorator) = entries.iter().find_map(|entry| match entry {
+            ModifierEntry::Decorator(decorator) => Some(*decorator),
+            ModifierEntry::Modifier { .. } => None,
+        }) else {
+            return false;
+        };
+        self.grammar_error_on_first_token(decorator, &messages::DECORATORS_ARE_NOT_VALID_HERE)
+    }
+
+    /// `reportObviousModifierErrors` (`grammarchecks.go:569`) through
+    /// `findFirstIllegalModifier` (`:584`): TS1184 on the first modifier a
+    /// kind never takes, or takes only at the top level of a file or module
+    /// block.
+    fn report_obvious_modifier_errors(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+        entries: &[ModifierEntry],
+    ) -> bool {
+        let written = |except: Option<SyntaxKind>| {
+            // `core.Find(node.ModifierNodes(), ast.IsModifier)`, then
+            // `findFirstModifierExcept`'s test on that first modifier.
+            entries
+                .iter()
+                .find_map(|entry| match entry {
+                    ModifierEntry::Modifier { kind, at, .. } => Some((*kind, *at)),
+                    ModifierEntry::Decorator(_) => None,
+                })
+                .filter(|(kind, _)| Some(*kind) != except)
+                .map(|(_, at)| at)
+        };
+        let modifier = match typed {
+            Node::GetAccessorDeclaration(_)
+            | Node::SetAccessorDeclaration(_)
+            | Node::ConstructorDeclaration(_)
+            | Node::PropertyDeclaration(_)
+            | Node::PropertySignatureDeclaration(_)
+            | Node::MethodDeclaration(_)
+            | Node::MethodSignatureDeclaration(_)
+            | Node::IndexSignatureDeclaration(_)
+            | Node::ModuleDeclaration(_)
+            | Node::ImportDeclaration(_)
+            | Node::ImportEqualsDeclaration(_)
+            | Node::ExportDeclaration(_)
+            | Node::ExportAssignment(_)
+            | Node::FunctionExpression(_)
+            | Node::ArrowFunction(_)
+            | Node::ParameterDeclaration(_)
+            | Node::TypeParameterDeclaration(_) => None,
+            Node::ClassStaticBlockDeclaration(_) => written(None),
+            _ => {
+                let at_top_level = self.nodes.parent(node).is_some_and(|parent| {
+                    matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::ModuleBlock | SyntaxKind::SourceFile
+                    )
+                });
+                if at_top_level {
+                    None
+                } else {
+                    match typed {
+                        Node::FunctionDeclaration(_) => written(Some(SyntaxKind::AsyncKeyword)),
+                        Node::ClassDeclaration(_) | Node::ConstructorTypeNode(_) => {
+                            written(Some(SyntaxKind::AbstractKeyword))
+                        }
+                        Node::ClassExpression(_)
+                        | Node::InterfaceDeclaration(_)
+                        | Node::TypeAliasDeclaration(_) => written(None),
+                        Node::VariableStatement(statement) => {
+                            let using = statement
+                                .declaration_list
+                                .and_then(|list| list.node_id)
+                                .is_some_and(|list| {
+                                    self.nodes.flags(list).contains(NodeFlags::USING)
+                                });
+                            written(using.then_some(SyntaxKind::AwaitKeyword))
+                        }
+                        Node::EnumDeclaration(_) => written(Some(SyntaxKind::ConstKeyword)),
+                        // upstream panics on any other kind; none reaches here.
+                        _ => None,
+                    }
+                }
+            }
+        };
+        let Some(modifier) = modifier else { return false };
+        self.grammar_error_on_first_token(modifier, &messages::MODIFIERS_CANNOT_APPEAR_HERE)
+    }
+
+    /// `ast.GetAllAccessorDeclarationsForDeclaration(node,
+    /// symbol.Declarations)`'s `SecondAccessor == node`, behind
+    /// `HasDecorators(FirstAccessor)`: the other accessor of the pair is the
+    /// symbol's first declaration of the other kind, and whichever starts
+    /// first is the first accessor.
+    fn is_second_accessor_after_decorated_first(&self, node: NodeId, kind: SyntaxKind) -> bool {
+        let other_kind = if kind == SyntaxKind::SetAccessor {
+            SyntaxKind::GetAccessor
+        } else {
+            SyntaxKind::SetAccessor
+        };
+        let Some(symbol) = self.binder.symbol_of(node) else { return false };
+        let Some(other) = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .copied()
+            .find(|&declaration| self.nodes.kind(declaration) == other_kind)
+        else {
+            return false;
+        };
+        if self.nodes.span(other).start >= self.nodes.span(node).start {
+            return false;
+        }
+        self.node_map.get(other).and_then(crate::check::modifiers_of).is_some_and(|modifiers| {
+            modifiers.iter().any(|modifier| matches!(modifier, ModifierLike::Decorator(_)))
+        })
+    }
+
+    /// Whether a variable statement is `await using`
+    /// (`NodeFlagsAwaitUsing`): this parser eats the `await` and flags the
+    /// list `Using` alone, so [`Checker::is_await_using_list`] recovers it.
+    fn is_await_using_statement(&self, typed: Node<'_>) -> bool {
+        let Node::VariableStatement(statement) = typed else { return false };
+        statement.declaration_list.and_then(|list| list.node_id).is_some_and(|list| {
+            self.nodes.flags(list).contains(NodeFlags::USING) && self.is_await_using_list(list)
+        })
+    }
+
+    /// A type parameter's `node.Parent` kind as `checkGrammarModifiers` reads
+    /// it: for a JSDoc `@template` parameter, the declaration its list is
+    /// reparsed into ([`Checker::jsdoc_template_owner_kind`]).
+    fn type_parameter_parent_kind(&self, node: NodeId) -> Option<SyntaxKind> {
+        self.jsdoc_template_owner_kind(node)
+            .or_else(|| self.nodes.parent(node).map(|parent| self.nodes.kind(parent)))
+    }
+
+    /// `node.Flags & ast.NodeFlagsAmbient`. The parser sets the flag in a
+    /// declaration file and on everything parsed inside a declaration whose
+    /// modifiers include `declare` — a statement-level declaration
+    /// (`parseDeclaration`, `parser.go:1128`) or a class property or method
+    /// (`parseClassElement`, `:1878`). This parser never sets
+    /// `NodeFlags::AMBIENT`, so the ancestors are walked.
+    pub(crate) fn has_ambient_flag(&self, node: NodeId) -> bool {
+        std::iter::once(node).chain(self.nodes.ancestors(node)).any(|at| {
+            match self.node_map.get(at) {
+                Some(Node::SourceFile(_)) => {
+                    self.module_host.is_some_and(|host| host.is_declaration_file(at))
+                }
+                Some(
+                    typed @ (Node::VariableStatement(_)
+                    | Node::FunctionDeclaration(_)
+                    | Node::ClassDeclaration(_)
+                    | Node::InterfaceDeclaration(_)
+                    | Node::TypeAliasDeclaration(_)
+                    | Node::EnumDeclaration(_)
+                    | Node::ModuleDeclaration(_)
+                    | Node::ImportEqualsDeclaration(_)
+                    | Node::ImportDeclaration(_)
+                    | Node::ExportDeclaration(_)
+                    | Node::ExportAssignment(_)
+                    | Node::PropertyDeclaration(_)
+                    | Node::MethodDeclaration(_)),
+                ) => crate::check::modifiers_of(typed)
+                    .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::DeclareKeyword)),
+                _ => false,
+            }
+        })
+    }
+
+    /// `ast.IsAmbientModule`: a module declaration with a string-literal
+    /// name, or a `declare global` augmentation.
+    fn is_ambient_module_declaration_node(&self, node: NodeId) -> bool {
+        let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return false };
+        matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+            || module.keyword.kind == SyntaxKind::GlobalKeyword
+    }
 }
