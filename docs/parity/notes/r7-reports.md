@@ -599,3 +599,29 @@ positions answers now. No RIGHT/EMPTY_RIGHT case or type line lost.
 `generatorImplicitAny` (26,7) `f(yield)` stays: the yield is an argument of
 a generic call, whose contextual type is the instantiated parameter, not a
 shown absence.
+
+## 13. `hasCommonProperties` over an intersection reads every constituent's properties
+
+**Forcing fact.** `tsxStatelessFunctionComponentsWithTypeArguments4` (12,15):
+`<OverloadComponent {...arg1} ignore-prop />` with `T extends { b: number }`
+is TS2769. Its first overload takes no props, so its target is the weak
+`IntrinsicAttributes`. The attributes type `T & { "ignore-prop": true }`
+shares no property with it, and the candidate fails. TSR chose that
+candidate.
+
+**Upstream.** `isRelatedTo`'s common-property check (`relater.go`) reads
+`getPropertiesOfType(source)`: the reduced apparent type, here `{ b: number
+} & { "ignore-prop": true }`. `getPropertiesOfUnionOrIntersectionType`
+creates a property for every name any constituent declares. The
+intersection is not `ObjectFlagsJsxAttributes` (only the minted object
+part is), so `ignore-prop` is not known to `IntrinsicAttributes` either.
+
+**Port** (`assignreport.rs`, `common_check_property_names`).
+`get_property_names_of_type` answered None for that intersection, so
+`fails_common_property_check` declined. An intersection's names are now the
+union of each constituent's apparent names, and stay None if any
+constituent's names are not enumerable.
+
+**Measured** (unfiltered, against batch-11 main `86d9406e` plus §11–§12):
+WRONG → RIGHT `tsxStatelessFunctionComponentsWithTypeArguments4`; no other
+row changed; type lines identical.
