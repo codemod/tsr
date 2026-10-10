@@ -279,3 +279,19 @@ multi-checker drops are fixed (r7-grammar 375afb66).
 Grants: r7-grammar owns `delete_operand.rs` and `member_completeness.rs`,
 and `check.rs`'s interface-extends type-name arm and
 `check_value_identifier`'s TS2301/TS2844 choice.
+
+### Batch 11 — r7-calls `f2f6696f`, r7-contextual `e5e0494b`, r7-declared `f853238f`
+
+Merged onto main `0f7a1165`. Gate against the batch-10 freeze: types +10
+RIGHT / 0 lost / 0 missing, diagnostics +1 case / 0 lost / 0 missing; tests,
+fmt and strict clippy green. Perf child-CPU new/old read 1.037/1.063 at 21
+samples and 0.984/0.992 at 41 (domain-model/generic-imports), diagnostics
+identical. r7-calls drops its const-type-parameter decline on top of
+r7-contextual's const-literal markers.
+
+| Suite | Batch 10 | Batch 11 |
+|---|---|---|
+| `checker_types` | 8,797 | 8,799 |
+| `checker_types_configured` | 1,787 | 1,787 |
+| `diagnostics` | 4,895 | 4,896 |
+| `diagnostics_configured` | 981 | 981 |
