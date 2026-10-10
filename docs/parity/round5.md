@@ -1937,3 +1937,17 @@ The remaining ramda cost is filed as `tsr-2zk.1261`: indexed.rs, and
 members.rs's per-call alias-frame map. The alias-reference-body WIP is not
 landed. The declared clusters `.1154`, `.1184`, `.1190`, `.1209`, `.1240` and
 `.1255` are reopened unassigned, with causes in the box's notes §2–§3.
+
+### Checkpoint wrap-up: r6-modules4 (batch CG)
+
+Batch CG lands r6-modules4's resolve-alias-indirection diff:
+- resolveAlias's resolveIndirectionAlias (checker.go:16280);
+- native dontResolveAlias in getTargetOfImportClause and the require arm;
+- the export-specifier lookup by target meaning, and TS2437's alias resolve.
+
+Measured by the box: +6 diagnostics cases and +115 type lines, 0 lost. Perf
+was not measured by the box, so this batch's gate supplies it.
+
+The multi-thread diagnostic drop (`tsr-2zk.1258`) is still neither
+reproduced nor refuted. Its corpus diff is prepared in the box's notes. The
+module and alias clusters are reopened unassigned.
