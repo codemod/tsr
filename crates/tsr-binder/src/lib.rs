@@ -1544,9 +1544,12 @@ impl<'a> BindResult<'a> {
                                 Some(tsr_ast::ModuleReference::QualifiedName(_)) => {
                                     return Some(found);
                                 }
-                                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
-                                    if exported_alias(found, meaning & mask)? =>
-                                {
+                                // `import M_A = M_M` too: `getSymbol` asks
+                                // every alias for its target's meaning.
+                                Some(
+                                    tsr_ast::ModuleReference::ExternalModuleReference(_)
+                                    | tsr_ast::ModuleReference::Identifier(_),
+                                ) if exported_alias(found, meaning & mask)? => {
                                     return Some(found);
                                 }
                                 _ => {}

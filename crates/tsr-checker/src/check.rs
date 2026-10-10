@@ -5158,7 +5158,7 @@ impl Checker<'_, '_> {
             if self.specifier_type_only_export_star(declaration).is_some() {
                 return Some(true);
             }
-            current = self.binder.merged_symbol(self.resolve_alias(current)?);
+            current = self.binder.merged_symbol(self.immediate_alias_target(current)?);
         }
         None
     }
@@ -14500,23 +14500,25 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(text) = self.identifier_text(first).map(str::to_string) else { return };
-        let hidden = self
-            .binder
-            .resolve_name(
-                self.nodes,
-                self.node_map,
-                first,
-                &text,
-                SymbolFlags::VALUE | SymbolFlags::NAMESPACE,
-            )
-            .is_some_and(|found| {
-                !self
-                    .binder
-                    .symbols()
-                    .get(self.binder.merged_symbol(found))
-                    .flags
-                    .intersects(SymbolFlags::NAMESPACE)
-            });
+        // `resolveEntityName(moduleName, Value|Namespace, …, dontResolveAlias
+        // = false)` (`checker.go:5483`) answers an alias whose own flags lack
+        // the meaning through `resolveAlias`: `import x = require("m");
+        // import y = x` is not hidden by `x` (r6-modules3 §3, r6-modules4 §1).
+        let meaning = SymbolFlags::VALUE | SymbolFlags::NAMESPACE;
+        let found = self.binder.resolve_name(self.nodes, self.node_map, first, &text, meaning).map(
+            |found| {
+                let found = self.binder.merged_symbol(found);
+                let flags = self.binder.symbols().get(found).flags;
+                if flags.intersects(SymbolFlags::ALIAS) && !flags.intersects(meaning) {
+                    self.resolve_alias(found).map_or(found, |t| self.binder.merged_symbol(t))
+                } else {
+                    found
+                }
+            },
+        );
+        let hidden = found.is_some_and(|found| {
+            !self.binder.symbols().get(found).flags.intersects(SymbolFlags::NAMESPACE)
+        });
         if !hidden {
             return;
         }

@@ -1129,7 +1129,7 @@ impl Checker<'_, '_> {
             if let Some(declaration) = self.type_only_alias_declaration_node(current) {
                 return Some(declaration);
             }
-            current = self.resolve_alias(current)?;
+            current = self.immediate_alias_target(current)?;
         }
         None
     }
@@ -1493,7 +1493,7 @@ impl Checker<'_, '_> {
             if let Some(star) = self.specifier_type_only_export_star(declaration) {
                 return Some(star);
             }
-            current = self.binder.merged_symbol(self.resolve_alias(current)?);
+            current = self.binder.merged_symbol(self.immediate_alias_target(current)?);
             if !self.is_non_local_alias(
                 current,
                 SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::NAMESPACE,

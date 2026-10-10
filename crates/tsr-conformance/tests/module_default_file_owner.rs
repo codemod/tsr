@@ -97,7 +97,7 @@ fn defaults_share_the_original_module_not_its_default_property() {
                     }
                     for _ in 0..2 {
                         for &(_, symbol) in &sites {
-                            assert_eq!(checker.resolve_alias(symbol), Some(immediate));
+                            assert_eq!(checker.immediate_alias_target(symbol), Some(immediate));
                             let value = checker.get_type_of_symbol(symbol);
                             assert_eq!(value, checker.get_type_of_symbol(module));
                             let default =
@@ -267,7 +267,7 @@ fn every_alias_shape_resolves_to_the_immediate_export_equals() {
         let cycle = wrapper.contains("./wrapper");
         for _ in 0..2 {
             for &(_, symbol) in &sites {
-                assert_eq!(checker.resolve_alias(symbol), immediate, "{wrapper}");
+                assert_eq!(checker.immediate_alias_target(symbol), immediate, "{wrapper}");
                 if cycle {
                     assert_eq!(checker.get_type_of_symbol(symbol), checker.intrinsics().error);
                 }

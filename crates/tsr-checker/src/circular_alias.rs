@@ -11,13 +11,16 @@
 //! An alias that only *leads into* a cycle pops `true` and reports nothing.
 //!
 //! So the set of reporting aliases is exactly the aliases whose target chain
-//! returns to themselves. This port's [`Checker::resolve_alias`] is not
-//! recursive (it answers the immediate target), so the chain is walked here,
+//! returns to themselves. This port's [`Checker::resolve_alias`] does recurse
+//! through a pure-alias target (`resolveIndirectionAlias`), but a cycle only
+//! completes it as `None` and reports nothing, so the chain is walked here
+//! over the uncached one-hop worker
+//! ([`Checker::get_target_of_alias_symbol`], `getTargetOfAliasDeclaration`),
 //! one hop per recursion upstream would make:
 //!
 //! - `import x = require("m")`, `import * as x from "m"`, `export * as x from
 //!   "m"`: the module's `export=` symbol (`resolveExternalModuleSymbol`).
-//! - every other alias form: [`Checker::resolve_alias`]'s immediate target.
+//! - every other alias form: `getTargetOfAliasDeclaration`'s immediate target.
 //!
 //! The walk stops at the first non-alias, at an unresolvable hop, or at a
 //! repeat that is not the start (a cycle this alias only leads into). This
@@ -153,7 +156,9 @@ impl Checker<'_, '_> {
             }
             _ => None,
         };
-        let Some((owner, specifier)) = module_reference else { return self.resolve_alias(alias) };
+        let Some((owner, specifier)) = module_reference else {
+            return self.get_target_of_alias_symbol(alias);
+        };
         let module = self.resolve_external_module_name(owner, specifier)?;
         let module = self.binder.merged_symbol(module);
         // `resolveExternalModuleSymbol`: `resolveSymbol(exports["export="])`.
