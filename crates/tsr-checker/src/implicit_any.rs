@@ -261,15 +261,19 @@ impl Checker<'_, '_> {
             // "Report an implicit any error if there is no body … and node is
             // not a private method in an ambient context" is the *return type*
             // arm; a parameter in an ambient context still reports, and
-            // `ParameterList4` is an ordinary declaration. The ambient flag is
-            // threaded here only so a `.d.ts` stays silent, matching every other
-            // rule in `crate::check`.
+            // `ParameterList4` is an ordinary declaration.
             // **`isPrivateWithinAmbient`, which the comment above names and the
-            // old guard did not test.** A `.d.ts` stays silent; so does a
-            // `private` member in an ambient context. A *public* method in a
-            // `declare class` reports, and the walk-threaded `ambient` was
-            // skipping it along with them. §582.
-            if self.file_is_ambient || (ambient && private_within_ambient) {
+            // old guard did not test.** A `private` member in an ambient
+            // context stays silent; a *public* method in a `declare class`
+            // reports, and the walk-threaded `ambient` was skipping it along
+            // with them. §582.
+            // **A `.d.ts` is not exempt either.** `widenTypeForVariableLikeDeclaration`
+            // (`checker.go:18264`) exempts only `declarationBelongsToPrivateAmbientMember`
+            // (`utilities.go:334`), and a declaration file is checked like any
+            // other unless `skipLibCheck` drops it: `declare function foo(x);` in
+            // `implicitAnyInAmbientDeclaration2.d.ts` is TS7006 at `x`. The old
+            // `file_is_ambient ||` arm silenced the whole file (r7-reports §1).
+            if (ambient || self.file_is_ambient) && private_within_ambient {
                 continue;
             }
             let rest = declaration.dot_dot_dot_token.is_some();
