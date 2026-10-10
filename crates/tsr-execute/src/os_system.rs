@@ -94,6 +94,11 @@ impl System for OsSystem {
         std::env::var(name).unwrap_or_default()
     }
 
+    /// The `tsr` binary runs one command per process.
+    fn exits_after_command(&self) -> bool {
+        true
+    }
+
     fn since_start(&self) -> Duration {
         self.started.elapsed()
     }

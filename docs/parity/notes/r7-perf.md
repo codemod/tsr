@@ -389,3 +389,50 @@ before. The corpus's slowest cases on this base are
 `performanceComparisonOfStructurallyIdenticalInterfacesWithGenericSignatures`
 (3.9 s), `relationComplexityError` (1.7 s) and `ramdaToolsNoInfinite`
 (1.7 s).
+
+## §8 The CLI process does not tear down what it is about to exit from
+
+**Forcing measurement.** After the report is written, `run_compilation`
+still dropped the `Program`: node table, node map, `BindResult` hash maps,
+per-file vectors and the arena. Each checker worker also dropped its
+`Checker`'s type, symbol-link and relation tables before `std::thread::scope`
+joined it. That work is on the critical path. The pool waits for the
+slowest worker's drop, and the process cannot exit until `main` returns.
+Native `tsc` (tsgo) does none of it: the process exits without a final
+collection, and the operating system reclaims the heap.
+
+**Change** (`tsr-execute`, the driver):
+
+- `System::exits_after_command()` defaults to `false`. `OsSystem`, the
+  `tsr` binary's host, answers `true`.
+- When it is `true`, `run_compilation` `mem::forget`s the `Program` and the
+  arena once the exit status is known. `check_program_files` gets the
+  answer and `mem::forget`s each checker after its diagnostics are
+  collected.
+- The baseline runner and the test hosts keep the default, so a
+  long-running process that runs many commands drops everything as before.
+
+This is not a cache, side table or traversal, so the checker-port record
+does not apply. No answer depends on it. The forgotten values are only
+memory: no file handle, lock or thread is held by a `Program` or `Checker`.
+
+**Measured** (base: this branch's previous commit, `9242e12f`'s `release`
+binary; `/tmp/box/ab.py`, interleaved fresh processes, 21 samples):
+
+| project | wall | CPU |
+|---|---:|---:|
+| domain-model | 0.959 | 0.972 |
+| generic-imports | 0.965 | 0.960 |
+
+The box-protocol harness (`whole_project_perf.py`, the frozen `9242e12f`
+binary in the `--tsgo` slot, 21 samples) gives domain-model 0.979 wall ·
+**0.945** CPU and generic-imports 0.978 · **0.980**. The output is
+`cmp`-identical on dm, dml and gi. Both dumps are unchanged (`compare`
+against the `9242e12f` freeze: 0 lost, 0 missing; the conformance harness
+does not use `OsSystem`). `cargo test --workspace --release`: 3,753 passed,
+0 failed.
+
+**How we would know it is wrong.** A host that answers `true` and runs a
+second command in the same process: memory would grow by one program per
+command. `OsSystem` is constructed once per `main` and runs exactly one
+`command_line`.
