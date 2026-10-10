@@ -175,3 +175,26 @@ function f(wrap) {
     );
     assert_has(&lines, &["wrap : ex.Crunch"]);
 }
+
+/// `getSymbolChain` over a module object: no alias in scope names module
+/// `0`, but `trySymbolTable`'s `getCandidateListForSymbol` reaches it through
+/// `foo`'s exports, where `export * as ns` re-exports it
+/// (`exportAsNamespace1`'s native baseline).
+#[test]
+fn a_module_reached_through_an_alias_export_is_named_by_that_route() {
+    let lines = assertions(
+        "probe/module_rooted_namespace_reexport",
+        r"// @target: es2015
+// @module: esnext
+// @filename: 0.ts
+export const a = 1;
+export const b = 2;
+// @filename: 1.ts
+export * as ns from './0';
+// @filename: 2.ts
+import * as foo from './1'
+foo.ns.a;
+",
+    );
+    assert_has(&lines, &["foo.ns : typeof foo.ns"]);
+}
