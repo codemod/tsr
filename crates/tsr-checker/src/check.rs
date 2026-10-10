@@ -10654,10 +10654,12 @@ impl Checker<'_, '_> {
     /// is kept: TS2364 skips assertions and parentheses, TS2703 parentheses
     /// only. §181.
     fn check_reference_expression(&mut self, node: NodeId) {
-        // A plain JavaScript file reaches these positions through a different
-        // path upstream and this port's parser does not agree with it there —
-        // `plainJSBinderErrors.js` is three wrong TS2703 lines and nothing
-        // right. The same decline every other rule in this module carries.
+        // **No JS arm upstream.** The decline this rule carried was for
+        // `plainJSBinderErrors.js`'s three TS2703 lines, which native also
+        // produces in the checker and the program then drops: TS2703 is not
+        // a `plainJSErrors` code (`tsr_compiler::program_diagnostics`), so a
+        // plain JS file never shows it and a checked one does
+        // (`jsFileCompilationBindStrictModeErrors`; r6-jsdoc2 §2.2).
         // **The `file_has_parse_errors` bail is port-local** — upstream has no
         // counterpart and checks a file with parse errors like any other. All
         // five of this rule's blocked cases are parser error-recovery fixtures,
@@ -10665,9 +10667,6 @@ impl Checker<'_, '_> {
         // exactly what recovery preserves. §524 took the same guard off
         // `checkFunctionOrConstructorSymbol` for +4; §526 measured the blanket
         // removal and concluded the collection must be per-rule. §541.
-        if self.in_js_file(node) {
-            return;
-        }
         let (target, message, optional_message, skip_assertions) = match self.node_map.get(node) {
             // **Every assignment operator, not just `=`.** Upstream's
             // `checkBinaryLikeExpression` calls `checkAssignmentOperator` for
