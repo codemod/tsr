@@ -1,8 +1,8 @@
 diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
-index 7138aeb7..a1e0aa69 100644
+index 2d8cf14a..f82448e0 100644
 --- a/crates/tsr-checker/src/declared.rs
 +++ b/crates/tsr-checker/src/declared.rs
-@@ -5913,6 +5913,29 @@ impl<'a> Checker<'a, '_> {
+@@ -5921,6 +5921,29 @@ impl<'a> Checker<'a, '_> {
          {
              return result;
          }
@@ -33,10 +33,10 @@ index 7138aeb7..a1e0aa69 100644
              return result;
          };
 diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
-index 2e0e84db..0993bc83 100644
+index a72085a7..ce1a2e6e 100644
 --- a/crates/tsr-checker/src/mapped.rs
 +++ b/crates/tsr-checker/src/mapped.rs
-@@ -646,10 +646,23 @@ impl<'a> Checker<'a, '_> {
+@@ -650,10 +650,23 @@ impl<'a> Checker<'a, '_> {
          let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration) else {
              return;
          };
@@ -61,7 +61,7 @@ index 2e0e84db..0993bc83 100644
          if !self.mapped_alias_in_progress.insert(symbol) {
              self.deferred_mapped_aliases.insert(id, (symbol, arguments.to_vec()));
              return;
-@@ -667,6 +680,78 @@ impl<'a> Checker<'a, '_> {
+@@ -671,6 +684,78 @@ impl<'a> Checker<'a, '_> {
          self.mapped_alias_in_progress.remove(&symbol);
      }
  
@@ -140,7 +140,7 @@ index 2e0e84db..0993bc83 100644
      /// getConstraintTypeFromMappedType/getTemplateTypeFromMappedType
      /// (checker.go:22697) resolve a mapped type's parts on first use. A self
      /// reference created while its alias was being captured is captured here,
-@@ -843,7 +928,7 @@ impl<'a> Checker<'a, '_> {
+@@ -847,7 +932,7 @@ impl<'a> Checker<'a, '_> {
                  // numeric versus quoted names from the source member's origin.
                  // Reuse the Checker-owned provenance read, not a printed name;
                  // this walk publishes no key or member image of its own.
@@ -149,7 +149,7 @@ index 2e0e84db..0993bc83 100644
                  if key == self.intrinsics.error {
                      return None;
                  }
-@@ -936,6 +1021,20 @@ impl<'a> Checker<'a, '_> {
+@@ -940,6 +1025,20 @@ impl<'a> Checker<'a, '_> {
          let mut checked = rustc_hash::FxHashSet::default();
          let mut names = Vec::new();
          for part in types {
@@ -170,7 +170,7 @@ index 2e0e84db..0993bc83 100644
              for name in self.property_names_of(part) {
                  if checked.insert(name.clone())
                      && self.get_property_of_type(source, &name).is_some()
-@@ -951,6 +1050,170 @@ impl<'a> Checker<'a, '_> {
+@@ -955,6 +1054,170 @@ impl<'a> Checker<'a, '_> {
          names
      }
  
@@ -341,7 +341,7 @@ index 2e0e84db..0993bc83 100644
      /// isTypeUsableAsPropertyName/getPropertyNameFromType (checker.go): a
      /// string, number or enum literal key names a property by its value.
      fn mapped_key_property_name(&self, ty: TypeId) -> Option<String> {
-@@ -1042,6 +1305,7 @@ impl<'a> Checker<'a, '_> {
+@@ -1046,6 +1309,7 @@ impl<'a> Checker<'a, '_> {
          self.anonymous_properties.insert(id, (Vec::new(), true));
          let mut properties = Vec::new();
          let mut property_names: rustc_hash::FxHashSet<String> = rustc_hash::FxHashSet::default();
@@ -349,7 +349,7 @@ index 2e0e84db..0993bc83 100644
          let mut indexes: Vec<crate::index_signatures::IndexInfo> = Vec::new();
          for (name_type, key, first_key) in members {
              let Some(name) = self.mapped_key_property_name(name_type) else {
-@@ -1100,12 +1364,13 @@ impl<'a> Checker<'a, '_> {
+@@ -1104,12 +1368,13 @@ impl<'a> Checker<'a, '_> {
                      properties
                          .iter()
                          .find(|property| Some(property.name.as_str()) == source_name.as_deref())
@@ -365,7 +365,7 @@ index 2e0e84db..0993bc83 100644
                  || source_property.is_some_and(|property| self.is_readonly_property(property)),
                  |property| property.readonly,
              );
-@@ -1113,32 +1378,43 @@ impl<'a> Checker<'a, '_> {
+@@ -1117,32 +1382,43 @@ impl<'a> Checker<'a, '_> {
                  modifiers.and_then(|source| self.mapped_identity_optionality.get(&source));
              let was_optional = inherited.and_then(|modifiers| modifiers.0).unwrap_or(was_optional);
              let was_readonly = inherited.and_then(|modifiers| modifiers.1).unwrap_or(was_readonly);
@@ -422,7 +422,7 @@ index 2e0e84db..0993bc83 100644
              properties.push(crate::objects::AnonymousProperty {
                  accessor_write: None,
                  method: false,
-@@ -1149,9 +1425,41 @@ impl<'a> Checker<'a, '_> {
+@@ -1153,9 +1429,41 @@ impl<'a> Checker<'a, '_> {
                  printed_slot: crate::objects::PrintedSlot::on_demand(),
                  optional,
                  readonly,
@@ -465,7 +465,7 @@ index 2e0e84db..0993bc83 100644
          self.anonymous_properties.insert(id, (properties, true));
          self.object_literal_index_infos.insert(id, indexes);
      }
-@@ -1182,9 +1490,28 @@ impl<'a> Checker<'a, '_> {
+@@ -1186,9 +1494,28 @@ impl<'a> Checker<'a, '_> {
          self.publish_mapped_symbol_type(owner, index, self.intrinsics.error);
          let mut value =
              self.instantiate_type(info.template, &[(info.parameter, key)], &[info.parameter], &[]);
