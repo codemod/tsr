@@ -1197,15 +1197,19 @@ fn provided_iife_identities_and_omitted_defaults_remain_separate_from_missing_ar
             "((observed?) => observed)(undefined as undefined);",
             "((observed?) => observed)(...([undefined as undefined] as [undefined]));",
             "((observed = 37) => observed)(undefined as undefined);",
-            // The synthetic global still supplies ordinary undefined. Its
-            // loose native widening identity is a separate, held prerequisite.
+            // The synthetic global's type is `undefinedWideningType`
+            // (`checker.go:1345`), the one argument that widens loose.
             "((observed?) => observed)(undefined);",
         ] {
             let (signature, parameter, i) = iife_parameter_ids(source, "observed", strict);
-            // Native ordinary assertions stay undefined even loose. The
-            // current declaration consumer widens them to genuine any; this
-            // known residual must not be mistaken for a raw supplier result.
-            let expected = if strict { i.undefined } else { i.any };
+            // Native ordinary assertions stay undefined even loose: only
+            // `createWideningType`'s twin widens to any (`getWidenedType`,
+            // `checker.go:16090`; `tsgo` declares `a: undefined` for
+            // `((observed) => observed)(undefined as undefined)` and `b: any`
+            // for `((observed?) => observed)(undefined)` under
+            // `strictNullChecks: false`).
+            let widening = source.ends_with("(undefined);");
+            let expected = if strict || !widening { i.undefined } else { i.any };
             assert_eq!(signature, expected, "strict={strict}: {source}");
             assert_eq!(parameter, expected);
         }

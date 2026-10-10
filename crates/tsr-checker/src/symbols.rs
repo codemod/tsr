@@ -5566,13 +5566,13 @@ impl<'a> Checker<'a, '_> {
             // read from the case's options; the paired control fixture
             // asserts `null` stays `null` under `@strict: true`.
             // Explicit annotations retain their non-widening null/undefined
-            // types, including the BuiltinIteratorReturn intrinsic alias.
+            // types, including the BuiltinIteratorReturn intrinsic alias; so
+            // does any initializer whose type is the plain `null`/`undefined`
+            // (a declared `undefined`, a call returning one): only
+            // `createWideningType`'s twins widen (`isWideningNullable`).
             if !self.strict_null_checks
                 && self.type_annotation_of(declaration).is_none()
-                && (id == self.intrinsics.null
-                    || id == self.intrinsics.null_widening
-                    || id == self.intrinsics.undefined
-                    || id == self.intrinsics.undefined_widening)
+                && self.intrinsics.is_widening_nullable(id)
             {
                 return self.intrinsics.any;
             }
