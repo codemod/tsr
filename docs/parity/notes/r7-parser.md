@@ -118,14 +118,16 @@ whose diagnostics around a span boundary differ from native's.
 
 Native's gate is `ExternalModuleIndicator != nil`, computed from the compiler
 options (`moduleDetection: force`, a format-forced module, `jsx:
-react-jsx`'s tag rule) and `IsDeclarationFile`. `ParseOptions` cannot gain
-fields without breaking struct literals in other crates' benches and tests,
-so the options travel separately: `Parser::set_module_indicator`
-(`ModuleIndicatorOptions`). The default is the syntactic decision
-(`isFileProbablyExternalModule`) and "not a declaration file". Until the
-compiler's loader sets it, a declaration file that is a module and has a
-top-level `await` identifier is reparsed where native does not, and a
-format-forced module with no import/export is not. Routed in the report.
+react-jsx`'s tag rule) and `IsDeclarationFile`. The first commit carried them
+on a `Parser` setter, because a new `ParseOptions` field breaks the full
+struct literals in other crates' benches; on the integrator's call (after
+r7-perf's `defer_ts_jsdoc` set the precedent of updating those literals) they
+are `ParseOptions::module_indicator` (`ModuleIndicatorOptions`). The default is
+the syntactic decision (`isFileProbablyExternalModule`) and "not a
+declaration file". Until the compiler's loader fills it in (r7-perf's
+`loader.rs`), a declaration file that is a module and has a top-level `await`
+identifier is reparsed where native does not, and a format-forced module with
+no import/export is not.
 
 ## 3. The yield context and `isYieldExpression`
 

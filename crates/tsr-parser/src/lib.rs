@@ -47,7 +47,9 @@ mod statement;
 mod types;
 
 pub use parsed_file::ParsedFile;
-pub use parser::{JSDocTable, ParseOptions, ParseResult, Parser, ScriptKind};
+pub use parser::{
+    JSDocTable, ModuleIndicatorOptions, ParseOptions, ParseResult, Parser, ScriptKind,
+};
 pub use pragma::{
     CheckJsDirective, FileReference, FileReferences, ResolutionMode, parse_file_references,
 };

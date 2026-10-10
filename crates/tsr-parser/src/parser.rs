@@ -160,6 +160,11 @@ pub struct ParseOptions {
     /// The compiler driver sets it for every non-JavaScript file
     /// ([ADR-0053](../../../docs/adr/0053-jsdoc-deferred-in-checked-ts-files.md)).
     pub defer_ts_jsdoc: bool,
+    /// What decides whether the file is an external module, which gates
+    /// `reparseTopLevelAwait` (`parser.go:449`). The default decides on
+    /// syntax alone; the program's loader sets it from the compiler options.
+    /// See [`ModuleIndicatorOptions`].
+    pub module_indicator: ModuleIndicatorOptions,
 }
 
 /// Which `/** … */` comments the parser parses: [`ParseOptions::jsdoc`] and
@@ -182,6 +187,7 @@ impl Default for ParseOptions {
             parents: true,
             jsdoc: true,
             defer_ts_jsdoc: false,
+            module_indicator: ModuleIndicatorOptions::default(),
         }
     }
 }
@@ -229,8 +235,9 @@ impl ParseOptions {
 /// declaration file — makes the decision on syntax alone
 /// (`isFileProbablyExternalModule`), which is native's answer under
 /// `moduleDetection: legacy` and for any file whose format the options do
-/// not force. A caller that knows the compiler options sets the rest with
-/// [`Parser::set_module_indicator`].
+/// not force. A caller that knows the compiler options sets the rest in
+/// [`ParseOptions::module_indicator`]: `GetExternalModuleIndicatorOptions`
+/// (`ast/parseoptions.go:19`) and `tspath.IsDeclarationFileName`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ModuleIndicatorOptions {
     /// `jsx: react-jsx`/`react-jsxdev` under `moduleDetection: auto`: a JSX
@@ -477,17 +484,9 @@ impl<'a> Parser<'a> {
             possible_await_spans: Vec::new(),
             top_level_extents: Vec::new(),
             carried_scanner_diagnostics: Vec::new(),
-            module_indicator: ModuleIndicatorOptions::default(),
+            module_indicator: options.module_indicator,
             first_node,
         }
-    }
-
-    /// Set what decides whether the file is an external module — native's
-    /// `SourceFileParseOptions.ExternalModuleIndicatorOptions` plus
-    /// `IsDeclarationFile`, which `parseSourceFileWorker` reads before
-    /// `reparseTopLevelAwait` (`parser.go:449`).
-    pub fn set_module_indicator(&mut self, options: ModuleIndicatorOptions) {
-        self.module_indicator = options;
     }
 
     /// Consume the parser, returning its diagnostics and node table.
