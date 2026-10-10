@@ -1268,19 +1268,7 @@ impl<'a> Checker<'a, '_> {
                 // (`checker.go:29431`): an unannotated non-empty binding
                 // pattern supplies `getTypeFromBindingPattern(name, true,
                 // false)`, unless the caller skips binding patterns.
-                if self.contextual_skip_binding_patterns {
-                    return None;
-                }
-                let Some(BindingName::BindingPattern(pattern)) = declaration.name else {
-                    return None;
-                };
-                if pattern.elements.is_empty()
-                    || self.pattern_initializer_references_own_element(pattern)
-                    || self.rest_pattern_reads_reference_initializer(pattern, node)
-                {
-                    return None;
-                }
-                self.binding_pattern_implied_type(pattern)
+                self.initializer_binding_pattern_context(declaration.name, node)
             }
             Node::ParameterDeclaration(declaration) => {
                 if declaration.initializer.and_then(|initializer| initializer.node_id())
@@ -1297,7 +1285,9 @@ impl<'a> Checker<'a, '_> {
                     self.jsdoc_parameter_annotation(parent).map(|(annotation, _)| annotation)
                 }) {
                     Some(annotation) => Some(self.get_type_from_type_node(annotation)),
-                    None => self.contextually_typed_parameter_type(parent, false),
+                    None => self.contextually_typed_parameter_type(parent, false).or_else(|| {
+                        self.initializer_binding_pattern_context(declaration.name, node)
+                    }),
                 }
             }
             Node::BindingElement(element) => {
@@ -1305,6 +1295,7 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
                 self.contextual_type_for_binding_element(parent)
+                    .or_else(|| self.initializer_binding_pattern_context(element.name, node))
             }
             // §154 (`checker-notes-ctx.md`): the assertion family — `x as T`
             // and `<T>x` answer the asserted type as context, EXCEPT `as
@@ -2873,6 +2864,32 @@ impl<'a> Checker<'a, '_> {
     /// elements read its constraint (`const { kind, ...r1 } = t` gives
     /// `Omit<T, "kind">`). This port checks the initializer once, so it keeps
     /// the reference unsubstituted for every element: no implied context.
+    /// getContextualTypeForInitializerExpression's fallback
+    /// (`checker.go:29431`), shared by every variable-like declaration kind:
+    /// when getContextualTypeForVariableLikeDeclaration gives nothing, an
+    /// unannotated non-empty binding pattern supplies
+    /// `getTypeFromBindingPattern(name, true, false)`, unless the caller skips
+    /// binding patterns.
+    fn initializer_binding_pattern_context(
+        &mut self,
+        name: Option<BindingName<'a>>,
+        initializer: NodeId,
+    ) -> Option<TypeId> {
+        if self.contextual_skip_binding_patterns {
+            return None;
+        }
+        let Some(BindingName::BindingPattern(pattern)) = name else {
+            return None;
+        };
+        if pattern.elements.is_empty()
+            || self.pattern_initializer_references_own_element(pattern)
+            || self.rest_pattern_reads_reference_initializer(pattern, initializer)
+        {
+            return None;
+        }
+        self.binding_pattern_implied_type(pattern)
+    }
+
     fn rest_pattern_reads_reference_initializer(
         &self,
         pattern: &BindingPattern<'a>,
