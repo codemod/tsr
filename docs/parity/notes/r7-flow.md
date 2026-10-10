@@ -207,3 +207,26 @@ The other two TS2775 gaps r7-calls named:
 The `Mutable<A>|Mutable<B>` TS2540 (r7-declared's
 `r7-declared-readonly-union-mapped-member.diff`) is the same mapped-symbol
 root as held diff R (§4).
+
+## §6 A union's readonly property reads each constituent's mapped member (routed from r7-declared)
+
+`createUnionOrIntersectionProperty` (`checker.go:21452`) sets the union
+property's `CheckFlagsReadonly` when any constituent's property is readonly
+by `isReadonlySymbol`. A mapped constituent's property is the transient
+mapped symbol whose `CheckFlagsReadonly` comes from the mapping's modifiers
+(`resolveMappedTypeMembers`, `checker.go:20930-20937`). The port's union arm
+of `is_assignment_to_readonly_property` asked the modifiers type's symbol
+instead, so `Mutable<A> | Mutable<B>` lost its `-readonly` (a false TS2540,
+8 in jsTyping) and `Readonly<A> | A` lost its `+readonly` on a member `A`
+declares writable (a missed TS2540). r7-declared's
+`r7-declared-readonly-union-mapped-member.diff` adds
+`constituent_property_is_readonly`, which reads `mapped_identity_optionality`
+and the member image first, as the non-union tail already did. Applied
+unchanged.
+
+Measured on `533e29b6`: corpus neutral (types and diagnostics verdicts
+unchanged, 0 lost). The probe in
+`tests/r7_flow_readonly_union_mapped.rs` matches native exactly; the base
+reported the false `m.flags` TS2540 and missed `r.kind`/`mr.kind`. No cache:
+one image lookup per union constituent at an assignment target, the image
+resolved on first read as the non-union tail already does.
