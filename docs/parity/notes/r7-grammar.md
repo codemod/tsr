@@ -285,3 +285,14 @@ write-only node and `isSelfTypeAccess` false, so a private member used only
 as a brand check is not unused. The member-name pass (`note_member_name_at`)
 now records a private identifier that is a binary expression's operand.
 Converted: `privateNameInInExpressionUnused` (es2022, esnext).
+
+## §12 `export { undefined }` resolves before it is judged global
+
+`checkExportSpecifier` (`checker.go:5563`) resolves the exported name and
+reports TS2661 when the symbol *is* `c.undefinedSymbol` or
+`c.globalThisSymbol`, or is declared in a script. `check_export_specifier_is_local`
+(`meaning_mismatch.rs`) took the spellings `undefined` and `globalThis` as
+global before resolving, so a module's own `var undefined` re-exported drew
+TS2661 (`reExportUndefined2`). It now resolves first: the binder's synthesised
+`undefined` symbol is the global one; an unresolved `globalThis` still stands
+for upstream's `globalThisSymbol`, which this port does not synthesise.

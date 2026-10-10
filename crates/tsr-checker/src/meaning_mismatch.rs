@@ -503,23 +503,27 @@ impl Checker<'_, '_> {
             return;
         }
         let text = identifier.text;
-        let global = if text == "undefined" || text == "globalThis" {
-            true
-        } else {
-            // **Resolve from the parent scope**, which is what upstream's
-            // `resolveEntityName` does here — the alias this specifier itself
-            // created is not a candidate. §836 added the mode (`bd tsr-8esz`);
-            // §765's attempt to drop the specifier from the *declaration list*
-            // measured `+0` because the reality is two symbols, not one symbol
-            // with two declarations.
-            let Some(symbol) = self.binder.resolve_name_excluding(
-                self.nodes,
-                self.node_map,
-                named,
-                text,
-                SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::MODULE | SymbolFlags::ALIAS,
-                Some(node),
-            ) else {
+        // **Resolve from the parent scope**, which is what upstream's
+        // `resolveEntityName` does here — the alias this specifier itself
+        // created is not a candidate. §836 added the mode (`bd tsr-8esz`);
+        // §765's attempt to drop the specifier from the *declaration list*
+        // measured `+0` because the reality is two symbols, not one symbol
+        // with two declarations.
+        let resolved = self.binder.resolve_name_excluding(
+            self.nodes,
+            self.node_map,
+            named,
+            text,
+            SymbolFlags::VALUE | SymbolFlags::TYPE | SymbolFlags::MODULE | SymbolFlags::ALIAS,
+            Some(node),
+        );
+        let global = match resolved {
+            // `symbol == c.undefinedSymbol || symbol == c.globalThisSymbol`:
+            // the synthesised globals, which a local `var undefined` shadows
+            // (`reExportUndefined2`). This port has no `globalThis` symbol, so
+            // an unresolved `globalThis` stands for it.
+            None if text == "undefined" || text == "globalThis" => true,
+            None => {
                 // **Upstream's ladder entry condition is a name that did not
                 // resolve**, and this early return is exactly that. The
                 // primitive-export rung lives in the ladder, which is entered
@@ -530,19 +534,26 @@ impl Checker<'_, '_> {
                 // §844.
                 self.report_exporting_primitive_type(named, text);
                 return;
-            };
-            let symbol = self.binder.merged_symbol(symbol);
-            // **The specifier is its own answer.** The binder gives
-            // `export { X }` a symbol named `X`, so `resolve_name` finds this
-            // very node and `declarations.first()` is the `ExportSpecifier` —
-            // whose container is never a script. §713 recorded the mechanism
-            // for TS2552; upstream's `resolveEntityName` skips the specifier's
-            // own symbol and this port's lookup does not, so the skip goes
-            // here. §765.
-            let Some(&first) = self.binder.symbols().get(symbol).declarations.first() else {
-                return;
-            };
-            self.declaration_container_is_a_script(first)
+            }
+            Some(symbol) => {
+                let symbol = self.binder.merged_symbol(symbol);
+                if self.binder.undefined_symbol() == Some(symbol) {
+                    true
+                } else {
+                    // **The specifier is its own answer.** The binder gives
+                    // `export { X }` a symbol named `X`, so `resolve_name`
+                    // finds this very node and `declarations.first()` is the
+                    // `ExportSpecifier` — whose container is never a script.
+                    // §713 recorded the mechanism for TS2552; upstream's
+                    // `resolveEntityName` skips the specifier's own symbol and
+                    // this port's lookup does not, so the skip goes here. §765.
+                    let Some(&first) = self.binder.symbols().get(symbol).declarations.first()
+                    else {
+                        return;
+                    };
+                    self.declaration_container_is_a_script(first)
+                }
+            }
         };
         if !global {
             return;
