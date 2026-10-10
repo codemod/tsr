@@ -161,7 +161,7 @@ compiler/conflictingDeclarationsImportFromNamespace2
 compiler/consistentAliasVsNonAliasRecordBehavior
   4 unexpected (first TS2322 at consistentAliasVsNonAliasRecordBehavior.ts(18,5)), 4 missing
 compiler/constEnumErrors
-  5 missing (first TS2476 at constEnumErrors.ts(22,13))
+  2 missing (first TS2475 at constEnumErrors.ts(27,9))
 compiler/constraintWithIndexedAccess
   9 missing (first TS2344 at constraintWithIndexedAccess.ts(23,90))
 compiler/constructorOverloads1
