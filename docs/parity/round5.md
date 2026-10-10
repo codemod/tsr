@@ -1741,3 +1741,22 @@ domain-model.
 
 r6-callreport takes the calls.rs reporting group, 106 cases:
 - `tsr-2zk.1153`, `.1158`, `.1163`, `.1169`, `.1172`.
+
+### r6-jsdoc finished (batch BX); r6-jsdoc2 dispatched
+
+Batch BX lands r6-jsdoc's owned files (jsdoc_overloads.rs, jsdoc_checks.rs)
+and its fifteen diffs in the box's §12 order. That order includes
+r5-smallcodes3's type-as-namespace diff, which now measures +3/−0.
+
+Measured by the box against `b18aec06`:
+- types +84 lines and +14 cases; diagnostics +14 cases;
+- 0 lost on both dumps;
+- Ir within layout noise.
+
+The diffs land on a base nine batches newer than the box's freeze, so the
+gate's numbers are the authoritative ones for this batch.
+
+r6-jsdoc2 takes the JSDoc remainder (`tsr-2zk.1254`), r6-triage's
+JSDOC-TAG-SEMANTICS (`tsr-2zk.1178`) and JS-FILE-CHECK-DECLINE
+(`tsr-2zk.1165`). The calls.rs/call_arity.rs JS gates in `.1165` go to
+r6-callreport.
