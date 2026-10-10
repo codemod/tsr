@@ -446,3 +446,50 @@ measured +18 / −1, the `MouseEventHandler` line.
 prints the alias. The type is right; the signature printer reuses the
 written annotation. Native's node reuse rejects an alias reference whose
 type does not carry that alias. Owner: `node_reuse.rs` (r7-printer).
+
+## 10. TYPE-ALIAS-DECLARED-BODY (part): a union-bodied alias instance is a union
+
+**Forcing constraint.** getTypeAliasInstantiation (`checker.go:23641`)
+instantiates a union declared type through instantiateTypeWithAlias. That
+maps the constituents and hands the alias to getUnionType, so `R<number>`
+over `type R<T> = string | ((i: T) => any)` is `string | ((i: number) =>
+any)`, printed `R<number>`. `create_type_reference` evaluated a union body
+only in the closed-literal slice (`is_closed_literal_union_alias`). Every
+other union alias instance was a print-only `Named` with no constituents,
+so contextual typing through it found nothing: `const r: R<number> = w =>
+w` typed `w : any`. React's `Ref<T> = string | ((instance: T) => any)` is
+that shape, so every `ref={x => …}` on a class component was untyped
+(tsxStatelessFunctionComponents2, tsxSpreadAttributesResolution4,
+tsxAttributeResolution15).
+
+**Port.**
+- `is_union_alias_body` admits a union body at full arity whose
+  constituents are keywords, literals, or function or constructor types.
+  The existing union arm builds `create_union(…, Some((alias, text)))` with
+  its `type_reference_targets` entry.
+- `evaluate_union_or_indexed_alias_body` guards the instantiation per alias
+  symbol (`instantiation_expressions.union_alias_in_progress`: key the
+  alias symbol; inserted before the body is evaluated, removed after; never
+  published). A re-entrant reference keeps the named mint, which is where
+  native reaches only through a lazily resolved member.
+
+**A slip, recorded.** The first build wrote `&& let union_body = !indexed
+&& self.is_union_alias_body(…)` inside a let-chain. The second `&&` parsed
+as a chain separator, so every indexed alias stopped reaching the arm:
+−206 types, BivariantHack's §9 lines back to the alias name. The
+parenthesized form is the fix. Both earlier measurements (−165 broad, −206
+narrow) were of that bug, not of the port.
+
+**Measured** (unfiltered, against `f853238f` on `0aa00136`):
+- **this slice: types +32, 0 lost**; diagnostics +1
+  (coAndContraVariantInferences6 WRONG → RIGHT), 0 lost.
+  tsxStatelessFunctionComponents2 19, tsxSpreadAttributesResolution4 6,
+  tsxAttributeResolution15 5, coAndContraVariantInferences6 2.
+- every union body, held: types +79 / −13, diagnostics +4 / −1. Losses:
+  discriminateWithOptionalProperty2 ×6, recursiveGenericUnionType1/2 ×4,
+  typeGuardsAsAssertions ×2, jsxComplexSignatureHasApplicabilityError ×1,
+  unionAndIntersectionInference3 (EMPTY_RIGHT → EMPTY_WRONG). Extra gains
+  over the slice: assignmentTypeNarrowing 9, jsxComplexSignatureHasApplicabilityError
+  8, unionAndIntersectionInference1 4, typePredicateFreshLiteralWidening 4,
+  discriminateWithOptionalProperty3 ×2 8, for-of58 3, awaitedType(StrictNull)
+  6, and more. Not yet analysed.
