@@ -75,6 +75,16 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// `getDecoratorCallSignature` (`checker.go:30155`): the signature the
+    /// runtime calls a decorator with, read from the function type
+    /// [`Checker::contextual_type_for_decorator`] publishes for the decorated
+    /// declaration (no second cache). `None` for an invalid target or an
+    /// unsupported declaration.
+    pub(crate) fn decorator_call_signature(&mut self, decorator: NodeId) -> Option<Signature> {
+        let ty = self.contextual_type_for_decorator(decorator)?;
+        self.signature_types.get(&ty).and_then(|signatures| signatures.first().cloned())
+    }
+
     fn decorator_function_type(&mut self, signature: Signature) -> TypeId {
         let text = self.signature_to_string(&signature);
         let ty = self.store.new_named(TypeFlags::OBJECT, text, None);
