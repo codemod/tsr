@@ -59,6 +59,7 @@ fn parse_and_bind(name: &str, source: &str) -> usize {
         script_kind: tsr_parser::ScriptKind::from_file_name(name),
         parents: true,
         jsdoc: false,
+        defer_ts_jsdoc: false,
     };
     let parsed = tsr_parser::parse_with_options(&arena, source, options);
     let bound = tsr_binder::bind(

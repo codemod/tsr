@@ -1,6 +1,8 @@
 # ADR-0010: JSDoc is a parse option
 
-- **Status:** accepted
+- **Status:** accepted; the compiler driver's use of it is partly superseded by
+  [ADR-0053](0053-jsdoc-deferred-in-checked-ts-files.md), which defers JSDoc
+  in non-JavaScript program files as typescript-go does.
 - **Date:** 2026-08-03
 - **Supersedes:** [ADR-0008](0008-jsdoc-parsed-eagerly.md) in part — eager parsing
   stands, but *whether* to parse is now the caller's, not always yes.

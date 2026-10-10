@@ -714,7 +714,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         } else {
             inferred
         };
-        tsr_parser::ParseOptions { script_kind, ..Default::default() }
+        tsr_parser::ParseOptions { script_kind, ..Default::default() }.deferring_ts_jsdoc(name)
     }
 
     fn prepare_root_parses(&mut self) {

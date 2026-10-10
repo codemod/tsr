@@ -149,11 +149,38 @@ pub struct ParseOptions {
     /// is the safe one: paying for JSDoc you did not need is a performance bug,
     /// while silently losing documentation is a correctness one.
     pub jsdoc: bool,
+    /// With [`Self::jsdoc`], parse only the comments typescript-go parses
+    /// while parsing a non-JavaScript file: `withJSDoc`
+    /// (`internal/parser/jsdoc.go:56`) flags every documented node of a
+    /// `.ts`/`.tsx`/`.d.ts` file and parses its comments eagerly only when
+    /// one carries `@see`/`@link`/`@linkcode`/`@linkplain`; the rest wait for
+    /// a lazy `Node.JSDoc` read, which only suggestion and editor paths make.
+    /// The compiler driver sets it for every non-JavaScript file
+    /// ([ADR-0053](../../../docs/adr/0053-jsdoc-deferred-in-checked-ts-files.md)).
+    pub defer_ts_jsdoc: bool,
+}
+
+/// Which `/** … */` comments the parser parses: [`ParseOptions::jsdoc`] and
+/// [`ParseOptions::defer_ts_jsdoc`] folded into one state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum JSDocMode {
+    /// None.
+    Off,
+    /// Every comment.
+    All,
+    /// Only a construct's comments when one carries `@see`/`@link`
+    /// (typescript-go's eager set in a non-JavaScript file).
+    SeeOrLink,
 }
 
 impl Default for ParseOptions {
     fn default() -> Self {
-        Self { script_kind: ScriptKind::TypeScript, parents: true, jsdoc: true }
+        Self {
+            script_kind: ScriptKind::TypeScript,
+            parents: true,
+            jsdoc: true,
+            defer_ts_jsdoc: false,
+        }
     }
 }
 
@@ -162,6 +189,18 @@ impl ParseOptions {
     #[must_use]
     pub fn for_file(name: &str) -> Self {
         Self { script_kind: ScriptKind::from_file_name(name), ..Self::default() }
+    }
+
+    /// The same options with [`Self::defer_ts_jsdoc`] set for a program file
+    /// named `name`: on unless the file is JavaScript (`ast.IsSourceFileJS`,
+    /// by extension), whose JSDoc typescript-go always parses eagerly.
+    #[must_use]
+    pub fn deferring_ts_jsdoc(mut self, name: &str) -> Self {
+        self.defer_ts_jsdoc = !matches!(
+            name.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase()),
+            Some(extension) if matches!(extension.as_str(), "js" | "jsx" | "mjs" | "cjs")
+        );
+        self
     }
 
     /// The same options with JSDoc parsing turned off.
@@ -234,8 +273,9 @@ pub struct Parser<'a> {
     /// Parse errors inside JSDoc comments — upstream's `Parser.jsdocDiagnostics`.
     /// Like upstream's, not rewound by speculation; `finish` drops repeats.
     pub(crate) jsdoc_diagnostics: Vec<Diagnostic>,
-    /// Whether to parse JSDoc; see [`ParseOptions::jsdoc`].
-    pub(crate) parse_jsdoc: bool,
+    /// Which JSDoc to parse; see [`ParseOptions::jsdoc`] and
+    /// [`ParseOptions::defer_ts_jsdoc`].
+    pub(crate) jsdoc_mode: JSDocMode,
     /// Whether to record parents as nodes are finished.
     assign_parents: bool,
     /// `p.sourceFlags`, stamped on the `SourceFile`. Only
@@ -348,7 +388,11 @@ impl<'a> Parser<'a> {
             parsing_contexts: 0,
             jsdoc: Vec::new(),
             jsdoc_diagnostics: Vec::new(),
-            parse_jsdoc: options.jsdoc,
+            jsdoc_mode: match (options.jsdoc, options.defer_ts_jsdoc) {
+                (false, _) => JSDocMode::Off,
+                (true, false) => JSDocMode::All,
+                (true, true) => JSDocMode::SeeOrLink,
+            },
             assign_parents: options.parents,
             depth: 0,
             source_flags: tsr_ast::NodeFlags::empty(),
