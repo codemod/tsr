@@ -622,6 +622,9 @@ impl<'a> Parser<'a> {
                         );
                     }
                     let is_chain = self.try_reparse_optional_chain(expression);
+                    if is_chain {
+                        self.report_private_identifier_in_optional_chain(name);
+                    }
                     let node = self.finish_node(
                         PropertyAccessExpression::new(Some(expression), None, Some(name)),
                         SyntaxKind::PropertyAccessExpression,
@@ -672,6 +675,7 @@ impl<'a> Parser<'a> {
                         expression = Expression::ElementAccessExpression(node);
                     } else {
                         let name = self.parse_member_name();
+                        self.report_private_identifier_in_optional_chain(name);
                         let node = self.finish_node(
                             PropertyAccessExpression::new(
                                 Some(expression),
@@ -2759,6 +2763,18 @@ impl<'a> Parser<'a> {
             self.error_at(&messages::IDENTIFIER_EXPECTED, span);
         }
         self.missing_identifier()
+    }
+
+    /// `parsePropertyAccessExpressionRest`'s optional-chain check
+    /// (`parser.go:5402`): a private name in an optional chain is TS18030 on
+    /// the name.
+    fn report_private_identifier_in_optional_chain(&mut self, name: MemberName<'a>) {
+        if let MemberName::PrivateIdentifier(private) = name
+            && let Some(id) = private.node_id
+        {
+            let span = self.nodes.span(id);
+            self.error_at(&messages::AN_OPTIONAL_CHAIN_CANNOT_CONTAIN_PRIVATE_IDENTIFIERS, span);
+        }
     }
 
     fn parse_member_name(&mut self) -> MemberName<'a> {
