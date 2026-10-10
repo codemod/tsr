@@ -46,7 +46,6 @@ impl<'a> Parser<'a> {
                 return self.parse_variable_statement(start, &[]);
             }
             SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
-                self.next_token();
                 return self.parse_variable_statement(start, &[]);
             }
             SyntaxKind::UsingKeyword if self.is_using_declaration() => {
@@ -584,7 +583,6 @@ impl<'a> Parser<'a> {
                 return self.parse_variable_statement(start, modifiers);
             }
             SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
-                self.next_token();
                 return self.parse_variable_statement(start, modifiers);
             }
             SyntaxKind::FunctionKeyword => {
@@ -719,13 +717,20 @@ impl<'a> Parser<'a> {
         // decide function scope versus block scope, and it is not recoverable from
         // the tree otherwise.
         let keyword = self.token.kind;
-        self.next_token();
         let flags = match keyword {
             SyntaxKind::LetKeyword => tsr_ast::NodeFlags::LET,
             SyntaxKind::ConstKeyword => tsr_ast::NodeFlags::CONST,
             SyntaxKind::UsingKeyword => tsr_ast::NodeFlags::USING,
+            // `parseVariableDeclarationList`'s `KindAwaitKeyword` arm
+            // (`parser.go:1563`): `await using` is `NodeFlagsAwaitUsing`,
+            // `Const | Using`, and the list starts at the `await`.
+            SyntaxKind::AwaitKeyword if self.is_await_using_declaration() => {
+                self.next_token();
+                tsr_ast::NodeFlags::CONST | tsr_ast::NodeFlags::USING
+            }
             _ => tsr_ast::NodeFlags::empty(),
         };
+        self.next_token();
 
         // **`for (var of X)` declares nothing.** `parseVariableDeclarationList`
         // (`parser.go:1583`) checks, before parsing any declaration at all,
@@ -904,8 +909,7 @@ impl<'a> Parser<'a> {
             None
         } else if self.at_variable_declaration_list() {
             // `for (await using x of …)` — the `await` belongs to the declaration,
-            // not to the loop.
-            self.eat(SyntaxKind::AwaitKeyword);
+            // not to the loop: `parse_variable_declaration_list` takes it.
             // §411: the DECLARATION half of the `in` ban — a var initializer
             // in a for head must not read `1 in X` as a comparison, or
             // `for (var a = 1 in X)` loses its ForIn shape
