@@ -1015,11 +1015,16 @@ impl<'a> Parser<'a> {
         };
 
         let value = self.parse_type_annotation();
-        self.eat(SyntaxKind::SemicolonToken);
+        // `parseMappedType` (`parser.go:3158`): the member's semicolon, then
+        // any further type members as recovery — the checker reports them
+        // (TS7061, `checkMappedType`'s grammar) — before the `}`.
+        self.parse_semicolon();
+        let members = self.parse_list(ParsingContext::TypeMembers, Self::parse_type_member);
+        let members = self.arena.alloc_slice(&members);
         self.expect(SyntaxKind::CloseBraceToken);
 
         let node = self.finish_node(
-            MappedTypeNode::new(readonly, Some(parameter), name_type, question, value, &[]),
+            MappedTypeNode::new(readonly, Some(parameter), name_type, question, value, members),
             SyntaxKind::MappedType,
             start,
         );
