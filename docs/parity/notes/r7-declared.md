@@ -346,3 +346,41 @@ mapped types. Not attempted here.
 
 `.1266` stays held. It lands once the overflow is fixed, together with the
 `members.rs` diff.
+
+## 7. A self-mentioned type-literal alias's placeholder gets its members (prerequisite of §8)
+
+**Forcing constraint.** `get_declared_type_of_type_alias`'s §29 arm answers
+a mention of an alias inside a construct native resolves lazily with a NAME
+placeholder, `Named { text: "F", members: None }`. For
+
+```ts
+type F = { kind: 'foo'; children: N };  type B = { kind: 'bar' };  type N = F | B;
+```
+
+`N`'s union is built while `F`'s literal is printed, so its constituent is
+the placeholder. `F`'s declared type is published afterwards as `Named {
+text: "F", members: Some(literal) }`, and nothing ever reached the
+placeholder again. Native creates the literal's type once
+(getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode, `checker.go:24210`)
+and resolves its members lazily, so `N`'s constituent is `F` itself. A
+`B :: F` relation inside `N` answered `Unknown` from the member-less side
+(traced: `src=Named B members Some, tgt=Named F members None`). So
+`isNode(d)` narrowing `B | { kind: "document" }` by `N` stayed whole, the
+loss r6-typesroots §9 held the slice gate on.
+
+**Port.** `complete_alias_placeholder`: once the declared type is published,
+a placeholder minted for the alias is completed in place with it
+(`TypeStore::complete_object`). Same printed name, same members symbol, so
+every place that stored it reads the declared type. Only a
+`Named` with the body literal's members symbol is copied: its members live
+in the binder table, so the copy needs no side-table entry keyed by the
+declared type's own id. Checker port convention: key the alias symbol
+(`alias_placeholders`, owner `get_declared_type_of_type_alias`);
+publication: written once, when the declared type completes; no new table;
+receiver/alias context unchanged. The twin keeps a distinct `TypeId` from
+the declared type, where native has one identity: identity-keyed caches
+see two types with one structure.
+
+**Measured** (alone, unfiltered against §5's freeze): types 0 / 0,
+diagnostics 0 / 0. It only matters once §8 lets these unions exist. Probe:
+`isNode(d)` now narrows to `B` (tsgo: `B`).
