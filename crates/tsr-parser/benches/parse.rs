@@ -127,6 +127,7 @@ fn measure(name: &str, source: &str, target: Duration, jsdoc: bool) -> Measureme
         // 9.6% of work upstream is doing and we are not.
         parents: true,
         jsdoc,
+        defer_ts_jsdoc: false,
     };
     // Warm the allocator and the instruction cache before anything is recorded;
     // otherwise the first fixture pays for both and looks slower than it is.

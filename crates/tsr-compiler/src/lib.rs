@@ -333,7 +333,7 @@ impl<'a> Program<'a> {
                 (workers > 1).then(|| {
                     tsr_parser::ParsedFile::parse_with_options(
                         text.clone(),
-                        tsr_parser::ParseOptions::for_file(file_name),
+                        tsr_parser::ParseOptions::for_file(file_name).deferring_ts_jsdoc(file_name),
                     )
                 })
             },
@@ -348,7 +348,8 @@ impl<'a> Program<'a> {
                 let parse_options = tsr_parser::ParseOptions {
                     script_kind: tsr_parser::ScriptKind::from_file_name(file_name),
                     ..Default::default()
-                };
+                }
+                .deferring_ts_jsdoc(file_name);
                 let into = match private {
                     Some(private) => private.publish(arena, text, &mut nodes, &mut node_map),
                     None => tsr_parser::parse_into(
