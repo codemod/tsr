@@ -6387,6 +6387,11 @@ impl<'a> Checker<'a, '_> {
                 ModifierLike::Token(token) if token.kind == SyntaxKind::ConstKeyword => {
                     is_const = true;
                 }
+                // Any other modifier is a grammar error (TS1273) that
+                // `getTypeParameterModifiers` masks away (`relater.go:1440`):
+                // it neither prints nor declines.
+                ModifierLike::Token(token)
+                    if !matches!(token.kind, SyntaxKind::InKeyword | SyntaxKind::OutKeyword) => {}
                 _ => return None,
             }
         }
