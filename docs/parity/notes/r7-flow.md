@@ -83,3 +83,38 @@ the call target to be declared with an explicit type annotation") on
 `checkCallExpression` when `getEffectsSignature` is nil (`checker.go:8353-8359`,
 with TS2776 for a non-dotted callee). Test:
 `crates/tsr-conformance/tests/r7_flow_explicit_for_of.rs`.
+
+## §2 The declaration/relation parse-error lift (`tsr-2zk.1264`, r6-parsegate diff 5)
+
+r6-parsegate's WIP diff 5 (`r6-parsegate-5-WIP-lift-declarations-relations.diff`)
+applies unchanged on `bc17c1f8`: 58 gate lines in `check.rs` (40),
+`iteration.rs` (5), `expressions.rs` (2), `jsdoc_annotations.rs` (2),
+`destructuring_assignment.rs` (2), `flow.rs`, `comparison_overlap.rs`,
+`enum_member_name.rs`, `heritage_conformance.rs`, `meaning_mismatch.rs`,
+`parameter_self_reference.rs` and `satisfies.rs`. r6-parsegate §2 classified
+every one as NO-NATIVE-GATE: the native counterpart reports with an ungated
+`c.error`/`addDiagnostic`. Its §4 lists them with their lines at `7dba1e1`.
+
+What the WIP lacked, now measured on `bc17c1f8`, unfiltered:
+
+- diagnostics **+7**, 0 lost: r6-parsegate's six (`aliasErrors`,
+  `functionsMissingReturnStatementsAndExpressions(target=es2015)`,
+  `objectLiteralWithSemicolons5`,
+  `labeledStatementDeclarationListInLoopNoCrash3(target=es2015)`,
+  `parserErrorRecovery_Block3`, `parserMemberAccessorDeclaration8(target=es2015)`)
+  plus `parserUnfinishedTypeNameBeforeKeyword1`;
+- types byte-identical in verdicts (551,182 RIGHT both sides);
+- slowcases clean on both dumps (0 missing, nothing over budget or 3×).
+
+Comment cleanup the WIP left open: `Checker::file_has_parse_errors`' doc now
+says it mirrors `hasParseDiagnostics` and is read only at native-gated sites;
+`jsdoc_annotations.rs`' "declines outright" comment and `check.rs`' orphaned
+TS2695 doc block (which claimed the parse-error gate excluded the TS2657
+class; `check_comma_left` ports `isInDiag2657` itself) are corrected, the
+latter moved onto `check_comma_left`.
+
+Remaining `file_has_parse_errors` reads after this commit: 71 code lines in
+14 files (plus the field and its initializer), each a NATIVE-GATE site of
+r6-parsegate §2 (grammar helpers and explicit tests), or `unused.rs`'
+node-level stand-in for `NodeFlagsThisNodeOrAnySubNodesHasError`. `calls.rs`
+has none left.

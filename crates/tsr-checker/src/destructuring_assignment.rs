@@ -60,7 +60,7 @@ impl Checker<'_, '_> {
     /// left operand that is an object or array literal is checked by
     /// `checkDestructuringAssignment(left, checkExpression(right))`.
     pub(crate) fn check_destructuring_assignment_relations(&mut self, node: NodeId) {
-        if self.in_js_file(node) || self.file_has_parse_errors {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
@@ -94,7 +94,7 @@ impl Checker<'_, '_> {
     /// `checkDestructuringAssignment(varExpr, iteratedType)`, the iterated
     /// type being `checkRightHandSideOfForOf`'s (async-first for `for await`).
     pub(crate) fn check_for_of_destructuring_relations(&mut self, node: NodeId) {
-        if self.in_js_file(node) || self.file_has_parse_errors {
+        if self.in_js_file(node) {
             return;
         }
         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };

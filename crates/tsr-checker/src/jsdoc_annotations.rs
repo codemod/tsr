@@ -22,10 +22,9 @@ impl Checker<'_, '_> {
     /// `checkVariableLikeDeclaration`'s initializer check for a declaration
     /// whose type is a reparsed JSDoc `@type`.
     pub(crate) fn check_jsdoc_annotated_initializer(&mut self, node: NodeId, ambient: bool) {
-        // Mirrors the TypeScript arms' declines; their source-completeness
-        // certification under parse errors is not reused here, so a file with
-        // parse errors declines outright.
-        if ambient || self.file_has_parse_errors || !self.in_js_file(node) {
+        // Mirrors the TypeScript arms' declines. Native reports with an
+        // ungated `c.error` whether or not the file has parse errors.
+        if ambient || !self.in_js_file(node) {
             return;
         }
         // `checkExportAssignment` (`checker.go:5662`) elaborates at the
@@ -224,7 +223,7 @@ impl<'a> Checker<'a, '_> {
         else {
             return;
         };
-        if ambient || self.file_has_parse_errors || !self.in_js_file(host) {
+        if ambient || !self.in_js_file(host) {
             return;
         }
         let Some(expression) = self.jsdoc_satisfies_target(host) else { return };

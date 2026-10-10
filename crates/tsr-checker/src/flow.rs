@@ -8988,7 +8988,7 @@ impl Checker<'_, '_> {
     /// report. JavaScript declines: its return annotation is TS8010 and its
     /// JSDoc types are another lane's.
     pub(crate) fn check_all_code_paths_return_or_throw(&mut self, function: NodeId) {
-        if self.file_has_parse_errors || self.in_js_file(function) {
+        if self.in_js_file(function) {
             return;
         }
         let (annotation, body, modifiers, generator) = match self.node_map.get(function) {
