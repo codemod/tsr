@@ -1483,7 +1483,9 @@ impl Checker<'_, '_> {
             // mapped property type resolves its own members when read.
             let property_type = self.property_type(&property);
             self.complete_reverse_mapped_type(property_type);
-            return Some(if property.optional {
+            // addOptionality / getTypeOfMappedSymbol (checker.go:20993): an
+            // optional member reads `| undefined` only under strictNullChecks.
+            return Some(if property.optional && self.strict_null_checks {
                 self.get_optional_type(property_type, true)
             } else {
                 property_type
