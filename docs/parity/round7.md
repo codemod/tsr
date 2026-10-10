@@ -201,3 +201,22 @@ the signatures.rs missing-body return reader and
 recovery; r7-declared takes `members.rs::access_member_lookup`'s
 this-substitution for the mapped stack (`.1266`); r7-grammar owns
 `name_slots.rs::names_in_unchecked_region`.
+
+### Batch 7 — r7-declared `1416b385`, r7-flow `4a4b5b5b`, r7-parser `2d64b1ee`, r7-perf `c36a7706`, r7-printer `668b4795`, r7-shared `14ccd250`
+
+Merged onto main `5f2713fe`. Gate against the batch-6 freeze: types +32
+RIGHT / 0 lost / 0 missing, diagnostics +9 cases / 0 lost / 0 missing;
+tests, fmt and strict clippy green. Perf child-CPU new/old at 21 samples:
+domain-model 0.972, generic-imports 1.019, diagnostics identical.
+r7-perf's GetProgramDiagnostics wiring reaches the CLI and the diagnostics
+suite here (TS5090/TS5011/TS5069).
+
+| Suite | Batch 6 | Batch 7 |
+|---|---|---|
+| `checker_types` | 8,755 | 8,765 |
+| `checker_types_configured` | 1,783 | 1,783 |
+| `diagnostics` | 4,863 | 4,872 |
+| `diagnostics_configured` | 972 | 972 |
+
+Function grant: r7-reports owns `signatures.rs`'s `has_no_contextual_type`
+arms for TS7057.
