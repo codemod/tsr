@@ -49,11 +49,6 @@
 //! candidate was still being inferred) the argument is declined
 //! ([`ApplicabilityReport::Declined`]); see the notes for each.
 
-#![allow(
-    dead_code,
-    reason = "hooked into calls.rs by docs/parity/notes/r6-callreport-*.diff; calls.rs is MAIN"
-)]
-
 use tsr_ast::{Expression, NodeId, SyntaxKind};
 use tsr_binder::SymbolFlags;
 use tsr_diagnostics::messages;
@@ -75,24 +70,15 @@ pub(crate) enum ReportArgument<'a> {
     /// `createSyntheticExpression(parent, type, isSpread, …)`: a tagged
     /// template's `TemplateStringsArray` (located at the template) or one
     /// element of a spread tuple (located at the spread).
-    Synthetic { at: NodeId, r#type: TypeId, spread: bool },
-}
-
-impl ReportArgument<'_> {
-    /// `isSpreadArgument` (`checker.go:30111`).
-    pub(crate) fn is_spread(&self) -> bool {
-        match self {
-            Self::Written(argument) => matches!(argument, Expression::SpreadElement(_)),
-            Self::Synthetic { spread, .. } => *spread,
-        }
-    }
-
-    pub(crate) fn node(&self) -> Option<NodeId> {
-        match self {
-            Self::Written(argument) => argument.node_id(),
-            Self::Synthetic { at, .. } => Some(*at),
-        }
-    }
+    Synthetic {
+        at: NodeId,
+        r#type: TypeId,
+        #[expect(
+            dead_code,
+            reason = "isSpreadArgument; read once getSpreadArgumentType is ported (r7-calls note §1)"
+        )]
+        spread: bool,
+    },
 }
 
 /// What [`Checker::report_signature_applicability`] concluded.
@@ -116,8 +102,9 @@ pub(crate) enum CandidateContext {
     Declared,
     /// The candidate is an instantiation (a generic candidate's inference
     /// result, or a failing overload): arguments were checked while it was
-    /// being inferred or under another candidate.
-    Instantiated,
+    /// being inferred or under another candidate. `const_type_parameters`:
+    /// the uninstantiated candidate declares a `const` type parameter.
+    Instantiated { const_type_parameters: bool },
 }
 
 impl<'a> Checker<'a, '_> {
@@ -297,7 +284,7 @@ impl<'a> Checker<'a, '_> {
                 // union-target object literal's discriminated excess check,
                 // which `relate_ternary` does not make).
                 CandidateContext::Declared => None,
-                CandidateContext::Instantiated => {
+                CandidateContext::Instantiated { .. } => {
                     match self.relate_ternary(source, target, Relation::Assignable) {
                         Ternary::Related => continue,
                         Ternary::Unknown => return ApplicabilityReport::Declined,
@@ -305,6 +292,20 @@ impl<'a> Checker<'a, '_> {
                     }
                 }
             };
+            // `hasExcessProperties` (`relater.go:2714`) runs on the fresh
+            // literal before any structural comparison. Against a non-union
+            // target it reads only the literal's property names, which the
+            // instantiated context's literal preservation does not change, so
+            // its report needs no certification of the member types. A union
+            // target's discriminant reduction reads the members' types, which
+            // do change, and stays behind the certification below.
+            if literal
+                && verdict == Some(Ternary::NotRelated)
+                && !matches!(self.store.get(target).data, TypeData::Union { .. })
+                && self.report_fresh_literal_excess_property(at, source, target)
+            {
+                return ApplicabilityReport::Reported;
+            }
             if let Some(expression) = expression
                 && !self.report_argument_type_is_certified(expression, source, target, context)
             {
@@ -343,11 +344,14 @@ impl<'a> Checker<'a, '_> {
     ///   this parameter as contextual type, so its published type is
     ///   native's.
     /// - Under an instantiation, an object literal's published type is
-    ///   native's unless its literal members could have kept a literal type
-    ///   (`getWidenedLiteralLikeTypeForContextualType` follows the contextual
-    ///   type: a target mentioning a literal declines) or it is context
-    ///   sensitive; an array literal (tuple-ness follows the context) and a
-    ///   class expression (a re-check re-creates the class) decline.
+    ///   native's unless a literal member could keep a literal type under the
+    ///   target (`getWidenedLiteralLikeTypeForContextualType`) or the target
+    ///   has a member this port cannot resolve; an array literal is native's
+    ///   unless either side is tuple-like or could contain type variables
+    ///   (tuple-ness follows the context), or an element could keep a
+    ///   literal; a class expression (a re-check re-creates the class)
+    ///   declines. An object or array literal of a candidate declaring a
+    ///   `const` type parameter declines (see the comment in the body).
     ///
     /// A mapped type with an `as` clause is a published type this port
     /// computes by a road native does not take, and declines everywhere.
@@ -367,11 +371,38 @@ impl<'a> Checker<'a, '_> {
         {
             return true;
         }
+        // A `const` type parameter infers from its object and array literal
+        // arguments in a const context (`isConstTypeVariable` in
+        // `isConstContext`). Native marks those literal types
+        // `ObjectFlagsObjectLiteral` / `ObjectFlagsArrayLiteral`
+        // (`checkObjectLiteral`, `createArrayLiteralType`), so
+        // `unionObjectAndArrayLiteralCandidates` (`inference.go:1470`) unions
+        // several of them into one candidate; this port's const-context
+        // literal types are not recognized there
+        // (`union_object_and_array_literal_candidates`), so it infers the
+        // first candidate where native infers the union, and the
+        // instantiation this pass relates against is not native's
+        // (typeParameterConstModifiers `f5({ x: [1, 'x'], y: [2, 'y'] })`).
+        // Declined until that producer is fixed (r7-calls note §1).
+        if matches!(context, CandidateContext::Instantiated { const_type_parameters: true })
+            && matches!(
+                inner,
+                Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
+            )
+        {
+            return false;
+        }
         match inner {
+            // The object literal's published type was checked under the
+            // uninstantiated parameter; its property names and the types of
+            // its non-literal members do not follow the contextual type, so
+            // only a member that could keep a literal type under the
+            // instantiated target declines. Type variables on either side
+            // are the enclosing declaration's, which inference left alone
+            // (indexedAccessRelation's `this.setState({ a: a })` against
+            // `Pick<S & State<T>, "a">`).
             Expression::ObjectLiteralExpression(_) => {
-                !(self.could_contain_type_variables_at_head(source, 3)
-                    || self.could_contain_type_variables_at_head(target, 3)
-                    || self.literal_member_may_keep_literal(inner, target, 3)
+                !(self.literal_member_may_keep_literal(inner, target, 3)
                     || self.absent_member_is_unreadable(source, target))
             }
             Expression::ArrayLiteralExpression(_) => {
@@ -575,39 +606,6 @@ impl<'a> Checker<'a, '_> {
         names.iter().any(|name| {
             self.get_type_of_property_of_type(source, name).is_none()
                 && self.get_property_of_type(target, name).is_none()
-        })
-    }
-
-    /// Whether `ty` mentions a literal type within `depth` member levels: a
-    /// literal itself, a union/intersection constituent, or a property or
-    /// index-signature value. The contextual types under which
-    /// `isLiteralOfContextualType` (`checker.go`) can keep an object
-    /// literal member's literal type are among these.
-    pub(crate) fn mentions_literal_type(&mut self, ty: TypeId, depth: u32) -> bool {
-        let flags = self.store.get(ty).flags;
-        if flags.intersects(TypeFlags::LITERAL) {
-            return true;
-        }
-        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } =
-            &self.store.get(ty).data
-        {
-            let types = types.clone();
-            return types.into_iter().any(|part| self.mentions_literal_type(part, depth));
-        }
-        if depth == 0 || !flags.intersects(TypeFlags::OBJECT) {
-            return false;
-        }
-        if let Some(names) = self.get_property_names_of_type(ty) {
-            for name in &names {
-                if let Some(member) = self.get_type_of_property_of_type(ty, name)
-                    && self.mentions_literal_type(member, depth - 1)
-                {
-                    return true;
-                }
-            }
-        }
-        self.get_index_infos_of_type(ty).is_some_and(|infos| {
-            infos.iter().any(|info| self.mentions_literal_type(info.value, depth - 1))
         })
     }
 
