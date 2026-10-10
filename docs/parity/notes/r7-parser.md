@@ -150,15 +150,34 @@ replaces the old token blacklist. `isStartOfLeftHandSideExpression` now ends
 in `isIdentifier` as native's does; its context-free stand-in existed only
 because there was no yield context.
 
-## 4. Measurements
+## 4. JavaScript is a JSX-variant script kind
+
+`getLanguageVariant` (`parser/utilities.go:11`) gives `ScriptKindJS` the
+JSX variant beside `.jsx` and `.tsx`, and `ScriptKindJS`/`ScriptKindJSX` set
+`NodeFlagsJavaScriptFile` (`parser.go:304`). This port mapped `.js`, `.cjs`
+and `.mjs` to the TypeScript dialect (the loader flipped them to `.tsx` only
+under a `jsx` option), so `+ <number> x` in a `.js` file was a cast, and
+`.jsx` read type arguments on a JSX tag and in calls. `ScriptKind::JavaScript`
+is the new member for all four extensions: JSX variant (`allows_jsx`), and
+`is_javascript` gates the two parse decisions the JavaScript context makes —
+no `tryParseTypeArgumentsInExpression` (`:5247`, in
+`parse_type_arguments_for_call`) and no type arguments on a JSX tag
+(`:4938`). `docs/parity/notes/jsx.md`'s "No JavaScript-file flag in the
+parser" is superseded by this. The parser still does not report
+`checkJSSyntax`'s TypeScript-only-syntax diagnostics (`:6696`); routed to
+this lane by r7-grammar, queued.
+
+## 5. Measurements
 
 See the commit messages and the box-protocol §6 reports for per-commit
-numbers; §5 below keeps the running table.
+numbers; §6 below keeps the running table.
 
-## 5. Running table
+## 6. Running table
 
 | commit | port | diag cases | types lines | perf (CPU ratio, dm / gi) |
 |---|---|---|---|---|
 | `dd6f9d88` | §1 decorator expression, unary type assertion | +9 / −0 | +242 / −0 | 0.996 / 0.996 |
 | `1321f0aa` | §2 top-level await reparse | +4 / −0 | +460 / −0 | 1.009 / 1.008 |
-| (this) | §3 yield context | +10 / −0 | +95 / −0 | 0.992 / 1.007 (vs `1b466dc8`) |
+| `f44a4956` | §3 yield context | +10 / −0 | +95 / −0 | 0.992 / 1.007 (vs `1b466dc8`) |
+| `41c141b2` | `ParseOptions::module_indicator` | 0 | 0 | — |
+| (this) | §4 JavaScript JSX variant | +4 / −0 | +29 / −0 | see report |

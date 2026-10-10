@@ -19,8 +19,18 @@ pub enum ScriptKind {
     /// `.ts`, `.mts`, `.cts`, `.d.ts` — `<T>expr` is a type assertion.
     #[default]
     TypeScript,
-    /// `.tsx`, `.jsx` — `<` opens JSX; type assertions must use `as`.
+    /// `.tsx` — `<` opens JSX; type assertions must use `as`.
     Tsx,
+    /// JavaScript: `.js`, `.cjs`, `.mjs` and `.jsx` — native's `ScriptKindJS`
+    /// and `ScriptKindJSX`.
+    ///
+    /// Both are JSX-variant script kinds (`getLanguageVariant`,
+    /// `parser/utilities.go:11`), so `<` opens JSX exactly as in `.tsx`:
+    /// `+ <foo> bar` in a `.js` file is a JSX element, not a cast. Both also
+    /// set `NodeFlagsJavaScriptFile` (`parser.go:304`), under which the parser
+    /// reads no type arguments in an expression or on a JSX tag
+    /// (`tryParseTypeArgumentsInExpression`, `:5247`; `:4938`).
+    JavaScript,
     /// `.json`. A file is a single value, not a statement list.
     ///
     /// Not merely a dialect flag: it selects a different entry point
@@ -29,7 +39,8 @@ pub enum ScriptKind {
 }
 
 impl ScriptKind {
-    /// Infer the dialect from a file name.
+    /// Infer the dialect from a file name (`GetScriptKindFromFileName`,
+    /// `core/core.go:527`).
     #[must_use]
     pub fn from_file_name(name: &str) -> Self {
         let extension = std::path::Path::new(name)
@@ -38,16 +49,25 @@ impl ScriptKind {
             .unwrap_or_default()
             .to_ascii_lowercase();
         match extension.as_str() {
-            "tsx" | "jsx" => Self::Tsx,
+            "tsx" => Self::Tsx,
+            "js" | "cjs" | "mjs" | "jsx" => Self::JavaScript,
             "json" => Self::Json,
             _ => Self::TypeScript,
         }
     }
 
-    /// Whether `<` in expression position opens JSX.
+    /// Whether `<` in expression position opens JSX: native's
+    /// `LanguageVariantJSX`.
     #[must_use]
     pub const fn allows_jsx(self) -> bool {
-        matches!(self, Self::Tsx)
+        matches!(self, Self::Tsx | Self::JavaScript)
+    }
+
+    /// Whether the file is JavaScript (`Parser.isJavaScript`,
+    /// `parser.go:153`): the parser's `NodeFlagsJavaScriptFile` context.
+    #[must_use]
+    pub const fn is_javascript(self) -> bool {
+        matches!(self, Self::JavaScript)
     }
 }
 
