@@ -1719,3 +1719,25 @@ contextual signature.
 calls.rs now admits both forms, as IsImportCall does. That is the
 integrator's fix for a merge interaction: it ports the native predicate
 and suppresses nothing.
+
+### r6-triage finished (batch BW); r6-callreport dispatched
+
+r6-triage dumped both suites unfiltered on `e6eadf4`:
+- types: 6,082 non-RIGHT lines in 1,174 cases;
+- diagnostics: 1,020 non-RIGHT cases.
+
+It keyed every line to the native operation whose port converts it: 759
+clusters, with 2 lines unclassified. Its §2 ranks the 198 clusters that
+unlock three or more cases alone. The integrator filed its 102 proposed
+entries as `tsr-2zk.1152` through `tsr-2zk.1253`, prioritised by cases
+unlocked (P1 ≥15, P2 ≥5).
+
+65 of the 102 clusters sit in MAIN-reserved files. Those are worked as
+measured diffs that the integrator lands, as before.
+
+Batch BW lands r6-triage's checkImportAttributes port (checker.go:5413/5361)
+and its hookup diff: +5 diagnostics cases, 0 lost, Ir −0.008% on
+domain-model.
+
+r6-callreport takes the calls.rs reporting group, 106 cases:
+- `tsr-2zk.1153`, `.1158`, `.1163`, `.1169`, `.1172`.
