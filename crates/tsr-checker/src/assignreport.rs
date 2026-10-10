@@ -3452,9 +3452,13 @@ impl<'a> Checker<'a, '_> {
         if !self.is_excess_property_check_target(target) {
             return Some(ExcessProperties::None);
         }
-        // `!noImplicitAny && JSLiteral`: JavaScript literals are not ported.
-        if self.in_js_file(node) {
-            return None;
+        // `!noImplicitAny && target.objectFlags&ObjectFlagsJSLiteral`
+        // (`relater.go:2715`): the TARGET is a JS object literal's own type,
+        // which `checkObjectLiteral` marks only when it had no contextual
+        // type (`checker.go:13206`), and it takes any property. A JS source
+        // literal is checked like any other.
+        if !self.no_implicit_any && self.js_literal_types.contains(&target) {
+            return Some(ExcessProperties::None);
         }
         if self.excess_check_target_admits_any_property(target)? {
             return Some(ExcessProperties::None);
