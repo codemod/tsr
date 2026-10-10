@@ -2027,6 +2027,12 @@ impl<'a> Checker<'a, '_> {
                     // §493: the default clause must carry the name-agreement
                     // gate, checked against the target below.
                     Some(Node::ImportClause(clause)) => clause.name.map(|local| Some(local.text)),
+                    // A UMD global (`export as namespace Foo`): native's
+                    // `resolveAlias` reaches the module's `export =` target
+                    // (`getTargetOfNamespaceExportDeclaration`, then
+                    // `resolveIndirectionAlias`). The written name is the
+                    // global's, which no declaration shares, so no gate.
+                    Some(Node::NamespaceExportDeclaration(_)) => Some(None),
                     _ => None,
                 }
             } else {
