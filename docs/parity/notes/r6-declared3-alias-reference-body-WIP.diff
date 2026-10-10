@@ -1,0 +1,90 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 7802869..fc16737 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -7346,6 +7346,18 @@ impl<'a> Checker<'a, '_> {
+             self.instantiations.insert((symbol, arguments), evaluated);
+             return evaluated;
+         }
++        // getTypeAliasInstantiation (checker.go:23641) over a body that is a
++        // reference to another generic alias: the declared type IS that
++        // alias's instantiation, carrying its alias (`Objectish<U>` for
++        // `type IndirectArrayish<U> = Objectish<U>`), and instantiateTypeWithAlias
++        // with no new alias instantiates that alias's arguments
++        // (instantiateTypeAlias). So `IndirectArrayish<any>` is
++        // `Objectish<any>`; no type named after the outer alias exists
++        // (`r6-declared3.md` §2). A re-entrant reference keeps the named mint.
++        if let Some(evaluated) = self.instantiate_alias_reference_body(symbol, &arguments) {
++            self.instantiations.insert((symbol, arguments), evaluated);
++            return evaluated;
++        }
+         let shown = self.reference_print_arity(symbol, &arguments);
+         // getTypeAliasInstantiation over an INTERSECTION body
+         // (instantiateTypeWithAlias → getIntersectionTypeEx(…, alias),
+@@ -7439,6 +7451,50 @@ impl<'a> Checker<'a, '_> {
+         id
+     }
+ 
++    /// The generic alias a type alias's body references (parentheses
++    /// skipped), when the body is a reference with type arguments to a
++    /// generic type alias.
++    fn alias_reference_body_target(&mut self, symbol: SymbolId) -> Option<SymbolId> {
++        if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
++            return None;
++        }
++        let TypeNode::TypeReferenceNode(reference) =
++            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?
++        else {
++            return None;
++        };
++        if reference.type_arguments.is_empty() {
++            return None;
++        }
++        let inner = reference
++            .type_name
++            .and_then(|name| self.resolve_entity_name(name, SymbolFlags::TYPE))?;
++        let inner = self.binder.merged_symbol(inner);
++        (self.binder.symbols().get(inner).flags.contains(SymbolFlags::TYPE_ALIAS)
++            && !self.local_type_parameters_of(inner).is_empty())
++        .then_some(inner)
++    }
++
++    /// [`Checker::create_type_reference`]'s alias-reference-body arm: the
++    /// body evaluated under the alias's bindings, which builds the inner
++    /// alias's own instantiation. `None` (the named mint stands) for any
++    /// other body, a re-entrant reference, or a body that does not build.
++    fn instantiate_alias_reference_body(
++        &mut self,
++        symbol: SymbolId,
++        arguments: &[TypeId],
++    ) -> Option<TypeId> {
++        self.alias_reference_body_target(symbol)?;
++        if self.local_type_parameters_of(symbol).len() != arguments.len()
++            || !self.instantiation_expressions.alias_reference_body_in_progress.insert(symbol)
++        {
++            return None;
++        }
++        let evaluated = self.evaluate_alias_body(symbol, arguments);
++        self.instantiation_expressions.alias_reference_body_in_progress.remove(&symbol);
++        evaluated.filter(|&evaluated| !self.is_gap(evaluated))
++    }
++
+     /// The body of a generic type alias whose declaration (parentheses
+     /// skipped) is an intersection, built once without a mapper and
+     /// instantiated with the alias's parameters mapped to `arguments` —
+diff --git a/crates/tsr-checker/src/instantiation_expressions.rs b/crates/tsr-checker/src/instantiation_expressions.rs
+index c74e276..39ec413 100644
+--- a/crates/tsr-checker/src/instantiation_expressions.rs
++++ b/crates/tsr-checker/src/instantiation_expressions.rs
+@@ -103,6 +103,11 @@ pub(crate) struct InstantiationExpressionLinks {
+     /// unconstrained clone`. Written once per parameter, never invalidated
+     /// (`r6-declared3.md` §1).
+     pub(crate) restrictive_type_parameters: rustc_hash::FxHashMap<TypeId, TypeId>,
++    /// The type aliases whose reference-body instantiation
++    /// (`Checker::instantiate_alias_reference_body`, declared.rs) is on the
++    /// stack: inserted before the body is evaluated, removed after. A
++    /// re-entrant reference keeps the named mint (`r6-declared3.md` §2).
++    pub(crate) alias_reference_body_in_progress: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+     /// The merged symbols of the global `Iterable`, `IterableIterator`,
+     /// `AsyncIterable` and `AsyncIterableIterator` at arity 3, whose printed
+     /// references elide default-identical trailing arguments
