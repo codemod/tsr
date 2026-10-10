@@ -1760,7 +1760,11 @@ impl<'a> Parser<'a> {
             return self.missing_identifier();
         }
         let start = self.pos();
-        let text = self.jsdoc_token_text();
+        // `p.scanner.TokenValue()`: the name with its unicode escapes decoded.
+        let text = match self.scanner.decoded_value() {
+            Some(decoded) => self.arena.alloc_str(decoded),
+            None => self.jsdoc_token_text(),
+        };
         self.next_jsdoc_token();
         self.finish_jsdoc_node(Identifier::new(text), SyntaxKind::Identifier, start)
     }

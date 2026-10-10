@@ -114,20 +114,86 @@ impl Scanner<'_> {
             '.' => SyntaxKind::DotToken,
             '`' => SyntaxKind::BacktickToken,
             '#' => SyntaxKind::HashToken,
+            // `ScanJSDocToken`'s backslash arm (`scanner.go:1490`): a unicode
+            // escape that can start an identifier begins one, decoded into
+            // the token's value (`@param {number} \u0061` names `a`).
+            '\\' => {
+                self.pos = self.token_start;
+                match self.peek_unicode_escape().and_then(char::from_u32) {
+                    Some(decoded) if is_identifier_start(decoded) => {
+                        self.bump();
+                        let mut value = String::new();
+                        if let Some(first) = self.scan_unicode_escape().and_then(char::from_u32) {
+                            value.push(first);
+                        }
+                        self.scan_jsdoc_identifier_parts(&mut value);
+                        let kind = keyword_kind(&value).unwrap_or(SyntaxKind::Identifier);
+                        self.value = Some(value);
+                        kind
+                    }
+                    _ => {
+                        self.bump();
+                        SyntaxKind::Unknown
+                    }
+                }
+            }
             c if is_identifier_start(c) => {
                 // `-` is an identifier part here so that `@my-custom-tag` is one
                 // name rather than a subtraction.
                 while self.peek().is_some_and(|c| is_identifier_part(c) || c == '-') {
                     self.bump();
                 }
-                let text = &self.source[self.token_start as usize..self.pos as usize];
+                let end = self.pos;
+                // `if char == '\\' { s.tokenValue += s.scanIdentifierParts() }`
+                // (`scanner.go:1515`): an escape continues the name.
+                if self.peek() == Some('\\') {
+                    let mut value =
+                        self.source[self.token_start as usize..end as usize].to_string();
+                    self.scan_jsdoc_identifier_parts(&mut value);
+                    if self.pos != end {
+                        let kind = keyword_kind(&value).unwrap_or(SyntaxKind::Identifier);
+                        self.value = Some(value);
+                        return self.finish_jsdoc_token(kind, flags);
+                    }
+                }
+                let text = &self.source[self.token_start as usize..end as usize];
                 keyword_kind(text).unwrap_or(SyntaxKind::Identifier)
             }
             _ => SyntaxKind::Unknown,
         };
 
+        self.finish_jsdoc_token(kind, flags)
+    }
+
+    fn finish_jsdoc_token(&mut self, kind: SyntaxKind, flags: TokenFlags) -> Token {
         self.token = Token::new(kind, Span::new(self.token_start, self.pos), flags);
         self.token
+    }
+
+    /// `scanIdentifierParts` (`scanner.go:1562`): identifier parts and the
+    /// unicode escapes that spell one, decoded onto `value`. Stops, without
+    /// consuming it, at a backslash whose escape does not continue a name.
+    fn scan_jsdoc_identifier_parts(&mut self, value: &mut String) {
+        while let Some(ch) = self.peek() {
+            if is_identifier_part(ch) {
+                self.bump();
+                value.push(ch);
+                continue;
+            }
+            if ch == '\\'
+                && self
+                    .peek_unicode_escape()
+                    .and_then(char::from_u32)
+                    .is_some_and(is_identifier_part)
+            {
+                self.bump();
+                if let Some(decoded) = self.scan_unicode_escape().and_then(char::from_u32) {
+                    value.push(decoded);
+                }
+                continue;
+            }
+            break;
+        }
     }
 
     /// Scan a run of comment prose, or fall back to [`Scanner::scan_jsdoc_token`].
