@@ -436,3 +436,74 @@ does not use `OsSystem`). `cargo test --workspace --release`: 3,753 passed,
 second command in the same process: memory would grow by one program per
 command. `OsSystem` is constructed once per `main` and runs exactly one
 `command_line`.
+
+## §9 `GetProgramDiagnostics` reaches the CLI and the diagnostics suite
+
+**Forcing case.** `compiler/pathsValidation5` run as a CLI project: tsgo
+prints three TS5090 (`Non-relative paths are not allowed`) on
+`tsconfig.json`, and TSR printed one TS2882 on `src/main.ts`.
+`verify_options.rs` already ports `verifyCompilerOptions`
+(`program.go:751`), but only the full oracle (`full_oracle.rs:506`) called
+it. Neither the CLI nor the legacy `diagnostics` suite ever saw
+`programDiagnostics`. The integrator granted the
+`diagnostics_suite.rs` wiring to this lane (2026-10-10).
+
+**Native.** `Program.GetProgramDiagnostics` (`program.go:698`) is
+`SortAndDeduplicate(programDiagnostics ++ includeProcessor global)`. Its
+two consumers treat it differently:
+
+- `GetDiagnosticsOfAnyProgram` (`program.go:1782`, the CLI) appends it only
+  when there are no syntactic diagnostics. When it, or
+  `GetGlobalDiagnostics`, is non-empty, that function never asks for the
+  semantic set, so no checker runs. `listFilesOnly` still gets program
+  diagnostics.
+- The test runner's `compileFilesWithHost` (`harnessutil.go:633`)
+  concatenates config, program, syntactic, semantic, global and declaration
+  diagnostics **without** that gate.
+
+**Change.**
+
+- `program_diagnostics.rs`: `program_level_diagnostics` (verify plus
+  `global_program_diagnostics`) and `semantic_diagnostics_are_asked`.
+  `diagnostics_of_any_program` now takes the program-level set, applies the
+  native gate, and returns `(file name, diagnostic)`. The CLI is its only
+  caller.
+- `compile.rs`: the config's `ConfigSyntax` is kept from the parse. The
+  program-level set is computed before the pool, and the pool skips
+  `check_source_file` when `semantic_diagnostics_are_asked` is false.
+  `js_syntax` is still collected, because it is syntactic. A JavaScript
+  file's `js_syntax` can only close the gate after checking, which is the
+  one remaining case of checking work that is dropped.
+- `diagnostics_suite.rs`: `program_level_diagnostics` runs against the
+  case's tsconfig unit (the same input as `full_oracle.rs`), positioned
+  through the unit text with no gate. Config parse diagnostics and these now
+  share one positioning helper (`located_in_units`).
+
+This is not a cache, side table or traversal. `verifyCompilerOptions` runs
+once per program, as upstream's does at program creation.
+
+**Measured** (on main `660718af`, against its own freeze):
+
+- Diagnostics, WRONG → RIGHT: `pathsValidation5` and
+  `pathMappingBasedModuleResolution1_node` (TS5090),
+  `commonSourceDirectory_dts` (TS5011),
+  `declarationEmitToDeclarationDirWithoutCompositeAndDeclarationOptions`
+  (TS5069), and `bundlerOptionsCompat`. No other case's actual list moved.
+  Types are unchanged. `compare`: 0 lost, 0 missing.
+- Coverage bin on the pre-rebase tree (`1b466dc8` plus this branch):
+  `checker_types` 8,682/9,538, `checker_types_configured` 1,753/1,928,
+  `diagnostics` 4,821/5,502, `diagnostics_configured` 958/1,091. The bin
+  was not run on that base alone, so the rows carry no measured delta;
+  the dump comparison above is the delta.
+- The CLI now prints tsgo's three TS5090 on `pathsValidation5` as a
+  project. Output on dm, dml, gi and jsTyping is identical to the previous
+  binary.
+- Two `tsr-execute` tests passed `--target es5` only to name `lib.d.ts`.
+  That is TS5108 (`Option 'target=ES5' has been removed`), which now
+  closes the semantic gate, so they use `--target es2015` and
+  `lib.es6.d.ts`. Native would not check those programs either.
+- `cargo test --workspace --release --no-fail-fast`: 3,764 passed,
+  0 failed. Strict `cargo clippy --workspace --all-targets -- -D warnings`
+  is clean.
+- Perf, the three r7-perf commits on `660718af` against its frozen binary
+  (21 samples, child CPU): domain-model 0.988, generic-imports 0.976.

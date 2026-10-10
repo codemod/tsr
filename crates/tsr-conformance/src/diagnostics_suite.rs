@@ -483,6 +483,89 @@ fn collect(test: &crate::TestCase) -> Vec<(BaselineDiagnostic, Diagnostic)> {
     if let Some(config) = &config {
         out.extend(config_file_parsing_diagnostics(test, config));
     }
+    out.extend(program_level_diagnostics(test, &program, config.as_ref()));
+    out
+}
+
+/// `GetProgramDiagnostics` (`compiler/program.go:698`): the program's
+/// `verifyCompilerOptions` diagnostics and the include processor's global
+/// ones, which the test runner concatenates with every other set
+/// (`harnessutil.go:633`). It does **not** apply `GetDiagnosticsOfAnyProgram`'s
+/// gate, so the semantic set stays beside them. `verifyCompilerOptions` runs
+/// against the harness `ParsedCommandLine`, whose `ConfigFile` is the case's
+/// tsconfig unit, the same input `full_oracle.rs` gives it. A diagnostic
+/// positioned in no unit (a compiler diagnostic) prints no `(line,column)`
+/// and is not part of the compared set. `r7-perf.md` §9.
+fn program_level_diagnostics(
+    test: &crate::TestCase,
+    program: &Program<'_>,
+    config: Option<&tsr_tsoptions::ParsedCommandLine>,
+) -> Vec<(BaselineDiagnostic, Diagnostic)> {
+    let current_directory = tsr_path::get_normalized_absolute_path(
+        test.current_directory.as_deref().unwrap_or(""),
+        crate::types_producer::CURRENT_DIRECTORY,
+    );
+    let config_unit = config.and_then(|_| {
+        test.files.iter().find(|u| crate::trace_case::config_name_from_file_name(&u.name).is_some())
+    });
+    let config_file_name =
+        config_unit.map(|u| tsr_path::get_normalized_absolute_path(&u.name, &current_directory));
+    let config_syntax = config_unit.map(|u| tsr_tsoptions::syntax::ConfigSyntax::parse(&u.content));
+    let suppress_output_path_check = match test.options.get("suppressoutputpathcheck") {
+        Some(v) if v.eq_ignore_ascii_case("true") => tsr_core::Tristate::True,
+        Some(v) if v.eq_ignore_ascii_case("false") => tsr_core::Tristate::False,
+        _ => tsr_core::Tristate::Unknown,
+    };
+    let found = program_diagnostics::program_level_diagnostics(
+        program,
+        program_diagnostics::OptionsVerification {
+            config_file: config_file_name.as_deref().zip(config_syntax.as_ref()),
+            suppress_output_path_check,
+        },
+    );
+    located_in_units(test, &current_directory, found.iter().map(|(file, d)| (file.as_str(), d)))
+}
+
+/// Each `(file, diagnostic)` whose file is one of the case's units, with its
+/// printed position, deduplicated on upstream's key (file, span, code,
+/// arguments).
+fn located_in_units<'d>(
+    test: &crate::TestCase,
+    current_directory: &str,
+    diagnostics: impl Iterator<Item = (&'d str, &'d Diagnostic)>,
+) -> Vec<(BaselineDiagnostic, Diagnostic)> {
+    let mut seen: HashSet<(&str, u32, u32, u32, &[String])> = HashSet::new();
+    let mut out = Vec::new();
+    for (file, diagnostic) in diagnostics {
+        if file.is_empty() {
+            continue;
+        }
+        let Some(unit) = test.files.iter().find(|unit| {
+            tsr_path::get_normalized_absolute_path(&unit.name, current_directory) == file
+        }) else {
+            continue;
+        };
+        let key = (
+            file,
+            diagnostic.span.start,
+            diagnostic.span.end,
+            diagnostic.message.code(),
+            diagnostic.args.as_slice(),
+        );
+        if !seen.insert(key) {
+            continue;
+        }
+        let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
+        out.push((
+            BaselineDiagnostic {
+                file: printed_name(&unit.name, test),
+                line: line + 1,
+                column: character + 1,
+                code: diagnostic.message.code(),
+            },
+            diagnostic.clone(),
+        ));
+    }
     out
 }
 
@@ -602,37 +685,15 @@ fn config_file_parsing_diagnostics(
         test.current_directory.as_deref().unwrap_or(""),
         crate::types_producer::CURRENT_DIRECTORY,
     );
-    let mut seen: HashSet<(&str, u32, u32, u32, &[String])> = HashSet::new();
-    let mut out = Vec::new();
-    for (diagnostic, file) in config.errors.iter().zip(&config.error_files) {
-        let Some(file) = file else { continue };
-        let Some(unit) = test.files.iter().find(|unit| {
-            tsr_path::get_normalized_absolute_path(&unit.name, &current_directory) == *file
-        }) else {
-            continue;
-        };
-        let key = (
-            file.as_str(),
-            diagnostic.span.start,
-            diagnostic.span.end,
-            diagnostic.message.code(),
-            diagnostic.args.as_slice(),
-        );
-        if !seen.insert(key) {
-            continue;
-        }
-        let (line, character) = line_and_character(&unit.content, diagnostic.span.start);
-        out.push((
-            BaselineDiagnostic {
-                file: printed_name(&unit.name, test),
-                line: line + 1,
-                column: character + 1,
-                code: diagnostic.message.code(),
-            },
-            diagnostic.clone(),
-        ));
-    }
-    out
+    located_in_units(
+        test,
+        &current_directory,
+        config
+            .errors
+            .iter()
+            .zip(&config.error_files)
+            .filter_map(|(diagnostic, file)| Some((file.as_deref()?, diagnostic))),
+    )
 }
 
 /// One position `report_assignability_failure` was asked about, and the gate
