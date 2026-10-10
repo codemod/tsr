@@ -127,3 +127,15 @@ fn a_self_mentioned_type_literal_alias_has_its_members_in_the_union() {
          const r = x;\n";
     assert_eq!(type_of_last_initializer(source), "1");
 }
+
+/// §8: a union of an alias-named union and an object keeps the alias in its
+/// origin (getUnionTypeWorker, checker.go:25705) instead of failing (tsgo:
+/// `z : C3 | CC`).
+#[test]
+fn an_alias_named_union_beside_an_object_keeps_its_origin() {
+    let source = "interface C1 { a: 1 } interface C2 { b: 2 } interface C3 { c: 3 }\n\
+         type CC = C1 | C2;\n\
+         declare const y: CC | C3;\n\
+         const z = y;\n";
+    assert_eq!(type_of_last_initializer(source), "C3 | CC");
+}
