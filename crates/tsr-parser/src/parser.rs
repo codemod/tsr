@@ -394,7 +394,30 @@ impl<'a> Parser<'a> {
     // ---- token cursor ---------------------------------------------------
 
     /// Advance to the next token, returning the one just consumed.
+    #[inline]
     pub(crate) fn next_token(&mut self) -> Token {
+        // `Parser.nextToken` (`parser.go:381`): a keyword spelled with an
+        // escape is reported as it is consumed. Identifier creation consumes
+        // with `nextTokenWithoutCheck` instead ([`Self::next_token_without_check`]),
+        // so `var \u0061wait` and `{ def\u0061ult: 1 }` stay silent.
+        // The flag first: it is almost never set, so the common token pays
+        // one test and the report stays out of line.
+        if self.token.flags.contains(tsr_scanner::TokenFlags::UNICODE_ESCAPE) {
+            self.report_escaped_keyword();
+        }
+        self.next_token_without_check()
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn report_escaped_keyword(&mut self) {
+        if self.token.kind.is_keyword() {
+            self.error_at_current(&messages::KEYWORDS_CANNOT_CONTAIN_ESCAPE_CHARACTERS);
+        }
+    }
+
+    /// `Parser.nextTokenWithoutCheck` (`parser.go:391`).
+    pub(crate) fn next_token_without_check(&mut self) -> Token {
         let previous = self.token;
         self.token = self.scanner.scan();
         self.token_value = capture_value(&self.scanner);

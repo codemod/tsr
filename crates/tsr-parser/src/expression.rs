@@ -2706,7 +2706,7 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         if self.is_binding_identifier() {
             let text = self.token_value();
-            self.next_token();
+            self.next_token_without_check();
             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
         }
         self.report_missing_identifier()
@@ -2719,7 +2719,7 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         if self.at(SyntaxKind::Identifier) || self.token.kind.is_keyword() {
             let text = self.token_value();
-            self.next_token();
+            self.next_token_without_check();
             return self.finish_node(Identifier::new(text), SyntaxKind::Identifier, start);
         }
         self.report_missing_identifier()

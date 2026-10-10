@@ -434,7 +434,10 @@ impl<'a> Parser<'a> {
         // `parseAmbientExternalModuleDeclaration`'s global arm (`parser.go`).
         if self.at(SyntaxKind::GlobalKeyword) {
             let keyword_start = self.pos();
-            let keyword = self.take_token();
+            // `parseIdentifier` → `createIdentifier`: `nextTokenWithoutCheck`.
+            let keyword = self.token;
+            self.next_token_without_check();
+            let keyword = self.alloc_token(keyword.kind, keyword.span);
             let name = ModuleName::Identifier(self.finish_node(
                 Identifier::new("global"),
                 SyntaxKind::Identifier,
