@@ -264,3 +264,15 @@ for each decorator of a declaration that `NodeCanBeDecorated` accepts;
 to is the calls lane's. Verified against `target/tsgo-pinned` on a scratch
 file; `esDecorators-decoratorExpression.1` still has parse errors on this
 base and converts once r7-parser's decorator-expression parsing lands.
+
+## §10 A private set accessor is checked for use
+
+`checkUnusedClassMembers` (`checker.go:7115`) skips a set accessor only when
+its symbol also has `GetAccessor` ("Already would have reported an error on
+the getter"); `check_unused_class_members` skipped every set accessor, so a
+lone private setter was never reported (`unusedSetterInClass`). And
+`markPropertyAsReferenced` (`checker.go:27718`) drops a write-only access
+*unless the property is a set accessor*, so a write keeps a setter used where
+it leaves a field unread. The member-name pass records write-only accesses
+under their own key (`member_write_key`), read only for set accessors, with
+the same self-access rule as reads. Converted: `unusedSetterInClass(target=es2015)`.
