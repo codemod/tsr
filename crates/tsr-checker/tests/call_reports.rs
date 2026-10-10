@@ -56,12 +56,11 @@ fn a_generic_candidate_reports_an_object_literal_over_enclosing_type_variables()
     );
 }
 
-/// A `const` type parameter's object and array literal arguments decline:
-/// native unions their const-context literal candidates
-/// (`unionObjectAndArrayLiteralCandidates`), this port does not yet, so its
-/// instantiation is not native's (typeParameterConstModifiers).
+/// A `const` type parameter's const-context literal candidates are unioned
+/// (`unionObjectAndArrayLiteralCandidates`), so the instantiation relates
+/// every literal argument and nothing is reported (typeParameterConstModifiers).
 #[test]
-fn a_const_type_parameter_literal_argument_declines() {
+fn a_const_type_parameter_unions_its_literal_candidates() {
     assert_eq!(
         reported(
             "declare function f5<const T>(obj: { x: T, y: T }): T;\n\

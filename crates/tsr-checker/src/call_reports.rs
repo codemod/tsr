@@ -102,9 +102,8 @@ pub(crate) enum CandidateContext {
     Declared,
     /// The candidate is an instantiation (a generic candidate's inference
     /// result, or a failing overload): arguments were checked while it was
-    /// being inferred or under another candidate. `const_type_parameters`:
-    /// the uninstantiated candidate declares a `const` type parameter.
-    Instantiated { const_type_parameters: bool },
+    /// being inferred or under another candidate.
+    Instantiated,
 }
 
 impl<'a> Checker<'a, '_> {
@@ -284,7 +283,7 @@ impl<'a> Checker<'a, '_> {
                 // union-target object literal's discriminated excess check,
                 // which `relate_ternary` does not make).
                 CandidateContext::Declared => None,
-                CandidateContext::Instantiated { .. } => {
+                CandidateContext::Instantiated => {
                     match self.relate_ternary(source, target, Relation::Assignable) {
                         Ternary::Related => continue,
                         Ternary::Unknown => return ApplicabilityReport::Declined,
@@ -350,8 +349,7 @@ impl<'a> Checker<'a, '_> {
     ///   unless either side is tuple-like or could contain type variables
     ///   (tuple-ness follows the context), or an element could keep a
     ///   literal; a class expression (a re-check re-creates the class)
-    ///   declines. An object or array literal of a candidate declaring a
-    ///   `const` type parameter declines (see the comment in the body).
+    ///   declines.
     ///
     /// A mapped type with an `as` clause is a published type this port
     /// computes by a road native does not take, and declines everywhere.
@@ -370,27 +368,6 @@ impl<'a> Checker<'a, '_> {
             || context == CandidateContext::Declared
         {
             return true;
-        }
-        // A `const` type parameter infers from its object and array literal
-        // arguments in a const context (`isConstTypeVariable` in
-        // `isConstContext`). Native marks those literal types
-        // `ObjectFlagsObjectLiteral` / `ObjectFlagsArrayLiteral`
-        // (`checkObjectLiteral`, `createArrayLiteralType`), so
-        // `unionObjectAndArrayLiteralCandidates` (`inference.go:1470`) unions
-        // several of them into one candidate; this port's const-context
-        // literal types are not recognized there
-        // (`union_object_and_array_literal_candidates`), so it infers the
-        // first candidate where native infers the union, and the
-        // instantiation this pass relates against is not native's
-        // (typeParameterConstModifiers `f5({ x: [1, 'x'], y: [2, 'y'] })`).
-        // Declined until that producer is fixed (r7-calls note §1).
-        if matches!(context, CandidateContext::Instantiated { const_type_parameters: true })
-            && matches!(
-                inner,
-                Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
-            )
-        {
-            return false;
         }
         match inner {
             // The object literal's published type was checked under the
