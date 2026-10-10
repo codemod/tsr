@@ -546,13 +546,12 @@ impl<'a> Parser<'a> {
             | SyntaxKind::QuestionToken
             | SyntaxKind::QuestionQuestionToken
             | SyntaxKind::ExclamationToken => self.parse_jsdoc_prefix_type(),
-            // `parseNonArrayType`'s default is `parseTypeReference`, whose entity
-            // name admits reserved words (`@param {function} f`). Only
-            // `function` — the reserved word `isStartOfType` names — is taken
-            // so far: the others also reach here from `parse_type_parameters`'
-            // missing list recovery (`type T<in in>`), where upstream never
-            // asks for a type. docs/parity/notes/js.md.
-            SyntaxKind::FunctionKeyword => {
+            // `parseNonArrayType`'s default is `parseTypeReference`
+            // (`parser.go:2858`), whose entity name admits reserved words
+            // (`parseEntityNameOfTypeReference`, `allowReservedWords`): `x:
+            // break` is a reference to a type named `break`, and the checker
+            // reports it (TS2304), not the parser.
+            kind if kind.is_keyword() => {
                 let name = self.parse_entity_name();
                 let type_arguments = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
