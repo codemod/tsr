@@ -180,6 +180,11 @@ impl ParseOptions {
 }
 
 /// A recursive-descent parser over one source file.
+// Upstream's `Parser` (`parser.go:62`) carries its state the same way: two
+// parse options and several independent flags (`hasParseError`,
+// `statementHasAwaitIdentifier`, the context bits) that no state machine
+// would describe.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Parser<'a> {
     pub(crate) arena: &'a Arena,
     pub(crate) source: &'a str,
@@ -215,6 +220,12 @@ pub struct Parser<'a> {
     /// `is_binding_identifier` is upstream's own context-free test, and
     /// `isYieldExpression`'s context half is unported. §193.
     pub(crate) in_await_context: bool,
+    /// Upstream's `NodeFlagsDecoratorContext` bit of `Parser.contextFlags`:
+    /// set while parsing the expression after `@`, cleared by
+    /// `parseExpression`, argument lists, function expressions and function
+    /// bodies. Its one reader is the member-expression loop, which leaves a
+    /// `[` to the decorated member's computed name.
+    pub(crate) in_decorator_context: bool,
     /// Non-zero while a nested type may not consume a conditional `extends`.
     ///
     /// The extends-side of a conditional type uses this to resolve
@@ -344,6 +355,7 @@ impl<'a> Parser<'a> {
             // decision in the parser, so a top-level `await` outside a function
             // still goes through `isAwaitExpression`'s lookahead half. §193.
             in_await_context: false,
+            in_decorator_context: false,
             disallow_conditional_types: 0,
             parsing_contexts: 0,
             jsdoc: Vec::new(),

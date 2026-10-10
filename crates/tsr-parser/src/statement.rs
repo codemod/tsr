@@ -628,6 +628,16 @@ impl<'a> Parser<'a> {
         self.parse_block_with(None)
     }
 
+    /// The context half of `parseFunctionBlock` (`parser.go:3495`) this
+    /// parser tracks beyond each caller's `with_await_context`: "The body of
+    /// the function is not in [Decorator] context."
+    pub(crate) fn parse_function_block(&mut self) -> &'a Block<'a> {
+        let saved_decorator = std::mem::replace(&mut self.in_decorator_context, false);
+        let block = self.parse_block();
+        self.in_decorator_context = saved_decorator;
+        block
+    }
+
     /// typescript-go's `Parser.parseBlock` (`parser.go`). A block whose `{`
     /// is missing has no statements: upstream parses none rather than reading
     /// what follows as its body.

@@ -182,7 +182,11 @@ fn recovered_constructor_syntax_keeps_its_tokens() {
 #[test]
 fn recovered_new_type_assertion_does_not_gain_a_second_call() {
     let output = printed("const value = new <any>Factory();");
-    assert!(output.contains("new <any>Factory()"));
+    // tsgo's recovery: a type assertion is a unary expression, so after `new`
+    // the `<` reaches `parsePrimaryExpression`, which reports TS1109 and
+    // leaves a missing callee; `< any > Factory()` is then two relational
+    // binaries (tsgo emits `new  < any > Factory();`).
+    assert!(output.contains("< any > Factory()"), "{output}");
     assert!(!output.contains("Factory()()"));
 }
 
