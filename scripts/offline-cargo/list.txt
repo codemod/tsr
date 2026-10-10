@@ -7,11 +7,14 @@ convert_case rutrum/convert-case 0.11.0 .
 crossbeam-deque crossbeam-rs/crossbeam crossbeam-deque-0.8.7 crossbeam-deque
 crossbeam-epoch crossbeam-rs/crossbeam crossbeam-epoch-0.9.20 crossbeam-epoch
 crossbeam-utils crossbeam-rs/crossbeam crossbeam-utils-0.8.22 crossbeam-utils
+cty japaric/cty v0.2.2 .
 either rayon-rs/either 1.17.0 .
 find-msvc-tools rust-lang/cc-rs find-msvc-tools-v0.1.9 find-msvc-tools
 itoa dtolnay/itoa 1.0.18 .
 libc rust-lang/libc 0.2.189 .
+libmimalloc-sys purpleprotocol/mimalloc_rust v0.1.52 libmimalloc-sys
 memchr BurntSushi/memchr 2.8.3 .
+mimalloc purpleprotocol/mimalloc_rust v0.1.52 .
 nonmax LPGhatguy/nonmax v0.5.5 .
 object gimli-rs/object 0.37.3 .
 proc-macro2 dtolnay/proc-macro2 1.0.107 .
