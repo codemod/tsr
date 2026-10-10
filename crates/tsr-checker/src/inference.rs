@@ -1511,7 +1511,7 @@ impl<'a> Checker<'a, '_> {
                                             parameter_type,
                                             &parameters,
                                         )
-                                        .is_none_or(|(remaining, _)| remaining.is_some())
+                                        .is_none_or(|(remaining, _, _)| remaining.is_some())
                             }) && self.mentions_type_parameter(
                                 parameter_type,
                                 &[type_parameter],
@@ -4313,12 +4313,20 @@ impl<'a> Checker<'a, '_> {
     /// an intersection with one naked inference variable and no nested ones.
     /// An identical source constituent is removed before inference; consuming
     /// the entire source deliberately produces no candidate.
+    ///
+    /// The flag says whether the remaining source reaches the variable through
+    /// `inferToMultipleTypes`, at `InferencePriorityNakedTypeVariable`
+    /// (`inference.go:401`): `inferFromTypes` (`inference.go:126-146`) leaves
+    /// the target an intersection unless matching removed every constituent
+    /// but the variable, in which case the variable is inferred to directly
+    /// (the `TypeVariable` arm, at the current priority). A union source skips
+    /// the matching step and keeps the whole intersection.
     fn intersection_inference_source(
         &mut self,
         source: TypeId,
         target: TypeId,
         parameters: &[TypeId],
-    ) -> Option<(Option<TypeId>, TypeId)> {
+    ) -> Option<(Option<TypeId>, TypeId, bool)> {
         let TypeData::Intersection { types, .. } = &self.store.get(target).data else {
             return None;
         };
@@ -4335,7 +4343,7 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         if matches!(self.store.get(source).data, TypeData::Union { .. }) {
-            return Some((Some(source), *variable));
+            return Some((Some(source), *variable, true));
         }
         let sources = match &self.store.get(source).data {
             TypeData::Intersection { types, .. } => types.clone(),
@@ -4344,15 +4352,16 @@ impl<'a> Checker<'a, '_> {
         // inferFromMatchingTypes also infers from identical matches. A match
         // of the naked variable contributes before the lower-priority remainder.
         if sources.contains(variable) {
-            return Some((Some(*variable), *variable));
+            return Some((Some(*variable), *variable, false));
         }
+        let unmatched_targets = targets.iter().filter(|id| !sources.contains(id)).count();
         let remaining: Vec<_> = sources.into_iter().filter(|id| !targets.contains(id)).collect();
         let source = if remaining.is_empty() {
             None
         } else {
             Some(self.get_intersection_type(&remaining, None))
         };
-        Some((source, *variable))
+        Some((source, *variable, unmatched_targets > 1))
     }
 
     /// inferToTemplateLiteralType's constrained literal choice (inference.go:566).
@@ -4664,10 +4673,14 @@ impl<'a> Checker<'a, '_> {
             }
             return;
         }
-        if let Some((remaining, variable)) =
+        if let Some((remaining, variable, naked)) =
             self.intersection_inference_source(source, target, parameters)
         {
             if let Some(source) = remaining {
+                let saved = self.inference_priority;
+                if naked {
+                    self.inference_priority |= InferencePriority::NAKED_TYPE_VARIABLE;
+                }
                 self.infer_from_types_within(
                     source,
                     variable,
@@ -4676,6 +4689,7 @@ impl<'a> Checker<'a, '_> {
                     out,
                     depth + 1,
                 );
+                self.inference_priority = saved;
             }
             return;
         }

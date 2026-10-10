@@ -140,3 +140,53 @@ wins here; native's writer reads the chosen one). The falsifier is an
 overload set whose *earlier* generic candidate is applicable at inference
 but rejected later by `calls.rs`'s selection, printing the rejected
 candidate's literal widening.
+
+## 2. Intersection-target inference at `InferencePriorityNakedTypeVariable` (routed from r7-perf)
+
+### Forcing constraint
+
+r7-perf's jsTyping equivalent-work delta (`docs/parity/notes/r7-perf.md` §4
+on `box/r7-perf`, cluster 1): 164 extra TS2769 on `visitNode`/`visitNodes`/
+`nodeVisitor` calls whose visitor parameter is `(n: NonNullable<TIn>) => …`.
+Cut down:
+
+```ts
+declare function v3<TIn extends Node | undefined>(node: TIn, visitor: (n: NonNullable<TIn>) => void): TIn;
+v3(t /* Node | undefined */, visitor /* (n: Node) => void */); // TSR: false TS2345, TIn := Node
+```
+
+Native `inferFromTypes` (`inference.go:126-146`) matches identical
+intersection constituents first and, when the target is still an
+intersection, reaches `inferToMultipleTypes` (`inference.go:401`), which infers
+to the single naked type variable with `InferencePriorityNakedTypeVariable`.
+The contravariant `Node` from the visitor therefore loses to the direct
+priority-0 candidate `Node | undefined` from the first argument
+(`inference.go:183`'s priority reset). TSR's
+`intersection_inference_source` shortcut inferred the remaining source to the
+variable at the *current* priority, so both candidates sat at priority 0 and
+`getInferredType`'s contravariant-preference arm picked `Node`.
+
+### What was ported
+
+`intersection_inference_source` now also answers whether the target is still
+an intersection after matching — a union source (which skips matching), or
+more than one unmatched target constituent — and the caller applies
+`NAKED_TYPE_VARIABLE` exactly then. When matching removes everything but the
+variable, native's target is the bare variable and the TypeVariable arm
+infers at the current priority; that case keeps the current priority.
+Identity is the existing `TypeId` equality the shortcut already used for
+`isTypeIdenticalTo`. No cache, table or traversal is added.
+
+### Result (commit 2)
+
+Corpus-neutral against commit 1's freeze (types 0 gained / 0 lost;
+diagnostics 0 / 0). jsTyping (`tsconfig.perf.json`, `--pretty false`): TSR
+423 → 259 diagnostics; all 164 TS2769, 4 TS2345 and 2 TS2322 removed, none
+added; tsgo-matching diagnostics unchanged at 84 of tsgo's 86.
+
+### How to know this is wrong
+
+An intersection target whose matching leaves exactly the naked variable plus
+a constituent identical to a source constituent under `isTypeIdenticalTo` but
+not under `TypeId` equality: native infers at the current priority there,
+this port at the lower one.
