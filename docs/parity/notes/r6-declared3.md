@@ -121,3 +121,67 @@ the step-(a) profile, `members.rs`, MAIN). Not this lane's.
 conditional whose restrictive instantiation fails after its permissive one
 rejected the check, where native defers: native has no failing restrictive
 instantiation, so that would point at the instantiation, not here.
+
+## 2. Wrap-up at the usage checkpoint (integrator's stop order)
+
+The integrator stopped the box after §1. Items `.1154`, `.1184`, `.1190`,
+`.1209`, `.1240` and the r6-declared2 remainder were not finished.
+
+**WIP, UNMEASURED:**
+[`r6-declared3-alias-reference-body-WIP.diff`](r6-declared3-alias-reference-body-WIP.diff)
+(`declared.rs`, `instantiation_expressions.rs`; applies on this branch's tip
+and builds). getTypeAliasInstantiation (checker.go:23641) over a body that
+is a reference to another generic alias: the declared type is that alias's
+instantiation carrying its own alias, and instantiateTypeWithAlias with no
+new alias instantiates that alias's arguments, so `IndirectArrayish<any>` is
+`Objectish<any>` (mappedTypeWithAny), `ObjMapReadOnly<T>` is
+`Readonly<{ … }>` (inferrenceInfiniteLoopWithSubtyping), `Filter<U, Q>` is
+`PerformQuery<…>` (divideAndConquerIntersections). The diff evaluates the
+body under the alias's bindings in `create_type_reference` instead of
+minting the outer named reference; a re-entrant reference keeps the mint.
+No dump was run on it. Still needed before it can land: `new_alias_instantiation`
+requires the result's `type_reference_targets` target to be the outer alias,
+so `type X = IndirectArrayish<any>` would print `Objectish<any>` where native
+prints `X`; relax that test to the alias's body chain
+(`alias_body_receives_new_alias` already recurses it).
+
+**Remaining, with causes found (none attempted in code):**
+- `.1154` (34 cases): mixed causes, not one operation. Groups seen in the
+  base rows: alias-of-alias references (the WIP above); an alias whose body
+  is an indexed access that yields a function type prints its body without
+  an alias (`type Cb<T> = {noAlias: () => T}["noAlias"]`,
+  nestedCallbackErrorNotFlattened: the property's type has no alias host);
+  deferred conditional references native evaluates
+  (deferredLookupTypeResolution `ObjectHasKey<…>` → `"true"`).
+- `.1184` (11 cases): keyofIntersection `type T05 = T02<A>` where T02's
+  declared type is a union (`keyof (T & B)` = `"b" | keyof T`):
+  instantiateTypeWithAlias's union arm hands the new alias to getUnionType.
+  The port gates the new alias on the body NODE (union/intersection
+  syntax); native gates on the declared TYPE's flags.
+- `.1190` (10 cases): `C1.Red["toString"]` prints `C1.Red` natively because
+  getPropertyTypeForIndexType returns an any object type itself
+  (checker.go:27084), keeping the unresolved alias; that is `indexed.rs`'s
+  non-deferred road (r6-errorsplit3). importDeclWithClassModifiers /
+  importDeclWithDeclareModifier: the unresolved qualified import-equals
+  target keeps `error` on purpose (r6-declared §2.1: moving it costs the
+  alias declaration's own line).
+- `.1209`, `.1240`, mappedTypeAsClauses 72/108, the held mapped-source-members
+  diff's −2 and the TS2589 depth question: not reached.
+
+Routed, left alone as the brief says: inline conditional instantiation
+(`tsr-2zk.1188`, `.16.74`) to r6-typesroots3; renamed ES import alias
+printing (`tsr-2zk.39`); printer argument elision (`tsr-2zk.1226`).
+
+## 3. Round summary
+
+Landed: `r6-declared3: getPermissiveInstantiation/getRestrictiveInstantiation
+without the registry bisection` (§1, `tsr-2zk.1255`), plus the merge of
+r6-declared2's branch (batch BY's content). Both dumps byte-identical to the
+frozen base; slowcases clean; bench Ir flat; the paying case −71.6% Ir.
+
+Held diffs in apply order on this branch:
+1. r6-declared2's `r6-declared2-nonstrict-optional-read.diff` (MAIN
+   `members.rs`): types +4, 0 lost (r6-declared2 §4, not re-measured here);
+2. r6-declared2's `r6-declared2-mapped-source-members.diff`: diagnostics +4,
+   types −2 (r6-declared2 §3(b), not re-measured here);
+3. `r6-declared3-alias-reference-body-WIP.diff`: UNMEASURED.
