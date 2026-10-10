@@ -3004,3 +3004,61 @@ impl Checker<'_, '_> {
         true
     }
 }
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarModuleElementContext` (`grammarchecks.go:206`)
+    /// with each caller's message: `checkModuleDeclaration` (`checker.go:5146`,
+    /// an ambient module or a namespace), `checkImportDeclaration` (`:5274`),
+    /// `checkImportEqualsDeclaration` (`:5465`) and `checkExportDeclaration`
+    /// (`:5507`), the last three with a JavaScript twin. Outside a source
+    /// file, module block or module declaration the statement is reported on
+    /// its first token and the answer is `true` — whether or not parse
+    /// diagnostics silence the report — so each caller "bails out to avoid
+    /// cascading errors". `checkExportAssignment`'s use is
+    /// `check_export_assignment`'s own (`check.rs`).
+    pub(crate) fn check_grammar_module_element_context(&mut self, node: NodeId) -> bool {
+        if !self.module_element_context_is_illegal(node) {
+            return false;
+        }
+        let js = self.in_js_file(node);
+        let message = match self.node_map.get(node) {
+            Some(Node::ModuleDeclaration(module)) => {
+                if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                    || module.keyword.kind == SyntaxKind::GlobalKeyword
+                {
+                    &messages::AN_AMBIENT_MODULE_DECLARATION_IS_ONLY_ALLOWED_AT_THE_TOP_LEVEL_IN_A_FILE
+                } else {
+                    &messages::A_NAMESPACE_DECLARATION_IS_ONLY_ALLOWED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE
+                }
+            }
+            Some(Node::ImportDeclaration(_) | Node::ImportEqualsDeclaration(_)) => {
+                if js {
+                    &messages::AN_IMPORT_DECLARATION_CAN_ONLY_BE_USED_AT_THE_TOP_LEVEL_OF_A_MODULE
+                } else {
+                    &messages::AN_IMPORT_DECLARATION_CAN_ONLY_BE_USED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE
+                }
+            }
+            Some(Node::ExportDeclaration(_)) => {
+                if js {
+                    &messages::AN_EXPORT_DECLARATION_CAN_ONLY_BE_USED_AT_THE_TOP_LEVEL_OF_A_MODULE
+                } else {
+                    &messages::AN_EXPORT_DECLARATION_CAN_ONLY_BE_USED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE
+                }
+            }
+            _ => return false,
+        };
+        self.grammar_error_on_first_token(node, message);
+        true
+    }
+
+    /// `isInAppropriateContext`'s negation: the statement's parent is not a
+    /// source file, module block or module declaration.
+    pub(crate) fn module_element_context_is_illegal(&self, node: NodeId) -> bool {
+        self.nodes.parent(node).is_some_and(|parent| {
+            !matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
+            )
+        })
+    }
+}

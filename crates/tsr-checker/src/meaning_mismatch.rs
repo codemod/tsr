@@ -483,6 +483,18 @@ impl Checker<'_, '_> {
     /// (`checker.go:5383`, `:5571`), which shares this function's call site
     /// for import and export specifiers alike.
     pub(crate) fn check_export_specifier_is_local(&mut self, node: NodeId) {
+        // The enclosing declaration's `checkGrammarModuleElementContext`
+        // bails out before its specifiers are checked (`checker.go:5274`,
+        // `:5507`).
+        if let Some(declaration) = self.nodes.ancestors(node).find(|&ancestor| {
+            matches!(
+                self.nodes.kind(ancestor),
+                SyntaxKind::ImportDeclaration | SyntaxKind::ExportDeclaration
+            )
+        }) && self.module_element_context_is_illegal(declaration)
+        {
+            return;
+        }
         self.check_specifier_default_emit_helper(node);
         let Some(Node::ExportSpecifier(specifier)) = self.node_map.get(node) else { return };
         // `PropertyNameOrName`, and a string literal is skipped outright.

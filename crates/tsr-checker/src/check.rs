@@ -890,12 +890,20 @@ impl Checker<'_, '_> {
             Node::ImportEqualsDeclaration(_) => {
                 self.check_alias_symbol(node);
                 self.check_module_hidden_by_local(node);
-                self.check_grammar_import_equals_type_only(node);
+                // `checkImportEqualsDeclaration` bails out on an illegal
+                // context (`checker.go:5465`).
+                if !self.check_grammar_module_element_context(node) {
+                    self.check_grammar_import_equals_type_only(node);
+                }
             }
             Node::ImportDeclaration(n) => {
-                // `!checkGrammarModifiers(node) && node.Modifiers() != nil`
-                // (`checker.go:5278`), on the declaration's first token.
-                if !self.check_grammar_modifiers(node) && !n.modifiers.is_empty() {
+                // `checkGrammarModuleElementContext` bails out first
+                // (`checker.go:5274`); then `!checkGrammarModifiers(node) &&
+                // node.Modifiers() != nil` (`:5278`), on the first token.
+                if !self.check_grammar_module_element_context(node)
+                    && !self.check_grammar_modifiers(node)
+                    && !n.modifiers.is_empty()
+                {
                     self.grammar_error_on_first_token(
                         node,
                         &messages::AN_IMPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
@@ -904,13 +912,18 @@ impl Checker<'_, '_> {
             }
             // `checkExportDeclaration`'s twin (`checker.go:5511`).
             Node::ExportDeclaration(n) => {
-                if !self.check_grammar_modifiers(node) && !n.modifiers.is_empty() {
-                    self.grammar_error_on_first_token(
-                        node,
-                        &messages::AN_EXPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
-                    );
+                if self.check_grammar_module_element_context(node) {
+                    // "If we hit an export in an illegal context, just bail
+                    // out to avoid cascading errors" (`checker.go:5507`).
+                } else {
+                    if !self.check_grammar_modifiers(node) && !n.modifiers.is_empty() {
+                        self.grammar_error_on_first_token(
+                            node,
+                            &messages::AN_EXPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
+                        );
+                    }
+                    self.check_grammar_export_declaration(node);
                 }
-                self.check_grammar_export_declaration(node);
             }
             Node::ConstructorDeclaration(n) => {
                 self.check_constructor_type_parameters(n);
@@ -1082,10 +1095,16 @@ impl Checker<'_, '_> {
             }
             _ => {}
         }
-        if matches!(typed, Node::ExportDeclaration(_)) {
+        // Both behind `checkGrammarModuleElementContext`'s bail-out
+        // (`checker.go:5507`, `:5274`).
+        if matches!(typed, Node::ExportDeclaration(_))
+            && !self.module_element_context_is_illegal(node)
+        {
             self.check_export_declaration_in_namespace(node, typed);
         }
-        if matches!(typed, Node::ImportDeclaration(_)) {
+        if matches!(typed, Node::ImportDeclaration(_))
+            && !self.module_element_context_is_illegal(node)
+        {
             self.check_grammar_import_clause(node);
         }
         if matches!(typed, Node::IndexSignatureDeclaration(_)) {
@@ -6135,53 +6154,6 @@ impl Checker<'_, '_> {
                 .and_then(modifiers_of)
                 .is_some_and(|modifiers| has_modifier(modifiers, SyntaxKind::ExportKeyword))
         })
-    }
-
-    /// TS1235 — `A namespace declaration is only allowed at the top level of a
-    /// namespace or module.`
-    ///
-    /// `checkGrammarModuleElementContext` (`checker.go:5146`). A module
-    /// declaration belongs to a source file or a module block; the **only**
-    /// other legal parent is another module declaration, which is how
-    /// `namespace A.B { }` is spelled. §990.
-    ///
-    /// The ambient-module variant of the message is chosen upstream when
-    /// `isAmbientModule(node)`; it is not built — `diagsole` prices it at zero
-    /// cases.
-    fn check_grammar_module_element_context(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Some(parent) = self.nodes.parent(node) else { return };
-        if matches!(
-            self.nodes.kind(parent),
-            SyntaxKind::SourceFile | SyntaxKind::ModuleBlock | SyntaxKind::ModuleDeclaration
-        ) {
-            return;
-        }
-        // `declare module "x"` in an illegal context takes a different message,
-        // which is not ported.
-        if matches!(
-            self.node_map.get(node),
-            Some(Node::ModuleDeclaration(module))
-                if module.name.and_then(|n| n.node_id())
-                    .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::StringLiteral)
-        ) {
-            return;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        // **`grammarErrorOnNode(node, …)`, not the declaration's name.** Most
-        // rules in this file fold to the name (§11), and doing so here put every
-        // line ten columns right: `label: namespace M { }` wants column 8, the
-        // `namespace` keyword, not column 18. §991.
-        let span = self.nodes.span(node);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::A_NAMESPACE_DECLARATION_IS_ONLY_ALLOWED_AT_THE_TOP_LEVEL_OF_A_NAMESPACE_OR_MODULE,
-                span,
-            ),
-        );
     }
 
     /// TS2480 — `'let' is not allowed to be used as a name in 'let' or 'const'

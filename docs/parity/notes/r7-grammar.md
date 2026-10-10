@@ -351,3 +351,23 @@ global before resolving, so a module's own `var undefined` re-exported drew
 TS2661 (`reExportUndefined2`). It now resolves first: the binder's synthesised
 `undefined` symbol is the global one; an unresolved `globalThis` still stands
 for upstream's `globalThisSymbol`, which this port does not synthesise.
+
+## §13 `checkGrammarModuleElementContext` for every caller (CHECK-MODULE-ELEMENT-CONTEXT-GRAMMAR)
+
+`check_grammar_module_element_context` (`grammar.rs`, replacing `check.rs`'s
+namespace-only version) is `checkGrammarModuleElementContext`
+(`grammarchecks.go:206`) with each caller's message:
+`checkModuleDeclaration` (TS2435 for an ambient module, TS1235 for a
+namespace; the ambient arm had been declined), `checkImportDeclaration` and
+`checkImportEqualsDeclaration` (TS1232, TS1473 in JavaScript),
+`checkExportDeclaration` (TS1233, TS1474 in JavaScript), on the statement's
+first token. It answers `true` in an illegal context whether or not parse
+diagnostics silence the report, and each caller bails out. This port's
+callers that sit behind the bail-out now read it: TS1191/TS1193 and the
+declaration's grammar (`checkGrammarImportClause`, `checkGrammarExportDeclaration`,
+TS1392), `check_export_declaration_in_namespace` (TS1194) and the specifier
+checks (`check_export_specifier_is_local`, TS2661). Other checks this port
+runs on such a declaration from elsewhere in the walk (module resolution,
+alias checks) are not gated; no corpus case pairs them with an illegal
+context. Converted: `moduleElementsInWrongContext`,
+`moduleElementsInWrongContext3`.
