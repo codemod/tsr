@@ -448,3 +448,49 @@ take the parent tuple's element types, which needs
 `WideningKindFunctionReturn`; `check_implicit_any_return` is held for
 r7-parser), and `destructuringWithLiteralInitializers2` (strict mode, so the
 flag comes from `nonInferrableAnyType`, which is not ported).
+
+## 12. Two `has_no_contextual_type` arms: an uncontextual parameter's initializer and a `yield` operand (granted: `signatures.rs`)
+
+**Forcing fact.** TS7057 (`'yield' expression implicitly results in an 'any'
+type …`) was missing for `function*foo(a = yield) {}`
+(`FunctionDeclaration6_es6`, `FunctionDeclaration7_es6`) and for the inner
+`yield` of `yield yield` (`generatorTypeCheck50`).
+`check_implicit_any_yield_expression` reports only where
+`has_no_contextual_type` shows the yield's contextual type is nil, and that
+walk had no arm for either parent.
+
+**Upstream.**
+- A parameter's initializer: `getContextualTypeForInitializerExpression` →
+  `getContextualTypeForVariableLikeDeclaration` is the annotation, else
+  `getContextuallyTypedParameterType`, which is nil outright for a function
+  that is not `isContextSensitiveFunctionOrObjectLiteralMethod`. Then a
+  non-empty binding-pattern name supplies the pattern's type.
+- A `yield` operand: `getContextualTypeForYieldOperand` reads
+  `getContextualReturnType(containing function)`: the return annotation,
+  the contextual signature, and finally the IIFE arm (the call's own
+  contextual type).
+
+**Port** (`signatures.rs`, granted by the integrator for this commit). The
+parameter arm shows absence for an unannotated, identifier-named parameter
+of a declaration, class method, constructor or accessor. A
+context-sensitive owner is left undecided. The yield arm mirrors the
+`return` arm: no return annotation, then
+`declaration_takes_no_contextual_return`. It declines two owners that
+helper does not separate: an immediately invoked function (the IIFE arm)
+and an object-literal method (its contextual signature comes from the
+literal). The first unfiltered run without those two declines lost four
+EMPTY_RIGHT cases (`generatorTypeCheck27/29/30/64`, a `yield x => …` in an
+IIFE generator under an annotated `yield*`) and then one more
+(`generatorTypeCheck28`, the object-literal method).
+
+**Measured** (unfiltered, both dumps, against batch-5 main `20501307` plus
+this branch): WRONG → RIGHT `FunctionDeclaration6_es6`,
+`FunctionDeclaration7_es6`, `generatorTypeCheck50`, and
+`duplicateIdentifierBindingElementInParameterDeclaration1/2` (their TS7006
+on an uncontextual parameter's initializer callback); types +25 RIGHT, 0
+lost. The walk is shared with the type producers, so their decline on these
+positions answers now. No RIGHT/EMPTY_RIGHT case or type line lost.
+
+`generatorImplicitAny` (26,7) `f(yield)` stays: the yield is an argument of
+a generic call, whose contextual type is the instantiated parameter, not a
+shown absence.

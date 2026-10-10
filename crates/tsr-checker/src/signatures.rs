@@ -5163,6 +5163,81 @@ impl<'a> Checker<'a, '_> {
                 Some(Node::PrefixUnaryExpression(_) | Node::PostfixUnaryExpression(_)) => {
                     return true;
                 }
+                // A parameter's initializer: `getContextualTypeForInitializerExpression`
+                // (`checker.go`) asks `getContextualTypeForVariableLikeDeclaration`,
+                // whose parameter arm is the annotation, else
+                // `getContextuallyTypedParameterType` — nil outright for a
+                // function that is not `isContextSensitiveFunctionOrObjectLiteralMethod`
+                // (a declaration, a class method, a constructor, an accessor) —
+                // and then a non-empty binding-pattern name supplies the
+                // pattern's type. So absence is showable for an unannotated,
+                // identifier-named parameter of such a function
+                // (`function*foo(a = yield) {}`, `FunctionDeclaration6_es6`).
+                // A context-sensitive owner asks its contextual signature,
+                // which this walk does not decide (r7-reports §12).
+                Some(Node::ParameterDeclaration(parameter)) => {
+                    if parameter.initializer.and_then(|e| e.node_id()) != Some(position)
+                        || parameter.r#type.is_some()
+                        || !matches!(parameter.name, Some(tsr_ast::BindingName::Identifier(_)))
+                    {
+                        return false;
+                    }
+                    let Some(owner) = self.nodes.parent(parent) else { return false };
+                    return match self.node_map.get(owner) {
+                        Some(
+                            Node::FunctionDeclaration(_)
+                            | Node::ConstructorDeclaration(_)
+                            | Node::GetAccessorDeclaration(_)
+                            | Node::SetAccessorDeclaration(_),
+                        ) => true,
+                        Some(Node::MethodDeclaration(_)) => {
+                            self.nodes.parent(owner).is_some_and(|container| {
+                                self.nodes.kind(container) != SyntaxKind::ObjectLiteralExpression
+                            })
+                        }
+                        _ => false,
+                    };
+                }
+                // A `yield` operand: `getContextualTypeForYieldOperand`
+                // (`checker.go`) reads the containing function's
+                // `getContextualReturnType`, nil exactly when the `return`
+                // arm above finds it nil — no return annotation and no
+                // contextual signature (`yield yield` in an unannotated
+                // generator declaration, `generatorTypeCheck50`).
+                Some(Node::YieldExpression(yield_expression)) => {
+                    if yield_expression.expression.and_then(|e| e.node_id()) != Some(position) {
+                        return false;
+                    }
+                    let Some(owner) = self.containing_function(position) else {
+                        return false;
+                    };
+                    if self
+                        .signature_parts_of(owner)
+                        .is_some_and(|parts| parts.return_annotation.is_some())
+                    {
+                        return false;
+                    }
+                    // `getContextualReturnType` ends with its IIFE arm: an
+                    // immediately invoked function takes the call's own
+                    // contextual type (`function* () { yield x => … }()`
+                    // under an annotated `yield*`, `generatorTypeCheck27`).
+                    // An object-literal method takes its contextual signature
+                    // from the literal (`getContextualSignatureForFunctionLikeDeclaration`),
+                    // which this walk does not decide (`*[Symbol.iterator]()`
+                    // under an annotated `yield*`, `generatorTypeCheck28`).
+                    let object_literal_method = self.nodes.kind(owner)
+                        == SyntaxKind::MethodDeclaration
+                        && self.nodes.parent(owner).is_some_and(|container| {
+                            self.nodes.kind(container) == SyntaxKind::ObjectLiteralExpression
+                        });
+                    if self.nodes.kind(owner) == SyntaxKind::GetAccessor
+                        || object_literal_method
+                        || self.immediately_invoked_call(owner).is_some()
+                    {
+                        return false;
+                    }
+                    return self.declaration_takes_no_contextual_return(owner, false);
+                }
                 // A unary operand has **no arm at all** in that dispatch, so
                 // it answers nil — absence is showable, exactly as it is for
                 // an expression statement and for the operators the
