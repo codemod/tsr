@@ -96,12 +96,14 @@ fn ms(duration: Duration) -> f64 {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let project = args.next().expect("usage: front_end_ceiling /abs/tsconfig.json [WORKERS] [ROUNDS]");
+    let project =
+        args.next().expect("usage: front_end_ceiling /abs/tsconfig.json [WORKERS] [ROUNDS]");
     let workers = args.next().map_or_else(
         || std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
         |value| value.parse().expect("WORKERS must be a number"),
     );
-    let rounds: usize = args.next().map_or(5, |value| value.parse().expect("ROUNDS must be a number"));
+    let rounds: usize =
+        args.next().map_or(5, |value| value.parse().expect("ROUNDS must be a number"));
 
     let os = tsr_vfs::OsFileSystem::new();
     let fs = tsr_vfs::BundledFileSystem::new(os);
@@ -129,8 +131,7 @@ fn main() {
         .iter()
         .map(|file| (file.file_name().to_string(), file.text().to_string()))
         .collect();
-    let options =
-        |name: &str| ParseOptions::for_file(name).deferring_ts_jsdoc(name);
+    let options = |name: &str| ParseOptions::for_file(name).deferring_ts_jsdoc(name);
 
     let mut costs = vec![FileCost::default(); inputs.len()];
     for _ in 0..rounds {
@@ -208,7 +209,8 @@ fn main() {
         + sum(|c| c.publish)
         + makespan(costs.iter().map(|c| c.private_bind).collect(), workers)
         + sum(|c| c.merge);
-    let zero_copy_work = makespan(costs.iter().map(|c| c.private_parse + c.private_bind).collect(), workers);
+    let zero_copy_work =
+        makespan(costs.iter().map(|c| c.private_parse + c.private_bind).collect(), workers);
     let largest = costs
         .iter()
         .enumerate()
