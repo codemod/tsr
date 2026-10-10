@@ -7688,6 +7688,18 @@ impl<'a> Checker<'a, '_> {
             && let Some(evaluated) = self.evaluate_alias_body(symbol, &arguments)
         {
             let text = self.type_reference_text(symbol, &arguments);
+            // getTypeAliasInstantiation hands a new alias only to a body that
+            // is a reference to another alias (`type MouseEventHandler<T> =
+            // EventHandler<MouseEvent<T>>`: instantiateTypeWithAlias gives the
+            // anonymous object instantiation the outer alias). An alias whose
+            // own body is the indexed access resolves to the property's type
+            // as declared (getIndexedAccessTypeOrUndefined's resolved arm
+            // ignores the alias): `type BivariantHack<I, O> = { foo(x: I): O
+            // }["foo"]` at `<Animal, Animal>` is `(x: Animal) => Animal`.
+            let own_indexed = matches!(
+                self.type_alias_body(symbol).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::IndexedAccessTypeNode(_))
+            );
             let evaluated = if let Some(&operands) =
                 self.deferred_indexed_access_types.get(&evaluated)
             {
@@ -7712,9 +7724,9 @@ impl<'a> Checker<'a, '_> {
                 );
                 self.type_reference_targets.insert(named, (symbol, arguments.clone()));
                 named
-            } else if let crate::types::TypeData::Anonymous {
-                symbol: owner, signature: true, ..
-            } = self.store.get(evaluated).data
+            } else if !own_indexed
+                && let crate::types::TypeData::Anonymous { symbol: owner, signature: true, .. } =
+                    self.store.get(evaluated).data
             {
                 let named = self.store.new_anonymous(TypeFlags::OBJECT, text, owner, true);
                 if let Some(signatures) = self.signature_types.get(&evaluated).cloned() {
