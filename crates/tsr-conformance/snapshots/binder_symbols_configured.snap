@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 binder_symbols_configured Summary:
 What a pass means: the binder_symbols judgement for each configuration upstream's runner compiles a configuration-varied case under, against that configuration's suffixed .symbols baseline
-Passed         : 1660/1700 (97.65%)
-Failed         : 40
+Passed         : 1662/1700 (97.76%)
+Failed         : 38
 Skipped        : 2468 (excluded from the denominator)
 
   191  skipped: the baseline names no symbols in any unit we bind
@@ -61,10 +61,6 @@ conformance/arbitraryModuleNamespaceIdentifiers_module(module=nodenext)
   3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
 conformance/arbitraryModuleNamespaceIdentifiers_module(module=preserve)
   3 symbol(s): valueZ.<A>: no symbol; valueZ.<B>: no symbol; valueZ.<C>: no symbol
-conformance/jsDeclarationsDefault(target=es2015)
-  1 symbol(s): index6.js: func: declared on {0}, expected to include {0, 3}
-conformance/jsDeclarationsDefaultsErr(target=es2015)
-  1 symbol(s): index3.js: default: declared on {2}, expected to include {2, 4}
 conformance/jsDeclarationsExportAssignedClassExpressionAnonymous(target=es2015)
   1 symbol(s): exports.t: no symbol
 conformance/nodeModules1(module=node16)
