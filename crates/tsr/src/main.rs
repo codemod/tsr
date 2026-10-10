@@ -12,7 +12,39 @@
 
 use tsr_execute::{OsSystem, command_line};
 
+/// The binary's allocator: mimalloc v2 rather than the system `malloc`.
+/// Allocation was about 11% of domain-model's and 18% of jsTyping's
+/// single-threaded profile under glibc, and mimalloc's per-thread heaps
+/// also serve the checker pool without arena contention. Only this binary
+/// links it. See ADR-0055 for the measurements and the refused alternatives.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+/// `mi_option_purge_delay` in mimalloc v2's `mi_option_e`
+/// (`c_src/mimalloc/v2/include/mimalloc.h`), which `libmimalloc-sys` 0.1.49
+/// does not name.
+const MI_OPTION_PURGE_DELAY: libmimalloc_sys::mi_option_t = 15;
+
+/// Never return freed pages to the OS while the command runs. A `tsr`
+/// process lives for one compilation and exits (`System::exits_after_command`),
+/// so purging after mimalloc's default 10 ms delay only re-faults the same
+/// pages. On generic-imports that cost +3–8% CPU over glibc; with purging off
+/// it is below glibc (ADR-0055).
+fn configure_allocator() {
+    // SAFETY: `mi_option_set` takes an option index and a value and has no
+    // pointer arguments. It is called once, first thing in `main`, before
+    // any thread is spawned, and mimalloc reads options lazily and
+    // thread-safely, so no allocation in flight can observe a torn value.
+    // The index is checked against the pinned header above. ADR-0011's
+    // exception list records this call (ADR-0055).
+    #[allow(unsafe_code)]
+    unsafe {
+        libmimalloc_sys::mi_option_set(MI_OPTION_PURGE_DELAY, -1);
+    }
+}
+
 fn main() -> std::process::ExitCode {
+    configure_allocator();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     // `--lsp` and `--api` are upstream's other two entry points. Neither exists
