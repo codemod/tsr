@@ -32,7 +32,7 @@ use tsr_binder::SymbolFlags;
 impl Checker<'_, '_> {
     /// The read-only check for one `x.y = …` target.
     pub(crate) fn check_readonly_assignment_target(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+        if ambient {
             return;
         }
         self.check_readonly_index_signature_write(node);
@@ -445,7 +445,7 @@ impl Checker<'_, '_> {
     /// decline has to cover this one too — otherwise `const x = 1; x += 1`
     /// reports TS2588 *and* TS2362 where upstream reports one. §282.
     pub(crate) fn check_readonly_identifier_assignment(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors {
+        if ambient {
             return;
         }
         let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return };
@@ -1081,9 +1081,6 @@ impl Checker<'_, '_> {
     /// ancestor of the access and an `ancestors().any()` identity test declines
     /// every case. §627 bracketed the decline to this line. §628.
     pub(crate) fn check_private_name_shadowing(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
         let (Some(receiver), Some(tsr_ast::MemberName::PrivateIdentifier(name))) =
             (access.expression, access.name)
@@ -1128,9 +1125,6 @@ impl Checker<'_, '_> {
     /// declaring class's own members. §580's shape; §628 made the same move for
     /// TS18014. §666.
     pub(crate) fn check_private_accessor_is_writable(&mut self, node: NodeId) {
-        if self.file_has_parse_errors {
-            return;
-        }
         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
         if binary.operator_token.is_none_or(|t| !t.kind.is_assignment_operator()) {
             return;
@@ -1351,7 +1345,7 @@ impl Checker<'_, '_> {
     /// and `checkPropertyAccessibility` runs on it as a read, reported at
     /// `getBindingElementPropertyName` (the property name, else the name).
     pub(crate) fn check_binding_element_accessibility(&mut self, node: NodeId, ambient: bool) {
-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
+        if ambient || self.in_js_file(node) {
             return;
         }
         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
@@ -1810,7 +1804,7 @@ impl Checker<'_, '_> {
     /// - a class-like `valueDeclaration` (the computed-name/decorator arm);
     /// - an ancestor class whose first base type does not resolve.
     pub(crate) fn check_property_not_used_before_declaration(&mut self, node: NodeId) {
-        if self.file_has_parse_errors || self.file_is_ambient {
+        if self.file_is_ambient {
             return;
         }
         let Some(Node::PropertyAccessExpression(access)) = self.node_map.get(node) else { return };
