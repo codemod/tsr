@@ -267,3 +267,65 @@ Measured against §1's commit, both dumps unfiltered: types **+196 / −0**
 diagnostics unchanged. Coverage: `checker_types` 8,706 → 8,708,
 `checker_types_configured` 1,759 → 1,767. CPU new/old against §1's binary,
 21 samples: domain-model 1.009, generic-imports 1.005.
+
+## 3. An augmented `export =` target is spelled through its module
+
+Routed from r7-shared (`r7-shared.md`, MODULE-AUGMENTATION-MERGE remainder),
+after its `582a2b0b` gave the target symbol the augmentation's declaration.
+Base: main `660718af` (batch 4; §1 and §2 are on it), types 551,974 RIGHT.
+
+**Forcing constraint.** `augmentExportEquals4`, native:
+
+```ts
+// file1.ts
+class foo {}                 // >foo : import("./file1")
+namespace foo { … }          // >foo : typeof import("./file1")
+export = foo;
+// file2.ts
+import x = require("./file1");   // >x : typeof x
+declare module "./file1" { … }
+```
+
+`symbolToTypeNode` (`nodebuilderimpl.go:651`) spells an import type whenever
+`chain[0]` has a declaration satisfying
+`hasNonGlobalAugmentationExternalModuleSymbol` (a string-named module
+declaration or an external file). The augmentation is a declaration of
+`foo`, so even in `file1.ts`, where `foo` is accessible by its own name,
+the root qualifies and the name becomes `import("./file1")`. Where an alias
+names it (`x`), the chain's root is the alias and nothing changes.
+
+**The port.**
+
+- `qualified_name_at` (checker.rs) and `export_equals_class_text_at`
+  (printing.rs, the static side of an `export =` class) ask
+  `module_declared_root_text_at` first for a symbol with a string-named
+  module declaration. It asks the resolver's `getSymbolChain`
+  (`symbol_chain_at`) and, when the root passes native's test, spells
+  `import("<specifier>")` followed by the rest of the chain. The resolver's
+  chain for `foo` is `[file1]` (its `export =` shortcut,
+  `nodebuilderimpl.go:1124`), where native's is `[foo]`; both roots pass
+  the test and spell the same specifier, so the test is native's whole
+  predicate rather than "the root is the symbol".
+- `module_specifier_for_symbol_in_mode` reads the file as
+  `ast.GetSourceFileOfModule` does (`ast/utilities.go:3571`): a `SourceFile`
+  declaration, else the value declaration's file, else the first declaration
+  that is not a module augmentation. Before, only a `SourceFile` declaration
+  counted, so `foo` had no specifier.
+- No cache or table: the walk is the resolver's, on the checker's
+  `accessibility_links` (§1.4). It runs only for a symbol carrying a
+  string-named module declaration that is not itself a module.
+
+**Measured** against `660718af`, both dumps unfiltered: types **+19 / −0**
+(`augmentExportEquals3/4/6` 3 each, `augmentExportEquals5`'s `typeof e`
+lines 3, `umd-augmentation-3/4` 3 each, and
+`jsxNamespacedNameNotComparedToNonMatchingIndexSignature` 1), diagnostics
+unchanged. Coverage: `checker_types` 8,736 → 8,742. CPU new/old against
+the `660718af` binary, 21 samples: domain-model 0.981, generic-imports
+0.991. Test: `tests/module_rooted_symbol_chain.rs`'s third case, lines from
+the native baseline.
+
+**Remaining in those cases:** `augmentExportEquals5` 1:1 and 2:2–2:5 read
+`any` (`import { Request } from "express"` of an augmented member; alias
+resolution, r7-shared), and `augmentExportEquals7` 1:0 wants `{ default:
+() => void; }` for a namespace import of an `export =` function (the clone's
+synthetic `default`, r7-shared §1's remaining).

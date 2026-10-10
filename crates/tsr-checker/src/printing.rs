@@ -137,6 +137,15 @@ impl Checker<'_, '_> {
                 .then_some(module)
         })?;
         let enclosing = self.nodes.parent(reference).unwrap_or(reference);
+        // `symbolToTypeNode`'s import-type arm (r7-printer §3): a class a
+        // module augmentation merged into is spelled through its module even
+        // where its own name is accessible.
+        if self.has_string_named_module_declaration(symbol)
+            && let Some(text) =
+                self.module_declared_root_text_at(symbol, enclosing, SymbolFlags::VALUE)
+        {
+            return Some(format!("typeof {text}"));
+        }
         if let Some(name) = self.best_name(symbol, enclosing) {
             return Some(format!("typeof {name}"));
         }
