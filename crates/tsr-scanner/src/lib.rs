@@ -1577,46 +1577,106 @@ impl<'a> Scanner<'a> {
             self.token.kind,
             SyntaxKind::SlashToken | SyntaxKind::SlashEqualsToken
         ));
-        self.pos = self.token.span.start;
-        self.token_start = self.pos;
-        self.bump(); // '/'
-
-        let mut in_class = false;
-        let mut terminated = false;
-        while let Some(ch) = self.peek() {
-            if is_line_break(ch) {
+        // `ReScanSlashToken` (`scanner.go:1067`), byte for byte: the first pass
+        // finds the end of the body (a line break or the end of input leaves
+        // it unterminated), reading one byte at a time as native does.
+        let bytes = self.source.as_bytes();
+        let end = self.limit as usize;
+        let token_start = self.token.span.start as usize;
+        let start_of_body = token_start + 1;
+        let mut p = start_of_body;
+        let mut in_escape = false;
+        let mut in_character_class = false;
+        let mut unterminated = false;
+        loop {
+            if p >= end {
+                unterminated = true;
                 break;
             }
-            match ch {
-                '\\' => {
-                    self.bump();
-                    self.bump();
-                    continue;
+            let ch = bytes[p];
+            if ch == b'\n' || ch == b'\r' {
+                unterminated = true;
+                break;
+            }
+            if in_escape {
+                in_escape = false;
+            } else if ch == b'/' && !in_character_class {
+                break;
+            } else if ch == b'[' {
+                in_character_class = true;
+            } else if ch == b'\\' {
+                in_escape = true;
+            } else if ch == b']' {
+                in_character_class = false;
+            }
+            p += 1;
+        }
+        let end_of_body = p;
+        if unterminated {
+            // "Search for the nearest unbalanced bracket for better recovery":
+            // the literal ends at the first `)`, `]` or `}` that closes nothing
+            // outside a character class, then sheds trailing whitespace and
+            // semicolons. `foo(/notregexp);` keeps its `)` and `;`.
+            p = start_of_body;
+            in_escape = false;
+            let mut character_class_depth = 0u32;
+            let mut in_decimal_quantifier = false;
+            let mut group_depth = 0u32;
+            while p < end_of_body {
+                let ch = bytes[p];
+                if in_escape {
+                    in_escape = false;
+                } else if ch == b'\\' {
+                    in_escape = true;
+                } else if ch == b'[' {
+                    character_class_depth += 1;
+                } else if ch == b']' && character_class_depth != 0 {
+                    character_class_depth -= 1;
+                } else if character_class_depth == 0 {
+                    if ch == b'{' {
+                        in_decimal_quantifier = true;
+                    } else if ch == b'}' && in_decimal_quantifier {
+                        in_decimal_quantifier = false;
+                    } else if !in_decimal_quantifier {
+                        if ch == b'(' {
+                            group_depth += 1;
+                        } else if ch == b')' && group_depth != 0 {
+                            group_depth -= 1;
+                        } else if ch == b')' || ch == b']' || ch == b'}' {
+                            break;
+                        }
+                    }
                 }
-                '[' => in_class = true,
-                ']' => in_class = false,
-                '/' if !in_class => {
-                    self.bump();
-                    terminated = true;
+                p += 1;
+            }
+            while p > start_of_body {
+                let Some(ch) = self.source[..p].chars().next_back() else { break };
+                if is_whitespace_single_line(ch) || is_line_break(ch) || ch == ';' {
+                    p -= ch.len_utf8();
+                } else {
                     break;
                 }
-                _ => {}
             }
-            self.bump();
-        }
-
-        if terminated {
-            // Flags are identifier parts: /a/gi
-            while self.peek().is_some_and(is_identifier_part) {
-                self.bump();
-            }
-        } else {
+            #[allow(clippy::cast_possible_truncation)]
             self.error(
                 &messages::UNTERMINATED_REGULAR_EXPRESSION_LITERAL,
-                Span::new(self.token_start, self.pos),
+                Span::new(token_start as u32, p as u32),
             );
+        } else {
+            // The closing slash, then the flags: identifier parts.
+            p += 1;
+            while let Some(ch) = self.source[p..end].chars().next() {
+                if !is_identifier_part(ch) {
+                    break;
+                }
+                p += ch.len_utf8();
+            }
         }
-
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            self.pos = p as u32;
+        }
+        self.token_start = self.token.span.start;
         self.token = Token::new(
             SyntaxKind::RegularExpressionLiteral,
             Span::new(self.token_start, self.pos),
