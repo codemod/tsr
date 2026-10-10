@@ -116,9 +116,8 @@ impl Checker<'_, '_> {
     /// this port could have. One with an initialiser has a type to widen and is
     /// declined. §271.
     ///
-    /// Every guard is [`Checker::check_implicit_any_parameters`]' — including
-    /// the blanket `.js` decline, which exists because JSDoc supplies types
-    /// this port does not parse into one.
+    /// Every guard is [`Checker::check_implicit_any_parameters`]'. In JS the
+    /// annotation is also the property's own reparsed `@type`.
     pub(crate) fn check_implicit_any_member(&mut self, node: NodeId, ambient: bool) {
         // **`isPrivateWithinAmbient`, which the `ambient` guard does *not*
         // answer.** `ambient` is *is it ambient*; upstream exempts *ambient
@@ -139,9 +138,6 @@ impl Checker<'_, '_> {
         if !self.no_implicit_any || (ambient && is_private) {
             return;
         }
-        if self.in_js_file(node) {
-            return;
-        }
         let Some(typed_member) = self.node_map.get(node) else { return };
         let (name, annotation, initializer) = match self.node_map.get(node) {
             Some(Node::PropertyDeclaration(property)) => {
@@ -153,6 +149,10 @@ impl Checker<'_, '_> {
             _ => return,
         };
         if annotation.is_some() || initializer.is_some() {
+            return;
+        }
+        // In JS `node.Type()` is the reparsed `@type` (`reparseHosted`).
+        if self.jsdoc_self_hosted_type(node).is_some() {
             return;
         }
         // A **private name** is a separate `PropertyName` variant, and
@@ -212,22 +212,27 @@ impl Checker<'_, '_> {
             ParameterOwner::Contextual => true,
             ParameterOwner::Other => return,
         };
-        // `reportImplicitAny` (`checker.go:18276`) already declines a `.js` file
-        // without `checkJs`; this declines **every** `.js` file, and the reason
-        // is JSDoc. A `@param {string} x` supplies the type upstream reads and
-        // this port does not parse into one, so a checked JS file reports an
-        // implicit any on every annotated parameter. It was the *whole* of the
-        // first measurement's wrong column — 28 lines, 12 cases, all `.js`, and
-        // `typedefOnStatements` alone was 15 of them.
-        if self.in_js_file(node) {
-            return;
-        }
+        // `reportImplicitAny` (`checker.go:18276`) declines a `.js` file
+        // without `checkJs`; the program drops those files' semantic
+        // diagnostics already (`tsr_compiler::program_diagnostics`), so a JS
+        // file is checked here like a TypeScript one. Its parameters' JSDoc
+        // types are the reparsed `node.Type()` and its `@type` the full
+        // signature, both read below (r6-jsdoc2 §2).
         let parameters: Vec<NodeId> = self.implicit_any_candidates(node);
         for (index, parameter) in parameters.into_iter().enumerate() {
             let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
                 continue;
             };
             if declaration.r#type.is_some() || declaration.initializer.is_some() {
+                continue;
+            }
+            // `tryGetTypeFromTypeNode` over the reparsed `@param`/`@type`, then
+            // `getParameterTypeOfFullSignature` (`checker.go:16726`).
+            if self.file_is_js
+                && (self.jsdoc_reparsed_parameter_type(parameter).is_some()
+                    || self.jsdoc_full_signature_parameter_type(parameter).is_some()
+                    || self.jsdoc_full_signature_undecided(node))
+            {
                 continue;
             }
             if contextual && !self.contextual_parameter_type_is_absent(node, parameter) {
@@ -420,7 +425,7 @@ impl Checker<'_, '_> {
         // Asked FIRST, in upstream's order: with no contextual type,
         // `getContextualSignature` is nil and so is the parameter's contextual
         // type, whatever this port's contextual machinery would answer.
-        if self.has_no_contextual_type(function) {
+        if self.has_no_reparsed_contextual_type(function) {
             return !self.returned_from_an_iife(function);
         }
         if self.retained_return_position_report(function) {
@@ -528,9 +533,14 @@ impl Checker<'_, '_> {
     /// defect in `crate::contextual` (tsr-2zk.31), and dropping this arm loses
     /// that RIGHT case. The arm stays until that producer is fixed; it is
     /// also what keeps five lane cases' TS7006 extra (§3 lists them).
+    ///
+    /// A JS `return` whose comment's `@type` is reparsed into a cast
+    /// (`parser/reparser.go:378`) is the function's parent upstream, not the
+    /// `ReturnStatement`, so the arm does not apply to it.
     fn retained_return_position_report(&self, function: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(function) else { return false };
         self.nodes.kind(parent) == SyntaxKind::ReturnStatement
+            && !(self.file_is_js && self.jsdoc_reparse_gives_context(function))
             && !self
                 .nodes
                 .ancestors(function)
@@ -599,9 +609,6 @@ impl Checker<'_, '_> {
         if ambient || !self.no_implicit_any {
             return;
         }
-        if self.in_js_file(node) {
-            return;
-        }
         let (annotation, message) = match self.node_map.get(node) {
             Some(Node::ConstructSignatureDeclaration(signature)) => (
                 signature.r#type,
@@ -622,7 +629,7 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn check_implicit_any_return(&mut self, node: NodeId, ambient: bool) {
-        if !self.no_implicit_any || self.in_js_file(node) {
+        if !self.no_implicit_any {
             return;
         }
         let private_name = |name: tsr_ast::PropertyName<'_>| {
@@ -815,11 +822,15 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §978.
     pub(crate) fn check_implicit_any_variable(&mut self, node: NodeId, ambient: bool) {
-        if !self.no_implicit_any || self.in_js_file(node) {
+        if !self.no_implicit_any {
             return;
         }
         let Some(Node::VariableDeclaration(variable)) = self.node_map.get(node) else { return };
         if variable.r#type.is_some() || variable.initializer.is_some() {
+            return;
+        }
+        // In JS `node.Type()` is the reparsed `@type` (`reparseHosted`).
+        if self.jsdoc_type_annotation(node).is_some() {
             return;
         }
         // Falsifier 3: a binding pattern has its own reporter.
@@ -878,11 +889,12 @@ impl Checker<'_, '_> {
     /// Declines what this port cannot certify: a callee needing
     /// `checkNonNullExpression`'s narrowing (nullable, `unknown`, `void`), an
     /// `any` or error apparent type (the untyped and error roads report
-    /// nothing here), an undecided signature list, and JavaScript, whose
-    /// constructor functions take another road.
+    /// nothing here), and an undecided signature list. A JS constructor
+    /// function has no construct signature in tsgo (no `isJSConstructor`
+    /// arm at the pinned commit), so `new F()` of one reports here as in TS.
     pub(crate) fn check_implicit_any_new_expression(&mut self, node: NodeId) {
         use crate::{flags::TypeFlags, signatures::SignatureKind};
-        if !self.no_implicit_any || self.file_has_parse_errors || self.in_js_file(node) {
+        if !self.no_implicit_any || self.file_has_parse_errors {
             return;
         }
         let Some(Node::NewExpression(new)) = self.node_map.get(node) else { return };

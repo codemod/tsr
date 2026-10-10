@@ -4908,6 +4908,21 @@ impl<'a> Checker<'a, '_> {
     }
 
     pub(crate) fn has_no_contextual_type(&self, declaration: NodeId) -> bool {
+        self.has_no_contextual_type_in(declaration, false)
+    }
+
+    /// [`Checker::has_no_contextual_type`] over the reparsed tree: in a JS
+    /// file a reparsed JSDoc `@type`/`@satisfies` wrapper or declared type
+    /// on the climb is context (`Checker::jsdoc_reparse_gives_context`).
+    /// Asked by the implicit-any reporter; the type producers keep the
+    /// written-tree proof, which here answers "no context" for positions an
+    /// unported async/generic contextual-return road would otherwise gap
+    /// (r6-jsdoc2 §2).
+    pub(crate) fn has_no_reparsed_contextual_type(&self, declaration: NodeId) -> bool {
+        self.has_no_contextual_type_in(declaration, self.in_js_file(declaration))
+    }
+
+    fn has_no_contextual_type_in(&self, declaration: NodeId, js: bool) -> bool {
         // §94 (`checker-notes-narrow.md`): a walk over the nil-answering arms
         // of upstream's `getContextualType` dispatch (`checker.go:29343`).
         // An expression statement has no arm at all — the default answers
@@ -4921,6 +4936,9 @@ impl<'a> Checker<'a, '_> {
         let mut position = declaration;
         loop {
             let Some(parent) = self.nodes.parent(position) else { return false };
+            if js && self.jsdoc_reparse_gives_context(position) {
+                return false;
+            }
             match self.node_map.get(parent) {
                 Some(Node::ExpressionStatement(node)) => {
                     return node.expression.and_then(|e| e.node_id()) == Some(position);

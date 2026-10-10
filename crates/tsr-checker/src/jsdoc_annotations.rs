@@ -252,7 +252,6 @@ impl<'a> Checker<'a, '_> {
     ///
     /// No cache: the readers are `jsdoc_entries` probes that almost always
     /// miss; the caller asks `in_js_file` once per walk.
-    #[expect(dead_code, reason = "called by docs/parity/notes/r6-jsdoc2-js-implicit-any.diff")]
     pub(crate) fn jsdoc_reparse_gives_context(&self, position: NodeId) -> bool {
         let Some(parent) = self.nodes.parent(position) else { return false };
         if self.jsdoc_satisfies_tag_of(position).is_some() {
@@ -287,7 +286,6 @@ impl<'a> Checker<'a, '_> {
 
     /// Whether `host`'s last comment has a typed `@type` tag, the one
     /// [`Checker::jsdoc_cast_contextual_type`] reads as a cast.
-    #[expect(dead_code, reason = "called by docs/parity/notes/r6-jsdoc2-js-implicit-any.diff")]
     fn jsdoc_first_cast_tag(&self, host: NodeId) -> bool {
         self.jsdoc_entries.get(&host).and_then(|docs| docs.last()).is_some_and(|doc| {
             top_level_tags(doc.tags).into_iter().any(|tag| {

@@ -81,7 +81,6 @@ impl<'a> Checker<'a, '_> {
     /// lists `getSingleCallSignature` reads is undecided. Upstream reads a
     /// signature or none; the caller declines rather than answer "none" for
     /// a type this port did not compute.
-    #[expect(dead_code, reason = "called by docs/parity/notes/r6-jsdoc2-js-implicit-any.diff")]
     pub(crate) fn jsdoc_full_signature_undecided(&mut self, function: NodeId) -> bool {
         let Some(annotation) = self.jsdoc_full_signature_node(function) else { return false };
         let ty = self.get_type_from_type_node(annotation);
