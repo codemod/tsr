@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8782/9538 (92.07%)
-Assertion lines: 474925/478853 (99.18%)  — a gradient, not a pass rate
-Failed         : 756
+Passed         : 8797/9538 (92.23%)
+Assertion lines: 474981/478853 (99.19%)  — a gradient, not a pass rate
+Failed         : 741
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,23 +12,17 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 756 failures:
+First 100 of 741 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >f : error — expected >f : FinalizationRegistry<unknown>
-compiler/aliasBug
-  aliasBug.ts: >p2 : foo.Provide — expected >p2 : provide.Provide
 compiler/aliasDoesNotDuplicateSignatures
   user.ts: >f : any — expected >f : () => void
-compiler/aliasErrors
-  aliasErrors.ts: >p2 : foo.Provide — expected >p2 : provide.Provide
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
   aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >e : ErrAlias<number> — expected >e : { new (): ErrImpl<number>; prototype: ErrImpl<any>; } & (() => number)
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
-  aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a2 : ExtendedMapper2<any, any, [any]> — expected >a2 : a2
-compiler/aliasOnMergedModuleInterface
-  aliasOnMergedModuleInterface_1.ts: >z.bar("hello") : B.A — expected >z.bar("hello") : foo.A
+  aliasOfGenericFunctionWithRestBehavedSameAsUnaliased.ts: >a2 : (name: string, mixed: any, args_0: any) => any — expected >a2 : a2
 compiler/allowJscheckJsTypeParameterNoCrash
   app.js: >this.data2 : WatchHandler<any> — expected >this.data2 : (val: any) => void
 compiler/allowSyntheticDefaultImportsCanPaintCrossModuleDeclaration
@@ -152,9 +146,9 @@ compiler/conditionalTypeGenericInSignatureTypeParameterConstraint
 compiler/conflictMarkerTrivia3
   conflictMarkerTrivia3.tsx: 16 assertion(s), expected 4
 compiler/conflictingDeclarationsImportFromNamespace1
-  node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
+  node_modules/@types/lodash/pick.d.ts: >pick : any — expected >pick : <T extends object, U extends keyof T>(object: T, ...props: Array<U>) => Pick<T, U>
 compiler/conflictingDeclarationsImportFromNamespace2
-  node_modules/@types/lodash/object.d.ts: >"./index" : _.LoDashStatic — expected >"./index" : LoDashStatic
+  node_modules/@types/lodash/pick.d.ts: >pick : any — expected >pick : <T extends object, U extends keyof T>(object: T, ...props: Array<U>) => Pick<T, U>
 compiler/constEnums
   constEnums.ts: >e : I — expected >e : I.V2 | I.V3 | I.V4
 compiler/contextualOuterTypeParameters
@@ -213,3 +207,9 @@ compiler/controlFlowInstanceofWithSymbolHasInstance
   controlFlowInstanceofWithSymbolHasInstance.ts: >[Symbol.hasInstance] : error — expected >[Symbol.hasInstance] : <T>(this: T, value: unknown) => value is (T extends (abstract new (...args: any) => infer U) ? U : never)
 compiler/controlFlowNoImplicitAny
   controlFlowNoImplicitAny.ts: >y : any — expected >y : string | number | undefined
+compiler/controlFlowPrivateClassField
+  controlFlowPrivateClassField.ts: >#test : any — expected >#test : number
+compiler/controlFlowWithIncompleteTypes
+  controlFlowWithIncompleteTypes.ts: >x : string | number | boolean — expected >x : string | number
+compiler/correctOrderOfPromiseMethod
+  correctOrderOfPromiseMethod.ts: >resultB : A[] — expected >resultB : B[]
