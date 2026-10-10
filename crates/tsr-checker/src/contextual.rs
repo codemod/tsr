@@ -1213,6 +1213,12 @@ impl<'a> Checker<'a, '_> {
     /// A `NewExpression` shares upstream's `CallExpression` arm and would cost
     /// one pattern here, but it is not measured separately, so it is a gap.
     pub(crate) fn get_contextual_type(&mut self, node: NodeId) -> Option<TypeId> {
+        // findContextualNode (checker.go:29350): a pushed contextual type
+        // for this very node answers before any parent arm.
+        if let Some(&(_, pushed)) = self.contextual_infos.iter().find(|(pushed, _)| *pushed == node)
+        {
+            return Some(pushed);
+        }
         // A JS `@satisfies` is a reparsed `SatisfiesExpression` parent
         // upstream, whose arm answers its type node (ADR-0046).
         if let Some(satisfies) = self.jsdoc_satisfies_contextual_type(node) {

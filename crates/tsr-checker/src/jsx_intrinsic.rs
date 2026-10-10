@@ -774,21 +774,34 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// getContextFreeTypeOfExpression uses a raw expression check, not the
-    /// mutable-location inference image (which asks this contextual query
-    /// again). Nonconstant templates still need native's scoped any-context;
-    /// decline them until that override exists rather than recurse or widen.
+    /// getContextFreeTypeOfExpression (checker.go:7542) uses a raw expression
+    /// check, not the mutable-location inference image (which asks this
+    /// contextual query again), with `any` pushed as the initializer's
+    /// contextual type: a reference whose narrowable type asks for its
+    /// contextual type (getNarrowableTypeForReference) meets the pushed `any`
+    /// instead of discriminating these attributes again (a template asks
+    /// it too, isTemplateLiteralContext).
     fn jsx_discriminant_value_type(
+        &mut self,
+        expression: tsr_ast::Expression<'_>,
+    ) -> Option<crate::types::TypeId> {
+        let node = Node::from(expression).node_id()?;
+        self.contextual_infos.push((node, self.intrinsics.any));
+        let value = self.jsx_context_free_value_type(expression);
+        self.contextual_infos.pop();
+        value
+    }
+
+    fn jsx_context_free_value_type(
         &mut self,
         expression: tsr_ast::Expression<'_>,
     ) -> Option<crate::types::TypeId> {
         use tsr_ast::Expression;
         match expression {
-            Expression::JsxExpression(node) => self.jsx_discriminant_value_type(node.expression?),
+            Expression::JsxExpression(node) => self.jsx_context_free_value_type(node.expression?),
             Expression::ParenthesizedExpression(node) => {
-                self.jsx_discriminant_value_type(node.expression?)
+                self.jsx_context_free_value_type(node.expression?)
             }
-            Expression::TemplateExpression(_) => None,
             _ => Some(self.check_expression(expression)),
         }
     }

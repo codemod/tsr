@@ -564,6 +564,11 @@ pub struct Checker<'a, 'n> {
     pub(crate) inference_source_stack: Vec<TypeId>,
     pub(crate) inference_target_stack: Vec<TypeId>,
     pub(crate) inference_expanding: (bool, bool),
+    /// `contextualInfos` (checker.go:30876): contextual types pushed for a
+    /// node, consulted first by `get_contextual_type` (findContextualNode).
+    /// Only getContextFreeTypeOfExpression's `any` push is ported; it is
+    /// pushed and popped around one expression check, never left behind.
+    pub(crate) contextual_infos: Vec<(NodeId, TypeId)>,
     /// Active `InferenceContext` snapshots for nested call return inference.
     pub(crate) active_inference_contexts:
         FxHashMap<NodeId, crate::inference::InferenceContextSnapshot>,
@@ -1550,6 +1555,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             inference_observed_priority: i32::from(
                 crate::inference::InferencePriority::MAX_VALUE.bits(),
             ),
+            contextual_infos: Vec::new(),
             active_inference_contexts: FxHashMap::default(),
             silent_never_type: None,
             variance_cache: FxHashMap::default(),

@@ -401,18 +401,6 @@ impl Checker<'_, '_> {
         {
             return self.get_union_type(&pair);
         }
-        // Other non-identical generic/unknown pairs still require the broader
-        // subtype reducer. Admit identity and the known refinement relation
-        // above before applying this existing capability boundary to the pair.
-        let undecidable = TypeFlags::TYPE_PARAMETER | TypeFlags::UNKNOWN;
-        if pair.iter().any(|&id| {
-            self.store.get(id).flags.intersects(undecidable)
-                || self.type_reference_targets.get(&id).is_some_and(|(_, arguments)| {
-                    arguments.iter().any(|&a| self.store.get(a).flags.intersects(undecidable))
-                })
-        }) {
-            return error;
-        }
         if pair.iter().all(|&id| self.is_subtype_reduction_free(id)) {
             return self.get_union_type(&pair);
         }
