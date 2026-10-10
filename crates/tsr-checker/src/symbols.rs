@@ -4983,7 +4983,10 @@ impl<'a> Checker<'a, '_> {
                     // anonymous-objects seam is fixed at the union worker's
                     // gate-decline (the member-set consult, object-membered
                     // sets only), so LET holders retain like const.
-                    let annotation = variable.r#type?;
+                    // In a JS file `node.Type()` is the reparsed `@type`
+                    // (`reparseHosted`'s `KindJSDocTypeTag` arm).
+                    let annotation =
+                        variable.r#type.or_else(|| self.jsdoc_type_annotation(holder))?;
                     let mut t = self.get_type_from_type_node(annotation);
                     t = self.discriminate_union_root(t, literal);
                     for name in path.iter().rev() {
