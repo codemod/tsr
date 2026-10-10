@@ -627,6 +627,12 @@ pub struct Checker<'a, 'n> {
     /// (`crate::module_specifiers::UnsafeImport`): `Some` only while
     /// declaration emit serializes an inferred type. r5-modules §6.
     pub(crate) unsafe_import_tracker: Option<Vec<crate::module_specifiers::UnsafeImport>>,
+    /// `symbolContainerLinks` and `symbolTableAliasCache`: the accessibility
+    /// walk's caches (`crate::symbol_accessibility::AccessibilityCache`),
+    /// which native keeps for the checker's lifetime. Each
+    /// [`crate::symbol_access::DeclarationEmitResolver`] borrows them for its
+    /// life and returns them on drop (r7-printer §1.4).
+    pub(crate) accessibility_links: crate::symbol_accessibility::AccessibilityCache,
     /// `c.legacyDecorators` — `experimentalDecorators` is on. §644.
     pub(crate) legacy_decorators: bool,
     /// `compilerOptions.EmitDecoratorMetadata.IsTrue()`, read by
@@ -1578,6 +1584,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             no_implicit_this: false,
             module_kind: tsr_core::ModuleKind::None,
             unsafe_import_tracker: None,
+            accessibility_links: crate::symbol_accessibility::AccessibilityCache::default(),
             legacy_decorators: false,
             emit_decorator_metadata: false,
             import_helpers: false,
@@ -3194,8 +3201,11 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///   in-scope alias naming the symbol *itself* makes the bare name
     ///   accessible and stops the chain, which is what keeps the
     ///   `moduleAugmentation` right-lines right (16 at risk without it, 3
-    ///   with, for 0 conversions). A *file* container with no alias still
-    ///   declines: only the `modulespecifiers` package could spell it.
+    ///   with, for 0 conversions). A *file* container is spelled
+    ///   `import("…")` when the resolver's `getSymbolChain` is rooted at a
+    ///   module (`docs/parity/notes/r7-printer.md` §1), which may be a
+    ///   re-exporting module rather than the declaring one; from the
+    ///   module's own file the flat same-directory arm stands.
     /// - **No container at all** — `Symbol.parent` unset, which is what the
     ///   binder records for a namespace *local* rather than an export. Upstream
     ///   agrees: `getParentOfSymbol` answers nil and the fallback loop
@@ -3203,10 +3213,9 @@ impl<'a, 'n> Checker<'a, 'n> {
     ///   containers for external-module children. Measured: **229** lines.
     /// - **`getWithAlternativeContainers`**
     ///   (`internal/checker/symbolaccessibility.go:117`) — the re-export and
-    ///   `export =` routes — is **not** ported. §10.3 measures its absence at
-    ///   288 lines that get a different container than upstream's; every one of
-    ///   them is a line that is wrong today and stays wrong, so the omission
-    ///   costs conversions rather than manufacturing losses.
+    ///   `export =` routes — is asked only on the file-module arm, through the
+    ///   resolver (r7-printer §1). Namespace containers still take the
+    ///   declared parent.
     pub(crate) fn symbol_chain(
         &mut self,
         symbol: SymbolId,
@@ -3311,25 +3320,6 @@ impl<'a, 'n> Checker<'a, 'n> {
                             .is_some_and(|&declaration| declaration == file)
                     })
                 };
-                // ...and never when the reference's file IMPORTS the module
-                // under any binding: the name is reachable there and the bare
-                // (or alias) print is upstream's — our resolver just cannot
-                // walk every re-export form yet (exportsAndImports3's 16 R→W
-                // measured without this gate). Only a module the file never
-                // mentions gets the specifier spelling.
-                let imported_here = {
-                    let mut current = Some(reference);
-                    let mut reference_file = None;
-                    while let Some(id) = current {
-                        if self.nodes.kind(id) == tsr_ast::SyntaxKind::SourceFile {
-                            reference_file = Some(id);
-                            break;
-                        }
-                        current = self.nodes.parent(id);
-                    }
-                    reference_file
-                        .is_some_and(|file| self.file_mentions_module_specifier(file, stem))
-                };
                 // `forEachSymbolTableInScope` (`symbolaccessibility.go`) reads
                 // the reference file's own `exports`; `needsQualification`
                 // stops at the first table holding the name. A same-file
@@ -3345,26 +3335,46 @@ impl<'a, 'n> Checker<'a, 'n> {
                 let unresolved_export = same_file
                     && held_by_exports
                     && self.resolve_name_at_print_site(reference, name, meaning).is_none();
-                if !unresolved_export && !imported_here && !stem.contains('/') && !stem.is_empty() {
-                    // `getSpecifierForModuleSymbol`'s spelling
-                    // (`crate::module_specifiers`, r5-modules2 §3): the
-                    // module symbol's name keeps declaration suffixes
-                    // (`./foo.d`) that `processEnding` removes.
-                    let specifier = self.module_specifier_for_symbol(parent, reference)?;
-                    return Some(format!("import({specifier})."));
+                // A reference in the module's own file keeps the flat arm:
+                // the specifier for its own file, unless the exported name did
+                // not resolve. The resolver's walk below would answer the
+                // same, but it reads `resolveAlias`, and a same-file conflict
+                // (`import EnumA = Enum.A` beside `export type EnumA`, whose
+                // alias the port leaves unresolved) would turn it into a bare
+                // name (r7-printer §1.3).
+                if same_file {
+                    if !unresolved_export && !stem.contains('/') && !stem.is_empty() {
+                        // `getSpecifierForModuleSymbol`'s spelling
+                        // (`crate::module_specifiers`, r5-modules2 §3).
+                        let specifier = self.module_specifier_for_symbol(parent, reference)?;
+                        return Some(format!("import({specifier})."));
+                    }
+                    return None;
                 }
-                // A module under `node_modules` takes `getSpecifierForModuleSymbol`'s
-                // whole answer — an existing import, the package name
-                // (`tryGetModuleNameAsNodeModule`) or the relative fallback —
-                // where the flat arm above declines (r5-modules §5). The
-                // relative-module gates above are left as they are.
-                if !unresolved_export
-                    && !same_file
-                    && !imported_here
-                    && stem.contains("node_modules/")
-                    && let Some(specifier) = self.module_specifier_for_symbol(parent, reference)
+                // r7-printer §1: from another file, whether the chain is
+                // rooted at a module is `getSymbolChain`'s answer
+                // (`nodebuilderimpl.go:1087`), asked of the resolver's
+                // faithful walk ([`DeclarationEmitResolver::symbol_chain_at`]),
+                // not of whether the file mentions the specifier. An
+                // `export { C } from "./t1"` is no local name for `C`
+                // (`trySymbolTable` skips export-specifier aliases,
+                // `symbolaccessibility.go:573`), so the chain is `[t1, C]`
+                // and prints `import("./t1").C`. The root may be another
+                // module than the declaring one: a re-exporting module the
+                // walk prefers (`getWithAlternativeContainers`,
+                // `sortByBestName`). The specifier is the program's
+                // (`modulespecifiers.GetModuleSpecifiers`); a checker built
+                // without a module host has no program, resolves no import,
+                // and names no module from another file.
+                if self.module_host.is_some()
+                    && let Some((root, leaf)) =
+                        self.module_rooted_chain_at(symbol, reference, meaning)
+                    && self.binder.symbols().get(leaf).name == name
                 {
-                    self.track_unsafe_import(&specifier, symbol, parent);
+                    let specifier = self.module_specifier_for_symbol(root, reference)?;
+                    // `symbolToTypeNode`'s portability report
+                    // (`nodebuilderimpl.go:681`), a no-op outside a tracker.
+                    self.track_unsafe_import(&specifier, symbol, root);
                     return Some(format!("import({specifier})."));
                 }
             }
@@ -3394,28 +3404,37 @@ impl<'a, 'n> Checker<'a, 'n> {
         })
     }
 
-    /// §106's imported-here gate: whether `file`'s import/export-from
-    /// statements mention a module specifier whose stem matches `stem`.
-    fn file_mentions_module_specifier(&self, file: NodeId, stem: &str) -> bool {
-        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return false };
-        source.statements.iter().any(|statement| {
-            let specifier = match statement {
-                tsr_ast::Statement::ImportDeclaration(node) => node.module_specifier,
-                tsr_ast::Statement::ExportDeclaration(node) => node.module_specifier,
-                tsr_ast::Statement::ImportEqualsDeclaration(node) => match node.module_reference {
-                    Some(tsr_ast::ModuleReference::ExternalModuleReference(external)) => {
-                        external.expression
-                    }
-                    _ => None,
-                },
-                _ => None,
-            };
-            let Some(tsr_ast::Expression::StringLiteral(text)) = specifier else {
-                return false;
-            };
-            let text = text.text.trim_start_matches("./").trim_start_matches('/');
-            text == stem
-        })
+    /// `getSymbolChain(symbol, meaning, endOfChain = true, yieldModuleSymbol =
+    /// true)` (`nodebuilderimpl.go:1087`, as `symbolToTypeNode` asks it under
+    /// the `.types` writer's flags) when its answer is rooted at an external
+    /// module: `Some((module, leaf))` for the two-element chain
+    /// `symbolToTypeNode` spells `import("…").leaf`. `None` for any other
+    /// chain — an accessible name, a namespace or alias route, or a longer
+    /// chain through the module — which the callers' own arms spell or
+    /// decline.
+    ///
+    /// Checker port convention record (`docs/conventions.md`): the walk is
+    /// the resolver's ([`DeclarationEmitResolver::symbol_chain_at`]); its
+    /// `AccessibilityCache` lives for this one question and is dropped, as
+    /// in `alias_accessibility.rs`. No table is added: the answer is not
+    /// cached, the reference node is the whole receiver context, and the
+    /// expensive work (alias resolution) is the checker's own memo. The walk
+    /// runs only where the port's printer has already found that the bare
+    /// name does not resolve to the symbol and no in-scope alias names its
+    /// module (`symbol_chain`'s file-module arm).
+    fn module_rooted_chain_at(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<(SymbolId, SymbolId)> {
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
+            .symbol_chain_at(symbol, reference, meaning, true, true, 0);
+        let &[root, leaf] = chain.as_slice() else { return None };
+        if !self.is_module_symbol(root) {
+            return None;
+        }
+        Some((root, leaf))
     }
 
     /// `ast.IsInJSFile`: whether the node's source file was a `.js`-family
@@ -4661,18 +4680,15 @@ impl<'a, 'n> Checker<'a, 'n> {
         entries
     }
 
-    /// A clone's aliases name that module value, not its callable source.
+    /// Whether `alias` resolves to a module clone rather than to the module:
+    /// `resolveESModuleSymbol` (`checker.go:15568`) answers a namespace
+    /// import with `cloneTypeAsModuleType` in each of its arms (signatures,
+    /// a `default` property, an ESM-to-CommonJS reference), whatever the
+    /// target's kind, so `trySymbolTable`'s `resolveAlias` comparison never
+    /// matches the module through it. The port has no clone symbol; the
+    /// alias's value being a recorded clone (`module_value_clones`) is the
+    /// stand-in (r7-printer §2).
     fn alias_targets_module_clone(&mut self, alias: SymbolId) -> bool {
-        let target = self.resolve_alias_fully(alias);
-        if !self
-            .binder
-            .symbols()
-            .get(target)
-            .flags
-            .intersects(SymbolFlags::CLASS | SymbolFlags::FUNCTION)
-        {
-            return false;
-        }
         let value = self.get_type_of_symbol(alias);
         self.module_value_clones.contains_key(&value)
     }

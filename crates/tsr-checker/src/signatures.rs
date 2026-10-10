@@ -8575,8 +8575,20 @@ mod tests {
                 let reference = identifier(site);
                 let before = source_view_snapshot(&checker);
                 let expected_type = if name == "exposed" { "string" } else { "number" };
+                // The source-view plan declines these three routes, but the
+                // whole print still names the module: pinned native prints
+                // `(value: import("./entry").ModuleInputs<typeof
+                // import("./entry").peer>[0]) => number` at all three
+                // (docs/parity/notes/r7-printer.md §1.7).
+                let declined_route =
+                    matches!(site, "unknownRouteView" | "defaultRouteView" | "classRouteView");
+                let printed = if hosted && declined_route {
+                    Some("import(\"./entry\").ModuleInputs<typeof import(\"./entry\").peer>[0]")
+                } else {
+                    expected
+                };
                 let expected_signature =
-                    format!("(value: {}) => {expected_type}", expected.unwrap_or(expected_type));
+                    format!("(value: {}) => {expected_type}", printed.unwrap_or(expected_type));
                 for _ in 0..3 {
                     assert_eq!(
                         checker
