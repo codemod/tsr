@@ -390,7 +390,12 @@ on each `extends` element, so a namespace there is TS2709 and a value TS2749
 an `ExpressionWithTypeArguments` only under a class's `implements` clause; it
 now admits an interface's `extends` clause too. A class's `extends` stays a
 value (`checkClassLikeDeclaration` checks its expression) and an interface's
-`implements` stays TS1176 only. Matches `target/tsgo-pinned` on a scratch file
+`implements` stays TS1176 only. A primitive spelling there (`interface x
+extends string`) is native's TS2840 alone; `check_value_identifier` already
+reports it, so the type path returns for the six primitive names in any
+heritage clause, reporting only the `implements` message itself (first
+landing lost `errorLocationForInterfaceExtension` and
+`interfacedeclWithIndexerErrors` to a doubled TS2552; batch 13 refused it). Matches `target/tsgo-pinned` on a scratch file
 covering a namespace, an unresolved name (TS2304, not doubled) and a value.
 Converted: `moduleAsBaseType`.
 

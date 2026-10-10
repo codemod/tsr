@@ -5050,12 +5050,20 @@ impl Checker<'_, '_> {
         // That is §919's failure and §920's rule — *census the dispatch, expect
         // a second rule underneath* — six sections old and unapplied. §925.
         if matches!(text, "any" | "string" | "number" | "boolean" | "never" | "unknown")
-            && self.nodes.ancestors(node).any(|ancestor| {
-                matches!(self.node_map.get(ancestor), Some(Node::HeritageClause(clause))
-                    if clause.token.kind == SyntaxKind::ImplementsKeyword)
-            })
+            && let Some(clause) =
+                self.nodes.ancestors(node).find_map(|ancestor| match self.node_map.get(ancestor) {
+                    Some(Node::HeritageClause(clause)) => Some(clause.token.kind),
+                    _ => None,
+                })
         {
-            self.report_primitive_type_as_value_at(node, text);
+            if clause == SyntaxKind::ImplementsKeyword {
+                self.report_primitive_type_as_value_at(node, text);
+            }
+            // An interface's `extends` element is a type reference here as
+            // well (`checkInterfaceDeclaration`, r7-grammar §15), and native
+            // reports only TS2840 for a primitive spelling there
+            // (`errorLocationForInterfaceExtension`); `check_value_identifier`
+            // already reports it, so the not-found rung must not run.
             return;
         }
         if is_specially_diagnosed_name(text) || (self.in_js_file(node) && self.names_in_jsdoc(node))
@@ -5104,22 +5112,26 @@ impl Checker<'_, '_> {
                 if with_arguments.expression.and_then(|e| e.node_id()) != Some(node) {
                     return;
                 }
-                // `checkClassLikeDeclaration` checks `implements` types; an
-                // interface's `implements` clause is only TS1176 and
-                // `checkInterfaceDeclaration` never resolves it.
-                let is_implements = self.nodes.parent(parent).is_some_and(|clause| {
-                    matches!(
-                        self.node_map.get(clause),
-                        Some(Node::HeritageClause(heritage))
-                            if heritage.token.kind == SyntaxKind::ImplementsKeyword
-                    ) && self.nodes.parent(clause).is_some_and(|owner| {
-                        matches!(
-                            self.nodes.kind(owner),
-                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
-                        )
+                // `checkClassLikeDeclaration` checks `implements` types with
+                // `checkTypeReferenceNode`, and `checkInterfaceDeclaration`
+                // (`checker.go:5023`) its `extends` elements; an interface's
+                // `implements` clause is only TS1176 and a class's `extends`
+                // is a value.
+                let resolved_as_type = self.nodes.parent(parent).is_some_and(|clause| {
+                    let Some(Node::HeritageClause(heritage)) = self.node_map.get(clause) else {
+                        return false;
+                    };
+                    self.nodes.parent(clause).is_some_and(|owner| match self.nodes.kind(owner) {
+                        SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression => {
+                            heritage.token.kind == SyntaxKind::ImplementsKeyword
+                        }
+                        SyntaxKind::InterfaceDeclaration => {
+                            heritage.token.kind == SyntaxKind::ExtendsKeyword
+                        }
+                        _ => false,
                     })
                 });
-                if !is_implements {
+                if !resolved_as_type {
                     return;
                 }
             }
