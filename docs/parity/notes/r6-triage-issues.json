@@ -1,0 +1,2204 @@
+[
+ {
+  "title": "r6-triage: PARSE-ERROR-FILE-CHECK-DECLINE",
+  "desc": "TSR suppresses whole families of semantic diagnostics in any file with a parse diagnostic; native has no such gate (only checkWithStatement/2410 style sites test hasParseDiagnostics). Every missing semantic code in these files is the gate. Native: none upstream: vendor/typescript-go/internal/checker/checker.go reports unconditionally (resolveCallExpression :8471, resolveTaggedTemplateExpression :8719, reportNonexistentProperty :11530, checkFunctionOrConstructorSymbol :3461 ...). Port: crates/tsr-checker/src/{check.rs,calls.rs,nonexistent_property.rs,type_argument_arity.rs,...}: `if self.file_has_parse_errors { return }` (~175 sites). Oracle sample: libMembers: tsgo TS2551 'subby' on string in a file with TS1011; TSR's nonexistent_property parse gate returns because 's' has no explicit type Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 43 finished alone / 55 touched.",
+  "cases": {
+   "unlocked": 43,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/aliasErrors",
+    "compiler/destructuringControlFlowNoCrash",
+    "compiler/disallowedBlockScopedInPresenceOfParseErrors1",
+    "compiler/extension",
+    "compiler/functionsMissingReturnStatementsAndExpressions(target=es2015)",
+    "compiler/identifierStartAfterNumericLiteral",
+    "compiler/libMembers",
+    "compiler/newOperator",
+    "compiler/objectCreationExpressionInFunctionParameter",
+    "compiler/objectLiteralWithSemicolons5",
+    "compiler/superInLambdas(target=es2015)",
+    "compiler/taggedTemplatesWithIncompleteTemplateExpressions3",
+    "compiler/taggedTemplatesWithIncompleteTemplateExpressions4",
+    "compiler/taggedTemplatesWithIncompleteTemplateExpressions5",
+    "compiler/taggedTemplatesWithIncompleteTemplateExpressions6",
+    "compiler/unusedLocalsAndParameters",
+    "conformance/destructuringObjectBindingPatternAndAssignment3",
+    "conformance/destructuringParameterDeclaration2",
+    "conformance/destructuringParameterProperties4",
+    "conformance/instantiationExpressionErrors",
+    "conformance/jsdocTemplateTag3",
+    "conformance/jsdocTemplateTagDefault",
+    "conformance/jsxUnclosedParserRecovery",
+    "conformance/labeledStatementDeclarationListInLoopNoCrash3(target=es2015)",
+    "conformance/newOperatorErrorCases",
+    "conformance/objectSpreadNegativeParse",
+    "conformance/parser519458",
+    "conformance/parserErrorRecovery_Block3",
+    "conformance/parserMemberAccessorDeclaration8(target=es2015)",
+    "conformance/parserMissingLambdaOpenBrace1",
+    "conformance/parserRealSource10",
+    "conformance/parserRealSource7",
+    "conformance/privateInstanceMemberAccessibility(target=es2015)",
+    "conformance/taggedTemplatesWithTypeArguments2",
+    "conformance/templateStringInObjectLiteral",
+    "conformance/templateStringInObjectLiteralES6",
+    "conformance/templateStringInPropertyName1",
+    "conformance/templateStringInPropertyName2",
+    "conformance/templateStringInPropertyNameES6_1",
+    "conformance/templateStringInPropertyNameES6_2",
+    "conformance/tsxStatelessFunctionComponents1",
+    "conformance/typeAssertions",
+    "conformance/varianceAnnotationsWithCircularlyReferencesError"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CALL-ARGUMENT-APPLICABILITY-REPORT",
+  "desc": "Native re-runs isSignatureApplicable with reportErrors on the chosen/last candidate for every call. TSR reports argument errors only for a single non-generic candidate without declines; generic candidates with context-sensitive args, generic method receivers (p.then), written type arguments, generic sources (head_could_contain_type_variables) and argument_type_is_not_upstreams all return silently, so TS2345/TS2322(arrow-return elaboration)/TS2741 are never issued. Native: vendor/typescript-go/internal/checker/checker.go:9256 isSignatureApplicable (+ resolveCall:8843 reportErrors pass). Port: tsr-checker/src/calls.rs::check_single_candidate_arguments / check_call_arity (CallArity::ApplicableGeneric, Applicable(None)). Oracle sample: scratch d.ts: foo(derived, d => d.toBase()) tsgo TS2741 'toBase' missing; g<number,string>(1,(a)=>a) tsgo TS2322; TSR none Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 36 finished alone / 39 touched.",
+  "cases": {
+   "unlocked": 36,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter",
+    "compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2",
+    "compiler/contextualTypingOfGenericFunctionTypedArguments1",
+    "compiler/fixingTypeParametersRepeatedly2",
+    "compiler/genericCombinators2",
+    "compiler/mismatchedExplicitTypeParameterAndArgumentType",
+    "compiler/objectGroupBy",
+    "compiler/paramsOnlyHaveLiteralTypesWhenAppropriatelyContextualized",
+    "compiler/promiseChaining1",
+    "compiler/promiseChaining2",
+    "compiler/recursiveTupleTypeInference",
+    "compiler/recursiveTypeRelations",
+    "compiler/setMethods",
+    "compiler/superWithTypeArgument3",
+    "compiler/typeArgumentConstraintResolution1",
+    "compiler/typeParameterFixingWithContextSensitiveArguments2",
+    "compiler/typeParameterFixingWithContextSensitiveArguments3",
+    "conformance/argumentExpressionContextualTyping",
+    "conformance/controlFlowGenericTypes",
+    "conformance/destructuringParameterDeclaration5",
+    "conformance/exportAssignmentConstrainedGenericType",
+    "conformance/genericCallWithFunctionTypedArguments",
+    "conformance/genericCallWithGenericSignatureArguments2",
+    "conformance/genericCallWithObjectTypeArgsAndConstraints4",
+    "conformance/genericCallWithObjectTypeArgsAndConstraints5",
+    "conformance/genericClassWithFunctionTypedMemberArguments",
+    "conformance/indexSignatureTypeInference",
+    "conformance/mappedTypeInferenceErrors",
+    "conformance/mixinWithBaseDependingOnSelfNoCrash1",
+    "conformance/parenthesizedContexualTyping2",
+    "conformance/partiallyAnnotatedFunctionInferenceError",
+    "conformance/partiallyAnnotatedFunctionInferenceWithTypeParameter",
+    "conformance/templateLiteralTypes3",
+    "conformance/typeArgumentInferenceConstructSignatures",
+    "conformance/typeArgumentInferenceWithClassExpression2",
+    "conformance/typeParameterAsTypeParameterConstraint2"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: TYPE-ALIAS-DECLARED-BODY-AND-INSTANTIATION",
+  "desc": "Generic alias declared type is the body's type (no new alias unless the body mints one) and references instantiate the body; TSR keeps a Named alias type (Cb<..>, Prepend<..>, PropsDefinition<T>, Format<..>[fmt]) that is neither printed nor inferred through like the body. Native: internal/checker/checker.go:23837 getDeclaredTypeOfTypeAlias; :23641 getTypeAliasInstantiation; :22104 instantiateTypeWithAlias; :23580 getTypeFromTypeAliasReference. Port: crates/tsr-checker/src/declared.rs:6667 get_declared_type_of_type_alias; :4397 get_instantiated_type_reference; :7213 evaluate_conditional_alias; :8159 evaluate_alias_bo\u2026. Oracle sample: baselines: arrayFlatNoCrashInference `arr.flat(depth) : FlatArray<T, -1 | 0 | ...>`; correlatedUnions `NestedKeyOfOriginalFor : keyof Original[T]` Measured on e6eadf4 (r6-triage): types 34 cases finished alone / 60 touched / 323 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 34,
+   "types_finished_alone": [
+    "compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1",
+    "compiler/arrayFakeFlatNoCrashInferenceDeclarations",
+    "compiler/deeplyNestedMappedTypes",
+    "compiler/deferredConditionalTypes2",
+    "compiler/deferredLookupTypeResolution",
+    "compiler/deferredLookupTypeResolution2",
+    "compiler/discriminateWithOptionalProperty3(exactoptionalpropertytypes=false)",
+    "compiler/discriminateWithOptionalProperty3(exactoptionalpropertytypes=true)",
+    "compiler/excessPropertyCheckIntersectionWithRecursiveType",
+    "compiler/excessPropertyChecksWithNestedIntersections",
+    "compiler/excessiveStackDepthFlatArray",
+    "compiler/genericIsNeverEmptyObject",
+    "compiler/intersectionConstraintReduction",
+    "compiler/mappedTypeAndIndexSignatureRelation",
+    "compiler/nestedCallbackErrorNotFlattened",
+    "compiler/recursiveConditionalCrash1",
+    "compiler/recursiveConditionalCrash2",
+    "compiler/specedNoStackBlown",
+    "compiler/stackDepthLimitCastingType",
+    "compiler/strictFunctionTypesErrors",
+    "conformance/checkJsdocSatisfiesTag15",
+    "conformance/interfaceExtendsObjectIntersectionErrors",
+    "conformance/intersectionWithIndexSignatures",
+    "conformance/jsdocTemplateTagDefault",
+    "conformance/jsdocTemplateTagNameResolution",
+    "conformance/literalTypeWidening",
+    "conformance/stringMappingDeferralInConditionalTypes",
+    "conformance/stringMappingReduction",
+    "conformance/tsxAttributeResolution15",
+    "conformance/tsxSpreadAttributesResolution4",
+    "conformance/tsxStatelessFunctionComponentOverload5",
+    "conformance/tsxStatelessFunctionComponentOverload6",
+    "conformance/tsxStatelessFunctionComponents2",
+    "conformance/unknownType1"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-declared2"
+ },
+ {
+  "title": "r6-triage: SPECIFIER-FOR-MODULE-SYMBOL/NODE-MODULES",
+  "desc": "computeModuleSpecifiers checks the package-name specifier against the importing file resolution mode / exports conditions and typesVersions; when `pkg` would resolve elsewhere it falls back to `./node_modules/pkg/import`, and a typesVersions-mapped file prints `ext` not `ext/other`. TSR prints the bare package path. Native: vendor/typescript-go/internal/modulespecifiers/specifiers.go:405-423 computeModuleSpecifiers node_modules arm, :743 tryGetModuleNameAsNodeModule (exports conditions / typesVersions per importing mode). Port: crates/tsr-checker/src/module_specifiers.rs (node_modules arm). Oracle sample: baseline declarationEmitForGlobalishSpecifierSymlink `a : import(\"typescript-fsa\").A` Measured on e6eadf4 (r6-triage): types 26 cases finished alone / 31 touched / 122 lines; diagnostics 4 finished alone / 4 touched.",
+  "cases": {
+   "unlocked": 30,
+   "types_finished_alone": [
+    "compiler/declarationEmitCommonJsModuleReferencedType",
+    "compiler/declarationEmitExportAssignedNamespaceNoTripleSlashTypesReference",
+    "compiler/declarationEmitReexportedSymlinkReference",
+    "compiler/declarationEmitReexportedSymlinkReference2",
+    "compiler/declarationEmitReexportedSymlinkReference3",
+    "compiler/duplicatePackage",
+    "compiler/reactTransitiveImportHasValidDeclaration",
+    "compiler/symbolLinkDeclarationEmitModuleNames",
+    "compiler/symbolLinkDeclarationEmitModuleNamesRootDir",
+    "compiler/symlinkedWorkspaceDependenciesNoDirectLinkGeneratesNonrelativeName",
+    "compiler/symlinkedWorkspaceDependenciesNoDirectLinkOptionalGeneratesNonrelativeName",
+    "compiler/symlinkedWorkspaceDependenciesNoDirectLinkPeerGeneratesNonrelativeName",
+    "conformance/legacyNodeModulesExportsSpecifierGenerationConditions",
+    "conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node16)",
+    "conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node18)",
+    "conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=node20)",
+    "conformance/nodeModulesImportAttributesTypeModeDeclarationEmit(module=nodenext)",
+    "conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node16)",
+    "conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node18)",
+    "conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=node20)",
+    "conformance/nodeModulesImportAttributesTypeModeDeclarationEmitErrors(module=nodenext)",
+    "conformance/nodeModulesImportTypeModeDeclarationEmit1(module=node16)",
+    "conformance/nodeModulesImportTypeModeDeclarationEmit1(module=node18)",
+    "conformance/nodeModulesImportTypeModeDeclarationEmit1(module=node20)",
+    "conformance/nodeModulesImportTypeModeDeclarationEmit1(module=nodenext)",
+    "conformance/typesVersionsDeclarationEmit.multiFileBackReferenceToUnmapped"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/declarationEmitCommonJsModuleReferencedType",
+    "compiler/declarationEmitObjectAssignedDefaultExport",
+    "compiler/declarationEmitReexportedSymlinkReference3",
+    "compiler/declarationEmitUsingTypeAlias1"
+   ]
+  },
+  "owner": "r6-specifiers"
+ },
+ {
+  "title": "r6-triage: NONEXISTENT-PROPERTY-CERTIFICATION-GATE",
+  "desc": "TSR computes the right (narrowed/union/apparent) receiver type but declines TS2339 unless it can 'certify' the receiver: any union receiver with a CONDITION/CALL flow node upstream, a narrowed receiver, a type-parameter call result, a void/this-in-static receiver, destructuring-assignment names. Native reports whenever getPropertyOfType misses. Native: vendor/typescript-go/internal/checker/checker.go:11258 checkPropertyAccessExpressionOrQualifiedName -> :11530 reportNonexistentProperty (no certification step). Port: crates/tsr-checker/src/nonexistent_property.rs::report path (receiver_type_is_the_declared_one, property_is_known_absent, union_receiver_flow_is_uncertified, flow_cannot_narrow_identifier). Oracle sample: t5/t6 repro: `declare function f(a:string):void; f(1); declare var x:{a:1}|{b:1}; x.a;` tsgo TS2339 on 'x.a', TSR none (drops after an unrelated call). typeGuardOfFormInstanceOf: probefile `ctor3 : C1 | C2` matches native, no report Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 24 finished alone / 28 touched.",
+  "cases": {
+   "unlocked": 24,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/globalThisAmbientModules",
+    "conformance/globalThisUnknown",
+    "conformance/interfaceDoesNotDependOnBaseTypes",
+    "conformance/noPropertyAccessFromIndexSignature1",
+    "conformance/parserNoASIOnCallAfterFunctionExpression1",
+    "conformance/propertyAccessOnTypeParameterWithConstraints4",
+    "conformance/propertyAccessOnTypeParameterWithConstraints5",
+    "conformance/restElementWithAssignmentPattern2",
+    "conformance/restElementWithAssignmentPattern4",
+    "conformance/typeGuardOfFormInstanceOf",
+    "conformance/typeGuardRedundancy",
+    "conformance/typeGuardsWithInstanceOf",
+    "conformance/typeGuardsWithInstanceOfByConstructorSignature",
+    "conformance/typeGuardsWithInstanceOfBySymbolHasInstance",
+    "conformance/typeOfThisInStaticMembers12(target=es2022)",
+    "conformance/typeOfThisInStaticMembers12(target=es6)",
+    "conformance/typeOfThisInStaticMembers12(target=esnext)",
+    "conformance/typeOfThisInStaticMembers13(target=es2022)",
+    "conformance/typeOfThisInStaticMembers13(target=es6)",
+    "conformance/typeOfThisInStaticMembers13(target=esnext)",
+    "conformance/unionTypeMembers",
+    "conformance/unionTypeReadonly",
+    "conformance/usingDeclarations.6",
+    "conformance/usingDeclarations.7"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: GET-SYMBOL-CHAIN-NEEDS-QUALIFICATION/EXPORT-SPECIFIER-NOT-IN-SCOPE",
+  "desc": "Re-exporting files (`export {C} from './t1'`, `export { X } from`) are not a local-name scope for the target, so it prints `typeof import(\"./t1\").C`; TSR prints the bare name because the file mentions the specifier. Native: vendor/typescript-go/internal/checker/symbolaccessibility.go:573 trySymbolTable (export-specifier aliases excluded from local lookup). Port: crates/tsr-checker/src/checker.rs::symbol_chain imported_here gate. Oracle sample: baseline constEnumNoEmitReexport ReExport `MyConstEnum : typeof import(\"./ConstEnum\").MyConstEnum` Measured on e6eadf4 (r6-triage): types 23 cases finished alone / 30 touched / 80 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 23,
+   "types_finished_alone": [
+    "compiler/constEnumPreserveEmitReexport",
+    "compiler/declarationEmitForTypesWhichNeedImportTypes",
+    "compiler/declarationEmitReadonlyComputedProperty",
+    "compiler/declarationEmitReusesLambdaParameterNodes",
+    "compiler/declarationEmitStringEnumUsedInNonlocalSpread",
+    "compiler/declarationEmitSymlinkPaths(target=es2015)",
+    "compiler/es6ExportClauseWithoutModuleSpecifier",
+    "compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)",
+    "compiler/isolatedModulesReExportType",
+    "compiler/moduleSameValueDuplicateExportedBindings2",
+    "compiler/reexportWrittenCorrectlyInDeclaration",
+    "conformance/exportDeclaration_moduleSpecifier-isolatedModules",
+    "conformance/exportNamespace3",
+    "conformance/exportsAndImports1",
+    "conformance/exportsAndImports1-es6",
+    "conformance/exportsAndImports3",
+    "conformance/exportsAndImports3-es6",
+    "conformance/importAssertion3(module=es2015)",
+    "conformance/importAssertion3(module=esnext)",
+    "conformance/importAttributes3(module=es2015)",
+    "conformance/importAttributes3(module=esnext)",
+    "conformance/jsDeclarationsExportSpecifierNonlocal(target=es2015)",
+    "conformance/typeofImportTypeOnlyExport"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CANDIDATE-FOR-OVERLOAD-FAILURE",
+  "desc": "When every overload fails, native reports the best candidate's elaborated error (single arity-surviving candidate -> TS2345/TS2741, else TS2769 with per-overload chains) and with explicit type arguments filters candidates by arity before constraint (2344) / argument (2345) checks. TSR declines these reports for overloaded callees (calls, new, tagged templates). Native: vendor/typescript-go/internal/checker/checker.go:8843 resolveCall (candidatesForArgumentError / 2769 reporting after :9025 chooseOverload fails; explicit type-argument candidate filtering). Port: crates/tsr-checker/src/calls.rs (overload resolution report). Oracle sample: scratch t1.ts: tsgo TS2339 on template literal type after TS2554; TSR only TS2554 Measured on e6eadf4 (r6-triage): types 13 cases finished alone / 15 touched / 55 lines; diagnostics 9 finished alone / 11 touched.",
+  "cases": {
+   "unlocked": 22,
+   "types_finished_alone": [
+    "compiler/couldNotSelectGenericOverload",
+    "compiler/extractInferenceImprovement",
+    "compiler/genericCombinators2",
+    "compiler/indexSignatureOfTypeUnknownStillRequiresIndexSignature",
+    "compiler/inferenceShouldFailOnEvolvingArrays",
+    "compiler/recursiveTypeRelations",
+    "compiler/reverseMappedTypeContextualTypeNotCircular",
+    "conformance/indexSignatureTypeInference",
+    "conformance/iteratorSpreadInCall10",
+    "conformance/mappedTypeInferenceErrors",
+    "conformance/overloadResolutionConstructors",
+    "conformance/parenthesizedContexualTyping2",
+    "conformance/partiallyAnnotatedFunctionInferenceError"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/templateLiteralsInTypes",
+    "conformance/overloadResolution",
+    "conformance/overloadResolutionClassConstructors",
+    "conformance/overloadResolutionConstructors",
+    "conformance/strictBindCallApply1",
+    "conformance/taggedTemplateStringsWithOverloadResolution1",
+    "conformance/taggedTemplateStringsWithOverloadResolution1_ES6",
+    "conformance/taggedTemplateStringsWithOverloadResolution3",
+    "conformance/taggedTemplateStringsWithOverloadResolution3_ES6"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: IMPLICIT-ANY-PARAMETER-REPORT",
+  "desc": "Native reports TS7006 from the widening of a parameter that got no contextual type (contextual signature nil: contextual any, rest any[], union of non-identical signatures, parameter-initializer arrow, position past a too-short signature; also .d.ts). TSR uses a syntactic absence proof that distrusts ContextualSignature::Absent and skips .d.ts, so it misses those; its has_no_contextual_type/retained_return_position arms also fire where native has a contextual return/yield type (+7006). Native: vendor/typescript-go/internal/checker/checker.go:18242 widenTypeForVariableLikeDeclaration -> reportImplicitAny 18275 (reached from getTypeOfParameter/assignContextualParameterTypes when getContextualSignature is nil or too short). Port: crates/tsr-checker/src/implicit_any.rs::check_implicit_any_parameters / contextual_parameter_type_is_absent. Oracle sample: contextualTyping38: tsgo TS7006 at (1,38) 'a', TSR types (a: any) identically but reports nothing; asyncFunctionContextuallyTypedReturns: types identical, TSR adds TS7006 Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 20 finished alone / 20 touched.",
+  "cases": {
+   "unlocked": 20,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/asyncFunctionContextuallyTypedReturns",
+    "compiler/contextualOverloadListFromUnionWithPrimitiveNoImplicitAny",
+    "compiler/contextualSignatureInArrayElementLibEs2015",
+    "compiler/contextualSignatureInArrayElementLibEs5",
+    "compiler/contextualTypeOnYield2",
+    "compiler/contextualTyping38",
+    "compiler/contextualTypingWithGenericAndNonGenericSignature",
+    "compiler/contextuallyTypedParametersWithInitializers1",
+    "compiler/duplicateIdentifierBindingElementInParameterDeclaration1(target=es2015)",
+    "compiler/duplicateIdentifierBindingElementInParameterDeclaration2(target=es2015)",
+    "compiler/fatarrowfunctionsOptionalArgs",
+    "compiler/implicitAnyInAmbientDeclaration2.d",
+    "compiler/inferPropertyWithContextSensitiveReturnStatement",
+    "compiler/invalidThisEmitInContextualObjectLiteral",
+    "compiler/jsxFragmentFactoryNoUnusedLocals",
+    "conformance/parserES3Accessors4",
+    "conformance/parserindenter",
+    "conformance/tsxInArrowFunction",
+    "conformance/typeFromJSInitializer4",
+    "conformance/typeSatisfaction_contextualTyping2"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: ARG-CONTEXT-RESOLVED-SIG",
+  "desc": "Writer-time types of nodes inside a call argument are re-checked against the resolved/instantiated signature: `new Map([[\"\", true]])` keeps `[string, true]`, `parse(){ return [true] }` keeps true[], and `this` in a non-context-sensitive method sees the final T & Component; TSR keeps the first-pass (uninstantiated) answers. Native: vendor/typescript-go/internal/checker/checker.go:29772 getContextualTypeForArgumentAtIndex (getResolvedSignature :29789) + :25522 isLiteralOfContextualType. Port: crates/tsr-checker/src/contextual.rs::contextual_type_for_argument. Oracle sample: baseline acceptSymbolAsWeakType `[s, false] : [symbol, false]` Measured on e6eadf4 (r6-triage): types 18 cases finished alone / 31 touched / 94 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 19,
+   "types_finished_alone": [
+    "compiler/genericArgumentCallSigAssignmentCompat",
+    "compiler/genericTypeArgumentInference1",
+    "compiler/homomorphicMappedTypeWithNonHomomorphicInstantiationSpreadable1",
+    "compiler/inferTupleFromBindingPattern",
+    "compiler/jsDeclarationsWithDefaultAsNamespaceLikeMerge",
+    "compiler/reverseMappedIntersectionInference1",
+    "compiler/reverseMappedTypeInferenceWidening1",
+    "compiler/reverseMappedTypeInferenceWidening2",
+    "conformance/destructuringParameterProperties3",
+    "conformance/for-of37",
+    "conformance/for-of38",
+    "conformance/for-of40",
+    "conformance/for-of46",
+    "conformance/for-of49",
+    "conformance/for-of50",
+    "conformance/iterableArrayPattern29",
+    "conformance/iterableArrayPattern30",
+    "conformance/neverReturningFunctions1"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/circularResolvedSignature"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: SYMBOL-CHAIN-LOCAL-IMPORT-EQUALS-ALIAS",
+  "desc": "typeof a module whose local `import mod2 = require(...)` alias is in scope prints `typeof mod2`; TSR prints `typeof import(\"./index.js\")`. Native: vendor/typescript-go/internal/checker/symbolaccessibility.go getAccessibleSymbolChain -> getAccessibleSymbolChainFromSymbolTable (import-equals alias arm). Port: crates/tsr-checker/src/checker.rs symbol_chain (local import-equals alias not admitted for module symbols). Oracle sample: baseline aliasBug `p2 : provide.Provide`; callsOnComplexSignatures `React : typeof React` Measured on e6eadf4 (r6-triage): types 19 cases finished alone / 26 touched / 75 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 19,
+   "types_finished_alone": [
+    "compiler/aliasBug",
+    "compiler/aliasErrors",
+    "compiler/aliasOnMergedModuleInterface",
+    "compiler/commonJsImportClassExpression",
+    "compiler/declarationEmitUnnessesaryTypeReferenceNotAdded(target=es2015)",
+    "compiler/es6ExportEqualsInterop",
+    "compiler/exportEqualErrorType",
+    "compiler/exportEqualMemberMissing",
+    "compiler/moduleSharesNameWithImportDeclarationInsideIt5",
+    "compiler/unusedImports11",
+    "compiler/unusedImports12",
+    "compiler/unusedImports_entireImportDeclaration",
+    "conformance/ModuleWithExportedAndNonExportedImportAlias",
+    "conformance/commonJSImportNotAsPrimaryExpression",
+    "conformance/nodeModulesAllowJsSynchronousCallErrors(module=nodenext)",
+    "conformance/nodeModulesSynchronousCallErrors(module=node16)",
+    "conformance/nodeModulesSynchronousCallErrors(module=node18)",
+    "conformance/nodeModulesSynchronousCallErrors(module=node20)",
+    "conformance/nodeModulesSynchronousCallErrors(module=nodenext)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: RESOLVE-ALIAS-INDIRECTION",
+  "desc": "resolveAlias follows pure non-local alias chains (import -> `export { C1 }` / `export type { A }` / `export type *` -> declaration) and stops at merged non-pure targets; TSR resolves one hop, so a type reference through a local export specifier is error/any (`let x: C1`), and over-walks merged alias+type-alias symbols. Native: vendor/typescript-go/internal/checker/checker.go:16266 resolveAlias (:16293 resolveIndirectionAlias); :24094 getDeclaredTypeOfAlias. Port: crates/tsr-checker/src/symbols.rs::resolve_alias (one hop) / resolve_alias_fully. Oracle sample: o2/a.ts: `import {SH} from \"./b\"` where b has `export { SH }; type SH = ...` -> tsgo `SH` (TSR error) Measured on e6eadf4 (r6-triage): types 18 cases finished alone / 24 touched / 67 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 18,
+   "types_finished_alone": [
+    "compiler/declarationsForIndirectTypeAliasReference",
+    "compiler/decoratorMetadataTypeOnlyExport",
+    "compiler/emitDecoratorMetadata_isolatedModules(module=commonjs)",
+    "compiler/emitDecoratorMetadata_isolatedModules(module=esnext)",
+    "compiler/es5ModuleInternalNamedImports(target=es2015)",
+    "compiler/es6ModuleInternalNamedImports",
+    "compiler/es6ModuleInternalNamedImports2",
+    "compiler/exportEqualsOfModule",
+    "compiler/moduleResolutionWithSymlinks",
+    "compiler/moduleResolutionWithSymlinks_withOutDir",
+    "compiler/noCrashOnImportShadowing",
+    "conformance/enums",
+    "conformance/exportDeclaration(isolatedmodules=false)",
+    "conformance/exportDeclaration(isolatedmodules=true)",
+    "conformance/exportNamespace9",
+    "conformance/exportTypeMergedWithExportStarAsNamespace",
+    "conformance/generic",
+    "conformance/verbatimModuleSyntaxNoElisionESM"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: TAGGED-TEMPLATE-EFFECTIVE-ARGS",
+  "desc": "Tagged templates go through the ordinary resolveCall over [TemplateStringsArray, ...spans] with the tag receiver as this-arg: overload choice (TemplateStringsArray not assignable to string[]), failure candidate (intersected returns -> never), contextual typing of span lambdas, inference of T from the strings arg. TSR keeps a separate shifted-pick road. Native: vendor/typescript-go/internal/checker/checker.go:8719 resolveTaggedTemplateExpression -> :30047 getEffectiveCallArguments (tagged arm) -> :8843 resolveCall (chooseOverload, getCandidateForOverloadFailure, contextual args). Port: crates/tsr-checker/src/calls.rs:3119 check_tagged_template_expression. Oracle sample: t14/t15 repro: `someGenerics4 `${''}${ null }`` (generic tag) tsgo TS2345 null vs '(x: unknown) => void', TSR silent; same call as g4('', null) reported by both Measured on e6eadf4 (r6-triage): types 13 cases finished alone / 13 touched / 61 lines; diagnostics 4 finished alone / 4 touched.",
+  "cases": {
+   "unlocked": 17,
+   "types_finished_alone": [
+    "compiler/importHelpers(target=es2015)",
+    "compiler/taggedTemplateWithoutDeclaredHelper(target=es2015)",
+    "compiler/taggedTemplatesInModuleAndGlobal(target=es2015)",
+    "conformance/taggedTemplateContextualTyping2",
+    "conformance/taggedTemplateStringsTypeArgumentInference",
+    "conformance/taggedTemplateStringsTypeArgumentInferenceES6",
+    "conformance/taggedTemplateStringsWithOverloadResolution1",
+    "conformance/taggedTemplateStringsWithOverloadResolution1_ES6",
+    "conformance/taggedTemplateStringsWithOverloadResolution2",
+    "conformance/taggedTemplateStringsWithOverloadResolution2_ES6",
+    "conformance/taggedTemplateStringsWithOverloadResolution3",
+    "conformance/taggedTemplateStringsWithOverloadResolution3_ES6",
+    "conformance/thisTypeInTaggedTemplateCall"
+   ],
+   "diagnostics_finished_alone": [
+    "conformance/taggedTemplateContextualTyping1",
+    "conformance/taggedTemplateContextualTyping2",
+    "conformance/taggedTemplateStringsTypeArgumentInference",
+    "conformance/taggedTemplateStringsTypeArgumentInferenceES6"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: JSX-OVERLOAD-AND-COMPONENT-REPORT",
+  "desc": "JSX element resolution failures are not reported: overloaded SFC failure (2769), invalid component (2786), class without props (2607), ElementAttributesProperty arity (2608), spread child (2609), fragment factory missing (2879), JSX type arguments arity/constraint (2558/1099/2344). Native: vendor/typescript-go/internal/checker/jsx.go:130 checkJsxOpeningLikeElementOrOpeningFragment -> resolveJsxOpeningLikeElement overload failure (2769), component validity (2786/2607/2608/2609/2879), type arguments (2558/1099/2344). Port: crates/tsr-checker/src/jsx_component.rs. FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: tsxElementResolution9 CLI: tsgo TS2769 at file.tsx(12,2) and TS2786 'Obj2' at (19,2); TSR silent Measured on e6eadf4 (r6-triage): types 2 cases finished alone / 2 touched / 16 lines; diagnostics 15 finished alone / 15 touched.",
+  "cases": {
+   "unlocked": 17,
+   "types_finished_alone": [
+    "conformance/checkJsxSubtleSkipContextSensitiveBug",
+    "conformance/contextuallyTypedStringLiteralsInJsxAttributes02"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/reactDefaultPropsInferenceSuccess",
+    "compiler/spellingSuggestionJSXAttribute",
+    "compiler/tsxNotUsingApparentTypeOfSFC",
+    "conformance/checkJsxChildrenCanBeTupleType",
+    "conformance/checkJsxChildrenProperty4",
+    "conformance/contextuallyTypedStringLiteralsInJsxAttributes02",
+    "conformance/inlineJsxFactoryDeclarationsLocalTypes",
+    "conformance/inlineJsxFactoryWithFragmentIsError",
+    "conformance/tsxElementResolution15",
+    "conformance/tsxElementResolution9",
+    "conformance/tsxSpreadAttributesResolution17",
+    "conformance/tsxStatelessFunctionComponentOverload4",
+    "conformance/tsxStatelessFunctionComponentOverload5",
+    "conformance/tsxStatelessFunctionComponentsWithTypeArguments4",
+    "conformance/tsxTypeArgumentResolution"
+   ]
+  },
+  "owner": "r6-jsx"
+ },
+ {
+  "title": "r6-triage: JS-FILE-CHECK-DECLINE",
+  "desc": "Native runs call arity/argument applicability, implicit-any, delete-operand and flow checks in checked JS files exactly as in TS. TSR returns early on in_js_file() in call_arity.rs/calls.rs/implicit_any.rs and other reporters, so every such JS diagnostic is missing. Native: vendor/typescript-go/internal/checker/checker.go:9760 getArgumentArityError / 9279 isSignatureApplicable (resolveCall), 10808 checkDeleteExpression, 11428 getFlowTypeOfAccessExpression, reportImplicitAny 18275 (all run for checkJs files). Port: crates/tsr-checker/src/call_arity.rs::check_call_arity, calls.rs::check_resolve_call_arity (in_js_file gates), implicit_any.rs (in_js_file). Oracle sample: scratch k.js/j.js (--checkJs): tsgo TS2554 'Expected 0 arguments, but got 2' and TS2345 IArguments vs '[y?: any]'; TSR prints nothing Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 17 finished alone / 18 touched.",
+  "cases": {
+   "unlocked": 17,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/argumentsObjectCreatesRestForJs",
+    "compiler/argumentsPropertyNameInJsMode1",
+    "compiler/argumentsPropertyNameInJsMode2",
+    "compiler/argumentsReferenceInFunction1_Js",
+    "compiler/classFieldSuperAccessibleJs1",
+    "compiler/commonjsAccessExports",
+    "compiler/contextuallyTypedParametersOptionalInJSDoc",
+    "compiler/controlFlowInstanceof",
+    "compiler/jsFileCompilationBindReachabilityErrors(alwaysstrict=true)",
+    "compiler/jsFileCompilationBindStrictModeErrors",
+    "conformance/asyncArrowFunction_allowJs",
+    "conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=false)",
+    "conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=true)",
+    "conformance/checkJsdocSatisfiesTag10",
+    "conformance/checkJsdocSatisfiesTag15",
+    "conformance/checkJsdocSatisfiesTag8",
+    "conformance/constructorTagOnObjectLiteralMethod"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: PRIVATE-IDENTIFIER-GRAMMAR",
+  "desc": "Private-name grammar/semantic checks are missing: '#constructor' reserved (18012), delete operand (18011), optional chain (18030), static/instance duplicate (2804), modifiers (18019/1024), outside class (18016/1451/1111), shadowed access (18014), access on non-class receivers ('{}', any, unknown), `#x in expr` checks (2571/2406), implicit-any circularity name text. Native: vendor/typescript-go/internal/checker/grammarchecks.go:100 checkGrammarPrivateIdentifierExpression; checker.go:11494 checkPrivateIdentifierPropertyAccess; grammarchecks checkGrammarModifiers private-name arms; vendor/typescript-go/internal/parser/parser.go parsePrivateIdentifier (18016 outside class). Port: unported (no private-identifier grammar pass). FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: t20: `class C5 { #constructor() {} }` tsgo TS18012, TSR silent Measured on e6eadf4 (r6-triage): types 1 cases finished alone / 1 touched / 1 lines; diagnostics 16 finished alone / 16 touched.",
+  "cases": {
+   "unlocked": 17,
+   "types_finished_alone": [
+    "compiler/parserPrivateIdentifierInArrayAssignment"
+   ],
+   "diagnostics_finished_alone": [
+    "conformance/plainJSBinderErrors",
+    "conformance/plainJSGrammarErrors4",
+    "conformance/privateIdentifierChain.1",
+    "conformance/privateNameAndAny",
+    "conformance/privateNameAndObjectRestSpread",
+    "conformance/privateNameCircularReference",
+    "conformance/privateNameConstructorReserved",
+    "conformance/privateNameImplicitDeclaration",
+    "conformance/privateNameInInExpression(target=es2022)",
+    "conformance/privateNameInInExpression(target=esnext)",
+    "conformance/privateNameInObjectLiteral-3(target=es2015)",
+    "conformance/privateNameNestedMethodAccess",
+    "conformance/privateNameUncheckedJsOptionalChain",
+    "conformance/privateNamesIncompatibleModifiers",
+    "conformance/privateNamesNoDelete",
+    "conformance/privateNamesUnique-3"
+   ]
+  },
+  "owner": "UNOWNED"
+ },
+ {
+  "title": "r6-triage: INFER-NO-CANDIDATE-GUARD",
+  "desc": "With no inference candidates native infers the default/unknown (and falls back to the constraint when the inferred type fails it), then applicability decides; overload sets move on to the next candidate. TSR declines the whole call (error), so `new FinalizationRegistry(()=>{})`, `new Promise(()=>{})`, Reflect.construct and ipromise `then` overloads gap. Native: vendor/typescript-go/internal/checker/inference.go:1317 getInferredType (no-candidate arm :1358-1377, constraint arm :1378-1400). Port: crates/tsr-checker/src/inference.rs::check_generic_call_worker (structural_source_supplied decline). Oracle sample: fr.ts probe: new FinalizationRegistry(() => {}) tsgo FinalizationRegistry<unknown>, TSR error Measured on e6eadf4 (r6-triage): types 14 cases finished alone / 23 touched / 106 lines; diagnostics 2 finished alone / 4 touched.",
+  "cases": {
+   "unlocked": 16,
+   "types_finished_alone": [
+    "compiler/arrayFlatMap",
+    "compiler/computedPropertyBindingElementDeclarationNoCrash1",
+    "compiler/declarationEmitOverloadedPrivateInference",
+    "compiler/doYouNeedToChangeYourTargetLibraryES2016Plus",
+    "compiler/implicitIndexSignatures",
+    "compiler/invariantGenericErrorElaboration",
+    "compiler/ipromise2",
+    "compiler/ipromise4",
+    "compiler/jsxInExtendsClause",
+    "compiler/tupleTypeInference2",
+    "conformance/genericCallWithConstructorTypedArguments5",
+    "conformance/inferingFromAny",
+    "conformance/objectLiteralContextualTyping",
+    "conformance/templateLiteralTypes3"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/bindingPatternCannotBeOnlyInferenceSource",
+    "compiler/computedPropertyBindingElementDeclarationNoCrash1"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: GET-SYMBOL-CHAIN-NEEDS-QUALIFICATION",
+  "desc": "`ReactNode` reached through `import React = require(\"react\")` prints qualified `React.ReactNode`; TSR prints the bare name. Native: vendor/typescript-go/internal/checker/nodebuilderimpl.go:1087 getSymbolChain -> symbolaccessibility.go getAccessibleSymbolChain (needs qualification). Port: crates/tsr-checker/src/checker.rs symbol_chain. Oracle sample: baseline declFileTypeAnnotationTupleType `[new c(), new m.c()] : [c, m.c]` Measured on e6eadf4 (r6-triage): types 16 cases finished alone / 22 touched / 53 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 16,
+   "types_finished_alone": [
+    "compiler/declFileTypeAnnotationTupleType(target=es2015)",
+    "compiler/declarationEmitTypeParameterNameInOuterScope",
+    "compiler/emitClassMergedWithConstNamespaceNotElided",
+    "compiler/genericClassesRedeclaration",
+    "compiler/importTypeResolutionJSDocEOF",
+    "compiler/mergedClassWithNamespacePrototype",
+    "compiler/unusedTypeParametersCheckedByNoUnusedParameters",
+    "compiler/unusedTypeParametersNotCheckedByNoUnusedLocals",
+    "conformance/checkJsxChildrenProperty12",
+    "conformance/checkJsxChildrenProperty13",
+    "conformance/tsxGenericAttributesType1",
+    "conformance/tsxGenericAttributesType2",
+    "conformance/tsxGenericAttributesType3",
+    "conformance/tsxGenericAttributesType4",
+    "conformance/tsxGenericAttributesType9",
+    "conformance/tsxUnionTypeComponent1"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CALL-SPREAD-ARGUMENT-APPLICABILITY",
+  "desc": "Spread arguments (`f(...iterable)`, `f(...tuple)`) are never checked against the rest/fixed parameters in TSR; native checks each spread element type (TS2345/TS2741) and for a tuple-typed rest maps an iterable spread to one argument instead of TSR's TS2554 arity error. Native: vendor/typescript-go/internal/checker/checker.go:29500 getSpreadArgumentType / getEffectiveCallArguments synthetic spread elements checked in getSignatureApplicabilityError. Port: crates/tsr-checker/src/calls.rs (spread arguments). Oracle sample: tsgo callWithSpread5: TS2345 (6,4) plus TS2556 (7,4); TSR only TS2556 Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 16 finished alone / 16 touched.",
+  "cases": {
+   "unlocked": 16,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/signatureCombiningRestParameters1",
+    "compiler/topFunctionTypeNotCallable",
+    "conformance/callWithSpread2",
+    "conformance/callWithSpread3",
+    "conformance/callWithSpread5",
+    "conformance/contextualTypeTupleEnd",
+    "conformance/iterableArrayPattern16",
+    "conformance/iterableArrayPattern17",
+    "conformance/iterableArrayPattern26",
+    "conformance/iterableArrayPattern28",
+    "conformance/iterableArrayPattern29",
+    "conformance/iteratorSpreadInArray6",
+    "conformance/iteratorSpreadInCall6",
+    "conformance/iteratorSpreadInCall7",
+    "conformance/iteratorSpreadInCall8",
+    "conformance/iteratorSpreadInCall9"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: SHADOWED-TYPEPARAM-RENAME",
+  "desc": "typeParameterToName renames a printed type parameter whose name is already claimed in the print or resolves to a different type parameter at the enclosing site (S_1, T_1, D_1, R2_1); TSR prints the bare name (`<S extends S>`). Native: internal/checker/nodebuilderimpl.go:1404 typeParameterToName; :1396 typeParameterShadowsOtherTypeParameterInScope. Port: crates/tsr-checker/src/signatures.rs:7005 signature_to_string_at (:7010 predicate bail, :7023 site_anchor = signature.declaration); crates/tsr-checker/src/inference.rs:5\u2026. Oracle sample: baseline chainedCalls...2 `then : <S extends S_1>(cb: (x: S_1) => S) => Chain<S>` Measured on e6eadf4 (r6-triage): types 15 cases finished alone / 18 touched / 64 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 15,
+   "types_finished_alone": [
+    "compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2",
+    "compiler/declarationEmitHigherOrderRetainedGenerics",
+    "compiler/declarationEmitShadowing",
+    "compiler/declarationEmitTypeParameterNameShadowedInternally",
+    "compiler/genericMemberFunction",
+    "compiler/inferenceContextualReturnTypeUnion3",
+    "compiler/inferredReturnTypeIncorrectReuse1",
+    "compiler/subclassWithPolymorphicThisIsAssignable",
+    "conformance/computedPropertyNames33_ES5(target=es2015)",
+    "conformance/computedPropertyNames33_ES6",
+    "conformance/instanceMemberInitialization",
+    "conformance/subtypesOfTypeParameter",
+    "conformance/subtypesOfTypeParameterWithConstraints2",
+    "conformance/subtypesOfUnion",
+    "conformance/typeParametersAvailableInNestedScope3"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-lazytext"
+ },
+ {
+  "title": "r6-triage: PARSER-RECOVERY-DIVERGENCE",
+  "desc": "Parse-error recovery differs from native at the reported spot (different token expected / different node built), so the parse diagnostic code or position differs and dependent semantic diagnostics shift. Each case is a distinct parser arm; grouped because they are all parser-owned single-site recovery differences. Native: vendor/typescript-go/internal/parser/parser.go (statement/expression recovery: parseExpressionOrLabeledStatement :1516, parseTypeAssertion :5132, parseImportCall/Attributes :3085, parseMappedType :3134, parseForOrForInOrForOfStatement :1289, JSX :4736, parseMemberExpressionRest :5342). Port: crates/tsr-parser. FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: parser579071 CLI: tsgo TS1005 ')' expected at (2,14), TSR none; importCallExpressionIncorrect1: tsgo TS1109 vs TSR TS1005 'from' expected at (2,1) Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 15 finished alone / 21 touched.",
+  "cases": {
+   "unlocked": 15,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/importCallExpressionIncorrect1",
+    "conformance/importCallExpressionIncorrect2",
+    "conformance/importCallExpressionWithTypeArgument",
+    "conformance/importWithTypeArguments",
+    "conformance/jsxAndTypeAssertion",
+    "conformance/mappedTypeProperties",
+    "conformance/parser.forAwait.es2018",
+    "conformance/parser579071",
+    "conformance/parserErrorRecovery_ClassElement3",
+    "conformance/parserSuperExpression2",
+    "conformance/parserTypeAssertionInObjectCreationExpression1",
+    "conformance/parserX_ArrowFunction3",
+    "conformance/taggedTemplateChain",
+    "conformance/thisPrototypeMethodCompoundAssignmentJs",
+    "conformance/tsxAttributeInvalidNames"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: OVERLOAD-FAILURE-REPORT",
+  "desc": "For a failed multi-overload call native always reports TS2769 (or the single related candidate). TSR only does so for all-non-generic overload sets with no literal/context-sensitive/generic-source arguments; anything else returns false and no error is issued. Native: vendor/typescript-go/internal/checker/checker.go:9649 reportCallResolutionErrors (candidatesForArgumentError / TS2769 chain). Port: tsr-checker/src/calls.rs (non_generic_overload_candidates walk ~1180-1265, declines on object/array literal, context-sensitive, generic overloads). Oracle sample: scratch a.ts: foo([{a:'bar'}]) / h(['bar']) over 2 overloads: tsgo TS2769, TSR nothing (object-literal arg g({a:'bar'}) is reported by both) Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 15 finished alone / 17 touched.",
+  "cases": {
+   "unlocked": 15,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/arrayConcatMap",
+    "compiler/bigintWithLib",
+    "compiler/conditionalTypeDoesntSpinForever",
+    "compiler/constructorOverloads1",
+    "compiler/functionOverloads40",
+    "compiler/functionOverloads41",
+    "compiler/heterogeneousArrayAndOverloads",
+    "compiler/inferenceOuterResultNotIncorrectlyInstantiatedWithInnerResult",
+    "compiler/overloadResolutionTest1",
+    "compiler/overloadingOnConstants2",
+    "compiler/overloadresolutionWithConstraintCheckingDeferred",
+    "compiler/promisePermutations",
+    "compiler/promisePermutations3",
+    "compiler/underscoreTest1",
+    "conformance/for-of39"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: RESOLVE-DECORATOR-CALL-ERRORS",
+  "desc": "checkDecorator resolves each decorator as a call with synthetic arguments; failure reports TS1238/1239/1240/1241 head messages, TS1329 (isPotentiallyUncalledDecorator) and the return-type checks TS1270/TS1271. None of these codes has an emitter in TSR (r6-smallcodes4 \u00a75 routes TS1239 here). Native: vendor/typescript-go/internal/checker/checker.go:8743 resolveDecorator (+ checkDecorator:6061, getDiagnosticHeadMessageForDecoratorResolution:8789). Port: unported (calls.rs has no decorator call resolution). Oracle sample: tsgo on decoratorOnClassMethod8: TS1241 + TS1270 at (4,6); TSR emits nothing; message constants 1238/1239/1240/1241/1270/1271/1329 unreferenced in crates/ Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 15 finished alone / 15 touched.",
+  "cases": {
+   "unlocked": 15,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/potentiallyUncalledDecorators",
+    "compiler/sourceMapValidationDecorators(target=es2015)",
+    "conformance/constructableDecoratorOnClass01",
+    "conformance/decoratorCallGeneric",
+    "conformance/decoratorOnClass8(target=es2015)",
+    "conformance/decoratorOnClassConstructor2(target=es2015)",
+    "conformance/decoratorOnClassConstructor3(target=es2015)",
+    "conformance/decoratorOnClassConstructorParameter1(target=es2015)",
+    "conformance/decoratorOnClassMethod10(target=es2015)",
+    "conformance/decoratorOnClassMethod6",
+    "conformance/decoratorOnClassMethod8(target=es2015)",
+    "conformance/decoratorOnClassProperty11(target=es2015)",
+    "conformance/decoratorOnClassProperty6(target=es2015)",
+    "conformance/decoratorOnClassProperty7(target=es2015)",
+    "conformance/esDecorators-arguments"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: SCANNER-NUMERIC-AND-ESCAPE-DIAGNOSTICS",
+  "desc": "Scanner diagnostics differ: binary/octal digit expected (TS1177/1178 vs TSR's 1125), unicode escape range/termination in strings, templates and regexes (TS1198/1199/1125/1508), unknown regex flags (TS1499), regex-vs-divide rescans (TS1161 vs 1134), keywords containing escapes (TS1260). Native: vendor/typescript-go/internal/scanner/scanner.go:2151 scanBinaryOrOctalDigits, :1690 scanEscapeSequence, :1944 scanNumber; scanner/regexp.go (regex escape/flag checks); keyword escape TS1260 in parser. Port: crates/tsr-parser scanner. FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: invalidBinaryIntegerLiteralAndOctalIntegerLiteral CLI: tsgo TS1177 'Binary digit expected', TSR TS1125 'Hexadecimal digit expected' at same position Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 15 finished alone / 15 touched.",
+  "cases": {
+   "unlocked": 15,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/parseBigInt",
+    "conformance/invalidBinaryIntegerLiteralAndOctalIntegerLiteral",
+    "conformance/parser.numericSeparators.unicodeEscape",
+    "conformance/parser645086_1",
+    "conformance/parser645086_2",
+    "conformance/parserRegularExpressionDivideAmbiguity3",
+    "conformance/parserRegularExpressionDivideAmbiguity4",
+    "conformance/privateNameHashCharName",
+    "conformance/scannerUnicodeEscapeInKeyword1",
+    "conformance/scannerUnicodeEscapeInKeyword2",
+    "conformance/unicodeExtendedEscapesInRegularExpressions07(target=es6)",
+    "conformance/unicodeExtendedEscapesInRegularExpressions12(target=es6)",
+    "conformance/unicodeExtendedEscapesInRegularExpressions14(target=es6)",
+    "conformance/unicodeExtendedEscapesInRegularExpressions17(target=es6)",
+    "conformance/unicodeExtendedEscapesInRegularExpressions19(target=es6)"
+   ]
+  },
+  "owner": "r6-lazytext"
+ },
+ {
+  "title": "r6-triage: ARRAY-LITERAL-TUPLE-CONTEXT",
+  "desc": "checkArrayLiteral's inTupleContext from a type-parameter contextual type (Promise.all's `T extends readonly unknown[] | []`, narrow<def>) makes the literal a tuple and its element calls infer literal T; TSR produces arrays. Native: internal/checker/checker.go:8021 checkArrayLiteral (:8029 inTupleContext), :23544 isTupleLikeType. Port: crates/tsr-checker/src/array_literals.rs:631 array_literal_has_a_tuple_contextual_type (instantiate_contextual_inference_type contextual.rs:532 before apparent_contextua\u2026. Oracle sample: baseline awaitedType `Promise.all([...]) : Promise<[number, string, boolean]>` Measured on e6eadf4 (r6-triage): types 9 cases finished alone / 15 touched / 69 lines; diagnostics 5 finished alone / 7 touched.",
+  "cases": {
+   "unlocked": 14,
+   "types_finished_alone": [
+    "compiler/contextualTypeSelfReferencing",
+    "compiler/correctOrderOfPromiseMethod",
+    "compiler/intersectionsAndOptionalProperties",
+    "compiler/objectFromEntries",
+    "compiler/recursiveReverseMappedType",
+    "compiler/reverseMappedTupleContext",
+    "compiler/unknownLikeUnionObjectFlagsNotPropagated",
+    "conformance/contextualTypeWithTuple",
+    "conformance/mappedTypesGenericTuples2"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix3",
+    "compiler/correctOrderOfPromiseMethod",
+    "compiler/inferFromGenericFunctionReturnTypes3",
+    "compiler/intersectionsAndOptionalProperties",
+    "compiler/objectFromEntries"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CHECK-GRAMMAR-MODIFIERS",
+  "desc": "checkGrammarModifiers walks modifiers/decorators reporting order (TS1029), incompatible pairs (TS1243), accessor-only (TS1275), decorators-not-valid/multiple accessors (TS1206/TS1207/TS8038), await-using modifiers (TS1495) and short-circuits the later grammar checks; TSR lacks these arms, and without the short-circuit it reports the later TS1039/TS1120/TS1191 instead. Native: vendor/typescript-go/internal/checker/grammarchecks.go:214 checkGrammarModifiers (+ checkGrammarProperty:1894 TS1276). Port: tsr-checker/src/grammar.rs (partial; no TS1029/TS1243/TS1275/TS1207/TS1495/TS8038 emitter). FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: tsgo autoAccessorDisallowedModifiers: TS1243 (4,14), TS1275 (11,5); TSR none; codes 1029/1243/1275/1276/1207/1495/8038 have zero emitters Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 14 finished alone / 15 touched.",
+  "cases": {
+   "unlocked": 14,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/declareModifierOnImport1",
+    "compiler/functionsWithModifiersInBlocks1",
+    "conformance/autoAccessorDisallowedModifiers(target=es2017)",
+    "conformance/autoAccessorDisallowedModifiers(target=esnext)",
+    "conformance/awaitUsingDeclarations.11",
+    "conformance/classAbstractMixedWithModifiers",
+    "conformance/classStaticBlock19",
+    "conformance/classStaticBlock20",
+    "conformance/decoratorOnClassAccessor7(target=es2015)",
+    "conformance/esDecorators-classDeclaration-exportModifier",
+    "conformance/esDecorators-classDeclaration-exportModifier.2",
+    "conformance/esDecorators-classDeclaration-fields-staticAmbient(target=es2015)",
+    "conformance/esDecorators-classDeclaration-fields-staticAmbient(target=es2022)",
+    "conformance/esDecorators-classDeclaration-fields-staticAmbient(target=esnext)"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: IMPLICIT-ANY-AUTO-TYPED-VARIABLE",
+  "desc": "Evolving/auto-typed `var p;`/`let o = []` references whose flow type is any (in JSX attribute expressions, across yield) and widened tuple/binding/return types must report TS7005/7034/7031/7010; TSR does not. Native: vendor/typescript-go/internal/checker/checker.go:11042 checkIdentifier auto-type arm (TS7034 at declaration, TS7005 at reference) / reportImplicitAny widening (TS7005 '[any, any]', 7031, 7010). Port: crates/tsr-checker/src/implicit_any.rs. Oracle sample: controlFlowArrayErrors: tsgo TS7034 + TS7005, TSR none Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 13 finished alone / 14 touched.",
+  "cases": {
+   "unlocked": 13,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/controlFlowArrayErrors",
+    "compiler/controlFlowNoImplicitAny",
+    "compiler/evolvingArrayResolvedAssert",
+    "compiler/implicitAnyDeclareVariablesWithoutTypeAndInit",
+    "compiler/narrowSwitchOptionalChainContainmentEvolvingArrayNoCrash1",
+    "compiler/narrowingPastLastAssignment",
+    "compiler/selfReferencingSpreadInLoop",
+    "conformance/tsxEmit1",
+    "conformance/tsxReactEmit1",
+    "conformance/usingDeclarationsWithObjectLiterals2(noimplicitany=true)",
+    "conformance/wideningTuples3",
+    "conformance/wideningTuples5",
+    "conformance/wideningTuples7"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: JSDOC-TAG-SEMANTICS",
+  "desc": "JSDoc tag semantics not matching native: @template defaults/ordering, @overload implementation compatibility and resolution, @typedef duplicates/scope, @type on catch variables and postfix `=` optionality, JS declaration-emit naming (4023), JS duplicate default export (2300). Native: vendor/typescript-go/internal/checker/checker.go JSDoc @template/@overload/@type/@typedef/@import handling (template defaults 2706/2744, overload compatibility 2394, typedef duplicate 2300/2451, typedef scope 2304, catch clause @type unknown, @type on default export). Port: crates/tsr-checker/src/jsdoc_*.rs. FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: jsdocTemplateTagNameResolution CLI: tsgo TS2322 string->number at file.js(11,7), TSR silent Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 13 finished alone / 14 touched.",
+  "cases": {
+   "unlocked": 13,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/importTag24",
+    "conformance/jsDeclarationsDefaultsErr(target=es2015)",
+    "conformance/jsDeclarationsTypeReassignmentFromDeclaration2",
+    "conformance/jsdocCatchClauseWithTypeAnnotation",
+    "conformance/jsdocImportType",
+    "conformance/jsdocPostfixEqualsAddsOptionality",
+    "conformance/jsdocTemplateTagNameResolution",
+    "conformance/optionalBindingParameters3",
+    "conformance/overloadTag2",
+    "conformance/recursiveTypeReferences2",
+    "conformance/typeTagNoErasure",
+    "conformance/typedefCrossModule5",
+    "conformance/typedefScope1"
+   ]
+  },
+  "owner": "r6-jsdoc"
+ },
+ {
+  "title": "r6-triage: SPREAD-PROPERTY-ANNOTATION-REUSE",
+  "desc": "Spread members print through the source property annotation (owner?: string without the added undefined, written union order); held hunk measured +19 RIGHT, 0 lost. Native: vendor/typescript-go/internal/checker/checker.go getSpreadSymbol + nodebuilderimpl.go addPropertyToElementList -> serializeTypeForDeclaration. Port: crates/tsr-checker/src/spreads.rs (printing hunk r6-nodereuse-property-slot-spreads.diff). Oracle sample: baseline declarationEmitComputedPropertyNameEnum1 `foo : { x?: { a: 0; }; }` Measured on e6eadf4 (r6-triage): types 12 cases finished alone / 13 touched / 25 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 12,
+   "types_finished_alone": [
+    "compiler/declarationEmitComputedPropertyNameEnum1",
+    "compiler/declarationEmitComputedPropertyNameEnum2",
+    "compiler/declarationEmitComputedPropertyNameEnum3",
+    "compiler/declarationEmitComputedPropertyNameSymbol1",
+    "compiler/declarationEmitComputedPropertyNameSymbol2",
+    "compiler/spreadIdenticalTypesRemoved",
+    "compiler/spreadObjectNoCircular1",
+    "compiler/spreadObjectPermutations(exactoptionalpropertytypes=false)",
+    "compiler/spreadObjectPermutations(exactoptionalpropertytypes=true)",
+    "compiler/spreadUnionPropOverride",
+    "compiler/unionExcessPropsWithPartialMember",
+    "conformance/intersectionIncludingPropFromGlobalAugmentation"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-errorsplit2 (held r6-nodereuse-property-slot-spreads.diff, spreads.rs)"
+ },
+ {
+  "title": "r6-triage: MODULE-RESOLUTION-DIAGNOSTICS",
+  "desc": "Diagnostics that depend on the resolved module's kind/extension/format (untyped JS module, JSON module in ESM, .ts extension rewrite, untyped augmentation, CJS default export) are not emitted by TSR. Native: vendor/typescript-go/internal/checker/checker.go:15149 resolveExternalModule (7016 untyped, 2877 non-relative .ts rewrite, 1543/1544 JSON in ESM, 2665 untyped augmentation, 1192 cjs default) / :5333 checkExternalImportOrExportDeclaration. Port: crates/tsr-compiler (resolution) + crates/tsr-checker module_format.rs. FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: nodeModulesJson(module=node18) CLI: tsgo TS1543 at main.mts(2,22) and TS2339 'default' at loosey.cts(6,9); TSR silent Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 12 finished alone / 12 touched.",
+  "cases": {
+   "unlocked": 12,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/namespaceAssignmentToRequireAlias",
+    "conformance/nodeModulesCJSEmit1(module=node18)",
+    "conformance/nodeModulesCJSEmit1(module=node20)",
+    "conformance/nodeModulesCJSEmit1(module=nodenext)",
+    "conformance/nodeModulesJson(module=node16)",
+    "conformance/nodeModulesJson(module=node18)",
+    "conformance/nodeModulesJson(module=node20)",
+    "conformance/nodeModulesJson(module=nodenext)",
+    "conformance/packageJsonImportsErrors(module=node18)",
+    "conformance/packageJsonImportsErrors(module=node20)",
+    "conformance/packageJsonImportsErrors(module=nodenext)",
+    "conformance/untypedModuleImport_withAugmentation"
+   ]
+  },
+  "owner": "r6-modules2"
+ },
+ {
+  "title": "r6-triage: RESOLVE-ES-MODULE-SYMBOL-CLONE",
+  "desc": "A namespace import (`import * as m4`, `import * as c`, `import e1, * as e2`) whose target has a default / is an ESM->CJS reference gets its own cloned module symbol, so the real module symbol is only reachable through `import x = require` aliases (`typeof m26`) and each clone names itself (`typeof c`). TSR shares one module symbol and names it through the first alias in the file (`typeof m4`, `typeof a`). Native: vendor/typescript-go/internal/checker/checker.go:15568 resolveESModuleSymbol (isEsmCjsRef / default-property arm :15610-15618 -> cloneTypeAsModuleType :15721). Port: crates/tsr-checker/src/symbols.rs::module_clone_type. Oracle sample: baseline nodeModules1(module=node16).types:258 `>m27 : typeof m26` and exportsAndImports4 `>c : typeof c`; native code path read at checker.go:15610 (isEsmCjsRef clone); TSR probe prints typeof m4 / typeof a Measured on e6eadf4 (r6-triage): types 11 cases finished alone / 11 touched / 208 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 11,
+   "types_finished_alone": [
+    "compiler/transformNestedGeneratorsWithTry(target=es2015)",
+    "conformance/exportsAndImports4(target=es2015)",
+    "conformance/exportsAndImports4-es6",
+    "conformance/nodeModules1(module=node16)",
+    "conformance/nodeModules1(module=node18)",
+    "conformance/nodeModules1(module=node20)",
+    "conformance/nodeModules1(module=nodenext)",
+    "conformance/nodeModulesAllowJs1(module=node16)",
+    "conformance/nodeModulesAllowJs1(module=node18)",
+    "conformance/nodeModulesAllowJs1(module=node20)",
+    "conformance/nodeModulesAllowJs1(module=nodenext)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CONTEXTUAL-BINDING-PATTERN-INITIALIZER",
+  "desc": "An initializer of a binding-pattern declaration is contextually typed by the pattern's implied type, so array literals become tuples and literals stay fresh; TSR gives no contextual type, producing arrays/unions and widened literals. Native: vendor/typescript-go/internal/checker/checker.go getContextualTypeForInitializerExpression (binding-pattern arm -> getTypeFromBindingPattern(includePatternInType)). Port: crates/tsr-checker/src/contextual.rs (initializer contextual type). Oracle sample: baseline declarationEmitDestructuring2 `[2, 4, 6, 8] : [number, number, number, number]` Measured on e6eadf4 (r6-triage): types 10 cases finished alone / 12 touched / 96 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 11,
+   "types_finished_alone": [
+    "compiler/declarationEmitDestructuring2",
+    "compiler/declarationEmitDestructuringArrayPattern2",
+    "compiler/intraBindingPatternReferences",
+    "compiler/objectBindingPatternContextuallyTypesArgument",
+    "conformance/destructuringVariableDeclaration1ES5",
+    "conformance/destructuringVariableDeclaration1ES5iterable(target=es2015)",
+    "conformance/destructuringVariableDeclaration1ES6",
+    "conformance/destructuringVariableDeclaration2",
+    "conformance/literalTypesAndTypeAssertions",
+    "conformance/restElementMustBeLast"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/intraBindingPatternReferences"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: TYPE-ALIAS-ACCESSIBILITY-GATE",
+  "desc": "typeToTypeNode prints Alias<Args> only when IsTypeSymbolAccessible(alias, enclosing); a non-exported or function-local alias (WatchHandler from a JS importer, AX, local X/Foo/Part1/Part2, PublicKeys2, Map) prints its structure. TSR prints the alias name. Native: internal/checker/nodebuilderimpl.go:3362 typeToTypeNode alias arm -> symbolaccessibility.go:11 IsTypeSymbolAccessible. Port: crates/tsr-checker/src/checker.rs alias_of print arm (IsTypeSymbolAccessible landed in 64a4a5c but still admits function-local aliases and non-exported aliases printed from another file). Oracle sample: baseline declarationEmitExpressionWithNonlocalPrivateUniqueSymbol `A : { readonly A: unique symbol; }`; declarationEmitGenericTypeParamerSerialization2 local `X` expanded Measured on e6eadf4 (r6-triage): types 11 cases finished alone / 15 touched / 70 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 11,
+   "types_finished_alone": [
+    "compiler/allowJscheckJsTypeParameterNoCrash",
+    "compiler/declarationEmitExpressionWithNonlocalPrivateUniqueSymbol",
+    "compiler/declarationEmitGenericTypeParamerSerialization2",
+    "compiler/declarationEmitInferredTypeAlias4",
+    "compiler/declarationEmitMappedTypeDistributivityPreservesConstraints",
+    "compiler/declarationEmitNestedAnonymousMappedType",
+    "compiler/declarationEmitWithDefaultAsComputedName(target=es2015)",
+    "compiler/declarationEmitWithDefaultAsComputedName2(target=es2015)",
+    "compiler/inlineMappedTypeModifierDeclarationEmit",
+    "compiler/mappedTypeGenericInstantiationPreservesHomomorphism",
+    "compiler/simplifyingConditionalWithInteriorConditionalIsRelated"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN (.16.2/.39 printer)"
+ },
+ {
+  "title": "r6-triage: TYPE-ALIAS-INSTANTIATION-NEW-ALIAS",
+  "desc": "An alias whose whole body is a reference to another generic alias names the instantiation after the outer alias (`type A = Nominal<'A', string>` prints A, keyofIntersection T05, mappedTypeRelationships GenericSettingsResult1); TSR prints the inner Inner<args>. Native: vendor/typescript-go/internal/checker/checker.go:23580 getTypeFromTypeAliasReference (newAliasSymbol 23606-23628) -> :23641 getTypeAliasInstantiation. Port: crates/tsr-checker/src/declared.rs::get_instantiated_type_reference. Oracle sample: baseline caseInsensitiveFileSystemWithCapsImportTypeDeclarations `{ } as TypeB : TypeB` Measured on e6eadf4 (r6-triage): types 11 cases finished alone / 19 touched / 57 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 11,
+   "types_finished_alone": [
+    "compiler/caseInsensitiveFileSystemWithCapsImportTypeDeclarations",
+    "compiler/constraintWithIndexedAccess",
+    "compiler/discriminantPropertyCheck",
+    "compiler/divideAndConquerIntersections",
+    "compiler/genericIndexedAccessVarianceComparisonResultCorrect",
+    "compiler/indexedAccessKeyofNestedSimplifiedSubstituteUnwrapped",
+    "compiler/inferrenceInfiniteLoopWithSubtyping",
+    "conformance/intersectionTypeInference3",
+    "conformance/keyofIntersection",
+    "conformance/mappedTypeRelationships",
+    "conformance/mappedTypeWithAny"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-declared2"
+ },
+ {
+  "title": "r6-triage: PARSER-REPARSE-TOP-LEVEL-AWAIT",
+  "desc": "In a module file native re-parses top-level statements containing `await` in await context, producing await expressions; TSR keeps `await` as an identifier and reports TS1262 + TS2304/TS2552 (and loses the 1109/1005/2693/2695/2863 diagnostics of the correct parse). Native: vendor/typescript-go/internal/parser/parser.go:514 reparseTopLevelAwait. Port: crates/tsr-parser (unported). Oracle sample: topLevelAwait.1(module=esnext,target=es2017) CLI: TSR TS1262 + TS2552 \"Cannot find name 'await'\" at index.ts(10,1); tsgo clean Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 4 touched / 20 lines; diagnostics 7 finished alone / 7 touched.",
+  "cases": {
+   "unlocked": 11,
+   "types_finished_alone": [
+    "conformance/topLevelAwait.1(module=es2022,target=es2015)",
+    "conformance/topLevelAwait.1(module=es2022,target=es2017)",
+    "conformance/topLevelAwait.1(module=esnext,target=es2015)",
+    "conformance/topLevelAwait.1(module=esnext,target=es2017)"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/dynamicImportsDeclaration",
+    "conformance/topLevelAwait.1(module=es2022,target=es2015)",
+    "conformance/topLevelAwait.1(module=es2022,target=es2017)",
+    "conformance/topLevelAwait.1(module=esnext,target=es2015)",
+    "conformance/topLevelAwait.1(module=esnext,target=es2017)",
+    "conformance/topLevelAwaitErrors.1(module=es2022)",
+    "conformance/topLevelAwaitErrors.1(module=esnext)"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: TRY-SYMBOL-TABLE-DEFAULT-IMPORT-ALIAS",
+  "desc": "`import React from \"react\"` (export = React) names the module `typeof React` at the print site; TSR prints typeof import(\"react\").React. Native: vendor/typescript-go/internal/checker/nodebuilder trySymbolTable (default-import alias of export= module names `typeof React`). Port: crates/tsr-checker/src/symbol_access.rs. Oracle sample: prior key Measured on e6eadf4 (r6-triage): types 11 cases finished alone / 16 touched / 26 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 11,
+   "types_finished_alone": [
+    "compiler/defaultDeclarationEmitDefaultImport",
+    "compiler/jsxPartialSpread",
+    "compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsx)",
+    "compiler/reactImportUnusedInNewJSXEmit(jsx=react-jsxdev)",
+    "compiler/tsxNotUsingApparentTypeOfSFC",
+    "compiler/tsxUnionMemberChecksFilterDataProps",
+    "conformance/checkJsxChildrenCanBeTupleType",
+    "conformance/checkJsxUnionSFXContextualTypeInferredCorrectly",
+    "conformance/controlFlowOptionalChain3",
+    "conformance/importDefaultNamedType2",
+    "conformance/jsDeclarationsReexportAliases(target=es2015)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: BINDING-PATTERN-IMPLIED-TYPE",
+  "desc": "An unannotated binding-pattern parameter gets the pattern's implied type ([any, any, any], { x: any; ... }); TSR prints any. Native: vendor/typescript-go/internal/checker/checker.go:16790 getTypeForVariableLikeDeclaration (pattern arm -> :17904 getTypeFromBindingPattern). Port: crates/tsr-checker/src/destructure.rs (parameter pattern type gate). Oracle sample: baseline computerPropertiesInES5ShouldBeTransformed `b : ({ [`key`]: renamed }: { key: any; }) => any` Measured on e6eadf4 (r6-triage): types 9 cases finished alone / 9 touched / 22 lines; diagnostics 2 finished alone / 2 touched.",
+  "cases": {
+   "unlocked": 11,
+   "types_finished_alone": [
+    "compiler/computerPropertiesInES5ShouldBeTransformed(target=es2015)",
+    "compiler/expressionsForbiddenInParameterInitializers",
+    "compiler/renamingDestructuredPropertyInFunctionType",
+    "compiler/renamingDestructuredPropertyInFunctionType2",
+    "conformance/destructuringInFunctionType",
+    "conformance/destructuringParameterDeclaration1ES5",
+    "conformance/destructuringParameterDeclaration1ES5iterable",
+    "conformance/destructuringParameterDeclaration1ES6",
+    "conformance/destructuringParameterDeclaration2"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/fallbackToBindingPatternForTypeInference",
+    "conformance/declarationsAndAssignments"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CONDITIONAL-INLINE-NODE-INSTANTIATION",
+  "desc": "An inline (non-alias) conditional type node anywhere in a signature, type-literal member or mapped template is instantiated by getConditionalTypeInstantiation; TSR answers error for it outside type-parameter constraints (and for any inline conditional carrying `infer`). So `P<string>[\"p\"]`, `g(\"a\")` with return `T extends string ? 1 : 2`, effectGen/effectFn returns, MachineConfig `on` handlers, trpc/TRPCBuilder members all go error/any. Native: vendor/typescript-go/internal/checker/checker.go:22485 getConditionalTypeInstantiation (anonymous conditional root from a non-alias ConditionalTypeNode). Port: crates/tsr-checker/src/declared.rs::instantiate_conditional_node (in_constraint gate) / evaluate_conditional_node. Oracle sample: tsgo: `declare function g<T>(x:T): T extends string ? 1 : 2; g(\"a\")` -> 1; `{p: T extends string ? 1:2}` instantiated with string -> 1 (TSR: error). Removing the inline conditional from contextualTypeFunctionObjectPropertyIntersection makes the FOO lines RIGHT in TSR. Measured on e6eadf4 (r6-triage): types 10 cases finished alone / 24 touched / 167 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 10,
+   "types_finished_alone": [
+    "compiler/conditionalTypeBasedContextualTypeReturnTypeWidening",
+    "compiler/conditionalTypeContextualTypeSimplificationsSuceeds",
+    "compiler/contextualSignatureConditionalTypeInstantiationUsingDefault",
+    "compiler/controlFlowInstanceofWithSymbolHasInstance",
+    "compiler/declarationEmitClassMixinLocalClassDeclaration",
+    "compiler/declarationsIndirectGeneratedAliasReference",
+    "compiler/identityRelationNeverTypes",
+    "conformance/inferTypes2",
+    "conformance/instanceofOperatorWithRHSHasSymbolHasInstance",
+    "conformance/templateLiteralTypes2"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-declared2"
+ },
+ {
+  "title": "r6-triage: SYMBOL-CHAIN-CANDIDATE-EXPORTS-OF-SYMBOL",
+  "desc": "trySymbolTable's getCandidateListForSymbol walks getExportsOfSymbol(resolveAlias(foo)) and finds the `export * as ns from './0'` member, so the module prints `typeof foo.ns`; TSR finds no chain and falls to the specifier `typeof import(\"./0\")`. Native: vendor/typescript-go/internal/checker/symbolaccessibility.go:620 getCandidateListForSymbol (via :535 trySymbolTable, isLocalNameLookup=false keeps `export * as ns` re-exports). Port: crates/tsr-checker/src/checker.rs::best_name / symbol_chain. Oracle sample: baseline exportAsNamespace1(module=es2015).types `>foo.ns : typeof foo.ns`; TSR probe typeof import(\"./0\") Measured on e6eadf4 (r6-triage): types 10 cases finished alone / 10 touched / 38 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 10,
+   "types_finished_alone": [
+    "compiler/nodeColonModuleResolution",
+    "conformance/exportAsNamespace1(module=commonjs)",
+    "conformance/exportAsNamespace1(module=es2015)",
+    "conformance/exportAsNamespace1(module=esnext)",
+    "conformance/exportAsNamespace2(module=commonjs)",
+    "conformance/exportAsNamespace2(module=es2015)",
+    "conformance/exportAsNamespace2(module=esnext)",
+    "conformance/exportAsNamespace3(module=commonjs)",
+    "conformance/exportAsNamespace3(module=es2015)",
+    "conformance/exportAsNamespace3(module=esnext)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: TYPEREF-UNRESOLVED-ALIAS-TARGET-SYMBOL",
+  "desc": "A type reference to an unresolved import (MyPromise from a missing module, Foo<T>) prints its written name natively (error type keeps the alias symbol); TSR prints any. Native: vendor/typescript-go/internal/checker/checker.go getTypeFromTypeReference -> errorType carrying the unresolved alias name. Port: crates/tsr-checker/src/declared.rs (type reference to unresolved import). Oracle sample: baseline isolatedDeclarationErrorTypes1.types: tsgo `Unresolved` Measured on e6eadf4 (r6-triage): types 10 cases finished alone / 10 touched / 23 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 10,
+   "types_finished_alone": [
+    "compiler/decoratorMetadataTypeOnlyImport",
+    "compiler/errorForUsingPropertyOfTypeAsType03",
+    "compiler/importDeclWithClassModifiers",
+    "compiler/importDeclWithDeclareModifier",
+    "compiler/isolatedDeclarationErrorTypes1",
+    "compiler/jsdocResolveNameFailureInTypedef",
+    "compiler/unusedInvalidTypeArguments",
+    "conformance/asyncAwaitIsolatedModules_es2017",
+    "conformance/asyncAwaitIsolatedModules_es5(target=es2015)",
+    "conformance/asyncAwaitIsolatedModules_es6"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-declared2"
+ },
+ {
+  "title": "r6-triage: GRAMMAR-MISC-DECLARATIONS",
+  "desc": "Assorted single-site declaration grammar checks not ported in TSR. Each is a separate small grammar function; grouped because each touches one or two cases. Native: vendor/typescript-go/internal/checker/grammarchecks.go (override in ambient 1040, labels 1344, parameter list 2370/1092/1098, optional binding parameter 2463, rest param array 2370, UMD export 1314-1316/1184, static index signature 2302). Port: unported (grammar.rs). FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: override5 CLI: tsgo TS1040 'override' modifier cannot be used in an ambient context at (17,14); TSR silent Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 10 finished alone / 11 touched.",
+  "cases": {
+   "unlocked": 10,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/importCallExpressionNoModuleKindSpecified",
+    "conformance/nullishCoalescingOperator5",
+    "conformance/override5",
+    "conformance/override7",
+    "conformance/parserConstructorDeclaration11",
+    "conformance/parserForStatement8",
+    "conformance/parserParameterList10",
+    "conformance/parserParameterList11",
+    "conformance/staticIndexers",
+    "conformance/umd-errors"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: REGEXP-SCANNER-VALIDATION",
+  "desc": "Native re-scans every regex literal body and flags (scanner/regexp.go) reporting TS1499-TS1538, TS1005 \"]\" expected and TS1125 inside patterns. TSR only tokenises the literal, so every regex diagnostic is missing. Native: vendor/typescript-go/internal/scanner/regexp.go scanRegularExpressionWorker/run (+ scanner.go:1180 ReScanSlashToken flags, scanEscapeSequence 1487/1535-1538). Port: unported (tsr-scanner has no regular-expression body/flag validator). Oracle sample: tsgo regularExpressionWithNonBMPFlags: 6x TS1499; TSR 0; codes 1499-1538 have zero emitters Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 10 finished alone / 10 touched.",
+  "cases": {
+   "unlocked": 10,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/regExpWithOpenBracketInCharClass(target=es2015)",
+    "compiler/regExpWithOpenBracketInCharClass(target=esnext)",
+    "compiler/regularExpressionAnnexB",
+    "compiler/regularExpressionCharacterClassRangeOrder",
+    "compiler/regularExpressionExtendedUnicodeEscapes",
+    "compiler/regularExpressionGroupNameSuggestions",
+    "compiler/regularExpressionScanning(target=es2015)",
+    "compiler/regularExpressionScanning(target=esnext)",
+    "compiler/regularExpressionUnicodePropertyValueExpressionSuggestions(target=es2015)",
+    "compiler/regularExpressionWithNonBMPFlags"
+   ]
+  },
+  "owner": "r6-lazytext"
+ },
+ {
+  "title": "r6-triage: PARSER-IS-YIELD-EXPRESSION",
+  "desc": "Native parses `yield` as a YieldExpression only in a yield context or when followed on the same line by an identifier/keyword/literal; otherwise it is an identifier (TS2304, TS1212 in strict code, TS2372/TS7022 for `f(yield = yield)`). TSR always builds a YieldExpression (r6-names \u00a713 F2). Native: vendor/typescript-go/internal/parser/parser.go:4150 isYieldExpression. Port: tsr-parser/src/expression.rs::parse_assignment_expression_worker. Oracle sample: tsgo YieldExpression1_es6: TS1212 + TS2304 at (1,1); TSR 0 Measured on e6eadf4 (r6-triage): types 2 cases finished alone / 2 touched / 2 lines; diagnostics 8 finished alone / 8 touched.",
+  "cases": {
+   "unlocked": 10,
+   "types_finished_alone": [
+    "conformance/YieldStarExpression1_es6",
+    "conformance/YieldStarExpression2_es6"
+   ],
+   "diagnostics_finished_alone": [
+    "conformance/FunctionDeclaration10_es6",
+    "conformance/FunctionDeclaration3_es6",
+    "conformance/FunctionDeclaration8_es6",
+    "conformance/YieldExpression18_es6",
+    "conformance/YieldExpression1_es6",
+    "conformance/YieldExpression8_es6",
+    "conformance/YieldStarExpression1_es6",
+    "conformance/YieldStarExpression2_es6"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: MODULE-AUGMENTATION-MERGE",
+  "desc": "A `declare module \"x\"` augmentation merges into the export= target symbol (cloned when needed), so the target prints as `typeof import(\"./file1\")`, augmented interface members (Request.id, LoDashStatic.pick) resolve, and node_modules `declare global` blocks merge; TSR does not merge these augmentations. Native: vendor/typescript-go/internal/checker/checker.go:1397 mergeModuleAugmentation (export= target merged/cloned) + :14390 getSymbolOfDeclaration. Port: crates/tsr-binder (augmentation merge) / crates/tsr-checker/src/symbols.rs merged_symbol. Oracle sample: baseline augmentExportEquals3 `foo : typeof import(\"./file1\")`; augmentExportEquals5 `x.id : number` (TSR any) Measured on e6eadf4 (r6-triage): types 9 cases finished alone / 12 touched / 41 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 9,
+   "types_finished_alone": [
+    "compiler/augmentExportEquals3",
+    "compiler/augmentExportEquals4",
+    "compiler/augmentExportEquals5",
+    "compiler/augmentExportEquals6",
+    "compiler/augmentExportEquals7",
+    "compiler/checkerInitializationCrash",
+    "compiler/mergeSymbolReexportInterface",
+    "compiler/mergeSymbolReexportedTypeAliasInstantiation",
+    "compiler/moduleAugmentationOfAlias"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CONTEXTUAL-SIGNATURE-TYPEPARAM-ADOPTION",
+  "desc": "A function expression contextually typed by a generic signature adopts its type parameters (<T>(x: T) => any); TSR gaps. Native: vendor/typescript-go/internal/checker/checker.go:10349 assignContextualParameterTypes (adoption :10350-10356). Port: crates/tsr-checker/src/signatures.rs::get_signature_from_declaration. Oracle sample: baseline contextualTypingWithGenericSignature `(x, y) => { return x } : <T, U>(x: T, y: U) => T` Measured on e6eadf4 (r6-triage): types 9 cases finished alone / 10 touched / 33 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 9,
+   "types_finished_alone": [
+    "compiler/contextualOuterTypeParameters",
+    "compiler/contextualTypingWithGenericSignature",
+    "compiler/genericFunctionHasFreshTypeArgs",
+    "compiler/genericFunctionsNotContextSensitive",
+    "compiler/genericTypeAssertions3",
+    "compiler/implicitAnyGenericTypeInference",
+    "compiler/maxConstraints",
+    "conformance/genericContextualTypes1",
+    "conformance/genericFunctionParameters"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CHECK-GRAMMAR-AWAIT-YIELD-CONTEXT",
+  "desc": "Native classifies await/await-using/for-await/yield by containing function and class static block (TS18037/18038/18054 in static blocks, TS2852/2853 outside async/module, TS1308/TS1163 in class property initializers and decorators). TSR has only part of the TS1308 arm and none of the static-block arms; awaitAndYieldInProperty shows it reporting TS1308 in computed names native accepts. Native: vendor/typescript-go/internal/checker/grammarchecks.go:1676 checkGrammarAwaitOrAwaitUsing (+ checker.go:4038 checkForOfStatement TS18038, grammarchecks.go:1780 checkGrammarYieldExpression TS1163). Port: tsr-checker/src/grammar.rs / check.rs (TS1308 partial; TS18037/18038/18054/2852/2853 unported). Oracle sample: tsgo classStaticBlock7: TS18037 (3,9),(12,13); TSR 0 Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 9 finished alone / 10 touched.",
+  "cases": {
+   "unlocked": 9,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/awaitAndYield",
+    "conformance/awaitAndYieldInProperty",
+    "conformance/awaitUsingDeclarations.13",
+    "conformance/awaitUsingDeclarations.14",
+    "conformance/awaitUsingDeclarationsInForOf.4",
+    "conformance/classStaticBlock23(target=es2022)",
+    "conformance/classStaticBlock23(target=esnext)",
+    "conformance/classStaticBlock7",
+    "conformance/decoratorOnClassMethodParameter3"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: ARRAY-LITERAL-OMITTED-EXPRESSION-ELEMENT",
+  "desc": "An assignment-pattern array literal `[, nameA]` keeps its destructuring-pattern tuple ([undefined, string]); checkArrayLiteral types the OmittedExpression as undefined. TSR falls back to (string | undefined)[]. Native: internal/checker/checker.go:8021 checkArrayLiteral (default arm :8071, inDestructuringPattern). Port: crates/tsr-checker/src/array_literals.rs check_array_literal. Oracle sample: sourceMapValidationDestructuringForArrayBindingPattern2: baseline `[, nameA] : [undefined, string]`; TSR probe (string | undefined)[]; tsgo on repro `[, nameA] = robotA` types the assignment Robot (TSR same) \u2014 element tuple from baseline Measured on e6eadf4 (r6-triage): types 8 cases finished alone / 8 touched / 38 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [
+    "compiler/sourceMapValidationDestructuringForArrayBindingPattern2(target=es2015)",
+    "compiler/sourceMapValidationDestructuringForArrayBindingPatternDefaultValues2(target=es2015)",
+    "compiler/sourceMapValidationDestructuringForOfArrayBindingPattern2(target=es2015)",
+    "compiler/sourceMapValidationDestructuringForOfArrayBindingPatternDefaultValues2(target=es2015)",
+    "compiler/sourceMapValidationDestructuringVariableStatementArrayBindingPattern3(target=es2015)",
+    "compiler/sourceMapValidationDestructuringVariableStatementArrayBindingPatternDefaultValues3(target=es2015)",
+    "compiler/trailingCommasES5(target=es2015)",
+    "conformance/noUncheckedIndexedAccessDestructuring"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: RESOLVE-NAME-FUNCTION-LIKE-PARAMETER-SCOPE",
+  "desc": "A parameter initializer resolves names outside the function body, so `bar = foo` sees the outer `let foo: string`, not the body `var foo: number`; TSR resolves to the body local. Native: vendor/typescript-go/internal/binder/nameresolver.go:54 Resolve (function-like locals arm: body locals invisible from parameter initializers). Port: crates/tsr-binder/src/lib.rs:916 parameter scope handling. Oracle sample: baseline functionImplementationErrors `>f6 : (n?: any) => void`; TSR (n?: number) Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 5 touched / 34 lines; diagnostics 3 finished alone / 3 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [
+    "compiler/optionalParamReferencingOtherParams2(target=es2015)",
+    "compiler/typeParametersAndParametersInComputedNames",
+    "conformance/functionImplementationErrors(target=es2015)",
+    "conformance/parameterInitializersForwardReferencing1(target=es2015)",
+    "conformance/parameterInitializersForwardReferencing1_es6"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/functionLikeInParameterInitializer(target=es2015)",
+    "compiler/functionVariableInReturnTypeAnnotation",
+    "compiler/optionalParamReferencingOtherParams2(target=es2015)"
+   ]
+  },
+  "owner": "r6-names2"
+ },
+ {
+  "title": "r6-triage: IMPORT-TYPE-NODE-TYPEOF",
+  "desc": "`typeof import(\"m\")` (JSON module with attributes, export= JS module, namespace module) resolves the value side of the module; TSR returns error, so `shim`, `Test1`, JSDoc `@type {typeof import(...)}` users go any. Native: vendor/typescript-go/internal/checker/checker.go:24575 getTypeFromImportTypeNode (IsTypeOf arm :24608-24609, :24660-24662). Port: crates/tsr-checker/src/declared.rs::get_type_from_import_type_node. Oracle sample: TSR probe `/** @typedef {typeof import('./base')} BF */ /** @type {BF} */ var bf` -> any; baseline jsDeclarationsTypeReassignmentFromDeclaration `items : Item[]` Measured on e6eadf4 (r6-triage): types 8 cases finished alone / 12 touched / 36 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [
+    "compiler/declarationEmitWithInvalidPackageJsonTypings",
+    "compiler/importTypeTypeofClassStaticLookup",
+    "compiler/jsDeclarationEmitDoesNotRenameImport",
+    "compiler/moduleResolutionWithRequireAndImport",
+    "conformance/importAttributes10",
+    "conformance/jsDeclarationsParameterTagReusesInputNodeInEmit2",
+    "conformance/jsDeclarationsTypeReassignmentFromDeclaration",
+    "conformance/resolutionModeImportType1(moduleresolution=bundler)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-declared2"
+ },
+ {
+  "title": "r6-triage: OBJLIT-THIS-LITERAL-SELF-FALLBACK",
+  "desc": "`this` in an object-literal accessor with no contextual type is the literal's own (widened) type, so `this.prop` is number and the getter/setter `a` is number; TSR declines (any). Native: internal/checker/checker.go:12021 getContextualThisParameterType (fallback :12049-12054). Port: crates/tsr-checker/src/contextual.rs:611 contextual_object_this_type (decline :634-644 object_literal_member_return_is_resolving). Oracle sample: baseline commentsOnObjectLiteral3 `a : number` Measured on e6eadf4 (r6-triage): types 7 cases finished alone / 9 touched / 33 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [
+    "compiler/commentsOnObjectLiteral3(target=es2015)",
+    "compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=false)",
+    "compiler/discriminateWithOptionalProperty2(exactoptionalpropertytypes=true)",
+    "compiler/this_inside-object-literal-getters-and-setters",
+    "conformance/looseThisTypeInFunctions",
+    "conformance/thisInObjectLiterals",
+    "conformance/thisTypeInObjectLiterals"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/objectLiteralThisWidenedOnUse"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: IMPORT-TYPE-NODE-TYPE-MEANING",
+  "desc": "import(\"./m\").X<Args> with type arguments (and alias-of-import-type targets) resolve to the real type; TSR declines (error) or mints a print-only type (property access then fails). Native: vendor/typescript-go/internal/checker/checker.go:24575 getTypeFromImportTypeNode. Port: crates/tsr-checker/src/declared.rs::get_type_from_import_type_node. Oracle sample: TSR probe `let x: import(\"./a\").WS2` (WS2 a JS @typedef) -> error while `import { WS2 }` works; baseline importTypeGenericTypes `x : import(\"./foo\")<{ x: number; }>` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 8 touched / 28 lines; diagnostics 3 finished alone / 3 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [
+    "compiler/declarationEmitTopLevelNodeFromCrossFile2",
+    "compiler/declarationEmitUsingTypeAlias1",
+    "compiler/importUsedInGenericImportResolves",
+    "conformance/importTypeGeneric",
+    "conformance/jsDeclarationsUniqueSymbolUsage"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/importUsedAsTypeWithErrors",
+    "compiler/parseAssertEntriesError",
+    "compiler/parseImportAttributesError"
+   ]
+  },
+  "owner": "r6-typesroots2"
+ },
+ {
+  "title": "r6-triage: CONSTRAINT-OF-TYPE-PARAMETER-CIRCULARITY",
+  "desc": "A circular constraint (`<T extends T>`, `<U extends T, T extends U>`) has no constraint and prints without `extends`; TSR prints the written constraint. Native: vendor/typescript-go/internal/checker/checker.go:17059 getConstraintOfTypeParameter (:17066 hasNonCircularBaseConstraint). Port: crates/tsr-checker/src/signatures.rs:5819 type_parameter_of. Oracle sample: scratch t1.ts: tsgo TS2351/TS2349 on x of type T extends T, TSR only TS2313 Measured on e6eadf4 (r6-triage): types 6 cases finished alone / 6 touched / 18 lines; diagnostics 2 finished alone / 2 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [
+    "compiler/incorrectRecursiveMappedTypeConstraint",
+    "compiler/spuriousCircularityOnTypeImport",
+    "compiler/typeParameterHasSelfAsConstraint",
+    "conformance/circularIndexedAccessErrors",
+    "conformance/typeParameterDirectlyConstrainedToItself",
+    "conformance/typeParameterIndirectlyConstrainedToItself"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/typeParameterHasSelfAsConstraint",
+    "compiler/typeParameterWithInvalidConstraintType"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: GRAMMAR-ACCESSOR-DECLARATION",
+  "desc": "Accessor grammar (TS1094 type parameters, TS1095 set return annotation, TS1052 set parameter initializer, TS1054/TS1049 parameter counts excluding `this`) is not ported; TSR emits nothing, or emits 1049/1054 counting the `this` parameter. Native: vendor/typescript-go/internal/checker/grammarchecks.go:1307 checkGrammarAccessor. Port: unported (grammar.rs). Oracle sample: t20 single-line repros: `class C1 { get foo<T>() {...} }` tsgo TS1094, TSR silent Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 8 finished alone / 9 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/accessorBodyInTypeContext",
+    "compiler/accessorWithInitializer(target=es2015)",
+    "conformance/parserGetAccessorWithTypeParameters1(target=es2015)",
+    "conformance/parserMemberAccessorDeclaration16(target=es2015)",
+    "conformance/parserSetAccessorWithTypeAnnotation1(target=es2015)",
+    "conformance/parserSetAccessorWithTypeParameters1(target=es2015)",
+    "conformance/thisTypeInAccessors(target=es2015)",
+    "conformance/thisTypeInAccessorsNegative(target=es2015)"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CHECK-INTERFACE-HERITAGE-AND-BASES",
+  "desc": "Interface/class heritage validation is incomplete: unresolved `M.C` in interface extends (2694) and ambient-class extends expressions (2339), interfaces extending tuples/arrays/typeof/intersections (2430/2411/2413/2312/2416), conflicting base members (2320), identical type parameters across declarations (2428), never-returning mixin bases (2509). Native: vendor/typescript-go/internal/checker/checker.go:4991 checkInterfaceDeclaration (heritage checkTypeReferenceNode, 2312/2430/2411/2413/2320/2499/2428) and :4293 checkClassLikeDeclaration base checks (2416, ambient heritage expression, 2509 never base). Port: crates/tsr-checker/src/heritage_conformance.rs / check.rs. FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Oracle sample: t11/t12 repro: `interface I2 extends M.C {}` tsgo TS2694; `declare class D2 extends M.C {}` tsgo TS2339; TSR silent Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 8 finished alone / 9 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/genericTypeReferenceWithoutTypeArgument.d",
+    "conformance/genericTypeReferenceWithoutTypeArgument2",
+    "conformance/genericTypeReferenceWithoutTypeArgument3",
+    "conformance/interfaceExtendingOptionalChain",
+    "conformance/interfaceExtendsObjectIntersectionErrors",
+    "conformance/mergedInheritedMembersSatisfyAbstractBase",
+    "conformance/twoGenericInterfacesWithDifferentConstraints",
+    "conformance/typeParameterAsBaseType"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: PARSER-FUNCTION-BLOCK-OR-SEMICOLON-RECOVERY",
+  "desc": "On `function f() => 4`, `x()?: number`, skipped tokens or bad parameter lists native's recovery still attaches a body (or recovers differently), so no TS2391/2389/7010 follow; TSR leaves the declaration body-less and the checker reports implementation-missing, plus different parse codes. Native: vendor/typescript-go/internal/parser/parser.go:3481 parseFunctionBlockOrSemicolon (and method `?` / `=>` recovery in class/object members). Port: crates/tsr-parser. Oracle sample: parserErrantEqualsGreaterThanAfterFunction1 (`function f() => 4;`): harness TSR extra TS2391 at (1,10); native none Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 8 finished alone / 8 touched.",
+  "cases": {
+   "unlocked": 8,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/dottedModuleName",
+    "conformance/objectTypesWithOptionalProperties2",
+    "conformance/parser.asyncGenerators.classMethods.es2018(alwaysstrict=true)",
+    "conformance/parser.asyncGenerators.objectLiteralMethods.es2018(alwaysstrict=true)",
+    "conformance/parserErrantEqualsGreaterThanAfterFunction1",
+    "conformance/parserErrantEqualsGreaterThanAfterFunction2",
+    "conformance/parserErrorRecovery_ParameterList6",
+    "conformance/parserSkippedTokens16"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CLASS-INSTANCE-MEMBERS-FROM-BASE-TYPES",
+  "desc": "A class whose `extends` is an arbitrary expression (`Mix(Private, Private2)`, `(await import('./0')).B`, `m.B`, a const of intersection-of-constructors type) gets members from getBaseTypes(classType) = the construct signatures' return type; TSR only walks symbol-based heritage, so `this.a`, `c4.p`, `c.print()` error. Native: vendor/typescript-go/internal/checker/checker.go:19127-19152 resolveObjectTypeMembers (base merge) over :19167 getBaseTypes / resolveBaseTypesOfClass. Port: crates/tsr-checker/src/members.rs::get_property_of_declared_symbol (base walk). Oracle sample: scratch: class D1 extends getBase() { this.x } -> tsgo string, TSR error Measured on e6eadf4 (r6-triage): types 6 cases finished alone / 7 touched / 56 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [
+    "conformance/classExpression3",
+    "conformance/classExpressionES63",
+    "conformance/classExtendingClassLikeType",
+    "conformance/importCallExpression3ES2020",
+    "conformance/importCallExpressionInCJS4",
+    "conformance/mixinClassesMembers"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/genericRecursiveImplicitConstructorErrors3"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: DISCRIMINATE-CONTEXTUAL-BY-MEMBERS",
+  "desc": "Native discriminates a union contextual type using every possibly-discriminant member (undefined, template literals, optional absent members) and keeps the whole union when nothing matches, so literals stay literal and callback params get types; TSR discriminates only literal members and drops the contextual type on a miss (array elements, `disc: undefined`, `${\"s\"}`). Native: vendor/typescript-go/internal/checker/checker.go:30755 discriminateContextualTypeByObjectMembers; relater.go:1212 discriminateTypeByDiscriminableItems. Port: crates/tsr-checker/src/symbols.rs::discriminate_union_root. Oracle sample: baseline contextuallyTypedByDiscriminableUnion `kind : \"a\"`, `a : string` Measured on e6eadf4 (r6-triage): types 7 cases finished alone / 8 touched / 45 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [
+    "compiler/contextualTypeShouldBeLiteral",
+    "compiler/contextuallyTypedByDiscriminableUnion",
+    "compiler/discriminantPropertyInference",
+    "compiler/discriminantUsingEvaluatableTemplateExpression",
+    "compiler/errorsForCallAndAssignmentAreSimilar",
+    "compiler/excessPropertyCheckWithMultipleDiscriminants",
+    "compiler/templateExpressionAsPossiblyDiscriminantValue"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: IMPORT-EQUALS-IDENTIFIER-ALIAS-TARGET",
+  "desc": "`import y = x` / `export import X = R` where the right side is itself an alias resolves through resolveEntityName(dontResolveAlias) to that alias and then its chain; TSR's identifier arm rejects alias targets (y : any). Native: internal/checker/checker.go:14474 getSymbolOfPartOfRightHandSideOfImportEquals (via 14439 getTargetOfImportEqualsDeclaration; resolveEntityName 15772). Port: crates/tsr-checker/src/symbols.rs:1124 resolve_alias ModuleReference::Identifier arm (ALIAS branch 1148-1165). Oracle sample: baseline chainedImportAlias `y : typeof x` Measured on e6eadf4 (r6-triage): types 7 cases finished alone / 7 touched / 31 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [
+    "compiler/aliasInaccessibleModule2",
+    "compiler/chainedImportAlias",
+    "compiler/declFileForExportedImport",
+    "compiler/es6ImportNamedImportInIndirectExportAssignment",
+    "compiler/importAliasAnExternalModuleInsideAnInternalModule",
+    "compiler/privacyGloImport",
+    "compiler/privacyGloImportParseErrors"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CONDITIONAL-DEFERRAL-GATE",
+  "desc": "getConditionalType defers when check/extends are generic (Extract<Entries[EntryId], NumClass<any>>, ExtractedProps extends ... deferred by native as `true` after resolution; `any extends (...)` with a generic import type resolves to any); TSR resolves/defers on a different gate. Native: internal/checker/checker.go:24300 getConditionalType (:24475 isDeferredType). Port: crates/tsr-checker/src/declared.rs:7599 evaluate_conditional_node (mentions-type-parameter gate). Oracle sample: baseline conditionalTypeGenericInSignatureTypeParameterConstraint `H_inline1 : x` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 7 touched / 25 lines; diagnostics 2 finished alone / 2 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [
+    "compiler/conditionalTypeGenericInSignatureTypeParameterConstraint",
+    "compiler/inferenceContextualReturnTypeUnion2",
+    "compiler/nestedGenericConditionalTypeWithGenericImportType",
+    "compiler/quickinfoTypeAtReturnPositionsInaccurate",
+    "conformance/strictBindCallApply1"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound",
+    "compiler/excessPropertyCheckIntersectionWithRecursiveType"
+   ]
+  },
+  "owner": "r6-declared2"
+ },
+ {
+  "title": "r6-triage: MERGE-SYMBOL-RESOLVE-ALIAS-TARGET",
+  "desc": "Native merges declarations reached through re-export aliases and module augmentations of aliases into one symbol; TSR leaves them unmerged, so merged interface members, type alias instantiation and function value meaning are wrong (missing 2741/2451, extra 2315/1362/2339/2322). Native: vendor/typescript-go/internal/checker/checker.go:14109 mergeSymbolTable / mergeSymbol (alias targets resolved before merging re-exported/augmented declarations). Port: crates/tsr-checker/src/symbols.rs. Measured on e6eadf4 (r6-triage): types 1 cases finished alone / 3 touched / 3 lines; diagnostics 6 finished alone / 6 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [
+    "compiler/noCrashUMDMergedWithGlobalValue"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/exportAsNamespace_augment",
+    "compiler/mergeMultipleInterfacesReexported",
+    "compiler/mergeSymbolReexportInterface",
+    "compiler/mergeSymbolReexportedTypeAliasInstantiation",
+    "compiler/mergeSymbolRexportFunction",
+    "compiler/moduleAugmentationOfAlias"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: DEFAULT-EXPORT-ALIAS-CLASS-MERGE",
+  "desc": "`export default foo` + `export default class Foo`: the merged default symbol prints by the first declaration's local name (foo); TSR prints Foo. Native: vendor/typescript-go/internal/checker/checker.go resolveSymbol / getNameOfSymbolAsWritten for merged export-default symbols. Port: crates/tsr-checker/src/symbols.rs default-export merge. Oracle sample: baseline allowImportClausesToMergeWithTypes `x : zzz` Measured on e6eadf4 (r6-triage): types 7 cases finished alone / 7 touched / 8 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [
+    "compiler/allowImportClausesToMergeWithTypes",
+    "compiler/exportDefaultClassAndValue",
+    "compiler/exportDefaultInterfaceClassAndValue",
+    "compiler/exportDefaultTypeClassAndValue",
+    "conformance/defaultExportsCannotMerge01(target=es2015)",
+    "conformance/defaultExportsCannotMerge02(target=es2015)",
+    "conformance/defaultExportsCannotMerge03(target=es2015)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: MEANING-MISMATCH-REPORTS",
+  "desc": "Native, after a failed resolution in a qualified name / heritage clause / import-equals RHS, reports the meaning mismatch (type used as namespace, T.abc -> T['abc'], namespace used as type/value). TSR lacks the 2702/2713 arms and does not reach these sites for 2708/2709/2749. Native: vendor/typescript-go/internal/checker/checker.go:1596 onFailedToResolveSymbol -> checkAndReportErrorForUsingTypeAsNamespace (2702/2713), checkAndReportErrorForUsingNamespaceAsTypeOrValue 1648/1655 (2708/2709), checkAndReportErrorForUsingValueAsType (2749). Port: crates/tsr-checker/src/meaning_mismatch.rs. Oracle sample: invalidUseOfTypeAsNamespace: tsgo TS2702 'OhNo' only refers to a type...; moduleAsBaseType: tsgo TS2709; TSR none Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 7 finished alone / 7 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/decoratorMetadataWithImportDeclarationNameCollision7(target=es2015)",
+    "compiler/errorForUsingPropertyOfTypeAsType01",
+    "compiler/errorForUsingPropertyOfTypeAsType02",
+    "compiler/errorForUsingPropertyOfTypeAsType03",
+    "compiler/importDeclWithClassModifiers",
+    "compiler/invalidUseOfTypeAsNamespace",
+    "compiler/moduleAsBaseType"
+   ]
+  },
+  "owner": "r6-modules2"
+ },
+ {
+  "title": "r6-triage: JSX-COMPONENT-ATTRIBUTES-RESOLUTION",
+  "desc": "Component-element checks: LibraryManagedAttributes/IntrinsicClassAttributes<T> for generic/class components, children overload resolution (2769), ElementType bound (2786) and factory arity (6229). TSR's component path skips or declines these. Native: vendor/typescript-go/internal/checker/jsx.go resolveJsxOpeningLikeElement / checkJsxReturnAssignableToAppropriateBound (2786) / checkApplicableSignatureForJsxCallLikeElement 670 (6229) / getJsxManagedAttributesFromLocatedAttributes. Port: crates/tsr-checker/src/jsx_component.rs. Oracle sample: jsxClassAttributeResolution: tsgo TS2322 \"Type '{}' is not assignable to type 'IntrinsicClassAttributes<T>'\", TSR none Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 7 finished alone / 7 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/jsxCallElaborationCheckNoCrash1",
+    "compiler/jsxChildrenArrayWrongType(target=es2015)",
+    "compiler/jsxChildrenWrongType",
+    "compiler/jsxClassAttributeResolution",
+    "compiler/jsxElementType",
+    "compiler/jsxElementTypeLiteralWithGeneric",
+    "compiler/jsxIssuesErrorWhenTagExpectsTooManyArguments"
+   ]
+  },
+  "owner": "r6-jsx"
+ },
+ {
+  "title": "r6-triage: PARSER-DECORATOR-EXPRESSION",
+  "desc": "Native parses a decorator as a left-hand-side expression limited to member/call chains, recovering `@dec () =>`, `@dec function`, `@x?.y()`, `@g<number> class` and `@<[[` with TS1109/TS1146 and a TS1497 grammar error. TSR's decorator parser recovers differently (\"ClassKeyword expected\", TS2635, TS1003, a cascade of TS1005/TS1068/TS1128). Native: vendor/typescript-go/internal/parser/parser.go:3906 parseDecoratorExpression (+ parseDecoratedExpression:5730, grammarchecks.go:127 checkGrammarDecorator TS1497). Port: tsr-parser/src/expression.rs::parse_decorator_expression. Oracle sample: tsgo decoratorOnFunctionExpression: TS1109 (3,13), TS1005 \",\" (3,14); TSR TS1005 \"'ClassKeyword' expected\" Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 7 finished alone / 7 touched.",
+  "cases": {
+   "unlocked": 7,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/parseUnmatchedTypeAssertion",
+    "conformance/decoratorOnArrowFunction",
+    "conformance/decoratorOnFunctionExpression",
+    "conformance/esDecorators-decoratorExpression.1(experimentaldecorators=false)",
+    "conformance/esDecorators-decoratorExpression.1(experimentaldecorators=true)",
+    "conformance/esDecorators-decoratorExpression.3(experimentaldecorators=false)",
+    "conformance/esDecorators-decoratorExpression.3(experimentaldecorators=true)"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: LAZY-FUNCEXPR-RETURN-CIRCULARITY",
+  "desc": "A nested arrow that calls (or returns) the enclosing arrow/object is resolved lazily natively, so the outer gets its full type and the cycle bottoms out deeper as any; TSR hits the cycle at the outer level (any/error) and everything downstream (p1/p2/p3 chains) is any. Native: vendor/typescript-go/internal/checker/checker.go:20001 getReturnTypeOfSignature (lazy, own resolution stack); :10114 checkFunctionExpressionOrObjectLiteralMethod. Port: crates/tsr-checker/src/signatures.rs::get_type_of_function_expression / return_type_from_body. Oracle sample: baseline circularReferenceInReturnType `res3 : (a: unknown) => void` Measured on e6eadf4 (r6-triage): types 6 cases finished alone / 7 touched / 91 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [
+    "compiler/circularReferenceInReturnType",
+    "compiler/circularReferenceInReturnType2",
+    "compiler/declarationsWithRecursiveInternalTypesProduceUniqueTypeParams",
+    "compiler/genericCallOnMemberReturningClosedOverObject",
+    "compiler/recursiveLetConst",
+    "compiler/returnInfiniteIntersection"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: NARROW-PRIVATE-IDENTIFIER-IN-EXPRESSION",
+  "desc": "`#x in obj` narrows obj to the declaring class instance (or typeof class for static) via getNarrowedType, including any/object/unions/subclasses; TSR does not narrow. Native: vendor/typescript-go/internal/checker/flow.go:982 narrowTypeByPrivateIdentifierInInExpression (from :469 narrowTypeByBinaryExpression). Port: crates/tsr-checker/src/flow.rs narrow_type InKeyword arm. Oracle sample: tsgo v1.ts: `if (#field in u!)` -> u : Foo Measured on e6eadf4 (r6-triage): types 6 cases finished alone / 6 touched / 32 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [
+    "compiler/importHelpersES6",
+    "conformance/privateNameInInExpression(target=es2022)",
+    "conformance/privateNameInInExpression(target=esnext)",
+    "conformance/privateNameInInExpressionTransform(target=es2020)",
+    "conformance/privateNameInInExpressionTransform(target=es2022)",
+    "conformance/privateNameInInExpressionTransform(target=esnext)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: TRYSYMBOLTABLE-UMD-ALIAS-EXCLUSION",
+  "desc": "trySymbolTable skips `export as namespace` UMD aliases when printing from an external module, so THREE/_ print through import(\"...\"); TSR uses the UMD global name. Native: internal/checker/symbolaccessibility.go:566 trySymbolTable (isUMDExportSymbol && IsExternalModule(enclosing file) exclusion). Port: crates/tsr-checker/src/checker.rs:3598 module_alias_at (alias loop :3656-3680, no NamespaceExportDeclaration filter); called from :2252 module_name_at/:2273 and symbol_c\u2026. Oracle sample: baseline checkMergedGlobalUMDSymbol `THREE : typeof import(\"./three\")` Measured on e6eadf4 (r6-triage): types 6 cases finished alone / 12 touched / 27 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [
+    "compiler/checkMergedGlobalUMDSymbol",
+    "compiler/importShouldNotBeElidedInDeclarationEmit",
+    "compiler/reactImportDropped",
+    "compiler/unusedImports15",
+    "compiler/unusedImports16",
+    "conformance/umd-augmentation-1"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: EXTERNAL-MODULE-MEMBER-EXPORT-EQUALS",
+  "desc": "Named imports from an `export =` namespace/class module (f, EventEmitter, n3, d) resolve through the export= target's members; TSR declines. Native: vendor/typescript-go/internal/checker/checker.go:14667 getExternalModuleMember (export= branch). Port: crates/tsr-checker/src/symbols.rs (site_independent gate). Oracle sample: baseline aliasDoesNotDuplicateSignatures `f : () => void` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 5 touched / 23 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [
+    "compiler/aliasDoesNotDuplicateSignatures",
+    "compiler/exportAssignedNamespaceIsVisibleInDeclarationEmit",
+    "compiler/importDeclFromTypeNodeInJsSource",
+    "compiler/jsxFragmentFactoryNoUnusedLocals",
+    "compiler/namedImportNonExistentName"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/aliasDoesNotDuplicateSignatures"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CONTEXTUAL-ARG-SUPER-CALL",
+  "desc": "Arguments of `super(...)` are contextually typed by the resolved base constructor signature (with the extends type arguments); TSR leaves them uncontextual (any). Native: vendor/typescript-go/internal/checker/checker.go:29772 getContextualTypeForArgumentAtIndex -> :8471 resolveCallExpression (super arm). Port: crates/tsr-checker/src/contextual.rs argument contextual type (no SuperCall callee path). Oracle sample: probefile superCallParameterContextualTyping2: TSR `value : any`, native `value : number`; tsgo t2 repro reports TS2349 'Type Number has no call signatures' Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 4 touched / 18 lines; diagnostics 2 finished alone / 2 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [
+    "compiler/targetTypeBaseCalls",
+    "conformance/superCallParameterContextualTyping1",
+    "conformance/superCallParameterContextualTyping2",
+    "conformance/superCallParameterContextualTyping3"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/targetTypeBaseCalls",
+    "conformance/superCallParameterContextualTyping2"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: IMPORT-DEFER-CALL-EXPRESSION",
+  "desc": "`import.defer(\"./a.js\")` is an import call returning Promise<typeof import(...)>; TSR does not recognise the deferred form and answers any/error. Native: vendor/typescript-go/internal/checker/checker.go checkImportCallExpression (import.defer meta-property call) + internal/parser parseImportCall defer arm. Port: crates/tsr-checker/src/calls.rs::check_import_call_expression (no import.defer form). Measured on e6eadf4 (r6-triage): types 6 cases finished alone / 6 touched / 18 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [
+    "conformance/dynamicImportDefer(module=commonjs)",
+    "conformance/dynamicImportDefer(module=es2015)",
+    "conformance/dynamicImportDefer(module=es2020)",
+    "conformance/dynamicImportDefer(module=esnext)",
+    "conformance/dynamicImportDefer(module=nodenext)",
+    "conformance/dynamicImportDefer(module=preserve)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "UNOWNED"
+ },
+ {
+  "title": "r6-triage: JS-DEFAULT-EXPORT-JSDOC-TYPE",
+  "desc": "A JS `export default` carrying a JSDoc @type is reparsed into a cast, so importers see `import(\"./a\").Foo`; TSR answers error/any. Native: internal/parser/reparser.go:342 reparseHosted (ExportAssignment -> makeNewCast). Port: crates/tsr-checker/src/symbols.rs:4822 ExportAssignment arm (jsdoc_cast_annotation gate). Oracle sample: baseline checkJsdocTypeTagOnExportAssignment1 `a : import(\"./a\").Foo` Measured on e6eadf4 (r6-triage): types 6 cases finished alone / 6 touched / 14 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [
+    "compiler/checkJsdocTypeTagOnExportAssignment1",
+    "compiler/checkJsdocTypeTagOnExportAssignment2",
+    "compiler/checkJsdocTypeTagOnExportAssignment5",
+    "compiler/checkJsdocTypeTagOnExportAssignment6",
+    "compiler/exportDefaultWithJSDoc1",
+    "compiler/exportDefaultWithJSDoc2"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-jsdoc"
+ },
+ {
+  "title": "r6-triage: PARSER-JSX-IN-JS-UNARY-OPERAND",
+  "desc": "In a .js/.jsx file native treats `<` after a unary operator as a JSX element (TS17004/TS17008/TS17014, TS1003, TS1005 \"</\"); TSR parses a type assertion (TS1110 Type expected). Native: vendor/typescript-go/internal/parser/parser.go:5060 parseSimpleUnaryExpression / 5132 parseTypeAssertion (LanguageVariantJSX arm). Port: tsr-parser/src/expression.rs. Oracle sample: corpus: parseUnaryExpressionNoTypeAssertionInJsx2 native TS17014/TS17004 at (2,12)/(2,13); TSR TS1110 (2,14) Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 6 finished alone / 6 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/parseJsxElementInUnaryExpressionNoCrash1",
+    "compiler/parseJsxElementInUnaryExpressionNoCrash2",
+    "compiler/parseJsxElementInUnaryExpressionNoCrash3",
+    "compiler/parseUnaryExpressionNoTypeAssertionInJsx1",
+    "compiler/parseUnaryExpressionNoTypeAssertionInJsx2",
+    "compiler/parseUnaryExpressionNoTypeAssertionInJsx3"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CLASS-PROPERTY-INITIALIZER-CHECKS",
+  "desc": "Class property initialization rules differ: strict property initialization for private/`#` members and use-before-assign in initializers, the TS2844 'type of instance member' message for type-position references (TSR uses 2301), `typeof this.z` receiver printed as 'this', super.field access, super-call-first rule with parameter properties/private names. Native: vendor/typescript-go/internal/checker/checker.go:4933 checkPropertyInitialization (2564) / checkPropertyAccess used-before-assigned (2565), initializer references to constructor locals (2844 vs 2301, typeof this in property type), 2855 super field access, 2376 super-call-first with private names. Port: crates/tsr-checker/src/class_fields.rs. FAMILY: several native operations grouped by the classifier; split per operation before dispatch (docs/parity/notes/r6-triage.md \u00a73). Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 6 finished alone / 6 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/initializerReferencingConstructorLocals",
+    "conformance/initializerReferencingConstructorParameters",
+    "conformance/parameterInitializersForwardReferencing(target=es2015)",
+    "conformance/privateNameBadSuperUseDefineForClassFields(target=es2022)",
+    "conformance/privateNameBadSuperUseDefineForClassFields(target=esnext)",
+    "conformance/strictPropertyInitialization"
+   ]
+  },
+  "owner": "UNOWNED"
+ },
+ {
+  "title": "r6-triage: FLOW-NARROWING-RESULT-TYPE",
+  "desc": "The narrowed/declared type differs from native, so the downstream relation reports a different result: unknown narrowing (18046/2322), generic instanceof narrowing (2741), subsequent-declaration identity (2403) using native's widened/contextual type. Native: vendor/typescript-go/internal/checker/flow.go getFlowTypeOfReference narrowing arms (unknown control flow, instanceof generic, keyof (T & {}), declared-type comparisons for 2403). Port: crates/tsr-checker/src/flow.rs. Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 6 finished alone / 6 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/narrowingGenericTypeFromInstanceof01",
+    "conformance/objectLiteralContextualTyping",
+    "conformance/objectRest",
+    "conformance/parserCastVersusArrowFunction1",
+    "conformance/unknownControlFlow",
+    "conformance/unknownType1"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: JSX-ATTRIBUTES-RELATION-REPORT",
+  "desc": "Attribute-object relation errors against managed/intersected props types (TS2322/2559) and attribute-callback contextual typing (implicit any / property errors inside attribute arrows) are missing. Native: vendor/typescript-go/internal/checker/jsx.go checkJsxAttributes -> checkTypeRelatedToAndOptionallyElaborate on attributes type (LibraryManagedAttributes/Defaultize, IntrinsicAttributes & ...). Port: crates/tsr-checker/src/jsx_attributes.rs. Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 6 finished alone / 6 touched.",
+  "cases": {
+   "unlocked": 6,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/tsxAttributeResolution2",
+    "conformance/tsxLibraryManagedAttributes",
+    "conformance/tsxReactEmitNesting",
+    "conformance/tsxSpreadAttributesResolution5",
+    "conformance/tsxSpreadAttributesResolution6",
+    "conformance/tsxStatelessFunctionComponents2"
+   ]
+  },
+  "owner": "r6-jsx"
+ },
+ {
+  "title": "r6-triage: TYPE-REFERENCE-TO-TYPE-NODE-DEFAULT-ARG-ELISION",
+  "desc": "Native prints every filled type argument (Iterator<string, undefined, any>) except the Iterable/IterableIterator/AsyncIterable family whose trailing defaults it elides; TSR inverts both (keeps written arity, prints IterableIterator<number, any>). Patch in r5-declared4 waits on written_annotation_text reuse. Native: vendor/typescript-go/internal/checker/nodebuilderimpl.go:3085 typeReferenceToTypeNode (Iterable-family default elision) + checker.go:23169 fillMissingTypeArguments. Port: crates/tsr-checker/src/declared.rs reference text (reference_display_arity, \u00a7136). Oracle sample: baseline builtinIterator `iter2 : IteratorObject<string, unknown, unknown>` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 13 touched / 43 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/recursiveGenericMethodCall",
+    "conformance/awaitUsingDeclarationsWithAsyncIteratorObject",
+    "conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=false)",
+    "conformance/builtinIteratorReturn(strictbuiltiniteratorreturn=true)",
+    "conformance/parserMissingLambdaOpenBrace1"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-declared2"
+ },
+ {
+  "title": "r6-triage: ORIGIN-SLICE-GATE",
+  "desc": "A union built from named unions (enum Color) plus a non-union object (string[]) gets a denormalized origin natively; TSR's slice gate declines and the declared type becomes a gap. Held one-line diff r6-typesroots-HELD-origin-slice-gate.diff (+35/-2, losses are predicate-narrowing in subtypeReductionUnionConstraints). Native: vendor/typescript-go/internal/checker/checker.go:25705 getUnionTypeWorker (origin arm) + :26558 filterType origin arm. Port: crates/tsr-checker/src/unions.rs::build_origin_union (slice gate declines non-union OBJECT entries). Oracle sample: scratch: declare let a: Color|string|string[]; tsgo string | string[] | Color, TSR error Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 8 touched / 42 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/stableTypeOrdering(stabletypeordering=true)",
+    "compiler/subtypeReductionUnionConstraints",
+    "compiler/typeInferenceLiteralUnion",
+    "conformance/TypeGuardWithEnumUnion",
+    "conformance/exhaustiveSwitchStatements1"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "UNOWNED (unions.rs; held r6-typesroots-HELD-origin-slice-gate.diff, waits on type-literal circular members)"
+ },
+ {
+  "title": "r6-triage: GLOBAL-TYPE-MISSING-LIB-FALLBACK",
+  "desc": "When a global (BigInt, Array) is absent from the libs, native substitutes emptyObjectType/emptyGenericType, so bigint members come from Object (`valueOf: () => Object`) and `[1,2,3]` is `{}`; TSR returns the primitive itself / error. Native: vendor/typescript-go/internal/checker/checker.go:1210 getGlobalType (missing -> emptyObjectType / emptyGenericType) used by :21729 getApparentType (globalBigIntType) and :24701 createArrayType. Port: crates/tsr-checker/src/members.rs::get_apparent_type (missing global returns id) / array literal creation without Array. Oracle sample: baseline bigintWithoutLib(es2015) `bigintVal.valueOf : () => Object`; arrayIterationLibES5TargetDifferent(nolib) `[1, 2, 3] : {}` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 5 touched / 39 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/arrayIterationLibES5TargetDifferent(nolib=true,target=es2015)",
+    "compiler/arrayIterationLibES5TargetDifferent(nolib=true,target=esnext)",
+    "compiler/bigintWithoutLib(target=es2015)",
+    "compiler/modularizeLibrary_ErrorFromUsingES6ArrayWithOnlyES6ArrayLib(target=es2015)",
+    "compiler/noCrashOnNoLib"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: JSDOC-OVERLOAD-SIGNATURES",
+  "desc": "Each @overload JSDoc block becomes an overload signature (implementation keeps its own @param types); TSR models none and declines the implementation params too. Native: vendor/typescript-go/internal/parser/reparser.go:134 reparseUnhosted (KindJSDocOverloadTag arm). Port: crates/tsr-checker/src/signatures.rs:1358 JS signature-from-JSDoc collection (no @overload arm). Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 4 touched / 37 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/jsFileMethodOverloads",
+    "compiler/jsFileMethodOverloads3",
+    "conformance/overloadTag1",
+    "conformance/overloadTag2"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/jsFileMethodOverloads3"
+   ]
+  },
+  "owner": "r6-jsdoc"
+ },
+ {
+  "title": "r6-triage: CHOOSE-OVERLOAD-GENERIC-WALK",
+  "desc": "chooseOverload re-checks the argument per candidate with that candidate's contextual type; Object.freeze's 2nd overload (T extends {[idx]: U|...}, U primitive) keeps object-literal member literals. TSR keeps the type checked under the first (T extends Function) candidate, widening to number/string (same for promisePermutations then-overloads). Native: internal/checker/checker.go:9025 chooseOverload. Port: crates/tsr-checker/src/calls.rs:3723 choose_ordered_overload walk gate / :4514 transcribed_generic_set_walk. Oracle sample: baseline concatTuples `[[3, 4], [5, 6]] : [number, number][]`; booleanFilterAnyArray `realanys.filter(Boolean) : any[]` Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 8 touched / 36 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/concatTuples",
+    "compiler/objectFreezeLiteralsDontWiden",
+    "compiler/promisePermutations",
+    "compiler/promisePermutations3"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/coAndContraVariantInferences6"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: GET-THIS-CONTAINER-DECORATOR-ARM",
+  "desc": "`this` inside a decorator expression is resolved outside the decorated class element and class (decorators evaluate outside the class body), giving typeof globalThis at top level or the enclosing method's this; TSR's check_this_expression walks up to the decorated property/class and answers `this`. Native: vendor/typescript-go/internal/ast/utilities.go:1790 GetThisContainer (KindDecorator arm) via checker.go:12077 checkThisExpression. Port: crates/tsr-checker/src/expressions.rs::check_this_expression (own ancestor walk lacks the Decorator arm that this_expression.rs::this_container has). Oracle sample: tsgo on `class A { @dec((() => { let __n: never = this; })()) b = 2; }` -> typeof globalThis; TSR probe `this` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 6 touched / 31 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "conformance/decoratorOnClassMethod11(target=es2015)",
+    "conformance/esDecorators-classDeclaration-outerThisReference(target=es2015)",
+    "conformance/esDecorators-classDeclaration-outerThisReference(target=es2021)",
+    "conformance/esDecorators-classDeclaration-outerThisReference(target=es2022)",
+    "conformance/esDecorators-classDeclaration-outerThisReference(target=esnext)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "UNOWNED"
+ },
+ {
+  "title": "r6-triage: BINDING-ELEMENT-COMPUTED-NAME-INDEXED-ACCESS",
+  "desc": "A binding element with a non-literal computed key on a type without an index signature is any (not error), so the destructuring-assignment literals built from those variables are `{ [foo]: any; }`; TSR's error propagates the whole literal to any. Native: internal/checker/checker.go getBindingElementTypeFromParentType (computed-name arm -> getIndexedAccessTypeEx). Port: crates/tsr-checker/src/destructure.rs binding-element parent indexing (computed name arm). Oracle sample: baseline computedPropertiesInDestructuring1 `{[foo]: bar} : { [foo]: any; }` Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 4 touched / 25 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/computedPropertiesInDestructuring1",
+    "compiler/computedPropertiesInDestructuring1_ES6",
+    "conformance/controlFlowBindingPatternOrder",
+    "conformance/objectRest"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/crashInEmitTokenWithComment"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: TYPE-PARAMETER-CONSTRAINT-ANY-TO-UNKNOWN",
+  "desc": "A written `extends any` constraint becomes unknown (prints <T extends unknown>, apparent members like toString resolve); TSR keeps any. Native: vendor/typescript-go/internal/checker/checker.go:17085 getConstraintFromTypeParameter (any->unknown arm). Port: crates/tsr-checker/src/members.rs (type parameter constraint). Oracle sample: scratch t1.ts: g<T extends any>: tsgo TS2339/TS2349/TS2351, TSR none Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 5 touched / 24 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/typeParameterConstraints1",
+    "compiler/typeParameterExplicitlyExtendsAny",
+    "compiler/typeofObjectInference",
+    "conformance/typeArgumentInferenceWithConstraints"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/typeParameterExplicitlyExtendsAny"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: CLASS-TYPE-BASE-TYPE-VARIABLE-INTERSECTION",
+  "desc": "getTypeOfFuncClassEnumModuleWorker intersects a class's static side with getBaseTypeVariableOfClass when the base constructor is a type variable (mixins: `class extends Base`/`extends superClass`), giving `{ new (...): X; prototype: f.X } & TBase`; TSR declines (error/any) or prints `typeof X`. Native: internal/checker/checker.go:16912 getTypeOfFuncClassEnumModuleWorker / :16936 getBaseTypeVariableOfClass. Port: crates/tsr-checker/src/symbols.rs:3866 anonymous_class_written_name (parameter decline :3893-3914). Oracle sample: baseline anonClassDeclarationEmitIsAnon `Timestamped(User) : Timestamped.(Anonymous class) & User` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 5 touched / 24 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/anonClassDeclarationEmitIsAnon",
+    "compiler/baseConstraintOfDecorator",
+    "compiler/declarationEmitGenericTypeParamerSerialization3",
+    "compiler/declarationEmitLocalClassDeclarationMixin",
+    "compiler/declarationsForFileShadowingGlobalNoError"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: IMPORT-CALL-SYNTHETIC-DEFAULT-TYPE",
+  "desc": "import() wraps the module with a synthetic default whose `default` member is an Alias symbol targeting resolveSymbol(module), so it prints through an in-scope `import mod2 = require` (`default: typeof mod2`) and the result is a fresh type printed `typeof import(\"./a\")` even with `import * as ns`; TSR's wrapper is built from the value type and names it via the specifier / the namespace alias. Native: vendor/typescript-go/internal/checker/checker.go:8267 checkImportCallExpression (:8305-8311) -> :15646 getTypeWithSyntheticDefaultImportType / :15707 createDefaultPropertyWrapperForModule. Port: crates/tsr-checker/src/calls.rs::check_import_call_expression; module_exports.rs::get_type_with_synthetic_default_*. Oracle sample: baseline nodeModulesAllowJsSynchronousCallErrors(module=node16) `default: typeof mod2`; TSR probe (module=node16) `default: typeof import(\"./index.js\")` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 6 touched / 24 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/dynamicImportsDeclaration",
+    "conformance/intersectionsAndEmptyObjects",
+    "conformance/nodeModulesAllowJsSynchronousCallErrors(module=node16)",
+    "conformance/nodeModulesAllowJsSynchronousCallErrors(module=node18)",
+    "conformance/nodeModulesAllowJsSynchronousCallErrors(module=node20)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: SYMBOL-CHAIN-LOCAL-IMPORT-EQUALS-ALIAS/ALIAS-OVER-ADMITTED",
+  "desc": "getAccessibleSymbolChain must not admit an import-equals alias (`import I = N.Ifc`) declared in another module/scope; tsgo prints N.Ifc / import(\"./f3\").N.Ifc, TSR prints the alias name I / C. Native: internal/checker/symbolaccessibility.go:481 getAccessibleSymbolChainFromSymbolTable (trySymbolTable alias loop; :373 getAccessibleSymbolChain). Port: crates/tsr-checker/src/symbol_accessibility.rs (alias_in_scope_for). Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 5 touched / 24 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/moduleAugmentationImportsAndExports4",
+    "compiler/moduleAugmentationImportsAndExports5",
+    "compiler/moduleAugmentationImportsAndExports6",
+    "compiler/visibilityOfCrossModuleTypeUsage",
+    "conformance/typeAndNamespaceExportMerge"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: LOGICAL-OR-COALESCE-GENERIC-GATE",
+  "desc": "`t || u` with type-parameter operands builds getUnionTypeEx([NonNullable<T>, U]); TSR returns error whenever a constituent is a type parameter. Native: vendor/typescript-go/internal/checker/checker.go:12509 checkBinaryLikeExpressionWorker BarBar arm. Port: crates/tsr-checker/src/binary.rs::check_logical_or_coalescing. Oracle sample: baseline logicalOrOperatorWithTypeParameters `>t || u : U | NonNullable<T>`; TSR error Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 6 touched / 22 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/discriminatedUnionJsxElement",
+    "compiler/nonNullableTypes1",
+    "conformance/logicalOrOperatorWithTypeParameters",
+    "conformance/neverType",
+    "conformance/nullishCoalescingOperator_not_strict"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "UNOWNED"
+ },
+ {
+  "title": "r6-triage: GLOBALTHIS-SYMBOL-IN-GLOBALS",
+  "desc": "`typeof globalThis` is a real module-like symbol/type: `import mod = globalThis`, and Window & typeof globalThis property intersections (ontouchstart) work natively; TSR special-cases globalThis outside intersections/aliases. Native: vendor/typescript-go/internal/checker/checker.go:962-964 NewChecker (globalThisSymbol), :20674 resolveAnonymousTypeMembers. Port: crates/tsr-checker/src/expressions.rs / members.rs globalThis special cases. Oracle sample: prior V cluster; baseline globalThisBlockscopedProperties `>test1 : number` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 7 touched / 21 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/globalThisDeclarationEmit3",
+    "conformance/globalThisAmbientModules",
+    "conformance/globalThisBlockscopedProperties",
+    "conformance/globalThisGlobalExportAsGlobal",
+    "conformance/globalThisTypeIndexAccess"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: NARROW-INSTANCEOF-CONSTRUCT-SIGNATURES",
+  "desc": "`x instanceof D` where D is a var with `new (): D` narrows to D (also from any); TSR does not. Native: vendor/typescript-go/internal/checker/flow.go:811 narrowTypeByInstanceof -> :966 getInstanceType (construct-signature returns). Port: crates/tsr-checker/src/flow.rs instanceof arm. Oracle sample: baseline controlFlowInstanceof (uglify.js) `v : {}` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 5 touched / 20 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/controlFlowInstanceof",
+    "compiler/inKeywordAndIntersection",
+    "compiler/narrowByInstanceof",
+    "compiler/unresolvableSelfReferencingAwaitedUnion",
+    "conformance/typeGuardsWithInstanceOfByConstructorSignature"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: INSTANTIATION-EXPRESSION-TYPE",
+  "desc": "Instantiation expressions with JSDoc `?` args or no applicable signature still produce a type natively; TSR any. Native: vendor/typescript-go/internal/checker/checker.go:10660 getInstantiationExpressionType. Port: crates/tsr-checker/src/instantiation_expressions.rs. Oracle sample: baseline circularInstantiationExpression `foo : <T>(t: T) => typeof foo<T>` Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 7 touched / 16 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/circularInstantiationExpression",
+    "compiler/expressionWithJSDocTypeArguments",
+    "compiler/instantiationExpressionErrorNoCrash",
+    "compiler/selfReferentialFunctionType"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/instantiationExpressionErrorNoCrash"
+   ]
+  },
+  "owner": "r6-declared2"
+ },
+ {
+  "title": "r6-triage: BIND-CLASS-PROTOTYPE-SYMBOL",
+  "desc": "Every class has a Property|Prototype `prototype` export; a written `static prototype` merges into it and its type is the class instance type; TSR uses the declared member type. Native: vendor/typescript-go/internal/binder/binder.go bindClassLikeDeclaration (prototype symbol) -> checker getTypeOfPrototypeProperty. Port: crates/tsr-binder (class prototype symbol) / symbols.rs. Oracle sample: tsgo v3.ts: `static prototype: number` -> SP.prototype : SP (TS2699); TSR number Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 4 touched / 15 lines; diagnostics 1 finished alone / 1 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/staticPrototypeProperty",
+    "conformance/staticPropertyNameConflicts(target=es2015,usedefineforclassfields=false)",
+    "conformance/staticPropertyNameConflicts(target=es2015,usedefineforclassfields=true)",
+    "conformance/staticPropertyNameConflictsInAmbientContext"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/staticPrototypeProperty"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: YIELD-NEXT-TYPE-FROM-CONTEXTUAL-TYPE",
+  "desc": "The inferred generator NEXT type aggregates each yield's contextual type (string from an overload arg, any from a generic arg, unknown for unused yields) and generators with yields under a contextual signature still type; TSR declines (g4/g203/g310 error, f1<0,0,1>(function*(){..}) error) or answers unknown. Native: vendor/typescript-go/internal/checker/checker.go:20322 checkAndAggregateYieldOperandTypes (nextType from getContextualType(yield)). Port: crates/tsr-checker/src/signatures.rs::return_type_from_body (yield decline predicate). Oracle sample: TSR probe `function* g203(){ const x = f1x(yield 1) }` -> error; baseline `() => Generator<number, void, string>` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 6 touched / 16 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/es5-yieldFunctionObjectLiterals(target=es2015)",
+    "compiler/genericCallAtYieldExpressionInGenericCall1",
+    "conformance/generatorImplicitAny",
+    "conformance/generatorReturnTypeInference",
+    "conformance/generatorReturnTypeInferenceNonStrict"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "r6-lazytext"
+ },
+ {
+  "title": "r6-triage: GET-SYMBOL-CHAIN-NEEDS-QUALIFICATION/NESTED-QUALIFICATION",
+  "desc": "Every nested type reference (React.ReactNode in Readonly<{children?}>, JSX.Element in a tuple, A.b in an instantiation expression) goes through getSymbolChain and is qualified; TSR qualifies only the outermost reference. Native: internal/checker/nodebuilderimpl.go:1087 getSymbolChain (called per symbolToTypeNode). Port: crates/tsr-checker/src/checker.rs:2658 qualified_name_at. Oracle sample: baseline inlineJsxFactoryDeclarationsLocalTypes Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 8 touched / 16 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/jsxChildrenSingleChildConfusableWithMultipleChildrenNoError",
+    "compiler/jsxElementType",
+    "compiler/optionalChainWithInstantiationExpression1(target=es2019)",
+    "compiler/optionalChainWithInstantiationExpression1(target=es2020)",
+    "conformance/inlineJsxFactoryDeclarationsLocalTypes"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: JSDOC-TYPE-TAG-HOSTING",
+  "desc": "A @type tag on a function declaration/const arrow (callback typedef, assertion signature, closure `function(...)` type) types the function and its params/arguments; TSR ignores it. Native: vendor/typescript-go/internal/checker/checker.go getTypeOfSymbol/getSignatureFromDeclaration with @type on function/arrow (closure function types, asserts). Port: crates/tsr-checker/src/jsdoc_annotations.rs. Oracle sample: prior key Measured on e6eadf4 (r6-triage): types 4 cases finished alone / 4 touched / 13 lines; diagnostics 1 finished alone / 2 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/jsdocBracelessTypeTag1",
+    "conformance/assertionsAndNonReturningFunctions",
+    "conformance/asyncArrowFunction_allowJs",
+    "conformance/callbackTagNamespace"
+   ],
+   "diagnostics_finished_alone": [
+    "compiler/jsdocBracelessTypeTag1"
+   ]
+  },
+  "owner": "r6-jsdoc"
+ },
+ {
+  "title": "r6-triage: CHECK-NON-NULL-CALLEE",
+  "desc": "Calling `f` of type `((a: number) => void) | undefined` (after `f &&= ...`) reports possibly-undefined and resolves against the non-null type (void); TSR answers error for the call. Native: vendor/typescript-go/internal/checker/checker.go resolveCallExpression (checkNonNullExpression on the callee: reports TS2722 and continues with the non-null type). Port: crates/tsr-checker/src/calls.rs (call on possibly-undefined callee). Oracle sample: TSR probe logicalAssignment5 foo3 `f(42) : error`; baseline void Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 6 touched / 11 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "compiler/interfaceClassMerging",
+    "conformance/logicalAssignment5(target=es2015)",
+    "conformance/logicalAssignment5(target=es2020)",
+    "conformance/logicalAssignment5(target=es2021)",
+    "conformance/logicalAssignment5(target=esnext)"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: IMPORT-TYPE-AND-ALIAS-MEANING",
+  "desc": "Qualified names through import types / namespace imports / import aliases report TS2694 (missing export), TS2749 (value used as type), TS2702 (type used as namespace) in native; TSR reports a different code/position or nothing. Native: vendor/typescript-go/internal/checker/checker.go:3026-area getTypeFromImportTypeNode / resolveEntityName meaning checks (2694 on import type qualifier, 2749/2702 value-vs-type-vs-namespace, 1340). Port: crates/tsr-checker/src/meaning_mismatch.rs. Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 5 finished alone / 9 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/importClause_namespaceImport",
+    "conformance/importDeferTypeConflict2",
+    "conformance/importTypeLocalMissing",
+    "conformance/invalidImportAliasIdentifiers",
+    "conformance/renamed"
+   ]
+  },
+  "owner": "r6-modules2"
+ },
+ {
+  "title": "r6-triage: RESOLVE-BASE-TYPES-CIRCULARITY",
+  "desc": "Self-referential base classes/interfaces are reported (2310) and resolved with no base natively; TSR errors silently (incl. complicatedGenericRecursiveBaseClassReference's 2554/2339). Native: vendor/typescript-go/internal/checker/checker.go:19220 resolveBaseTypesOfClass / 19533 reportCircularBaseType (2310). Port: crates/tsr-checker/src/check.rs. Oracle sample: scratch t1.ts: tsgo TS2339 \"blah\" on C2<unknown>, TSR none Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 5 finished alone / 6 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "compiler/circularConstraintYieldsAppropriateError",
+    "compiler/complicatedGenericRecursiveBaseClassReference",
+    "compiler/recursiveBaseCheck3",
+    "compiler/recursiveBaseCheck4",
+    "compiler/recursiveBaseCheck6"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: BINDER-DUPLICATE-DEFAULT-EXPORT-SYMBOL",
+  "desc": "A second `export default` declaration (class after function/class/object) gets its own fresh `default` symbol outside the exports table, so its instance prints `import(\"./m\").default` and `bar` keeps typeof bar; TSR merges it into the first default (`new C()` prints `bar`, `bar` errors). Native: vendor/typescript-go/internal/binder/binder.go:152 declareSymbolEx (conflict arm: duplicate `default` gets a fresh unmerged symbol). Port: crates/tsr-binder/src/binder.rs (declare_symbol conflict for default exports). Oracle sample: TSR probe `export default function bar(){} export default class C {} new C()` -> type `bar`, `bar` error; baseline multipleExportDefault5 `>bar : typeof bar` Measured on e6eadf4 (r6-triage): types 5 cases finished alone / 5 touched / 6 lines; diagnostics 0 finished alone / 0 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [
+    "conformance/multipleDefaultExports01(target=es2015)",
+    "conformance/multipleDefaultExports03(target=es2015)",
+    "conformance/multipleDefaultExports05(target=es2015)",
+    "conformance/multipleExportDefault3",
+    "conformance/multipleExportDefault5"
+   ],
+   "diagnostics_finished_alone": []
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: GENERATOR-IMPLICIT-ANY-YIELD",
+  "desc": "Native reports a yield whose result is used without a contextual type (TS7057) and generators whose inferred yield type is implicit any (TS7055/TS7025). TS7055/TS7025 have no emitter in TSR and the TS7057 arm misses yields in parameter initialisers/call arguments (and fires on a destructuring default native skips). Native: vendor/typescript-go/internal/checker/checker.go:10952 checkYieldExpression TS7057 (+ reportImplicitAny:18275 TS7055/TS7025). Port: tsr-checker/src/implicit_any.rs. Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 5 finished alone / 5 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/FunctionDeclaration6_es6",
+    "conformance/FunctionDeclaration7_es6",
+    "conformance/generatorImplicitAny",
+    "conformance/generatorReturnTypeInference",
+    "conformance/generatorReturnTypeInferenceNonStrict"
+   ]
+  },
+  "owner": "MAIN"
+ },
+ {
+  "title": "r6-triage: ENUM-MEMBER-COMPUTED-NAME",
+  "desc": "A computed enum member name must report TS1164 and not be resolved; TSR resolves the inner identifier and reports TS2552/TS2304 instead. Native: vendor/typescript-go/internal/checker/checker.go:5121 checkEnumMember / grammarchecks computed enum member name (TS1164) without checking the expression. Port: crates/tsr-checker/src/enum_member_name.rs. Oracle sample: parserComputedPropertyName16: tsgo TS1164 at (3,3); TSR TS2552 'Cannot find name e' at (3,4) Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 5 finished alone / 5 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/parserComputedPropertyName16",
+    "conformance/parserComputedPropertyName26",
+    "conformance/parserComputedPropertyName30",
+    "conformance/parserComputedPropertyName34",
+    "conformance/parserES5ComputedPropertyName6(target=es2015)"
+   ]
+  },
+  "owner": "UNOWNED"
+ },
+ {
+  "title": "r6-triage: SYMBOL-WELL-KNOWN-MEMBERS",
+  "desc": "Members keyed by well-known symbols (`[Symbol.iterator]`, `[Symbol.hasInstance]`) are not treated as late-bound named members: duplicates, excess-property and assignment checks through them are missed. Native: vendor/typescript-go/internal/checker/checker.go well-known symbol property names on class/object literal members (Symbol.hasInstance assignment 2322, duplicate [Symbol.iterator] implementations 2393, excess [Symbol.toPrimitive] 2353, Symbol.isRegExp 2339). Port: crates/tsr-checker/src/unique_symbol_keys.rs. Measured on e6eadf4 (r6-triage): types 0 cases finished alone / 0 touched / 0 lines; diagnostics 5 finished alone / 5 touched.",
+  "cases": {
+   "unlocked": 5,
+   "types_finished_alone": [],
+   "diagnostics_finished_alone": [
+    "conformance/parserES5SymbolProperty4(target=es2015)",
+    "conformance/symbolProperty21",
+    "conformance/symbolProperty39",
+    "conformance/symbolProperty46",
+    "conformance/symbolProperty47"
+   ]
+  },
+  "owner": "UNOWNED"
+ },
+ {
+  "title": "r6-triage: IMPORT-ATTRIBUTES grammar remainder (TS1363/TS1392/TS2206) and JSDoc @import attributes (TS2823/TS2857)",
+  "desc": "After r6-triage's checkImportAttributes relation + TS2858 port (r6-triage-import-attribute-values.diff), the IMPORT-ATTRIBUTES-CHECKS cluster keeps: grammarErrors (TS1363 checkGrammarImportClause type-only default+named, TS1392 import-equals type-only), importSpecifiers1 (TS2206 'type' modifier on a specifier of a type-only import) -- grammarchecks.go checkGrammarImportClause/checkGrammarNamedImportsOrExports, grammar.rs (MAIN); and importTag15(module=es2015|esnext): a JSDoc @import tag is an ImportDeclaration natively (reparser) and IsExclusivelyTypeOnlyImportOrExport, so checkImportAttributes reports TS2823/TS2857; the port's check walk does not reach the reparsed @import declaration's attributes (jsdoc_*.rs, r6-jsdoc).",
+  "cases": {
+   "unlocked": 4,
+   "diagnostics_finished_alone": [
+    "conformance/grammarErrors",
+    "conformance/importSpecifiers1",
+    "conformance/importTag15(module=es2015)",
+    "conformance/importTag15(module=esnext)"
+   ]
+  },
+  "owner": "MAIN (grammar.rs) + r6-jsdoc"
+ },
+ {
+  "title": "r6-triage: checkExternalImportOrExportDeclaration answer gates import/export binding checks",
+  "desc": "Native checkImportDeclaration/checkExportDeclaration skip checkImportBinding/checkExportSpecifier when checkExternalImportOrExportDeclaration answers false (checker.go:5281, :5515), including its TS2858 attribute-value arm (r6-triage-import-attribute-values.diff returns that bool). check.rs does not consume it. No corpus case differs today; falsifier: a binding diagnostic beside a TS2858.",
+  "cases": {
+   "unlocked": 0
+  },
+  "owner": "MAIN (check.rs)"
+ }
+]
