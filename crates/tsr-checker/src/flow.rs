@@ -2780,10 +2780,21 @@ impl Checker<'_, '_> {
             let mut stack = vec![root_node];
             let mut children = Vec::new();
             while let Some(node) = stack.pop() {
+                // `isEmptyArrayAssignment` (`flow.go:283`) reads any binary
+                // parent of an assignment flow node: `=` and the logical
+                // assignments (`||=`, `&&=`, `??=`), which are definite
+                // assignments (`getAssignmentTargetKind`). A compound `+=`
+                // never reaches the auto arm (`flow.go:229`).
                 if let Node::BinaryExpression(binary) = node
-                    && binary
-                        .operator_token
-                        .is_some_and(|t| t.kind == tsr_ast::SyntaxKind::EqualsToken)
+                    && binary.operator_token.is_some_and(|t| {
+                        matches!(
+                            t.kind,
+                            tsr_ast::SyntaxKind::EqualsToken
+                                | tsr_ast::SyntaxKind::BarBarEqualsToken
+                                | tsr_ast::SyntaxKind::AmpersandAmpersandEqualsToken
+                                | tsr_ast::SyntaxKind::QuestionQuestionEqualsToken
+                        )
+                    })
                     && matches!(
                         binary.right,
                         Some(tsr_ast::Expression::ArrayLiteralExpression(array))

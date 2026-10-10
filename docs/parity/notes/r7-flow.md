@@ -389,3 +389,27 @@ as native's `getSignaturesOfType` does.
 Measured on `ec55197d`: corpus-neutral (types text and diagnostics verdicts
 identical, slowcases clean); jsTyping one false TS2322 fixed
 (`debug.ts(189,13)`), no new false line, no lost true line.
+
+## §12 Logical assignments of `[]` start the evolving-array track (routed from r7-calls)
+
+`let result; result ||= []; result.push("a")` reported a false TS2345
+against `never` (jsTyping `checker.ts` 51501; tsgo clean). Native decides
+the evolving-array track per assignment flow node: `isEmptyArrayAssignment`
+(`flow.go:283`) reads *any* binary parent whose right operand is `[]`, so a
+logical assignment (`||=`, `&&=`, `??=`, definite per
+`getAssignmentTargetKind`) answers `getEvolvingArrayType(never)` exactly as
+`=` does (`flow.go:233`), and `x.push` then reads the operation target's
+`autoArrayType`. The port decides the track before the walk
+(`is_auto_array_declaration` → `symbol_has_empty_array_assignment`, §736),
+and that scan admitted only `=`. It now admits the four definite assignment
+operators; a compound `+=` never reaches the auto arm (`flow.go:229`).
+
+Measured with `19cbf619` on `9db14f99`: corpus-neutral (types text and
+diagnostics verdicts identical); jsTyping: the false TS2345 at
+`checker.ts(51501,41)` is gone, no new false, no lost true.
+
+Still open on this track (the auto-array identity, §8): `let r; if (c) r ??=
+[]; else r = [1]; r` is native `any[]` with TS7034/TS7005 `any[]`. The port
+answers `any[] | number[]`: its evolving-array join
+(`union_or_evolving_array`) unions without the junction's subtype reduction,
+which native passes to `getUnionOrEvolvingArrayType`.
