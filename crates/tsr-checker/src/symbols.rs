@@ -1623,19 +1623,19 @@ impl<'a> Checker<'a, '_> {
                 //
                 // `IsPropertyAccessEntityNameExpression` (`:1624`), the
                 // dotted half of `IsEntityNameExpression`, resolves through
-                // `export_assignment_property_access_target` for `export =`
-                // only (r6-modules2 §5). `export default C.B` is the same
-                // alias upstream, and declines here: resolved, its default
-                // import's type reference lost `exportDefaultProperty2`'s
-                // `x : B`, because the declared type of a merged
-                // `Property|Interface` target is not read by its flags.
+                // `export_assignment_property_access_target` (r6-modules2 §5),
+                // for `export =` and `export default` alike. `export default
+                // C.B` was declined until the default import's type road named
+                // a merged `Property|Interface` target by its first named
+                // declaration, as `getNameOfSymbolAsWritten` does
+                // (`declaration_written_name`, r6-modules3 §1).
                 SyntaxKind::ExportAssignment => matches!(
                     self.node_map.get(declaration),
                     Some(Node::ExportAssignment(node))
                         if matches!(
                             node.expression,
                             Some(tsr_ast::Expression::Identifier(_) | tsr_ast::Expression::ClassExpression(_))
-                        ) || node.is_export_equals && node.expression.is_some_and(|mut expression| {
+                        ) || node.expression.is_some_and(|mut expression| {
                             while let Expression::PropertyAccessExpression(access) = expression {
                                 if !matches!(access.name, Some(tsr_ast::MemberName::Identifier(_))) {
                                     return false;

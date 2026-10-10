@@ -8089,14 +8089,27 @@ impl<'a> Checker<'a, '_> {
     /// §493: the name a TYPE-side declaration writes for itself — what the
     /// declared type's minted text carries, and therefore what a local alias
     /// must equal for the §491/§493 road to print truthfully.
+    ///
+    /// It is the name the declared type's mint prints (the class or interface
+    /// arm below, `getNameOfSymbolAsWritten`, `nodebuilderimpl.go:988`):
+    /// `core.FirstNonNil(symbol.Declarations, ast.GetNameOfDeclaration)`, the
+    /// first declaration **with a name**, of any kind. It read only
+    /// `Declarations[0]`, and only for a class, interface or enum, so a
+    /// merged `Property|Interface` target (`class C { static B }` beside
+    /// `namespace C { export interface B }`, reached by `import B from` over
+    /// `export default C.B`) answered `None` and the road declined
+    /// (r6-modules3 §1).
     fn declaration_written_name(&self, symbol: SymbolId) -> Option<&str> {
-        let declaration = self.binder.symbols().get(symbol).declarations.first().copied()?;
-        match self.node_map.get(declaration)? {
-            Node::ClassDeclaration(node) => node.name.map(|identifier| identifier.text),
-            Node::InterfaceDeclaration(node) => node.name.map(|identifier| identifier.text),
-            Node::EnumDeclaration(node) => node.name.map(|identifier| identifier.text),
-            _ => None,
-        }
+        self.binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .find_map(|&declaration| self.node_map.get(declaration)?.name_id())
+            .and_then(|id| match self.node_map.get(id)? {
+                Node::Identifier(identifier) => Some(identifier.text),
+                _ => None,
+            })
     }
 
     /// Ported from `Checker.getDeclaredTypeOfEnum` (`checker.go:23874`).
