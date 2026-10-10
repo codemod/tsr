@@ -157,3 +157,36 @@ and they are the JSX road the old test broke.
 calls non-generic. That would be a fourth instantiable kind minted without
 its flag, and it shows up as a reference printed where native prints the
 alias, or as `error` where native prints a deferred conditional.
+
+## 4. Routed: a union of mapped types loses `-readonly` (r7-perf cluster 6)
+
+r7-perf's jsTyping delta has 8 false TS2540 on `Mutable<ModuleDeclaration |
+SourceFile>`-shaped receivers (`type Mutable<T extends object> = { -readonly
+[K in keyof T]: T[K] }`). The mapped side is already native's:
+`Mutable<A | B>` distributes to `Mutable<A> | Mutable<B>` with the alias
+origin (`distribute_mapped_union`, `mapped.rs`). The false report also
+fires with no alias: `declare const u: Mutable<A> | Mutable<B>; u.flags = 1`.
+
+**Cause** (`readonly_target.rs`, r7-flow).
+`is_assignment_to_readonly_property`'s union arm reads each constituent
+through `get_property_of_type(part)` and `is_readonly_symbol`. A mapped
+member has no symbol of its own: the found symbol is the modifiers type's
+`A.flags`, which is declared readonly. createUnionOrIntersectionProperty
+(`checker.go:21452`) reads the transient mapped symbol's
+`CheckFlagsReadonly`, which `-readonly` cleared. The non-union tail of the
+same function already reads `mapped_identity_optionality` and the member
+image for that reason.
+
+**Diff**
+([`r7-declared-readonly-union-mapped-member.diff`](r7-declared-readonly-union-mapped-member.diff)):
+`constituent_property_is_readonly` asks the constituent the way the
+non-union tail asks a receiver. First the homomorphic modifier, then the
+member image (a mapped image is final), then the symbol.
+
+**Measured:**
+- Against the `.1265` freeze, both corpus dumps are unchanged (no corpus
+  case has the shape).
+- On `src/jsTyping`, TS2540 goes 8 → 0 (native 0) and every other code's
+  count is identical.
+- Controls report as tsgo does: `Readonly<A> | A`, `A | B` with a readonly
+  member, and `Mutable<B> | Readonly<A>`.
