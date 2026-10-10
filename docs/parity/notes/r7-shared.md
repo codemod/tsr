@@ -300,3 +300,41 @@ declared.rs ×3, flow.rs ×2, jsx_*.rs ×3, node_reuse.rs ×2,
 import_type_meaning.rs ×2, symbols.rs ×6, one each in emit_helpers,
 enum_initializer, members, meaning_mismatch, merge_conflicts, printing,
 symbol_accessibility.
+
+## 6. Identifier import-equals through an exported alias (IMPORT-EQUALS-IDENTIFIER-ALIAS-TARGET)
+
+### Cause
+
+`export import a = require("./m"); export import b = a;`: native
+`getTargetOfImportEqualsDeclaration` → `getSymbolOfPartOfRightHandSideOfImportEquals`
+→ `resolveEntityName(a, Namespace)`, whose `getSymbol` on the module's
+exports admits the exported alias `a` by its target's meaning
+(`checker.go:2176`). An exported import-equals has no local symbol, so the
+binder's plain `resolve_name` (alias callback `Some(false)`, "continue
+outward") never answered it: `resolve_alias(b)` was `None`, and
+`get_type_of_alias`'s §144 pre-check ("an entity root that resolves to
+nothing reads error-any") read the same miss as an unresolvable root and
+answered `any` (`declFileForExportedImport`, 5 lines).
+
+### The port
+
+The identifier arm of `get_target_of_alias_symbol` uses
+`resolve_name_with_export_alias`, the export-alias-aware walk
+`export_specifier_target` already uses (r6-modules4 §1.4). The §144 root
+pre-check fires only when both the binder walk it used and that walk find
+nothing: an exported alias now counts as a resolving root, and every root
+the binder walk found keeps its classification. Making the pre-check the
+export-alias walk alone also reclassified `symbol_chain.rs`'s function-only
+`import Linked = Head` chain (a local alias whose target lacks the namespace
+meaning, native TS2503) from the gap to §144's `any` — on some fixtures
+only, depending on whether the outer resolution frame pops cleanly; that
+reclassification is left for a separate, explained change. No cache; the
+callback reads `resolve_alias`'s memo.
+
+### Measured (against `f11e37b8`)
+
++5 type lines, zero losses, diagnostics unchanged: `declFileForExportedImport`.
+Coverage: `checker_types` 8,739/9,538, `checker_types_configured`
+1,771/1,928, `diagnostics` 4,849/5,502, `diagnostics_configured` 968/1,091.
+Median child-CPU new/old (21 samples): domain-model 1.0058,
+generic-imports 0.9953. Workspace clippy clean; tests pass.
