@@ -213,6 +213,9 @@ impl Checker<'_, '_> {
         // `checkDecorators`' `markLinkedReferences(node, ReferenceHintDecorator)`
         // (`checker.go:6053`), `isolated_alias.rs`.
         self.check_decorator_linked_references(node, typed, self.emit_decorator_metadata);
+        // `checkDecorators` → `checkDecorator` → `checkGrammarDecorator`
+        // (`grammar.rs`).
+        self.check_decorators_grammar(node, typed);
         let ambient = match typed {
             Node::ImportDeclaration(declaration) => {
                 self.check_import_in_namespace(

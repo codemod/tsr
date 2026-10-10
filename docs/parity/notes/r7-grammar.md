@@ -248,3 +248,19 @@ file exemption (`checkSourceFile`, `checker.go:2221`) stays.
 `unusedLocalsAndParameters` now matches its 21 TS6133/TS6196 lines and stays
 WRONG on one extra TS6133 inside the parser-recovered `for (let x: y)`, whose
 recovery differs from upstream's (the parser lane's).
+
+## §8 `checkGrammarDecorator` (TS1497)
+
+`check_grammar_decorator` (`grammar.rs`) is `checkGrammarDecorator`
+(`grammarchecks.go:127`): outside the decorator grammar's parenthesized, call
+and member forms, TS1497 on the decorator's expression with TS1498 related at
+the first offending node (the earliest `?.`, an inner call, or a
+non-identifier root; non-null assertions and instantiation expressions are
+walked through). Upstream reaches it from `checkDecorators` → `checkDecorator`
+for each decorator of a declaration that `NodeCanBeDecorated` accepts;
+`check_decorators_grammar` is that entry and is called beside the existing
+`markLinkedReferences` port at the top of the check walk (one line in
+`check_node_worker`). The decorator call resolution `checkDecorator` goes on
+to is the calls lane's. Verified against `target/tsgo-pinned` on a scratch
+file; `esDecorators-decoratorExpression.1` still has parse errors on this
+base and converts once r7-parser's decorator-expression parsing lands.

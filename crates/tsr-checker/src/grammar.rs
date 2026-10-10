@@ -2900,3 +2900,99 @@ impl Checker<'_, '_> {
         self.grammar_error_on_node(declaration, &messages::AN_IMPORT_ALIAS_CANNOT_USE_IMPORT_TYPE);
     }
 }
+
+impl Checker<'_, '_> {
+    /// `checkDecorators`' walk over a decorated declaration's decorators,
+    /// as far as `checkDecorator`'s first step, `checkGrammarDecorator`
+    /// (`checker.go:6062`): the same entry test (`ast.CanHaveDecorators`,
+    /// `HasDecorators`, `NodeCanBeDecorated`), then each decorator in order.
+    /// The decorator call resolution that follows is the calls lane's.
+    pub(crate) fn check_decorators_grammar(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let modifiers = match typed {
+            Node::ClassDeclaration(n) => n.modifiers,
+            Node::ClassExpression(n) => n.modifiers,
+            Node::PropertyDeclaration(n) => n.modifiers,
+            Node::MethodDeclaration(n) => n.modifiers,
+            Node::GetAccessorDeclaration(n) => n.modifiers,
+            Node::SetAccessorDeclaration(n) => n.modifiers,
+            Node::ParameterDeclaration(n) => n.modifiers,
+            _ => return,
+        };
+        if !modifiers.iter().any(|m| matches!(m, ModifierLike::Decorator(_)))
+            || !self.node_can_be_decorated(node, typed)
+        {
+            return;
+        }
+        for modifier in modifiers {
+            if let ModifierLike::Decorator(decorator) = modifier {
+                self.check_grammar_decorator(decorator);
+            }
+        }
+    }
+
+    /// `Checker.checkGrammarDecorator` (`grammarchecks.go:127`): a decorator
+    /// expression outside `DecoratorParenthesizedExpression` /
+    /// `DecoratorCallExpression` / `DecoratorMemberExpression` is TS1497 on
+    /// the expression, with TS1498 related at the first offending node — the
+    /// earliest of a `?.` token, a call that is not the outermost, or a
+    /// non-identifier root. Non-null assertions and instantiation
+    /// expressions are skipped. The caller has checked parse diagnostics.
+    fn check_grammar_decorator(&mut self, decorator: &tsr_ast::Decorator<'_>) -> bool {
+        let Some(at) = decorator.expression.and_then(|e| Node::from(e).node_id()) else {
+            return false;
+        };
+        if self.nodes.kind(at) == SyntaxKind::ParenthesizedExpression {
+            return false;
+        }
+        let mut node = at;
+        let mut can_have_call_expression = true;
+        let mut error_node: Option<NodeId> = None;
+        loop {
+            let next = match self.node_map.get(node) {
+                Some(Node::ExpressionWithTypeArguments(inner)) => {
+                    inner.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::NonNullExpression(inner)) => inner.expression.and_then(|e| e.node_id()),
+                Some(Node::CallExpression(call)) => {
+                    if !can_have_call_expression {
+                        error_node = Some(node);
+                    }
+                    if let Some(token) = call.question_dot_token {
+                        error_node = token.node_id;
+                    }
+                    can_have_call_expression = false;
+                    call.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::PropertyAccessExpression(access)) => {
+                    if let Some(token) = access.question_dot_token {
+                        error_node = token.node_id;
+                    }
+                    can_have_call_expression = false;
+                    access.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::Identifier(_)) => break,
+                _ => {
+                    error_node = Some(node);
+                    break;
+                }
+            };
+            let Some(next) = next else { break };
+            node = next;
+        }
+        let Some(error_node) = error_node else { return false };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return true };
+        let mut diagnostic = Diagnostic::new(
+            &messages::EXPRESSION_MUST_BE_ENCLOSED_IN_PARENTHESES_TO_BE_USED_AS_A_DECORATOR,
+            self.error_span(at),
+        );
+        diagnostic.add_related_information(Some(Diagnostic::new(
+            &messages::INVALID_SYNTAX_IN_DECORATOR,
+            self.error_span(error_node),
+        )));
+        self.report(file, diagnostic);
+        true
+    }
+}
