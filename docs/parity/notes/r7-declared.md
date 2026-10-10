@@ -619,3 +619,25 @@ diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0. The case's
 remaining 16 lines are the call results' literal widening under a
 conditional contextual type (`() => 0` printed `() => number`), which is
 getReturnTypeFromBody's contextual literal test, not this mint.
+
+## 14. A type reference through an alias whose target merges an alias with a value (exportNamespace9 3:2)
+
+**Forcing constraint.** In `/c.ts`, `import { A } from "./b"; const A = 1;
+export { A }` merges an import alias with a const. `/d.ts`'s `import { A }
+from "./c"` therefore resolves (resolveAlias) to that merged symbol and
+stops there: it is no pure alias (`isNonLocalAlias` excludes a symbol with
+a value meaning). resolveName admitted `type _ = A` because getSymbolFlags
+accumulates the chain's flags. getTypeReferenceType then reads
+tryGetDeclaredTypeOfSymbol, whose alias arm is getDeclaredTypeOfAlias
+(`checker.go:14523`): the declared type of the merged symbol's own alias
+target, `a.ts`'s `type A = number`. The alias road (`declared.rs`) followed
+only pure aliases, found no TYPE meaning on the merged symbol, and answered
+`error` (`_ : any` where tsgo prints `number`).
+
+**Port.** After the pure-alias walk, a target with no TYPE meaning that
+still carries ALIAS is followed through its own alias
+(`resolve_alias`), up to the same 8 steps. No state.
+
+**Measured** (unfiltered against `77418645`): types **+1, 0 lost**
+(exportNamespace9:3:2); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0.
