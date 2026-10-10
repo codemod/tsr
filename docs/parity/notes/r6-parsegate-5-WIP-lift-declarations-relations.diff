@@ -1,0 +1,613 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index b55faf9..c85084b 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -1238,10 +1238,7 @@ impl Checker<'_, '_> {
+         // `errorOrSuggestion(AllowUmdGlobalAccess != TSTrue, …)`
+         // (`checker.go:1846`): with the option on it is a suggestion, which
+         // no diagnostic list here carries (`r5-modfmt.md` §2).
+-        if self.file_has_parse_errors
+-            || self.module_format_options.allow_umd_global_access
+-            || !self.is_value_reference(node)
+-        {
++        if self.module_format_options.allow_umd_global_access || !self.is_value_reference(node) {
+             return;
+         }
+         // Upstream's guard is `meaning&SymbolFlagsValue == SymbolFlagsValue`
+@@ -1351,9 +1348,6 @@ impl Checker<'_, '_> {
+     /// participant of `U extends T, T extends U` and none outside the cycle.
+     /// `T extends Array<T>` is legal because an object type ends the walk.
+     fn check_circular_type_parameter_constraint(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(symbol) = self.binder.symbol_of(node) else { return };
+         if !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_PARAMETER) {
+             return;
+@@ -1520,9 +1514,6 @@ impl Checker<'_, '_> {
+     /// consumer was the *merge*, and the diagnostic that fires otherwise was
+     /// never emitted. §418.
+     fn check_global_augmentation_position(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
+         // `ast.IsGlobalScopeAugmentation` — the parser gives the block a
+         // synthetic `global` identifier, so only the keyword distinguishes it
+@@ -1823,12 +1814,7 @@ impl Checker<'_, '_> {
+         has_expression: bool,
+         ambient: bool,
+     ) {
+-        if !self.no_implicit_returns
+-            || self.strict_null_checks
+-            || has_expression
+-            || ambient
+-            || self.file_has_parse_errors
+-        {
++        if !self.no_implicit_returns || self.strict_null_checks || has_expression || ambient {
+             return;
+         }
+         let Some(container) =
+@@ -1869,9 +1855,6 @@ impl Checker<'_, '_> {
+     /// top-level, non-type declaration in a non-module file named `undefined`
+     /// or `globalThis`. §442.
+     fn check_builtin_global_redeclaration(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let name = match self.node_map.get(node) {
+             Some(Node::VariableDeclaration(declaration)) => {
+                 declaration.name.and_then(|name| name.node_id())
+@@ -2084,9 +2067,6 @@ impl Checker<'_, '_> {
+     /// parameter constrained to a primitive, a branded intersection, `never`)
+     /// declines. `docs/parity/notes/misc-checks.md` §11.
+     fn check_instanceof_left_operand(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+         if binary.operator_token.is_none_or(|t| t.kind != SyntaxKind::InstanceOfKeyword) {
+             return;
+@@ -2143,9 +2123,6 @@ impl Checker<'_, '_> {
+     ///
+     /// Everything else declines. `docs/parity/notes/misc-checks.md` §3.
+     fn check_instanceof_right_operand(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+         if binary.operator_token.is_none_or(|t| t.kind != SyntaxKind::InstanceOfKeyword) {
+             return;
+@@ -2280,9 +2257,6 @@ impl Checker<'_, '_> {
+     /// that names a constant or another member declines (a gap).
+     /// `docs/parity/notes/misc-checks.md` §4.
+     fn check_enum_member_overshift(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+         let Some(operator) = binary.operator_token.map(|t| t.kind) else { return };
+         let text = match operator {
+@@ -2641,9 +2615,6 @@ impl Checker<'_, '_> {
+     /// stopping early at one that references `super` or `this`. Entirely
+     /// syntactic, gate included. §470.
+     fn check_super_call_is_first(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
+         let Some(extends) = class
+             .heritage_clauses
+@@ -3016,9 +2987,6 @@ impl Checker<'_, '_> {
+     /// §186's rule holds: an **empty** exports table cannot be asked whether a
+     /// member is missing, because the answer would be "all of them". §487.
+     fn check_module_has_default_export(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::ImportClause(clause)) = self.node_map.get(node) else { return };
+         let Some(name) = clause.name.and_then(|name| name.node_id) else { return };
+         let Some(text) = self.identifier_text(name).map(str::to_string) else { return };
+@@ -3291,9 +3259,6 @@ impl Checker<'_, '_> {
+     /// shape — the `abstract` modifier, the node kind, and a present body.
+     /// §503.
+     fn check_abstract_method_has_no_body(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::MethodDeclaration(method)) = self.node_map.get(node) else { return };
+         if method.body.is_none() || !has_modifier(method.modifiers, SyntaxKind::AbstractKeyword) {
+             return;
+@@ -3544,9 +3509,6 @@ impl Checker<'_, '_> {
+     /// A `for` initialiser is a declaration *list*, not a `VariableStatement`,
+     /// so it never reaches here — the seven kinds are about body position. §395.
+     fn check_block_scoped_statement_container(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::VariableStatement(statement)) = self.node_map.get(node) else { return };
+         let Some(list) = statement.declaration_list.and_then(|l| l.node_id) else { return };
+         let flags = self.nodes.flags(list);
+@@ -4500,7 +4462,6 @@ impl Checker<'_, '_> {
+             // r6-names: see the cascade's region check below.
+             && !self.names_in_unchecked_region(node)
+             && !self.in_js_file(node)
+-            && !self.file_has_parse_errors
+             && !self.reference_has_non_arrow_function_container(node)
+             // Outside a function `resolveName` is the ordinary walk, so a
+             // declared `var arguments` resolves (`emitArrowFunctionWhenUsingArguments03`).
+@@ -5784,9 +5745,6 @@ impl Checker<'_, '_> {
+     /// A string name is an ambient module and takes neither this nor §1017's
+     /// relative-path error. §1041.
+     fn check_module_keyword_deprecated(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::ModuleDeclaration(module)) = self.node_map.get(node) else { return };
+         if module.keyword.kind != SyntaxKind::ModuleKeyword {
+             return;
+@@ -5898,9 +5856,6 @@ impl Checker<'_, '_> {
+     /// name* rather than as a list of what is not, because the rule reports on
+     /// a **negative** — §1019's decision about defaults. §1031.
+     fn check_interface_extends_entity_name(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::InterfaceDeclaration(interface)) = self.node_map.get(node) else { return };
+         let mut reports = Vec::new();
+         for clause in interface.heritage_clauses {
+@@ -5982,9 +5937,6 @@ impl Checker<'_, '_> {
+     /// initializer, a `?`, a **binding pattern** name, and an owner **with a
+     /// body** — §1015's question asked the other way round. §1025.
+     fn check_optional_binding_pattern_parameter(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::ParameterDeclaration(parameter)) = self.node_map.get(node) else { return };
+         if parameter.initializer.is_some() || parameter.question_token.is_none() {
+             return;
+@@ -6016,7 +5968,7 @@ impl Checker<'_, '_> {
+     /// and anything else are not. The `for (var a in b)` form never reaches
+     /// here — its initializer is a declaration list. §1019.
+     fn check_for_in_reference_expression(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+@@ -6058,7 +6010,7 @@ impl Checker<'_, '_> {
+     /// `export =` (whose exports are the target's). §1011 restricted it to
+     /// `default`; this is the declared-name generalisation.
+     fn check_exported_redeclarations(&mut self, file: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(file) {
++        if self.in_js_file(file) {
+             return;
+         }
+         let Some(module) = self.binder.symbol_of(file) else { return };
+@@ -6291,9 +6243,6 @@ impl Checker<'_, '_> {
+     /// dot alone is not relative, which is why the predicate is written out.
+     /// §1017.
+     fn check_ambient_module_relative_name(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         // **`IsGlobalSourceFile` is a *script*, not merely a source file.** A
+         // `declare module "./x"` at the top of an external module is an
+         // *augmentation* and takes a different arm; reading the predicate as
+@@ -6614,9 +6563,6 @@ impl Checker<'_, '_> {
+     }
+ 
+     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(symbol) = self
+             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
+             .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
+@@ -7228,8 +7174,7 @@ impl Checker<'_, '_> {
+         node: NodeId,
+         text: &str,
+     ) -> bool {
+-        if self.file_has_parse_errors || !self.strict_null_checks || !self.is_value_reference(node)
+-        {
++        if !self.strict_null_checks || !self.is_value_reference(node) {
+             return false;
+         }
+         // §839.1's guard — decline a reference under a condition naming it
+@@ -7793,7 +7738,7 @@ impl Checker<'_, '_> {
+         declaration: &tsr_ast::VariableDeclaration<'_>,
+         ambient: bool,
+     ) {
+-        if ambient || !self.strict_null_checks || self.file_has_parse_errors {
++        if ambient || !self.strict_null_checks {
+             return;
+         }
+         // `IsArrayBindingPattern` takes the iterated-type path instead, so only
+@@ -7843,9 +7788,6 @@ impl Checker<'_, '_> {
+     /// so the collision has nothing to collide with. The question is exact and
+     /// needs no type. §908.
+     fn check_merged_namespace_prototype(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(symbol) = self.binder.symbol_of(node) else { return };
+         let symbol = self.binder.merged_symbol(symbol);
+         let Some(&exported) = self.binder.symbols().get(symbol).exports.get("prototype") else {
+@@ -7894,7 +7836,7 @@ impl Checker<'_, '_> {
+         node: NodeId,
+         members: &[tsr_ast::ClassElement<'_>],
+     ) {
+-        if self.file_has_parse_errors || self.is_in_ambient_context_for_overloads(node) {
++        if self.is_in_ambient_context_for_overloads(node) {
+             return;
+         }
+         let Some(symbol) = self.binder.symbol_of(node) else { return };
+@@ -8782,7 +8724,7 @@ impl Checker<'_, '_> {
+         accessor: &tsr_ast::GetAccessorDeclaration<'_>,
+         ambient: bool,
+     ) {
+-        if ambient || self.file_has_parse_errors {
++        if ambient {
+             return;
+         }
+         // `ast.NodeIsPresent(node.Body())` — an overload or a `.d.ts` accessor
+@@ -9671,9 +9613,6 @@ impl Checker<'_, '_> {
+     /// error; one where both share a hoisting scope is a duplicate identifier
+     /// and a different code. §298.
+     fn check_outer_scoped_variable(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         // **A binding element declares a variable too.** `var { x } = …` puts
+         // an object pattern on the `VariableDeclaration` and declares `x` on
+         // the element inside it; upstream reaches both through
+@@ -10695,9 +10634,6 @@ impl Checker<'_, '_> {
+     /// and an ambient declaration are all that. Reported on the parameter or
+     /// the element. §181; `docs/parity/notes/r5-vardecl.md` §4.
+     fn check_parameter_initializer_needs_body(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         // `IsPartOfParameterDeclaration(node)`: the parameter itself, or a
+         // binding element nested in its pattern (`type Foo = ({ first = 0 }:
+         // …) => unknown`, `defaultValueInFunctionTypes`). A renamed element
+@@ -10788,9 +10724,6 @@ impl Checker<'_, '_> {
+     /// [`Checker::resolve_alias`] has been in `symbols.rs` throughout, with
+     /// arms for every import and export form including import-equals. §187.
+     fn check_qualified_type_name(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         // Only as the `type_name` of a bare type reference — the same slot
+         // `check_type_reference_name` claims, so the two are disjoint.
+         let Some(parent) = self.nodes.parent(node) else { return };
+@@ -11322,9 +11255,6 @@ impl Checker<'_, '_> {
+     /// why it needs none of the bounds the four rules above do. The one decline
+     /// is the parse-error gate every rule in this module shares.
+     fn check_parameter_property_position(&mut self, node: NodeId, modifiers: &[ModifierLike<'_>]) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         if !modifiers.iter().any(|modifier| {
+             matches!(modifier, ModifierLike::Token(token)
+             if matches!(
+@@ -11407,7 +11337,7 @@ impl Checker<'_, '_> {
+     /// `AllowUnreachableCode == TSFalse`, explicitly — see
+     /// [`Checker::set_unreachable_code_is_error`].
+     fn check_unreachable(&mut self, node: NodeId, ambient: bool) {
+-        if self.file_has_parse_errors || !self.is_unreachable_run_member(node) {
++        if !self.is_unreachable_run_member(node) {
+             return;
+         }
+         let Some(parent) = self.nodes.parent(node) else { return };
+@@ -11519,7 +11449,7 @@ impl Checker<'_, '_> {
+     ///
+     /// `docs/architecture/checker-notes-diag2.md` §548.
+     fn check_namespace_merge_position(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors {
++        if ambient {
+             return;
+         }
+         let Some(Node::ModuleDeclaration(declaration)) = self.node_map.get(node) else { return };
+@@ -11576,9 +11506,6 @@ impl Checker<'_, '_> {
+     ///
+     /// `docs/architecture/checker-notes-diag2.md` §550.
+     fn check_label_is_allowed(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::LabeledStatement(labeled)) = self.node_map.get(node) else { return };
+         let Some(statement) = labeled.statement.and_then(|s| s.node_id()) else { return };
+         if !matches!(
+@@ -11691,9 +11618,6 @@ impl Checker<'_, '_> {
+     ///
+     /// `docs/architecture/checker-notes-diag2.md` §563.
+     fn check_recursive_base_type(&mut self, node: NodeId, typed: Node<'_>) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(symbol) = self.binder.symbol_of(node) else { return };
+         let symbol = self.binder.merged_symbol(symbol);
+         let declarations = self.binder.symbols().get(symbol).declarations.clone();
+@@ -12324,9 +12248,6 @@ impl Checker<'_, '_> {
+     ///
+     /// `docs/architecture/checker-notes-diag2.md` §619.
+     fn check_export_declaration_in_namespace(&mut self, node: NodeId, typed: Node<'_>) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Node::ExportDeclaration(declaration) = typed else { return };
+         let Some(parent) = self.nodes.parent(node) else { return };
+         if self.nodes.kind(parent) == SyntaxKind::SourceFile {
+@@ -12478,9 +12399,6 @@ impl Checker<'_, '_> {
+     /// `checkExternalImportOrExportDeclaration`'s position test, which a call
+     /// nested in an expression cannot pass. §755.
+     fn check_dynamic_import_specifier(&mut self, typed: Node<'_>) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Node::CallExpression(call) = typed else { return };
+         if !matches!(
+             call.expression,
+@@ -13554,9 +13472,6 @@ impl Checker<'_, '_> {
+         body: NodeId,
+         overloads: &[NodeId],
+     ) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(implementation) = self.get_signature_from_declaration(body) else { return };
+         let Some(implementation) = self.complete_signature_return(implementation) else { return };
+         for &declaration in overloads {
+@@ -14276,9 +14191,6 @@ impl Checker<'_, '_> {
+     ///
+     /// `docs/architecture/checker-notes-diag2.md` §743.
+     fn check_module_hidden_by_local(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::ImportEqualsDeclaration(declaration)) = self.node_map.get(node) else {
+             return;
+         };
+@@ -14353,9 +14265,6 @@ impl Checker<'_, '_> {
+     /// which is why the walk starts afresh from each class rather than sharing
+     /// a visited set. §745.
+     fn check_base_chain_is_acyclic(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let mut at = self.base_class_declaration_of(node);
+         for _ in 0..MAX_ALIAS_HOPS {
+             let Some(base) = at else { return };
+@@ -14458,9 +14367,6 @@ impl Checker<'_, '_> {
+     /// the plural ones join a list of names this port would have to spell the
+     /// same way. §679 declined TS2460 on the same ground. §761.
+     fn check_abstract_members_implemented(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
+         if has_modifier(class.modifiers, SyntaxKind::AbstractKeyword) {
+             return;
+@@ -14583,9 +14489,6 @@ impl Checker<'_, '_> {
+     ///
+     /// `docs/architecture/checker-notes-diag2.md` §804.
+     fn check_renamed_binding_element_in_signature(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return };
+         let Some(property_name) = element.property_name else { return };
+         let Some(tsr_ast::BindingName::Identifier(name)) = element.name else { return };
+diff --git a/crates/tsr-checker/src/comparison_overlap.rs b/crates/tsr-checker/src/comparison_overlap.rs
+index b99356b..1727fee 100644
+--- a/crates/tsr-checker/src/comparison_overlap.rs
++++ b/crates/tsr-checker/src/comparison_overlap.rs
+@@ -47,7 +47,7 @@ use crate::{
+ impl Checker<'_, '_> {
+     /// The overlap check for one `==`, `!=`, `===` or `!==`.
+     pub(crate) fn check_comparison_overlap(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors {
++        if ambient {
+             return;
+         }
+         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/destructuring_assignment.rs b/crates/tsr-checker/src/destructuring_assignment.rs
+index 008627e..f47212b 100644
+--- a/crates/tsr-checker/src/destructuring_assignment.rs
++++ b/crates/tsr-checker/src/destructuring_assignment.rs
+@@ -60,7 +60,7 @@ impl Checker<'_, '_> {
+     /// left operand that is an object or array literal is checked by
+     /// `checkDestructuringAssignment(left, checkExpression(right))`.
+     pub(crate) fn check_destructuring_assignment_relations(&mut self, node: NodeId) {
+-        if self.in_js_file(node) || self.file_has_parse_errors {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::BinaryExpression(binary)) = self.node_map.get(node) else { return };
+@@ -94,7 +94,7 @@ impl Checker<'_, '_> {
+     /// `checkDestructuringAssignment(varExpr, iteratedType)`, the iterated
+     /// type being `checkRightHandSideOfForOf`'s (async-first for `for await`).
+     pub(crate) fn check_for_of_destructuring_relations(&mut self, node: NodeId) {
+-        if self.in_js_file(node) || self.file_has_parse_errors {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/enum_member_name.rs b/crates/tsr-checker/src/enum_member_name.rs
+index d2344bc..52bba9a 100644
+--- a/crates/tsr-checker/src/enum_member_name.rs
++++ b/crates/tsr-checker/src/enum_member_name.rs
+@@ -63,9 +63,6 @@ impl Checker<'_, '_> {
+         node: NodeId,
+         member: &tsr_ast::EnumMember<'_>,
+     ) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(initializer) = member.initializer else { return };
+         let Some(at) = initializer.node_id() else { return };
+         let Some(parent) = self.nodes.parent(node) else { return };
+diff --git a/crates/tsr-checker/src/expressions.rs b/crates/tsr-checker/src/expressions.rs
+index 09fb067..3a6fc3d 100644
+--- a/crates/tsr-checker/src/expressions.rs
++++ b/crates/tsr-checker/src/expressions.rs
+@@ -3064,9 +3064,6 @@ impl Checker<'_, '_> {
+     /// itself is [`Checker::check_await_expression`]'s; this is the
+     /// diagnostics walk's half, so the report is made once per node.
+     pub(crate) fn check_await_operand_awaited(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::AwaitExpression(expression)) = self.node_map.get(node) else { return };
+         let Some(operand) = expression.expression.and_then(|operand| operand.node_id()) else {
+             return;
+@@ -3090,9 +3087,6 @@ impl Checker<'_, '_> {
+     /// the global `Promise`, otherwise `checkAwaitedType` with TS1058 at the
+     /// function. A gap in the awaited walk reports nothing.
+     pub(crate) fn check_async_function_return_type(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let (annotation, generator, modifiers, has_body) = match self.node_map.get(node) {
+             Some(Node::FunctionDeclaration(f)) => {
+                 (f.r#type, f.asterisk_token.is_some(), f.modifiers, f.body.is_some())
+diff --git a/crates/tsr-checker/src/flow.rs b/crates/tsr-checker/src/flow.rs
+index b074d4a..52be3e3 100644
+--- a/crates/tsr-checker/src/flow.rs
++++ b/crates/tsr-checker/src/flow.rs
+@@ -8892,7 +8892,7 @@ impl Checker<'_, '_> {
+     /// report. JavaScript declines: its return annotation is TS8010 and its
+     /// JSDoc types are another lane's.
+     pub(crate) fn check_all_code_paths_return_or_throw(&mut self, function: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(function) {
++        if self.in_js_file(function) {
+             return;
+         }
+         let (annotation, body, modifiers, generator) = match self.node_map.get(function) {
+diff --git a/crates/tsr-checker/src/heritage_conformance.rs b/crates/tsr-checker/src/heritage_conformance.rs
+index 687305c..e7cdabd 100644
+--- a/crates/tsr-checker/src/heritage_conformance.rs
++++ b/crates/tsr-checker/src/heritage_conformance.rs
+@@ -323,9 +323,6 @@ impl Checker<'_, '_> {
+     /// the spelling suggestion. `ambient` is the class's ambient context
+     /// (`node.Flags&ast.NodeFlagsAmbient`).
+     pub(crate) fn check_members_for_override_modifier(&mut self, node: NodeId, ambient: bool) {
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let is_js = self.in_js_file(node);
+         let (members, clauses) = match self.node_map.get(node) {
+             Some(Node::ClassDeclaration(class)) => (class.members, class.heritage_clauses),
+diff --git a/crates/tsr-checker/src/iteration.rs b/crates/tsr-checker/src/iteration.rs
+index 20ecf54..e6eecae 100644
+--- a/crates/tsr-checker/src/iteration.rs
++++ b/crates/tsr-checker/src/iteration.rs
+@@ -1246,8 +1246,7 @@ impl Checker<'_, '_> {
+     /// (`checker.go:5876`) reports on the declaration when no element has a
+     /// name (`needCheckWidenedType`).
+     pub(crate) fn check_array_binding_pattern_iteration(&mut self, pattern_id: NodeId) {
+-        if self.file_has_parse_errors
+-            || self.in_js_file(pattern_id)
++        if self.in_js_file(pattern_id)
+             || self.nodes.kind(pattern_id) != SyntaxKind::ArrayBindingPattern
+         {
+             return;
+@@ -1343,7 +1342,7 @@ impl Checker<'_, '_> {
+     /// `checkArrayLiteralAssignment` (`checker.go:12648`) for an array
+     /// literal destructuring target.
+     pub(crate) fn check_array_destructuring_assignment_iteration(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(source) = self.destructuring_assignment_source(node) else { return };
+@@ -1361,7 +1360,7 @@ impl Checker<'_, '_> {
+     /// not array-like is iterated, reporting on the operand. A spread inside
+     /// a destructuring target is a rest element and reports nothing.
+     pub(crate) fn check_spread_element_iteration(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::SpreadElement(spread)) = self.node_map.get(node) else { return };
+@@ -1435,7 +1434,7 @@ impl Checker<'_, '_> {
+     /// `getYieldedTypeOfYieldExpression` (`checker.go:11019`)'s iteration
+     /// check for a `yield*` inside a generator, reported on the operand.
+     pub(crate) fn check_yield_star_iteration(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::YieldExpression(yield_expression)) = self.node_map.get(node) else {
+@@ -1516,7 +1515,7 @@ impl Checker<'_, '_> {
+     /// `checkRightHandSideOfForOf` (`checker.go:17678`)'s diagnostics: the
+     /// operand's nullability, then its iteration check.
+     pub(crate) fn check_for_of_iteration(&mut self, node: NodeId) {
+-        if self.file_has_parse_errors || self.in_js_file(node) {
++        if self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::ForInOrOfStatement(statement)) = self.node_map.get(node) else { return };
+diff --git a/crates/tsr-checker/src/jsdoc_annotations.rs b/crates/tsr-checker/src/jsdoc_annotations.rs
+index 4173203..f823535 100644
+--- a/crates/tsr-checker/src/jsdoc_annotations.rs
++++ b/crates/tsr-checker/src/jsdoc_annotations.rs
+@@ -25,7 +25,7 @@ impl Checker<'_, '_> {
+         // Mirrors the TypeScript arms' declines; their source-completeness
+         // certification under parse errors is not reused here, so a file with
+         // parse errors declines outright.
+-        if ambient || self.file_has_parse_errors || !self.in_js_file(node) {
++        if ambient || !self.in_js_file(node) {
+             return;
+         }
+         // `checkExportAssignment` (`checker.go:5662`) elaborates at the
+@@ -224,7 +224,7 @@ impl<'a> Checker<'a, '_> {
+         else {
+             return;
+         };
+-        if ambient || self.file_has_parse_errors || !self.in_js_file(host) {
++        if ambient || !self.in_js_file(host) {
+             return;
+         }
+         let Some(expression) = self.jsdoc_satisfies_target(host) else { return };
+diff --git a/crates/tsr-checker/src/meaning_mismatch.rs b/crates/tsr-checker/src/meaning_mismatch.rs
+index 0dd9bb2..2754936 100644
+--- a/crates/tsr-checker/src/meaning_mismatch.rs
++++ b/crates/tsr-checker/src/meaning_mismatch.rs
+@@ -484,9 +484,6 @@ impl Checker<'_, '_> {
+     /// for import and export specifiers alike.
+     pub(crate) fn check_export_specifier_is_local(&mut self, node: NodeId) {
+         self.check_specifier_default_emit_helper(node);
+-        if self.file_has_parse_errors {
+-            return;
+-        }
+         let Some(Node::ExportSpecifier(specifier)) = self.node_map.get(node) else { return };
+         // `PropertyNameOrName`, and a string literal is skipped outright.
+         let named = specifier
+diff --git a/crates/tsr-checker/src/parameter_self_reference.rs b/crates/tsr-checker/src/parameter_self_reference.rs
+index e9972e2..1efe485 100644
+--- a/crates/tsr-checker/src/parameter_self_reference.rs
++++ b/crates/tsr-checker/src/parameter_self_reference.rs
+@@ -18,7 +18,7 @@ use crate::checker::Checker;
+ impl Checker<'_, '_> {
+     /// One identifier in a value position.
+     pub(crate) fn check_parameter_self_reference(&mut self, node: NodeId, text: &str) {
+-        if self.file_has_parse_errors || !self.is_value_reference(node) {
++        if !self.is_value_reference(node) {
+             return;
+         }
+         // The resolver's associated declaration and `getIsDeferredContext`
+diff --git a/crates/tsr-checker/src/satisfies.rs b/crates/tsr-checker/src/satisfies.rs
+index 456d13b..62fe061 100644
+--- a/crates/tsr-checker/src/satisfies.rs
++++ b/crates/tsr-checker/src/satisfies.rs
+@@ -19,7 +19,7 @@ use crate::{
+ impl<'a> Checker<'a, '_> {
+     /// The assignability check of one `expression satisfies Type`.
+     pub(crate) fn check_satisfies_expression(&mut self, node: NodeId, ambient: bool) {
+-        if ambient || self.file_has_parse_errors || self.in_js_file(node) {
++        if ambient || self.in_js_file(node) {
+             return;
+         }
+         let Some(Node::SatisfiesExpression(satisfies)) = self.node_map.get(node) else { return };

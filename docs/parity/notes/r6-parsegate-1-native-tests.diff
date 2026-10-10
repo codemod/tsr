@@ -1,0 +1,126 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index 2e5c47b..e7416fc 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -862,6 +862,15 @@ impl Checker<'_, '_> {
+             return CallArity::Undecided;
+         };
+         let (type_arguments, callee, is_call) = match self.node_map.get(node) {
++            // `resolveCall` reads no type arguments for a super call
++            // (`!isSuperCall(node)`, `checker.go:8851`): `super<T>()` is the
++            // parser's TS2754 alone.
++            Some(tsr_ast::Node::CallExpression(call))
++                if matches!(call.expression, Some(Expression::KeywordExpression(keyword))
++                    if keyword.kind == tsr_ast::SyntaxKind::SuperKeyword) =>
++            {
++                (&[][..], call.expression, true)
++            }
+             Some(tsr_ast::Node::CallExpression(call)) => {
+                 (call.type_arguments, call.expression, true)
+             }
+@@ -925,6 +934,7 @@ impl Checker<'_, '_> {
+         };
+         let no_argument_list =
+             !is_call && !tagged && self.new_has_no_argument_list(node, callee, type_arguments);
++        let call_is_incomplete = tagged && self.tagged_template_call_is_incomplete(node);
+         let mut applicable = false;
+         for candidate in &candidates {
+             match self.has_correct_arity(candidate, &effective, no_argument_list) {
+@@ -932,6 +942,16 @@ impl Checker<'_, '_> {
+                     applicable = true;
+                     break;
+                 }
++                // `hasCorrectArity`'s `callIsIncomplete` skips the lower bound
++                // and keeps the upper one (`checker.go:9161-9168`).
++                Some(false)
++                    if call_is_incomplete
++                        && (self.signature_has_effective_rest(candidate)
++                            || effective.len() <= self.signature_parameter_count(candidate)) =>
++                {
++                    applicable = true;
++                    break;
++                }
+                 Some(false) => {}
+                 None => return CallArity::Undecided,
+             }
+@@ -1872,6 +1892,37 @@ impl Checker<'_, '_> {
+         Some(effective)
+     }
+ 
++    /// `hasCorrectArity`'s tagged-template `callIsIncomplete`
++    /// (`checker.go:9118-9131`): a template whose last span's literal is
++    /// missing or unterminated, or an unterminated no-substitution template,
++    /// may still grow arguments, so too few is not an error.
++    /// `ast.IsUnterminatedLiteral` reads `TokenFlagsUnterminated`;
++    /// `ast.NodeIsMissing` is an empty span.
++    fn tagged_template_call_is_incomplete(&self, node: tsr_ast::NodeId) -> bool {
++        let Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
++            return false;
++        };
++        match tagged.template {
++            Some(tsr_ast::TemplateLiteral::TemplateExpression(expression)) => {
++                match expression.template_spans.last().and_then(|span| span.literal) {
++                    Some(tsr_ast::TemplateMiddleOrTail::TemplateTail(tail)) => {
++                        tail.token_flags.contains(tsr_ast::TokenFlags::UNTERMINATED)
++                            || tail.node_id.is_none_or(|id| self.nodes.span(id).is_empty())
++                    }
++                    Some(tsr_ast::TemplateMiddleOrTail::TemplateMiddle(middle)) => {
++                        middle.token_flags.contains(tsr_ast::TokenFlags::UNTERMINATED)
++                            || middle.node_id.is_none_or(|id| self.nodes.span(id).is_empty())
++                    }
++                    None => true,
++                }
++            }
++            Some(tsr_ast::TemplateLiteral::NoSubstitutionTemplateLiteral(literal)) => {
++                literal.token_flags.contains(tsr_ast::TokenFlags::UNTERMINATED)
++            }
++            None => false,
++        }
++    }
++
+     /// `new C` without an argument list (`node.ArgumentList() == nil`): the
+     /// node ends where its callee, or its type-argument list's `>`, ends.
+     fn new_has_no_argument_list(
+@@ -2232,9 +2283,8 @@ impl Checker<'_, '_> {
+     /// template), then the argument report of a sole non-generic candidate
+     /// or of a non-generic overload set
+     /// ([`Checker::check_overload_candidates_arguments`]). A generic tag
+-    /// reports no argument error yet. `callIsIncomplete`
+-    /// (a template without its tail) is not modelled: such a file has parse
+-    /// errors, and no call diagnostic runs in it.
++    /// reports no argument error yet. `callIsIncomplete` (a template without
++    /// its tail) is [`Checker::tagged_template_call_is_incomplete`].
+     fn check_tagged_template_resolution(&mut self, node: tsr_ast::NodeId, apparent: TypeId) {
+         match self.check_resolve_call_arity(node, apparent, SignatureKind::Call) {
+             CallArity::Applicable(Some(signature)) => {
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index dc0ae81..9cee52d 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -8774,7 +8774,9 @@ impl Checker<'_, '_> {
+         // has none.
+         let Some(body) = accessor.body else { return };
+         let Some(body_id) = body.node_id() else { return };
+-        if self.subtree_has_return_or_throw(body_id) {
++        // `NodeIsMissing` is `pos == end`: `{ get e, }` recovers an empty Block
++        // the parser reported TS1005 on.
++        if self.nodes.span(body_id).is_empty() || self.subtree_has_return_or_throw(body_id) {
+             return;
+         }
+         let Some(name) = accessor.name.node_id() else { return };
+@@ -12320,6 +12322,15 @@ impl Checker<'_, '_> {
+             return;
+         }
+         let specifier = declaration.module_specifier.and_then(|s| s.node_id());
++        // `checkExternalImportOrExportDeclaration` (`checker.go:5333`) returns
++        // before its TS1194 on a missing or non-string-literal name: the
++        // parser's error, or TS1141 (`export * from Aaa;`).
++        if specifier.is_some_and(|specifier| {
++            self.nodes.kind(specifier) != SyntaxKind::StringLiteral
++                || self.nodes.span(specifier).is_empty()
++        }) {
++            return;
++        }
+         if specifier.is_none() && in_module_block && self.declaration_is_in_an_ambient_context(node)
+         {
+             // `inAmbientNamespaceDeclaration` — legal.
