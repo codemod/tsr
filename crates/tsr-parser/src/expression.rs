@@ -622,6 +622,9 @@ impl<'a> Parser<'a> {
                         );
                     }
                     let is_chain = self.try_reparse_optional_chain(expression);
+                    if is_chain {
+                        self.report_private_identifier_in_optional_chain(name);
+                    }
                     let node = self.finish_node(
                         PropertyAccessExpression::new(Some(expression), None, Some(name)),
                         SyntaxKind::PropertyAccessExpression,
@@ -670,8 +673,31 @@ impl<'a> Parser<'a> {
                         );
                         self.mark_optional_chain(node.node_id(), true);
                         expression = Expression::ElementAccessExpression(node);
+                    } else if matches!(
+                        self.token.kind,
+                        SyntaxKind::NoSubstitutionTemplateLiteral | SyntaxKind::TemplateHead
+                    ) {
+                        // ``a?.`b` ``: `isStartOfOptionalPropertyOrElementAccessChain`
+                        // admits a template after `?.`, and
+                        // `parseMemberExpressionRest` makes it a tagged template
+                        // carrying the `?.` (`parseTaggedTemplateRest`,
+                        // `parser.go:5512`); the checker reports TS1358.
+                        let template = self.parse_template_literal(true);
+                        let node = self.finish_node(
+                            TaggedTemplateExpression::new(
+                                Some(expression),
+                                Some(question_dot),
+                                &[],
+                                Some(template),
+                            ),
+                            SyntaxKind::TaggedTemplateExpression,
+                            start,
+                        );
+                        self.mark_optional_chain(node.node_id(), true);
+                        expression = Expression::TaggedTemplateExpression(node);
                     } else {
                         let name = self.parse_member_name();
+                        self.report_private_identifier_in_optional_chain(name);
                         let node = self.finish_node(
                             PropertyAccessExpression::new(
                                 Some(expression),
@@ -1761,6 +1787,34 @@ impl<'a> Parser<'a> {
     /// typescript-go's `Parser.parseParenthesizedArrowFunctionExpression`
     /// (`parser.go:4341`) from its type parameters on; `None` is upstream's
     /// `nil` (rewind).
+    /// `typeHasArrowFunctionBlockingParseError` (`parser.go:4450`): a
+    /// missing type, directly or as a function or constructor type's return
+    /// type or inside parentheses. Native's missing type is a type reference
+    /// to a missing name; this parser's is an `any` keyword node that covers
+    /// no text ([`Self::missing_type`]). Native's other arm, a function type
+    /// whose parameter list is missing, has no representation here (an absent
+    /// list and `()` are both empty).
+    fn type_has_arrow_function_blocking_parse_error(&self, node: TypeNode<'a>) -> bool {
+        match node {
+            TypeNode::KeywordTypeNode(_) | TypeNode::TypeReferenceNode(_) => {
+                tsr_ast::Node::from(node).node_id().is_some_and(|id| {
+                    let span = self.nodes.span(id);
+                    span.end <= span.start
+                })
+            }
+            TypeNode::FunctionTypeNode(function) => function
+                .r#type
+                .is_some_and(|t| self.type_has_arrow_function_blocking_parse_error(t)),
+            TypeNode::ConstructorTypeNode(constructor) => constructor
+                .r#type
+                .is_some_and(|t| self.type_has_arrow_function_blocking_parse_error(t)),
+            TypeNode::ParenthesizedTypeNode(parenthesized) => parenthesized
+                .r#type
+                .is_some_and(|t| self.type_has_arrow_function_blocking_parse_error(t)),
+            _ => false,
+        }
+    }
+
     fn parse_parenthesized_arrow_function(
         &mut self,
         start: u32,
@@ -1781,7 +1835,18 @@ impl<'a> Parser<'a> {
                     parser.parse_unambiguous_parameter_list()?
                 };
                 // A return type may intervene: `(a): number => a`.
-                Some((type_parameters, parameters, parser.parse_return_type_annotation()))
+                let return_type = parser.parse_return_type_annotation();
+                // `typeHasArrowFunctionBlockingParseError` (`parser.go:4450`):
+                // an ambiguous signature whose return type is missing (`(a):
+                // => {}`) is not an arrow; the group is a parenthesized
+                // expression.
+                if !allow_ambiguity
+                    && return_type
+                        .is_some_and(|t| parser.type_has_arrow_function_blocking_parse_error(t))
+                {
+                    return None;
+                }
+                Some((type_parameters, parameters, return_type))
             })
         });
         let (type_parameters, parameters, return_type) = signature?;
@@ -2759,6 +2824,18 @@ impl<'a> Parser<'a> {
             self.error_at(&messages::IDENTIFIER_EXPECTED, span);
         }
         self.missing_identifier()
+    }
+
+    /// `parsePropertyAccessExpressionRest`'s optional-chain check
+    /// (`parser.go:5402`): a private name in an optional chain is TS18030 on
+    /// the name.
+    fn report_private_identifier_in_optional_chain(&mut self, name: MemberName<'a>) {
+        if let MemberName::PrivateIdentifier(private) = name
+            && let Some(id) = private.node_id
+        {
+            let span = self.nodes.span(id);
+            self.error_at(&messages::AN_OPTIONAL_CHAIN_CANNOT_CONTAIN_PRIVATE_IDENTIFIERS, span);
+        }
     }
 
     fn parse_member_name(&mut self) -> MemberName<'a> {

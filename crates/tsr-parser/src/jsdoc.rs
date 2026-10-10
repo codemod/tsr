@@ -1336,7 +1336,9 @@ impl<'a> Parser<'a> {
         margin: u32,
         indent_text: &'a str,
     ) -> tsr_ast::JSDocTag<'a> {
-        let type_expression = Some(self.parse_jsdoc_type_expression(false));
+        // `parseThisTag` (`jsdoc.go:985`): `parseJSDocTypeExpression(true)`,
+        // so `@this Node` needs no braces.
+        let type_expression = Some(self.parse_jsdoc_type_expression(true));
         self.skip_whitespace();
         let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
         tsr_ast::JSDocTag::JSDocThisTag(self.finish_jsdoc_node(
@@ -1589,8 +1591,9 @@ impl<'a> Parser<'a> {
     fn parse_jsdoc_type_expression(&mut self, may_omit_braces: bool) -> tsr_ast::TypeNode<'a> {
         let start = self.pos();
         let has_brace = self.at_jsdoc(SyntaxKind::OpenBraceToken);
+        // `parseExpected(KindOpenBraceToken)` (`jsdoc.go:113`).
         if !has_brace && !may_omit_braces {
-            self.error_at_current(&messages::IDENTIFIER_EXPECTED);
+            self.error_at_current_with(&messages::_0_EXPECTED, &["{"]);
         }
 
         // Hand over to the ordinary type grammar by rewinding to just past the
@@ -1790,10 +1793,12 @@ impl<'a> Parser<'a> {
 
     fn next_jsdoc_token(&mut self) {
         self.token = self.scanner.scan_jsdoc_token();
+        self.sync_scanner_diagnostics();
     }
 
     fn next_jsdoc_comment_text_token(&mut self, in_backticks: bool) {
         self.token = self.scanner.scan_jsdoc_comment_text_token(in_backticks);
+        self.sync_scanner_diagnostics();
     }
 
     /// Put the scanner back at the current token's start, so the next scan can be

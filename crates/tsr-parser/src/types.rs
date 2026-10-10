@@ -546,13 +546,12 @@ impl<'a> Parser<'a> {
             | SyntaxKind::QuestionToken
             | SyntaxKind::QuestionQuestionToken
             | SyntaxKind::ExclamationToken => self.parse_jsdoc_prefix_type(),
-            // `parseNonArrayType`'s default is `parseTypeReference`, whose entity
-            // name admits reserved words (`@param {function} f`). Only
-            // `function` — the reserved word `isStartOfType` names — is taken
-            // so far: the others also reach here from `parse_type_parameters`'
-            // missing list recovery (`type T<in in>`), where upstream never
-            // asks for a type. docs/parity/notes/js.md.
-            SyntaxKind::FunctionKeyword => {
+            // `parseNonArrayType`'s default is `parseTypeReference`
+            // (`parser.go:2858`), whose entity name admits reserved words
+            // (`parseEntityNameOfTypeReference`, `allowReservedWords`): `x:
+            // break` is a reference to a type named `break`, and the checker
+            // reports it (TS2304), not the parser.
+            kind if kind.is_keyword() => {
                 let name = self.parse_entity_name();
                 let type_arguments = self.parse_type_arguments_of_type_reference();
                 let type_arguments = self.arena.alloc_slice(&type_arguments);
@@ -1016,11 +1015,16 @@ impl<'a> Parser<'a> {
         };
 
         let value = self.parse_type_annotation();
-        self.eat(SyntaxKind::SemicolonToken);
+        // `parseMappedType` (`parser.go:3158`): the member's semicolon, then
+        // any further type members as recovery — the checker reports them
+        // (TS7061, `checkMappedType`'s grammar) — before the `}`.
+        self.parse_semicolon();
+        let members = self.parse_list(ParsingContext::TypeMembers, Self::parse_type_member);
+        let members = self.arena.alloc_slice(&members);
         self.expect(SyntaxKind::CloseBraceToken);
 
         let node = self.finish_node(
-            MappedTypeNode::new(readonly, Some(parameter), name_type, question, value, &[]),
+            MappedTypeNode::new(readonly, Some(parameter), name_type, question, value, members),
             SyntaxKind::MappedType,
             start,
         );
