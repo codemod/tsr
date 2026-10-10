@@ -446,6 +446,43 @@ first 41-sample run read generic-imports 1.041 while another build was
 compiling; a same-binary self-comparison reads 1.000. Coverage:
 `diagnostics` 4,880/5,502.
 
+## 9. A generic overload set with written type arguments runs the overload walk
+
+**Forcing constraint.** jsTyping's `checker.ts` 9968/9981 (exposed by the
+held spread arm, `box/r7-calls-held`): `makeSerializePropertySymbol<ClassElement>(...)`
+calls a set of two generic overloads with a written type argument. Native's
+`chooseOverload` (`checker.go:9025`) skips a candidate failing
+`hasCorrectTypeArgumentArity` (`:9214`), checks a generic one's written
+arguments against their constraints (`checkTypeArguments`, `:9222`; a
+failure makes it `candidateForTypeArgumentError`), instantiates it with them
+(`getSignatureInstantiation`), and runs `isSignatureApplicable`. In this
+port, `choose_ordered_overload` sent written type arguments to the
+transcribed walk only when exactly one candidate was generic (§391), and
+gapped otherwise. The call typed as `error`, `isArray(result)` narrowed it
+to `readonly unknown[]`, and a spread of it related `unknown`.
+
+**Change.**
+
+- `overload_pass` applies `hasCorrectTypeArgumentArity` and a non-reporting
+  `checkTypeArguments` (`check_call_type_argument_constraints_with`,
+  `report == false`) per candidate when the call writes type arguments. A
+  constraint failure skips the candidate; an undecided constraint is
+  undecidable.
+- `check_generic_call_with`'s written arm already instantiates a candidate
+  with the written arguments without inferring.
+- `choose_ordered_overload` lets written type arguments reach the walk in its
+  all-generic and truncated-prefix branches, when the walk can read them from
+  the call node (`walk_reads_written_type_arguments`).
+
+Probe: `mk<CE>(mkCE, true)` over `mk<T>(c: () => T, u: true): …` and
+`mk<T>(c: () => T, u: false): …` now answers the first overload's
+instantiation, as tsgo does (it was `error`).
+
+**Measured** against `9c79de88` on `f960020e`: types +15, 0 lost
+(callbacksDontShareTypes 10, tupleTypeInference 3, overloadResolution 2);
+diagnostics 0/0. jsTyping 127 → 127, new_false 0, lost_true 0. Perf (median
+child CPU, 41 samples): domain-model 0.911, generic-imports 1.000.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
@@ -469,3 +506,13 @@ compiling; a same-binary self-comparison reads 1.000. Coverage:
   port's anonymous function type (`TypeData::Anonymous` with
   `signature: true`, which needs a symbol), measured against the contextual
   types the same type serves today.
+- **Generic indexed access against its constraint's type.** TSR's
+  `relate_ternary` rejects `T["kind"]` → `SK` for `T extends { kind: SK }` in
+  the call-report and overload paths (`declare function h<TK extends SK>(t:
+  TK): TK; h(k)` with `k: T["kind"]`, a false TS2345 since `9020aa67`).
+  Native relates the indexed access through its constraint
+  (`getConstraintOfIndexedAccess`). It blocks the held createToken fix
+  (`box/r7-calls-held-createtoken`): with the reference argument
+  unpublished, every `createToken` candidate fails and the fallback picks
+  the first overload (jsTyping `parser.ts:2634` TS2352). Routed to
+  r7-reports.

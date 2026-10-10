@@ -1883,6 +1883,17 @@ impl Checker<'_, '_> {
         candidate: &Signature,
         call: tsr_ast::NodeId,
     ) -> Option<bool> {
+        self.check_call_type_argument_constraints_with(candidate, call, true)
+    }
+
+    /// [`Checker::check_call_type_argument_constraints`], reporting the first
+    /// failure only with `report` (`checkTypeArguments`' `reportErrors`).
+    fn check_call_type_argument_constraints_with(
+        &mut self,
+        candidate: &Signature,
+        call: tsr_ast::NodeId,
+        report: bool,
+    ) -> Option<bool> {
         let nodes = self.call_type_arguments(call);
         let (map, parameters, names) = self.fill_written_type_arguments(candidate, call)?;
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
@@ -1902,16 +1913,18 @@ impl Checker<'_, '_> {
                 Ternary::Related => {}
                 Ternary::Unknown => return None,
                 Ternary::NotRelated => {
-                    let at = node.node_id()?;
-                    let span = self.error_span(at);
-                    self.report_relation_failure(
-                        at,
-                        span,
-                        None,
-                        source,
-                        target,
-                        Some(&messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
-                    );
+                    if report {
+                        let at = node.node_id()?;
+                        let span = self.error_span(at);
+                        self.report_relation_failure(
+                            at,
+                            span,
+                            None,
+                            source,
+                            target,
+                            Some(&messages::TYPE_0_DOES_NOT_SATISFY_THE_CONSTRAINT_1),
+                        );
+                    }
                     return Some(false);
                 }
             }
@@ -4531,7 +4544,7 @@ impl Checker<'_, '_> {
             // loop over the set — it decides exactly where inference and the
             // relater can, and refuses everywhere else, so a former gap either
             // converts or stays a gap.
-            if !has_type_arguments
+            if (!has_type_arguments || self.walk_reads_written_type_arguments(arguments, call))
                 && let Some(picked) = self.transcribed_generic_set_walk(candidates, arguments, call)
             {
                 bump(&COUNTERS.selected);
@@ -4557,8 +4570,14 @@ impl Checker<'_, '_> {
         if truncated && has_type_arguments {
             // Written type arguments skip every non-generic candidate
             // upstream (`hasCorrectTypeArgumentArity`); only the generic tail
-            // could answer, and it is undecidable here
-            // (`overloadsAndTypeArgumentArity`, the third draft's R→W pair).
+            // can answer, through the transcribed walk, which applies the
+            // same arity skip and `checkTypeArguments` per candidate.
+            if self.walk_reads_written_type_arguments(arguments, call)
+                && let Some(picked) = self.transcribed_generic_set_walk(full_set, arguments, call)
+            {
+                bump(&COUNTERS.selected);
+                return Some(picked);
+            }
             bump(&COUNTERS.generic_candidate);
             return None;
         }
@@ -5539,6 +5558,19 @@ impl Checker<'_, '_> {
         ) && inner.node_id().is_some_and(|id| !self.node_types.contains_key(&id))
     }
 
+    /// Whether the transcribed walk can see a call's written type arguments:
+    /// it reads them from the call node ([`Checker::call_type_arguments`]),
+    /// which a resolution without a call node (or whose arguments do not
+    /// lead back to one) cannot supply.
+    fn walk_reads_written_type_arguments(
+        &self,
+        arguments: &[Expression<'_>],
+        call: Option<tsr_ast::NodeId>,
+    ) -> bool {
+        call.or_else(|| self.call_for_overload_arguments(arguments))
+            .is_some_and(|call| !self.call_type_arguments(call).is_empty())
+    }
+
     fn longest_candidate_index(
         &mut self,
         candidates: &[Signature],
@@ -5695,6 +5727,27 @@ impl Checker<'_, '_> {
                 continue;
             }
             let call = call.or_else(|| self.call_for_overload_arguments(arguments));
+            // `chooseOverload` skips a candidate failing
+            // `hasCorrectTypeArgumentArity` (`checker.go:9214`); with written
+            // type arguments a generic candidate is `checkTypeArguments`'
+            // (`checker.go:9222`), a failure making it
+            // `candidateForTypeArgumentError` rather than an argument error.
+            // Its instantiation is the written arguments'
+            // (`check_generic_call_with`'s written arm).
+            let written = call.map_or(0, |call| self.call_type_arguments(call).len());
+            if written != 0 {
+                if written < Self::min_type_argument_count(&candidate.type_parameters)
+                    || written > candidate.type_parameters.len()
+                {
+                    continue;
+                }
+                let Some(call) = call else { return OverloadPass::Undecidable };
+                match self.check_call_type_argument_constraints_with(candidate, call, false) {
+                    Some(true) => {}
+                    Some(false) => continue,
+                    None => return OverloadPass::Undecidable,
+                }
+            }
             let contextual =
                 arguments.iter().any(|argument| self.is_context_sensitive_argument(argument));
             if contextual {
