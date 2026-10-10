@@ -306,7 +306,7 @@ impl<'a> Parser<'a> {
     /// typescript-go's `Parser.isUsingDeclaration` (`parser.go`).
     pub(crate) fn is_using_declaration(&mut self) -> bool {
         self.look_ahead(|p| {
-            p.next_token_is_binding_identifier_or_start_of_destructuring_on_same_line()
+            p.next_token_is_binding_identifier_or_start_of_destructuring_on_same_line(false)
         })
     }
 
@@ -315,17 +315,8 @@ impl<'a> Parser<'a> {
         self.look_ahead(|p| {
             p.next_token();
             p.at(SyntaxKind::UsingKeyword)
-                && p.next_token_is_binding_identifier_or_start_of_destructuring_on_same_line()
+                && p.next_token_is_binding_identifier_or_start_of_destructuring_on_same_line(false)
         })
-    }
-
-    /// typescript-go's
-    /// `Parser.nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine`
-    /// (`parser.go`) with `disallowOf` false.
-    fn next_token_is_binding_identifier_or_start_of_destructuring_on_same_line(&mut self) -> bool {
-        self.next_token();
-        (self.is_binding_identifier() || self.at(SyntaxKind::OpenBraceToken))
-            && !self.token.has_preceding_line_break()
     }
 
     pub(crate) fn peek_kind(&mut self, predicate: impl Fn(SyntaxKind) -> bool) -> bool {
@@ -341,26 +332,48 @@ impl<'a> Parser<'a> {
     }
 
     /// Whether a `for` header opens with a variable declaration list.
-    ///
-    /// Not yet upstream's test (`parseForOrForInOrForOfStatement` requires
-    /// `using` to be followed on the same line by a binding, with `of`
-    /// disallowed): `await using` lists are not flagged `AwaitUsing` here, so
-    /// the printer cannot write the `await` back, and the stricter test turns
-    /// that into a round-trip difference.
     fn at_variable_declaration_list(&mut self) -> bool {
+        // `parseForOrForInOrForOfStatement`'s initializer test
+        // (`parser.go:1297`): `using` needs a binding name or `{` on the same
+        // line (`of` only when a declaration follows), and
+        // `await using` the same after the `using`.
         match self.token.kind {
             SyntaxKind::VarKeyword | SyntaxKind::LetKeyword | SyntaxKind::ConstKeyword => true,
-            SyntaxKind::UsingKeyword => self.peek_kind(|kind| {
-                matches!(
-                    kind,
-                    SyntaxKind::Identifier
-                        | SyntaxKind::OpenBracketToken
-                        | SyntaxKind::OpenBraceToken
-                ) || is_contextual_keyword(kind)
+            SyntaxKind::UsingKeyword => self.look_ahead(|parser| {
+                parser.next_token_is_binding_identifier_or_start_of_destructuring_on_same_line(true)
             }),
-            SyntaxKind::AwaitKeyword => self.peek_kind(|kind| kind == SyntaxKind::UsingKeyword),
+            SyntaxKind::AwaitKeyword => self.look_ahead(|parser| {
+                parser.next_token();
+                parser.at(SyntaxKind::UsingKeyword)
+                    && parser
+                        .next_token_is_binding_identifier_or_start_of_destructuring_on_same_line(
+                            false,
+                        )
+            }),
             _ => false,
         }
+    }
+
+    /// `nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine`
+    /// (`parser.go:6324`).
+    fn next_token_is_binding_identifier_or_start_of_destructuring_on_same_line(
+        &mut self,
+        disallow_of: bool,
+    ) -> bool {
+        self.next_token();
+        // `of` is a binding name only before `=`, `;` or `:`
+        // (`nextTokenIsEqualsOrSemicolonOrColonToken`): `for (using of =
+        // null;;)` declares `of`, `for (using of x)` iterates `x`.
+        if disallow_of && self.at(SyntaxKind::OfKeyword) {
+            return self.peek_kind(|kind| {
+                matches!(
+                    kind,
+                    SyntaxKind::EqualsToken | SyntaxKind::SemicolonToken | SyntaxKind::ColonToken
+                )
+            });
+        }
+        (self.is_binding_identifier() || self.at(SyntaxKind::OpenBraceToken))
+            && !self.token.has_preceding_line_break()
     }
 
     /// Parse a run of modifiers, including decorators.
