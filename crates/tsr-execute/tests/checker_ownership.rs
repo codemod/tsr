@@ -462,12 +462,14 @@ fn skewed_groups_preserve_every_distinct_error_span() {
 fn affinity_keeps_the_lib_prefix_and_skipped_declarations() {
     compare_fixture(
         &[
-            ("/home/src/tslibs/TS/Lib/lib.d.ts", "interface Object {}"),
+            // es2015, not es5: `target=ES5` is TS5108, which closes the CLI's
+            // semantic gate (`GetDiagnosticsOfAnyProgram`).
+            ("/home/src/tslibs/TS/Lib/lib.es6.d.ts", "interface Object {}"),
             ("a.ts", "const a: number = 'bad';"),
             ("skipped.d.ts", "// @ts-expect-error\ninterface Skipped {}"),
             ("b.ts", "const b: string = 1;"),
         ],
-        &["--skipLibCheck", "--target", "es5"],
+        &["--skipLibCheck", "--target", "es2015"],
         |program, options, _, diagnostics| {
             assert_eq!(program.lib_files().len(), 1);
             assert_eq!(diagnostics.len(), 2);

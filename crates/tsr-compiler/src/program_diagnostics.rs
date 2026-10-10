@@ -166,31 +166,41 @@ pub fn bind_and_check_diagnostics(
 }
 
 /// `GetDiagnosticsOfAnyProgram` (`program.go:1782`) once the checkers have
-/// run, as `(file index, diagnostic)`.
+/// run, as `(file name, diagnostic)`. The caller prepends
+/// `GetConfigFileParsingDiagnostics`, which gate nothing.
 ///
 /// Every file's `GetSyntacticDiagnostics` (`program.go:626`): its parse
 /// diagnostics and its `js_syntax` (`SourceFile.JSDiagnostics()`, which this
-/// port's checker produces). Only when there are none, each file's semantic
+/// port's checker produces). Only when there are none, `program_level`
+/// (`GetProgramDiagnostics`, [`program_level_diagnostics`]); and only when
+/// that is empty too and the run is not `listFilesOnly`, each file's semantic
 /// diagnostics: [`bind_and_check_diagnostics`] over
 /// [`Program::bind_diagnostics_of`] and the `checker` diagnostics located in
-/// it, then [`include_processor_diagnostics`].
-/// `GetProgramDiagnostics`' global half ([`global_program_diagnostics`]) is
-/// not part of this list, which can only name files; `GetGlobalDiagnostics`
-/// has no producer in this port.
+/// it, then [`include_processor_diagnostics`]. `GetGlobalDiagnostics` has no
+/// producer in this port. A caller that knows the semantic set will be
+/// skipped need not check at all ([`semantic_diagnostics_are_asked`]), as
+/// upstream never asks its checkers then.
 #[must_use]
 pub fn diagnostics_of_any_program(
     program: &Program<'_>,
+    program_level: Vec<(String, Diagnostic)>,
     js_syntax: Vec<(usize, Diagnostic)>,
     checker: Vec<(usize, Diagnostic)>,
-) -> Vec<(usize, Diagnostic)> {
+) -> Vec<(String, Diagnostic)> {
     let files = program.source_files();
+    let named = |located: Vec<(usize, Diagnostic)>| -> Vec<(String, Diagnostic)> {
+        located.into_iter().map(|(index, d)| (files[index].file_name().to_string(), d)).collect()
+    };
     let mut out: Vec<(usize, Diagnostic)> = Vec::new();
     for (index, file) in files.iter().enumerate() {
         out.extend(file.diagnostics().iter().map(|d| (index, d.clone())));
     }
     out.extend(js_syntax);
-    if !out.is_empty() || program.compiler_options().list_files_only.is_true() {
-        return out;
+    if !out.is_empty() {
+        return named(out);
+    }
+    if !program_level.is_empty() || program.compiler_options().list_files_only.is_true() {
+        return program_level;
     }
     let mut by_file: Vec<Vec<Diagnostic>> = vec![Vec::new(); files.len()];
     for (index, diagnostic) in checker {
@@ -202,7 +212,38 @@ pub fn diagnostics_of_any_program(
         out.extend(semantic.into_iter().map(|d| (index, d)));
         out.extend(include_processor_diagnostics(program, index).into_iter().map(|d| (index, d)));
     }
-    out
+    named(out)
+}
+
+/// Whether [`diagnostics_of_any_program`] can reach the semantic set, judged
+/// before checking: no file has a parse diagnostic, `program_level` is empty
+/// and the run is not `listFilesOnly`. A JavaScript file's `js_syntax` can
+/// still close the gate after checking; that is the one case where checking
+/// runs and its result is dropped.
+#[must_use]
+pub fn semantic_diagnostics_are_asked(
+    program: &Program<'_>,
+    program_level: &[(String, Diagnostic)],
+) -> bool {
+    program_level.is_empty()
+        && !program.compiler_options().list_files_only.is_true()
+        && program.source_files().iter().all(|file| file.diagnostics().is_empty())
+}
+
+/// `Program.GetProgramDiagnostics` (`program.go:698`): `programDiagnostics`
+/// ([`verify_compiler_options`], which upstream runs when the program is
+/// created) and the include processor's global diagnostics
+/// ([`global_program_diagnostics`]), as `(file name, diagnostic)`. A
+/// compiler diagnostic has an empty file name. The caller's final
+/// `SortAndDeduplicateDiagnostics` orders them.
+#[must_use]
+pub fn program_level_diagnostics(
+    program: &Program<'_>,
+    input: OptionsVerification<'_>,
+) -> Vec<(String, Diagnostic)> {
+    let mut found = verify_compiler_options(program, input);
+    found.extend(global_program_diagnostics(program).into_iter().map(|d| (String::new(), d)));
+    found
 }
 
 /// `Program.GetIncludeProcessorDiagnostics` (`program.go:705`): the loader's
@@ -281,13 +322,9 @@ pub fn composite_file_list_diagnostics(program: &Program<'_>) -> Vec<(Option<usi
 /// The global half of `Program.GetProgramDiagnostics` (`program.go:698`):
 /// the include processor's diagnostics that name no file, sorted and
 /// deduplicated. Today only a TS6307 whose subject no written reference
-/// reached ([`composite_file_list_diagnostics`]); `programDiagnostics` itself
-/// (the option checks of `verifyCompilerOptions`) has no producer yet.
-///
-/// Upstream's `GetDiagnosticsOfAnyProgram` reports these before the semantic
-/// pass and skips that pass when there are any;
-/// [`diagnostics_of_any_program`] returns file-located diagnostics only, so a
-/// driver reports these itself.
+/// reached ([`composite_file_list_diagnostics`]). `programDiagnostics` itself
+/// (the option checks of `verifyCompilerOptions`) joins it in
+/// [`program_level_diagnostics`].
 #[must_use]
 pub fn global_program_diagnostics(program: &Program<'_>) -> Vec<Diagnostic> {
     tsr_diagnostics::sort_and_deduplicate_diagnostics(

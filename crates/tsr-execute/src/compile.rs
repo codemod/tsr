@@ -125,34 +125,44 @@ pub fn run_compilation(
     // line layered over the top. Upstream does this inside
     // `GetParsedCommandLineOfConfigFile`; here the two parsers meet at this one
     // point, which is also the only place the layering rule is written down.
-    let (mut options, root_files, config_errors, error_files, raw) = if config_file_name.is_empty()
-    {
-        (
-            command_line.compiler_options.clone(),
-            command_line
-                .file_names
-                .iter()
-                .map(|name| get_normalized_absolute_path(name, &current_directory))
-                .collect::<Vec<_>>(),
-            Vec::new(),
-            Vec::new(),
-            tsr_core::OrderedMap::default(),
-        )
-    } else {
-        let Some(text) = sys.fs().read_file(config_file_name) else {
-            let error = Diagnostic::with_args(
-                &messages::CANNOT_READ_FILE_0,
-                tsr_core::Span::new(0, 0),
-                [config_file_name.to_string()],
-            );
-            report(sys, &[error], &command_line.compiler_options);
-            return ExitStatus::InvalidProjectOutputsSkipped;
+    let (mut options, root_files, config_errors, error_files, raw, config_syntax) =
+        if config_file_name.is_empty() {
+            (
+                command_line.compiler_options.clone(),
+                command_line
+                    .file_names
+                    .iter()
+                    .map(|name| get_normalized_absolute_path(name, &current_directory))
+                    .collect::<Vec<_>>(),
+                Vec::new(),
+                Vec::new(),
+                tsr_core::OrderedMap::default(),
+                None,
+            )
+        } else {
+            let Some(text) = sys.fs().read_file(config_file_name) else {
+                let error = Diagnostic::with_args(
+                    &messages::CANNOT_READ_FILE_0,
+                    tsr_core::Span::new(0, 0),
+                    [config_file_name.to_string()],
+                );
+                report(sys, &[error], &command_line.compiler_options);
+                return ExitStatus::InvalidProjectOutputsSkipped;
+            };
+            let base_path = tsr_path::get_directory_path(config_file_name).to_string();
+            let parsed =
+                tsr_tsoptions::parse_config_file(config_file_name, &text, &base_path, sys.fs());
+            (
+                parsed.compiler_options,
+                parsed.file_names,
+                parsed.errors,
+                parsed.error_files,
+                parsed.raw,
+                // `verifyCompilerOptions` positions its diagnostics on the
+                // config's `compilerOptions` entries.
+                Some(tsr_tsoptions::syntax::ConfigSyntax::parse(&text)),
+            )
         };
-        let base_path = tsr_path::get_directory_path(config_file_name).to_string();
-        let parsed =
-            tsr_tsoptions::parse_config_file(config_file_name, &text, &base_path, sys.fs());
-        (parsed.compiler_options, parsed.file_names, parsed.errors, parsed.error_files, parsed.raw)
-    };
 
     apply_command_line_over_config(&mut options, command_line);
 
@@ -250,6 +260,23 @@ pub fn run_compilation(
         return ExitStatus::DiagnosticsPresentOutputsSkipped;
     }
 
+    // `GetProgramDiagnostics` (`program.go:698`): `verifyCompilerOptions`,
+    // which upstream runs when the program is created, and the include
+    // processor's global diagnostics. When they exist, or a file has a parse
+    // diagnostic, `GetDiagnosticsOfAnyProgram` never asks for the semantic
+    // set, so the checkers are not run for it. `r7-perf.md` §9.
+    let program_level = tsr_compiler::program_diagnostics::program_level_diagnostics(
+        &program,
+        tsr_compiler::program_diagnostics::OptionsVerification {
+            config_file: (!config_file_name.is_empty())
+                .then_some(config_file_name)
+                .zip(config_syntax.as_ref()),
+            suppress_output_path_check: tsr_core::Tristate::Unknown,
+        },
+    );
+    let semantic =
+        tsr_compiler::program_diagnostics::semantic_diagnostics_are_asked(&program, &program_level);
+
     // `checkerpool.go`: file `i` belongs to checker `i % count`, and each
     // checker runs on its own worker. Observation preserves that same pool.
     let pool_size = crate::checker_pool::checker_count(&options, program.source_files().len());
@@ -304,6 +331,7 @@ pub fn run_compilation(
             &program,
             &options,
             pool_size,
+            semantic,
             sys.exits_after_command(),
             #[cfg(feature = "work-trace")]
             work_trace.as_ref(),
@@ -316,14 +344,12 @@ pub fn run_compilation(
     // when there is none (`tsr_compiler::program_diagnostics`, shared with the
     // conformance harness).
     let mut diagnostics = config_diagnostics;
-    let program_diagnostics = tsr_compiler::program_diagnostics::diagnostics_of_any_program(
+    diagnostics.extend(tsr_compiler::program_diagnostics::diagnostics_of_any_program(
         &program,
+        program_level,
         pool.js_syntax,
         pool.diagnostics,
-    );
-    diagnostics.extend(program_diagnostics.into_iter().map(|(index, diagnostic)| {
-        (program.source_files()[index].file_name().to_string(), diagnostic)
-    }));
+    ));
 
     // Line maps are built only for files that have diagnostics, as native
     // `SourceFile.ECMALineMap` is computed on first use: indexing every
@@ -738,11 +764,14 @@ mod directive_tests {
             (vec!["--skipLibCheck"], 1, false, false),
             (vec!["--noCheck"], 0, false, false),
         ] {
+            // Not es5: `target=ES5` is TS5108 (`verifyCompilerOptions`), and a
+            // program diagnostic closes `GetDiagnosticsOfAnyProgram`'s
+            // semantic gate before any checker runs.
             let mut flags = flags;
-            flags.extend(["--target", "es5"]);
+            flags.extend(["--target", "es2015"]);
             let output = compile_files(
                 vec![
-                    (format!("{}/lib.d.ts", crate::baseline::TSC_LIB_PATH),
+                    (format!("{}/lib.es6.d.ts", crate::baseline::TSC_LIB_PATH),
                         "interface LibraryBad { value: MissingLibType; }".into()),
                     ("/project/dep.d.ts".into(),
                         "export interface Decl { value: number; other: MissingDeclType; }".into()),

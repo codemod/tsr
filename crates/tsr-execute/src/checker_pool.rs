@@ -89,6 +89,7 @@ pub fn check_program_files(
     program: &tsr_compiler::Program<'_>,
     options: &CompilerOptions,
     count: usize,
+    semantic: bool,
     process_exits: bool,
     #[cfg(feature = "work-trace")] trace: Option<&std::sync::Arc<crate::work_trace::WorkTrace>>,
 ) -> PoolOutcome {
@@ -146,7 +147,10 @@ pub fn check_program_files(
                     .extend(checker.js_syntax_diagnostics(id).into_iter().map(|(_, d)| (index, d)));
             }
         }
-        if !options.no_check.is_true() {
+        // `semantic` is false when `GetDiagnosticsOfAnyProgram` will not ask
+        // for the semantic set (a parse or program diagnostic exists), so no
+        // checker runs for it.
+        if semantic && !options.no_check.is_true() {
             for (index, file) in files.iter().enumerate() {
                 if index % count != owner || full_check_exclusion(program, index).is_some() {
                     continue;
