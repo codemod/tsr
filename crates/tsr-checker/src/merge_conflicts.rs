@@ -48,6 +48,100 @@ impl Checker<'_, '_> {
         for &(target, source) in self.binder.alias_merges() {
             self.report_alias_merge_conflict(target, source);
         }
+        self.report_class_prototype_merge_conflicts();
+    }
+
+    /// `mergeSymbolTable(target.Exports, source.Exports)` for a class merged
+    /// with a namespace across files: the namespace's exported `prototype`
+    /// meets the class's synthetic `prototype` property
+    /// (`bindClassLikeDeclaration`, `binder.go:962`), `mergeSymbol`'s excludes
+    /// test fails, and `reportMergeSymbolError` (`checker.go:14201`) reports
+    /// on the declarations of both sides — only the namespace's, since the
+    /// synthetic symbol has none.
+    ///
+    /// This binder neither creates the synthetic symbol nor records the pair,
+    /// so the global table is scanned for a class symbol whose exported
+    /// `prototype` is declared in a file none of the class's declarations is
+    /// in. The same-file collision is the binder's upstream (`binder.go:965`)
+    /// and stays `check_merged_namespace_prototype`'s, at the class.
+    ///
+    /// Reported here because every checker runs the merge
+    /// (`initializeChecker`), so the checker that owns the namespace's file
+    /// has it under several checkers (`mergedClassWithNamespacePrototype`,
+    /// `tsr-2zk.1258`). One pass over the global table per checker.
+    fn report_class_prototype_merge_conflicts(&mut self) {
+        let classes: Vec<SymbolId> = self
+            .binder
+            .globals()
+            .values()
+            .map(|&symbol| self.binder.merged_symbol(symbol))
+            .filter(|&symbol| {
+                self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::CLASS)
+            })
+            .collect();
+        for class in classes {
+            let entry = self.binder.symbols().get(class);
+            let Some(&prototype) = entry.exports.get("prototype") else { continue };
+            let class_files: Vec<tsr_ast::NodeId> = entry
+                .declarations
+                .iter()
+                .filter(|&&declaration| {
+                    matches!(
+                        self.nodes.kind(declaration),
+                        tsr_ast::SyntaxKind::ClassDeclaration
+                            | tsr_ast::SyntaxKind::ClassExpression
+                    )
+                })
+                .filter_map(|&declaration| self.source_file_of_for_diagnostics(declaration))
+                .collect();
+            let prototype_entry = self.binder.symbols().get(prototype);
+            let source_flags = prototype_entry.flags;
+            let declarations = prototype_entry.declarations.to_vec();
+            let Some(&first) = declarations.first() else { continue };
+            // A `static prototype` member shares this port's exports table;
+            // upstream binds it into the class's own members (TS2699).
+            if self.nodes.parent(first).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    tsr_ast::SyntaxKind::ClassDeclaration | tsr_ast::SyntaxKind::ClassExpression
+                )
+            }) {
+                continue;
+            }
+            if self
+                .source_file_of_for_diagnostics(first)
+                .is_some_and(|file| class_files.contains(&file))
+            {
+                continue;
+            }
+            // `isSourcePlainJS`; the synthetic target has no declarations.
+            if self.is_plain_js_declaration(first) {
+                continue;
+            }
+            // The target's flags are `Property | Prototype`, so only the
+            // source can make the message an enum or block-scoped one.
+            let message = if source_flags.intersects(SymbolFlags::ENUM) {
+                None
+            } else if source_flags.intersects(SymbolFlags::BLOCK_SCOPED_VARIABLE) {
+                Some(&messages::CANNOT_REDECLARE_BLOCK_SCOPED_VARIABLE_0)
+            } else {
+                Some(&messages::DUPLICATE_IDENTIFIER_0)
+            };
+            for declaration in declarations {
+                let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
+                let span = self.error_span(declaration);
+                let diagnostic = match message {
+                    Some(message) => {
+                        Diagnostic::with_args(message, span, ["prototype".to_string()])
+                    }
+                    None => Diagnostic::new(
+                        &messages::ENUM_DECLARATIONS_CAN_ONLY_MERGE_WITH_NAMESPACE_OR_OTHER_ENUM_DECLARATIONS,
+                        span,
+                    ),
+                };
+                self.report(file, diagnostic);
+            }
+        }
     }
 
     /// Whether `declaration` is in a plain JavaScript file

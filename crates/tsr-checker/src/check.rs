@@ -213,6 +213,9 @@ impl Checker<'_, '_> {
         // `checkDecorators`' `markLinkedReferences(node, ReferenceHintDecorator)`
         // (`checker.go:6053`), `isolated_alias.rs`.
         self.check_decorator_linked_references(node, typed, self.emit_decorator_metadata);
+        // `checkDecorators` → `checkDecorator` → `checkGrammarDecorator`
+        // (`grammar.rs`).
+        self.check_decorators_grammar(node, typed);
         let ambient = match typed {
             Node::ImportDeclaration(declaration) => {
                 self.check_import_in_namespace(
@@ -890,6 +893,7 @@ impl Checker<'_, '_> {
             Node::ImportEqualsDeclaration(_) => {
                 self.check_alias_symbol(node);
                 self.check_module_hidden_by_local(node);
+                self.check_grammar_import_equals_type_only(node);
             }
             Node::ImportDeclaration(n) => {
                 // `!checkGrammarModifiers(node) && node.Modifiers() != nil`
@@ -909,6 +913,7 @@ impl Checker<'_, '_> {
                         &messages::AN_EXPORT_DECLARATION_CANNOT_HAVE_MODIFIERS,
                     );
                 }
+                self.check_grammar_export_declaration(node);
             }
             Node::ConstructorDeclaration(n) => {
                 self.check_constructor_type_parameters(n);
@@ -1085,7 +1090,7 @@ impl Checker<'_, '_> {
             self.check_export_declaration_in_namespace(node, typed);
         }
         if matches!(typed, Node::ImportDeclaration(_)) {
-            self.check_deferred_import_clause(typed);
+            self.check_grammar_import_clause(node);
         }
         if matches!(typed, Node::IndexSignatureDeclaration(_)) {
             self.check_index_signature_key_type(node);
@@ -7677,6 +7682,15 @@ impl Checker<'_, '_> {
         };
         let declarations = self.binder.symbols().get(exported).declarations.clone();
         let Some(&declaration) = declarations.first() else { return };
+        // Only the same-file collision, which upstream's binder reports
+        // (`bindClassLikeDeclaration`, `binder.go:965`). Across files it is
+        // `mergeSymbolTable`'s, reported by every checker from
+        // `report_class_prototype_merge_conflicts` (`merge_conflicts.rs`).
+        if self.source_file_of_for_diagnostics(declaration)
+            != self.source_file_of_for_diagnostics(node)
+        {
+            return;
+        }
         // This port keeps a class's **static members** in the same `exports`
         // table. Upstream binds them after `bindClassLikeDeclaration`'s check,
         // into the class's own table, so a `static prototype` is not this
@@ -9123,106 +9137,16 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `checkGrammarAccessor`'s body arms (`grammarchecks.go:1309`, `:1315`)
-    /// and parameter arms (`:1332`, `:1345`, `:1349`).
-    ///
-    /// The body arms sit behind `checkGrammarFunctionLikeDeclaration`'s
-    /// `checkGrammarModifiers` upstream, so they wait on
-    /// `modifier_chain_reported`; a report returns, as upstream's does.
+    /// `checkAccessorDeclaration`'s grammar arm (`checker.go:2932`):
+    /// `!checkGrammarFunctionLikeDeclaration(node) && !checkGrammarAccessor(node)`.
+    /// Of the first conjunct only `checkGrammarModifiers` is consulted; the
+    /// rest of it (`check_grammar_parameter_list` …) reports from its own
+    /// dispatch. `checkGrammarAccessor` is `grammar.rs`'s.
     fn check_grammar_accessor(&mut self, node: NodeId, typed: Node<'_>) {
-        if self.file_has_parse_errors {
+        if self.file_has_parse_errors || self.check_grammar_modifiers(node) {
             return;
         }
-        if !self.modifier_chain_reported.contains(&node)
-            && self.check_grammar_accessor_body(node, typed)
-        {
-            return;
-        }
-        let is_set = matches!(typed, Node::SetAccessorDeclaration(_));
-        let name = match typed {
-            Node::SetAccessorDeclaration(accessor) => accessor.name.node_id(),
-            Node::GetAccessorDeclaration(accessor) => accessor.name.node_id(),
-            _ => return,
-        };
-        let parameters = self.parameters_of(node);
-        let wanted = usize::from(is_set);
-        if parameters.len() != wanted {
-            let message = if is_set {
-                &messages::A_SET_ACCESSOR_MUST_HAVE_EXACTLY_ONE_PARAMETER
-            } else {
-                &messages::A_GET_ACCESSOR_CANNOT_HAVE_PARAMETERS
-            };
-            self.report_grammar_at(name, message);
-            return;
-        }
-        if !is_set {
-            return;
-        }
-        let Some(&parameter) = parameters.first() else { return };
-        let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
-            return;
-        };
-        if let Some(rest) = declaration.dot_dot_dot_token {
-            self.report_grammar_at(
-                rest.node_id,
-                &messages::A_SET_ACCESSOR_CANNOT_HAVE_REST_PARAMETER,
-            );
-        } else if let Some(question) = declaration.question_token {
-            self.report_grammar_at(
-                question.node_id,
-                &messages::A_SET_ACCESSOR_CANNOT_HAVE_AN_OPTIONAL_PARAMETER,
-            );
-        }
-    }
-
-    /// `checkGrammarAccessor`'s first two arms: outside an ambient context,
-    /// a type literal or an interface, a body-less accessor that is not
-    /// `abstract` is "'{' expected" on its last character
-    /// (`grammarErrorAtPos(accessor, accessor.End()-1, len(";"), …)`), and an
-    /// `abstract` accessor with a body is TS1318. The interface/type-literal
-    /// body arm (TS1183) is `check_grammar_statement_in_ambient_context`'s
-    /// report here and is not repeated.
-    fn check_grammar_accessor_body(&mut self, node: NodeId, typed: Node<'_>) -> bool {
-        let (modifiers, has_body) = match typed {
-            Node::GetAccessorDeclaration(accessor) => (accessor.modifiers, accessor.body.is_some()),
-            Node::SetAccessorDeclaration(accessor) => (accessor.modifiers, accessor.body.is_some()),
-            _ => return false,
-        };
-        let is_abstract = has_modifier(modifiers, SyntaxKind::AbstractKeyword);
-        if has_body {
-            if is_abstract {
-                self.report_grammar(
-                    node,
-                    &messages::AN_ABSTRACT_ACCESSOR_CANNOT_HAVE_AN_IMPLEMENTATION,
-                );
-                return true;
-            }
-            return false;
-        }
-        let in_type = self.nodes.parent(node).is_some_and(|parent| {
-            matches!(
-                self.nodes.kind(parent),
-                SyntaxKind::TypeLiteral | SyntaxKind::InterfaceDeclaration
-            )
-        });
-        if is_abstract
-            || in_type
-            || self.file_is_ambient
-            || self.declaration_is_in_an_ambient_context(node)
-        {
-            return false;
-        }
-        let Some(file) = self.source_file_of_for_diagnostics(node) else { return false };
-        let end = self.nodes.span(node).end;
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::_0_EXPECTED,
-                tsr_core::Span::new(end - 1, end),
-                ["{".to_string()],
-            ),
-        );
-        true
+        self.check_grammar_accessor_declaration(node, typed);
     }
 
     /// `grammarErrorOnNode` at an optional node id.
@@ -11365,54 +11289,6 @@ impl Checker<'_, '_> {
                 if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
                     && binary.left.and_then(|left| left.node_id()) == Some(node)
         )
-    }
-
-    /// TS18058 / TS18059 / TS18060 — the deferred-import clause.
-    ///
-    /// `checkGrammarImportClause`'s `KindDeferKeyword` case
-    /// (`grammarchecks.go:2127`): one guard, three exclusive arms in order,
-    /// each reporting on the **clause**. A namespace import is the only legal
-    /// deferred form.
-    ///
-    /// `module_kind` comes from §478. `docs/architecture/checker-notes-diag2.md` §615.
-    fn check_deferred_import_clause(&mut self, typed: Node<'_>) {
-        if self.file_has_parse_errors {
-            return;
-        }
-        let Node::ImportDeclaration(declaration) = typed else { return };
-        let Some(clause) = declaration.import_clause else { return };
-        if clause.phase_modifier.is_none_or(|m| m.kind != SyntaxKind::DeferKeyword) {
-            return;
-        }
-        let Some(at) = clause.node_id else { return };
-        let message = if clause.name.is_some() {
-            &messages::DEFAULT_IMPORTS_ARE_NOT_ALLOWED_IN_A_DEFERRED_IMPORT
-        } else if matches!(
-            clause.named_bindings,
-            Some(tsr_ast::NamedImportBindings::NamedImports(_))
-        ) {
-            &messages::NAMED_IMPORTS_ARE_NOT_ALLOWED_IN_A_DEFERRED_IMPORT
-        } else if !matches!(
-            self.module_kind,
-            tsr_core::ModuleKind::ESNext | tsr_core::ModuleKind::Preserve
-        ) {
-            &messages::DEFERRED_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ESNEXT_OR_PRESERVE
-        } else {
-            return;
-        };
-        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-        // `grammarErrorOnNode(&node.Node)` — the **clause's** range, which
-        // upstream starts at the phase modifier. This parser puts the modifier
-        // outside the clause's span, so the clause alone reports at the `foo`
-        // of `import defer foo` and upstream reports at the `defer`. Taking
-        // the modifier's span reproduces upstream's column exactly; widening
-        // the clause's span is the faithful fix and belongs to `tsr-parser`.
-        // §615.
-        let span = clause
-            .phase_modifier
-            .and_then(|m| m.node_id)
-            .map_or_else(|| self.nodes.span(at), |m| self.nodes.span(m));
-        self.report(file, Diagnostic::new(message, span));
     }
 
     /// TS1194 — `Export declarations are not permitted in a namespace.`

@@ -2651,3 +2651,348 @@ impl Checker<'_, '_> {
             || module.keyword.kind == SyntaxKind::GlobalKeyword
     }
 }
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarAccessor` (`grammarchecks.go:1307`), arm for arm.
+    /// Each arm returns, so an accessor gets at most one report. The caller
+    /// (`checkAccessorDeclaration`, `checker.go:2932`) runs it behind
+    /// `!checkGrammarFunctionLikeDeclaration(node)`, whose first conjunct is
+    /// `checkGrammarModifiers`; the file has no parse diagnostics.
+    pub(crate) fn check_grammar_accessor_declaration(
+        &mut self,
+        node: NodeId,
+        typed: Node<'_>,
+    ) -> bool {
+        let is_get = matches!(typed, Node::GetAccessorDeclaration(_));
+        let (modifiers, name, type_parameters, parameters, return_type, body) = match typed {
+            Node::GetAccessorDeclaration(n) => {
+                (n.modifiers, n.name, n.type_parameters, n.parameters, n.r#type, n.body)
+            }
+            Node::SetAccessorDeclaration(n) => {
+                (n.modifiers, n.name, n.type_parameters, n.parameters, n.r#type, n.body)
+            }
+            _ => return false,
+        };
+        let is_abstract = has_modifier(modifiers, SyntaxKind::AbstractKeyword);
+        let in_type = self.nodes.parent(node).is_some_and(|parent| {
+            matches!(
+                self.nodes.kind(parent),
+                SyntaxKind::TypeLiteral | SyntaxKind::InterfaceDeclaration
+            )
+        });
+        if !in_type && body.is_none() && !is_abstract && !self.has_ambient_flag(node) {
+            // `grammarErrorAtPos(accessor, accessor.End()-1, len(";"), …)`.
+            let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+            let end = self.nodes.span(node).end;
+            self.report(
+                file,
+                Diagnostic::with_args(
+                    &messages::_0_EXPECTED,
+                    tsr_core::Span::new(end - 1, end),
+                    ["{".to_string()],
+                ),
+            );
+            return true;
+        }
+        if let Some(body) = body {
+            if is_abstract {
+                self.grammar_error_on_node(
+                    node,
+                    &messages::AN_ABSTRACT_ACCESSOR_CANNOT_HAVE_AN_IMPLEMENTATION,
+                );
+                return true;
+            }
+            if in_type && let Some(body) = body.node_id() {
+                self.grammar_error_on_node(
+                    body,
+                    &messages::AN_IMPLEMENTATION_CANNOT_BE_DECLARED_IN_AMBIENT_CONTEXTS,
+                );
+                return true;
+            }
+        }
+        let Some(name) = name.node_id() else { return false };
+        // `funcData.TypeParameters != nil`: this tree keeps no empty `<>`
+        // list, so an empty one reads as absent.
+        if !type_parameters.is_empty() {
+            self.grammar_error_on_node(name, &messages::AN_ACCESSOR_CANNOT_HAVE_TYPE_PARAMETERS);
+            return true;
+        }
+        // `doesAccessorHaveCorrectParameterCount`: `getAccessorThisParameter`
+        // (`checker.go:19931`) is non-nil at one more parameter than the
+        // accessor takes when the first is `this`.
+        let first_is_this = parameters.first().is_some_and(|first| {
+            matches!(first.name, Some(tsr_ast::BindingName::Identifier(name)) if name.text == "this")
+        });
+        let wanted = usize::from(!is_get);
+        let has_this_parameter = parameters.len() == wanted + 1 && first_is_this;
+        if !has_this_parameter && parameters.len() != wanted {
+            let message = if is_get {
+                &messages::A_GET_ACCESSOR_CANNOT_HAVE_PARAMETERS
+            } else {
+                &messages::A_SET_ACCESSOR_MUST_HAVE_EXACTLY_ONE_PARAMETER
+            };
+            self.grammar_error_on_node(name, message);
+            return true;
+        }
+        if is_get {
+            return false;
+        }
+        if return_type.is_some() {
+            self.grammar_error_on_node(
+                name,
+                &messages::A_SET_ACCESSOR_CANNOT_HAVE_A_RETURN_TYPE_ANNOTATION,
+            );
+            return true;
+        }
+        // `GetSetAccessorValueParameter`: the parameter after a `this` one.
+        let Some(parameter) = parameters.get(usize::from(has_this_parameter)) else {
+            return false;
+        };
+        if let Some(rest) = parameter.dot_dot_dot_token.and_then(|token| token.node_id) {
+            self.grammar_error_on_node(rest, &messages::A_SET_ACCESSOR_CANNOT_HAVE_REST_PARAMETER);
+            return true;
+        }
+        if let Some(question) = parameter.question_token.and_then(|token| token.node_id) {
+            self.grammar_error_on_node(
+                question,
+                &messages::A_SET_ACCESSOR_CANNOT_HAVE_AN_OPTIONAL_PARAMETER,
+            );
+            return true;
+        }
+        if parameter.initializer.is_some() {
+            self.grammar_error_on_node(
+                name,
+                &messages::A_SET_ACCESSOR_PARAMETER_CANNOT_HAVE_AN_INITIALIZER,
+            );
+            return true;
+        }
+        false
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarImportClause` (`grammarchecks.go:2118`), from
+    /// `checkImportDeclaration` (`checker.go:5285`). Answers whether it
+    /// reported.
+    ///
+    /// - `import type`: TS1363 when the clause has both a default and named
+    ///   bindings (outside JSDoc), else the named imports'
+    ///   `checkGrammarTypeOnlyNamedImportsOrExports`;
+    /// - `import defer`: TS18058 / TS18059 / TS18060, exclusive, in order.
+    ///
+    /// Upstream reaches it only when `checkExternalImportOrExportDeclaration`
+    /// passed; this port's arms of that function report from their own
+    /// dispatch, so the clause is checked unconditionally, as the deferred arm
+    /// already was.
+    pub(crate) fn check_grammar_import_clause(&mut self, declaration: NodeId) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(Node::ImportDeclaration(import)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        let Some(clause) = import.import_clause else { return false };
+        let Some(phase) = clause.phase_modifier else { return false };
+        let Some(at) = clause.node_id else { return false };
+        let message = match phase.kind {
+            SyntaxKind::TypeKeyword => {
+                if clause.name.is_some() && clause.named_bindings.is_some() {
+                    &messages::A_TYPE_ONLY_IMPORT_CAN_SPECIFY_A_DEFAULT_IMPORT_OR_NAMED_BINDINGS_BUT_NOT_BOTH
+                } else if let Some(tsr_ast::NamedImportBindings::NamedImports(named)) =
+                    clause.named_bindings
+                {
+                    let specifiers: Vec<(bool, Option<NodeId>)> =
+                        named.elements.iter().map(|s| (s.is_type_only, s.node_id)).collect();
+                    return self.check_grammar_type_only_named_imports_or_exports(
+                        &specifiers,
+                        &messages::THE_TYPE_MODIFIER_CANNOT_BE_USED_ON_A_NAMED_IMPORT_WHEN_IMPORT_TYPE_IS_USED_ON_ITS_IMPORT_STATEMENT,
+                    );
+                } else {
+                    return false;
+                }
+            }
+            SyntaxKind::DeferKeyword => {
+                if clause.name.is_some() {
+                    &messages::DEFAULT_IMPORTS_ARE_NOT_ALLOWED_IN_A_DEFERRED_IMPORT
+                } else if matches!(
+                    clause.named_bindings,
+                    Some(tsr_ast::NamedImportBindings::NamedImports(_))
+                ) {
+                    &messages::NAMED_IMPORTS_ARE_NOT_ALLOWED_IN_A_DEFERRED_IMPORT
+                } else if !matches!(
+                    self.module_kind,
+                    tsr_core::ModuleKind::ESNext | tsr_core::ModuleKind::Preserve
+                ) {
+                    &messages::DEFERRED_IMPORTS_ARE_ONLY_SUPPORTED_WHEN_THE_MODULE_FLAG_IS_SET_TO_ESNEXT_OR_PRESERVE
+                } else {
+                    return false;
+                }
+            }
+            _ => return false,
+        };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return true };
+        // `grammarErrorOnNode(&node.Node)`: the clause's range, which upstream
+        // starts at the phase modifier. This parser leaves the modifier
+        // outside the clause's span, so the range is rebuilt from it.
+        let end = self.nodes.span(at).end;
+        let start =
+            phase.node_id.map_or_else(|| self.nodes.span(at).start, |m| self.nodes.span(m).start);
+        self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, end.max(start))));
+        true
+    }
+
+    /// `Checker.checkGrammarExportDeclaration` (`grammarchecks.go:196`):
+    /// `export type { … }` takes no `type` on a specifier (TS2207).
+    pub(crate) fn check_grammar_export_declaration(&mut self, declaration: NodeId) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(Node::ExportDeclaration(export)) = self.node_map.get(declaration) else {
+            return false;
+        };
+        if !export.is_type_only {
+            return false;
+        }
+        let Some(tsr_ast::NamedExportBindings::NamedExports(named)) = export.export_clause else {
+            return false;
+        };
+        let specifiers: Vec<(bool, Option<NodeId>)> =
+            named.elements.iter().map(|s| (s.is_type_only, s.node_id)).collect();
+        self.check_grammar_type_only_named_imports_or_exports(
+            &specifiers,
+            &messages::THE_TYPE_MODIFIER_CANNOT_BE_USED_ON_A_NAMED_EXPORT_WHEN_EXPORT_TYPE_IS_USED_ON_ITS_EXPORT_STATEMENT,
+        )
+    }
+
+    /// `Checker.checkGrammarTypeOnlyNamedImportsOrExports`
+    /// (`grammarchecks.go:2141`): the first specifier with its own `type`, on
+    /// its first token.
+    fn check_grammar_type_only_named_imports_or_exports(
+        &mut self,
+        specifiers: &[(bool, Option<NodeId>)],
+        message: &'static tsr_diagnostics::Message,
+    ) -> bool {
+        let Some(&(_, Some(specifier))) = specifiers.iter().find(|(type_only, _)| *type_only)
+        else {
+            return false;
+        };
+        self.grammar_error_on_first_token(specifier, message)
+    }
+
+    /// `checkImportEqualsDeclaration`'s grammar arm (`checker.go:5491`): an
+    /// entity-name alias (`IsInternalModuleImportEqualsDeclaration`) written
+    /// `import type` is TS1392, on the declaration.
+    pub(crate) fn check_grammar_import_equals_type_only(&mut self, declaration: NodeId) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let Some(Node::ImportEqualsDeclaration(import)) = self.node_map.get(declaration) else {
+            return;
+        };
+        if !import.is_type_only
+            || matches!(
+                import.module_reference,
+                Some(tsr_ast::ModuleReference::ExternalModuleReference(_)) | None
+            )
+        {
+            return;
+        }
+        self.grammar_error_on_node(declaration, &messages::AN_IMPORT_ALIAS_CANNOT_USE_IMPORT_TYPE);
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `checkDecorators`' walk over a decorated declaration's decorators,
+    /// as far as `checkDecorator`'s first step, `checkGrammarDecorator`
+    /// (`checker.go:6062`): the same entry test (`ast.CanHaveDecorators`,
+    /// `HasDecorators`, `NodeCanBeDecorated`), then each decorator in order.
+    /// The decorator call resolution that follows is the calls lane's.
+    pub(crate) fn check_decorators_grammar(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors {
+            return;
+        }
+        let modifiers = match typed {
+            Node::ClassDeclaration(n) => n.modifiers,
+            Node::ClassExpression(n) => n.modifiers,
+            Node::PropertyDeclaration(n) => n.modifiers,
+            Node::MethodDeclaration(n) => n.modifiers,
+            Node::GetAccessorDeclaration(n) => n.modifiers,
+            Node::SetAccessorDeclaration(n) => n.modifiers,
+            Node::ParameterDeclaration(n) => n.modifiers,
+            _ => return,
+        };
+        if !modifiers.iter().any(|m| matches!(m, ModifierLike::Decorator(_)))
+            || !self.node_can_be_decorated(node, typed)
+        {
+            return;
+        }
+        for modifier in modifiers {
+            if let ModifierLike::Decorator(decorator) = modifier {
+                self.check_grammar_decorator(decorator);
+            }
+        }
+    }
+
+    /// `Checker.checkGrammarDecorator` (`grammarchecks.go:127`): a decorator
+    /// expression outside `DecoratorParenthesizedExpression` /
+    /// `DecoratorCallExpression` / `DecoratorMemberExpression` is TS1497 on
+    /// the expression, with TS1498 related at the first offending node — the
+    /// earliest of a `?.` token, a call that is not the outermost, or a
+    /// non-identifier root. Non-null assertions and instantiation
+    /// expressions are skipped. The caller has checked parse diagnostics.
+    fn check_grammar_decorator(&mut self, decorator: &tsr_ast::Decorator<'_>) -> bool {
+        let Some(at) = decorator.expression.and_then(|e| Node::from(e).node_id()) else {
+            return false;
+        };
+        if self.nodes.kind(at) == SyntaxKind::ParenthesizedExpression {
+            return false;
+        }
+        let mut node = at;
+        let mut can_have_call_expression = true;
+        let mut error_node: Option<NodeId> = None;
+        loop {
+            let next = match self.node_map.get(node) {
+                Some(Node::ExpressionWithTypeArguments(inner)) => {
+                    inner.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::NonNullExpression(inner)) => inner.expression.and_then(|e| e.node_id()),
+                Some(Node::CallExpression(call)) => {
+                    if !can_have_call_expression {
+                        error_node = Some(node);
+                    }
+                    if let Some(token) = call.question_dot_token {
+                        error_node = token.node_id;
+                    }
+                    can_have_call_expression = false;
+                    call.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::PropertyAccessExpression(access)) => {
+                    if let Some(token) = access.question_dot_token {
+                        error_node = token.node_id;
+                    }
+                    can_have_call_expression = false;
+                    access.expression.and_then(|e| e.node_id())
+                }
+                Some(Node::Identifier(_)) => break,
+                _ => {
+                    error_node = Some(node);
+                    break;
+                }
+            };
+            let Some(next) = next else { break };
+            node = next;
+        }
+        let Some(error_node) = error_node else { return false };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return true };
+        let mut diagnostic = Diagnostic::new(
+            &messages::EXPRESSION_MUST_BE_ENCLOSED_IN_PARENTHESES_TO_BE_USED_AS_A_DECORATOR,
+            self.error_span(at),
+        );
+        diagnostic.add_related_information(Some(Diagnostic::new(
+            &messages::INVALID_SYNTAX_IN_DECORATOR,
+            self.error_span(error_node),
+        )));
+        self.report(file, diagnostic);
+        true
+    }
+}
