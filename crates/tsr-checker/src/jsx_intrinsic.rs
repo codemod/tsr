@@ -417,7 +417,7 @@ impl Checker<'_, '_> {
         (ty != self.intrinsics.error).then_some(ty)
     }
 
-    fn jsx_attributes_inference_type(
+    pub(crate) fn jsx_attributes_inference_type(
         &mut self,
         opening: NodeId,
         skip: bool,
