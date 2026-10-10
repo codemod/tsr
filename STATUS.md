@@ -22,25 +22,40 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 ## 1. Where the port stands
 
-Round 5 (`tsr-2zk`, cloud boxes), integration branch
-`claude/beautiful-shannon-ar5gh0` at `50cc3a05` (origin/main `2103e539` merged
-in), pinned native `5b1047d`. Coverage bin, full corpus:
+Round 6 (`tsr-2zk`, cloud boxes), integration branch
+`claude/beautiful-shannon-ar5gh0` at `83c6f58d`, pinned native `5b1047d`.
+origin/main `81be45d5` is merged in (batch BV), but main itself has not
+advanced past round 5. Coverage bin, full corpus:
 
-| Suite | Round-5 start | Now | Change |
+| Suite | Round-5 close (`50cc3a05`) | Now (`83c6f58d`) | Change |
 |---|---|---|---|
-| `checker_types` | 8,176/9,538 | **8,489/9,538 (89.00%)** | +313 |
-| `checker_types_configured` | — | **1,716/1,928 (89.00%)** | — |
-| `diagnostics` | 4,394/5,502 | **4,636/5,502 (84.26%)** | +242 |
-| `diagnostics_configured` | 670/1,089 | **894/1,091 (81.94%)** | +224 (denominator +2: two esnext baselines are no longer empty) |
+| `checker_types` | 8,489/9,538 (89.00%) | **8,677/9,538 (90.97%)** | +188 |
+| `checker_types_configured` | 1,716/1,928 (89.00%) | **1,752/1,928 (90.87%)** | +36 |
+| `diagnostics` | 4,636/5,502 (84.26%) | **4,786/5,502 (86.99%)** | +150 |
+| `diagnostics_configured` | 894/1,091 (81.94%) | **955/1,091 (87.53%)** | +61 |
 
-Every batch passed the zero-loss gate (v4):
+Round 6 ran batches BA–CL, the last five as grouped gates at the usage
+checkpoint. Every batch passed the v4 zero-loss gate:
 - both dumps unfiltered, with no previously RIGHT key lost or missing;
 - slowcases and divergentcost;
 - perf at 21 samples (threshold 1.05), with a 41-sample rerun at 1.03;
 - workspace tests.
 
-Two diffs were backed out after their gate named the loss. Per-batch records
-are in [docs/parity/round5.md](docs/parity/round5.md).
+Gates named five losses, and each was backed out (§5). Per-batch records are in
+[docs/parity/round5.md](docs/parity/round5.md), round-6 sections onward.
+
+The round-5 numbers follow as history.
+
+Round 5 (`tsr-2zk`, cloud boxes), integration branch
+`claude/beautiful-shannon-ar5gh0` at `50cc3a05` (origin/main `2103e539` merged
+in), pinned native `5b1047d`. Coverage bin, full corpus:
+
+| Suite | Round-5 start | Round-5 close | Change |
+|---|---|---|---|
+| `checker_types` | 8,176/9,538 | 8,489/9,538 (89.00%) | +313 |
+| `checker_types_configured` | — | 1,716/1,928 (89.00%) | — |
+| `diagnostics` | 4,394/5,502 | 4,636/5,502 (84.26%) | +242 |
+| `diagnostics_configured` | 670/1,089 | 894/1,091 (81.94%) | +224 |
 
 **Performance target not met.** TSR/tsgo median wall ratio, from r5-checkperf3's
 container with its stack applied (round-5 tip before the main merge):
@@ -4004,6 +4019,37 @@ rendering `any` for `errorType` (ADR-0038).
 
 ## 4. What is next — the scored board
 
+Round 6 handoff (`83c6f58d`). All ten round-6 boxes were wrapped up at the
+usage checkpoint, and their claims are released. Their unmeasured WIP diffs
+sit on their own branches. Each `r6-<lane>.md` note names the WIP and the
+remainder, with causes.
+
+Ranked by measured gain that is held today:
+- **`tsr-2zk.1266`**: r6-typesroots3's mapped stack, +75 types on `f334de9`.
+  Re-cut it on r6-printer4's print-time plans; together they regress
+  mappedTypeIndexedAccessConstraint.
+- **`tsr-2zk.1265`**: r6-declared2's deferred conditional fall-through, +70
+  types. Held until the JSX overload road resolves a deferred
+  LibraryManagedAttributes conditional.
+- **`tsr-2zk.1267`**: r6-callreport's isSignatureApplicable(reportErrors) hook,
+  +18 diagnostics. call_reports.rs needs the excess-property arm and the
+  const-type-parameter rule.
+- **`tsr-2zk.1264`**: r6-parsegate's access-site lift (+5) and its
+  declarations/relations WIP (+6). They wait on asserts-this narrowing of a
+  for-of receiver.
+- **r6-errorsplit3's seven unmeasured read-reference diffs.** They fix 37 of
+  the property miss's 46 false claims (`tsr-2zk.1150`).
+
+The ranked cluster queue is r6-triage's 102 filed clusters
+(`tsr-2zk.1152`–`.1253`, P1 ≥15 cases). 65 of them sit in MAIN-reserved
+files.
+
+Perf: `tsr-2zk.1261`. On ramdaToolsNoInfinite2, indexed.rs and members.rs's
+per-call alias-frame map remain after r6-declared3's −71.6%.
+`tsr-2zk.1258`, the possible multi-thread CLI diagnostic drop, is still
+neither reproduced nor refuted.
+
+
 Round 5 handoff (`50cc3a05`). Every claim the round-5 cloud boxes held was
 released at wrap-up. The next owner for each held item, with its measured
 number, is in [docs/parity/round5.md](docs/parity/round5.md), under
@@ -7885,6 +7931,32 @@ axis — a want can be as over-determined as a got, and `() => any` is the arrow
 version of bare `any`.
 
 ## 5. Refused, with the number that refused it
+
+Round 6 (`tsr-2zk`). Each item was refused by the gate that measured it, and
+backed out on the integration branch:
+- r6-declared2's deferred conditional fall-through (c06e47b2, +70 types):
+  batch BY+BZ lost returnTypePredicateIsInstantiateInContextOfTarget to a
+  false TS2769 (`tsr-2zk.1265`).
+- r6-typesroots3's mapped stack, diffs 1–4 (+75 types on `f334de9`): batch
+  CG+CH+CI, mappedTypeIndexedAccessConstraint 0:96/0:97/0:101 RIGHT→WRONG
+  (`any`) on r6-printer4's plans (`tsr-2zk.1266`).
+- r6-callreport's applicability and certified-literal hooks (+18): batch
+  CJ+CK+CL lost 4 diagnostics cases. Three were batch CD's excess-property
+  rows and one was a typeParameterConstModifiers false TS2322
+  (`tsr-2zk.1267`).
+- r6-parsegate's access-site lift (+5): fails
+  `semantic_parse_error_gates::recovery_misses_require_checked_value_roles_and_complete_receiver_ownership`
+  (asserts-this narrowing; `tsr-2zk.1264`).
+- r6-modules3's binder module-body-locals fix: −15 types and a slowcase,
+  ramdaToolsNoInfinite2 240 ms→41.8 s (`tsr-2zk.1256`).
+- r6-errorsplit2's reference-receiver property miss: +391 to +430 lines
+  against 40 to 46 false claims.
+- r6-typesroots3's per-candidate array-literal eviction: +38/−16 types and −1
+  diagnostic.
+- r6-callreport's blanket literal lift (domain-model Ir +0.75%) and its
+  re-inference of every generic new (+0.9%).
+- r6-jsx's TS6229 decline at the factory text: −30 cases.
+
 
 Round 5 (`tsr-2zk`). Each item was refused by the gate that measured it:
 - r5-nodereuse's property-slot diff: batch AW,
@@ -16364,3 +16436,4 @@ that were true of a different population than the one they were quoted about.
 
 | 2026-10-08 | `daee9552` plus six-source tuple-label overlay; native `5b1047d` | +1 legacy type assertion | 0 previously RIGHT losses | **Runtime tuple-label prerequisite retained.** Reserved labels and named-rest AST ownership now follow native; checker normalization, signature rendering and recovered optional/rest semantic dispatch consume that shape. Workspace3255/0/19; complete552533type/12238diagnostic keys retained. Initial two-RIGHT-loss candidate refused and repaired. ScopedClippy passes with five preexisting warnings; strict lint does not pass. Four ioredis parser errors removed; semantic parity, full native corpus qualification and speed target remain unfinished under tsr-1yb.35 and the six original goal tickets. [Reasoning](docs/architecture/parser.md#tuple-labels-and-rest-ownership). |
 | 2026-10-09 | `50cc3a05` (round-5 integration with origin/main `2103e539` merged) / native `5b1047d` | +313 checker_types cases, +242 diagnostics cases since round-5 start | 0 previously RIGHT losses (every batch gated) | **Round 5 closed and merged to main.** checker_types 8,489/9,538 (89.00%), diagnostics 4,636/5,502 (84.26%), configured 1,716/1,928 and 894/1,091. Two diffs backed out by their gates (property-slot, nodereuse2). TSR/tsgo wall dm 0.708, dml 0.666, gi 0.817, jsTyping 3.203; the 0.50 target is not met. |
+| 2026-10-10 | `83c6f58d` (round-6 integration, origin/main `81be45d5` merged in) / native `5b1047d` | +188 checker_types, +150 diagnostics cases since round-5 close | 0 previously RIGHT losses (every batch gated; five refusals backed out) | **Round 6 checkpointed at the usage limit.** checker_types 8,677/9,538 (90.97%), diagnostics 4,786/5,502 (86.99%), configured 1,752/1,928 and 955/1,091. Ten boxes wrapped up; r6-triage filed 102 ranked clusters. Held: `tsr-2zk.1264`–`.1267`. The 0.50 wall target is not met; the lazy-JSDoc perf lever (`tsr-2zk.17.1`) is still claimed by main. Not pushed to main. |
