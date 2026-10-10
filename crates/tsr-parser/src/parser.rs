@@ -780,12 +780,12 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         let statements = self.parse_statement_list(crate::list::ParsingContext::SourceElements);
         // Trailing comments document the end-of-file token
-        // (`parseSourceFileWorker`'s `withJSDoc(eof, endJSDoc)`, `parser.go:438`).
-        // Parsed for their diagnostics; not yet attached, because a bound
-        // end-of-file `@typedef` meets the checker's unfinished typedef alias
-        // bodies (docs/parity/notes/js.md).
-        let _end_docs = self.parse_leading_jsdoc();
+        // (`parseSourceFileWorker`'s `withJSDoc(eof, endJSDoc)`, `parser.go:438`):
+        // its `@typedef`/`@callback`/`@import` declarations are reparsed into
+        // the file's statements like any other host's.
+        let end_docs = self.parse_leading_jsdoc();
         let eof = self.alloc_token(SyntaxKind::EndOfFile, self.token.span);
+        self.attach_jsdoc(tsr_ast::Node::from(eof), end_docs);
         let file = self.finish_node(
             SourceFile::new(self.arena.alloc_slice(&statements), eof),
             SyntaxKind::SourceFile,
