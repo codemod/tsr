@@ -449,3 +449,32 @@ resolver's `getSymbolChain` rooted at a file module spells
 `import(<specifier>)`. A refusal (a bare name where native qualifies) can
 now only come from the resolver's walk or from `getSpecifierForModuleSymbol`,
 not from a port-only gate.
+
+## 7. `getTypeNameForErrorDisplay` for r7-reports (TS2719)
+
+Requested by r7-reports through the integrator: `reportRelationError`'s
+same-name arm (`incompatibleAssignmentOfIdenticallyNamedTypes`, TS2719)
+prints both types with `getTypeNameForErrorDisplay` (`relater.go:1297`),
+which is `typeToStringEx(t, nil, TypeFormatFlagsUseFullyQualifiedType)`.
+
+**What native does with no enclosing declaration.** `lookupSymbolChainWorker`
+(`nodebuilderimpl.go:1070`) still builds a chain under
+`UseFullyQualifiedType`, except for a type parameter (printed bare).
+`someSymbolTableInScope` then visits only `c.globals`, so a name is
+accessible only as a global, and otherwise `getSymbolChain` qualifies it by
+its containers up to a global or a module. A module is spelled by
+`getSpecifierForModuleSymbol` with no `enclosingFile`
+(`nodebuilderimpl.go:1265`): its ambient name, or its file's name.
+
+**The API.** `Checker::type_name_for_error_display(TypeId) -> String`
+(checker.rs): the site-free print with the type's own name (a reference's
+target, a class or interface, an alias-named composite, an enum) replaced
+by that chain (`fully_qualified_symbol_text`). Reduced: type arguments and
+members keep their site-free print, where native qualifies every nested
+reference too. No cache. It has no caller until r7-reports' TS2719 arm
+lands (`allow(dead_code)` names that consumer); the unit test
+`printing::tests::a_name_for_error_display_is_fully_qualified` pins
+`M.N.C` for a class in nested namespaces and `T` for a type parameter.
+
+Measured: no corpus line reaches it (both dumps unchanged against §6's
+commit).
