@@ -450,3 +450,14 @@ on the list — which starts at the `await` upstream. The arm declined both,
 since this parser eats the `await`; `await_using_list_await_start`
 (`module_format.rs`, §9) recovers it, so both messages are reported with the
 list's upstream start. Converted: `awaitUsingDeclarationsInForIn`.
+
+## §20 `checkGrammarTaggedTemplateChain` (TS1358)
+
+`check_grammar_tagged_template_chain` (`grammar.rs`) is
+`checkGrammarTaggedTemplateChain` (`grammarchecks.go:859`), called first from
+`checkTaggedTemplateExpression` (`checker.go:10035`, one line in the
+dispatch): a tagged template with a `?.` token or inside an optional chain
+(`NodeFlagsOptionalChain`) is TS1358 on the template. It needed r7-parser
+`6b560647`, which parses a template after `?.` as a tagged template. Its
+`checkGrammarTypeArguments` sibling is not ported. Converted:
+`taggedTemplateChain`.

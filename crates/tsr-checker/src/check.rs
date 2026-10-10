@@ -763,6 +763,8 @@ impl Checker<'_, '_> {
                 ambient
             }
             Node::TaggedTemplateExpression(_) => {
+                // `checkTaggedTemplateExpression` (`checker.go:10035`).
+                self.check_grammar_tagged_template_chain(node);
                 self.check_tagged_template_diagnostics(node);
                 ambient
             }

@@ -3151,3 +3151,32 @@ impl Checker<'_, '_> {
         }
     }
 }
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarTaggedTemplateChain` (`grammarchecks.go:859`),
+    /// from `checkTaggedTemplateExpression` (`checker.go:10035`): a tagged
+    /// template written after `?.`, or inside an optional chain, is TS1358 on
+    /// the template. The parser builds that shape as of r7-parser
+    /// `6b560647`. Its `checkGrammarTypeArguments` sibling is not ported.
+    pub(crate) fn check_grammar_tagged_template_chain(&mut self, node: NodeId) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
+            return false;
+        };
+        if tagged.question_dot_token.is_none()
+            && !self.nodes.flags(node).contains(NodeFlags::OPTIONAL_CHAIN)
+        {
+            return false;
+        }
+        let Some(template) = tagged.template.and_then(|t| Node::from(t).node_id()) else {
+            return false;
+        };
+        self.grammar_error_on_node(
+            template,
+            &messages::TAGGED_TEMPLATE_EXPRESSIONS_ARE_NOT_PERMITTED_IN_AN_OPTIONAL_CHAIN,
+        );
+        true
+    }
+}
