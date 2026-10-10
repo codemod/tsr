@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1751/1928 (90.82%)
-Assertion lines: 77059/78552 (98.10%)  — a gradient, not a pass rate
-Failed         : 177
+Passed         : 1752/1928 (90.87%)
+Assertion lines: 77071/78552 (98.11%)  — a gradient, not a pass rate
+Failed         : 176
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 177 failures:
+First 100 of 176 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -105,9 +105,9 @@ compiler/es6ExportClauseWithoutModuleSpecifierInEs5(target=es2015)
 compiler/importHelpers(target=es2015)
   external.ts: >result : error — expected >result : TemplateStringsArray
 compiler/inKeywordTypeguard(strict=false)
-  inKeywordTypeguard.ts: >window.ontouchstart : (this: GlobalEventHandlers, ev: TouchEvent) => any — expected >window.ontouchstart : ((this: GlobalEventHandlers, ev: TouchEvent) => any) & ((this: Window, ev: TouchEvent) => any)
+  inKeywordTypeguard.ts: >x : object & Record<"a", unknown> & Record<1, unknown> — expected >x : object & Record<"a", unknown> & Record<1, unknown> & Record<unique symbol, unknown>
 compiler/inKeywordTypeguard(strict=true)
-  inKeywordTypeguard.ts: >window.ontouchstart : ((this: GlobalEventHandlers, ev: TouchEvent) => any) | null | undefined — expected >window.ontouchstart : (((this: GlobalEventHandlers, ev: TouchEvent) => any) & ((this: Window, ev: TouchEvent) => any)) | null | undefined
+  inKeywordTypeguard.ts: >x : object & Record<"a", unknown> & Record<1, unknown> — expected >x : object & Record<"a", unknown> & Record<1, unknown> & Record<unique symbol, unknown>
 compiler/intersectionsAndOptionalProperties2(exactoptionalpropertytypes=true)
   intersectionsAndOptionalProperties2.ts: >ab_disabled_read : boolean — expected >ab_disabled_read : boolean | undefined
 compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
@@ -152,8 +152,6 @@ compiler/taggedTemplatesInModuleAndGlobal(target=es2015)
   global.ts: >templateObjectFactory : () => any — expected >templateObjectFactory : () => TemplateStringsArray
 compiler/transformNestedGeneratorsWithTry(target=es2015)
   main.ts: >Bluebird : PromiseConstructor — expected >Bluebird : { all<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>[]>; all<T extends readonly unknown[] | []>(values: T): Promise<{ -readonly [P in keyof T]: Awaited<T[P]>; }>; race<T>(values: Iterable<T | PromiseLike<T>>): Promise<Awaited<T>>; race<T extends readonly unknown[] | []>(values: T): Promise<Awaited<T[number]>>; prototype: Promise<any>; reject<T = never>(reason?: any): Promise<T>; resolve(): Promise<void>; resolve<T>(value: T): Promise<Awaited<T>>; resolve<T>(value: T | PromiseLike<T>): Promise<Awaited<T>>; [Symbol.species]: PromiseConstructor; default: PromiseConstructor; }
-conformance/arrowFunctionContexts(alwaysstrict=true)
-  arrowFunctionContexts.ts: >window.setTimeout : (handler: TimerHandler, timeout?: number, ...arguments: any[]) => number — expected >window.setTimeout : ((handler: TimerHandler, timeout?: number, ...arguments: any[]) => number) & ((handler: TimerHandler, timeout?: number, ...arguments: any[]) => number)
 conformance/asyncArrowFunctionCapturesThis_es5(target=es2015)
   asyncArrowFunctionCapturesThis_es5.ts: >fn : error — expected >fn : () => Promise<this>
 conformance/asyncFunctionDeclaration15_es5(target=es2015)
@@ -227,4 +225,6 @@ conformance/exportAsNamespace3(module=esnext)
 conformance/exportsAndImports4(target=es2015)
   t3.ts: >c : typeof a — expected >c : typeof c
 conformance/importAssertion3(module=es2015)
+  1.ts: >I : I — expected >I : import("./0").I
+conformance/importAssertion3(module=esnext)
   1.ts: >I : I — expected >I : import("./0").I
