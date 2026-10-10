@@ -323,25 +323,28 @@ impl DeclarationEmitResolver<'_, '_, '_> {
         })
     }
 
-    /// `hasNonGlobalAugmentationExternalModuleSymbol` (`:101`).
+    /// `hasNonGlobalAugmentationExternalModuleSymbol` (`:101`). A file counts
+    /// when `ast.IsExternalOrCommonJSModule`, which here is "the binder gave
+    /// it a symbol" (`Checker::is_external_or_common_js_module`): a `.js` file
+    /// that only `require`s is a module too (r7-printer §5).
     fn has_non_global_augmentation_external_module_symbol(&self, declaration: NodeId) -> bool {
         match self.checker.node_map.get(declaration) {
             Some(Node::ModuleDeclaration(module)) => {
                 matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
             }
-            Some(Node::SourceFile(file)) => tsr_binder::is_external_module(file),
+            Some(Node::SourceFile(_)) => self.checker.is_external_or_common_js_module(declaration),
             _ => false,
         }
     }
 
-    /// `hasExternalModuleSymbol` (`:248`).
+    /// `hasExternalModuleSymbol` (`:248`), with the same file test.
     fn has_external_module_symbol(&self, declaration: NodeId) -> bool {
         match self.checker.node_map.get(declaration) {
             Some(Node::ModuleDeclaration(module)) => {
                 matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
                     || module.keyword.kind == K::GlobalKeyword
             }
-            Some(Node::SourceFile(file)) => tsr_binder::is_external_module(file),
+            Some(Node::SourceFile(_)) => self.checker.is_external_or_common_js_module(declaration),
             _ => false,
         }
     }
@@ -1212,8 +1215,10 @@ impl DeclarationEmitResolver<'_, '_, '_> {
         let mut out = Vec::new();
         let mut current = Some(enclosing);
         while let Some(location) = current {
-            let global_source_file = matches!(self.checker.node_map.get(location),
-                Some(Node::SourceFile(file)) if !tsr_binder::is_external_module(file));
+            // `ast.IsGlobalSourceFile`: a file that is neither an external
+            // nor a CommonJS module.
+            let global_source_file = self.checker.nodes.kind(location) == K::SourceFile
+                && !self.checker.is_external_or_common_js_module(location);
             if !global_source_file && self.checker.binder.locals(location).is_some() {
                 out.push(ScopeTable {
                     table: TableId::Locals(location),

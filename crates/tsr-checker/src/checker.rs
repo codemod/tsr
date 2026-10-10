@@ -3048,6 +3048,23 @@ impl<'a, 'n> Checker<'a, 'n> {
         {
             return Some(renamed);
         }
+        // r7-printer §5: a print baked with a written qualifier
+        // (`B.A`, `foo.Provide`) is re-spelled from `getSymbolChain` at the
+        // site, as `symbolToTypeNode` names every reference.
+        if let Some((start, end)) = Self::split_around_qualified_name(&printed, name) {
+            let meaning =
+                if printed.starts_with("typeof ") { SymbolFlags::VALUE } else { SymbolFlags::TYPE };
+            if let Some(spelled) = self.symbol_chain_text_at(symbol, reference, meaning)
+                && spelled != printed[start..end]
+            {
+                let mut out = String::with_capacity(printed.len() + spelled.len());
+                out.push_str(&printed[..start]);
+                out.push_str(&spelled);
+                out.push_str(&printed[end..]);
+                return Some(out);
+            }
+            return Some(printed);
+        }
         let Some(suffix_at) = Self::split_around_name(&printed, name) else {
             return Some(printed);
         };
@@ -3196,6 +3213,63 @@ impl<'a, 'n> Checker<'a, 'n> {
         out.push_str(&qualifier);
         out.push_str(&printed[suffix_at - name.len()..]);
         Some(out)
+    }
+
+    /// Where a dotted entity name ending in `name` sits in `printed`, if
+    /// `printed` is `Q1.….name`, possibly under `typeof` and possibly with
+    /// type arguments: `(start, end)` of the whole dotted path. `None` for a
+    /// bare name ([`Checker::split_around_name`]'s shape) or anything else.
+    fn split_around_qualified_name(printed: &str, name: &str) -> Option<(usize, usize)> {
+        if name.is_empty() {
+            return None;
+        }
+        let start = if printed.starts_with("typeof ") { "typeof ".len() } else { 0 };
+        let rest = &printed[start..];
+        let path_len = rest.find('<').unwrap_or(rest.len());
+        if path_len < rest.len() && !rest.ends_with('>') {
+            return None;
+        }
+        let path = &rest[..path_len];
+        let qualifier = path.strip_suffix(name)?.strip_suffix('.')?;
+        let is_identifier = |segment: &str| {
+            let mut chars = segment.chars();
+            chars.next().is_some_and(|c| c == '_' || c == '$' || c.is_alphabetic())
+                && chars.all(|c| c == '_' || c == '$' || c.is_alphanumeric())
+        };
+        if qualifier.is_empty() || !qualifier.split('.').all(is_identifier) {
+            return None;
+        }
+        Some((start, start + path_len))
+    }
+
+    /// `getSymbolChain(symbol, meaning, true, true)` spelled as
+    /// `symbolToTypeNode` writes it: an import type when the root is an
+    /// external module, else the chain's names joined by `.`. No cache of its
+    /// own (the resolver's, `accessibility_links`).
+    fn symbol_chain_text_at(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
+            .symbol_chain_at(symbol, reference, meaning, true, true, 0);
+        let (&root, rest) = chain.split_first()?;
+        let root_is_module = self.is_module_symbol(root)
+            || self.binder.symbols().get(root).declarations.iter().any(|&declaration| {
+                matches!(self.node_map.get(declaration), Some(Node::ModuleDeclaration(module))
+                    if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
+            });
+        let mut text = if root_is_module {
+            format!("import({})", self.module_specifier_for_symbol(root, reference)?)
+        } else {
+            self.binder.symbols().get(root).name.to_string()
+        };
+        for &part in rest {
+            text.push('.');
+            text.push_str(self.binder.symbols().get(part).name);
+        }
+        Some(text)
     }
 
     /// Where `name` sits in `printed`, if `printed` is that name possibly under
