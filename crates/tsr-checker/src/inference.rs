@@ -720,14 +720,27 @@ impl<'a> Checker<'a, '_> {
                 // (checker.go:9485, :7486). This lets a contextual return
                 // candidate instantiate nested object/array member contexts
                 // before their literals widen.
-                let use_active_context = return_literal_map.is_some()
-                    && matches!(
-                        argument,
-                        Expression::ObjectLiteralExpression(_)
-                            | Expression::ArrayLiteralExpression(_)
-                            | Expression::ArrowFunction(_)
-                            | Expression::FunctionExpression(_)
-                    );
+                // A literal argument re-checked under the resolved signature
+                // is checked afresh here, under this candidate's own
+                // parameter type: `checkExpressionWithContextualType(arg,
+                // paramType, context)`, not a stateless contextual read.
+                let fresh_literal = !skip_context_sensitive
+                    && match self.resolved_literal_argument_recheck(call, argument) {
+                        Some(id) => {
+                            self.evict_literal_subtree(id);
+                            true
+                        }
+                        None => false,
+                    };
+                let use_active_context = fresh_literal
+                    || return_literal_map.is_some()
+                        && matches!(
+                            argument,
+                            Expression::ObjectLiteralExpression(_)
+                                | Expression::ArrayLiteralExpression(_)
+                                | Expression::ArrowFunction(_)
+                                | Expression::FunctionExpression(_)
+                        );
                 let previous_inferential = if use_active_context
                     && let Some(call) = call
                     && let Some(context) = self.active_inference_contexts.get_mut(&call)
@@ -1612,6 +1625,14 @@ impl<'a> Checker<'a, '_> {
                 }
             }
         }
+        if !skip_context_sensitive {
+            self.recheck_literal_arguments_in_resolved_signature(
+                call,
+                signature,
+                arguments,
+                (&map, &parameters, &names),
+            );
+        }
         if let Some(slot) = instantiated {
             let returned_image = self.instantiate_type(returned, &map, &parameters, &names);
             let returned_image =
@@ -1637,6 +1658,143 @@ impl<'a> Checker<'a, '_> {
         }
         let returned = self.instantiate_type(returned, &map, &parameters, &names);
         self.propagate_return_type_parameters(returned, &inferred_type_parameters)
+    }
+
+    /// `checkApplicableSignature` (`checker.go:9256`) re-checks every argument
+    /// with `checkExpressionWithContextualType(arg, paramType)` against the
+    /// INSTANTIATED candidate, and a later `checkExpression` of an argument
+    /// node (the type writer's, a diagnostic's) reads its contextual type from
+    /// the call's resolved signature (`getContextualTypeForArgumentAtIndex`,
+    /// `checker.go:29772`, `getResolvedSignature` at :29789). Literal widening
+    /// in an array or object literal argument
+    /// (`getWidenedLiteralLikeTypeForContextualType`, `isLiteralOfContextualType`
+    /// at `checker.go:25522`) therefore follows the inferred parameter type:
+    /// `new Map([["", true]])` keeps `[string, true]` against
+    /// `readonly [string, boolean]`, where the inference pass's own check saw
+    /// `V` and widened. This port caches that inference-pass check in
+    /// `node_types`; this re-check replaces it with the check under the
+    /// instantiated signature.
+    ///
+    /// Work boundary (docs/conventions.md, checker ports): the same as the
+    /// non-generic candidate re-check in `calls.rs`
+    /// (`recheck_literal_arguments_in_context`). Only array/object literal
+    /// arguments that are not context-sensitive (those are already checked
+    /// in the fixing pass above) are re-checked, and only when their subtree
+    /// holds no nested call, `new`, tagged template, function, method,
+    /// accessor or class: upstream caches a nested resolved signature and a
+    /// function's type from their first check, while `evict_subtree` would drop
+    /// this port's copies. The instance is published through the existing
+    /// per-call `call_inference_signatures` slot for the duration of each
+    /// re-check only; no cache is added. Skipped when another reader already
+    /// owns that slot, while a contextual read prefers uninstantiated types,
+    /// and inside a loop fixpoint (whose answers are never cached).
+    fn recheck_literal_arguments_in_resolved_signature(
+        &mut self,
+        call: Option<NodeId>,
+        signature: &Signature,
+        arguments: &[Expression<'_>],
+        (map, parameters, names): (&[(TypeId, TypeId)], &[TypeId], &[&str]),
+    ) {
+        let Some(call) = call else { return };
+        let candidates: Vec<NodeId> = arguments
+            .iter()
+            .filter_map(|&argument| self.resolved_literal_argument_recheck(Some(call), argument))
+            .filter(|id| self.node_types.contains_key(id))
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let mut instance = signature.clone();
+        instance.type_parameters.clear();
+        let Some(instance) = self.instantiate_signature(instance, map, parameters, names) else {
+            return;
+        };
+        for (&argument, id) in arguments.iter().zip(arguments.iter().map(Expression::node_id)) {
+            let Some(id) = id.filter(|id| candidates.contains(id)) else { continue };
+            self.evict_literal_subtree(id);
+            let previous = self.call_inference_signatures.insert(call, instance.clone());
+            self.check_expression(argument);
+            match previous {
+                Some(previous) => self.call_inference_signatures.insert(call, previous),
+                None => self.call_inference_signatures.remove(&call),
+            };
+        }
+    }
+
+    /// The argument node [`Checker::recheck_literal_arguments_in_resolved_signature`]
+    /// re-checks under the instantiated signature, and whose check the
+    /// inference pass therefore makes afresh: an array or object literal that
+    /// is not context-sensitive and holds no resolving node, at a call whose
+    /// `call_inference_signatures` slot is free, outside a loop fixpoint and
+    /// outside an uninstantiated contextual read.
+    fn resolved_literal_argument_recheck(
+        &self,
+        call: Option<NodeId>,
+        argument: Expression<'_>,
+    ) -> Option<NodeId> {
+        let call = call?;
+        if self.contextual_prefers_uninstantiated
+            || self.uninstantiated_context_node.is_some()
+            || !self.flow_loop_stack.is_empty()
+            || self.narrow_value_stack.contains(&call)
+            || !matches!(
+                argument,
+                Expression::ArrayLiteralExpression(_) | Expression::ObjectLiteralExpression(_)
+            )
+            || self.is_context_sensitive_argument(&argument)
+        {
+            return None;
+        }
+        let id = argument.node_id()?;
+        (!self.literal_subtree_resolves(id)).then_some(id)
+    }
+
+    /// Forget the expression answers under a literal argument that holds no
+    /// resolving node, so its next check recomputes them in the current
+    /// contextual state. Unlike [`Checker::evict_subtree`] the property
+    /// symbols keep their `symbol_types` entries until the re-check replaces
+    /// them (`objects.rs` publishes each member's type on its symbol, the
+    /// `links.resolvedType` of upstream's `checkObjectLiteral`): upstream's
+    /// re-check creates fresh property symbols, so a type built from the
+    /// previous check — the reverse-mapped inference of `Readonly<Options>`
+    /// from this very literal — still reads the previous symbols' types
+    /// instead of re-entering the member being re-checked (TS7022).
+    fn evict_literal_subtree(&mut self, root: NodeId) {
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            self.node_types.remove(&id);
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+    }
+
+    /// Whether a literal argument's subtree holds a node whose check resolves
+    /// and caches a signature or a function's own type upstream (the work
+    /// boundary of [`Checker::recheck_literal_arguments_in_resolved_signature`]).
+    fn literal_subtree_resolves(&self, root: NodeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            if matches!(
+                self.nodes.kind(id),
+                K::CallExpression
+                    | K::NewExpression
+                    | K::TaggedTemplateExpression
+                    | K::FunctionExpression
+                    | K::ArrowFunction
+                    | K::ClassExpression
+                    | K::MethodDeclaration
+                    | K::GetAccessor
+                    | K::SetAccessor
+            ) {
+                return true;
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        false
     }
 
     /// The non-fixing resolution in `getInferredType` and `newBackreferenceMapper`
@@ -6589,6 +6747,17 @@ impl<'a> Checker<'a, '_> {
             return elements
                 .iter()
                 .any(|&ty| self.mentions_type_parameter_inner(ty, is_parameter, names, visited));
+        }
+        // A variadic tuple is a tuple reference whose type arguments are its
+        // element types (`couldContainTypeVariablesWorker`'s reference arm,
+        // `checker.go:22193`, `getTypeArguments`): `[...T[K]]` mentions `K`
+        // through its spread element. Without this arm a mapped member's
+        // template `[...HandleOptions<T[K]>]` kept the mapped parameter
+        // after `K := "prop"` whenever the caller passed no printed names.
+        if let Some((elements, _)) = self.variadic_tuple_elements.get(&id) {
+            return elements.iter().any(|element| {
+                self.mentions_type_parameter_inner(element.r#type, is_parameter, names, visited)
+            });
         }
         let constituents: &[TypeId] = match &ty.data {
             TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => types,
