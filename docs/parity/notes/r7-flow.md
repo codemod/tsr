@@ -277,3 +277,92 @@ types **+20** (`destructuringTypeGuardFlow` 8, `destructuringControlFlow` 7,
 diagnostics **+2** (`destructuringTypeGuardFlow` EMPTY_WRONG→EMPTY_RIGHT,
 `dependentDestructuredVariables`), 0 lost. A probe of the three shapes
 (object, nested object, array under an object) matches native.
+
+## §8 `autoType` identity for the implicit-any test (requested by r7-reports)
+
+**Forcing constraint.** `checkIdentifier` (`checker.go:11182`) reports
+TS7034 at the declaration and TS7005 at the reference when the flow type of
+an auto-typed variable *is* `autoType` (`checker.go:976`): an identity test
+against a distinct intrinsic that prints `any`. `getUnionType` collapses
+`autoType ∪ string` to `anyType` (`includes&Any`), and an assignment of an
+`any` value answers `anyType`, so `any` alone does not say "auto". The port
+spelled auto as `intrinsics.any` on every road, so the test was not
+expressible.
+
+**Port.** `Intrinsics::auto` (`intrinsics.rs`, granted by the integrator):
+`ANY` flags, prints `any`, distinct identity, created after `unique_literal`
+so no earlier intrinsic's id moves. `identifier_flow_type_is_auto(reference,
+symbol)` (flow.rs) walks the identifier's graph once more with `auto` as the
+declared type and native's initial type for an automatic declaration:
+`autoType` when `assumeInitialized` (its outer-variable disjunct, shared with
+the START arm's declared exit through `outer_auto_reference_is_initialized`),
+else `undefinedType`. It answers `answer == auto` (or the unreachable
+sentinel, which `flow.go:111` turns into the declared type).
+
+Two native rules the identity needs, ported for the auto walk only:
+
+- `getTypeAtFlowBranchLabel`'s shortcut (`flow.go:1270`, `:1293`): a path
+  answering the declared type when declared == initial ends the join. With
+  auto as both, the join answers auto even beside an assigned `number`,
+  which is what makes `controlFlowNoImplicitAny`'s `f10` report. **Refused on
+  the query road, with its number:** applied to every walk it cost 8 lines in
+  `typeGuardsWithInstanceOf` (0:28-35 `C | (Validator & Partial<OnChanges>)`
+  became the declared type). The query road's initial type is the declared
+  type even where native's `assumeInitialized` is false and its initial is
+  `getOptionalType(declared)`, so `declared == initial` there is not native's
+  test. It reopens when the query road carries native's initial type.
+- `convertAutoToAny` at the UNREACHABLE arm.
+
+**Boundary (the integrator's condition).** `intrinsics.auto` never leaves
+the auto query: it is that walk's declared/initial type; the UNREACHABLE arm
+converts it to `any`; loop-cache keys carry an auto bit (`1 << 62` in the
+symbol word) so no loop result crosses between the auto walk and the query
+road; the shortcut tests `auto` by identity; the answer is a `bool`. The
+query road (`get_flow_type_of_reference*`) never sees it. Not covered: the
+auto-array track (`autoArrayType`, TS7034 with `any[]`:
+`controlFlowArrayErrors`, `evolvingArrayResolvedAssert`), and
+`assumeInitialized`'s module-exports, spread-target and same-scoped-binding
+disjuncts. Cost: one extra walk per auto-typed identifier read the reporter
+asks about, under `noImplicitAny` only; no new cache.
+
+**Measured.** The API lands unused (corpus-neutral: types and diagnostics
+verdicts identical). With the reporter prototype
+`r7-flow-auto-reporter-prototype.diff` (check walk's identifier arm, beside
+TS2454; not shipped, r7-reports owns the reporter) on `71f8076c`: diagnostics
+**+5** (`controlFlowNoImplicitAny`,
+`implicitAnyDeclareVariablesWithoutTypeAndInit`, `narrowingPastLastAssignment`,
+`tsxEmit1`, `tsxReactEmit1`), types byte-identical, 0 lost.
+
+## §9 NARROW-PRIVATE-IDENTIFIER-IN-EXPRESSION: `#x in obj`
+
+`narrowTypeByBinaryExpression`'s `in` arm (`flow.go:519`) sends a private
+identifier left operand to `narrowTypeByPrivateIdentifierInInExpression`
+(`flow.go:982`): a matching right operand narrows by `getNarrowedType(t,
+target, assumeTrue, checkDerived=true)`, the target the declaring class's
+declared type, or its static side (`getTypeOfSymbol(classSymbol)`) when the
+member is static. The port's `in` arm had only the string-key road.
+`getSymbolForPrivateIdentifierExpression` is the existing lexical lookup
+(`lexical_private_declaring_class`, members.rs); the member's
+`HasStaticModifier` is read off its first declaration in that class. An
+undecidable `narrowed_type_worker` keeps `t`, as at the other callers.
+
+Measured on `e65ec3bf`: types **+32** (`privateNameInInExpression` es2022 and
+esnext 14 each, `privateNameInInExpressionTransform` ×3, `importHelpersES6`),
+diagnostics unchanged, 0 lost. No cache or traversal: one class-member scan
+per narrowing.
+
+## §10 `getUnionOrEvolvingArrayType`'s declared-union arm (routed from r7-declared)
+
+`getUnionOrEvolvingArrayType` (`flow.go:1314`) ends every branch and loop
+junction: when the union it built has exactly the declared union's
+constituents, it answers the declared type itself (`flow.go:1319`,
+`slices.Equal(result.types, declaredType.types)`), so the alias and origin
+survive for printing. The port answered the rebuilt union; its §58 arm only
+recovered a *named* union through `named_union_by_members`.
+`declared_if_same_union` runs at both junctions after `recombineUnknownType`,
+as native's does.
+
+Measured on `8f08f3a2`: corpus-neutral (types text and diagnostics verdicts
+identical) and jsTyping identical. It is r7-declared's prerequisite: once
+every union-bodied alias is admitted, `typeGuardsAsAssertions` 0:23/0:31
+print `Optional<r>` through this arm instead of `None | Some<r>`.
