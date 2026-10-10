@@ -104,11 +104,51 @@ impl Checker<'_, '_> {
             // accessible chain reaches is not written (`nodebuilderimpl.go:1141`),
             // so `symbolToExpression` falls back to the symbol alone.
             text
+        } else if let Some(prefix) = self.symbol_chain(symbol, site, meaning, 0) {
+            format!("{prefix}{text}")
         } else {
-            self.symbol_chain(symbol, site, meaning, 0)
-                .map_or_else(|| text.clone(), |prefix| format!("{prefix}{text}"))
+            // The printer's `symbol_chain` qualifies through modules and
+            // namespaces only. A member of an interface reached through a
+            // variable of its type (`SymbolConstructor.iterator` through
+            // `Symbol`) is getSymbolChain's container walk over
+            // getWithAlternativeContainers' variable-match arm
+            // (`symbolaccessibility.go:137`), the resolver's port.
+            self.unique_symbol_container_chain_at(symbol, site).unwrap_or(text)
         };
         format!("[{spelled}]")
+    }
+
+    /// `createExpressionFromSymbolChain` (`nodebuilderimpl.go:858`) over the
+    /// resolver's getSymbolChain, for a chain of identifier names, which is
+    /// the property-access form: `None` when the chain is the symbol alone
+    /// or holds a module or a name that needs the element-access form.
+    fn unique_symbol_container_chain_at(
+        &mut self,
+        symbol: SymbolId,
+        site: NodeId,
+    ) -> Option<String> {
+        let chain = DeclarationEmitResolver::new(self).symbol_chain_at(
+            symbol,
+            site,
+            SymbolFlags::VALUE,
+            true,
+            false,
+            0,
+        );
+        if chain.len() < 2 || chain.last() != Some(&symbol) {
+            return None;
+        }
+        let names: Vec<&str> =
+            chain.iter().map(|&link| self.binder.symbols().get(link).name).collect();
+        // canUsePropertyAccess (`nodebuilderimpl.go:912`) for every link.
+        names
+            .iter()
+            .all(|name| {
+                let mut chars = name.chars();
+                chars.next().is_some_and(tsr_scanner::is_identifier_start)
+                    && chars.all(tsr_scanner::is_identifier_part)
+            })
+            .then(|| names.join("."))
     }
 
     /// Whether `symbol`'s container is an external module

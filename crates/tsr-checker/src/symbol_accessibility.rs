@@ -150,6 +150,11 @@ pub(crate) struct AccessibilityCache {
     containing_modules: FxHashMap<(SymbolId, NodeId), Vec<SymbolId>>,
 }
 
+/// `modulespecifiers.CountPathComponents` (`modulespecifiers/compare.go:7`).
+fn count_path_components(path: &str) -> usize {
+    path.strip_prefix("./").unwrap_or(path).matches('/').count()
+}
+
 /// `getQualifiedLeftMeaning` (`symbolaccessibility.go:108`).
 fn qualified_left_meaning(meaning: SymbolFlags) -> SymbolFlags {
     if meaning == SymbolFlags::VALUE { SymbolFlags::VALUE } else { SymbolFlags::NAMESPACE }
@@ -657,6 +662,122 @@ impl DeclarationEmitResolver<'_, '_, '_> {
         }
         candidates.sort_by_cached_key(|&s| self.checker.compare_symbols_key(s));
         candidates.first().copied()
+    }
+
+    /// `getSymbolChain` (`nodebuilderimpl.go:1087`): the accessible chain
+    /// of `symbol` at `enclosing`, else a container's chain followed by the
+    /// symbol (or its alias in that container), else the symbol alone when
+    /// `end_of_chain` or it is not an anonymous type. The containers are
+    /// `getContainersOfSymbol`'s, so a member of an interface reached through
+    /// a variable of its type takes that variable (`Symbol.iterator`,
+    /// `getWithAlternativeContainers`' variable-match arm). Parents are tried
+    /// in `sortByBestName`'s order with this port's module specifiers
+    /// ([`Checker::module_specifier_for_symbol`]).
+    ///
+    /// `use_only_external_aliasing` is false, `symbolToExpression`'s flags.
+    pub(crate) fn symbol_chain_at(
+        &mut self,
+        symbol: SymbolId,
+        enclosing: NodeId,
+        meaning: SymbolFlags,
+        end_of_chain: bool,
+        yield_module_symbol: bool,
+        depth: usize,
+    ) -> Vec<SymbolId> {
+        // Native has no cap; a container cycle would be a binder defect.
+        if depth > 8 {
+            return Vec::new();
+        }
+        let mut chain = self.accessible_symbol_chain(Some(symbol), enclosing, meaning, false);
+        let qualifier_meaning =
+            if chain.len() > 1 { qualified_left_meaning(meaning) } else { meaning };
+        if chain.is_empty() || self.needs_qualification(chain[0], enclosing, qualifier_meaning) {
+            let root = chain.first().copied().unwrap_or(symbol);
+            let parents = self.containers_of_symbol(root, enclosing, meaning);
+            let mut parents: Vec<(SymbolId, String)> = parents
+                .into_iter()
+                .map(|parent| {
+                    let declarations =
+                        self.checker.binder.symbols().get(parent).declarations.clone();
+                    let module = declarations
+                        .iter()
+                        .any(|&d| self.has_non_global_augmentation_external_module_symbol(d));
+                    let specifier = if module {
+                        self.checker
+                            .module_specifier_for_symbol(parent, enclosing)
+                            .map(|quoted| tsr_core::strip_quotes(&quoted).to_string())
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    (parent, specifier)
+                })
+                .collect();
+            parents.sort_by(|(a, specifier_a), (b, specifier_b)| {
+                if !specifier_a.is_empty() && !specifier_b.is_empty() {
+                    let relative_a = tsr_path::path_is_relative(specifier_a);
+                    let relative_b = tsr_path::path_is_relative(specifier_b);
+                    return if relative_a == relative_b {
+                        count_path_components(specifier_a).cmp(&count_path_components(specifier_b))
+                    } else if relative_b {
+                        std::cmp::Ordering::Less
+                    } else {
+                        std::cmp::Ordering::Greater
+                    };
+                }
+                self.checker.compare_symbols_key(*a).cmp(&self.checker.compare_symbols_key(*b))
+            });
+            for (parent, _) in parents {
+                let parent_chain = self.symbol_chain_at(
+                    parent,
+                    enclosing,
+                    qualified_left_meaning(meaning),
+                    false,
+                    yield_module_symbol,
+                    depth + 1,
+                );
+                if parent_chain.is_empty() {
+                    continue;
+                }
+                if let Some(&exported) =
+                    self.checker.binder.symbols().get(parent).exports.get("export=")
+                    && self.same_reference(exported, symbol)
+                {
+                    // The parent chain's root is the symbol: a module's
+                    // `export =` looks like its own parent.
+                    chain = parent_chain;
+                    break;
+                }
+                let next = if chain.is_empty() {
+                    vec![self.alias_for_symbol_in_container(parent, symbol).unwrap_or(symbol)]
+                } else {
+                    chain
+                };
+                chain = parent_chain;
+                chain.extend(next);
+                break;
+            }
+        }
+        if !chain.is_empty() {
+            return chain;
+        }
+        let record = self.checker.binder.symbols().get(symbol);
+        if end_of_chain
+            || !record.flags.intersects(SymbolFlags::TYPE_LITERAL | SymbolFlags::OBJECT_LITERAL)
+        {
+            // An external-module parent is not written (`x` over `"foo/bar".x`).
+            let declarations = record.declarations.clone();
+            if !end_of_chain
+                && !yield_module_symbol
+                && declarations
+                    .iter()
+                    .any(|&d| self.has_non_global_augmentation_external_module_symbol(d))
+            {
+                return Vec::new();
+            }
+            return vec![symbol];
+        }
+        Vec::new()
     }
 
     /// `getAccessibleSymbolChain` (`:373`).
