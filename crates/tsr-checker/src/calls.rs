@@ -1214,11 +1214,14 @@ impl Checker<'_, '_> {
         if applicable {
             // `isSingleNonGenericCandidate`: the sole candidate is checked
             // against the arguments as is, no inference or type arguments.
+            // Spread arguments included: `getEffectiveCallArguments` expands
+            // a tuple spread into synthetic arguments and keeps any other
+            // spread as one argument typed by its iterated element
+            // (`checkSpreadExpression`), both of which the report pass reads
+            // (`report_call_arguments`).
             if let [candidate] = candidates.as_slice()
                 && candidate.type_parameters.is_empty()
                 && type_arguments.is_empty()
-                && !effective.iter().any(|argument| argument.spread)
-                && effective.len() == arguments.len() + usize::from(tagged)
             {
                 return CallArity::Applicable(Some(Box::new(candidate.clone())));
             }

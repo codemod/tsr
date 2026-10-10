@@ -483,6 +483,44 @@ instantiation, as tsgo does (it was `error`).
 diagnostics 0/0. jsTyping 127 → 127, new_false 0, lost_true 0. Perf (median
 child CPU, 41 samples): domain-model 0.911, generic-imports 1.000.
 
+## 10. A single non-generic candidate reports over spread arguments (CALL-SPREAD-ARGUMENT-APPLICABILITY)
+
+**Native.** `isSingleNonGenericCandidate` (`checker.go:9030`) does not look
+at spreads. `getEffectiveCallArguments` (`checker.go:30042`) expands a tuple
+spread into synthetic arguments (a rest or variadic element spread-flagged)
+and keeps any other spread as one argument. `isSignatureApplicable` checks a
+spread argument with `checkSpreadExpression` (its iterated element type) and
+a spread synthetic with `checkSyntheticExpression` (the element type), each
+against `getTypeAtPosition`.
+
+**Before.** `check_candidates_arity` returned `Applicable(None)` for any
+call with a spread, so a single non-generic candidate never reached the
+report pass.
+
+**Change.** The spread and count conditions are dropped from the
+single-non-generic arm. The report pass already builds the effective
+argument list (`report_call_arguments`, `tuple_spread_elements`); a written
+spread is typed by `check_expression`'s spread arm (its element type) and a
+spread synthetic by its element type (§7). A non-array rest
+(`getSpreadArgumentType`) still declines. Generic and overloaded candidates
+keep their spread declines.
+
+**Measured** against `5937dd79`: diagnostics +4, 0 lost; types 0/0.
+Converted: callWithSpread2, callWithSpread3, callWithSpread5,
+iteratorSpreadInCall6. Perf (median child CPU, 41 samples): domain-model
+0.967, generic-imports 1.008 (21 samples: 0.964 / 1.094).
+
+Coverage: `diagnostics` 4,873/5,502.
+
+**Held** (`box/r7-calls-held`): the jsTyping gate leg refuses it. Rebased on
+`0ff376e0`, it adds one line tsgo does not report, `checker.ts(51482,45)`
+TS2345 against `never`. That line is the receiver of
+`result.push(...map(...))` after `let result; result ||= []`, which this port
+types `never[]` where native's evolving-array operation target is
+`autoArrayType` (`getFlowTypeOfReference`, `flow.go:106`). It is routed to
+r7-flow. The other two lines it added before (`checker.ts` 9968/9981) were
+the written-type-argument walk, fixed in §9.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
