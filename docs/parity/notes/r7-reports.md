@@ -311,3 +311,32 @@ through the general walk. A retry has to separate the rest mint
 (`mint_rest_properties`) from the spread and mapped mints, and it must
 answer `restElementAssignable`'s two false lines first, since that case is
 itself a rest type.
+
+## 8. ENUM-RELATION-SAME-NAME: `isEnumTypeRelatedTo` read the wrong table
+
+**Forcing fact.** `enumAssignmentCompat3` (70,1): `abc = secondCd`, with
+`First.E { a, b, c }` and `Cd.E { c, d }`, is TS2322 (`Each declaration of
+'E.c' differs in its value, where '2' was expected but '0' was given.`).
+TSR related the two.
+
+**Root cause.** `is_enum_type_related_to` (`relater.rs`, the port of
+`isEnumTypeRelatedTo`, `relater.go`) walked `members` of the two enum
+symbols. This binder files an enum's members in its **exports**, as
+upstream's does (`binder.go:436`, `GetExports(container.Symbol())`;
+`binder.rs` routes `EnumMember` under an `EnumDeclaration` to `Exports`).
+The walk therefore saw no members and answered true for any two same-named
+regular enums. Only the per-literal value match in `is_simple_type_related_to`
+(`Cd.E.c = 0` equals `First.E.a = 0`; `Cd.E.d = 1` equals `First.E.b = 1`)
+decided anything. A source member absent from the target, or a same-named
+member with another value, never rejected.
+
+**Port.** Both tables are read from `exports`. No other change. The value
+comparison and the string/unknown arms were already upstream's.
+
+**Measured** (unfiltered, both dumps, against the round-7 batch-4 base
+`660718af`): WRONG → RIGHT `enumAssignmentCompat3`; no other row changed.
+
+**Falsifier.** Two same-named enums with identical members in different
+containers that tsgo relates and TSR now rejects would show a member-table
+difference (merged declarations across files read through
+`merged_symbol`, not the declaration's own symbol).

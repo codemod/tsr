@@ -4211,8 +4211,11 @@ impl Relater<'_, '_, '_> {
         {
             return false;
         }
+        // An enum's members are its EXPORTS (`bindEnumDeclaration` →
+        // `declareSymbol(GetExports(container.Symbol()))`, binder.go:436;
+        // `getPropertiesOfType(getTypeOfSymbol(enum))` reads them there).
         let mut source_members: Vec<(String, SymbolId)> = source_data
-            .members
+            .exports
             .as_ref()
             .map(|table| table.iter().map(|(name, &id)| (name.to_string(), id)).collect())
             .unwrap_or_default();
@@ -4224,7 +4227,7 @@ impl Relater<'_, '_, '_> {
             }
             let Some(target_member) = symbols
                 .get(target)
-                .members
+                .exports
                 .as_ref()
                 .and_then(|table| table.get(name.as_str()).copied())
                 .filter(|&member| symbols.get(member).flags.contains(SymbolFlags::ENUM_MEMBER))
