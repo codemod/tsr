@@ -2476,8 +2476,13 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             // A deferred conditional's typed print stands where its baked
             // written text did (`docs/parity/notes/r6-lazytext.md` §2).
-            let printed =
-                self.deferred_conditional_text_at(id).unwrap_or_else(|| self.type_to_string(id));
+            // So do a generic mapped type's mapped form, a deferred indexed
+            // access and a deferred `keyof` (`docs/parity/notes/r6-printer4.md`
+            // §1).
+            let printed = self
+                .deferred_conditional_text_at(id)
+                .or_else(|| self.print_time_text_at(id, reference))
+                .unwrap_or_else(|| self.type_to_string(id));
             return self.qualified_name_at(id, printed, reference);
         };
         if let Some(name) = self.module_name_at(module, reference, SymbolFlags::VALUE) {
