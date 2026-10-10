@@ -369,13 +369,19 @@ impl<'a> Checker<'a, '_> {
         }
         match inner {
             Expression::ObjectLiteralExpression(_) => {
-                !(self.is_context_sensitive_argument(&argument)
-                    || self.could_contain_type_variables_at_head(source, 3)
+                !(self.could_contain_type_variables_at_head(source, 3)
                     || self.could_contain_type_variables_at_head(target, 3)
-                    || self.mentions_literal_type(target, 3)
+                    || self.literal_member_may_keep_literal(inner, target, 3)
                     || self.absent_member_is_unreadable(source, target))
             }
-            Expression::ArrayLiteralExpression(_) | Expression::ClassExpression(_) => false,
+            Expression::ArrayLiteralExpression(_) => {
+                !(self.is_tuple_like_type(source)
+                    || self.is_tuple_like_type(target)
+                    || self.could_contain_type_variables_at_head(source, 3)
+                    || self.could_contain_type_variables_at_head(target, 3)
+                    || self.literal_member_may_keep_literal(inner, target, 3))
+            }
+            Expression::ClassExpression(_) => false,
             _ => !self.is_context_sensitive_argument(&argument),
         }
     }
@@ -603,5 +609,120 @@ impl<'a> Checker<'a, '_> {
         self.get_index_infos_of_type(ty).is_some_and(|infos| {
             infos.iter().any(|info| self.mentions_literal_type(info.value, depth - 1))
         })
+    }
+
+    /// Whether a member of an object or array literal written as a fresh
+    /// literal (a string, numeric, bigint or template literal, `true`,
+    /// `false`, a negated number) meets a target member type under which
+    /// `getWidenedLiteralLikeTypeForContextualType` (`checker.go`) keeps the
+    /// literal (`isLiteralOfContextualType`: a contextual literal of the same
+    /// kind, a string context for a string literal including template
+    /// literals, string mappings and `keyof`, or a type variable). The
+    /// published type widened that member under the context the literal was
+    /// checked in while the candidate was inferred; under the instantiated
+    /// target it may not be, so the published type is not native's. Nested
+    /// object and array literals are followed `depth` levels; a computed
+    /// member name answers `true`.
+    fn literal_member_may_keep_literal(
+        &mut self,
+        literal: Expression<'a>,
+        target: TypeId,
+        depth: u32,
+    ) -> bool {
+        let members: Vec<(Option<TypeId>, Expression<'a>)> = match literal {
+            Expression::ObjectLiteralExpression(object) => {
+                let mut members = Vec::new();
+                for property in object.properties {
+                    let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) =
+                        property
+                    else {
+                        continue;
+                    };
+                    let Some(initializer) = assignment.initializer else { continue };
+                    let name = match &assignment.name {
+                        tsr_ast::PropertyName::Identifier(identifier) => Some(identifier.text),
+                        tsr_ast::PropertyName::StringLiteral(literal) => Some(literal.text),
+                        tsr_ast::PropertyName::NumericLiteral(literal) => Some(literal.text),
+                        _ => None,
+                    };
+                    let Some(name) = name else { return true };
+                    members.push((self.get_type_of_property_of_type(target, name), initializer));
+                }
+                members
+            }
+            Expression::ArrayLiteralExpression(array) => {
+                let element = self.signature_array_element(target);
+                array
+                    .elements
+                    .iter()
+                    .map(|&element_expression| (element, element_expression))
+                    .collect()
+            }
+            _ => return false,
+        };
+        for (member, initializer) in members {
+            let Some(member) = member else { continue };
+            let inner = Self::effective_check_expression(initializer);
+            let kind = match inner {
+                Expression::StringLiteral(_)
+                | Expression::NoSubstitutionTemplateLiteral(_)
+                | Expression::TemplateExpression(_) => {
+                    TypeFlags::STRING_LITERAL
+                        | TypeFlags::INDEX
+                        | TypeFlags::TEMPLATE_LITERAL
+                        | TypeFlags::STRING_MAPPING
+                }
+                Expression::NumericLiteral(_) => TypeFlags::NUMBER_LITERAL,
+                Expression::BigIntLiteral(_) => TypeFlags::BIG_INT_LITERAL,
+                Expression::KeywordExpression(keyword)
+                    if matches!(
+                        keyword.kind,
+                        SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword
+                    ) =>
+                {
+                    TypeFlags::BOOLEAN_LITERAL
+                }
+                Expression::PrefixUnaryExpression(unary)
+                    if unary.operator.kind == SyntaxKind::MinusToken =>
+                {
+                    match unary.operand {
+                        Some(Expression::NumericLiteral(_)) => TypeFlags::NUMBER_LITERAL,
+                        Some(Expression::BigIntLiteral(_)) => TypeFlags::BIG_INT_LITERAL,
+                        _ => continue,
+                    }
+                }
+                Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_) => {
+                    if depth > 0 && self.literal_member_may_keep_literal(inner, member, depth - 1) {
+                        return true;
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+            if self.contextual_type_keeps_literal(member, kind) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// `isLiteralOfContextualType`'s test of a contextual type against a
+    /// literal of the given kind (`kind`, the contextual flags that keep it):
+    /// a union or intersection keeps it when a constituent does; a type
+    /// variable keeps it (its constraint is not consulted here, which can
+    /// only decline more).
+    fn contextual_type_keeps_literal(&mut self, contextual: TypeId, kind: TypeFlags) -> bool {
+        let ty = self.store.get(contextual);
+        if ty.flags.intersects(kind) {
+            return true;
+        }
+        if ty.flags.intersects(TypeFlags::INSTANTIABLE_NON_PRIMITIVE) {
+            return true;
+        }
+        if let TypeData::Union { types, .. } | TypeData::Intersection { types, .. } = &ty.data {
+            let types = types.clone();
+            return types.into_iter().any(|part| self.contextual_type_keeps_literal(part, kind));
+        }
+        false
     }
 }
