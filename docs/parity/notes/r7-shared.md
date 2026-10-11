@@ -826,9 +826,19 @@ variable/property worker recognises the merge (a static `PropertyDeclaration`
 named `prototype` whose parent node is a class) and answers
 `members.rs::prototype_type_of_class`, the helper the static side's
 `C.prototype` read (§117) now shares. Not ported: the binder-level symbol
-itself, and computed names that late-bind to `prototype`
-(`[FunctionPropertyNames.prototype]`, `staticPropertyNameConflicts` 65/195/330),
-which `lateBindMember` resolves against the early prototype symbol.
+itself.
+
+A computed name that late-binds to `prototype`
+(`static [FunctionPropertyNames.prototype]: number`,
+`staticPropertyNameConflicts` 65/195/330) takes the same arm.
+`lateBindMember` (checker.go:16005) looks the late-bound name up in the
+class's early exports, finds the prototype symbol, and merges the property
+into it (property excludes are empty). A method or accessor conflicts there
+as it does for a written name. The arm asks for the `__computed` symbol's
+late-bound name from the existing `late_bound_member_names` memo
+(`late_bound_members_of(class, static)`), so there is no new cache. It runs
+only for a static `PropertyDeclaration` with a computed name directly in a
+class, once per symbol (the worker is memoised).
 
 ## 23. Parameters and body variables are not visible from outside a function's body (RESOLVE-NAME-FUNCTION-LIKE-PARAMETER-SCOPE)
 

@@ -5305,14 +5305,21 @@ impl<'a> Checker<'a, '_> {
     /// (`checker.go:16578`).
     /// The class whose `prototype` export a static property declaration
     /// named `prototype` merges into, natively; `None` for anything else (a
-    /// static method or accessor conflicts and keeps its own symbol).
+    /// static method or accessor conflicts and keeps its own symbol). A
+    /// computed name counts when it late-binds to `prototype`: `lateBindMember`
+    /// (`checker.go:16005`) looks the name up in the class's early exports,
+    /// finds the `prototype` symbol, and merges the property into it because
+    /// property excludes are empty (`static [Names.prototype]: number` is the
+    /// class's prototype type, `staticPropertyNameConflicts`).
     fn static_prototype_property_class(
-        &self,
+        &mut self,
         symbol: SymbolId,
         declaration: NodeId,
     ) -> Option<SymbolId> {
         let entry = self.binder.symbols().get(symbol);
-        if entry.name != "prototype" || !entry.flags.contains(SymbolFlags::PROPERTY) {
+        let computed = entry.name == "__computed";
+        if !(entry.name == "prototype" || computed) || !entry.flags.contains(SymbolFlags::PROPERTY)
+        {
             return None;
         }
         let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration) else {
@@ -5332,7 +5339,18 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let class = self.binder.merged_symbol(self.binder.symbol_of(owner)?);
-        self.binder.symbols().get(class).flags.contains(SymbolFlags::CLASS).then_some(class)
+        if !self.binder.symbols().get(class).flags.contains(SymbolFlags::CLASS) {
+            return None;
+        }
+        if computed {
+            let parent = self.binder.symbols().get(symbol).parent?;
+            let late_bound = self.late_bound_members_of(parent, true);
+            let (name, _) = late_bound.iter().find(|(_, member)| *member == declaration)?;
+            if name != "prototype" {
+                return None;
+            }
+        }
+        Some(class)
     }
 
     fn get_type_of_variable_or_parameter_or_property_worker(&mut self, symbol: SymbolId) -> TypeId {
