@@ -827,3 +827,40 @@ order dependence belongs to the lanes whose lazy evaluations answer
 differently by order (lazy returns, indexed-access constraints). Its other
 gates passed: CLI-message audit 0 of 36,308, and the corpus compare was
 not reached.
+
+## §18 The in-memory file system's realpath keeps the real entry's spelling
+
+**Routed by the integrator** from r7-printer on 2026-10-11: under
+`useCaseSensitiveFileNames: false`, a module reached through a symlink got
+a lowercased file name (`/.src/folder/…` for `Folder`). r7-printer
+compensated in `module_specifiers.rs` with native's case-folding
+`HasPrefix`. The corpus case is
+`compiler/symbolLinkDeclarationEmitModuleNamesImportRef`.
+
+**Root cause.** It is not the loader.
+`tsr_vfs::InMemoryFileSystem::realpath`, the test host's file system, which
+the conformance harness uses, answered the *canonical key* of the entry it
+resolved through a link. That key is lowercased on a case-insensitive host.
+Native vfstest's `MapFS.Realpath` (`internal/vfs/vfstest/vfstest.go:470`)
+answers `file.Sys.(*sys).realpath`, the spelling the entry was created with.
+It case-folds only the lookup key (`getCanonicalPath`). The resolver's
+`realPath` (`resolutionState.realPath`) and the loader stored that answer
+as the module's file name.
+
+**Change** (`crates/tsr-vfs/src/lib.rs`):
+
+- `InMemoryFileSystem` records `spellings`, the canonical path → creation
+  spelling of every file and of each ancestor directory, first creator
+  wins, as vfstest's `mkdirAll` does.
+- `realpath` through a link answers the real entry's spelling. A path
+  reached without a link keeps answering the caller's normalized spelling,
+  as before. The resolver's `getOriginalAndResolvedFileName` compares the
+  two case-insensitively and prefers the original.
+- The CLI's `OsFileSystem` is unaffected.
+
+This is not a cache of computed answers. The table is fixture data fixed
+at construction. A new test (`realpath_through_a_link_keeps_the_real_spelling`)
+pins the case. r7-printer's compensating `HasPrefix` fold can now be
+re-measured for removal; it is native's own fold
+(`tspath.HasPrefix(..., !useCaseSensitiveFileNames)`), so keeping it is
+also faithful.
