@@ -491,15 +491,27 @@ impl Checker<'_, '_> {
         if self.has_no_reparsed_contextual_type(function) {
             return !self.returned_from_an_iife(function);
         }
-        if self.retained_return_position_report(function) {
+        if self.parameter_assigned_without_context(parameter) {
             return true;
         }
+        self.contextual_signature_types_no_parameter(function, parameter)
+    }
+
+    /// The contextual-signature half of
+    /// [`Checker::contextual_parameter_type_is_absent`]: sources 2 and 3,
+    /// asked of the context as it stands now.
+    fn contextual_signature_types_no_parameter(
+        &mut self,
+        function: NodeId,
+        parameter: NodeId,
+    ) -> bool {
         // getContextuallyTypedParameterType's `getContextualSignature(func)`:
         // nil (`Absent`) leaves the parameter implicitly `any`.
         let signature = match self.contextual_signature_result(function) {
             Some(ContextualSignature::Present(signature)) => signature,
             Some(ContextualSignature::Absent) => {
-                return !self.within_generic_call_argument(function);
+                return !self.within_generic_call_argument(function)
+                    || self.contextual_signatures_all_too_short(function);
             }
             None => return false,
         };
@@ -519,6 +531,34 @@ impl Checker<'_, '_> {
             Some(Node::ParameterDeclaration(declaration)) if declaration.dot_dot_dot_token.is_some()
         );
         !own_rest && self.signature_type_at_position(&signature, index).is_none()
+    }
+
+    /// Is `function`'s contextual type, as instantiated now, a single type
+    /// with call signatures that `isAritySmaller` rejects every one of?
+    ///
+    /// That nil is decided whatever the call's inference mapper: it reads
+    /// only the instantiated signatures' lengths. The generic-call decline
+    /// below concerns a mapper this port applies in part, which can leave a
+    /// union of both conditional branches where native picks one; a single
+    /// callable type is not that shape (r7-reports §18).
+    fn contextual_signatures_all_too_short(&mut self, function: NodeId) -> bool {
+        if !matches!(
+            self.node_map.get(function),
+            Some(Node::ArrowFunction(_) | Node::FunctionExpression(_))
+        ) {
+            return false;
+        }
+        let Some(contextual) = self.get_contextual_type(function) else { return false };
+        let contextual = self.instantiate_contextual_inference_type(contextual, function);
+        let contextual = self.apparent_contextual_type(contextual);
+        if self.store.get(contextual).flags.contains(crate::flags::TypeFlags::UNION) {
+            return false;
+        }
+        self.contextual_signature_of_type(contextual).is_some()
+            && matches!(
+                self.contextual_call_signature(contextual, Some(function)),
+                Some(ContextualSignature::Absent)
+            )
     }
 
     /// Is `function` inside an argument of a call or `new` whose callee has a
@@ -584,38 +624,52 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// **Retained, not ported** — the `ReturnStatement` arm of the allow-list
-    /// this rule used before it asked the context (§3).
+    /// Was the parameter's type assigned while its function had no
+    /// contextual parameter type, though one exists now?
     ///
-    /// It reports a function returned from a function with no return-type
-    /// annotation. Upstream's reason is different: the owner's contextual
-    /// signature yields no contextual signature for the returned function. In
-    /// `subtypeReductionWithAnyFunctionType` (`return x => x.length > 0` inside
-    /// the argument of `useMemo<T>(func: () => T)`) tsgo has none, while
-    /// `get_contextually_typed_parameter_type` answers `any` — a producer
-    /// defect in `crate::contextual` (tsr-2zk.31), and dropping this arm loses
-    /// that RIGHT case. The arm stays until that producer is fixed; it is
-    /// also what keeps five lane cases' TS7006 extra (§3 lists them).
+    /// Upstream reports TS7006 when the parameter is assigned
+    /// (`assignNonContextualParameterTypes` / `assignParameterType` with a nil
+    /// contextual type widen with `reportErrors`), once, under whatever
+    /// contextual signature the function has at that moment. In
+    /// `subtypeReductionWithAnyFunctionType` (`return x => x.length > 0` in
+    /// `useMemo<T>(func: () => T)`'s argument) that is inference pass 2's
+    /// `() => boolean`, which `isAritySmaller` rejects, so `x` is implicitly
+    /// `any`; the contextual signature this rule reads afterwards answers a
+    /// type (`any`, inferred from `x` itself). The parameter's type
+    /// computation records whether its contextual type was nil then
+    /// (r7-reports §18).
+    fn parameter_assigned_without_context(&mut self, parameter: NodeId) -> bool {
+        let Some(symbol) = self.binder.symbol_of(parameter) else { return false };
+        // Computes the type if an eviction dropped it, refreshing the record.
+        self.get_type_of_symbol(symbol);
+        self.parameters_assigned_without_context.contains(&parameter)
+            && self.get_contextually_typed_parameter_type(parameter).is_some()
+    }
+
+    /// `assignParameterType`'s moment: does the parameter's contextual type
+    /// answer nil as its type is computed?
     ///
-    /// A JS `return` whose comment's `@type` is reparsed into a cast
-    /// (`parser/reparser.go:378`) is the function's parent upstream, not the
-    /// `ReturnStatement`, so the arm does not apply to it.
-    fn retained_return_position_report(&self, function: NodeId) -> bool {
-        let Some(parent) = self.nodes.parent(function) else { return false };
-        self.nodes.kind(parent) == SyntaxKind::ReturnStatement
-            && !(self.file_is_js && self.jsdoc_reparse_gives_context(function))
-            && !self
-                .nodes
-                .ancestors(function)
-                .find_map(|ancestor| match self.node_map.get(ancestor) {
-                    Some(Node::FunctionDeclaration(n)) => Some(n.r#type.is_some()),
-                    Some(Node::FunctionExpression(n)) => Some(n.r#type.is_some()),
-                    Some(Node::ArrowFunction(n)) => Some(n.r#type.is_some()),
-                    Some(Node::MethodDeclaration(n)) => Some(n.r#type.is_some()),
-                    Some(Node::GetAccessorDeclaration(n)) => Some(n.r#type.is_some()),
-                    _ => None,
-                })
-                .unwrap_or(false)
+    /// Only a nil this port can attribute to upstream's sources 2 and 3 is
+    /// recorded; a nil that is the contextual machinery declining is not
+    /// (`contextuallyTypedByDiscriminableUnion2`'s generic call,
+    /// `checkJsdocSatisfiesTag2`'s `@satisfies`).
+    pub(crate) fn record_parameter_context_at_assignment(
+        &mut self,
+        parameter: NodeId,
+        absent: bool,
+    ) {
+        let absent = absent
+            && self.no_implicit_any
+            && self.nodes.parent(parameter).is_some_and(|function| {
+                matches!(self.implicit_any_parameter_owner(function), ParameterOwner::Contextual)
+                    && self.immediately_invoked_call(function).is_none()
+                    && self.contextual_signature_types_no_parameter(function, parameter)
+            });
+        if absent {
+            self.parameters_assigned_without_context.insert(parameter);
+        } else {
+            self.parameters_assigned_without_context.remove(&parameter);
+        }
     }
 
     fn is_this_parameter_node(&self, parameter: NodeId) -> bool {

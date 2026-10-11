@@ -52,6 +52,9 @@ lacks would show a declaration-file arm upstream that this reading missed.
 
 ## 2. The retained `return`-position arm stays (routed)
 
+*Superseded by §18:* the arm is deleted, and the premise below (a producer
+defect) was wrong.
+
 `retained_return_position_report` (implicit-any-widening.md §3) keeps TS7006
 extra in four cases: `asyncFunctionContextuallyTypedReturns` (19,10)(28,10),
 `contextualTypeOnYield2` (3,13),
@@ -789,3 +792,67 @@ itself is decided true).
   constraint. The producer fix is `getConstraintOfConditionalType` in
   `constraints.rs`, which can reuse this file's default-constraint arm.
   It is proposed in the report.
+
+## 18. TS7006 is decided at the parameter's assignment, not re-read afterwards
+
+Closes §2. The retained `return`-position arm is deleted.
+
+**Upstream.** TS7006 for a context-sensitive function's parameter comes
+from `assignParameterType` (via `assignContextualParameterTypes` or
+`assignNonContextualParameterTypes`). With a nil contextual type it widens
+with `reportErrors`, once, under the contextual signature the function has
+*at that moment*.
+
+r7-contextual traced `subtypeReductionWithAnyFunctionType` with an
+instrumented pinned tsgo (`return x => x.length > 0` inside
+`useMemo<T>(func: () => T)`'s argument):
+
+- `x` is assigned in inference pass 2 under `() => boolean` (`T` from the
+  sibling `return () => true`).
+- `isAritySmaller` rejects that signature, so `x` is implicitly `any` and
+  TS7006 fires.
+- Later, `T` is inferred as `(x: any) => boolean` from `x`'s own `any`. A
+  rule that re-reads the contextual signature after resolution sees a
+  usable signature and stays silent.
+
+§2's routing premise, that the producer's `(x: any)` was wrong, does not
+hold. The types already match native. Only the moment of the decision
+differed.
+
+**Port** (`implicit_any.rs`; the assignment hook in `symbols.rs` and the
+side table in `checker.rs` are a grant request).
+
+- *The record.* `getTypeForVariableLikeDeclaration`'s contextual-parameter
+  arm records whether `get_contextually_typed_parameter_type` answered nil
+  as the parameter's type was computed. The last computation wins: an
+  eviction followed by a recomputation rewrites the record, and the reader
+  computes the type first.
+- *What is recorded.* Only a nil this port can attribute to native's
+  sources 2 and 3 is kept: an `Absent` contextual signature, or one too short
+  for the parameter. A nil that is the contextual machinery declining is not
+  kept. Recording every nil lost `contextuallyTypedByDiscriminableUnion2` and
+  `checkJsdocSatisfiesTag2`, whose parameters were first typed before their
+  generic-call or `@satisfies` context was available.
+- *Too short within a generic call.* `within_generic_call_argument`'s
+  decline (the inference mapper is only partly applied) now yields when the
+  instantiated contextual type is a single callable type that
+  `isAritySmaller` rejects for every signature. That answer reads only
+  signature lengths. The decline exists for a union of both conditional
+  branches, which is a different shape. useMemo's pass-2 `() => boolean` is
+  this shape.
+- *The reader.* `contextual_parameter_type_is_absent`, after the IIFE and
+  no-contextual-type arms, reports a parameter whose record says nil while
+  the context now answers a type.
+
+**Measured** (diagnostics, unfiltered, against batch 17 with §17 on top):
++12 cases, 0 lost. Every target is RIGHT:
+`asyncFunctionContextuallyTypedReturns`, `contextualTypeOnYield2`,
+`inferPropertyWithContextSensitiveReturnStatement` and
+`invalidThisEmitInContextualObjectLiteral`.
+`subtypeReductionWithAnyFunctionType` stays RIGHT.
+
+**Falsifier.** A case where a parameter is first typed under a decided nil
+and then re-typed under a real context after an eviction that is never
+recomputed. The reader recomputes first, so the record would have to come
+from a computation that native does not repeat. A new TS7006 extra would
+show it.
