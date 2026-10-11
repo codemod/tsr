@@ -3640,7 +3640,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// `printed`. `None` (the existing roads decide) outside the binding
     /// context, where native writes `default`, or when nothing changes.
     fn default_symbol_text_as_written(
-        &self,
+        &mut self,
         symbol: SymbolId,
         printed: &str,
         reference: NodeId,
@@ -3660,9 +3660,19 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             None
         };
-        if binding_context(first) != binding_context(reference) {
-            return None;
-        }
+        // Outside the binding context the first segment is `default`, so
+        // native names the symbol by its accessible chain instead: an
+        // in-scope alias (`import Thing from "./root"`, `trySymbolTable`'s
+        // alias loop) is the whole name (r7-printer §20). With none, the
+        // existing roads decide.
+        let alias_name = if binding_context(first) == binding_context(reference) {
+            None
+        } else {
+            Some(
+                self.best_name(symbol, reference)
+                    .filter(|name| name != "default" && !name.contains('.'))?,
+            )
+        };
         let name_text = |declaration: NodeId| -> Option<&'a str> {
             let name = match self.node_map.get(declaration)? {
                 // `GetNonAssignedNameOfDeclaration`'s export-assignment arm.
@@ -3677,7 +3687,11 @@ impl<'a, 'n> Checker<'a, 'n> {
                 _ => None,
             }
         };
-        let written = declarations.iter().find_map(|&declaration| name_text(declaration))?;
+        let written_own = declarations.iter().find_map(|&declaration| name_text(declaration));
+        let written: &str = match &alias_name {
+            Some(name) => name.as_str(),
+            None => written_own?,
+        };
         for &declaration in &declarations {
             let Some(baked) = name_text(declaration) else { continue };
             if baked == written {
