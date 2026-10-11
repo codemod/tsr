@@ -875,3 +875,46 @@ pins the case. r7-printer's compensating `HasPrefix` fold can now be
 re-measured for removal; it is native's own fold
 (`tspath.HasPrefix(..., !useCaseSensitiveFileNames)`), so keeping it is
 also faithful.
+
+## §19 Ratios after batch 19, and jsTyping's batch-6 CPU regression
+
+**Dist ratios** (TSR/tsgo, `whole_project_perf.py`, 21 samples, one session,
+on `41f3c70b` plus this branch; release in parentheses):
+
+| project | wall | CPU |
+|---|---:|---:|
+| domain-model | **0.605** (0.577) | 0.408 (0.411) |
+| domain-model-large | **0.584** (0.620) | 0.449 (0.482) |
+| generic-imports | **0.599** (0.631) | 0.298 (0.320) |
+
+domain-model-large moved from 0.716 to 0.584, mostly from §15's deferred
+literal text. The 0.50 target is not met.
+
+**jsTyping regressed 46% in CPU at batch 6.** Dist jsTyping read 7.4× tsgo
+(14.3 s against 1.93 s), against 4.16× at batch 5. Default-mode user CPU
+on jsTyping, with the gate leg's command, at each batch merge:
+
+| binary | user CPU | wall |
+|---|---:|---:|
+| batch 5 `20501307` | 28.2 s | 10.4 s |
+| + r7-calls (`56f5a49b`, batch 6's first merge) | **41.1 s** | 18.9 s |
+| batch 6 `5f2713fe` / 7 `2c34a50e` / 8 `0aa00136` | 39.9 / 39.9 / 40.5 s | ~18.9 s |
+| batch 9 `92fe8f05` (mimalloc) | 33.0 s | 16.8 s |
+
+The merge holds one commit, `23550f9d` ("the overload walk checks a nested
+call argument under its first candidate"), the fix for §4's cluster 5. It
+removed 7 false jsTyping lines (259 → 252). Single-threaded perf samples go
+from 8 K to 12 K, spread evenly with no new hot symbol. That points to a
+nested call argument being re-checked per candidate or per pass where
+native resolves it once (`getResolvedSignature`'s
+`links.resolvedSignature`). It was routed to r7-calls on 2026-10-11.
+jsTyping is not in the CPU gate (domain-model and generic-imports only),
+which is why the regression went unseen for 13 batches.
+
+**Oracle tooling.** With the gate's 60 s TSR deadline,
+`compiler/recursiveConditionalCrash3.ts` grows to 3.4 GB in 25 s on base
+and candidate alike. Within the orb's 6 GiB workload cgroup, one such
+worker beside the others is an OOM kill of the whole service
+(`memory.oom.group`). This lane's exact-candidate run therefore used
+`--deadline 20 --workers 3` for both base and candidate. The outcome set is
+unchanged (TSR_TIMEOUT 2, TSR_FAILED 1, exact 9,582).
