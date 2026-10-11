@@ -889,3 +889,33 @@ that half of the item stays open (`anonClassDeclarationEmitIsAnon`).
 `meaning_mismatch.rs`) keep the proxy. They read the name, not this type,
 and asking the base constructor type from those positions is a new
 resolution order that has not been measured.
+
+## 26. A qualified name in a type query sees type-only module exports
+
+`checkPropertyAccessExpressionOrQualifiedName` (checker.go:11323) asks
+`getPropertyOfTypeEx(apparentType, right, …, includeTypeOnlyMembers:
+node.Kind == KindQualifiedName)`. `getPropertyOfTypeEx` then filters the
+member with `symbolIsValueEx(symbol, includeTypeOnlyMembers)`, and
+`getSymbolFlagsEx`'s `excludeTypeOnlyMeanings` stops at a type-only alias
+declaration only when that flag is false. So after `export type { A }` and
+`import * as types`, `types.A` is TS2339 while `typeof types.A` is `typeof
+A` (`namespaceImportTypeQuery` 1:1/1:2/1:4, previously `any`).
+
+**Port.** `members.rs::type_only_module_member`, asked by
+`check_qualified_name` before the shared `access_member_lookup`. It answers
+only the export the ordinary lookup refuses for type-only-ness alone: a
+non-value alias export of a module or namespace object type, with a
+type-only declaration on its chain (`type_only_alias_declaration`), whose
+alias chain still reaches a value (`get_symbol_flags`, native's
+`getSymbolFlagsEx(…, false, …)`).
+
+**Alternative rejected.** Threading `include_type_only_members` through
+`access_member_lookup` → `get_type_of_property_with_this_argument` →
+`get_property_of_type_ex` → `get_property_of_anonymous_symbol`, as native
+threads it. That is four signatures, and their many callers would all pass
+`false`. The flag changes the answer in exactly one place: the
+`symbolIsValue` filter on a module's export. A clone receiver
+(`module_value_clones`) and `export *` re-exports are not handled; native's
+`typeOnlyExportStarMap` gate is part of the star road, which this arm does
+not take. Falsifier: a corpus case where a type-only re-export through
+`export *` should resolve in a type query.
