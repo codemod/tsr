@@ -512,3 +512,20 @@ Result (commit 12), against the `2abb9ccd` freeze: types +1 RIGHT
 jsTyping unchanged. `genericArgumentCallSigAssignmentCompat`'s two lines stay
 WRONG: the expression-statement form reaches the error candidate through
 another road. Not yet traced.
+
+## 14. GET-NON-UNDEFINED-TYPE-GENERIC-CONSTRAINT
+
+`getNonUndefinedType` (`checker.go:31548`) removes `undefined` only after
+replacing each instantiable constituent with its base constraint, whenever
+some constituent is a generic type whose constraint may be `undefined`
+(`isGenericTypeWithUndefinedConstraint`, `:31561`). The destructuring default
+strips in `get_binding_element_type` (the annotated root, `:17782`, and the
+unannotated union, `:17789`) used `getTypeWithFacts(NEUndefined)` alone, so a
+`T extends string | undefined` element kept `T` and its `undefined`. It is
+now `get_non_undefined_type`, built on the existing `base_constraint_of_type`.
+No cache is added.
+
+Result (commit 13), against the batch-17 merge freeze: types +6 RIGHT
+(`destructuringWithConstraint` 2, `strictNullNotNullIndexTypeNoLib` 2,
+`strictNullNotNullIndexTypeShouldWork` 2), diagnostics +2 (the latter two),
+0 lost.
