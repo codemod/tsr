@@ -934,3 +934,20 @@ TS2306 at every import of it, and `any` for `import * as Second`
 (`reexportedMissingAlias`). The arm now ORs the export modifier in. Every
 checker caller of `is_external_module` reads the same answer, as native's
 one `ExternalModuleIndicator` gives. No cache, and the scan is unchanged.
+
+## 28. `export default C.x` falls back to the checked expression's symbol
+
+`getTargetOfAliasLikeExpression` (checker.go:14996) tries
+`resolveEntityName(expression, Value|Type|Namespace, ignoreErrors)` first.
+When that finds nothing, it runs `checkExpressionCached(expression)` and
+answers the expression's `resolvedSymbol`. For `export default C.x` with
+`class C { static x = 0 }`, `resolveQualifiedName` needs `C` as a namespace
+and a class is not one, so the target is the property access's resolved
+symbol, the static `x`, and `import def from "./code"` is `number`
+(`exportDefaultQualifiedNameNoError`, previously `any`/error).
+`export_assignment_target` now takes that fallback when
+`export_assignment_property_access_target` (the entity-name arm) answers
+`None`: it checks the receiver and reads the property symbol, as the
+assignment-alias arm of `get_target_of_alias_symbol` already does for
+`module.exports = a.b`. The check is the one native performs, so this adds
+no new work order.

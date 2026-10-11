@@ -2220,7 +2220,18 @@ impl<'a> Checker<'a, '_> {
                 .map(|symbol| self.binder.merged_symbol(symbol));
         }
         if let Some(tsr_ast::Expression::PropertyAccessExpression(access)) = node.expression {
-            return self.export_assignment_property_access_target(access);
+            if let Some(target) = self.export_assignment_property_access_target(access) {
+                return Some(target);
+            }
+            // `getTargetOfAliasLikeExpression`'s last two lines
+            // (`checker.go:15004`): when `resolveEntityName` finds nothing (a
+            // class on the left is not a namespace), the checked expression's
+            // resolved symbol is the target. `export default C.x` is the
+            // static property `x` (`exportDefaultQualifiedNameNoError`), as the
+            // assignment-alias arm above reads it (r7-shared.md §28).
+            let tsr_ast::MemberName::Identifier(name) = access.name? else { return None };
+            let receiver = self.check_expression(access.expression?);
+            return self.get_property_of_type(receiver, name.text);
         }
         let Some(tsr_ast::Expression::Identifier(name)) = node.expression else {
             return None;
