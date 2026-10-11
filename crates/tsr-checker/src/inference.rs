@@ -739,6 +739,8 @@ impl<'a> Checker<'a, '_> {
                                 | Expression::ArrayLiteralExpression(_)
                                 | Expression::ArrowFunction(_)
                                 | Expression::FunctionExpression(_)
+                                | Expression::ConditionalExpression(_)
+                                | Expression::ParenthesizedExpression(_)
                         );
                 let previous_inferential = if use_active_context
                     && let Some(call) = call
@@ -1757,7 +1759,10 @@ impl<'a> Checker<'a, '_> {
             || self.narrow_value_stack.contains(&call)
             || !matches!(
                 argument,
-                Expression::ArrayLiteralExpression(_) | Expression::ObjectLiteralExpression(_)
+                Expression::ArrayLiteralExpression(_)
+                    | Expression::ObjectLiteralExpression(_)
+                    | Expression::ConditionalExpression(_)
+                    | Expression::ParenthesizedExpression(_)
             )
             || self.is_context_sensitive_argument(&argument)
         {

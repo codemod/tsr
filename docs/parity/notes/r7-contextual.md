@@ -529,3 +529,37 @@ Result (commit 13), against the batch-17 merge freeze: types +6 RIGHT
 (`destructuringWithConstraint` 2, `strictNullNotNullIndexTypeNoLib` 2,
 `strictNullNotNullIndexTypeShouldWork` 2), diagnostics +2 (the latter two),
 0 lost.
+
+## 15. ARG-CONTEXT-RESOLVED-SIG: conditional and parenthesized arguments (builder.ts `append`, routed)
+
+jsTyping's builder.ts:1304 calls the overloaded generic
+`append<T>(to, value)` with a conditional whose branch is a tuple literal:
+
+```ts
+sigs = append(sigs, emitSignature === undefined ? fileId : [fileId, cond ? emptyArray as [] : emitSignature]);
+```
+
+Native checks every argument with `checkExpressionWithContextualType` and
+the inference context (`checker.go:9485`), so the branch literal's context is
+`T | undefined` instantiated through the return mapper. From the assignment
+target `ES[]` that is `ES`, which has a tuple constituent, so the literal is
+a tuple (traced with an instrumented pinned tsgo: T's value candidate is
+`[FileId, string | [] | [string]] | FileId`). `getCommonSupertype` then keeps
+`ES`. In TSR the overload walk had already cached the argument from a probe
+without that context, so the literal was an array. Its union
+`([] | EmitSig | FileId)[] | FileId` is a supertype of `ES`, which made the
+inferred T the value's union and caused a false TS2322 on the assignment.
+
+§1's fresh check and re-check (`resolved_literal_argument_recheck`) now also
+admit conditional and parenthesized arguments, under the same boundary: not
+context-sensitive, and no call, `new`, tagged template, function, method,
+accessor or class anywhere below them. The eviction covers the whole argument
+subtree (condition included), and a re-check repeats its flow reads; there is
+no new table.
+
+Result (commit 14), against the batch-22 freeze (`2e0a7363`): types and
+diagnostics 0 / 0, jsTyping unchanged (125, new_false 0, lost_true 0), Ir
+1.00000 / 0.99996. The cut-down repro now matches tsgo-pinned. In jsTyping,
+builder.ts:1304 still reports, because its condition holds a call
+(`isString(emitSignature)`), which the boundary above excludes. That needs §8's
+held call boundary.
