@@ -4130,8 +4130,15 @@ impl<'a> Checker<'a, '_> {
         if self.has_a_name_no_type_query_can_spell(symbol)
             && flags.intersects(SymbolFlags::ENUM | SymbolFlags::VALUE_MODULE | SymbolFlags::CLASS)
         {
+            // `getTypeOfFuncClassEnumModuleWorker`'s class arm (`checker.go:16923`):
+            // a class whose base constructor type is a type variable is the
+            // intersection of its static side with that variable, which prints
+            // structurally (`{ new (...): (Anonymous class); … } & TBase`) and
+            // is not built here; without one it is the plain `typeof` type
+            // (`r7-shared.md` §25).
             if flags.intersects(SymbolFlags::CLASS)
-                && let Some(written) = self.anonymous_class_written_name(symbol)
+                && let Some(written) = self.anonymous_class_name_as_written(symbol)
+                && self.get_base_type_variable_of_class(symbol).is_none()
             {
                 let printed = format!("typeof {written}");
                 return self.store.new_anonymous(TypeFlags::OBJECT, printed, symbol, false);
@@ -4438,24 +4445,10 @@ impl<'a> Checker<'a, '_> {
     /// written text of that name node, and `(Anonymous class)` there would be
     /// a wrong answer where a gap belongs.
     pub(crate) fn anonymous_class_written_name(&self, symbol: SymbolId) -> Option<String> {
-        // `symbol.Declarations[0]`, as upstream reads it — an anonymous
-        // declaration carries no `value_declaration` in this binder.
         let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
         let Some(Node::ClassExpression(class)) = self.node_map.get(declaration) else {
             return None;
         };
-        // A decorated class EXPRESSION is the parser's error recovery, not a
-        // class the source wrote (decorators attach to class declarations
-        // only) — `var F = @dec () => {}` recovers as one, and upstream's
-        // answer for that line is `any`, never a name
-        // (`conformance/decoratorOnArrowFunction`).
-        if class
-            .modifiers
-            .iter()
-            .any(|modifier| matches!(modifier, tsr_ast::ModifierLike::Decorator(_)))
-        {
-            return None;
-        }
         // A class expression extending a PARAMETER — the mixin pattern,
         // `return class extends Base {}` — is an INTERSECTION upstream
         // (`getBaseTypeVariableOfClass`, `checker.go:16936`), never a bare
@@ -4464,6 +4457,8 @@ impl<'a> Checker<'a, '_> {
         // (`compiler/anonClassDeclarationEmitIsAnon`). The worker's doc
         // already accepts this limit for NAMED classes; the anonymous ones
         // decline here, on the syntactic proxy for "base is a type variable".
+        // `get_type_of_func_class_enum_module_worker` asks the real question
+        // instead ([`Self::anonymous_class_name_as_written`]).
         for clause in class.heritage_clauses {
             if clause.token.kind != SyntaxKind::ExtendsKeyword {
                 continue;
@@ -4485,6 +4480,47 @@ impl<'a> Checker<'a, '_> {
                     return None;
                 }
             }
+        }
+        self.anonymous_class_name_as_written(symbol)
+    }
+
+    /// `getBaseTypeVariableOfClass` (`checker.go:16936`): the base
+    /// constructor type when it is a type variable, or the first type-variable
+    /// constituent of an intersection one.
+    fn get_base_type_variable_of_class(&mut self, class: SymbolId) -> Option<TypeId> {
+        let base = self.get_base_constructor_type_of_class(class);
+        let type_variable = TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS;
+        if self.store.get(base).flags.intersects(type_variable) {
+            return Some(base);
+        }
+        match &self.store.get(base).data {
+            crate::types::TypeData::Intersection { types, .. } => {
+                types.iter().copied().find(|&t| self.store.get(t).flags.intersects(type_variable))
+            }
+            _ => None,
+        }
+    }
+
+    /// [`Self::anonymous_class_written_name`] without its syntactic
+    /// base-is-a-parameter decline: the name walk alone.
+    fn anonymous_class_name_as_written(&self, symbol: SymbolId) -> Option<String> {
+        // `symbol.Declarations[0]`, as upstream reads it — an anonymous
+        // declaration carries no `value_declaration` in this binder.
+        let declaration = *self.binder.symbols().get(symbol).declarations.first()?;
+        let Some(Node::ClassExpression(class)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        // A decorated class EXPRESSION is the parser's error recovery, not a
+        // class the source wrote (decorators attach to class declarations
+        // only) — `var F = @dec () => {}` recovers as one, and upstream's
+        // answer for that line is `any`, never a name
+        // (`conformance/decoratorOnArrowFunction`).
+        if class
+            .modifiers
+            .iter()
+            .any(|modifier| matches!(modifier, tsr_ast::ModifierLike::Decorator(_)))
+        {
+            return None;
         }
         let Some(parent) = self.nodes.parent(declaration) else {
             return Some("(Anonymous class)".to_string());
@@ -5305,14 +5341,21 @@ impl<'a> Checker<'a, '_> {
     /// (`checker.go:16578`).
     /// The class whose `prototype` export a static property declaration
     /// named `prototype` merges into, natively; `None` for anything else (a
-    /// static method or accessor conflicts and keeps its own symbol).
+    /// static method or accessor conflicts and keeps its own symbol). A
+    /// computed name counts when it late-binds to `prototype`: `lateBindMember`
+    /// (`checker.go:16005`) looks the name up in the class's early exports,
+    /// finds the `prototype` symbol, and merges the property into it because
+    /// property excludes are empty (`static [Names.prototype]: number` is the
+    /// class's prototype type, `staticPropertyNameConflicts`).
     fn static_prototype_property_class(
-        &self,
+        &mut self,
         symbol: SymbolId,
         declaration: NodeId,
     ) -> Option<SymbolId> {
         let entry = self.binder.symbols().get(symbol);
-        if entry.name != "prototype" || !entry.flags.contains(SymbolFlags::PROPERTY) {
+        let computed = entry.name == "__computed";
+        if !(entry.name == "prototype" || computed) || !entry.flags.contains(SymbolFlags::PROPERTY)
+        {
             return None;
         }
         let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration) else {
@@ -5332,7 +5375,18 @@ impl<'a> Checker<'a, '_> {
             return None;
         }
         let class = self.binder.merged_symbol(self.binder.symbol_of(owner)?);
-        self.binder.symbols().get(class).flags.contains(SymbolFlags::CLASS).then_some(class)
+        if !self.binder.symbols().get(class).flags.contains(SymbolFlags::CLASS) {
+            return None;
+        }
+        if computed {
+            let parent = self.binder.symbols().get(symbol).parent?;
+            let late_bound = self.late_bound_members_of(parent, true);
+            let (name, _) = late_bound.iter().find(|(_, member)| *member == declaration)?;
+            if name != "prototype" {
+                return None;
+            }
+        }
+        Some(class)
     }
 
     fn get_type_of_variable_or_parameter_or_property_worker(&mut self, symbol: SymbolId) -> TypeId {

@@ -826,9 +826,19 @@ variable/property worker recognises the merge (a static `PropertyDeclaration`
 named `prototype` whose parent node is a class) and answers
 `members.rs::prototype_type_of_class`, the helper the static side's
 `C.prototype` read (§117) now shares. Not ported: the binder-level symbol
-itself, and computed names that late-bind to `prototype`
-(`[FunctionPropertyNames.prototype]`, `staticPropertyNameConflicts` 65/195/330),
-which `lateBindMember` resolves against the early prototype symbol.
+itself.
+
+A computed name that late-binds to `prototype`
+(`static [FunctionPropertyNames.prototype]: number`,
+`staticPropertyNameConflicts` 65/195/330) takes the same arm.
+`lateBindMember` (checker.go:16005) looks the late-bound name up in the
+class's early exports, finds the prototype symbol, and merges the property
+into it (property excludes are empty). A method or accessor conflicts there
+as it does for a written name. The arm asks for the `__computed` symbol's
+late-bound name from the existing `late_bound_member_names` memo
+(`late_bound_members_of(class, static)`), so there is no new cache. It runs
+only for a static `PropertyDeclaration` with a computed name directly in a
+class, once per symbol (the worker is memoised).
 
 ## 23. Parameters and body variables are not visible from outside a function's body (RESOLVE-NAME-FUNCTION-LIKE-PARAMETER-SCOPE)
 
@@ -853,3 +863,59 @@ call it cost +0.28% Ir on domain-model; an always-inlined prelude (arrival
 present and a function-like location) in front of an out-of-line remainder
 that tests `Block`/`Parameter`/the JSDoc kind range before any table read
 brings it to domain-model 1.0011, generic-imports 1.0000.
+
+## 25. An anonymous class's static side asks `getBaseTypeVariableOfClass` (CLASS-TYPE-BASE-TYPE-VARIABLE-INTERSECTION, partial)
+
+`getTypeOfFuncClassEnumModuleWorker` (checker.go:16923) intersects a
+class's static side with `getBaseTypeVariableOfClass(symbol)` (:16936),
+which is the base constructor type when that is a type variable, or the
+first type-variable constituent of an intersection one. The anonymous
+`typeof (Anonymous class)` arm used a syntactic proxy for that test (the
+`extends` expression names a parameter) and declined. That is wrong for a
+mixin whose parameter is *not* a type variable: `function Mix(Base:
+Constructor) { return class extends Base {} }` is `(Base: Constructor) =>
+typeof (Anonymous class)` natively (`declarationsForFileShadowingGlobalNoError`
+2:4/2:5/2:7), and it was `any`.
+
+The worker now asks the native question through
+`base_types.rs::get_base_constructor_type_of_class`, the existing memoised
+`ResolvedBaseConstructorType` resolution. It answers `typeof
+(Anonymous class)` when there is no base type variable and declines when
+there is one. The intersection itself prints structurally (`{ new (...args:
+any[]): (Anonymous class); prototype: …; } & TBase`), which needs the
+printer to spell a class's static side as an object literal. Not built;
+that half of the item stays open (`anonClassDeclarationEmitIsAnon`).
+`anonymous_class_written_name`'s other callers (`declared.rs`,
+`meaning_mismatch.rs`) keep the proxy. They read the name, not this type,
+and asking the base constructor type from those positions is a new
+resolution order that has not been measured.
+
+## 26. A qualified name in a type query sees type-only module exports
+
+`checkPropertyAccessExpressionOrQualifiedName` (checker.go:11323) asks
+`getPropertyOfTypeEx(apparentType, right, …, includeTypeOnlyMembers:
+node.Kind == KindQualifiedName)`. `getPropertyOfTypeEx` then filters the
+member with `symbolIsValueEx(symbol, includeTypeOnlyMembers)`, and
+`getSymbolFlagsEx`'s `excludeTypeOnlyMeanings` stops at a type-only alias
+declaration only when that flag is false. So after `export type { A }` and
+`import * as types`, `types.A` is TS2339 while `typeof types.A` is `typeof
+A` (`namespaceImportTypeQuery` 1:1/1:2/1:4, previously `any`).
+
+**Port.** `members.rs::type_only_module_member`, asked by
+`check_qualified_name` before the shared `access_member_lookup`. It answers
+only the export the ordinary lookup refuses for type-only-ness alone: a
+non-value alias export of a module or namespace object type, with a
+type-only declaration on its chain (`type_only_alias_declaration`), whose
+alias chain still reaches a value (`get_symbol_flags`, native's
+`getSymbolFlagsEx(…, false, …)`).
+
+**Alternative rejected.** Threading `include_type_only_members` through
+`access_member_lookup` → `get_type_of_property_with_this_argument` →
+`get_property_of_type_ex` → `get_property_of_anonymous_symbol`, as native
+threads it. That is four signatures, and their many callers would all pass
+`false`. The flag changes the answer in exactly one place: the
+`symbolIsValue` filter on a module's export. A clone receiver
+(`module_value_clones`) and `export *` re-exports are not handled; native's
+`typeOnlyExportStarMap` gate is part of the star road, which this arm does
+not take. Falsifier: a corpus case where a type-only re-export through
+`export *` should resolve in a type query.
