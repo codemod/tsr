@@ -1088,7 +1088,8 @@ arm's `getContextualTypeForReturnExpression` (`checker.go:29358`). A
 `fatarrowfunctionsOptionalArgs` (88,31)(88,46), with a JSDoc-`@returns`
 decline for `instantiateTemplateTagTypeParameterOnVariableStatement` (6,18).
 
-**Refused.** It lost 12 type lines in `conditionalTypeDoesntSpinForever`:
+**Refused.** It gained 43 type lines elsewhere but lost 12 in
+`conditionalTypeDoesntSpinForever`:
 `BuildPubSubRecordType<…>` printed `error`. The first measurement was
 diagnostics-only and missed them, and a types dump found them.
 `has_no_contextual_type` is also a type producer's proof (the written-tree
@@ -1127,3 +1128,24 @@ reporter because it needs the contextual signature.
 **Measured** (diagnostics and types, unfiltered, against batch 28 with
 §22–§25 on top): `fatarrowfunctionsOptionalArgs` RIGHT (all four lines),
 0 lost.
+
+## 28. A tuple source's discriminant candidates
+
+**Forcing case.** `jsxChildrenWrongType` (11,9)(12,9). The children
+attributes `{ children: [unknown, string] }` against `children: [string,
+number?] | Iterable<boolean>` are native-false and report TS2769. This port
+answered Unknown. `type_related_to_discriminated_type` asks the source's
+property names first, and a tuple reference's name list is undecided here,
+so every tuple source's discriminated-union arm was Unknown.
+
+**Port** (`relater.rs::tuple_discriminant_candidates`). For a fixed
+(non-variadic) tuple source the arm reads the element names and `length`.
+Native's `getPropertiesOfType` of a tuple also lists the global `Array`
+members, but none of them can be a discriminant: `isDiscriminantProperty`
+needs `CheckFlagsHasLiteralPart`, and they are methods or the
+`[Symbol.unscopables]` object. The rest of the arm is unchanged: a target
+constituent without one of the names is skipped, as native's
+`getPropertyOfType` miss is, and a combination with no match is false.
+
+**Measured** (diagnostics and types, unfiltered, against batch 28 with
+§22–§27 on top): `jsxChildrenWrongType` RIGHT, 0 lost, types unchanged.

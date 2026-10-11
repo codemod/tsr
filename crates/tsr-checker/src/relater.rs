@@ -7539,8 +7539,12 @@ impl Relater<'_, '_, '_> {
         source: TypeId,
         target_types: &[TypeId],
     ) -> RelationResult {
-        let Some(source_names) = self.checker.get_property_names_of_type_shared(source) else {
-            return RelationResult::Unknown;
+        let source_names = match self.checker.get_property_names_of_type_shared(source) {
+            Some(names) => names,
+            None => match self.tuple_discriminant_candidates(source) {
+                Some(names) => names.into(),
+                None => return RelationResult::Unknown,
+            },
         };
         // findDiscriminantProperties (relater.go:1077), in source order.
         let mut discriminants: Vec<(String, Vec<TypeId>)> = Vec::new();
@@ -7711,6 +7715,25 @@ impl Relater<'_, '_, '_> {
             parts.push(RelationResult::Unknown);
         }
         RelationResult::all(parts)
+    }
+
+    /// The properties of a fixed tuple source that can be discriminants:
+    /// its element names and `length`. Native's `getPropertiesOfType` of a
+    /// tuple also lists the global `Array` members, but none of them can be
+    /// a discriminant: `isDiscriminantProperty` needs a literal part
+    /// (`CheckFlagsHasLiteralPart`), and they are methods or the
+    /// `[Symbol.unscopables]` object. This port's name list for a tuple
+    /// reference is undecided, which left every tuple source's
+    /// discriminated-union arm Unknown (`jsxChildrenWrongType`; r7-reports
+    /// §28).
+    fn tuple_discriminant_candidates(&self, source: TypeId) -> Option<Vec<String>> {
+        if self.checker.variadic_tuple_elements.contains_key(&source) {
+            return None;
+        }
+        let (elements, _) = self.checker.tuple_element_lists.get(&source)?;
+        let mut names: Vec<String> = (0..elements.len()).map(|index| index.to_string()).collect();
+        names.push("length".to_owned());
+        Some(names)
     }
 
     /// propertyRelatedTo (relater.go:4270) for one discriminant, with
