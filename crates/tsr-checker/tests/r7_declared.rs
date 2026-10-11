@@ -338,3 +338,16 @@ fn an_intersection_of_mapped_aliases_lists_its_members() {
          const x = m;\n";
     assert_eq!(type_of_last_initializer(source), "{ bar: number; foo?: boolean | undefined; }");
 }
+
+/// §35: a non-distributive infer conditional infers from the whole union
+/// check (tsgo: `"email" | "text"`).
+#[test]
+fn a_non_distributive_infer_conditional_infers_from_a_union() {
+    let source = "interface A { type: \"text\" }\n\
+         interface B { type: \"email\" }\n\
+         type C = A | B;\n\
+         type T = C extends { type: infer R } ? R : never;\n\
+         declare const t: T;\n\
+         const x = t;\n";
+    assert_eq!(type_of_last_initializer(source), "\"email\" | \"text\"");
+}

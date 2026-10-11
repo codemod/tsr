@@ -11451,7 +11451,16 @@ impl<'a> Checker<'a, '_> {
         check: TypeId,
     ) -> Option<TypeId> {
         use crate::relater::{Relation, Ternary};
-        if self.store.get(check).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER) {
+        // A distributive conditional's union or never check was distributed
+        // by the caller; a non-distributive one (`Channel extends { type:
+        // infer R } ? R : never`) infers from the whole union, as
+        // getConditionalType does (r7-declared §35).
+        let distributive = conditional
+            .check_type
+            .is_some_and(|node| self.distributive_conditional_parameter(node).is_some());
+        if self.store.get(check).flags.contains(TypeFlags::NEVER)
+            || (distributive && self.store.get(check).flags.contains(TypeFlags::UNION))
+        {
             return None;
         }
         // The caller deferred a generic check (isDeferredType); one that

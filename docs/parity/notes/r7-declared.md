@@ -1181,3 +1181,23 @@ walks constituents in order, which would put Omit's keys first too, so the
 native order comes from somewhere this note has not found (the apparent
 intersection's rebuild in getApparentTypeOfIntersectionType is the next
 place to read).
+
+## 35. A non-distributive infer conditional infers from a whole union check
+
+**Forcing constraint.** getConditionalType distributes only over a naked
+type-parameter check (`root.isDistributive`); any other check is inferred
+from as a whole, so `type ChannelType = Channel extends { type: infer R } ?
+R : never` over `Channel = TextChannel | EmailChannel` infers `R` from both
+constituents (getCommonSupertype of two string literals is their union) and
+declares `"email" | "text"` (complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound).
+`evaluate_conditional_inference` declined every union check, which is right
+only for the distributive shape the caller already distributed.
+
+**Port.** The union decline is kept for a distributive conditional (its
+check node is a naked parameter, `distributive_conditional_parameter`) and
+dropped otherwise; `never` checks still decline. No state.
+
+**Measured** (unfiltered against the rebased `89f0f0df`): types **+10, 0
+lost** (complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound 7,
+coAndContraVariantInferences3 3); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0; Ir gi 0.9999, dm 1.0000.
