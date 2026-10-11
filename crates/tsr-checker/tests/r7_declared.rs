@@ -252,3 +252,28 @@ fn an_interface_reference_alias_instance_keeps_its_call_signature() {
          const b: MH<number> = (y) => {};\n";
     assert_eq!(type_of_last_initializer(source), "(y: { v: number; }) => void");
 }
+
+/// §26: getLiteralTypeFromProperties lists a string index's keys as the one
+/// stringOrNumberType entry, and getUnionTypeEx answers a one-entry list
+/// with that entry, so no `keyof T1` origin is attached (tsgo: `string |
+/// number`).
+#[test]
+fn keyof_a_string_index_alias_is_string_or_number() {
+    let source = "type T1 = { [key: string]: { a: string } };\n\
+         type K<T> = keyof T;\n\
+         declare const k: K<T1>;\n\
+         const x = k;\n";
+    assert_eq!(type_of_last_initializer(source), "string | number");
+}
+
+/// §27: a generic alias over a homomorphic mapped alias keeps the inner alias
+/// (instantiateMappedType's instantiateConstituent passes no alias; tsgo:
+/// `Partial<{ a: number; }>`).
+#[test]
+fn a_homomorphic_mapped_reference_alias_keeps_the_inner_alias() {
+    let source = "type P<T> = { [K in keyof T]?: T[K] };\n\
+         type Q<T> = P<T>;\n\
+         declare const q: Q<{ a: number }>;\n\
+         const x = q;\n";
+    assert_eq!(type_of_last_initializer(source), "P<{ a: number; }>");
+}

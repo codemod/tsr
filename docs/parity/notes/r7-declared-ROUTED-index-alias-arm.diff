@@ -1,0 +1,22 @@
+diff --git a/crates/tsr-checker/src/index_signatures.rs b/crates/tsr-checker/src/index_signatures.rs
+index 182efcebf..1c8c86dfe 100644
+--- a/crates/tsr-checker/src/index_signatures.rs
++++ b/crates/tsr-checker/src/index_signatures.rs
+@@ -203,6 +203,17 @@ impl<'a> Checker<'a, '_> {
+         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
+             return Some(Vec::new());
+         };
++        // getTypeAliasInstantiation: a generic alias reference IS its
++        // declared type instantiated, so its index infos are the evaluated
++        // body's (`property_type_via_shape`'s alias arm, for index keys).
++        if self.binder.symbols().get(owner).flags.contains(tsr_binder::SymbolFlags::TYPE_ALIAS)
++            && let Some((target, arguments)) = self.type_reference_targets.get(&id).cloned()
++            && target == owner
++            && let Some(evaluated) = self.evaluate_alias_body(target, &arguments)
++            && evaluated != id
++        {
++            return self.get_index_infos_of_type(evaluated);
++        }
+         let mut visiting = Vec::new();
+         let infos = self.index_infos_of_symbol(owner, false, &mut visiting)?;
+         // On an instantiated reference the declared value types are the

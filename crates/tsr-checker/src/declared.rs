@@ -4405,6 +4405,58 @@ impl<'a> Checker<'a, '_> {
         Some(named)
     }
 
+    /// getTypeAliasInstantiation (checker.go:23641) over a declared type that
+    /// is a reference to a generic homomorphic mapped alias (`type
+    /// ObjMapReadOnly<T> = Readonly<ObjMap<T>>`, `type Q<T> = Partial<T>`).
+    /// The declared type is the inner alias's mapped type, and
+    /// instantiateMappedType maps the homomorphic variable's non-union image
+    /// through instantiateConstituent with a nil alias, so the instance keeps
+    /// the inner alias: `Q<{ a: number }>` is `Partial<{ a: number; }>`
+    /// ([`Self::alias_instantiation_keeps_declared_alias`] states which declared types
+    /// keep theirs). This port minted a print-only `Named` over the outer
+    /// alias. The body is evaluated under the alias's bindings and the inner
+    /// instance answered as it is. A union image (mapTypeWithAlias hands the
+    /// outer alias to the union) is not the inner alias's instance and keeps
+    /// the existing mint (r7-declared §27).
+    fn instantiate_homomorphic_reference_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if arguments.is_empty()
+            || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || self.local_type_parameters_of(symbol).len() != arguments.len()
+        {
+            return None;
+        }
+        let TypeNode::TypeReferenceNode(reference) =
+            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?
+        else {
+            return None;
+        };
+        let inner = self.alias_reference_target(reference)?;
+        if inner == symbol
+            || !matches!(
+                self.type_alias_body(inner).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::MappedTypeNode(_))
+            )
+            || self.alias_body_receives_new_alias(symbol, 0)
+            || !self.alias_instantiation_keeps_declared_alias(symbol, 0)
+        {
+            return None;
+        }
+        let evaluated = self.evaluate_alias_body(symbol, arguments)?;
+        if self.is_gap(evaluated) || self.alias_of.contains_key(&evaluated) {
+            return None;
+        }
+        let (target, _) = self.type_reference_targets.get(&evaluated).cloned()?;
+        if target != inner {
+            return None;
+        }
+        self.ensure_mapped_type_info(evaluated);
+        self.mapped_types.contains_key(&evaluated).then_some(evaluated)
+    }
+
     /// Whether a generic alias's declared type is a tuple built by
     /// createNormalizedTupleType (a body with a variadic element,
     /// checker.go:24121), directly or through a chain of alias references
@@ -8217,6 +8269,10 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
         }
+        if let Some(reference) = self.instantiate_homomorphic_reference_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), reference);
+            return reference;
+        }
         if let Some(reference) =
             self.instantiate_interface_reference_alias(symbol, &arguments, shown)
         {
@@ -11786,6 +11842,9 @@ impl<'a> Checker<'a, '_> {
         let enum_object = matches!(self.store.get(apparent).data,
             crate::types::TypeData::Anonymous { symbol, .. }
             if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::REGULAR_ENUM));
+        // getLiteralTypeFromProperties' list: a string index contributes the
+        // one stringOrNumberType entry, so it is counted once.
+        let mut listed = keys.len();
         for info in self.get_index_infos_of_type(apparent)? {
             // The synthetic reverse-mapping index is enumNumberIndexInfo,
             // which getLiteralTypeFromProperties excludes from keyof.
@@ -11793,11 +11852,19 @@ impl<'a> Checker<'a, '_> {
                 continue;
             }
             keys.push(info.key);
+            listed += 1;
             if info.key == self.intrinsics.string {
                 keys.push(self.intrinsics.number);
             }
         }
         let union = self.get_union_type(&keys);
+        // getUnionTypeEx (checker.go:25632) answers a one-entry list with
+        // that entry and never reads the origin: `keyof T1` over `type T1 =
+        // { [key: string]: X }` is stringOrNumberType itself, printed
+        // `string | number` (r7-declared §26).
+        if listed == 1 {
+            return Some(union);
+        }
         let aliased_object = self.store.get(target).flags.contains(TypeFlags::OBJECT)
             && !self.mapped_types.contains_key(&target)
             && !self.mapped_identity_sources.contains_key(&target)

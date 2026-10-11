@@ -899,3 +899,78 @@ Answering the written reference moves the merged `import b` declaration's
 own line, which native prints as the alias's errorType (`any`) while TSR
 prints the merged var's type. That line is `getTypeOfAlias`'s, owned by
 `symbols.rs`.
+
+## 26. `keyof` over a lone string index is stringOrNumberType, with no origin
+
+**Forcing constraint.** getLiteralTypeFromProperties (`checker.go:26717`)
+lists one entry per property and per included index info, and a string index
+contributes the single `stringOrNumberType` entry. getUnionTypeEx
+(`checker.go:25632`) answers a one-entry list with that entry and never
+reads the origin, so `keyof T1` over `type T1 = { [key: string]: X }` is
+`string | number` (tsgo: `Type 'string | number' is not assignable…` for
+`c10<T1>` with `type c10<Tg> = keyof Tg`). TSR pushed `string` and `number`
+as two keys and attached the `keyof T1` origin to the resulting union, which
+printed `keyof T1`.
+
+**Port.** `resolved_keyof_type_worker` counts native's list (a string index
+counts once) and returns the bare union when the count is one. No state.
+
+**Measured** alone (unfiltered against `cf8bae56`): types 0 / 0, diagnostics
+0 / 0, jsTyping 0 / 0, Ir 1.0000 / 1.0000. No corpus row prints this, so the
+port is recorded for the probe (`keyof c18<T1>` style reads), not for a
+number.
+
+## 27. A generic alias over a homomorphic mapped alias reference is the inner instance
+
+**Forcing constraint.** `type ObjMapReadOnly<T> = Readonly<ObjMap<T>>` at
+`Resolver` records `Readonly<{ [key: string]: Readonly<Resolver>; }>`
+(inferrenceInfiniteLoopWithSubtyping), and `type Q<T> = Partial<T>` at
+`{ a: number }` is `Partial<{ a: number; }>`. getTypeAliasInstantiation
+instantiates Q's declared type, which is Partial's homomorphic mapped type,
+and instantiateMappedType maps a non-union homomorphic image through
+instantiateConstituent with a nil alias, so the instance keeps the inner
+alias (`alias_instantiation_keeps_declared_alias` already names which
+declared types keep theirs). TSR minted a print-only `Named` over the outer
+alias, which printed `Q<…>` and, for inference, was an opaque reference.
+
+**Port.** `instantiate_homomorphic_reference_alias`: a generic alias whose
+body is a reference to a generic mapped alias, where the outer alias does not
+receive a new alias and keeps the declared one, answers the evaluated body
+when that is the inner alias's mapped instance. A union image (mapTypeWithAlias
+hands the outer alias to the union) is not the inner instance and keeps the
+existing mint. No new state: the answer is cached in `instantiations` like
+every other arm of `create_type_reference`.
+
+**Measured** with §26 (unfiltered against the rebased tip `d1120e60`): types
+**+11, 0 lost** (reverseMappedPartiallyInferableTypes 6, mappedTypeWithAny 3,
+inferrenceInfiniteLoopWithSubtyping 1, ramdaToolsNoInfinite 1); diagnostics
+0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0002.
+
+**Refused, with the number that refused it: the non-homomorphic image.** The
+same arm extended to an outer alias that RECEIVES the new alias (`type c18<T>
+= c17<T, string>` over `type c17<T, K extends keyof T> = { [P in K]: T[P] }`;
+`Omit` over `Pick`), re-minting the inner mapped instance under the outer
+name with its mapped parts, measured **+13 / −73 types and −5 diagnostic
+cases** (first cut, reference pair on the inner alias), and after moving the
+pair to the outer alias the Omit losses remained in two shapes:
+`Omit<this, …>["publicProp"]` (the mapped road cannot enumerate a generic
+`Exclude<keyof this, K>` constraint; native reads getLowerBoundOfKeyType) and
+`bar.c : error` for a key Omit removed (the mapped road leaves a missing
+property a gap where `members.rs`'s Omit arm answered). The port that would
+win is getLowerBoundOfKeyType in `mapped_member_keys` plus the missing-key
+answer on the mapped road; until both exist the outer alias keeps the
+existing mint.
+
+**Routed: the index road of an alias reference.** What `c18<T1>["x"]`
+actually lacks is an alias arm in `index_signatures.rs::get_index_infos_of_type`
+(the twin of `members.rs::property_type_via_shape`'s alias arm: a `Named`
+whose owner is a TYPE_ALIAS answers its evaluated body's index infos).
+Prototyped (`r7-declared-ROUTED-index-alias-arm.diff`) against `cf8bae56`+§26: types
+**+10 / 0** (intersectionWithIndexSignatures' `q["asd"]` among them), but
+diagnostics **−2**: conformance/unionTypeInference gains a TS2322 at 62:11
+(`DeepPromised<T>` to `DeepPromised<{ [name: string]: … }>`, whose target now
+has its string index; the relation that native passes there is the
+relater's), and compiler/contextuallyTypedJsxAttribute2 turns its `onClick`
+gap into `(e: any) => void` and reports TS7006 (the JSX attributes'
+contextual type through `Omit<ComponentPropsWithRef<…>, "as">`). Not owned
+here; offered to the integration owner with both causes.
