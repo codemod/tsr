@@ -960,3 +960,36 @@ undecided steps hid the line.
 
 **Measured** (diagnostics and types, unfiltered, against batch 19 with
 §17–§20 on top): +1 case, 0 lost, types unchanged.
+
+## 22. A closed mapped source has no signatures for `shouldReportUnmatchedPropertyError`
+
+**Forcing case.** `consistentAliasVsNonAliasRecordBehavior` (18,5)(22,5)(34,5)(38,5).
+`Record<string, string> → Record2<"a", string>` is false natively with head
+TS2741 (`Property 'a' is missing…`). This port kept TS2322:
+`unmatched_property_report` asked `signatures_of_type_kind` of the source
+for `shouldReportUnmatchedPropertyError` (`relater.go:959`), and for a mapped
+alias image that reader answers None (undecided).
+
+**Upstream.** `resolveMappedTypeMembers` publishes no call or construct
+signatures, so a mapped source is never signature-only and the gate passes.
+
+**Port.** A mapped source that is not `isGenericMappedType` reads as having
+no signatures. A generic mapped source is left to the reader:
+`mappedTypeUnionConstrainTupleTreatedAsArrayLike` (9,9) keeps native's
+TS2322 head, because there the failure comes from the source's constraint,
+not this arm. The first draft took every mapped source and lost that case
+(TS2740).
+
+**Decline: a missing late-bound name of a mapped source.** This port's
+mapped member lists omit late-bound keys. `{ [K in keyof number[] as
+Exclude<K, "length">]: … }` (`mappedTypeWithAsClauseAndLateBoundProperty`
+(3,1)) and `Readonly<PathPathComponents>` (jsTyping's `resolutionCache.ts`
+(460,44)(463,84)) list no `[Symbol.iterator]` or `[Symbol.unscopables]`.
+Without the decline, the first draft moved the jsTyping lines from a false
+TS2322 to a false TS2739 (`new_false=2`), and the corpus case from TS2322 to
+TS2739 where native has TS2741. A mapped source whose missing list holds a
+late-bound name (`[…]`) keeps the caller's head. The member-list producer
+fix is `members.rs`/`mapped.rs` (reported).
+
+**Measured** (diagnostics, unfiltered, against batch 19 with §17–§21 on
+top): +1 case, 0 lost.

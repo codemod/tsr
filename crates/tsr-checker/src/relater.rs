@@ -1163,9 +1163,30 @@ impl Checker<'_, '_> {
         }
         // shouldReportUnmatchedPropertyError: a source that is only
         // signatures reports the unmatched property only against a target
-        // with a signature kind the source also has.
-        let source_calls = self.signatures_of_type_kind(source, SignatureKind::Call)?;
-        let source_constructs = self.signatures_of_type_kind(source, SignatureKind::Construct)?;
+        // with a signature kind the source also has. A mapped type has none
+        // (resolveMappedTypeMembers publishes no call or construct
+        // signatures), whatever this port's signature reader answers for
+        // its image. Only a closed instance: a generic mapped source's
+        // failure is its constraint's, not this arm's (r7-reports §22).
+        self.ensure_mapped_type_info(source);
+        // This port's mapped member lists omit late-bound keys
+        // (`[Symbol.iterator]` of `Readonly<T>` over an array-like `T`), so a
+        // missing late-bound name of a mapped source is not evidence
+        // (r7-reports §22).
+        if self.mapped_types.contains_key(&source)
+            && missing.iter().any(|name| name.starts_with('['))
+        {
+            return None;
+        }
+        let (source_calls, source_constructs) =
+            if self.mapped_types.contains_key(&source) && !self.is_generic_mapped_type(source) {
+                (Vec::new(), Vec::new())
+            } else {
+                (
+                    self.signatures_of_type_kind(source, SignatureKind::Call)?,
+                    self.signatures_of_type_kind(source, SignatureKind::Construct)?,
+                )
+            };
         if (!source_calls.is_empty() || !source_constructs.is_empty())
             && self.get_property_names_of_type(source)?.is_empty()
         {
