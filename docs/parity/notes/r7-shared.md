@@ -755,3 +755,16 @@ signatures printed `<T extends T>`. `type_parameter_of` now asks
 with the circularity test) whenever a constraint is written and drops it on
 `Nil`. TS2313 still reports once, from the same base-constraint resolution.
 No cache beyond `base_constraint_cache`'s.
+
+## 19. A JSDoc `@type` on `export default` types the default export (JS-DEFAULT-EXPORT-JSDOC-TYPE)
+
+`reparseHosted` (parser/reparser.go:342) rewrites `/** @type {Foo} */
+export default expr` into a cast of `expr` to `Foo`, so the `default`
+symbol's type is the tag's. The port kept the gap here: an earlier draft
+typed the tag and the importing file printed the local typedef name where
+native writes `import("./a").Foo` (the §158 per-site naming wall). The
+printer has since gained import-type spelling for most shapes, so the tag is
+typed: `checkJsdocTypeTagOnExportAssignment2` and `exportDefaultWithJSDoc1`
+convert; `checkJsdocTypeTagOnExportAssignment1/5/6` still print the local
+`Foo` (they printed `any` before) and `exportDefaultWithJSDoc2`'s cast on the
+expression itself still declines — both the printer's re-spelling, routed.

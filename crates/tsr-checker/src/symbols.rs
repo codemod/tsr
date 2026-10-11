@@ -5408,15 +5408,15 @@ impl<'a> Checker<'a, '_> {
             // expression's REGULAR form, unwidened (`importBindingDefer`
             // wants `defer : 2`).
             SyntaxKind::ExportAssignment => {
-                // A `@type` tag on the assignment KEEPS THE GAP: upstream
-                // types the tag, and the importing site re-spells its aliases
-                // per module (`import("./a").NumberLike[]`,
-                // `exportDefaultWithJSDoc1/2`) — the §158 per-site re-render
-                // wall. The first draft typed the raw expression under the
-                // tag (`never[]`, 5 G->W); the second typed the tag and
-                // printed the local spelling, wrong the other way.
-                if self.jsdoc_cast_annotation(declaration).is_some() {
-                    self.intrinsics.error
+                // A `@type` tag on the assignment: `reparseHosted`
+                // (`parser/reparser.go:342`) makes the expression a cast, so
+                // the default export's type is the tag's. This kept the gap
+                // while the printer could not re-spell a JSDoc typedef per
+                // importing site (`import("./a").Foo`, the §158 wall); it now
+                // can for most shapes, and the rest are its spelling, not this
+                // type (`docs/parity/notes/r7-shared.md` §19).
+                if let Some(annotation) = self.jsdoc_cast_annotation(declaration) {
+                    self.get_type_from_type_node(annotation)
                 } else {
                     match self.node_map.get(declaration) {
                         // Native's property-valued ExportAssignment arm also
