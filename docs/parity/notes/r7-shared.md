@@ -539,3 +539,69 @@ file is `typeof import("./three")`. The binder's UMD arm handled only the
 non-conflicting merge; `BindResult::umd_alias_conflicts` is the other half —
 the slot takes the source and the pair stays in `alias_merges`, so the two
 TS2451 reports are unchanged. No cache.
+
+## 13. PLAN (not built): a whole-type `getTypeWithThisArgument`
+
+Routed from r7-grammar: TS2415/TS2430 false positives (`contextualThisType`,
+`thisTypeInFunctions3`, `genericDefaults`, `indexSignatureInOtherFile/1`)
+because `relate_ternary` compares declared types whose `this` differ. Also
+the harvest spec `calls_concrete_receiver.rs` (inherited `(value: T): this`
+called through `Derived` returns `Derived`). Nothing below exists yet.
+
+**Native operation.** `getTypeWithThisArgument(t, thisArgument)`
+(`checker.go:19573`): a class/interface reference `C<A…>` becomes
+`createTypeReference(C, [A…, thisArgument])` — the this-type is one more type
+argument, so `C<A>` with `this = D` is a distinct reference with its own
+identity, members and relations; an intersection maps per constituent.
+Callers: `resolveObjectTypeMembers` (each base is instantiated with the
+derived type's `thisType`), `getBaseTypes` consumers in
+`checkClassLikeDeclaration`/`checkInterfaceDeclaration` (TS2415/TS2430
+relate the derived type to `getTypeWithThisArgument(base, derived.thisType)`),
+and member access (`getTypeOfPropertyOfType` on the receiver with the
+original receiver as this).
+
+**Today.** `this_types[class symbol]` mints one this-type per class
+(`expressions.rs`); `members.rs` §164/§165 substitutes it per member read
+(`get_type_of_property_with_this_argument`); `calls.rs` substitutes a
+returned this-type at a property-access call. There is no reference whose
+identity carries a this-argument, so relations and inherited signatures see
+the base's own `this`.
+
+**Proposed identity and owner.** Keep `type_reference_targets`' `(SymbolId,
+Vec<TypeId>)` as is (225 readers). Add one Checker-owned intern table
+`this_argument_references: FxHashMap<(TypeId /*reference*/, TypeId /*this*/),
+TypeId>` and its inverse `reference_this_arguments: FxHashMap<TypeId, (TypeId
+/*reference*/, TypeId /*this*/)>`. The image is a new `TypeId` with the same
+`type_reference_targets` entry (same target and arguments) — exactly native's
+"same target, one more argument" — so every existing reader sees the
+reference it expects, and only this-aware readers consult the inverse table.
+A reference with no entry has itself as its this-argument (native's default
+`thisArgument = target.thisType`, which the reference's mapper sends to the
+reference).
+
+**Publication.** Interned on first request, before any member of the image
+is read; never removed; no provisional state (the image is a pure function
+of its two `TypeId`s).
+
+**Receiver context.** Member reads on an image take its this-argument
+(`members.rs`' §164/§165 read becomes "this-argument of the receiver, else
+the receiver"); `signature_candidates_of_interface_symbol` instantiates each
+inherited base through `get_type_with_this_argument(base, derived this-type)`
+before the receiver mapper — the `interface_signatures` key then needs no
+this component, because the declared set is expressed in the derived's own
+this-type and the receiver mapper substitutes it; the relater compares an
+image structurally through those members.
+
+**Expensive work.** Bounded by the images requested: one per (base
+reference, derived this-type) from base resolution and one per heritage
+check; member images reuse the existing per-reference member caches keyed by
+the image `TypeId`.
+
+**Order.** (1) the intern tables and `get_type_with_this_argument` in
+`members.rs`/`instantiate` (this lane), with unit tests from the harvest spec;
+(2) inherited signatures (`signatures.rs`, this lane); (3) the heritage
+checks' consumer (`heritage_conformance.rs`, r7-grammar) and the relater's
+structural arm (`relater.rs`, r7-reports), coordinated through the
+integrator. Each step gated alone. Falsifier: a corpus case where two
+references differing only in this-argument must be identical natively (none
+known — native's identity is by argument list).
