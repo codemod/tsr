@@ -2813,6 +2813,13 @@ impl<'a> Checker<'a, '_> {
             return self.report_relation_failure(at, span, None, source, target, None);
         }
         let regular = self.get_regular_type_of_object_literal(source);
+        // `isRelatedTo`'s common-property check runs on the whole target
+        // before the intersection is decomposed (`relater.go:2676`): a weak
+        // intersection sharing no property with the attributes is TS2559 on
+        // its own (`tsxSpreadAttributesResolution5` (35,10); r7-reports §32).
+        if self.report_weak_type_failure(at, span, regular, target) {
+            return true;
+        }
         for constituent in types {
             if self.fails_common_property_check(regular, constituent) {
                 continue;
@@ -4119,14 +4126,64 @@ impl<'a> Checker<'a, '_> {
         if !self.type_of(t).flags.contains(TypeFlags::OBJECT) {
             return Some(false);
         }
-        let table = self.relation_property_table(t)?;
-        if table.is_empty() || table.iter().any(|(_, optional)| !optional) {
-            return Some(false);
+        match self.relation_property_table(t) {
+            Some(table) => {
+                if table.is_empty() || table.iter().any(|(_, optional)| !optional) {
+                    return Some(false);
+                }
+            }
+            None => {
+                if !self.instantiated_reference_all_optional(t)? {
+                    return Some(false);
+                }
+            }
         }
         if !self.get_index_infos_of_type(t)?.is_empty() {
             return Some(false);
         }
         Some(!self.type_has_call_or_construct_signatures_certified(t)?)
+    }
+
+    /// The optionality of a class or interface instantiation's members
+    /// (`IntrinsicClassAttributes<C>`), whose declared walk
+    /// (`relation_property_table`) declines a reference with type
+    /// arguments. A member's optionality is its declaration's `?`, which no
+    /// type argument changes, so the complete name list and each name's
+    /// property symbol decide it (r7-reports §32). A mapped type's `?`
+    /// comes from its modifiers, so a mapped type is not read here.
+    ///
+    /// Answers whether the list is non-empty and every member optional,
+    /// stopping at the first required member: the weak test asks this on
+    /// every relation against such a target, and nearly every
+    /// instantiation has one.
+    fn instantiated_reference_all_optional(&mut self, t: TypeId) -> Option<bool> {
+        let &(symbol, _) = self.type_reference_targets.get(&t)?;
+        if !self
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+            || self.mapped_types.contains_key(&t)
+        {
+            return None;
+        }
+        let names = self.get_property_names_of_type_shared(t)?;
+        if names.is_empty() {
+            return Some(false);
+        }
+        for name in names.iter() {
+            // A member inherited through a generic base has no symbol on the
+            // ordinary road (`generic_heritage_property_symbol`).
+            let property = match self.get_property_of_type(t, name) {
+                Some(property) => property,
+                None => self.generic_heritage_property_symbol(t, name, &mut Vec::new())?,
+            };
+            if !self.property_is_optional(property) {
+                return Some(false);
+            }
+        }
+        Some(true)
     }
 
     /// `typeHasCallOrConstructSignatures`, `false` where undecidable.
