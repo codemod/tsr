@@ -540,7 +540,7 @@ non-conflicting merge; `BindResult::umd_alias_conflicts` is the other half —
 the slot takes the source and the pair stays in `alias_merges`, so the two
 TS2451 reports are unchanged. No cache.
 
-## 13. PLAN (not built): a whole-type `getTypeWithThisArgument`
+## 13. A whole-type `getTypeWithThisArgument` (step 1 built; steps 2–3 planned)
 
 Routed from r7-grammar: TS2415/TS2430 false positives (`contextualThisType`,
 `thisTypeInFunctions3`, `genericDefaults`, `indexSignatureInOtherFile/1`)
@@ -636,3 +636,16 @@ Checker port convention: no new cache; the publication is the existing
 `late_bound_member_names` memo (key `(container SymbolId, is_static)`, owned
 by the Checker, an empty sentinel while resolving), and the expensive work
 stays one name resolution per computed member per container.
+
+### Step 1 (built): the identity, no consumer
+
+Approved by the integrator in outline (keep `type_reference_targets`' key;
+interned `(reference, this) → image` and its inverse; the image shares the
+reference's target and arguments). `Checker::get_type_with_this_argument`
+(`members.rs`) and the two tables (`checker.rs`) exist, with the
+conventions entry on the function. No caller reads an image yet, so the
+block carries `#[allow(dead_code)]` until step 2. Unit test
+`this_argument_tests`: an image is interned once, differs from its
+reference, shares its `type_reference_targets` entry and printed text; a
+reference's own this-argument is the reference; `None` takes the target's
+this-type; a non-reference is unchanged. Expected corpus delta: zero.
