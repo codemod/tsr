@@ -891,7 +891,20 @@ impl Checker<'_, '_> {
                         crate::types::TypeData::NumberLiteral(position.to_string()),
                         false,
                     );
-                    self.array_or_tuple_element_access(array, key, false)
+                    // getIndexedAccessTypeOrUndefined: an array-like part that
+                    // is no tuple reference (`((user: IUser) => Element) &
+                    // Array<…>`, `checkJsxChildrenProperty4`) answers through
+                    // its applicable number index signature; a tuple's
+                    // out-of-range position has none (r7-reports §30).
+                    self.array_or_tuple_element_access(array, key, false).or_else(|| {
+                        let tuple = self.tuple_element_lists.contains_key(&array)
+                            || self.variadic_tuple_elements.contains_key(&array);
+                        (!tuple)
+                            .then(|| {
+                                self.get_applicable_index_info(array, key).map(|info| info.value)
+                            })
+                            .flatten()
+                    })
                 }
                 None => None,
             };

@@ -1177,3 +1177,31 @@ whose decided property list and index infos are empty.
 **Measured** (diagnostics and types, unfiltered, against batch 28 with
 §22–§28 on top): `tsxStatelessFunctionComponentOverload5` RIGHT, types +11,
 0 lost.
+
+## 30. An array-like JSX children part answers element positions through its number index
+
+**Forcing case.** `checkJsxChildrenProperty4` (38,15)(41,15). The children
+target is `((user: IUser) => Element) & ReactNode`. It distributes into
+array-like parts such as `((user) => Element) & Array<ReactChild | any[] |
+boolean>` and non-array parts such as `((user) => Element) & string`.
+
+**Upstream.** `elaborateIterableOrArrayLikeTargetElementwise` (`jsx.go:419`)
+relates each child to the non-array parts' iteration type (`string`) united
+with `getBestMatchIndexedAccessTypeOrUndefined` over the array-like part at
+the child's position. For an intersection with an array, that is the
+number index signature's element: `boolean | any[] | ReactChild`. The
+child, a function, fails it. `elaborateDidYouMeanToCallOrConstruct` then
+reports at the arrow (column 15), because the function's return
+`Element` does relate.
+
+**Port** (`jsx_component.rs::elaborate_jsx_children_elementwise`).
+`array_or_tuple_element_access` answers only for array and tuple
+references, so the indexed part was dropped. The target was `string`, the
+did-you-mean arm saw `Element → string` fail, and the report fell to the
+`JsxExpression` (column 13). An array-like part that is no tuple reference
+now answers through its applicable number index signature. A tuple's
+out-of-range position still answers nothing, as native's indexed access
+does.
+
+**Measured** (diagnostics and types, unfiltered, the change alone on the
+same tree): `checkJsxChildrenProperty4` RIGHT, 0 lost, types unchanged.
