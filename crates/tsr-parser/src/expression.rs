@@ -3204,7 +3204,17 @@ impl<'a> Parser<'a> {
                 start,
             ))
         } else {
-            self.parse_binding_name()
+            let name = self.parse_binding_name();
+            // `parseNameOfParameter` (`parser.go:3363`): a missing name with no
+            // modifiers at a modifier keyword (`function f(default: number)`)
+            // skips the keyword, or the parameter list would not advance.
+            if modifiers.is_empty()
+                && self.token.kind.is_modifier()
+                && matches!(name, BindingName::Identifier(id) if id.text.is_empty())
+            {
+                self.next_token();
+            }
+            name
         };
         let question =
             if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };
