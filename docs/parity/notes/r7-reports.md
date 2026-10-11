@@ -712,3 +712,80 @@ text, as upstream's `generalizedSourceType` does.
 **Measured** (unfiltered, against `f960020e` plus §11–§15): WRONG → RIGHT
 `incompatibleAssignmentOfIdenticallyNamedTypes`; no other row changed; type
 lines identical.
+
+## 17. Indexed-access sources meet union and intersection targets through their constraint
+
+Routed from r7-calls: `relate_ternary(T["kind"], SK)` with `T extends { kind:
+SK }` answered NotRelated, which gave `h(k)` a false TS2345 and held r7-calls'
+`createToken` fix.
+
+**Upstream.** `structuredTypeRelatedToWorker` (`relater.go:3380`): after the
+ordered union/intersection decomposition fails, an *instantiable* source
+(type parameter, indexed access, conditional, …) falls through to its own
+arms. The type-variable arm relates `getConstraintOfType(source)`
+(`relater.go:3652`): for `T["kind"]` that is `Node0["kind"]` = `SK`.
+
+**Port** (`relater.rs`). The union- and intersection-target arms already
+fell through for a type parameter and a deferred conditional. They now do so
+for an indexed-access source as well. r5-relater5 §3 held this half because
+it lost 6 type lines in `quickinfoTypeAtReturnPositionsInaccurate`. Re-measured
+on today's main, the same 6 lines are lost, and their cause is in this file
+too:
+
+- The call `isNumClass(entry)` now checks, so `entry` narrows by the
+  predicate `Extract<Entries[EntryId], NumClass<any>>`.
+- `getNarrowedType` keeps the candidate for the `NumClass` constituent of
+  the receiver's constraint, and needs `Extract<…> → StrClass<string>` to be
+  *false* to drop the other.
+- That relation was Unknown. The conditional source's default constraint
+  takes the true type through `getConditionalFlowTypeOfType`, a substitution
+  type `E[I]` with implied constraint `NumClass<any>`, which a relation source
+  reads as `getSubstitutionIntersection` = `NumClass<any> & E[I]`.
+  `inferred_true_type_of_check_reference` answered None (undecided) for any
+  type-variable check that is not restrictively assignable.
+- It now answers the intersection, except for a root nested in another
+  conditional's true branch. There native intersects every enclosing
+  conditional's implied constraint, and only this one's is known here.
+  `Extract2<T, Foo, Bar>`'s nested root made `conditionalTypes2` (69,12) a
+  false TS2345 before this limit.
+
+**Decline: a non-public member listed by a mapped part.** The unit test
+`unsupported_mapped_source_intersection_shapes_retain_unknown` (`Req<T> & {
+extra: number } → PrivateState`, `T extends PrivateState`) flipped from
+Unknown to *Related*, while tsgo reports TS2741. Its `T["d"] → boolean` now
+relates through the constraint (correctly), which unmasked a member-list
+defect. Native's mapped members drop non-public keys
+(`getLiteralTypeFromProperty`, `NonPublicAccessibility`), so `Req<T>` has
+no `a`. This port's list carries the private `a`. The property walk now
+declines (Unknown) a source member that only a mapped part supplies from a
+private or protected origin. The producer fix is `mapped.rs`'s (proposed in
+the report).
+
+**Decline: an intersection whose combined-constraint retry reads a
+conditional's constraint.** *Corrected:* the first draft of this section
+recorded `controlFlowGenericTypes` (22,9) as a known exposed gap and said the
+relation `NonNullable<Extract<T, string | undefined>> → string` "is now
+false, as native's is". That was wrong. Checked against pinned tsgo
+(`function h<T>(y: NonNullable<Extract<T, string | undefined>>): string {
+return y }` has no error; `y`'s base constraint is not a union, so
+`getNarrowableTypeForReference` does not substitute it and the relation
+itself is decided true).
+
+- Native's route is `structuredTypeRelatedTo`'s combined-constraint retry
+  (`relater.go:3216`). `getEffectiveConstraintOfIntersection` takes the
+  conditional's `getConstraintOfConditionalType`. That is the default
+  constraint, the substitution `T` with implied constraint `string |
+  undefined`. With the `{}` constituent, `getNormalizedType` gives `T &
+  string`, which relates.
+- This port's `constraint_of_type` leaves a conditional undecided, and
+  `effective_constraint_of_intersection` then falls back to its base
+  constraint. That is None here, so the retry was skipped as though native
+  had no constraint either.
+- The newly decided `Extract<…> → string` = false (correct for the
+  conditional alone) thereby became a decided false for the intersection.
+- The retry site now answers Unknown when the walk failed, the retry would
+  run (union target or a disjoint-domain / empty-object constituent), and a
+  conditional constituent has neither a decided constraint nor a base
+  constraint. The producer fix is `getConstraintOfConditionalType` in
+  `constraints.rs`, which can reuse this file's default-constraint arm.
+  It is proposed in the report.
