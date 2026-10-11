@@ -74,20 +74,11 @@ impl Checker<'_, '_> {
             return;
         }
         let optional = if self.exact_optional_property_types {
-            // `symbol.Flags&ast.SymbolFlagsOptional != 0`. Read off the
-            // declaration where the receiver's member is that declaration's
-            // own type, read through its own declared parent; a mapped or
-            // instantiated member's optionality is the
-            // receiver's (members.rs's `identity_mapped_source_property_is_optional`,
-            // not reachable from here), so that case declines.
-            let parent = self.binder.symbols().get(symbol).parent;
-            let own_receiver = parent.is_some_and(|parent| {
-                self.get_declared_type_of_symbol(self.binder.merged_symbol(parent)) == apparent
-            });
-            if ty != declared || !own_receiver {
-                return;
-            }
-            self.property_is_optional(symbol)
+            // `symbol.Flags&ast.SymbolFlagsOptional != 0` of the property the
+            // access resolved: the receiver's member, whose optionality a
+            // mapped receiver (`Partial<Foo>`) sets rather than the source
+            // declaration (`members.rs`'s receiver-level answer).
+            self.identity_mapped_source_property_is_optional(apparent, &name)
         } else {
             // `hasTypeFacts(t, TypeFactsIsUndefined)`.
             self.nullish_facts(ty).1

@@ -475,7 +475,10 @@ the declaration's `?` (`property_is_optional`) when the member is the
 declaration's own, reached through its declared parent; a mapped or
 instantiated member's optionality is the receiver's
 (`identity_mapped_source_property_is_optional`, private to `members.rs`), so
-that case declines — routed as a visibility request. Converted:
+that case declined — routed as a visibility request. *Superseded:* with the
+integrator's grant (visibility only) the arm asks
+`identity_mapped_source_property_is_optional(receiver, name)` for every
+member, which is the receiver-level `Optional` flag, and no longer declines. Converted:
 `deleteExpressionMustBeOptional_exactOptionalPropertyTypes` (exact true and
 false).
 
@@ -498,3 +501,17 @@ a `using` / `await using` list with `NodeFlagsAmbient` is TS1545 / TS1546 on
 the list (from the `await` for the latter). Read through `has_ambient_flag`
 (§1). The arm returns, so the `await using` tail (§9) no longer adds TS2852
 there. Converted: `usingDeclarations.16`, `awaitUsingDeclarations.16`.
+
+## §24 `await using` read from the list's flags
+
+r7-parser `054b714f` flags an `await using` list `CONST | USING`
+(`NodeFlagsAwaitUsing`) and starts its span at the `await`, as
+`parseVariableDeclarationList` does (`parser.go:1563`). The recoveries §9,
+§19 and §23 describe — the `await` found as the gap before a statement's
+list, or as the token before a `for`-head list (`is_await_using_list`'s
+source-text test) — are gone: `await_using_list_await_start`
+(`module_format.rs`) is the flag test and the list's start,
+`await_using_keyword_start` and `is_await_using_statement` are deleted, and
+`checkGrammarModifiers`' block-scope kind and the case-clause arm read the
+flags directly. Correction of the record: those sections' "this parser eats
+the `await`" no longer holds as of `054b714f`.
