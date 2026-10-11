@@ -205,13 +205,22 @@ impl<'a> Parser<'a> {
         // is what keeps `getAliasSymbolForTypeNode` from naming the
         // constituent (checker-notes-narrow.md §89.1).
         let has_leading = self.eat(SyntaxKind::BarToken);
-        let first = self.parse_intersection_type();
+        let first = if has_leading {
+            self.parse_function_or_constructor_type_to_error(true, Self::parse_intersection_type)
+        } else {
+            self.parse_intersection_type()
+        };
         if !has_leading && !self.at(SyntaxKind::BarToken) {
             return first;
         }
         let mut types = vec![first];
         while self.eat(SyntaxKind::BarToken) {
-            types.push(self.parse_intersection_type());
+            types.push(
+                self.parse_function_or_constructor_type_to_error(
+                    true,
+                    Self::parse_intersection_type,
+                ),
+            );
         }
         let types = self.arena.alloc_slice(&types);
         let node = self.finish_node(UnionTypeNode::new(types), SyntaxKind::UnionType, start);
@@ -222,18 +231,76 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         // A leading `&` forces the node like the leading `|` above.
         let has_leading = self.eat(SyntaxKind::AmpersandToken);
-        let first = self.parse_type_operator_or_higher();
+        let first = if has_leading {
+            self.parse_function_or_constructor_type_to_error(
+                false,
+                Self::parse_type_operator_or_higher,
+            )
+        } else {
+            self.parse_type_operator_or_higher()
+        };
         if !has_leading && !self.at(SyntaxKind::AmpersandToken) {
             return first;
         }
         let mut types = vec![first];
         while self.eat(SyntaxKind::AmpersandToken) {
-            types.push(self.parse_type_operator_or_higher());
+            types.push(self.parse_function_or_constructor_type_to_error(
+                false,
+                Self::parse_type_operator_or_higher,
+            ));
         }
         let types = self.arena.alloc_slice(&types);
         let node =
             self.finish_node(IntersectionTypeNode::new(types), SyntaxKind::IntersectionType, start);
         TypeNode::IntersectionTypeNode(node)
+    }
+
+    /// `parseFunctionOrConstructorTypeToError` (`parser.go:3747`): a
+    /// constituent after `|` or `&` that starts a function or constructor
+    /// type is parsed as one and reported over its span, since the shorthand
+    /// must be parenthesized there (TS1385–TS1388). This port parses those
+    /// types in `parse_primary_type`, so only the report was missing.
+    fn parse_function_or_constructor_type_to_error(
+        &mut self,
+        is_union: bool,
+        parse_constituent: fn(&mut Self) -> TypeNode<'a>,
+    ) -> TypeNode<'a> {
+        // `isStartOfFunctionTypeOrConstructorType` (`parser.go:3769`).
+        let starts = match self.token.kind {
+            SyntaxKind::LessThanToken | SyntaxKind::NewKeyword => true,
+            SyntaxKind::OpenParenToken => {
+                self.look_ahead(Self::next_is_unambiguously_start_of_function_type)
+            }
+            SyntaxKind::AbstractKeyword => self.peek_kind(|kind| kind == SyntaxKind::NewKeyword),
+            _ => false,
+        };
+        if !starts {
+            return parse_constituent(self);
+        }
+        // `parseErrorAtRange(typeNode.Loc)`: from the node's full start, so
+        // the space after the operator is in the report.
+        let full_start = self.node_end();
+        let type_node = self.parse_primary_type();
+        let message = match (type_node, is_union) {
+            (TypeNode::FunctionTypeNode(_), true) => {
+                &messages::FUNCTION_TYPE_NOTATION_MUST_BE_PARENTHESIZED_WHEN_USED_IN_A_UNION_TYPE
+            }
+            (TypeNode::FunctionTypeNode(_), false) => {
+                &messages::FUNCTION_TYPE_NOTATION_MUST_BE_PARENTHESIZED_WHEN_USED_IN_AN_INTERSECTION_TYPE
+            }
+            (TypeNode::ConstructorTypeNode(_), true) => {
+                &messages::CONSTRUCTOR_TYPE_NOTATION_MUST_BE_PARENTHESIZED_WHEN_USED_IN_A_UNION_TYPE
+            }
+            (TypeNode::ConstructorTypeNode(_), false) => {
+                &messages::CONSTRUCTOR_TYPE_NOTATION_MUST_BE_PARENTHESIZED_WHEN_USED_IN_AN_INTERSECTION_TYPE
+            }
+            _ => return type_node,
+        };
+        if let Some(id) = type_node.node_id() {
+            let end = self.nodes.span(id).end;
+            self.error_at(message, tsr_core::Span::new(full_start, end));
+        }
+        type_node
     }
 
     /// Parse the operator-precedence type layer.
