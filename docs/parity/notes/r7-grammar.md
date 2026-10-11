@@ -750,3 +750,17 @@ located at its tag. `check_grammar_accessor_declaration` read only a written
 value parameter, exactly as `check_grammar_parameter_list` reads its
 reparsed `?` (ADR-0046), and reports at the tag. Converted:
 `jsDeclarationsReusesExistingTypeAnnotations`.
+
+## §39 TS6203 on TS2403/TS2717 (subsequent declarations of another type)
+
+`errorNextVariableOrPropertyDeclarationMustHaveSameType` (`checker.go:5949`)
+reports TS2403 (variables) or TS2717 (properties) at the next declaration's
+name. It adds `'{0}' was also declared here.` at the first declaration
+(`createDiagnosticForNode(firstDeclaration)`, that declaration's error span).
+`check_subsequent_declaration_identity` (check.rs) reported the head only. It
+now attaches the related diagnostic through `related_diagnostic_at` (§34),
+which carries the declaration's file. Taken as a declaration-check cluster
+from the integrator's re-triage instruction; this was the 54-case
+`TS6203 in TS2403` bucket of `full_oracle_run rank` on `bdd9ce10`.
+*Falsifier.* A TS2403/TS2717 whose related row names a declaration other than
+the symbol's first.

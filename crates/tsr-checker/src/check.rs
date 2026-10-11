@@ -8397,10 +8397,19 @@ impl Checker<'_, '_> {
         } else {
             &messages::SUBSEQUENT_VARIABLE_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_VARIABLE_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
         };
-        self.report(
-            file,
-            Diagnostic::with_args(message, span, [text.to_string(), first_text, next_text]),
-        );
+        // `errorNextVariableOrPropertyDeclarationMustHaveSameType`
+        // (`checker.go:5949`): `'{0}' was also declared here.` at the first
+        // declaration (`createDiagnosticForNode(firstDeclaration)`, its error
+        // span), r7-grammar §39.
+        let mut diagnostic =
+            Diagnostic::with_args(message, span, [text.to_string(), first_text, next_text]);
+        diagnostic.add_related_information(Some(self.related_diagnostic_at(
+            primary,
+            &messages::_0_WAS_ALSO_DECLARED_HERE,
+            self.error_span(primary),
+            vec![text.to_string()],
+        )));
+        self.report(file, diagnostic);
     }
 
     /// `isGlobalSymbolConstructor`: the node is a declaration of the global
