@@ -873,3 +873,28 @@ cache or table.
 
 **Measured** against §18's commit (`f76c6eff0`), both dumps unfiltered:
 types **+3 / −0**, diagnostics unchanged.
+
+## 20. A default-exported symbol outside its binding context takes its alias's name (TRY-SYMBOL-TABLE-DEFAULT-IMPORT-ALIAS)
+
+**Forcing constraint.** `defaultDeclarationEmitDefaultImport` (4 lines):
+`root.ts` writes `export default class Something {}`; `main.ts` imports it as
+`import Thing, { getSomething } from "./root"` and prints the instance type
+`Thing` natively, `Something` in the port. `importDefaultNamedType2`
+(`import type from from './a'` prints `from`) and
+`jsDeclarationsReexportAliases` (`Fooa`) are the same shape.
+
+**Cause.** The class's symbol is the file's `default` export symbol. Outside
+its first declaration's binding context, `getNameOfSymbolAsWritten` writes
+`default` for a first segment, so native's name comes from the chain:
+`getAccessibleSymbolChain`'s alias loop finds the import alias that resolves
+to the class, and the chain is that alias. §4's arm handled only the same
+binding context; elsewhere the baked class name stood.
+
+**The port.** `default_symbol_text_as_written` (checker.rs), outside the
+binding context, asks `best_name` (the port's `trySymbolTable` walk) and
+re-spells the baked declaration name with the alias's name when it finds a
+single-segment one other than `default`. Without one the existing roads
+decide, as before. No cache or table.
+
+**Measured** against §19's commit (`536991f4f`), both dumps unfiltered:
+types **+9 / −0**, diagnostics unchanged.
