@@ -3308,6 +3308,18 @@ impl<'a> Checker<'a, '_> {
         if self.tuple_types_definitely_unrelated(source, target) {
             return false;
         }
+        // A union target (through its alias body): every road from one
+        // non-union source — inferFromMatchingTypes' pairs, the remainder and
+        // inferToMultipleTypes — infers into some constituent, so the source
+        // supplies a candidate only if it could for one of them.
+        let body = self.binding_type_alias_body(target);
+        if !matches!(self.store.get(source).data, TypeData::Union { .. })
+            && let TypeData::Union { types, .. } = self.store.get(body).data.clone()
+        {
+            return types.into_iter().any(|constituent| {
+                self.source_could_supply_candidate(source, constituent, parameter, name, depth + 1)
+            });
+        }
         // inferToTemplateLiteralType (`inference.go:566`): a string literal the
         // template does not match infers nothing when the template has text.
         if matches!(self.store.get(source).data, TypeData::StringLiteral(_))
