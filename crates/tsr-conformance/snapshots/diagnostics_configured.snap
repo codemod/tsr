@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 1010/1091 (92.58%)
-Failed         : 81
+Passed         : 1014/1091 (92.94%)
+Failed         : 77
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -113,10 +113,6 @@ conformance/decoratorMetadata-jsdoc(target=es2015)
   1 missing (first TS8020 at decoratorMetadata-jsdoc.ts(9,9))
 conformance/decoratorOnClassMethod8(target=es2015)
   1 missing (first TS1270 at decoratorOnClassMethod8.ts(4,6))
-conformance/derivedClassSuperProperties(target=es2015)
-  3 unexpected (first TS2376 at derivedClassSuperProperties.ts(113,5)), 11 missing
-conformance/derivedClassSuperStatementPosition(target=es2015)
-  4 unexpected (first TS2376 at derivedClassSuperStatementPosition.ts(58,5)), 4 missing
 conformance/emitModuleCommonJS(module=commonjs)
   1 missing (first TS2307 at a.js(4,11))
 conformance/emitModuleCommonJS(module=nodenext)
@@ -161,10 +157,6 @@ conformance/parser.asyncGenerators.objectLiteralMethods.es2018(alwaysstrict=true
   2 unexpected (first TS2322 at asyncGeneratorPropertyIsError.ts(2,16)), 0 missing
 conformance/parserES5SymbolProperty4(target=es2015)
   1 missing (first TS2339 at parserES5SymbolProperty4.ts(2,13))
-conformance/privateNameBadSuperUseDefineForClassFields(target=es2022)
-  1 unexpected (first TS2376 at privateNameBadSuperUseDefineForClassFields.ts(4,3)), 0 missing
-conformance/privateNameBadSuperUseDefineForClassFields(target=esnext)
-  1 unexpected (first TS2376 at privateNameBadSuperUseDefineForClassFields.ts(4,3)), 0 missing
 conformance/privateNameInInExpression(target=es2022)
   5 missing (first TS2571 at privateNameInInExpression.ts(21,29))
 conformance/privateNameInInExpression(target=esnext)
