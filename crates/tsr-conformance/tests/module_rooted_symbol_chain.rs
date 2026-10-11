@@ -240,3 +240,45 @@ export const b = (null as any as import("pkg", { with: {"resolution-mode": "impo
         ],
     );
 }
+
+/// `getContainersOfSymbol`'s fallback (`symbolaccessibility.go:288`): a
+/// top-level `class C {}` that its module exports through `export { C }` has
+/// no parent, and its chain is that module, so a re-export elsewhere prints
+/// through it (`exportsAndImports1`). A destructured `require` binding is an
+/// alias in scope, so it names its class bare
+/// (`commonJSImportClassTypeReference`; r7-printer §24).
+#[test]
+fn a_top_level_declaration_exported_by_alias_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/module_rooted_alias_exported_local",
+        r#"// @target: es2015
+// @module: commonjs
+// @filename: t1.ts
+class C {
+}
+enum E {
+    A, B
+}
+export { C, E };
+// @filename: t2.ts
+export { C, E } from "./t1";
+"#,
+    );
+    assert_has(&lines, &["C : typeof import(\"./t1\").C", "E : typeof import(\"./t1\").E"]);
+    let lines = assertions(
+        "probe/module_rooted_require_binding",
+        r#"// @target: es2015
+// @allowJs: true
+// @checkJs: true
+// @strict: true
+// @outDir: out
+// @filename: main.js
+const { K } = require("./mod1");
+// @filename: mod1.js
+class K {
+}
+exports.K = K;
+"#,
+    );
+    assert_has(&lines, &["K : typeof K"]);
+}

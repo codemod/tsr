@@ -1013,3 +1013,38 @@ No cache or table.
 **Alternative rejected.** Printing the argument's type with a
 JSDoc-specific suffix would need the node anyway, and the visitor already
 has the rewrites.
+
+## 24. A top-level declaration a module exports through an alias is spelled through that module
+
+**Forcing constraint.** `exportsAndImports1` and `exportsAndImports1-es6`,
+8 lines. `t1.ts` declares `class C {}` (also an enum, a const enum and a
+namespace) and then writes `export { C }`; `t2.ts` re-exports them with
+`export { C } from "./t1"`. Native prints `typeof import("./t1").C`; the
+port printed `typeof C`.
+
+**Cause.** `C` has no parent: it is a local of `t1`, which exports an
+alias of it. `symbol_chain` stopped at a symbol with no parent.
+`getContainersOfSymbol`'s fallback (`symbolaccessibility.go:288`) offers the
+module of a declaration that is a direct child of it when that module
+exports an alias of the symbol, so native's chain is `[t1, C]`.
+
+**The port.** The no-parent arm of `symbol_chain` asks the resolver
+(`module_rooted_chain_at`, which ports that fallback) when all of these
+hold:
+- the symbol is declared at the top level of an external or CommonJS
+  module;
+- no in-scope name reaches it (`best_name`);
+- the resolver's chain is that module and the symbol.
+
+It spells `import(spec).` as §1's file-module arm does. No cache or table
+beyond the resolver's.
+
+**History.** This arm was built in round 7 and held on
+`box/r7-printer-held` (`9b6848dd8`) at +8 / −1. The loss was
+`commonJSImportClassTypeReference`: `const { K } = require("./mod1")` is an
+alias in native's binder, and the port bound it as a block-scoped variable,
+so the arm spelled `typeof import("./mod1").K` over native's `typeof K`.
+Teaching the resolver to see that binding as an alias would have re-derived
+the binder's decision outside the binder, so the arm waited. r7-shared's
+`7c17ce541` ("bind a JS require binding element as an alias") made the
+binding an alias, and the case is now RIGHT with the arm.
