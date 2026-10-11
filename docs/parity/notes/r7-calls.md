@@ -766,6 +766,40 @@ carry the parent's file and span (`NewDiagnosticChain`); this port's
 `Diagnostic::new_chain` children have no file (reported to the integrator
 as shared infrastructure).
 
+## 24. Decorator function types are anonymous function types
+
+`decorator_function_type` minted ES member decorator signature types as
+`TypeData::Named` carrying `signature_types` (the second proposed issue
+below). The relater could not decide them, so `checkDecorator`'s return
+check stayed silent for ES member decorators. They are now this port's
+anonymous function type (`TypeData::Anonymous { signature: true }`). Native
+creates them symbol-less (`newObjectType(ObjectFlagsAnonymous, nil)`); this
+port's anonymous types carry a symbol, so the decorated declaration's
+symbol stands in. Printing a signature type reads its text, not the symbol,
+and the union now prints with native's parentheses
+(`void | ((this: X, value: any) => any)`). Probe:
+`declare function r(...args: any[]): number; class X { @r foo: any; @r bar() {} }`
+reports native's two member TS1270s. potentiallyUncalledDecorators' TS1270s
+stay missing: `OmniDecorator`'s generic call signatures leave the relation
+undecided, which is the relater's.
+
+## 25. A tagged template's literal substitutions are re-checked per overload
+
+§8's per-candidate literal re-check excluded tagged templates: the call memo
+it publishes is the candidate itself, while a substitution's contextual type
+(`contextual_type_for_template_substitution`) reads a memo shifted past the
+synthetic `TemplateStringsArray` parameter. `check_literal_argument_in_candidate`
+now publishes the shifted candidate for a tagged template, and the exclusion
+goes: ``fn1 `${ {} }` `` over `fn1(strs, s: string)` / `fn1(strs, n: number)`
+reports native's chained TS2769 (taggedTemplateStringsWithOverloadResolution3
+11:9; its generic-overload lines 64/65 are the tagged walk's, not yet ported).
+
+**Measured** §24 and §25, each against its parent (base `74503679` on
+`59ceea97`): diagnostics 0/0 and types 0/0 for both (§24's probe gains and
+§25's 11:9 report sit in cases that stay WRONG on other lines); jsTyping
+new_false 0, lost_true 0; Ir generic-imports 0.9999 / 0.9998,
+domain-model 0.9999 / 1.0000; exact 0 gained, 0 lost for both.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
