@@ -554,3 +554,18 @@ instantiation expression's type arguments. That is routed to r7-printer.
 No previously passing case was lost, and the integration owner landed the
 batch by hand. The loop's suite check now counts passes lost beyond the
 judged-population change, not raw failure counts.
+
+### Batch 24 — r7-contextual `31bc0da8`, r7-flow `69ce9bb0`, r7-grammar `b3883acb`, r7-reports `e53a77eb`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **9605 / 12797 EXACT (75.06%)**, 5 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +8 RIGHT / 0 lost / 0 missing, diagnostics +11 cases / 0 lost / 0 missing. jsTyping 125 → 123 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0002, domain-model 1.0010. No suite's failure count rose.
+
+| Suite | Before | Batch 24 |
+|---|---|---|
+| `checker_types` | 8,857 | 8,858 |
+| `checker_types_configured` | 1,820 | 1,820 |
+| `diagnostics` | 4,991 | 4,997 |
+| `diagnostics_configured` | 1,009 | 1,009 |
+
+The loop's first run of this batch was OOM-killed in the exact-oracle leg (4 workers on the 7 GB orb); the leg now runs on 2 workers and clears a stale report directory before it starts.
