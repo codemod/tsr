@@ -1727,14 +1727,29 @@ impl<'a> Checker<'a, '_> {
         if names.len() != literal.properties.len() {
             return;
         }
+        // `checkTypeRelatedToAndOptionallyElaborate` runs `elaborateError`
+        // (`elaborateObjectLiteral`) before the relation: every member whose
+        // target member `getBestMatchIndexedAccessTypeOrUndefined` finds — a
+        // declared one, or an apparent `Object` member such as `toString`
+        // that `isKnownProperty` does not know — is related and reported in
+        // source order. Only when none reports does `hasExcessProperties`
+        // speak, for the first unknown member (r7-reports §23).
+        // `everyTypeWithAnnotationAndInvalidInitializer.ts(43,28)` is the
+        // `id` of `var anObjectLiteral: I = { id: 'a string' }` — the
+        // property *name*, not the value and not the declaration.
+        let before = self.diagnostics.len();
+        for &name in &names {
+            if known.iter().any(|(seen, _)| seen == name)
+                || self.get_type_of_property_of_type(target, name).is_some()
+            {
+                self.check_object_literal_member(literal, target, name);
+            }
+        }
+        if self.diagnostics.len() != before {
+            return;
+        }
         for name in names {
             if known.iter().any(|(seen, _)| seen == name) {
-                // A **known** property is not excess; its value is checked
-                // against the target's member instead.
-                // `everyTypeWithAnnotationAndInvalidInitializer.ts(43,28)` is the
-                // `id` of `var anObjectLiteral: I = { id: 'a string' }` — the
-                // property *name*, not the value and not the declaration.
-                self.check_object_literal_member(literal, target, name);
                 continue;
             }
             let Some(at) = self.excess_property_name_node(literal, name) else { return };

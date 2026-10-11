@@ -993,3 +993,36 @@ fix is `members.rs`/`mapped.rs` (reported).
 
 **Measured** (diagnostics, unfiltered, against batch 19 with §17–§21 on
 top): +1 case, 0 lost.
+
+## 23. `elaborateObjectLiteral` speaks before `hasExcessProperties`
+
+**Forcing case.** `objectLiteralFunctionArgContextualTyping2` (11,6)(12,6)(13,17).
+`f2({ toString: (s) => s })` against `I2` (`value`, `doStuff`) is native
+TS2322 at `toString`: `Type '(s: any) => any' is not assignable to type '()
+=> string'`. This port reported TS2353 (`'toString' does not exist in type
+'I2'`).
+
+**Upstream.** `checkTypeRelatedToAndOptionallyElaborate` runs `elaborateError`
+before `checkTypeRelatedTo`. `elaborateObjectLiteral` relates each member,
+in source order, to `getBestMatchIndexedAccessTypeOrUndefined(source,
+target, name)`. That is an indexed access through `getPropertyOfType`, so it
+finds an apparent `Object` member such as `toString`, which `isKnownProperty`
+(own members and index signatures only) does not know. Every failing member
+is reported. Only when none is does the relation run, and
+`hasExcessProperties` reports the first unknown member.
+
+So `{ hello: 1, value: 2 }` against `I2` is TS2322 at `value` with no
+TS2353, and `{ value: 2, hello: 1 }` is the TS2322 alone (both checked
+against pinned tsgo). This port reported the first unknown member as soon
+as it met it, before any later member was related, and treated an apparent
+member as unknown.
+
+**Port** (`assignreport.rs::check_excess_properties`). Two passes. First,
+every member whose name is a known member, or for which
+`get_type_of_property_of_type` finds a member (the apparent `Object`
+members included), is related and reported (`check_object_literal_member`).
+If that reported anything the check ends. Otherwise the first member
+outside the known table is the excess report, as before.
+
+**Measured** (diagnostics, unfiltered, against batch 22 with §17–§22 on
+top): `objectLiteralFunctionArgContextualTyping2` RIGHT, 0 lost.
