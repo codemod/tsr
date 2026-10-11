@@ -764,6 +764,20 @@ impl Checker<'_, '_> {
             if let Some(name) = name {
                 self.check_grammar_computed_property_name(name);
             }
+            // TS1312 (`grammarchecks.go:1040`): outside a destructuring
+            // pattern a shorthand's `= initializer` is a syntax error,
+            // reported on the first token of the child before the
+            // initializer (the `=`) without returning. `inDestructuring` is
+            // `checkObjectLiteral`'s `ast.IsAssignmentTarget(node)`.
+            if let ObjectLiteralElementLike::ShorthandPropertyAssignment(shorthand) = property
+                && shorthand.object_assignment_initializer.is_some()
+                && literal.node_id.is_some_and(|id| {
+                    self.assignment_target_kind(id)
+                        == crate::expressions::AssignmentTargetKind::None
+                })
+            {
+                self.report_shorthand_equals(shorthand);
+            }
             let postfix = match property {
                 ObjectLiteralElementLike::PropertyAssignment(assignment) => {
                     assignment.postfix_token
@@ -809,6 +823,49 @@ impl Checker<'_, '_> {
             };
             self.grammar_error_on_node(id, message);
         }
+    }
+
+    /// TS1312 at a shorthand's `=`: `grammarErrorOnFirstToken` of the child
+    /// before `ObjectAssignmentInitializer`, which is the `EqualsToken`. This
+    /// parser eats the `=` without keeping it (`equals_token` is `None`), so
+    /// the token is scanned from the end of the last child before it (the
+    /// type, the postfix `?`/`!`, else the name), where the parser found it.
+    /// Declined without a host that can supply the text (r7-grammar §30).
+    fn report_shorthand_equals(&mut self, shorthand: &tsr_ast::ShorthandPropertyAssignment<'_>) {
+        if let Some(equals) = shorthand.equals_token.and_then(|token| token.node_id) {
+            self.grammar_error_on_node(
+                equals,
+                &messages::DID_YOU_MEAN_TO_USE_A_COLON_AN_CAN_ONLY_FOLLOW_A_PROPERTY_NAME_WHEN_THE_CONTAINING_OBJECT_LITERAL_IS_PART_OF_A_DESTRUCTURING_PATTERN,
+            );
+            return;
+        }
+        let before = shorthand
+            .r#type
+            .and_then(|t| t.node_id())
+            .or_else(|| shorthand.postfix_token.and_then(|token| token.node_id))
+            .or_else(|| shorthand.name.node_id());
+        let Some(before) = before else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(before) else { return };
+        let end = self.nodes.span(before).end;
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(end as usize..))
+        else {
+            return;
+        };
+        let token = tsr_scanner::Scanner::new(rest).scan();
+        if token.kind != SyntaxKind::EqualsToken {
+            return;
+        }
+        let span = tsr_core::Span::new(end + token.span.start, end + token.span.end);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::DID_YOU_MEAN_TO_USE_A_COLON_AN_CAN_ONLY_FOLLOW_A_PROPERTY_NAME_WHEN_THE_CONTAINING_OBJECT_LITERAL_IS_PART_OF_A_DESTRUCTURING_PATTERN,
+                span,
+            ),
+        );
     }
 
     /// `Checker.checkGrammarComputedPropertyName` (`grammarchecks.go:979`):

@@ -5303,6 +5303,38 @@ impl<'a> Checker<'a, '_> {
 
     /// Ported from `Checker.getTypeOfVariableOrParameterOrPropertyWorker`
     /// (`checker.go:16578`).
+    /// The class whose `prototype` export a static property declaration
+    /// named `prototype` merges into, natively; `None` for anything else (a
+    /// static method or accessor conflicts and keeps its own symbol).
+    fn static_prototype_property_class(
+        &self,
+        symbol: SymbolId,
+        declaration: NodeId,
+    ) -> Option<SymbolId> {
+        let entry = self.binder.symbols().get(symbol);
+        if entry.name != "prototype" || !entry.flags.contains(SymbolFlags::PROPERTY) {
+            return None;
+        }
+        let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        if !tsr_ast::has_syntactic_modifier(property.modifiers, SyntaxKind::StaticKeyword) {
+            return None;
+        }
+        // The class declaration's own symbol: an exported class's member is
+        // parented to its export-side symbol, so the declaration's parent node
+        // is the reliable owner.
+        let owner = self.nodes.parent(declaration)?;
+        if !matches!(
+            self.nodes.kind(owner),
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+        ) {
+            return None;
+        }
+        let class = self.binder.merged_symbol(self.binder.symbol_of(owner)?);
+        self.binder.symbols().get(class).flags.contains(SymbolFlags::CLASS).then_some(class)
+    }
+
     fn get_type_of_variable_or_parameter_or_property_worker(&mut self, symbol: SymbolId) -> TypeId {
         #[cfg(feature = "work-trace")]
         let _work =
@@ -5310,6 +5342,17 @@ impl<'a> Checker<'a, '_> {
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return self.intrinsics.error;
         };
+        // `symbol.Flags&SymbolFlagsPrototype` (`checker.go:16580`): every class
+        // has a `Property|Prototype` `prototype` export (`bindClassLikeDeclaration`,
+        // binder.go:962), and a written `static prototype` property merges into
+        // it (property excludes are empty), so its type is
+        // `getTypeOfPrototypeProperty`'s. This binder mints no prototype symbol;
+        // the merge is read here (`docs/parity/notes/r7-shared.md` §22).
+        if let Some(class) = self.static_prototype_property_class(symbol, declaration)
+            && let Some(prototype) = self.prototype_type_of_class(class)
+        {
+            return prototype;
+        }
         // Native 5b1047d1 getTypeOfVariableOrParameterOrPropertyWorker:
         // CommonJS `exports` denotes the source file's resolved export value;
         // `module` is an anonymous object whose own members contain `exports`.
@@ -5408,15 +5451,15 @@ impl<'a> Checker<'a, '_> {
             // expression's REGULAR form, unwidened (`importBindingDefer`
             // wants `defer : 2`).
             SyntaxKind::ExportAssignment => {
-                // A `@type` tag on the assignment KEEPS THE GAP: upstream
-                // types the tag, and the importing site re-spells its aliases
-                // per module (`import("./a").NumberLike[]`,
-                // `exportDefaultWithJSDoc1/2`) — the §158 per-site re-render
-                // wall. The first draft typed the raw expression under the
-                // tag (`never[]`, 5 G->W); the second typed the tag and
-                // printed the local spelling, wrong the other way.
-                if self.jsdoc_cast_annotation(declaration).is_some() {
-                    self.intrinsics.error
+                // A `@type` tag on the assignment: `reparseHosted`
+                // (`parser/reparser.go:342`) makes the expression a cast, so
+                // the default export's type is the tag's. This kept the gap
+                // while the printer could not re-spell a JSDoc typedef per
+                // importing site (`import("./a").Foo`, the §158 wall); it now
+                // can for most shapes, and the rest are its spelling, not this
+                // type (`docs/parity/notes/r7-shared.md` §19).
+                if let Some(annotation) = self.jsdoc_cast_annotation(declaration) {
+                    self.get_type_from_type_node(annotation)
                 } else {
                     match self.node_map.get(declaration) {
                         // Native's property-valued ExportAssignment arm also

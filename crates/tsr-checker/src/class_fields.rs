@@ -499,3 +499,45 @@ impl Checker<'_, '_> {
         })
     }
 }
+
+impl Checker<'_, '_> {
+    /// `isPropertyInitializedInConstructor` (`checker.go:4977`): a synthetic
+    /// `this.<name>` (`this[<expr>]` for a computed name) parented to the
+    /// constructor, flowed from its `ReturnFlowNode` with `propType` declared
+    /// and `getOptionalType(propType)` initial; initialized when `undefined`
+    /// does not survive. The query is r7-flow's
+    /// [`Checker::flow_type_of_this_property_at`], which matches the access
+    /// by name. A computed name is spelled when its expression is a string,
+    /// numeric or no-substitution template literal; any other computed name
+    /// has no spelling there, and keeps §87's decidable part instead: a body
+    /// that never names it cannot assign it (`subtree_accesses_this_member`,
+    /// whose every uncertain answer declines). No cache: one walk per
+    /// property, as native (r7-grammar §29). Lives here rather than beside its check.rs caller, which the lane may edit only inside `check_property_initialization`.
+    pub(crate) fn is_property_initialized_in_constructor(
+        &mut self,
+        body: NodeId,
+        name: tsr_ast::PropertyName<'_>,
+        text: &str,
+        declared: crate::types::TypeId,
+    ) -> bool {
+        let spelled = match name {
+            tsr_ast::PropertyName::ComputedPropertyName(computed) => match computed.expression {
+                Some(tsr_ast::Expression::StringLiteral(literal)) => Some(literal.text.to_string()),
+                Some(tsr_ast::Expression::NumericLiteral(literal)) => {
+                    Some(literal.text.to_string())
+                }
+                Some(tsr_ast::Expression::NoSubstitutionTemplateLiteral(literal)) => {
+                    Some(literal.text.to_string())
+                }
+                _ => None,
+            },
+            _ => Some(text.to_string()),
+        };
+        let (Some(spelled), Some(constructor)) = (spelled, self.nodes.parent(body)) else {
+            return self.subtree_accesses_this_member(body, text, 0);
+        };
+        let initial = self.get_optional_type(declared, false);
+        let flowed = self.flow_type_of_this_property_at(constructor, &spelled, declared, initial);
+        !self.contains_undefined_type(flowed)
+    }
+}

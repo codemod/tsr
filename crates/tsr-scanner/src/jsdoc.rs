@@ -305,14 +305,7 @@ pub fn jsdoc_ranges_in(text: &str, start: u32, end: u32) -> Vec<CommentRange> {
             }
             b'/' if i + 1 < end && bytes[i + 1] == b'*' => {
                 let comment_start = i;
-                i += 2;
-                while i + 1 < end && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                    if matches!(bytes[i], b'\n' | b'\r') {
-                        saw_line_break = true;
-                    }
-                    i += 1;
-                }
-                i = (i + 2).min(end);
+                i = block_comment_end(text, i + 2, end);
                 if is_jsdoc_like_text(&text[comment_start..]) {
                     // `u32` is safe: the parser rejects sources above `u32::MAX`.
                     #[allow(clippy::cast_possible_truncation)]
@@ -330,6 +323,29 @@ pub fn jsdoc_ranges_in(text: &str, start: u32, end: u32) -> Vec<CommentRange> {
         }
     }
     ranges
+}
+
+/// The end of the block comment whose body starts at `from`: just past its
+/// `*/`, or `end` when it does not close before `end`.
+///
+/// The body is skipped a `*` at a time with `memchr` (what `str::find(char)`
+/// runs) rather than examined byte by byte: the byte loop was 11% of
+/// generic-imports' instructions, nearly all of it inside the lib files' long
+/// comments. That loop also looked for line breaks inside the comment and let
+/// them set the comment's own `preceded_by_line_break`, which the field's
+/// meaning does not include and nothing reads.
+fn block_comment_end(text: &str, from: usize, end: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut i = from;
+    while i < end {
+        let Some(offset) = text[i..end].find('*') else { return end };
+        let star = i + offset;
+        if star + 1 < end && bytes[star + 1] == b'/' {
+            return star + 2;
+        }
+        i = star + 1;
+    }
+    end
 }
 
 #[cfg(test)]

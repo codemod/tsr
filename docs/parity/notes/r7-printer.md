@@ -827,3 +827,74 @@ the symbol itself.
 
 **Measured** against §16's commit (`8807cfe10`), both dumps unfiltered:
 types **+7 / −0**, diagnostics unchanged.
+
+## 18. The namespace segment also covers a module-level local and the `export =` shortcut
+
+**Forcing constraint.** `exportAssignedNamespaceIsVisibleInDeclarationEmit`:
+`thing.d.ts` writes `declare namespace Foo { export interface Bar {} … }`
+and `export = Foo`; `index.ts` prints `import("./thing").Bar` natively, the
+port `Foo.Bar`.
+
+**Cause.** `Foo` is a local of the module, so it has no parent;
+`getContainersOfSymbol`'s fallback (`symbolaccessibility.go:288`) offers the
+module, whose `export =` names `Foo`, and `getSymbolChain`'s `export =`
+shortcut (`nodebuilderimpl.go:1124`) makes `Foo`'s chain the module alone,
+so the segment is `import("./thing")`. §14's arm required the namespace's
+*parent* to be a file module and a two-element chain.
+
+**The port.** The namespace-parent step asks the resolver for any namespace
+declared in a file module (`declared_in_file_module`: its container is one,
+or a declaration sits at its top level) that no in-scope name reaches, and
+spells a one-element module chain as `import(<specifier>).` and a module
+plus one member as before (`module_rooted_segment_at`).
+
+**Measured** against §17's commit (`e17ee095a`), both dumps unfiltered:
+types **+13 / −0** (`exportAssignedNamespaceIsVisibleInDeclarationEmit` 4,
+`reactImportDropped` 4, `reactTransitiveImportHasValidDeclaration` 4,
+`declarationEmitObjectAssignedDefaultExport` 1), diagnostics **+1 / −0**
+(`declarationEmitObjectAssignedDefaultExport`).
+
+## 19. A value reference qualifies its containers with value meaning
+
+**Forcing constraint.** `nameCollision` (2 lines) and
+`mergedModuleDeclarationCodeGen5` (1): inside `namespace X { var X = 13;
+export namespace Y { … } }`, `Y`'s value prints `typeof globalThis.X.Y`
+natively, `typeof X.Y` in the port.
+
+**Cause.** `getSymbolChain` recurses on a container with
+`getQualifiedLeftMeaning(meaning)` (`symbolaccessibility.go:108`), which
+keeps `Value` for a value reference. With value meaning the local `var X`
+shadows the namespace `X`, so `X` qualifies through the globals arm. The
+port's namespace-parent step always recursed with `Namespace`, which a `var`
+does not shadow.
+
+**The port.** `symbol_chain` recurses with the qualified-left meaning. No
+cache or table.
+
+**Measured** against §18's commit (`f76c6eff0`), both dumps unfiltered:
+types **+3 / −0**, diagnostics unchanged.
+
+## 20. A default-exported symbol outside its binding context takes its alias's name (TRY-SYMBOL-TABLE-DEFAULT-IMPORT-ALIAS)
+
+**Forcing constraint.** `defaultDeclarationEmitDefaultImport` (4 lines):
+`root.ts` writes `export default class Something {}`; `main.ts` imports it as
+`import Thing, { getSomething } from "./root"` and prints the instance type
+`Thing` natively, `Something` in the port. `importDefaultNamedType2`
+(`import type from from './a'` prints `from`) and
+`jsDeclarationsReexportAliases` (`Fooa`) are the same shape.
+
+**Cause.** The class's symbol is the file's `default` export symbol. Outside
+its first declaration's binding context, `getNameOfSymbolAsWritten` writes
+`default` for a first segment, so native's name comes from the chain:
+`getAccessibleSymbolChain`'s alias loop finds the import alias that resolves
+to the class, and the chain is that alias. §4's arm handled only the same
+binding context; elsewhere the baked class name stood.
+
+**The port.** `default_symbol_text_as_written` (checker.rs), outside the
+binding context, asks `best_name` (the port's `trySymbolTable` walk) and
+re-spells the baked declaration name with the alias's name when it finds a
+single-segment one other than `default`. Without one the existing roads
+decide, as before. No cache or table.
+
+**Measured** against §19's commit (`536991f4f`), both dumps unfiltered:
+types **+9 / −0**, diagnostics unchanged.

@@ -34,7 +34,7 @@ compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)
 compiler/bigintAmbientMinimal(target=es2015)
   1 missing (first TS2737 at /main.ts(5,17))
 compiler/bigintWithoutLib(target=es2015)
-  18 missing (first TS2737 at bigintWithoutLib.ts(7,30))
+  13 missing (first TS2737 at bigintWithoutLib.ts(7,30))
 compiler/blockScopedVariablesUseBeforeDef(target=es2015)
   3 unexpected (first TS2448 at blockScopedVariablesUseBeforeDef.ts(127,9)), 0 missing
 compiler/classStaticPropertyAccess(target=es2015)
@@ -88,7 +88,7 @@ compiler/moduleAugmentationGlobal8_1(target=es2015)
 compiler/multipleBaseInterfaesWithIncompatibleProperties2(exactoptionalpropertytypes=true)
   1 missing (first TS2320 at multipleBaseInterfaesWithIncompatibleProperties2.ts(19,11))
 compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)
-  1 unexpected (first TS18004 at shorthandPropertyAssignmentsInDestructuring.ts(111,12)), 1 missing
+  1 unexpected (first TS18004 at shorthandPropertyAssignmentsInDestructuring.ts(111,12)), 0 missing
 compiler/strictNullEmptyDestructuring(target=es2015)
   11 missing (first TS2531 at strictNullEmptyDestructuring.ts(3,5))
 compiler/trivialSubtypeReductionNoStructuralCheck(target=es2015)
@@ -152,7 +152,7 @@ conformance/nodeModulesJson(module=node20)
 conformance/nodeModulesJson(module=nodenext)
   6 missing (first TS2339 at /loosey.cts(6,9))
 conformance/objectLiteralErrors(target=es2015)
-  2 unexpected (first TS18004 at objectLiteralErrors.ts(48,5)), 20 missing
+  2 unexpected (first TS18004 at objectLiteralErrors.ts(48,5)), 18 missing
 conformance/objectSpreadNegative(target=es2015)
   1 unexpected (first TS2322 at objectSpreadNegative.ts(23,1)), 3 missing
 conformance/optionalChainingInParameterBindingPattern.2(target=es2015)

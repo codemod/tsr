@@ -515,3 +515,82 @@ source-text test) — are gone: `await_using_list_await_start`
 `checkGrammarModifiers`' block-scope kind and the case-clause arm read the
 flags directly. Correction of the record: those sections' "this parser eats
 the `await`" no longer holds as of `054b714f`.
+
+## §27 Unused `@template` type parameters in JS (TS6133/TS6196/TS6205)
+
+`checkUnusedTypeParameters` (`checker.go:7290`) reads `node.TypeParameters()`.
+In a JS file the reparser hosts a comment's `@template` list there when the
+written list is empty (`reparseHosted`'s `KindJSDocTemplateTag` arm,
+`parser/reparser.go:446`). `type_parameters_of` (`unused.rs`) took only the
+written list, so `/** @template T */ function f() {}` reported nothing where
+upstream reports TS6196 on `T`. It now falls back to `jsdoc_template_lists`
+for the comment's host, the same list `checkTypeParameters` already reads for
+these nodes (check.rs). The host is the node itself, or the ancestor (at most
+four levels up: a variable statement, property assignment, expression
+statement) whose comment `jsdoc_function_like_host` maps to this node, which
+is the forward direction of that mapping. A list is used only when its kind
+is the node's kind, so a `@typedef`'s `@template` list (kind
+`TypeAliasDeclaration`) never lands on a function. References to the
+parameter are the existing `symbol_reference_kinds`, so a parameter the
+binder does not bind is not reported. No cache; this runs once per checked
+declaration in the unused pass.
+*Falsifier.* A TS6133/TS6196 on a `@template` parameter that a JSDoc type
+references, or on a function that has a written `<T>` list.
+Converted: `unusedTypeParameters_templateTag`.
+
+## §29 TS2564's constructor arm on the flow query (CLASS-PROPERTY-INITIALIZER)
+
+`checkPropertyInitialization` (`checker.go:4933`) reports TS2564 when
+`constructor == nil || !isPropertyInitializedInConstructor(...)`. The second
+disjunct (`:4977`) builds a `this.<name>` (or `this[<expr>]`), parents it to
+the constructor, gives it the constructor's `ReturnFlowNode`, and asks
+`getFlowTypeOfReferenceEx(reference, propType, getOptionalType(propType))`.
+The property is initialized when `undefined` does not survive.
+`check_property_initialization` (check.rs, granted) used to approximate this:
+it declined every constructor whose body names `this.<name>` anywhere
+(`checker-notes-diag2.md` §87), so a property assigned on only some paths, or
+read before it is assigned, was silent.
+
+r7-flow §15 built the query, `flow_type_of_this_property_at(constructor,
+name, declared, initial)`, on its synthetic-access machinery.
+`is_property_initialized_in_constructor` calls it with `propType` and
+`get_optional_type(propType, false)` and tests `contains_undefined_type`, as
+upstream does.
+
+*Names.* Identifier and private names are passed as written. A computed name
+is spelled when its expression is a string, numeric or no-substitution
+template literal, which is the name upstream's `this[<expr>]` matches.
+Upstream also handles other computed names (`this[sym]`); the query cannot
+spell those, so they keep §87's decidable part (a body that never names it
+cannot assign it). That is the one remaining approximation, and it only ever
+declines.
+
+*Cost.* One flow walk per uninitialized, non-optional property of a class
+with a constructor, as upstream. No cache.
+
+*Falsifier.* A TS2564 on a property every constructor path assigns (the
+synthetic matcher missing an assignment form), or none on one a path leaves
+unassigned. Converted: `detachedCommentAtStartOfConstructor2` (r7-flow's
+prototype measured the same +1, 0 lost); the exact oracle also gains
+`strictPropertyInitialization`.
+
+## §30 TS1312, a shorthand `= initializer` outside destructuring
+
+`checkGrammarObjectLiteralExpression`'s shorthand arm
+(`grammarchecks.go:1040`): outside a destructuring pattern
+(`checkObjectLiteral`'s `inDestructuringPattern = ast.IsAssignmentTarget(node)`,
+here `assignment_target_kind(literal) == None`), a shorthand with an
+`ObjectAssignmentInitializer` is TS1312 on the first token of the child before
+the initializer, its `EqualsToken`. The arm does not return. This parser eats
+the `=` without keeping it (`ShorthandPropertyAssignment::new(.., None, None,
+initializer)`), so `report_shorthand_equals` scans one token from the end of
+the last child before it (type, postfix token, else name). That is where the
+parser found it. The scan is declined unless the token is `=`, and it is not
+needed if r7-parser ever records the token. Upstream also checks such a
+shorthand's **initializer** instead of its name
+(`checkShorthandPropertyAssignment`, `checker.go:13689`), so no TS18004 is
+reported for an unresolved name there. That arm is in check.rs's
+unresolved-value walk and is routed. Until it lands,
+`shorthandPropertyAssignmentsInDestructuring` (both variants) and
+`objectLiteralErrors` keep an extra TS18004 beside the now-correct TS1312.
+

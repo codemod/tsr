@@ -614,8 +614,9 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::ImportKeyword => return self.parse_import_declaration(start, modifiers),
             SyntaxKind::ExportKeyword => {
-                let export_token = self.take_token();
-                return self.parse_export(start, export_token, modifiers);
+                let export_span = self.token.span;
+                self.next_token();
+                return self.parse_export(start, export_span, modifiers);
             }
             _ => {}
         }
@@ -681,6 +682,7 @@ impl<'a> Parser<'a> {
         missing_open_brace: Option<&'static tsr_diagnostics::Message>,
     ) -> &'a Block<'a> {
         let start = self.pos();
+        let open_brace_position = self.token.span.start;
         let open_brace_parsed = match missing_open_brace {
             Some(message) if !self.at(SyntaxKind::OpenBraceToken) => {
                 self.error_at_current(message);
@@ -696,8 +698,12 @@ impl<'a> Parser<'a> {
             return self.finish_node_with_end(Block::new(&[], false), SyntaxKind::Block, at, at);
         }
         let statements = self.parse_statement_list(ParsingContext::BlockStatements);
-        // `parseExpectedMatchingBrackets`.
-        self.expect(SyntaxKind::CloseBraceToken);
+        self.expect_matching_bracket(
+            SyntaxKind::OpenBraceToken,
+            SyntaxKind::CloseBraceToken,
+            open_brace_parsed,
+            open_brace_position,
+        );
         let statements = self.arena.alloc_slice(&statements);
         let block = self.finish_node(Block::new(statements, true), SyntaxKind::Block, start);
         if self.at(SyntaxKind::EqualsToken) {
@@ -860,9 +866,15 @@ impl<'a> Parser<'a> {
     fn parse_if_statement(&mut self) -> Statement<'a> {
         let start = self.pos();
         self.next_token();
-        self.expect(SyntaxKind::OpenParenToken);
+        let open_paren_position = self.token.span.start;
+        let open_paren_parsed = self.expect(SyntaxKind::OpenParenToken);
         let condition = self.parse_expression();
-        self.expect(SyntaxKind::CloseParenToken);
+        self.expect_matching_bracket(
+            SyntaxKind::OpenParenToken,
+            SyntaxKind::CloseParenToken,
+            open_paren_parsed,
+            open_paren_position,
+        );
         let then_branch = self.parse_statement();
         let else_branch =
             if self.eat(SyntaxKind::ElseKeyword) { Some(self.parse_statement()) } else { None };
@@ -879,9 +891,15 @@ impl<'a> Parser<'a> {
         self.next_token();
         let body = self.parse_statement();
         self.expect(SyntaxKind::WhileKeyword);
-        self.expect(SyntaxKind::OpenParenToken);
+        let open_paren_position = self.token.span.start;
+        let open_paren_parsed = self.expect(SyntaxKind::OpenParenToken);
         let condition = self.parse_expression();
-        self.expect(SyntaxKind::CloseParenToken);
+        self.expect_matching_bracket(
+            SyntaxKind::OpenParenToken,
+            SyntaxKind::CloseParenToken,
+            open_paren_parsed,
+            open_paren_position,
+        );
         // A `;` after `do…while(…)` is optional even without ASI.
         self.eat(SyntaxKind::SemicolonToken);
         let node = self.finish_node(
@@ -895,9 +913,15 @@ impl<'a> Parser<'a> {
     fn parse_while_statement(&mut self) -> Statement<'a> {
         let start = self.pos();
         self.next_token();
-        self.expect(SyntaxKind::OpenParenToken);
+        let open_paren_position = self.token.span.start;
+        let open_paren_parsed = self.expect(SyntaxKind::OpenParenToken);
         let condition = self.parse_expression();
-        self.expect(SyntaxKind::CloseParenToken);
+        self.expect_matching_bracket(
+            SyntaxKind::OpenParenToken,
+            SyntaxKind::CloseParenToken,
+            open_paren_parsed,
+            open_paren_position,
+        );
         let body = self.parse_statement();
         let node = self.finish_node(
             WhileStatement::new(Some(condition), body),
@@ -1049,9 +1073,15 @@ impl<'a> Parser<'a> {
     fn parse_with_statement(&mut self) -> Statement<'a> {
         let start = self.pos();
         self.next_token();
-        self.expect(SyntaxKind::OpenParenToken);
+        let open_paren_position = self.token.span.start;
+        let open_paren_parsed = self.expect(SyntaxKind::OpenParenToken);
         let expression = self.parse_expression();
-        self.expect(SyntaxKind::CloseParenToken);
+        self.expect_matching_bracket(
+            SyntaxKind::OpenParenToken,
+            SyntaxKind::CloseParenToken,
+            open_paren_parsed,
+            open_paren_position,
+        );
         let statement = self.parse_statement();
         let node = self.finish_node(
             WithStatement::new(Some(expression), Some(statement)),

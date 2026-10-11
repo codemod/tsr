@@ -261,6 +261,11 @@ function whose recovery differed. Each landed as its own commit:
 | `ScanJsxTokenEx`'s text loop (`scanner.go:1281`) | a `<<<<<<< ` marker inside JSX text scanned as `<` tokens | conflictMarkerTrivia3 (types; diagnostics wait on the checker's TS17004, unported) |
 | `parseJSDocComment`'s `PCJSDocComment` (`jsdoc.go:168`) | a list inside a comment's type expression skipped a token it could not use instead of aborting, as every token is that context's element | jsdocFunctionTypeFalsePositive's parse errors (diagnostics wait on TS1098 from the list facts, §10) |
 | `parsePrimaryExpression` / `parseTemplateHead` re-scan gate (`:5551`, `:3691`) | every untagged template was re-scanned, so an unterminated one reported TS1160 a second time after a parser error at it, and the guard dropped the next error at end of file | labeledStatementDeclarationListInLoopNoCrash4 |
+| `parseExpectedMatchingBrackets` (`:971`), `parseImportAttributes` (`:3085`) and the import type's attributes (`:3047`) | a missing `}`, `)` or `]` reported no TS1007 pointing back at its opening bracket; an attribute list without `{` still parsed entries | parser half of ~20 exact-oracle cases (missingCloseBrace*, parserErrorRecovery_ObjectLiteral2–5, …); they turn exact only when the compiler sets the file on parse diagnostics' related information, as `attachFileToDiagnostics` (`:6392`) does — every TSR related row currently prints without a file |
+| `parseTypedefTag` (`jsdoc.go:1017`) and the reparser's `checkNonIdentifierName` (`reparser.go:41`) | a nameless `@typedef` reported nothing: native reports `Identifier expected` in the comment, and — in a JavaScript file, when the tag has a type — again on the character before the missing name in the file's own diagnostics, as `reparseTags` runs at attach time. This port has no reparser pass; the typedef parse records the position and `attach_jsdoc` reports it. The tag keeps no name rather than native's empty identifier, which the binder would declare | jsdocTypedefNoCrash, jsdocTypedefNoCrash2, misspelledJsDocTypedefTags, checkJsdocTypedefOnlySourceFile (exact oracle) |
+| `parseClassDeclarationOrExpression` (`:1751`), `parseDeclarationWorker`'s `export` arm, `parseImportDeclarationOrImportEqualsDeclaration`'s phase, `parseImportType` (`:3026`) | a node made and then dropped stayed in the node table with no parent: a class expression parsed a declaration and copied it (and a decorated one copied the expression again), `export` became a token node before the parser knew it was not a modifier (`export =`, `export default`, `export {…}`, `export *`, `export as namespace`), `import type A = require(…)` made a `type` token it then recorded as a flag, and `typeof import(…)` wrapped a finished import type in a second one. Across the TypeScript test cases that was 2,155 `ExportKeyword`, 623 `ClassDeclaration`, 68 `ClassExpression` and 9 `TypeKeyword` nodes. Each is now made once. Native leaves an `ExpressionWithTypeArguments` behind when a call or tagged template absorbs it (`parser.go:5462`) and so does this port; the JSDoc tags a rewound speculative parse leaves are not looked at yet | no case moves; `crates/tsr-parser/tests/no_orphans.rs` |
+| `parseSatisfiesTag` (`jsdoc.go:928`) | `@satisfies T` without braces parsed nothing; native expects the braces (`parseJSDocTypeExpression(false)`), reports `'{' expected.` and still takes `T` | checkJsdocSatisfiesTag14 |
+| `finishNode` for a node that covers no token | it ended at the previous token's end, before its own start when trivia came between: 200 empty `JsxAttributes` (`<div >`), 35 omitted `BindingElement`s, 32 `SourceFile`s, 8 `ExpressionStatement`s, a missing type after `:` and others across the TypeScript test cases. Such a node is now zero-width at its start, this port's place for missing nodes (native's is the full start, which this port does not track). The alternative, ending every such node at the previous token's end and starting it there too, is native's position but moves every missing node the checker already places (§6's refused full-start row) | constructorWithIncompleteTypeAnnotation (the exact oracle's writer rejected its inverted diagnostic span: TSR_FAILED) |
 | `scanner.TokenToString` (`scanner.go:124`) | `'{0}' expected` knew twenty token texts and printed any other kind's name (`'LessThanSlashToken' expected.`) | message text only (the exact oracle; the diagnostics suite compares codes) |
 
 The type-argument list is now native's `parseDelimitedList(PCTypeArguments,
@@ -285,6 +290,15 @@ Held, with the reason:
 - parserSuperExpression2: the tree matches native's; the extra TS2304 on
   `super<T>` is the checker resolving the type arguments of a super call
   outside a constructor, which native does not.
+
+- `parseEntityName` (`:2901`) under `parseTypeReference`: native's missing
+  type name is still the head of an entity name a `.` qualifies, so
+  `typeof import.defer("./a").Foo` has the argument `<missing>.defer` and
+  `')' expected` at `(`; this port ends the type at the missing name and takes
+  `.defer` as the import type's qualifier. Porting it measured diagnostics
+  +0 / −1: typeofImportDefer gains the TS1141 span but the checker then reports
+  TS2503 `Cannot find namespace ''` on the missing head, which native's
+  `resolveEntityName` skips for a missing name. Lands with that skip.
 
 Refused, with the number:
 
@@ -390,3 +404,37 @@ read it through the host. Routed. The cases waiting on them are
 emptyTypeArgumentList(WithNew), parserConstructorDeclaration11/12,
 indexSignatureWithTrailingComma, trailingCommasInFunctionParametersAndArguments,
 and the importCallExpressionWithTypeArgument `<>` arm.
+
+## 11. JSDoc trivia cost
+
+Callgrind on generic-imports (`--singleThreaded`) put 11.3% of all
+instructions in `jsdoc_ranges_in` and another 2.3% in `mentions_tag`, nearly
+all of it inside the lib files' long comments:
+
+- `jsdoc_ranges_in` walked each comment's body a byte at a time to find its
+  `*/`. It now skips to each `*` with `memchr` (`str::find(char)`) and checks
+  the next byte. The old loop also let a line break inside a comment set
+  that comment's own `preceded_by_line_break`; the field means a break before
+  the comment, and nothing reads it.
+- In a `.ts` file (`JSDocMode::SeeOrLink`, ADR-0053) the parser keeps a
+  construct's comments only when one carries `@see`/`@link`, but
+  `leading_jsdoc_marker` asked only for *a* comment, so every commented
+  construct had its ranges found and then dropped. The scanner already sets
+  `PRECEDING_JSDOC_WITH_SEE_OR_LINK` with the same tag test as
+  `jsdoc_has_see_or_link`, so the marker asks for that flag in this mode.
+  The alternative — keep finding the ranges and test each — is what it did.
+  It would win back only if the scanner flag and the parser's test could
+  disagree. They apply one test to the same trivia, and the test in
+  `parse_jsdoc_at` stays as a second check.
+- `classify_block_comment` scanned each comment's `@`s twice, once per tag
+  set. It now does one pass and stops once both flags are set.
+
+| step | generic-imports Ir | domain-model Ir |
+|---|---|---|
+| `memchr` body skip | 0.924 | 0.981 |
+| marker asks for the see/link flag; one tag pass | 0.920 | 0.982 |
+| together | 0.850 | 0.963 |
+
+How it would be wrong: a `.ts` construct whose `@see`/`@link` comment is no
+longer attached, which shows up as lost `@link` references in the checker's
+JSDoc output (types suite) or in the exact oracle.

@@ -473,6 +473,12 @@ pub struct Parser<'a> {
     /// List facts with the node count when each was recorded; owners are
     /// resolved by [`Self::take_list_facts`].
     pending_list_facts: Vec<(u32, ListFact)>,
+    /// Where a JavaScript file's `@typedef` with a type has no name, until
+    /// the comment is attached to its host: the reparser's
+    /// `checkNonIdentifierName` report (`reparser.go:41`), which lands in the
+    /// file's own diagnostics, not the comment's. See
+    /// [`Self::attach_jsdoc`].
+    pub(crate) missing_typedef_names: Vec<u32>,
 
     /// Guards against runaway recursion on pathological input.
     ///
@@ -598,6 +604,7 @@ impl<'a> Parser<'a> {
             module_indicator: options.module_indicator,
             first_node,
             pending_list_facts: Vec::new(),
+            missing_typedef_names: Vec::new(),
         };
         parser.sync_scanner_diagnostics();
         parser
@@ -727,6 +734,46 @@ impl<'a> Parser<'a> {
 
     /// Consume `kind`, or report that it was expected.
     ///
+    /// `parseExpectedMatchingBrackets` (`parser.go:971`): expect the `close`
+    /// of a bracket pair whose `open` was expected at `open_position`. A
+    /// report that the same-position guard kept, after an `open` that was
+    /// present, points back at it: TS1007, zero-width at the `open`.
+    pub(crate) fn expect_matching_bracket(
+        &mut self,
+        open: SyntaxKind,
+        close: SyntaxKind,
+        open_parsed: bool,
+        open_position: u32,
+    ) {
+        if self.eat(close) {
+            return;
+        }
+        let reported = self.diagnostics.len();
+        self.error_at_current_with(&messages::_0_EXPECTED, &[&token_to_text(close)]);
+        if open_parsed && self.diagnostics.len() > reported {
+            self.relate_bracket_to_last_error(open, close, open_position);
+        }
+    }
+
+    /// Attach TS1007 for the bracket pair to the last diagnostic, as
+    /// `parseExpectedMatchingBrackets` attaches it to the report it made and
+    /// `parseImportAttributes` (`parser.go:3097`) to whatever report is last.
+    pub(crate) fn relate_bracket_to_last_error(
+        &mut self,
+        open: SyntaxKind,
+        close: SyntaxKind,
+        open_position: u32,
+    ) {
+        let related = Diagnostic::with_args(
+            &messages::THE_PARSER_EXPECTED_TO_FIND_A_1_TO_MATCH_THE_0_TOKEN_HERE,
+            Span::at(open_position),
+            [token_to_text(open).into_owned(), token_to_text(close).into_owned()],
+        );
+        if let Some(last) = self.diagnostics.last_mut() {
+            last.add_related_information(Some(related));
+        }
+    }
+
     /// Does **not** skip the offending token: the caller's recovery loop decides
     /// what to discard, and consuming here would swallow a token that closes an
     /// enclosing construct.
@@ -1016,7 +1063,13 @@ impl<'a> Parser<'a> {
         T: HasNodeId,
         &'a T: Into<tsr_ast::Node<'a>>,
     {
-        let end = self.node_end();
+        // A node that covers no token starts at the next token and would end
+        // at the previous one's end, before its start when trivia came
+        // between (an empty `<div >`'s attributes, an omitted `[, x]`
+        // element, a missing type after `:`). It is zero-width at its start,
+        // as this port's missing nodes are. The inverted span reached the
+        // exact oracle's writer (constructorWithIncompleteTypeAnnotation).
+        let end = self.node_end().max(start);
         self.finish_node_with_end(node, kind, start, end)
     }
 

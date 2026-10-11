@@ -3579,28 +3579,28 @@ impl<'a, 'n> Checker<'a, 'n> {
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
             return None;
         }
-        // r7-printer §14: a namespace segment whose own container is a file
-        // module takes the resolver's `getSymbolChain` whole, so a route
-        // through a module that re-exports it under another name
-        // (`export { EmotionJSX as JSX }`) spells the alias's name,
-        // `createAccessFromSymbolChain`'s `getNameOfSymbolAsWritten` of the
-        // chain's member, not the namespace's own.
+        // r7-printer §14, §18: a namespace segment declared in a file module
+        // (as its parent, or as a top-level local that `getContainersOfSymbol`'s
+        // fallback offers, `symbolaccessibility.go:288`) takes the resolver's
+        // `getSymbolChain` whole: through a module that re-exports it under
+        // another name (`export { EmotionJSX as JSX }`) the segment is the
+        // alias's name, and a namespace its module's `export =` names is the
+        // module itself (`getSymbolChain`'s `export =` shortcut,
+        // `nodebuilderimpl.go:1124`), `import("./thing")`.
         if self.module_host.is_some()
-            && self
-                .binder
-                .symbols()
-                .get(parent)
-                .parent
-                .is_some_and(|grand| self.is_module_symbol(self.binder.merged_symbol(grand)))
+            && self.declared_in_file_module(parent)
             && self.best_name(parent, reference).is_none()
-            && let Some((root, leaf)) =
-                self.module_rooted_chain_at(parent, reference, SymbolFlags::NAMESPACE)
-            && crate::objects::is_identifier_text(self.binder.symbols().get(leaf).name)
+            && let Some(segment) = self.module_rooted_segment_at(parent, reference)
         {
+            let root = segment.0;
             let specifier = self.module_specifier_for_symbol(root, reference)?;
             self.track_unsafe_import(&specifier, parent, root);
-            let leaf_name = self.binder.symbols().get(leaf).name;
-            return Some(format!("import({specifier}).{leaf_name}."));
+            return Some(match segment.1 {
+                Some(leaf) => {
+                    format!("import({specifier}).{}.", self.binder.symbols().get(leaf).name)
+                }
+                None => format!("import({specifier})."),
+            });
         }
         // The RENAME applies to chain *segments* too (`§10.9`'s 67-line
         // residue): a chain rooted at `__React` prints under the innermost
@@ -3615,7 +3615,12 @@ impl<'a, 'n> Checker<'a, 'n> {
         if parent_name.contains('.') {
             return Some(format!("{parent_name}."));
         }
-        Some(match self.symbol_chain(parent, reference, SymbolFlags::NAMESPACE, depth + 1) {
+        // `getQualifiedLeftMeaning` (`symbolaccessibility.go:108`): a value
+        // reference keeps value meaning for its containers, so a local
+        // `var X` shadows namespace `X` in `typeof X.Y` (r7-printer §19).
+        let left_meaning =
+            if meaning == SymbolFlags::VALUE { SymbolFlags::VALUE } else { SymbolFlags::NAMESPACE };
+        Some(match self.symbol_chain(parent, reference, left_meaning, depth + 1) {
             Some(prefix) => format!("{prefix}{parent_name}."),
             // The container itself resolves bare here: the chain stops, which
             // is the recursion's base case rather than a refusal.
@@ -3635,7 +3640,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// `printed`. `None` (the existing roads decide) outside the binding
     /// context, where native writes `default`, or when nothing changes.
     fn default_symbol_text_as_written(
-        &self,
+        &mut self,
         symbol: SymbolId,
         printed: &str,
         reference: NodeId,
@@ -3655,9 +3660,19 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             None
         };
-        if binding_context(first) != binding_context(reference) {
-            return None;
-        }
+        // Outside the binding context the first segment is `default`, so
+        // native names the symbol by its accessible chain instead: an
+        // in-scope alias (`import Thing from "./root"`, `trySymbolTable`'s
+        // alias loop) is the whole name (r7-printer §20). With none, the
+        // existing roads decide.
+        let alias_name = if binding_context(first) == binding_context(reference) {
+            None
+        } else {
+            Some(
+                self.best_name(symbol, reference)
+                    .filter(|name| name != "default" && !name.contains('.'))?,
+            )
+        };
         let name_text = |declaration: NodeId| -> Option<&'a str> {
             let name = match self.node_map.get(declaration)? {
                 // `GetNonAssignedNameOfDeclaration`'s export-assignment arm.
@@ -3672,7 +3687,11 @@ impl<'a, 'n> Checker<'a, 'n> {
                 _ => None,
             }
         };
-        let written = declarations.iter().find_map(|&declaration| name_text(declaration))?;
+        let written_own = declarations.iter().find_map(|&declaration| name_text(declaration));
+        let written: &str = match &alias_name {
+            Some(name) => name.as_str(),
+            None => written_own?,
+        };
         for &declaration in &declarations {
             let Some(baked) = name_text(declaration) else { continue };
             if baked == written {
@@ -3736,6 +3755,49 @@ impl<'a, 'n> Checker<'a, 'n> {
             text.push_str(self.binder.symbols().get(part).name);
         }
         Some(text)
+    }
+
+    /// Whether `symbol`'s container is a file module, or one of its
+    /// declarations sits at the top level of one (a local `getContainersOfSymbol`'s
+    /// fallback offers the module for).
+    fn declared_in_file_module(&self, symbol: SymbolId) -> bool {
+        let entry = self.binder.symbols().get(symbol);
+        entry.parent.is_some_and(|parent| self.is_module_symbol(self.binder.merged_symbol(parent)))
+            || entry.declarations.iter().any(|&declaration| {
+                self.nodes.parent(declaration).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::SourceFile
+                        && self.is_external_or_common_js_module(parent)
+                })
+            })
+    }
+
+    /// The resolver's `getSymbolChain` for a namespace segment when it is
+    /// rooted at a file module: `(module, None)` for the one-element chain
+    /// the `export =` shortcut gives, `(module, Some(leaf))` for a module and
+    /// one member (whose name must be an identifier). `None` otherwise.
+    fn module_rooted_segment_at(
+        &mut self,
+        namespace: SymbolId,
+        reference: NodeId,
+    ) -> Option<(SymbolId, Option<SymbolId>)> {
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self).symbol_chain_at(
+            namespace,
+            reference,
+            SymbolFlags::NAMESPACE,
+            true,
+            true,
+            0,
+        );
+        match *chain.as_slice() {
+            [root] if self.is_module_symbol(root) => Some((root, None)),
+            [root, leaf]
+                if self.is_module_symbol(root)
+                    && crate::objects::is_identifier_text(self.binder.symbols().get(leaf).name) =>
+            {
+                Some((root, Some(leaf)))
+            }
+            _ => None,
+        }
     }
 
     /// `getSymbolChain(symbol, meaning, endOfChain = true, yieldModuleSymbol =

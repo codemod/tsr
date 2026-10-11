@@ -40,8 +40,17 @@ impl<'a> Parser<'a> {
         // `type`.
         let has_phase = (self.at(SyntaxKind::TypeKeyword) && self.type_is_modifier_here())
             || (self.at(SyntaxKind::DeferKeyword) && self.defer_is_modifier_here());
-        let phase = if has_phase { Some(self.take_token()) } else { None };
-        let is_type_only = phase.is_some_and(|phase| phase.kind == SyntaxKind::TypeKeyword);
+        // The phase is a token node only on an import clause; an
+        // import-equals declaration records `type` as a flag, and a token made
+        // up front stayed in the node table with no parent there.
+        let phase = if has_phase {
+            let token = self.token;
+            self.next_token();
+            Some((token.kind, token.span))
+        } else {
+            None
+        };
+        let is_type_only = phase.is_some_and(|(kind, _)| kind == SyntaxKind::TypeKeyword);
 
         // `import x = require("m")` and `import x = A.B`. Upstream decides on
         // the token *after* the identifier: anything but `,` or `from`
@@ -51,7 +60,7 @@ impl<'a> Parser<'a> {
         // not after `defer`). `import abstract class D {}` is TS1005 `'='
         // expected` there, with an entity-name reference, not an import clause
         // whose specifier is a class expression.
-        let is_defer = phase.is_some_and(|phase| phase.kind == SyntaxKind::DeferKeyword);
+        let is_defer = phase.is_some_and(|(kind, _)| kind == SyntaxKind::DeferKeyword);
         if self.at_binding_identifier()
             && !is_defer
             && self
@@ -78,6 +87,7 @@ impl<'a> Parser<'a> {
             || self.at(SyntaxKind::AsteriskToken)
             || self.at(SyntaxKind::OpenBraceToken)
         {
+            let phase = phase.map(|(kind, span)| self.alloc_token(kind, span));
             let clause_start = self.pos();
             // Contextual keywords are legal binding names: `import type from "m"`
             // imports something called `type`.
@@ -300,11 +310,13 @@ impl<'a> Parser<'a> {
     /// `export …` in all its forms.
     /// Everything after a leading `export`.
     ///
-    /// `export_token` is that keyword. It becomes a modifier on a *declaration*
-    /// — `export const x = 1` is a `VariableStatement` modified by `export` —
-    /// but not on an `ExportDeclaration` or `ExportAssignment`, where the keyword
-    /// is part of the node's own syntax rather than a modifier of it. That is
-    /// upstream's split too.
+    /// `export_span` is that keyword's. It becomes a modifier on a
+    /// *declaration* — `export const x = 1` is a `VariableStatement` modified by
+    /// `export` — but not on an `ExportDeclaration`, `ExportAssignment` or
+    /// `NamespaceExportDeclaration`, where the keyword is part of the node's
+    /// own syntax rather than a modifier of it. That is upstream's split too,
+    /// and why the token node is made only for the modifier: made up front, it
+    /// stayed in the node table with no parent for every other form.
     ///
     /// **The modifiers are the caller's**, not an empty slice: `declare export =
     /// value` is the recovery shape `statement.rs`'s comment already names, and
@@ -314,7 +326,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_export(
         &mut self,
         start: u32,
-        export_token: &'a Token<'a>,
+        export_span: tsr_core::Span,
         modifiers_slice: &'a [ModifierLike<'a>],
     ) -> Statement<'a> {
         // `export as namespace N;` declares a UMD global — the name the module
@@ -350,6 +362,7 @@ impl<'a> Parser<'a> {
         }
 
         // Anything else is a modifier on a declaration: `export const x = 1`.
+        let export_token = self.alloc_token(SyntaxKind::ExportKeyword, export_span);
         let mut all = vec![ModifierLike::Token(export_token)];
         all.extend(self.parse_modifiers());
         let all = self.arena.alloc_slice(&all);
@@ -646,6 +659,7 @@ impl<'a> Parser<'a> {
         if !self.eat(SyntaxKind::CommaToken) {
             return None;
         }
+        let open_brace_position = self.token.span.start;
         self.expect(SyntaxKind::OpenBraceToken);
         if !self.at(SyntaxKind::WithKeyword) && !self.at(SyntaxKind::AssertKeyword) {
             return None;
@@ -664,7 +678,7 @@ impl<'a> Parser<'a> {
         let start = self.pos();
         let attributes = self.parse_import_attributes_body(start, token);
         self.eat(SyntaxKind::CommaToken);
-        self.expect(SyntaxKind::CloseBraceToken);
+        self.expect_brace_relating_a_last_expected_report(open_brace_position);
         Some(attributes)
     }
 
@@ -673,12 +687,20 @@ impl<'a> Parser<'a> {
         start: u32,
         token: &'a Token<'a>,
     ) -> &'a ImportAttributes<'a> {
-        self.expect(SyntaxKind::OpenBraceToken);
-
-        // `parseDelimitedList(PCImportAttributes, parseImportAttribute)`.
-        let (elements, _) = self
-            .parse_delimited_list(ParsingContext::ImportAttributes, Self::parse_import_attribute);
-        self.expect(SyntaxKind::CloseBraceToken);
+        // `parseImportAttributes` (`parser.go:3085`): the entries only after
+        // a `{`.
+        let open_brace_position = self.token.span.start;
+        let elements = if self.expect(SyntaxKind::OpenBraceToken) {
+            // `parseDelimitedList(PCImportAttributes, parseImportAttribute)`.
+            let (elements, _) = self.parse_delimited_list(
+                ParsingContext::ImportAttributes,
+                Self::parse_import_attribute,
+            );
+            self.expect_brace_relating_a_last_expected_report(open_brace_position);
+            elements
+        } else {
+            Vec::new()
+        };
 
         let elements = self.arena.alloc_slice(&elements);
         self.finish_node(
@@ -686,6 +708,25 @@ impl<'a> Parser<'a> {
             SyntaxKind::ImportAttributes,
             start,
         )
+    }
+
+    /// Expect the `}` of an attribute list opened at `open_brace_position`;
+    /// when it is missing and the last report — the one just made, or the
+    /// one the same-position guard kept in its place — is `'{0}' expected`,
+    /// relate it to the `{` (`parser.go:3049`, `:3096`).
+    fn expect_brace_relating_a_last_expected_report(&mut self, open_brace_position: u32) {
+        if !self.expect(SyntaxKind::CloseBraceToken)
+            && self
+                .diagnostics
+                .last()
+                .is_some_and(|last| last.message.code() == messages::_0_EXPECTED.code())
+        {
+            self.relate_bracket_to_last_error(
+                SyntaxKind::OpenBraceToken,
+                SyntaxKind::CloseBraceToken,
+                open_brace_position,
+            );
+        }
     }
 
     /// `type: "json"` — typescript-go's `Parser.parseImportAttribute`
