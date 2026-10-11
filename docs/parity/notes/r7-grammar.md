@@ -588,6 +588,60 @@ falsely), and `isArrayType || isTupleType && combinedFlags&Rest` over this
 checker's print-only variadic tuples (`declared.rs` §40). It would convert
 one single-code case (`optionalTupleElements1`) for that risk.
 
+## §26 `checkKindsOfPropertyMemberOverrides`' abstract half (TS2515/2650/2653/2654/2655/2656)
+
+`check_inherited_abstract_members_implemented` (`heritage_conformance.rs`) is
+the `notImplementedInfo` pass of `checkKindsOfPropertyMemberOverrides`
+(`checker.go:4536`-`:4590`, reported at `:4664`). It runs first in the
+existing `check_kinds_of_property_member_overrides`, the port of the same Go
+function's property-kind half, which the check walk already calls for every
+node. It replaces check.rs's `check_abstract_members_implemented`, a
+declaration walk that built only the single-member form (TS2515) and ignored
+interface merges. That stand-in reported two false TS2515s in
+`mergedInheritedMembersSatisfyAbstractBase`.
+
+*The algorithm, as upstream.* It applies to a class-like with an `extends`
+clause whose `getBaseTypes(t)[0]` resolved (`checkClassLikeDeclaration`,
+`checker.go:4313`), and covers class expressions too. For each property of
+the base type, it asks whether the class type's property of that name has the
+same target symbol and whether its declaration is `abstract`. The declaration
+is the get accessor for an accessor symbol, else the value declaration
+(`getDeclarationModifierFlagsFromSymbol`), with the reparser's JSDoc
+modifiers. If both hold, the member is missing, unless the class is
+`abstract` or another base type supplies a different symbol of that name (an
+interface merged with the class). The list is reported at the class name, or
+at a class expression. One member is TS2515/TS2653 with the name unquoted;
+two to five are TS2654/TS2656 with every name quoted; more than five are
+TS2655/TS2650 with four quoted and "and N more". Names are
+`TypeToString(t)` and `TypeToString(baseType)` (`C<T>`, `A<number>`).
+
+*Target symbols.* Property symbols here are the declared ones for every
+instantiation, so `getTargetSymbol` is the identity. The exception is a
+member inherited through a generic heritage entry (`extends A<T>`), which
+`get_property_of_type` leaves as a gap (members.rs §202).
+`generic_heritage_property_symbol` answers its declaring symbol, which is
+exactly the target, and only identity and flags are read from it
+(`target_property_of`).
+
+*Declines.* The check reports nothing when the base's property list is not
+certified (`get_property_names_of_type` answers `None`), and nothing for a
+class whose missing member has a non-identifier name: `symbolToString` of a
+string, numeric or computed name has spellings this port does not produce.
+`builtinIterator`'s lib `Iterator` base is still declined (no TS2515 there,
+which leaves that case's existing gap).
+
+*Cost and ownership.* No new cache. The walk visits each class once. The base
+property list is `get_property_names_of_type`'s existing shared memo, and
+each name costs up to three property lookups.
+
+*Falsifier.* A TS2515-family report on a class that implements the member
+through a merged interface or an intermediate base. A wrong member order
+(the order of the base's `getPropertiesOfType`: own declarations, then
+inherited). A count that differs between `--singleThreaded` and
+`--checkers 4`.
+Converted: `abstractPropertyNegative` (with §25), `classAbstractGeneric`,
+`classExpressionExtendingAbstractClass`, `classAbstractInheritance2`.
+
 ## §27 Unused `@template` type parameters in JS (TS6133/TS6196/TS6205)
 
 `checkUnusedTypeParameters` (`checker.go:7290`) reads `node.TypeParameters()`.

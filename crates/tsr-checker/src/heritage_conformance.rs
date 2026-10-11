@@ -935,6 +935,167 @@ fn override_member_named(
 }
 
 impl Checker<'_, '_> {
+    /// TS2515 / TS2653 / TS2654 / TS2655 / TS2656 / TS2650 — the
+    /// `notImplementedInfo` half of `checkKindsOfPropertyMemberOverrides`
+    /// (`checker.go:4536`-`:4590`, reported at `:4664`), for a class-like
+    /// declaration with an `extends` clause and a resolved base
+    /// (`checkClassLikeDeclaration`, `checker.go:4313`: `baseTypes[0]`).
+    ///
+    /// Each property of the base type (`getPropertiesOfType`, here
+    /// [`Checker::get_property_names_of_type`] then
+    /// [`Checker::get_property_of_type`]) that the class type inherits
+    /// **unchanged** (`getTargetSymbol(derived) == getTargetSymbol(base)`;
+    /// property symbols here are the declared ones for every instantiation,
+    /// so the target is the symbol itself) and whose declaration is
+    /// `abstract` (`getDeclarationModifierFlagsFromSymbol`: the get accessor
+    /// for an accessor, else the value declaration) is missing, unless the
+    /// class is `abstract` or another base type (an interface merged with the
+    /// class) supplies a different symbol of that name. The list is
+    /// reported once, at the class: one member names it unquoted, two to
+    /// five quote them all, more quote four and count the rest.
+    ///
+    /// Declines (reports nothing) when the base's property list is not
+    /// certified (`get_property_names_of_type` answers `None`), or when a
+    /// missing member's name is not an identifier: `symbolToString` of a
+    /// string, numeric or computed name has spellings this port does not
+    /// produce. No cache: the check walk visits each class once; the property
+    /// list is the shared memo `get_property_names_of_type` already owns
+    /// (r7-grammar §26).
+    fn check_inherited_abstract_members_implemented(&mut self, node: NodeId) {
+        let (modifiers, clauses, is_expression) = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => (class.modifiers, class.heritage_clauses, false),
+            Some(Node::ClassExpression(class)) => (class.modifiers, class.heritage_clauses, true),
+            _ => return,
+        };
+        if !clauses.iter().any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
+            || has_modifier(modifiers, SyntaxKind::AbstractKeyword)
+        {
+            return;
+        }
+        let Some(own) = self.binder.symbol_of(node) else { return };
+        let symbol = self.binder.merged_symbol(own);
+        let base_types = self.get_base_types(symbol);
+        let Some(&base_type) = base_types.first() else { return };
+        if self.is_error(base_type) {
+            return;
+        }
+        let class_type = self.get_declared_type_of_class_or_interface(symbol);
+        let Some(names) = self.get_property_names_of_type(base_type) else { return };
+        let mut missed: Vec<String> = Vec::new();
+        'base_property: for name in names {
+            let Some(base) = self.get_property_of_type(base_type, &name) else { continue };
+            if self.binder.symbols().get(base).flags.contains(SymbolFlags::PROTOTYPE) {
+                continue;
+            }
+            if self.target_property_of(class_type, &name) != Some(base)
+                || !self.symbol_declaration_is_abstract(base)
+            {
+                continue;
+            }
+            for &other in &base_types[1..] {
+                if self.target_property_of(other, &name).is_some_and(|found| found != base) {
+                    continue 'base_property;
+                }
+            }
+            let named_by_identifier =
+                self.binder.symbols().get(base).value_declaration.is_some_and(|declaration| {
+                    self.declaration_name_of(declaration).is_some_and(|name| {
+                        matches!(
+                            self.nodes.kind(name),
+                            SyntaxKind::Identifier | SyntaxKind::PrivateIdentifier
+                        )
+                    })
+                });
+            if !named_by_identifier {
+                return;
+            }
+            missed.push(name);
+        }
+        if missed.is_empty() {
+            return;
+        }
+        let at = if is_expression { node } else { self.declaration_name_of(node).unwrap_or(node) };
+        let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
+        let span = self.error_span(at);
+        let base_text = self.type_to_string(base_type);
+        let class_text = self.type_to_string(class_type);
+        let quoted = |names: &[String]| {
+            names.iter().map(|name| format!("'{name}'")).collect::<Vec<_>>().join(", ")
+        };
+        let diagnostic = if let [only] = missed.as_slice() {
+            if is_expression {
+                Diagnostic::with_args(
+                    &messages::NON_ABSTRACT_CLASS_EXPRESSION_DOES_NOT_IMPLEMENT_INHERITED_ABSTRACT_MEMBER_0_FROM_CLASS_1,
+                    span,
+                    [only.clone(), base_text],
+                )
+            } else {
+                Diagnostic::with_args(
+                    &messages::NON_ABSTRACT_CLASS_0_DOES_NOT_IMPLEMENT_INHERITED_ABSTRACT_MEMBER_1_FROM_CLASS_2,
+                    span,
+                    [class_text, only.clone(), base_text],
+                )
+            }
+        } else if missed.len() > 5 {
+            let listed = quoted(&missed[..4]);
+            let remaining = (missed.len() - 4).to_string();
+            if is_expression {
+                Diagnostic::with_args(
+                    &messages::NON_ABSTRACT_CLASS_EXPRESSION_IS_MISSING_IMPLEMENTATIONS_FOR_THE_FOLLOWING_MEMBERS_OF_0_COLON_1_AND_2_MORE,
+                    span,
+                    [base_text, listed, remaining],
+                )
+            } else {
+                Diagnostic::with_args(
+                    &messages::NON_ABSTRACT_CLASS_0_IS_MISSING_IMPLEMENTATIONS_FOR_THE_FOLLOWING_MEMBERS_OF_1_COLON_2_AND_3_MORE,
+                    span,
+                    [class_text, base_text, listed, remaining],
+                )
+            }
+        } else if is_expression {
+            Diagnostic::with_args(
+                &messages::NON_ABSTRACT_CLASS_EXPRESSION_IS_MISSING_IMPLEMENTATIONS_FOR_THE_FOLLOWING_MEMBERS_OF_0_COLON_1,
+                span,
+                [base_text, quoted(&missed)],
+            )
+        } else {
+            Diagnostic::with_args(
+                &messages::NON_ABSTRACT_CLASS_0_IS_MISSING_IMPLEMENTATIONS_FOR_THE_FOLLOWING_MEMBERS_OF_1_COLON_2,
+                span,
+                [class_text, base_text, quoted(&missed)],
+            )
+        };
+        self.report(file, diagnostic);
+    }
+
+    /// `getTargetSymbol(getPropertyOfObjectType(t, name))`: the property
+    /// symbol, or, for a member inherited through a generic heritage entry
+    /// (which [`Checker::get_property_of_type`] leaves a gap, §202), the
+    /// declaring symbol [`Checker::generic_heritage_property_symbol`] finds.
+    /// That is the target symbol, which is all the caller compares.
+    fn target_property_of(&mut self, t: TypeId, name: &str) -> Option<SymbolId> {
+        self.get_property_of_type(t, name)
+            .or_else(|| self.generic_heritage_property_symbol(t, name, &mut Vec::new()))
+    }
+
+    /// `getDeclarationModifierFlagsFromSymbol(s) & ModifierFlagsAbstract`
+    /// (`utilities.go:717`): the first get accessor of an accessor symbol,
+    /// else the value declaration, with the reparser's JSDoc modifiers.
+    fn symbol_declaration_is_abstract(&self, symbol: SymbolId) -> bool {
+        let record = self.binder.symbols().get(symbol);
+        let getter = record.flags.contains(SymbolFlags::GET_ACCESSOR).then(|| {
+            record
+                .declarations
+                .iter()
+                .copied()
+                .find(|&declaration| self.nodes.kind(declaration) == SyntaxKind::GetAccessor)
+        });
+        let Some(declaration) = getter.flatten().or(record.value_declaration) else {
+            return false;
+        };
+        self.has_effective_modifier(declaration, SyntaxKind::AbstractKeyword)
+    }
+
     /// TS2610 / TS2611 and the three method-kind mismatches —
     /// `checkKindsOfPropertyMemberOverrides` (`checker.go:4536`), the
     /// property-kind half; the abstract-member half is TS2515's own check.
@@ -946,6 +1107,7 @@ impl Checker<'_, '_> {
     /// the nearest class up the `extends` chain that declares an instance
     /// member of the same name (§309, §708). `docs/parity/notes/r5-classfields.md` §1.
     pub(crate) fn check_kinds_of_property_member_overrides(&mut self, node: NodeId) {
+        self.check_inherited_abstract_members_implemented(node);
         let (clauses, members, derived_name) = match self.node_map.get(node) {
             Some(Node::ClassDeclaration(class)) => {
                 (class.heritage_clauses, class.members, class.name.map(|name| name.text))
