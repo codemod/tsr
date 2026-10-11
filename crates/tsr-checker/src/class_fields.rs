@@ -298,7 +298,7 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
         let span = self.error_span(declaration);
-        self.report(
+        self.report_skipped_on_no_emit(
             file,
             Diagnostic::with_args(
                 &messages::DUPLICATE_IDENTIFIER_0_COMPILER_RESERVES_NAME_1_WHEN_EMITTING_SUPER_REFERENCES_IN_STATIC_INITIALIZERS,
@@ -648,5 +648,49 @@ impl Checker<'_, '_> {
             tsr_ast::for_each_child_id(typed, |child| children.push(child));
         }
         children.into_iter().any(|child| self.node_immediately_references_super_or_this(child))
+    }
+
+    /// `scanner.DeclarationNameToString` (`scanner/utilities.go`) for a
+    /// present name: `GetTextOfNode`, the name's source text from its
+    /// trivia-free start, so `[x = 0]` prints as written. `None` without
+    /// source text or for a missing (zero-width) name, where the caller's
+    /// spelling stands (r7-grammar §35).
+    pub(crate) fn declaration_name_source_text(&self, name: NodeId) -> Option<String> {
+        let span = self.nodes.span(name);
+        if span.start == span.end {
+            return None;
+        }
+        let file = self.source_file_of_for_diagnostics(name)?;
+        let text = self.module_host.and_then(|host| host.source_text(file, self.nodes))?;
+        text.get(span.start as usize..span.end as usize).map(str::to_string)
+    }
+
+    /// `GetErrorRangeForNode`'s `KindConstructor` arm (`scanner.go:2632`):
+    /// from the constructor's first token (modifiers included) to the end of
+    /// the `constructor` keyword, or of a string-literal `"constructor"`
+    /// name. Scans the source on the diagnostic path; without source text,
+    /// the node's span. The shared `error_span` has no such arm (routed);
+    /// this lane's constructor reports use this (r7-grammar §35).
+    pub(crate) fn constructor_error_span(&self, constructor: NodeId) -> tsr_core::Span {
+        let span = self.nodes.span(constructor);
+        let Some(file) = self.source_file_of_for_diagnostics(constructor) else { return span };
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(span.start as usize..span.end as usize))
+        else {
+            return span;
+        };
+        let mut scanner = tsr_scanner::Scanner::new(rest);
+        loop {
+            let token = scanner.scan();
+            match token.kind {
+                SyntaxKind::ConstructorKeyword | SyntaxKind::StringLiteral => {
+                    return tsr_core::Span::new(span.start, span.start + token.span.end);
+                }
+                SyntaxKind::EndOfFile => return span,
+                _ => {}
+            }
+        }
     }
 }

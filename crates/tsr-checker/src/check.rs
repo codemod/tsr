@@ -2593,7 +2593,7 @@ impl Checker<'_, '_> {
             }
             let Some(id) = constructor.node_id else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
-            let span = self.error_span(id);
+            let span = self.constructor_error_span(id);
             self.report(
                 file,
                 Diagnostic::new(
@@ -4121,12 +4121,15 @@ impl Checker<'_, '_> {
             let Some(name_id) = property.name.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
             let span = self.error_span(name_id);
+            // `scanner.DeclarationNameToString(propName)`: the name's source
+            // text (r7-grammar §35).
+            let printed = self.declaration_name_source_text(name_id).unwrap_or(name);
             self.report(
                 file,
                 Diagnostic::with_args(
                     &messages::PROPERTY_0_HAS_NO_INITIALIZER_AND_IS_NOT_DEFINITELY_ASSIGNED_IN_THE_CONSTRUCTOR,
                     span,
-                    [name],
+                    [printed],
                 ),
             );
         }

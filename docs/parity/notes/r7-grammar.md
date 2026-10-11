@@ -664,3 +664,78 @@ from the `ClassExpression` arm.
 statement, or TS2376 under `useDefineForClassFields` with target ES2022.
 Converted: `privateNameBadSuperUseDefineForClassFields` (es2022, esnext),
 `derivedClassSuperStatementPosition`, `derivedClassSuperProperties`.
+
+## §34 Related information carries its file; TS6203/TS6204 on cross-file duplicates
+
+*The file.* Every native related diagnostic is made by
+`createDiagnosticForNode`, which records the node's source file. TSR's
+`report(file, diagnostic)` attaches the file to the head only, so a related
+diagnostic built with `Diagnostic::new` had no file. The exact oracle prints
+it with an empty path and no position, so no case with checker-made related
+information could be exact. Measured on base `59ceea97`: 30 cases emitted
+file-less related rows (TS1498, TS1007, TS1356, TS1486). The fix:
+`related_diagnostic_at` (grammar.rs) builds the related diagnostic with the
+node's file attached (`Diagnostic::set_file`: the program's file name and
+text, the name the head is printed under). This lane's sites use it: TS1356
+(module_format.rs), TS1498 and TS1487 (grammar.rs). The others are routed:
+check.rs's TS1486 and the parser's TS1007. The file image is built per call,
+on error paths only, with no cache. If related diagnostics ever get hot, a
+per-checker `Arc<DiagnosticFile>` keyed by file node would be the place for
+one.
+
+*TS6203/TS6204.* `reportMergeSymbolError` (`checker.go:14201`) reports
+through `addDuplicateDeclarationErrorsForSymbols` →
+`addDuplicateDeclarationError` (`:14232`). The error goes at each
+declaration's adjusted node, and every declaration of the other symbol not at
+that node is added as related information: `'{0}' was also declared here.`
+first, `and here.` after, at most five, skipping one already present.
+`lookupOrIssueError` finds an earlier error only while that error is still
+identical to a fresh one, because `DiagnosticsCollection.Lookup` compares
+related information too. So a declaration that conflicts in two merges gets
+two errors, and `SortAndDeduplicateDiagnostics`' `compactAndMergeRelatedInfos`
+folds them, sorting and deduplicating the related lists. That is why native
+shows two `was also declared here.` and no `and here.` for `Foo` in
+`duplicateIdentifierRelatedSpans1`. `merge_conflicts.rs` used to report bare
+errors (its comment said `Diagnostic` had no related information, which is no
+longer true). It now builds them in a pass-local `DuplicateDeclarationErrors`
+(issue order, latest error per identity) and reports them at the end of
+`report_merge_conflicts`.
+
+Not here, routed: the same related information on the binder's same-file
+duplicates (`binder.rs`'s `declareSymbolEx` port), on check.rs's TS2300
+sites, and on TS2403's `errorNextVariableOrPropertyDeclarationMustHaveSameType`
+(a 54-case oracle bucket). They can use `related_diagnostic_at`.
+
+*Falsifier.* A cross-file duplicate whose related order or kind
+(6203/6204) differs from native, or a related row without a file.
+Converted (oracle subset `uplicate`): `duplicateIdentifierRelatedSpans1`–`7`,
+`duplicateIdentifierRelatedSpans_moduleAugmentation`,
+`letDeclarations-scopes-duplicates2`–`7`, `duplicateIdentifierEnum`.
+
+## §35 Exact-oracle text, span and metadata fixes in this lane's reports
+
+From `full_oracle_run rank` on `59ceea97`:
+
+* *TS2564 message text* (5 cases, a computed name).
+  `scanner.DeclarationNameToString(propName)` is the name's source text
+  (`GetTextOfNode`), so `[x = 0]` prints as written. The shared
+  `declaration_name_to_string` spells a computed name only through an entity
+  name, giving `[(Missing)]`. `check_property_initialization` now prints
+  `declaration_name_source_text` (class_fields.rs) and keeps that helper's
+  answer only for the flow query's spelling and as the fallback.
+* *TS2376 span* (3 cases). `GetErrorRangeForNode`'s `KindConstructor` arm
+  (`scanner.go:2632`) runs from the constructor's first token to the end of
+  the `constructor` keyword (or a string-literal name). The shared
+  `error_span` has no such arm and gives the whole declaration.
+  `constructor_error_span` (class_fields.rs) is the arm, used for TS2376.
+  Routed: adding it to `error_span` itself would correct every
+  constructor-anchored report (TS2377, TS2392's span-only bucket and others),
+  but that helper is shared.
+* *skippedOnNoEmit* (TS1216's metadata bucket, 2 cases). TS1216
+  (`grammarErrorOnNodeSkippedOnNoEmit`) and TS2441/TS2818
+  (`errorSkippedOnNoEmit`) are marked with the flag that
+  `FilterNoEmitSemanticDiagnostics` (`compiler/program.go:1333`) reads, and
+  they are dropped under `noEmit`. This program has no such filter, so
+  `report_skipped_on_no_emit` (module_format.rs) drops them at the producer.
+  TS2441's producer already returned under `noEmit`; TS1216 and TS2818 did
+  not. Routed: the program-level filter, after which the producer drop goes.
