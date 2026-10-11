@@ -1529,16 +1529,16 @@ impl<'a> Checker<'a, '_> {
                                 parameter_type,
                                 &[type_parameter],
                                 &[name],
-                            ) && !argument_types.get(index).is_some_and(|&source| {
-                                // Nor does a tuple whose arity rules the tuple
-                                // parameter out: `inferFromObjectTypes` returns
-                                // at `typesDefinitelyUnrelated`
-                                // (`inference.go:715`) before any element.
-                                // and so does an object type with mutually
-                                // unmatched required properties (§17).
-                                self.tuple_types_definitely_unrelated(source, parameter_type)
-                                    || self
-                                        .object_types_definitely_unrelated(source, parameter_type)
+                            ) && argument_types.get(index).is_none_or(|&source| {
+                                // Nor does a source certified to supply none
+                                // (§7, §17, §18).
+                                self.source_could_supply_candidate(
+                                    source,
+                                    parameter_type,
+                                    type_parameter,
+                                    name,
+                                    0,
+                                )
                             }) && !argument_types.get(index).is_some_and(|&source| {
                                 self.predicate_only_inference_has_no_source(
                                     source,
@@ -3264,6 +3264,100 @@ impl<'a> Checker<'a, '_> {
     /// Ported from inferFromObjectTypes (internal/checker/inference.go:714-809).
     /// Rest slots are represented here by their array operand; upstream stores
     /// the element argument instead. Convert at the inference boundary.
+    /// Whether inferring from `source` to `target` could give `parameter` a
+    /// candidate natively, `true` where this port cannot certify otherwise.
+    /// Certified absences follow `inferFromTypes`' own exits:
+    /// - a target that does not mention the parameter;
+    /// - a null/undefined, `any` or `unknown` source (candidates only at naked
+    ///   variables, which this collector has; §4);
+    /// - `typesDefinitelyUnrelated` (`inference.go:715`): incompatible tuple
+    ///   arities (§7), or objects with mutually unmatched required properties,
+    ///   a primitive read through its apparent type as the default arm does
+    ///   (§17);
+    /// - two single non-generic signatures (`inferFromSignatures`,
+    ///   `applyToParameterTypes`): only parameter pairs below the shorter
+    ///   arity, the `this` pair when the source declares one, and the return
+    ///   pair are visited, so a parameter mentioned only in an unpaired
+    ///   position (a callback written with fewer parameters, the target's
+    ///   `this` against a source without one) gets nothing (§18).
+    fn source_could_supply_candidate(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameter: TypeId,
+        name: &str,
+        depth: u8,
+    ) -> bool {
+        use crate::flags::TypeFlags;
+        if !self.mentions_type_parameter(target, &[parameter], &[name]) {
+            return false;
+        }
+        if source != self.intrinsics.error
+            && self
+                .type_of(source)
+                .flags
+                .intersects(TypeFlags::NULLABLE | TypeFlags::ANY_OR_UNKNOWN)
+        {
+            return false;
+        }
+        if depth > 4 || source == self.intrinsics.error {
+            return true;
+        }
+        if self.tuple_types_definitely_unrelated(source, target) {
+            return false;
+        }
+        let object_source = if self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE) {
+            self.apparent_type(source)
+        } else {
+            source
+        };
+        if self.object_types_definitely_unrelated(object_source, target) {
+            return false;
+        }
+        let pure_function = |checker: &mut Self, t: TypeId| {
+            checker.signature_types.contains_key(&t)
+                && checker.get_property_names_of_type(t).is_some_and(|names| names.is_empty())
+        };
+        if pure_function(self, source)
+            && pure_function(self, target)
+            && let (Some(sources), Some(targets)) =
+                (self.call_signatures_of_type(source), self.call_signatures_of_type(target))
+            && let ([source_signature], [target_signature]) =
+                (sources.as_slice(), targets.as_slice())
+            && source_signature.type_parameters.is_empty()
+            && target_signature.type_parameters.is_empty()
+            && !source_signature.parameters.iter().any(|p| p.rest)
+            && !target_signature.parameters.iter().any(|p| p.rest)
+        {
+            let (source_signature, target_signature) =
+                (source_signature.clone(), target_signature.clone());
+            let paired = source_signature.parameters.len().min(target_signature.parameters.len());
+            for index in 0..paired {
+                let from = self.parameter_type(&source_signature.parameters[index]);
+                let to = self.parameter_type(&target_signature.parameters[index]);
+                if self.source_could_supply_candidate(from, to, parameter, name, depth + 1) {
+                    return true;
+                }
+            }
+            if let (Some(from), Some(to)) =
+                (&source_signature.this_parameter, &target_signature.this_parameter)
+            {
+                let (from, to) = (self.parameter_type(from), self.parameter_type(to));
+                if self.source_could_supply_candidate(from, to, parameter, name, depth + 1) {
+                    return true;
+                }
+            }
+            return self.source_could_supply_candidate(
+                source_signature.r#type,
+                target_signature.r#type,
+                parameter,
+                name,
+                depth + 1,
+            );
+        }
+        true
+    }
+
     /// `typesDefinitelyUnrelated`' object half (`inference.go:1185`): each type
     /// has a required property the other lacks (`getUnmatchedProperty`,
     /// `relater.go:984`, matching unit-typed discriminants in the source
