@@ -506,3 +506,16 @@ is green: legacy compare, exact oracle, jsTyping, clippy, tests, callgrind Ir
 ≤ 1.005, and the all-suite failure count. Anything else blocks the loop for
 the integration owner to cut back or route. Records it writes are marked as
 loop-landed.
+
+### Batch 21 — r7-grammar `6f2dad2d`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **9597 / 12797 EXACT (74.99%)**, 6 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +0 RIGHT / 0 lost / 0 missing, diagnostics +6 cases / 0 lost / 0 missing. jsTyping 125 → 125 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0000, domain-model 0.9999. No suite's failure count rose.
+
+| Suite | Before | Batch 21 |
+|---|---|---|
+| `checker_types` | 8,851 | 8,851 |
+| `checker_types_configured` | 1,820 | 1,820 |
+| `diagnostics` | 4,984 | 4,988 |
+| `diagnostics_configured` | 1,005 | 1,007 |
