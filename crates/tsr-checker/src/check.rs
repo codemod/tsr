@@ -954,10 +954,16 @@ impl Checker<'_, '_> {
         self.check_grammar_for_generator(node, typed);
         // `checkGrammarFunctionLikeDeclaration`'s `||` chain: the arrow arm
         // runs only when the parameter list reported nothing.
-        if !self.check_grammar_parameter_list(node)
-            && let Node::ArrowFunction(arrow) = typed
-        {
-            self.check_grammar_arrow_function(node, arrow);
+        if !self.check_grammar_parameter_list(node) {
+            match typed {
+                Node::ArrowFunction(arrow) => {
+                    self.check_grammar_arrow_function(node, arrow);
+                }
+                Node::MethodDeclaration(method) => {
+                    self.check_method_named_constructor_is_not_generator(node, method);
+                }
+                _ => {}
+            }
         }
         // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
         if !self.modifier_chain_reported.contains(&node) {

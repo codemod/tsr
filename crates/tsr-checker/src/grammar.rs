@@ -2684,6 +2684,53 @@ impl Checker<'_, '_> {
 }
 
 impl Checker<'_, '_> {
+    /// TS1368 — `checkMethodDeclaration`'s first block (`checker.go:2798`):
+    /// when `checkGrammarMethod` reports nothing, a generator method named by
+    /// the identifier `constructor` is `c.error(name, …)`. An object-literal
+    /// method is checked by `checkObjectLiteralMethod` instead and never
+    /// reaches this line.
+    ///
+    /// The check walk calls this only when `checkGrammarParameterList`
+    /// reported nothing (the `||` chain's third arm, check.rs). The other arms
+    /// of `checkGrammarMethod` that can answer for a class member with an
+    /// identifier name are asked here: `checkGrammarModifiers` (memoized, §1)
+    /// and `checkGrammarForGenerator`'s ambient and overload arms. That pair
+    /// is reported by check.rs's `check_grammar_for_generator`; this reads the
+    /// same two conditions. The computed-name arms answer `false` for an
+    /// identifier. Every grammar arm answers `false` in a file with parse
+    /// diagnostics (`grammarErrorOnNode`), and then TS1368 still stands. Not
+    /// consulted: `checkGrammarForUseStrictSimpleParameterList`, which is not
+    /// ported (r7-grammar §31).
+    pub(crate) fn check_method_named_constructor_is_not_generator(
+        &mut self,
+        node: NodeId,
+        method: &tsr_ast::MethodDeclaration<'_>,
+    ) {
+        if method.asterisk_token.is_none() {
+            return;
+        }
+        let tsr_ast::PropertyName::Identifier(name) = method.name else { return };
+        if name.text != "constructor" {
+            return;
+        }
+        let Some(name_id) = name.node_id else { return };
+        if self
+            .nodes
+            .parent(node)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ObjectLiteralExpression)
+        {
+            return;
+        }
+        if !self.file_has_parse_errors
+            && (self.check_grammar_modifiers(node)
+                || self.declaration_is_in_an_ambient_context(node)
+                || method.body.is_none())
+        {
+            return;
+        }
+        self.grammar_error_on_node(name_id, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_A_GENERATOR);
+    }
+
     /// The accessor-pair arm of `Checker.checkAccessorDeclaration`
     /// (`checker.go:2954`-`:2972`): when the member's symbol has both a get
     /// and a set accessor (`ast.GetDeclarationOfKind`, the first of each),
@@ -2710,6 +2757,20 @@ impl Checker<'_, '_> {
             Some(Node::SetAccessorDeclaration(accessor)) => accessor.name,
             _ => return,
         };
+        // TS1341 (`checker.go:2936`), the ungated line before this arm: an
+        // accessor named by the identifier `constructor` in a class-like.
+        if let tsr_ast::PropertyName::Identifier(identifier) = name
+            && identifier.text == "constructor"
+            && let Some(at) = identifier.node_id
+            && self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.nodes.kind(parent),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                )
+            })
+        {
+            self.grammar_error_on_node(at, &messages::CLASS_CONSTRUCTOR_MAY_NOT_BE_AN_ACCESSOR);
+        }
         if let tsr_ast::PropertyName::ComputedPropertyName(computed) = name {
             let literal = match computed.expression {
                 Some(

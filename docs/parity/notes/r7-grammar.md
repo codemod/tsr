@@ -766,6 +766,34 @@ unresolved-value walk and is routed. Until it lands,
 `objectLiteralErrors` keep an extra TS18004 beside the now-correct TS1312.
 
 
+## §31 TS1341 and TS1368, a class constructor spelled as an accessor or generator
+
+*TS1341* (`checker.go:2936`) is an ungated `c.error` in
+`checkAccessorDeclaration`, right after the grammar block: an accessor named
+by the identifier `constructor` in a class-like. It is reported from
+`check_accessor_pair_modifiers` (grammar.rs), which the check walk already
+calls once per accessor (§25), so it needs no new dispatch.
+
+*TS1368* (`checker.go:2798`) is `checkMethodDeclaration`'s first block. When
+`checkGrammarMethod` reports nothing, a generator method named by the
+identifier `constructor` gets `c.error(name)`. An object-literal method is
+checked by `checkObjectLiteralMethod` and never reaches it (tsgo is silent on
+`{ *constructor() {} }`). The check walk calls
+`check_method_named_constructor_is_not_generator` from the same `||`-chain
+arm as §25's arrow check, i.e. only when `checkGrammarParameterList`
+reported nothing. It asks the remaining arms that can answer for a class
+member named by an identifier: `checkGrammarModifiers` (memoized), and
+`checkGrammarForGenerator`'s ambient and overload conditions, whose reports
+stay check.rs's. Every grammar arm answers `false` in a file with parse
+diagnostics, and TS1368 then still stands, as upstream. Not consulted:
+`checkGrammarForUseStrictSimpleParameterList` (TS1346/TS1347), which is not
+ported. A generator constructor with a non-simple parameter list under a
+`"use strict"` prologue would report TS1368 where upstream reports only the
+use-strict error.
+*Falsifier.* TS1368 on an object-literal method, or beside TS1222/TS1221 on
+the same method. Converted: `constructorNameInAccessor`,
+`constructorNameInGenerator`.
+
 ## §32 TS18012, `#constructor` (PRIVATE-IDENTIFIER-GRAMMAR split)
 
 `checkPrivateIdentifier` (`binder.go:1323`), the binder's
