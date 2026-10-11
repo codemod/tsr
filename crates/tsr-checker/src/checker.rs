@@ -3941,6 +3941,18 @@ impl<'a, 'n> Checker<'a, 'n> {
         meaning: SymbolFlags,
     ) -> bool {
         let target = self.binder.merged_symbol(symbol);
+        // `enterNewScope`'s fake scope (`nodebuilderscopes.go`): while a
+        // signature prints, its own type parameters are a table in scope
+        // ahead of the reference's, so `<A>(x: A) => A` names an outer class
+        // `A` `globalThis.A` (r7-printer §13). The render scope
+        // ([`Checker::render_type_parameter_scope`]) is that table here.
+        if meaning.intersects(SymbolFlags::TYPE)
+            && let Some(&(_, owner)) =
+                self.render_type_parameter_scope.iter().rev().find(|(text, _)| text == name)
+            && let Some(answer) = self.qualifies_for(owner, target, meaning)
+        {
+            return answer;
+        }
         let mut current = Some(reference);
         while let Some(location) = current {
             if let Some(&found) = self.binder.locals(location).and_then(|table| table.get(name))
