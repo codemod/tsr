@@ -106,6 +106,14 @@ impl TruncationBudget {
     }
 }
 
+/// [`Checker::intersection_modifier_member`]'s answer: the composite
+/// property's modifiers and its key.
+struct IntersectionModifierMember {
+    optional: bool,
+    readonly: bool,
+    key: TypeId,
+}
+
 impl<'a> Checker<'a, '_> {
     /// getTypeFromMappedTypeNode and createMappedTypeNodeFromType (checker.go,
     /// nodebuilderimpl.go). Build a deferred mapped type from semantic parts
@@ -773,6 +781,60 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
+    /// createUnionOrIntersectionProperty (checker.go:21452) over an
+    /// intersection modifiers type with a mapped constituent
+    /// ([`Self::mapped_modifiers_instance`]): the property is optional and
+    /// readonly only when every constituent that has it is, and its key
+    /// keeps the providing constituent's provenance (getLiteralTypeFromProperty:
+    /// the numeric `42` of a mapped `Pick`). `None` for any other source,
+    /// whose symbol road already answers (r7-declared §33).
+    fn intersection_modifier_member(
+        &mut self,
+        source: TypeId,
+        name: &str,
+    ) -> Option<IntersectionModifierMember> {
+        let crate::types::TypeData::Intersection { types, .. } =
+            self.store.get(source).data.clone()
+        else {
+            return None;
+        };
+        let parts: Vec<TypeId> = types
+            .into_iter()
+            .map(|part| {
+                let apparent = self.apparent_type(part);
+                self.mapped_modifiers_instance(apparent)
+            })
+            .collect();
+        if !parts.iter().any(|part| self.mapped_types.contains_key(part)) {
+            return None;
+        }
+        let mut member: Option<IntersectionModifierMember> = None;
+        for part in parts {
+            let (optional, readonly) = if self.mapped_types.contains_key(&part) {
+                self.resolve_mapped_type_members(part);
+                let Some(property) = self
+                    .anonymous_properties
+                    .get(&part)
+                    .and_then(|(properties, _)| properties.iter().find(|p| p.name == name))
+                else {
+                    continue;
+                };
+                (property.optional, property.readonly)
+            } else {
+                let Some(property) = self.get_property_of_type(part, name) else { continue };
+                (self.property_is_optional(property), self.is_readonly_property(property))
+            };
+            if let Some(member) = member.as_mut() {
+                member.optional &= optional;
+                member.readonly &= readonly;
+            } else {
+                let key = self.literal_type_of_property(part, name);
+                member = Some(IntersectionModifierMember { optional, readonly, key });
+            }
+        }
+        member
+    }
+
     /// getIndexTypeForMappedType (checker.go:26871). Unremapped keys are
     /// exactly the constraint; remapped keys follow the same per-property mapper.
     pub(crate) fn mapped_index_type(&mut self, id: TypeId) -> Option<TypeId> {
@@ -907,7 +969,10 @@ impl<'a> Checker<'a, '_> {
                 // numeric versus quoted names from the source member's origin.
                 // Reuse the Checker-owned provenance read, not a printed name;
                 // this walk publishes no key or member image of its own.
-                let key = self.literal_type_of_property(source, &name);
+                let key = match self.intersection_modifier_member(source, &name) {
+                    Some(member) => member.key,
+                    None => self.literal_type_of_property(source, &name),
+                };
                 if key == self.intrinsics.error {
                     return None;
                 }
@@ -1000,9 +1065,16 @@ impl<'a> Checker<'a, '_> {
         let mut checked = rustc_hash::FxHashSet::default();
         let mut names = Vec::new();
         for part in types {
+            // An intersection's property list is every constituent's
+            // (createUnionOrIntersectionProperty); a mapped constituent's
+            // members are type slots with no property symbol for the
+            // composite lookup below, so they are taken as listed
+            // (r7-declared §33).
+            let part = if is_union { part } else { self.mapped_modifiers_instance(part) };
+            let mapped_part = !is_union && self.mapped_types.contains_key(&part);
             for name in self.property_names_of(part) {
                 if checked.insert(name.clone())
-                    && self.get_property_of_type(source, &name).is_some()
+                    && (mapped_part || self.get_property_of_type(source, &name).is_some())
                 {
                     names.push(name);
                 }
@@ -1161,6 +1233,9 @@ impl<'a> Checker<'a, '_> {
             let source_property = modifiers
                 .zip(source_name.as_deref())
                 .and_then(|(source, name)| self.get_property_of_type(source, name));
+            let composite = modifiers
+                .zip(source_name.as_deref())
+                .and_then(|(source, name)| self.intersection_modifier_member(source, name));
             let captured = modifiers
                 .and_then(|source| self.anonymous_properties.get(&source))
                 .and_then(|(properties, _)| {
@@ -1168,13 +1243,29 @@ impl<'a> Checker<'a, '_> {
                         .iter()
                         .find(|property| Some(property.name.as_str()) == source_name.as_deref())
                 });
-            let was_optional = captured.map_or_else(
-                || source_property.is_some_and(|property| self.property_is_optional(property)),
-                |property| property.optional,
+            let was_optional = composite.as_ref().map_or_else(
+                || {
+                    captured.map_or_else(
+                        || {
+                            source_property
+                                .is_some_and(|property| self.property_is_optional(property))
+                        },
+                        |property| property.optional,
+                    )
+                },
+                |member| member.optional,
             );
-            let was_readonly = captured.map_or_else(
-                || source_property.is_some_and(|property| self.is_readonly_property(property)),
-                |property| property.readonly,
+            let was_readonly = composite.as_ref().map_or_else(
+                || {
+                    captured.map_or_else(
+                        || {
+                            source_property
+                                .is_some_and(|property| self.is_readonly_property(property))
+                        },
+                        |property| property.readonly,
+                    )
+                },
+                |member| member.readonly,
             );
             let inherited =
                 modifiers.and_then(|source| self.mapped_identity_optionality.get(&source));

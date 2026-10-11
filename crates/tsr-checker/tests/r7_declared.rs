@@ -324,3 +324,17 @@ fn a_homomorphic_mapping_over_a_mapped_alias_reference_has_its_keys() {
          const x = m;\n";
     assert_eq!(type_of_last_initializer(source), "{ \"12\": number; 42: string; }");
 }
+
+/// §33: an intersection of mapped-alias references lists every constituent's
+/// members, optional only where each constituent is (tsgo prints the same
+/// members, `foo?` first).
+#[test]
+fn an_intersection_of_mapped_aliases_lists_its_members() {
+    let source = "type M = { foo: boolean; bar: number };\n\
+         type P<T, K extends keyof T> = { [Q in K]: T[Q] };\n\
+         type O<T> = { [Q in keyof T]?: T[Q] };\n\
+         type I = P<M, \"bar\"> & O<P<M, \"foo\">>;\n\
+         declare const m: { [K in keyof I]: I[K] };\n\
+         const x = m;\n";
+    assert_eq!(type_of_last_initializer(source), "{ bar: number; foo?: boolean | undefined; }");
+}

@@ -1148,3 +1148,36 @@ optionality and the numeric key provenance of the mapped constituents (a
 mapped member has no property symbol for the composite's
 `get_property_of_type` to find), printing a wrong member table where `{}`
 stood; the members' modifiers need the type road through composites first.
+
+## 33. An intersection modifiers type with a mapped constituent lists its members
+
+**Forcing constraint.** `{ [K in keyof PartMappings]: (o: MapperArgs<K>) =>
+PartMappings[K] }` over `type PartMappings = SetOptional<Mappings, "foo">`
+(`Omit<T, K> & Partial<Pick<T, K>>`) enumerates every constituent's
+properties (getPropertiesOfUnionOrIntersectionType), each with
+createUnionOrIntersectionProperty's modifiers: an intersection property is
+optional, and readonly, only when every constituent that has it is
+(`checker.go:21452`). Its keys keep the providing constituent's provenance
+(the numeric `42`). §32's mapped instances have no property symbol for the
+composite symbol lookup, so the mapping listed nothing (`{}`), and the
+`mapper` literal's methods lost their contextual signatures.
+
+**Port.** `composite_modifiers_property_names` resolves each intersection
+constituent through `mapped_modifiers_instance` and takes a mapped
+constituent's names as listed; `intersection_modifier_member` answers the
+modifiers and key of a name over an intersection with a mapped constituent
+(mapped slots for mapped constituents, the symbol road for the rest), read by
+the key producer and the member worker. Unions are unchanged. No state.
+
+**Measured** (unfiltered against `8d1ae151`): types **+31, 0 lost**
+(mappedTypeIndexedAccessConstraint); diagnostics **+1 case, 0 lost**
+(mappedTypeIndexedAccessConstraint); jsTyping new_false 0 / lost_true 0; Ir
+gi 0.9999, dm 1.0001.
+
+**Residue:** the five `mapper` lines print `"12"` and `42` before `foo?`,
+native `foo?` first. getIntersectionTypeEx keeps insertion order
+(`orderedSet`, `checker.go:26057`) and getPropertiesOfUnionOrIntersectionType
+walks constituents in order, which would put Omit's keys first too, so the
+native order comes from somewhere this note has not found (the apparent
+intersection's rebuild in getApparentTypeOfIntersectionType is the next
+place to read).
