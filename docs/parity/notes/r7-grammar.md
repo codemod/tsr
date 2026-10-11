@@ -303,17 +303,18 @@ the flag the function reads.
   `check_module_format`'s `module: none` return: the grammar is not a
   module-format check, and the top-level arm reads the module kind itself.
 
-**Held: `binder.go:1311`'s TS1359 arm** (`await` as an identifier in an
-`AwaitContext`, `strict_mode.rs`'s `check_contextual_identifier`). Ported and
-measured on this base at 15 cases gained and 8 lost: `var v: await;` inside an
-async function (`asyncFunctionDeclaration13`, `asyncArrowFunction10`,
-`parser.asyncGenerators.*`, `awaitAsTypeIsOk`) drew TS1359 because this
-parser's `parse_type` does not clear the await and yield contexts
-(`parseType`'s `setContextFlags(NodeFlagsTypeExcludesFlags, false)`,
-`parser.go:2608`), so a type's identifiers carry `AWAIT_CONTEXT`. Routed to
-r7-parser; the arm lands once types are parsed outside the contexts. The
-`yield` arm and `checkGrammarYieldExpression`'s TS1163 read
-`NodeFlagsYieldContext`, which the parser now stamps, and wait on the same fix.
+**`binder.go:1311`'s TS1359 arm** (`await` as an identifier in an
+`AwaitContext`, `strict_mode.rs`'s `check_contextual_identifier`) was held
+at first: measured on `d3a34908` at 15 cases gained and 8 lost, because this
+parser's `parse_type` kept the await and yield contexts (`parseType`'s
+`setContextFlags(NodeFlagsTypeExcludesFlags, false)`, `parser.go:2608`), so
+`var v: await` inside an async function drew TS1359
+(`asyncFunctionDeclaration13`, `asyncArrowFunction10`,
+`parser.asyncGenerators.*`). r7-parser `c83bb41b` clears them in types;
+re-measured on `cd4afbcb` plus this lane's commits it is +2
+(`classStaticBlock22` es2022, esnext), 0 lost, and lands. The `yield` arm
+after it is unreachable upstream: `yield` is the last future reserved word
+(`KindLastFutureReservedWord`), so the strict-mode arm before it takes it.
 
 `topLevelAwaitErrors.1`'s TS2863 on `string` in `class C extends await<string>`
 was first read as a `check.rs` decline; r7-parser's dump of native's tree shows
@@ -390,7 +391,12 @@ on each `extends` element, so a namespace there is TS2709 and a value TS2749
 an `ExpressionWithTypeArguments` only under a class's `implements` clause; it
 now admits an interface's `extends` clause too. A class's `extends` stays a
 value (`checkClassLikeDeclaration` checks its expression) and an interface's
-`implements` stays TS1176 only. Matches `target/tsgo-pinned` on a scratch file
+`implements` stays TS1176 only. A primitive spelling there (`interface x
+extends string`) is native's TS2840 alone; `check_value_identifier` already
+reports it, so the type path returns for the six primitive names in any
+heritage clause, reporting only the `implements` message itself (first
+landing lost `errorLocationForInterfaceExtension` and
+`interfacedeclWithIndexerErrors` to a doubled TS2552; batch 13 refused it). Matches `target/tsgo-pinned` on a scratch file
 covering a namespace, an unresolved name (TS2304, not doubled) and a value.
 Converted: `moduleAsBaseType`.
 
@@ -416,3 +422,22 @@ A decorator is parsed in its class's enclosing context, so
 `@(yield "")` in a generator is legal (`generatorTypeCheck59`), and an enum
 member initializer is parsed outside it (`awaitAndYield`). Converted:
 `awaitAndYield`, `generatorTypeCheck59`.
+
+## §18 `checkGrammarIndexSignatureParameters` on types (CHECK-GRAMMAR-INDEX-SIGNATURE-PARAMETERS)
+
+`check_grammar_index_signature_parameters` (`grammar.rs`) is
+`checkGrammarIndexSignatureParameters` (`grammarchecks.go:796`) arm for arm,
+behind `checkGrammarIndexSignature`'s `checkGrammarModifiers`. Its type arms
+read `getTypeFromTypeNode` of the parameter's annotation: a literal,
+unique-symbol or generic type is TS1337 (`someType(t,
+StringOrNumberLiteralOrUnique) || isGenericType(t)`), one that is not
+every-way `isValidIndexKeyType` TS1268, and a signature without its own
+annotation TS1021. It replaces `index_signature_parameter_shape_error`
+(`grammar.rs`) and `check.rs`'s `check_index_signature_key_type` and
+`check_index_signature_parameter_type`, which judged the written annotation
+syntactically (keyword lists and a type-alias test) and had no TS1337. A type
+this port cannot build answers nothing for the two type arms (`is_gap`).
+Not ported: the parameter list's trailing-comma arm (TS1025,
+`indexSignatureWithTrailingComma`), which needs the parser to record a
+parameter list's trailing comma. Converted: `indexerConstraints2`,
+`genericIndexTypeHasSensibleErrorMessage`.

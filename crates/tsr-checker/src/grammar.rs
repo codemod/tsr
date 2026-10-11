@@ -13,6 +13,7 @@ use tsr_diagnostics::{Diagnostic, messages};
 
 use crate::check::has_modifier;
 use crate::checker::Checker;
+use crate::types::TypeId;
 
 impl Checker<'_, '_> {
     /// The modifier arm of typescript-go's
@@ -338,10 +339,9 @@ impl Checker<'_, '_> {
                 self.check_jsdoc_type_is_in_js_file(node);
                 None
             }
+            // `checkGrammarIndexSignature` (`grammarchecks.go:842`).
             Node::IndexSignatureDeclaration(_) => {
-                if let Some((at, message)) = self.index_signature_parameter_shape_error(node) {
-                    self.grammar_error_on_node(at, message);
-                }
+                self.check_grammar_index_signature_parameters(node);
                 None
             }
             _ => None,
@@ -567,65 +567,6 @@ impl Checker<'_, '_> {
             file,
             Diagnostic::new(&messages::LINE_BREAK_NOT_PERMITTED_HERE, tsr_core::Span::new(at, at)),
         );
-    }
-
-    /// The shape arms of `Checker.checkGrammarIndexSignatureParameters`
-    /// (`grammarchecks.go:796`): everything it tests before it resolves the
-    /// parameter's type, as the node and message to report, or `None`.
-    ///
-    /// The type-reading arms that follow (TS1337, TS1268, TS1021) are ported
-    /// separately in `check.rs` (`check_index_signature_key_type`,
-    /// `check_index_signature_parameter_type`); each asks this first, because
-    /// upstream `return`s on the first arm that fires.
-    ///
-    /// Not ported: the TS1025 trailing-comma report between the count and the
-    /// rest arms. It does not return, so it stands alone, and its span is the
-    /// comma, which this AST does not keep for a parameter list.
-    pub(crate) fn index_signature_parameter_shape_error(
-        &self,
-        node: NodeId,
-    ) -> Option<(NodeId, &'static tsr_diagnostics::Message)> {
-        let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
-            return None;
-        };
-        let Some(parameter) = signature.parameters.first() else {
-            return Some((node, &messages::AN_INDEX_SIGNATURE_MUST_HAVE_EXACTLY_ONE_PARAMETER));
-        };
-        let name = parameter.name.and_then(|name| name.node_id());
-        if signature.parameters.len() != 1 {
-            return Some((name?, &messages::AN_INDEX_SIGNATURE_MUST_HAVE_EXACTLY_ONE_PARAMETER));
-        }
-        if let Some(dots) = parameter.dot_dot_dot_token {
-            return Some((
-                dots.node_id?,
-                &messages::AN_INDEX_SIGNATURE_CANNOT_HAVE_A_REST_PARAMETER,
-            ));
-        }
-        if !parameter.modifiers.is_empty() {
-            return Some((
-                name?,
-                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_AN_ACCESSIBILITY_MODIFIER,
-            ));
-        }
-        if let Some(question) = parameter.question_token {
-            return Some((
-                question.node_id?,
-                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_A_QUESTION_MARK,
-            ));
-        }
-        if parameter.initializer.is_some() {
-            return Some((
-                name?,
-                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_AN_INITIALIZER,
-            ));
-        }
-        if parameter.r#type.is_none() {
-            return Some((
-                name?,
-                &messages::AN_INDEX_SIGNATURE_PARAMETER_MUST_HAVE_A_TYPE_ANNOTATION,
-            ));
-        }
-        None
     }
 
     /// `checkGrammarForInOrForOfStatement`'s `async` arm
@@ -3092,5 +3033,114 @@ impl Checker<'_, '_> {
             has_error = true;
         }
         has_error
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarIndexSignatureParameters` (`grammarchecks.go:796`)
+    /// behind `checkGrammarIndexSignature`'s `checkGrammarModifiers`
+    /// (`:842`), arm for arm; each returns. The parameter's type is
+    /// `getTypeFromTypeNode`'s: a literal, unique-symbol or generic type is
+    /// TS1337, one that is not every-way a valid key type
+    /// (`isValidIndexKeyType`) TS1268, and a signature without its own
+    /// annotation TS1021. A type this port cannot build answers nothing for
+    /// the two type arms (`is_gap`).
+    ///
+    /// Not ported: `checkGrammarForDisallowedTrailingComma` on the parameter
+    /// list (TS1025), which needs the parser to record a parameter list's
+    /// trailing comma.
+    pub(crate) fn check_grammar_index_signature_parameters(&mut self, node: NodeId) -> bool {
+        let Some(Node::IndexSignatureDeclaration(signature)) = self.node_map.get(node) else {
+            return false;
+        };
+        let Some(parameter) = signature.parameters.first() else {
+            self.grammar_error_on_node(
+                node,
+                &messages::AN_INDEX_SIGNATURE_MUST_HAVE_EXACTLY_ONE_PARAMETER,
+            );
+            return true;
+        };
+        let Some(name) = parameter.name.and_then(|name| name.node_id()) else { return false };
+        let report = |this: &mut Self, at: NodeId, message: &'static tsr_diagnostics::Message| {
+            this.grammar_error_on_node(at, message);
+            true
+        };
+        if signature.parameters.len() != 1 {
+            return report(
+                self,
+                name,
+                &messages::AN_INDEX_SIGNATURE_MUST_HAVE_EXACTLY_ONE_PARAMETER,
+            );
+        }
+        if let Some(dots) = parameter.dot_dot_dot_token.and_then(|token| token.node_id) {
+            return report(self, dots, &messages::AN_INDEX_SIGNATURE_CANNOT_HAVE_A_REST_PARAMETER);
+        }
+        if !parameter.modifiers.is_empty() {
+            return report(
+                self,
+                name,
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_AN_ACCESSIBILITY_MODIFIER,
+            );
+        }
+        if let Some(question) = parameter.question_token.and_then(|token| token.node_id) {
+            return report(
+                self,
+                question,
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_A_QUESTION_MARK,
+            );
+        }
+        if parameter.initializer.is_some() {
+            return report(
+                self,
+                name,
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_CANNOT_HAVE_AN_INITIALIZER,
+            );
+        }
+        let Some(annotation) = parameter.r#type else {
+            return report(
+                self,
+                name,
+                &messages::AN_INDEX_SIGNATURE_PARAMETER_MUST_HAVE_A_TYPE_ANNOTATION,
+            );
+        };
+        let has_return_annotation = signature.r#type.is_some();
+        let t = self.get_type_from_type_node(annotation);
+        if !self.is_gap(t) {
+            let constituents = self.index_key_constituents(t);
+            let literal_or_unique = constituents.iter().any(|&each| {
+                self.store.get(each).flags.intersects(
+                    crate::flags::TypeFlags::STRING_LITERAL
+                        | crate::flags::TypeFlags::NUMBER_LITERAL
+                        | crate::flags::TypeFlags::UNIQUE_ES_SYMBOL,
+                )
+            });
+            if literal_or_unique || self.is_generic_type(t) {
+                return report(
+                    self,
+                    name,
+                    &messages::AN_INDEX_SIGNATURE_PARAMETER_TYPE_CANNOT_BE_A_LITERAL_TYPE_OR_GENERIC_TYPE_CONSIDER_USING_A_MAPPED_OBJECT_TYPE_INSTEAD,
+                );
+            }
+            if !constituents.into_iter().all(|each| self.is_valid_index_key_type(each)) {
+                return report(
+                    self,
+                    name,
+                    &messages::AN_INDEX_SIGNATURE_PARAMETER_TYPE_MUST_BE_STRING_NUMBER_SYMBOL_OR_A_TEMPLATE_LITERAL_TYPE,
+                );
+            }
+        }
+        if !has_return_annotation {
+            return report(self, node, &messages::AN_INDEX_SIGNATURE_MUST_HAVE_A_TYPE_ANNOTATION);
+        }
+        false
+    }
+
+    /// `someType` / `everyType`'s constituents: a union's members, or the
+    /// type itself.
+    fn index_key_constituents(&self, t: TypeId) -> Vec<TypeId> {
+        match &self.store.get(t).data {
+            crate::types::TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        }
     }
 }

@@ -141,17 +141,43 @@ mod property_slot {
     /// prints. The text beside it is that type's site-free print, which every
     /// baked (site-free) reader keeps.
     #[derive(Clone, Debug)]
-    pub(crate) struct PrintedSlot(Option<String>, Option<TypeId>);
+    pub(crate) struct PrintedSlot(Option<String>, Option<TypeId>, Option<SitePlan>);
+
+    /// A member type whose display is its render **at the literal's own
+    /// site** ([`PrintedSlot::at_site`], `r7-perf.md` §15): the type and the
+    /// literal node the render is asked from.
+    #[derive(Clone, Copy, Debug)]
+    pub(crate) struct SitePlan {
+        pub(crate) r#type: TypeId,
+        pub(crate) reference: tsr_ast::NodeId,
+    }
 
     impl PrintedSlot {
         /// Text printed by the property's producer.
         pub(crate) fn printed(text: String) -> Self {
-            Self(Some(text), None)
+            Self(Some(text), None, None)
         }
 
         /// No producer text: printed from the type read on demand.
         pub(crate) fn on_demand() -> Self {
-            Self(None, None)
+            Self(None, None, None)
+        }
+
+        /// `checkObjectLiteral`'s member, whose display native builds only
+        /// when a node builder prints it (`addPropertyToElementList` from the
+        /// print site; never while the literal is checked). The render at the
+        /// literal's own site (§735, [`crate::checker::Checker::type_to_string_at`])
+        /// is asked by the canonical reader
+        /// ([`crate::checker::Checker::property_printed_type`]) the first time
+        /// a composer needs the member's text, and published once in the type
+        /// store (`TypeStore::site_display_text`). `r7-perf.md` §15.
+        pub(crate) fn at_site(r#type: TypeId, reference: tsr_ast::NodeId) -> Self {
+            Self(None, None, Some(SitePlan { r#type, reference }))
+        }
+
+        /// The site plan of an [`PrintedSlot::at_site`] slot.
+        pub(crate) fn site_plan(&self) -> Option<SitePlan> {
+            self.2
         }
 
         /// `addPropertyToElementList`'s `serializeTypeForDeclaration`
@@ -166,7 +192,7 @@ mod property_slot {
         // which ship as `r6-lazytext-spread-members.diff`.
         #[allow(dead_code)]
         pub(crate) fn of_declaration(text: String, displayed: TypeId) -> Self {
-            Self(Some(text), Some(displayed))
+            Self(Some(text), Some(displayed), None)
         }
 
         /// The stored text, for the canonical accessor only.
@@ -274,7 +300,9 @@ impl Checker<'_, '_> {
         &mut self,
         property: &'p AnonymousProperty,
     ) -> std::borrow::Cow<'p, str> {
-        if let Some(text) = property.printed_slot.get() {
+        if let Some(plan) = property.printed_slot.site_plan() {
+            std::borrow::Cow::Owned(self.site_display_text(plan))
+        } else if let Some(text) = property.printed_slot.get() {
             std::borrow::Cow::Borrowed(text)
         } else {
             let r#type = self.property_type(property);
@@ -1157,7 +1185,36 @@ impl Checker<'_, '_> {
         // members. This port still bakes a placeholder at the mint; a declaration-
         // owned Pending return must not be demanded by that bookkeeping before
         // the object publishes. Actual site rendering later uses semantic slots.
-        if self.signature_types.get(&id).is_some_and(|signatures| {
+        if self.member_text_waits_on_pending_return(id) {
+            return self.type_to_string(id);
+        }
+        match reference.and_then(|reference| self.type_to_string_at(id, reference)) {
+            Some(text) => text,
+            None => self.type_to_string(id),
+        }
+    }
+
+    /// The display of an [`PrintedSlot::at_site`] member: its type rendered at
+    /// the literal's own node, as [`Checker::member_text_at`] rendered it
+    /// at the mint before §15, with the same fallback to the site-free print
+    /// when the site cannot name it. Published once per `(type, literal)` in
+    /// the type store, so every composer reads one text.
+    pub(crate) fn site_display_text(&mut self, plan: property_slot::SitePlan) -> String {
+        if let Some(text) = self.store.site_display_text(plan.r#type, plan.reference) {
+            return text.to_owned();
+        }
+        let text = self
+            .type_to_string_at(plan.r#type, plan.reference)
+            .unwrap_or_else(|| self.type_to_string(plan.r#type));
+        self.store.publish_site_display_text(plan.r#type, plan.reference, text.clone());
+        text
+    }
+
+    /// Whether [`Checker::member_text_at`] renders `id` at a site at all:
+    /// a type with a declaration-owned pending return keeps its site-free
+    /// print at the mint (see there).
+    fn member_text_waits_on_pending_return(&self, id: TypeId) -> bool {
+        self.signature_types.get(&id).is_some_and(|signatures| {
             signatures.iter().any(|signature| {
                 signature.target.is_none()
                     && !signature.non_inferrable
@@ -1166,13 +1223,50 @@ impl Checker<'_, '_> {
                         .get(&self.type_literal_key(signature.declaration))
                         == Some(&crate::signatures::LazyReturnState::Pending)
             })
-        }) {
-            return self.type_to_string(id);
+        })
+    }
+
+    /// Whether `id` holds an anonymous object type (a function, method or
+    /// class value, a module or namespace object), itself or as a
+    /// union/intersection constituent. Such a member keeps the eager site
+    /// render (`r7-perf.md` §15):
+    ///
+    /// - a value object's site-free print is its baked placeholder (for a
+    ///   module, the stripped file path; see [`Checker::type_to_string_at`]'s
+    ///   "Returns `None` rather than guessing"), which must not stand in for
+    ///   the site render in the literal's own display (the CLI-message audit);
+    /// - rendering a callable member at the mint completes its signatures'
+    ///   lazy returns in this port's order, and later answers on jsTyping
+    ///   depend on that order (the jsTyping gate leg). Deferring it is a
+    ///   resolution-order change, not a display change, so it stays out of
+    ///   this cut.
+    fn holds_anonymous_object(&self, id: TypeId) -> bool {
+        match &self.store.get(id).data {
+            TypeData::Anonymous { .. } => true,
+            TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
+                types.iter().any(|&member| self.holds_anonymous_object(member))
+            }
+            _ => false,
         }
-        match reference.and_then(|reference| self.type_to_string_at(id, reference)) {
-            Some(text) => text,
-            None => self.type_to_string(id),
-        }
+    }
+
+    /// The members of a literal's typed properties for its mint-time
+    /// display: [`Checker::property_members`], except that an
+    /// [`PrintedSlot::at_site`] slot contributes its site-free print rather
+    /// than demanding its site render (`r7-perf.md` §15).
+    fn literal_property_members(&mut self, properties: &[AnonymousProperty]) -> Vec<Member> {
+        properties
+            .iter()
+            .map(|property| Member::Property {
+                name: property.printed_name.clone(),
+                optional: property.optional,
+                readonly: property.readonly,
+                printed: match property.printed_slot.site_plan() {
+                    Some(plan) => self.type_to_string(plan.r#type),
+                    None => self.property_printed_type(property).into_owned(),
+                },
+            })
+            .collect()
     }
 
     /// The pseudochecker's `typeFromExpression` (`pseudochecker/lookup.go:262`)
@@ -2184,8 +2278,24 @@ impl Checker<'_, '_> {
                 }
                 PropertyValue::Shorthand(_) => None,
             };
-            // §735 — see [`Checker::member_text_at`].
-            let printed = reused.unwrap_or_else(|| self.member_text_at(member_type, node.node_id));
+            // §735 — see [`Checker::member_text_at`]. The site render is
+            // deferred to the member's first composer (§15): the literal's own
+            // display keeps the site-free print, as a node builder that never
+            // runs leaves native's member unprinted.
+            let site_plan = match (&reused, node.node_id) {
+                (None, Some(reference))
+                    if !self.member_text_waits_on_pending_return(member_type)
+                        && !self.holds_anonymous_object(member_type) =>
+                {
+                    Some(reference)
+                }
+                _ => None,
+            };
+            let printed = match (reused, site_plan) {
+                (Some(reused), _) => reused,
+                (None, Some(_)) => self.type_to_string(member_type),
+                (None, None) => self.member_text_at(member_type, node.node_id),
+            };
             if let Some(id) = property.node_id() {
                 checked_members.push((id, PropertySlot::resolved(member_type)));
             } else {
@@ -2236,7 +2346,10 @@ impl Checker<'_, '_> {
                         .flatten(),
                         name: semantic_name,
                         printed_name: name.clone(),
-                        printed_slot: PrintedSlot::printed(printed.clone()),
+                        printed_slot: match site_plan {
+                            Some(reference) => PrintedSlot::at_site(member_type, reference),
+                            None => PrintedSlot::printed(printed.clone()),
+                        },
                         optional: member_optional,
                         readonly: const_context,
                         slot: PropertySlot::resolved(member_type),
@@ -2311,7 +2424,7 @@ impl Checker<'_, '_> {
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 _ => left.name.cmp(&right.name),
             });
-            members = self.property_members(&typed_properties);
+            members = self.literal_property_members(&typed_properties);
         }
         index_members.extend(members);
         let members = index_members;

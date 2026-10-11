@@ -419,3 +419,23 @@ strict clippy green. Callgrind Ir: generic-imports 1.0019, domain-model
 | `checker_types_configured` | 1,818 | 1,818 |
 | `diagnostics` | 4,934 | 4,949 |
 | `diagnostics_configured` | 1,003 | 1,003 |
+
+### Batch 17 — r7-calls `b8168c30`, r7-contextual `2abb9ccd`, r7-flow `3d2d17f8`, r7-grammar `f562b3f8`, r7-perf `804c649f`
+
+Every lane went idle for about 18 hours after a session interruption. The
+first gate run was cut off part-way and re-run on resumption. Merged onto
+main `4a5c81bf`, plus a fmt fix in `strict_mode.rs`. Gate against the
+batch-16 freeze: types +39 RIGHT / 0 lost / 0 missing, diagnostics +11
+cases / 0 lost / 0 missing; jsTyping 126 → 125 unique lines, new_false 0,
+lost_true 0; tests and strict clippy green. Callgrind Ir: generic-imports
+0.9995, **domain-model 0.9600**. That is r7-perf's lazy object-literal member
+text: native prints only on error paths, and the CLI-message audit is in
+r7-perf.md. No suite's failure count rose. The gate scripts are now in
+`scripts/integration/`.
+
+| Suite | Batch 16 | Batch 17 |
+|---|---|---|
+| `checker_types` | 8,825 | 8,831 |
+| `checker_types_configured` | 1,818 | 1,818 |
+| `diagnostics` | 4,949 | 4,958 |
+| `diagnostics_configured` | 1,003 | 1,005 |
