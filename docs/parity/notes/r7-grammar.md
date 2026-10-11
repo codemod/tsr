@@ -573,3 +573,24 @@ synthetic matcher missing an assignment form), or none on one a path leaves
 unassigned. Converted: `detachedCommentAtStartOfConstructor2` (r7-flow's
 prototype measured the same +1, 0 lost); the exact oracle also gains
 `strictPropertyInitialization`.
+
+## §30 TS1312, a shorthand `= initializer` outside destructuring
+
+`checkGrammarObjectLiteralExpression`'s shorthand arm
+(`grammarchecks.go:1040`): outside a destructuring pattern
+(`checkObjectLiteral`'s `inDestructuringPattern = ast.IsAssignmentTarget(node)`,
+here `assignment_target_kind(literal) == None`), a shorthand with an
+`ObjectAssignmentInitializer` is TS1312 on the first token of the child before
+the initializer, its `EqualsToken`. The arm does not return. This parser eats
+the `=` without keeping it (`ShorthandPropertyAssignment::new(.., None, None,
+initializer)`), so `report_shorthand_equals` scans one token from the end of
+the last child before it (type, postfix token, else name). That is where the
+parser found it. The scan is declined unless the token is `=`, and it is not
+needed if r7-parser ever records the token. Upstream also checks such a
+shorthand's **initializer** instead of its name
+(`checkShorthandPropertyAssignment`, `checker.go:13689`), so no TS18004 is
+reported for an unresolved name there. That arm is in check.rs's
+unresolved-value walk and is routed. Until it lands,
+`shorthandPropertyAssignmentsInDestructuring` (both variants) and
+`objectLiteralErrors` keep an extra TS18004 beside the now-correct TS1312.
+
