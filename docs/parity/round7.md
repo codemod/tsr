@@ -498,3 +498,11 @@ count rose.
 | `checker_types_configured` | 1,818 | 1,820 |
 | `diagnostics` | 4,976 | 4,984 |
 | `diagnostics_configured` | 1,005 | 1,005 |
+
+**Integration loop.** From batch 21 on, `scripts/integration/autoloop.sh`
+runs the gate continuously as a supervised orb service, so integration keeps
+going through session interruptions. It lands a batch only when every leg
+is green: legacy compare, exact oracle, jsTyping, clippy, tests, callgrind Ir
+≤ 1.005, and the all-suite failure count. Anything else blocks the loop for
+the integration owner to cut back or route. Records it writes are marked as
+loop-landed.
