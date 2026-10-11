@@ -1424,7 +1424,11 @@ impl Checker<'_, '_> {
     }
 
     /// Source optionality follows the ordinary supplier, not the reused symbol's flags.
-    fn identity_mapped_source_property_is_optional(&mut self, id: TypeId, name: &str) -> bool {
+    pub(crate) fn identity_mapped_source_property_is_optional(
+        &mut self,
+        id: TypeId,
+        name: &str,
+    ) -> bool {
         self.anonymous_properties
             .get(&id)
             .and_then(|(properties, instantiated)| {

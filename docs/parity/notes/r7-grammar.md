@@ -475,7 +475,10 @@ the declaration's `?` (`property_is_optional`) when the member is the
 declaration's own, reached through its declared parent; a mapped or
 instantiated member's optionality is the receiver's
 (`identity_mapped_source_property_is_optional`, private to `members.rs`), so
-that case declined — routed as a visibility request. Converted:
+that case declined — routed as a visibility request. *Superseded:* with the
+integrator's grant (visibility only) the arm asks
+`identity_mapped_source_property_is_optional(receiver, name)` for every
+member, which is the receiver-level `Optional` flag, and no longer declines. Converted:
 `deleteExpressionMustBeOptional_exactOptionalPropertyTypes` (exact true and
 false).
 
