@@ -751,3 +751,127 @@ them: an enum member, class or interface target cannot close one.
 (conformance/enums 4, checkerInitializationCrash 1; circular4 stays RIGHT);
 diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm
 1.0000.
+
+## 20. A homomorphic mapping over a class drops its non-public members (routed from r7-reports)
+
+**Forcing constraint.** resolveMappedTypeMembers enumerates the modifiers
+type's properties through getLiteralTypeFromProperty (`checker.go:26746`),
+which answers `never` for a private or protected member. So `Req<T> = { [K
+in keyof T]-?: T[K] }` over `class PrivateState { private a; b }` has
+only `b`, and `r.a` is TS2339 natively. TSR had two roads that kept `a`:
+- `mapped_member_keys` (`mapped.rs`) took every property name;
+- `instantiate_identity_mapped_alias`'s members-owner image (`declared.rs`)
+  reads the source class's own table.
+
+TSR therefore reported TS2341 ("private and only accessible within class")
+where tsgo reports TS2339.
+
+**Port.** `mapped_member_keys` skips a non-public property
+(`is_non_public_member`), and the identity image declines a source with a
+non-public member, so it takes the mapped road. No state.
+
+**Measured** (unfiltered against `4af98855`): types 0 / 0, diagnostics
+0 / 0 (no corpus case reads such a member); jsTyping new_false 0 /
+lost_true 0; Ir gi 1.0001, dm 1.0002. Probe: `Req<PrivateState>`'s `a` is
+TS2339, as in tsgo.
+
+## 21. HELD: `keyof` of a non-generic object that mentions a type parameter resolves now
+
+getIndexTypeEx (`checker.go:26684`) defers only under shouldDeferIndexType
+(`:26834`). `keyof Dictionary<T>` over `interface Dictionary<T> { [key:
+string]: T }` is `string | number` whatever `T` is, but TSR's keyof arm
+deferred on any mentioned type parameter, so `Dictionary<T>[keyof
+Dictionary<T>]` was `error`, and r7-reports' `m4(foos, f => f.foo)` typed
+`f : any` (tsgo: `{ foo: string }`, result `Dictionary<string>`).
+`keyof_operand_resolves_now` admits a plain object operand that is not
+generic (`is_generic_type`). Measured alone against `4af98855`: types +2 / 0
+(deeplyNestedMappedTypes 0:164, thislessFunctionsNotContextSensitive1 0:5),
+**diagnostics −1: deeplyNestedMappedTypes**. That is again the TypeBox
+relation that was RIGHT over wrong types, the one .1266's stack fixes. It is
+held until .1266 lands, and will be re-measured then (`/tmp/r/keyof-now.diff`).
+
+## 22. A generic alias over a class or interface reference is that reference (tsxStatelessFunctionComponentOverload5, routed from r7-reports)
+
+**Forcing constraint.** `type MouseEventHandler<T> =
+EventHandler<MouseEvent<T>>` over `interface EventHandler<E> { (event: E):
+void }`: the body node has an alias symbol, so isDeferredTypeReferenceNode
+makes it a deferred type reference created with the alias. Instantiating it
+keeps the alias at the instantiated arguments: the instance is
+`EventHandler<MouseEvent<any>>`, printed `MouseEventHandler<any>`. TSR
+minted a print-only `Named` with the alias as its member owner, which has no
+call signature. `onClick={(e) => …}` through `React.MouseEventHandler<any>`
+typed `e : any`, and anyFunctionType against the alias was `Unknown`.
+
+**Port.** `instantiate_interface_reference_alias` (`create_type_reference`):
+- the body is evaluated under the alias's bindings;
+- the resulting class/interface reference (a `Named` with the target's
+  member owner and its `type_reference_targets` pair) is re-minted under
+  the alias's printed name, with `alias_of` recording the alias.
+
+Two declines, each with its reason:
+- the global `Array`/`ReadonlyArray` targets. The site renderer prints their
+  reference pair with the array shorthand before an alias (`type Options<T>
+  = Array<Option<T>>` printed `Option<T>[]` inside another alias's
+  arguments: −1, jsxComplexSignatureHasApplicabilityError:0:222);
+- an alias whose body re-enters itself (`type InfBox<T> =
+  Box<InfBox<T>>`). Native resolves that deferred reference lazily; eagerly
+  it built a partial type, and `unbox(b3)` lost `InfBox<string>` (−1,
+  recursiveConditionalTypes:0:83). A re-entry is recorded per alias
+  (`interface_alias_reentered`) and keeps the named mint.
+
+Checker port convention: the in-progress set (owner
+`instantiation_expressions.interface_alias_in_progress`, inserted and
+removed around the evaluation) and the re-entered set (written once, never
+cleared) are keyed by alias symbol. The instance itself is cached in the
+existing `instantiations[(alias, arguments)]`.
+
+**Measured** (unfiltered against `4af98855`, the declines in place): types
+**+7, 0 lost** (tsxStatelessFunctionComponentOverload5 4,
+tsxReactPropsInferenceSucceedsOnIntersections 3); diagnostics 0 / 0;
+jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0001. The first cut
+without the declines measured +7 / −2.
+
+## 23. HELD: the non-generic type-literal alias body records `alias_of` (TYPE-ALIAS-ACCESSIBILITY-GATE (a), with r7-printer)
+
+`type AX = { readonly A: unique symbol }` minted its type-literal object with
+no `alias_of`, so the printer could not apply IsTypeSymbolAccessible to the
+alias (getAliasSymbolForTypeNode gives the literal its alias).
+[`r7-declared-HELD-type-literal-alias-of.diff`](r7-declared-HELD-type-literal-alias-of.diff)
+records it in `get_type_from_type_literal`. Measured against `41d542bb`'s
+base: types **+9 / 0**, diagnostics **−1**
+(declarationEmitExpressionWithNonlocalPrivateUniqueSymbol loses TS2527).
+With the alias recorded, the printer no longer expands AX down to the
+inaccessible `unique symbol`. That diagnostic is what r7-printer's
+IsTypeSymbolAccessible arm restores, so the two land together.
+
+## 24. A qualified import type with type arguments instantiates its class or interface (IMPORT-TYPE-NODE, part)
+
+**Forcing constraint.** getTypeFromImportTypeNode (`checker.go:24575`)
+resolves the qualifier and calls getTypeReferenceType with the node's type
+arguments: `import("./box").Box<{ boxed: import("./box").Box<number>; }>` is
+`Box` at that argument. TSR answered `error` for any import type with type
+arguments (declarationEmitTopLevelNodeFromCrossFile2,
+importUsedInGenericImportResolves).
+
+**Port.** `generic_import_type_reference` instantiates a class or interface
+target at the written arguments (`create_type_reference`). It mints the
+written import spelling with the printed arguments, the target's member
+owner and its reference pair, as the argument-less arm mints the written
+spelling over the target's members. The cache is the existing
+`qualified_reference_types[(text, symbol)]`. Declines, each keeping
+`error`:
+- a type alias target;
+- an arity mismatch;
+- **an argument that mentions a type parameter**. The baked argument text
+  would survive instantiation while the pair instantiates. The first cut
+  without this decline measured +8 / −6
+  (declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile:
+  `initTRPC.create()`'s members read `any` where they were `{}`).
+
+**Measured** (unfiltered against `41d542bb`): types **+6, 0 lost**
+(declarationEmitTopLevelNodeFromCrossFile2 5,
+importUsedInGenericImportResolves 1); diagnostics 0 / 0; jsTyping
+new_false 0 / lost_true 0; Ir gi 0.9999, dm 1.0000. importTypeGenericTypes'
+`import("./foo2").Bar.I<{ x: number; }>` now prints `Bar.I<…>` (GAP →
+WRONG): the site renderer names the reference by its chain. That is
+r7-printer's symbol-chain arm.

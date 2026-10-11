@@ -4292,6 +4292,101 @@ impl<'a> Checker<'a, '_> {
         .then_some(target)
     }
 
+    /// getTypeAliasInstantiation (checker.go:23641) over a declared type that
+    /// is a generic class or interface reference written as the alias body
+    /// (`type MouseEventHandler<T> = EventHandler<MouseEvent<T>>` over
+    /// `interface EventHandler<E> { (event: E): void }`). The body node is a
+    /// deferred type reference (isDeferredTypeReferenceNode: it has an alias
+    /// symbol), created with the alias, and instantiating it keeps the alias
+    /// at the instantiated arguments: the instance IS `EventHandler<MouseEvent<any>>`,
+    /// printed `MouseEventHandler<any>`. This port minted a print-only
+    /// `Named` with the alias symbol as its member owner, so the instance had
+    /// no call signature and no members (contextual typing through it found
+    /// nothing). The body is evaluated under the alias's bindings and the
+    /// resulting reference re-minted under the alias's printed name, keeping
+    /// the target's member owner and its `(target, arguments)` pair, with
+    /// `alias_of` recording the alias (r7-declared §22).
+    fn instantiate_interface_reference_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+        shown: usize,
+    ) -> Option<TypeId> {
+        if arguments.is_empty()
+            || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || self.local_type_parameters_of(symbol).len() != arguments.len()
+        {
+            return None;
+        }
+        let TypeNode::TypeReferenceNode(reference) =
+            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?
+        else {
+            return None;
+        };
+        if reference.type_arguments.is_empty() {
+            return None;
+        }
+        let target = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
+        let target = self.binder.merged_symbol(target);
+        if !self
+            .binder
+            .symbols()
+            .get(target)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+            || self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        // The global `Array`/`ReadonlyArray` targets print with the array
+        // shorthand from their reference pair, which the site renderer reads
+        // before an alias (`type Options<T> = Array<Option<T>>` printed
+        // `Option<T>[]` inside another alias's arguments): not admitted until
+        // the renderer prefers the alias there.
+        if ["Array", "ReadonlyArray"].iter().any(|name| {
+            self.global_type_symbol(name).map(|global| self.binder.merged_symbol(global))
+                == Some(target)
+        }) {
+            return None;
+        }
+        // A body that re-enters its own alias (`type InfBox<T> =
+        // Box<InfBox<T>>`) is a deferred type reference native resolves
+        // lazily; evaluated eagerly here it builds a different, partial
+        // type, so such an alias keeps the named mint.
+        if !self.instantiation_expressions.interface_alias_in_progress.insert(symbol) {
+            self.instantiation_expressions.interface_alias_reentered.insert(symbol);
+            return None;
+        }
+        let evaluated = self.evaluate_alias_body(symbol, arguments);
+        self.instantiation_expressions.interface_alias_in_progress.remove(&symbol);
+        if self.instantiation_expressions.interface_alias_reentered.contains(&symbol) {
+            return None;
+        }
+        let evaluated = evaluated?;
+        if self.is_gap(evaluated) {
+            return None;
+        }
+        let crate::types::TypeData::Named { members: Some(members), .. } =
+            self.store.get(evaluated).data
+        else {
+            return None;
+        };
+        let (reference_target, reference_arguments) =
+            self.type_reference_targets.get(&evaluated).cloned()?;
+        if reference_target != target {
+            return None;
+        }
+        let printed = self.type_reference_text(symbol, &arguments[..shown]);
+        let flags = self.store.get(evaluated).flags;
+        let named = self.store.new_named(flags, printed, Some(members));
+        self.type_reference_targets.insert(named, (reference_target, reference_arguments));
+        if let Some(signatures) = self.signature_types.get(&evaluated).cloned() {
+            self.signature_types.insert(named, signatures);
+        }
+        self.alias_of.insert(named, (symbol, arguments.to_vec()));
+        Some(named)
+    }
+
     /// Whether a generic alias's declared type is a tuple built by
     /// createNormalizedTupleType (a body with a variadic element,
     /// checker.go:24121), directly or through a chain of alias references
@@ -5474,6 +5569,19 @@ impl<'a> Checker<'a, '_> {
                 };
                 let Some(target) = self.global_type_symbol(target_name) else { return Some(error) };
                 return Some(self.create_type_reference(target, vec![mapped_element]));
+            }
+            // The members-owner image reads the source's own table, which
+            // keeps a private or protected member; resolveMappedTypeMembers
+            // enumerates through getLiteralTypeFromProperty, which drops them
+            // (checker.go:26746). Such a source takes the mapped road
+            // (r7-declared §20).
+            if self.get_property_names_of_type(arguments[0]).is_some_and(|names| {
+                names.iter().any(|name| {
+                    self.get_property_of_type(arguments[0], name)
+                        .is_some_and(|property| self.is_non_public_member(property))
+                })
+            }) {
+                return None;
             }
             let source_owner = self.members_owner_of(arguments[0])?;
             // Native getTypeAliasInstantiation owns completed reuse by alias
@@ -6676,7 +6784,7 @@ impl<'a> Checker<'a, '_> {
         if let Some(answer) = self.unqualified_import_type_meaning(node) {
             return answer;
         }
-        if node.is_type_of || !node.type_arguments.is_empty() {
+        if node.is_type_of {
             return error;
         }
         let Some(qualifier) = node.qualifier else { return error };
@@ -6720,11 +6828,83 @@ impl<'a> Checker<'a, '_> {
         // The written text, rebuilt: `import("<specifier>").<qualifier>`.
         let Some(Node::StringLiteral(spec)) = self.node_map.get(specifier) else { return error };
         let text = format!("import(\"{}\").{}", spec.text, segments.join("."));
+        if !node.type_arguments.is_empty() {
+            return self.generic_import_type_reference(node, symbol, &text);
+        }
         let key = (text.clone(), symbol);
         if let Some(&existing) = self.qualified_reference_types.get(&key) {
             return existing;
         }
         let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(symbol));
+        self.qualified_reference_types.insert(key, minted);
+        minted
+    }
+
+    /// getTypeFromImportTypeNode (checker.go:24575) over a qualified import
+    /// type with type arguments: getTypeReferenceType(node, resolvedSymbol)
+    /// instantiates the class or interface at the written arguments
+    /// (`import("./box").Box<{ boxed: import("./box").Box<number>; }>`).
+    /// The node builder names it by its accessible chain, the import type
+    /// itself where the declaring module is not imported by name, so the
+    /// mint carries the written import spelling with the instantiated
+    /// arguments, the target's member owner and its reference pair (as the
+    /// argument-less arm above mints its written text over the target's
+    /// members). A type alias target and an arity mismatch keep `error`
+    /// (r7-declared §24).
+    fn generic_import_type_reference(
+        &mut self,
+        node: &tsr_ast::ImportTypeNode<'a>,
+        symbol: SymbolId,
+        text: &str,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        if !self
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+            || self.local_type_parameters_of(symbol).len() != node.type_arguments.len()
+        {
+            return error;
+        }
+        let arguments: Vec<TypeId> = node
+            .type_arguments
+            .iter()
+            .map(|&argument| self.get_type_from_type_node(argument))
+            .collect();
+        // The mint bakes its arguments' print; an argument that mentions a
+        // type parameter would keep that text across instantiation (the
+        // reference pair instantiates, the spelling does not), so such a
+        // reference keeps the previous answer.
+        if arguments
+            .iter()
+            .any(|&argument| self.is_gap(argument) || self.mentions_any_type_parameter(argument, 4))
+        {
+            return error;
+        }
+        let reference = self.create_type_reference(symbol, arguments.clone());
+        let crate::types::TypeData::Named { members: Some(members), .. } =
+            self.store.get(reference).data
+        else {
+            return error;
+        };
+        let Some(pair) = self.type_reference_targets.get(&reference).cloned() else {
+            return error;
+        };
+        let printed: Vec<String> =
+            arguments.iter().map(|&argument| self.type_to_string(argument)).collect();
+        let text = format!("{text}<{}>", printed.join(", "));
+        let key = (text.clone(), symbol);
+        if let Some(&existing) = self.qualified_reference_types.get(&key) {
+            return existing;
+        }
+        let flags = self.store.get(reference).flags;
+        let minted = self.store.new_named(flags, text, Some(members));
+        self.type_reference_targets.insert(minted, pair);
+        if let Some(signatures) = self.signature_types.get(&reference).cloned() {
+            self.signature_types.insert(minted, signatures);
+        }
         self.qualified_reference_types.insert(key, minted);
         minted
     }
@@ -8018,6 +8198,12 @@ impl<'a> Checker<'a, '_> {
         if let Some(mapped) = self.instantiate_normalized_mapped_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
+        }
+        if let Some(reference) =
+            self.instantiate_interface_reference_alias(symbol, &arguments, shown)
+        {
+            self.instantiations.insert((symbol, arguments), reference);
+            return reference;
         }
         let printed = self.type_reference_text(symbol, &arguments[..shown]);
         // §90 (`checker-notes-narrow.md`): a TYPE_ALIAS target with a

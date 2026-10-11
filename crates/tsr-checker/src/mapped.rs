@@ -852,6 +852,20 @@ impl<'a> Checker<'a, '_> {
                 self.property_names_of(source)
             };
             for name in names {
+                // getLiteralTypeFromProperty (checker.go:26746) answers never
+                // for a private or protected member
+                // (ModifierFlagsNonPublicAccessibilityModifier), so a
+                // homomorphic mapping over a class (`Req<PrivateState>`)
+                // enumerates no key for it (r7-declared §20).
+                // getLiteralTypeFromPropertyName answers never for a private
+                // identifier name (`#hash`), so it is no key either.
+                if name.starts_with('#')
+                    || self
+                        .get_property_of_type(source, &name)
+                        .is_some_and(|property| self.is_non_public_member(property))
+                {
+                    continue;
+                }
                 // Native 5b1047d resolveMappedTypeMembers enumerates through
                 // getLiteralTypeFromProperty (checker.go:22729), preserving
                 // numeric versus quoted names from the source member's origin.
