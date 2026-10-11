@@ -1634,6 +1634,16 @@ impl Checker<'_, '_> {
         let Some(failure) = self.overload_argument_failures.get(&node).cloned() else {
             return false;
         };
+        // `reportCallResolutionErrors`' third arm: no argument error, and a
+        // candidate failed `checkTypeArguments`, which is re-run with
+        // `reportErrors` (TS2344 at the written type argument).
+        if failure.count == 0
+            && let Some(candidate) = &failure.type_argument_error
+        {
+            let candidate = candidate.as_ref().clone();
+            self.check_call_type_argument_constraints(&candidate, node);
+            return true;
+        }
         let Some(last) = failure.last else { return true };
         let arguments = match self.node_map.get(node) {
             Some(tsr_ast::Node::CallExpression(call)) => call.arguments,
@@ -5425,6 +5435,10 @@ pub(crate) struct OverloadArgumentFailure {
     /// contextual type (`checkExpressionWithContextualType`), where the walk
     /// re-checked it; `None` where the walk read the context-free type.
     pub(crate) checked: Vec<Option<TypeId>>,
+    /// `candidateForTypeArgumentError`: the last candidate whose written type
+    /// arguments failed `checkTypeArguments`, reported only when no
+    /// candidate failed on its arguments.
+    pub(crate) type_argument_error: Option<Box<Signature>>,
 }
 
 impl OverloadArgumentFailure {
@@ -5626,7 +5640,7 @@ impl Checker<'_, '_> {
             }
         }
         if let Some(call) = call
-            && failures.count != 0
+            && (failures.count != 0 || failures.type_argument_error.is_some())
         {
             self.overload_argument_failures.insert(call, failures);
         }
@@ -5853,7 +5867,10 @@ impl Checker<'_, '_> {
                 let Some(call) = call else { return OverloadPass::Undecidable };
                 match self.check_call_type_argument_constraints_with(candidate, call, false) {
                     Some(true) => {}
-                    Some(false) => continue,
+                    Some(false) => {
+                        failures.type_argument_error = Some(Box::new(candidate.clone()));
+                        continue;
+                    }
                     None => return OverloadPass::Undecidable,
                 }
             }

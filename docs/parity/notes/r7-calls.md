@@ -692,6 +692,20 @@ workers):
 The oracle legs ran with 2 workers. With 4, the orb's 7 GiB OOM-killed
 `tsr-actual` workers alongside a concurrent build.
 
+## 19. `candidateForTypeArgumentError`: TS2344 when every candidate fails its type arguments
+
+`reportCallResolutionErrors`' third arm (`checker.go:9672`): with no
+argument error and no arity error, the last candidate whose written type
+arguments failed `checkTypeArguments` is checked again with `reportErrors`
+(TS2344 at the type argument). The overload walk's `overload_pass` now
+records that candidate (`OverloadArgumentFailure::type_argument_error`), the
+walk publishes a failure that carries only it, and
+`report_overload_argument_failure` reports it through the reporting
+constraint check when no candidate failed on its arguments.
+`fn4<boolean, Date>(null, null)` over `fn4<T extends string, U extends number>`
+and `fn4<T extends number, U extends string>` reports native's TS2344 at
+`boolean` against the last candidate's `number` (overloadResolution).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
