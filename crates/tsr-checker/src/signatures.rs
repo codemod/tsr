@@ -6535,7 +6535,9 @@ impl<'a> Checker<'a, '_> {
             node.node_id.and_then(|parameter| self.jsdoc_template_constraint(parameter))
         });
         spell(self, constraint_node);
-        let constraint = match resolve(self, constraint_node) {
+        let resolved_constraint = resolve(self, constraint_node);
+        let constraint_resolved = resolved_constraint.is_some();
+        let constraint = match resolved_constraint {
             Some(constraint) => constraint,
             None => Some(self.intrinsics.any),
         };
@@ -6582,6 +6584,25 @@ impl<'a> Checker<'a, '_> {
             });
         let (constraint, written_constraint) =
             if circular { (None, None) } else { (constraint, written_constraint) };
+        // `getConstraintFromTypeParameter` (`checker.go:17085`): a written
+        // `any` constraint (not the error type) is `unknown` — a mapped type's
+        // key parameter takes `stringNumberSymbolType` instead, which never
+        // reaches a signature's type parameters — so `<T extends any>` prints
+        // `<T extends unknown>` (`r7-shared.md` §20).
+        let (constraint, written_constraint) = match constraint {
+            Some(written)
+                if constraint_resolved
+                    && self.store.get(written).flags.intersects(TypeFlags::ANY)
+                    && !self.is_error(written)
+                    && node
+                        .node_id
+                        .and_then(|id| self.nodes.parent(id))
+                        .is_none_or(|parent| self.nodes.kind(parent) != SyntaxKind::MappedType) =>
+            {
+                (Some(self.intrinsics.unknown), None)
+            }
+            _ => (constraint, written_constraint),
+        };
         Some(TypeParameter {
             resolved_type,
             is_const,
