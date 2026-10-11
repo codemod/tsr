@@ -739,3 +739,48 @@ type (BINDING-PATTERN-IMPLIED-TYPE, r7-contextual).
 `destructureCatchClause` stays non-exact on TS2488 for the array patterns
 (`checkIteratedTypeOrElementType` on `unknown`, `iteration.rs`, not this
 lane's).
+
+## §23 `instanceof` over a union callee maps `getInstanceType` per constituent
+
+`narrowTypeByInstanceof` (`flow.go:836`) narrows by `mapType(rightType,
+c.getInstanceType)`: a union callee `AA | BB` (`AA` a callable with
+`prototype: A`, `BB` with `new(): B`) narrows by `A | B`. The port's general
+road (§3) read `prototype` and the construct signatures off the union as a
+whole: the union has no `prototype` (one constituent lacks it) and no
+construct signatures (one constituent has none), so it declined and kept
+`A | B | C` (`narrowByInstanceof` 27:x). `instance_type_of_callee` is
+`getInstanceType` for one non-class callee, with the Function-derivation
+gate before it (a union passes `isTypeDerivedFrom(rightType,
+globalFunctionType)` only when every constituent does), and the arm maps it
+over the union's constituents. A callee constituent that declines declines
+the whole narrowing, as before. No cache: the same reads per constituent.
+
+Measured (§23 alone) on `379e4ed5` unfiltered: types **+1**
+(`narrowByInstanceof` 27:x), diagnostics unchanged, 0 lost; exact oracle 9659
+→ 9660 (`narrowByInstanceof`), 0 lost; jsTyping 122 → 122, new_false 0,
+lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## §24 The branch label's named-union lookup (§58): measured, held
+
+`checker-notes-narrow.md` §58 made a branch join whose union re-formed a
+*named* union's exact members answer the named type
+(`named_union_by_members`), at both the literal and the subtype-reduced join.
+Native has no such step: `getUnionOrEvolvingArrayType` (`flow.go:1314`)
+returns the declared type when the join has the declared union's
+constituents (§10's `declared_if_same_union`) and otherwise a fresh union;
+tsgo keys unions by alias too (`getUnionTypeFromSortedList`), so a plain
+`TestA | TestB` is not the alias `AllTests`. In `discriminantPropertyCheck`
+(`let test; test = mapOfTests[id]; if (test.type === 'testA') …; switch
+(test.type)`) the declared type is `autoType`, and native prints the join
+`TestA | TestB` where the port printed `AllTests`.
+
+Removing the lookup on `379e4ed5` + §23: types **+1** (that line, nothing
+else moves), diagnostics unchanged, exact +1, 0 lost, but jsTyping
+**new_false 1**: `builder.ts(1304,21)` TS2322 on `emitSignatures =
+append(emitSignatures, [fileId, cond ? emptyArray as [] : emitSignature])`.
+The narrowed `emitSignature` now reaches inference as `string | [signature:
+string]` rather than the alias `EmitSignature`, as natively, and this port's
+`append<T>` inference then picks a widened candidate native does not. That is
+an inference/relation gap (r7-contextual / r7-reports), not a flow one. The
+lookup stays until it is fixed; the removal is two hunks in
+`flow.rs`'s branch label.

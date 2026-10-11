@@ -2137,6 +2137,67 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `getInstanceType` (`flow.go:964-976`) for one `instanceof` callee
+    /// that is not a class constructor (the class road answers those), behind
+    /// `narrowTypeByInstanceof`'s `isTypeDerivedFrom(rightType,
+    /// globalFunctionType)` gate: the `prototype` property's type unless it
+    /// is `any`, else the union of the construct signatures' erased returns,
+    /// else `emptyObjectType`. `None` declines the narrowing (an undecidable
+    /// signature list, an erased return this port cannot instantiate, or a
+    /// callee that is not Function-derived, which leaves the type alone).
+    fn instance_type_of_callee(&mut self, callee_type: TypeId) -> Option<TypeId> {
+        // Native 5b1047d narrowTypeByInstanceof admits a Function-derived
+        // callee, not only a constructor. isFunctionObjectType reads
+        // completed call OR construct signatures, or bind plus a Function
+        // subtype proof. A plain prototype-bearing object cannot pass this
+        // gate. Use the existing declaration/receiver-owned signature lookup;
+        // publish no new member or flow cache.
+        let has_signature =
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+                .into_iter()
+                .any(|kind| {
+                    self.signatures_of_type_kind(callee_type, kind)
+                        .is_some_and(|candidates| !candidates.is_empty())
+                });
+        if !has_signature && !self.is_bind_bearing_function_subtype(callee_type) {
+            return None;
+        }
+        if let Some(instance) = self
+            .get_property_of_type(callee_type, "prototype")
+            .map(|p| self.get_type_of_symbol(p))
+            .filter(|&i| i != self.intrinsics.error && i != self.intrinsics.any)
+        {
+            return Some(instance);
+        }
+        // getInstanceType's second leg (flow.go:971-975): the UNION over
+        // construct signatures of the ERASED return (type parameters
+        // instantiated to any).
+        let candidates =
+            self.signatures_of_type_kind(callee_type, crate::signatures::SignatureKind::Construct)?;
+        let mut returns = Vec::with_capacity(candidates.len());
+        for candidate in &candidates {
+            if candidate.type_parameters.is_empty() {
+                returns.push(candidate.r#type);
+                continue;
+            }
+            let parameters = self.type_parameter_types(candidate)?;
+            let names: Vec<&str> =
+                candidate.type_parameters.iter().map(|p| p.name.as_str()).collect();
+            let any = self.intrinsics.any;
+            let map: Vec<(TypeId, TypeId)> = parameters.iter().map(|&t| (t, any)).collect();
+            let erased = self.instantiate_type(candidate.r#type, &map, &parameters, &names);
+            if erased == self.intrinsics.error {
+                return None;
+            }
+            returns.push(erased);
+        }
+        Some(if returns.is_empty() {
+            self.intrinsics.empty_object
+        } else {
+            self.get_union_type(&returns)
+        })
+    }
+
     /// §126's gate: whether an identifier reference resolves to a variable
     /// declared at a source file's top level. The instanceof FALSE branch
     /// does not narrow those in the baselines (typeGuardOfFormInstanceOf)
@@ -4443,7 +4504,9 @@ impl Checker<'_, '_> {
             }
         } else {
             // §58 (`checker-notes-narrow.md`): a join re-forming a NAMED
-            // union's exact member set answers the named type.
+            // union's exact member set answers the named type. Not native
+            // (`r7-flow.md` §24): held until the jsTyping inference it
+            // exposes is fixed.
             // SS203: a flow join is upstream's `UnionReductionSubtype` site
             // (`getUnionType(antecedentTypes, UnionReductionSubtype)`), unlike
             // a WRITTEN union which reduces only literals. The general
@@ -6592,79 +6655,25 @@ impl Checker<'_, '_> {
                         _ => None,
                     };
                     let Some(class_symbol) = class_symbol else {
-                        // Native 5b1047d narrowTypeByInstanceof admits a
-                        // Function-derived callee, not only a constructor.
-                        // isFunctionObjectType reads completed call OR construct
-                        // signatures, or bind plus a Function subtype proof.
-                        // A plain prototype-bearing object cannot pass this
-                        // gate. Use the existing declaration/receiver-owned
-                        // signature lookup; publish no new member or flow cache.
-                        let has_signature = [
-                            crate::signatures::SignatureKind::Call,
-                            crate::signatures::SignatureKind::Construct,
-                        ]
-                        .into_iter()
-                        .any(|kind| {
-                            self.signatures_of_type_kind(callee_type, kind)
-                                .is_some_and(|candidates| !candidates.is_empty())
-                        });
-                        if !has_signature && !self.is_bind_bearing_function_subtype(callee_type) {
-                            return t;
+                        // `mapType(rightType, c.getInstanceType)` (`flow.go:836`):
+                        // a union callee maps each constituent, and passes
+                        // `isTypeDerivedFrom(rightType, globalFunctionType)`
+                        // only when every constituent does (`relater.go`'s
+                        // union-source arm).
+                        let callees = match &self.store.get(callee_type).data {
+                            TypeData::Union { types, .. } => types.clone(),
+                            _ => vec![callee_type],
+                        };
+                        let mut instances = Vec::with_capacity(callees.len());
+                        for callee in callees {
+                            let Some(instance) = self.instance_type_of_callee(callee) else {
+                                return t;
+                            };
+                            instances.push(instance);
                         }
-                        let prototype_instance = self
-                            .get_property_of_type(callee_type, "prototype")
-                            .map(|p| self.get_type_of_symbol(p))
-                            .filter(|&i| i != self.intrinsics.error && i != self.intrinsics.any);
-                        let instance = if let Some(instance) = prototype_instance {
-                            instance
-                        } else {
-                            {
-                                // getInstanceType's second leg
-                                // (flow.go:971-975): the UNION over construct
-                                // signatures of the ERASED return (type
-                                // parameters instantiated to any). The
-                                // emptyObject third leg declines.
-                                let Some(candidates) = self.signatures_of_type_kind(
-                                    callee_type,
-                                    crate::signatures::SignatureKind::Construct,
-                                ) else {
-                                    return t;
-                                };
-                                let mut returns = Vec::with_capacity(candidates.len());
-                                for candidate in &candidates {
-                                    if candidate.type_parameters.is_empty() {
-                                        returns.push(candidate.r#type);
-                                        continue;
-                                    }
-                                    let Some(parameters) = self.type_parameter_types(candidate)
-                                    else {
-                                        return t;
-                                    };
-                                    let names: Vec<&str> = candidate
-                                        .type_parameters
-                                        .iter()
-                                        .map(|p| p.name.as_str())
-                                        .collect();
-                                    let any = self.intrinsics.any;
-                                    let map: Vec<(TypeId, TypeId)> =
-                                        parameters.iter().map(|&t| (t, any)).collect();
-                                    let erased = self.instantiate_type(
-                                        candidate.r#type,
-                                        &map,
-                                        &parameters,
-                                        &names,
-                                    );
-                                    if erased == self.intrinsics.error {
-                                        return t;
-                                    }
-                                    returns.push(erased);
-                                }
-                                if returns.is_empty() {
-                                    self.intrinsics.empty_object
-                                } else {
-                                    self.get_union_type(&returns)
-                                }
-                            }
+                        let instance = match instances.as_slice() {
+                            [single] => *single,
+                            _ => self.get_union_type(&instances),
                         };
                         if instance == self.intrinsics.error || instance == self.intrinsics.any {
                             return t;
