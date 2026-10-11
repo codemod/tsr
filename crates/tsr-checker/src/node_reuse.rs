@@ -224,6 +224,25 @@ fn node_precedence(node: TypeNode<'_>) -> Precedence {
     }
 }
 
+/// [`node_precedence`] of the node the visitor EMITS for `node`: the JSDoc
+/// arms of `visitExistingNodeTreeSymbolsWorker` (`nodecopy.go:475-503`)
+/// rewrite a nullable or optional type into a union, a variadic one into an
+/// array, and unwrap a non-nullable type or a type expression, and the
+/// printer parenthesises the rewritten node (r7-printer §23).
+fn emitted_precedence(node: TypeNode<'_>) -> Precedence {
+    match node {
+        TypeNode::JSDocNullableType(_) | TypeNode::JSDocOptionalType(_) => Precedence::Union,
+        TypeNode::JSDocVariadicType(_) => Precedence::Postfix,
+        TypeNode::JSDocNonNullableType(non_null) => {
+            non_null.r#type.map_or(Precedence::NonArray, emitted_precedence)
+        }
+        TypeNode::JSDocTypeExpression(expression) => {
+            expression.r#type.map_or(Precedence::NonArray, emitted_precedence)
+        }
+        _ => node_precedence(node),
+    }
+}
+
 /// The precedence of a FALLBACK print. The fallback is
 /// `typeToTypeNode(getTypeFromTypeNode(node))`, whose node kind this port
 /// only has as text, so the top-level operator is read off the text: the
@@ -2218,7 +2237,7 @@ impl<'a> Checker<'a, '_> {
         } else {
             precedence
         };
-        let parenthesized = node_precedence(node) < precedence;
+        let parenthesized = emitted_precedence(node) < precedence;
         if let Some(text) = self.try_reuse_type_node(node, in_extends && !parenthesized, cx) {
             return if parenthesized { format!("({text})") } else { text };
         }

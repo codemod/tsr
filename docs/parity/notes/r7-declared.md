@@ -1201,3 +1201,46 @@ dropped otherwise; `never` checks still decline. No state.
 lost** (complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound 7,
 coAndContraVariantInferences3 3); diagnostics 0 / 0; jsTyping new_false 0 /
 lost_true 0; Ir gi 0.9999, dm 1.0000.
+
+## 34. A generic mapped constraint enumerates its lower bound (getLowerBoundOfKeyType)
+
+**Forcing constraint.** resolveMappedTypeMembers enumerates a non-homomorphic
+mapped type over `forEachType(getLowerBoundOfKeyType(constraintType), …)`
+(`checker.go:21021`): `keyof T` lowers to the index type of `T`'s apparent
+type, a distributive conditional (`Exclude<keyof T, "a">`) is instantiated at
+its check type's lower bound, unions and intersections map their
+constituents. So `Pick<T, Exclude<keyof T, "a">>` over `T extends { a:
+string, b: string }` has the member `b: T["b"]`, and `obj.b` is `T["b"]`
+(mappedTypeConstraints). TSR's key walk declined every generic key, leaving
+the mapping memberless and `obj.b` a gap.
+
+**Port.** `lower_bound_of_key_type` (bounded at eight levels): a deferred
+`keyof` mint (`deferred_keyof_operands`) answers `resolved_keyof_type` of its
+operand's apparent type unless that is the operand itself or a generic tuple
+(getKnownKeysOfTupleType is not ported here); a deferred conditional alias
+reference whose body checks a parameter nakedly
+(`distributive_alias_check_index`) is re-referenced with that argument's lower
+bound; unions and intersections map, keeping the `string & {}` pair. The key
+walk starts from the lower bound; a key that is still generic declines as
+before. No state.
+
+The lower bound is for member resolution only: getIndexTypeForMappedType
+reads the constraint itself (a generic mapped type's index type defers before
+it), and a first cut that lowered there too turned `keyof { [P in keyof T &
+keyof NameMap as NameMap[P]]: string }` and `keyof DoubleProp<U>` into
+`never` (−3 mappedTypeAsClauses, −2 mappedTypeGenericWithKnownKeys before
+the containment below).
+
+**Containment.** A lowered generic constraint publishes its property keys
+only. Its index keys (`keyof Shape` over `Shape extends Record<string,
+string>` lowers to `string | number`) are native's too, but the access sites
+here do not decline an index signature for a write to a generic object
+(checkPropertyAccessExpressionOrQualifiedName's `assignmentKind == None ||
+!isGenericObjectType(leftType)`), so `obj.unknownLiteralKey = 3` read
+`number` and `obj['' as string] = 4` became a gap (mappedTypeGenericWithKnownKeys
+−2). Routed: the write-access guard, to the access sites' owner.
+
+**Measured** (unfiltered against the rebased `89f0f0df`; this commit's
+parent adds §35, which touches only the conditional evaluator): types **+16,
+0 lost** (mappedTypeConstraints); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0; Ir gi 0.9998, dm 1.0001.

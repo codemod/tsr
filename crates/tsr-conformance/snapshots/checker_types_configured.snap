@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1822/1928 (94.50%)
-Assertion lines: 77977/78552 (99.27%)  — a gradient, not a pass rate
-Failed         : 106
+Passed         : 1827/1928 (94.76%)
+Assertion lines: 77992/78552 (99.29%)  — a gradient, not a pass rate
+Failed         : 101
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 106 failures:
+First 100 of 101 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -82,10 +82,6 @@ compiler/duplicateObjectLiteralProperty(target=es2015)
   duplicateObjectLiteralProperty.ts: >y : { a: number; } — expected >y : { readonly a: number; }
 compiler/es5-yieldFunctionObjectLiterals(target=es2015)
   es5-yieldFunctionObjectLiterals.ts: >objectLiteral1 : error — expected >objectLiteral1 : () => Generator<number, void, unknown>
-compiler/es5ExportDefaultClassDeclaration3(target=es2015)
-  es5ExportDefaultClassDeclaration3.ts: >C : any — expected >C : typeof C
-compiler/es5ExportDefaultClassDeclaration4(target=es2015)
-  es5ExportDefaultClassDeclaration4.ts: >t : error — expected >t : typeof C
 compiler/importHelpers(target=es2015)
   external.ts: >result : error — expected >result : TemplateStringsArray
 compiler/inKeywordTypeguard(strict=false)
@@ -162,8 +158,6 @@ conformance/emptyVariableDeclarationBindingPatterns01_ES5(target=es2015)
   emptyVariableDeclarationBindingPatterns01_ES5.ts: >f : ({}?: any, []?: any, { p: {} }?: any) => any — expected >f : ({}?: any, []?: any, { p: {} }?: any) => ({}?: any, []?: any, { p: {} }?: any) => any
 conformance/emptyVariableDeclarationBindingPatterns01_ES5iterable(target=es2015)
   emptyVariableDeclarationBindingPatterns01_ES5iterable.ts: >f : ({}?: any, []?: any, { p: {} }?: any) => any — expected >f : ({}?: any, []?: any, { p: {} }?: any) => ({}?: any, []?: any, { p: {} }?: any) => any
-conformance/es6modulekindWithES5Target11(target=es2015)
-  es6modulekindWithES5Target11.ts: >C : any — expected >C : typeof C
 conformance/esDecorators-classDeclaration-outerThisReference(target=es2015)
   esDecorators-classDeclaration-outerThisReference.ts: >this : this — expected >this : typeof globalThis
 conformance/esDecorators-classDeclaration-outerThisReference(target=es2021)
@@ -172,12 +166,8 @@ conformance/esDecorators-classDeclaration-outerThisReference(target=es2022)
   esDecorators-classDeclaration-outerThisReference.ts: >this : this — expected >this : typeof globalThis
 conformance/esDecorators-classDeclaration-outerThisReference(target=esnext)
   esDecorators-classDeclaration-outerThisReference.ts: >this : this — expected >this : typeof globalThis
-conformance/esnextmodulekindWithES5Target11(target=es2015)
-  esnextmodulekindWithES5Target11.ts: >C : any — expected >C : typeof C
 conformance/jsDeclarationsDefault(target=es2015)
   index2.js: >foo : () => typeof default — expected >foo : () => typeof foo
-conformance/multipleDefaultExports01(target=es2015)
-  m1.ts: >bar : any — expected >bar : typeof bar
 conformance/multipleDefaultExports03(target=es2015)
   multipleDefaultExports03.ts: >C : C — expected >C : import("./multipleDefaultExports03").default
 conformance/multipleDefaultExports05(target=es2015)
@@ -228,3 +218,13 @@ conformance/staticPropertyNameConflicts(target=es2015,usedefineforclassfields=tr
   staticPropertyNameConflicts.ts: >[FunctionPropertyNames.prototype] : number — expected >[FunctionPropertyNames.prototype] : StaticPrototype2
 conformance/superPropertyAccessNoError(target=es2015)
   superPropertyAccessNoError.ts: >returnThis : () => SomeBaseClass — expected >returnThis : () => this
+conformance/thisInInvalidContextsExternalModule(target=es2015)
+  thisInInvalidContextsExternalModule.ts: >genericFunc<this>(undefined) : any — expected >genericFunc<this>(undefined) : void
+conformance/thisTypeInAccessors(target=es2015)
+  thisTypeInAccessors.ts: >explicit : { n: number; get x(): number; set x(this: Foo); } — expected >explicit : { n: number; x: number; }
+conformance/thisTypeInAccessorsNegative(target=es2015)
+  thisTypeInAccessorsNegative.ts: >mismatch : { n: number; x: Bar; } — expected >mismatch : { n: number; x: number; }
+conformance/thisTypeInObjectLiterals2(target=es2015)
+  thisTypeInObjectLiterals2.ts: >obj1 : { a: number; f(): number; b: string; c: { g(): void; }; readonly d: number; e: any; } — expected >obj1 : { a: number; f(): number; b: string; c: { g(): void; }; readonly d: number; e: string; }
+conformance/trailingCommasInFunctionParametersAndArguments(target=es2015)
+  trailingCommasInFunctionParametersAndArguments.ts: >...[] : any — expected >...[] : never

@@ -351,3 +351,15 @@ fn a_non_distributive_infer_conditional_infers_from_a_union() {
          const x = t;\n";
     assert_eq!(type_of_last_initializer(source), "\"email\" | \"text\"");
 }
+
+/// §34: a generic mapped constraint's members are its lower bound's keys
+/// (getLowerBoundOfKeyType; tsgo: `T["b"]`).
+#[test]
+fn a_generic_mapped_constraint_enumerates_its_lower_bound() {
+    let source = "type Ex<T, U> = T extends U ? never : T;\n\
+         type Pk<T, K extends keyof T> = { [P in K]: T[P] };\n\
+         function f<T extends { a: string; b: string }>(obj: Pk<T, Ex<keyof T, \"a\">>) {\n\
+             const x = obj.b;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "T[\"b\"]");
+}

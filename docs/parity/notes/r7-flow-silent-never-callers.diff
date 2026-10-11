@@ -1,0 +1,86 @@
+diff --git a/crates/tsr-checker/src/calls.rs b/crates/tsr-checker/src/calls.rs
+index 130d03d26..8c915c2c0 100644
+--- a/crates/tsr-checker/src/calls.rs
++++ b/crates/tsr-checker/src/calls.rs
+@@ -3219,6 +3219,12 @@ impl Checker<'_, '_> {
+         if callee_type == error {
+             return error;
+         }
++        // `resolveCallExpression` (`checker.go:8512`): a `silentNeverType`
++        // callee resolves to `silentNeverSignature`, whose return type is
++        // `silentNeverType`.
++        if Some(callee_type) == self.silent_never_type {
++            return callee_type;
++        }
+         let result = self.check_call_expression_worker(node, callee, callee_type);
+         // checkCallExpression (native 5b1047d1): a CommonJS require in JS
+         // returns the resolved module value, not the ambient call signature's
+diff --git a/crates/tsr-checker/src/members.rs b/crates/tsr-checker/src/members.rs
+index 7841131dc..4cb11966f 100644
+--- a/crates/tsr-checker/src/members.rs
++++ b/crates/tsr-checker/src/members.rs
+@@ -270,6 +270,13 @@ impl Checker<'_, '_> {
+         if receiver_type == self.intrinsics.native_error {
+             return receiver_type;
+         }
++        // `isAnyLike` (`checker.go:11266`, `:11314-11321`): a `silentNeverType`
++        // receiver (an incomplete loop pass's `never`) answers itself, with no
++        // lookup and no report.
++        if private_without_lexical_symbol.is_none() && Some(receiver_type) == self.silent_never_type
++        {
++            return receiver_type;
++        }
+         // `checkPropertyAccessExpression` hands `checkNonNullExpression(expr)`
+         // to the lookup (`checker.go:11258`), and a chain link goes through
+         // `checkPropertyAccessChain` (`checker.go:11253`) — the receiver is
+diff --git a/crates/tsr-conformance/tests/r7_flow_silent_never.rs b/crates/tsr-conformance/tests/r7_flow_silent_never.rs
+new file mode 100644
+index 000000000..e76dd709f
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r7_flow_silent_never.rs
+@@ -0,0 +1,45 @@
++//! `newFlowType` (pinned flow.go:28): an incomplete `never` from a loop's
++//! provisional pass is `silentNeverType`, which a property access
++//! (`isAnyLike`, checker.go:11266) and a call (`resolveCallExpression`,
++//! :8512) answer without a report, so the else-branch assignment drops out
++//! of the loop's join. Expected lines are pinned tsgo
++//! 5b1047d10d32e7d5b446be4de56b126ff42f82bb (`controlFlowWithIncompleteTypes.types`).
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++#[test]
++fn incomplete_never_is_silent_in_the_loop_pass() {
++    let source = r#"// @target: es2015
++declare var cond: boolean;
++function foo2() {
++    let x: string | number | boolean = 0;
++    while (cond) {
++        if (typeof x === "number") {
++            x = "abc";
++        }
++        else {
++            x = x.slice();
++        }
++    }
++}
++"#;
++    let case = TestCase::parse("probe/r7_flow_silent_never", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    let lines: Vec<String> = types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect();
++    for wanted in [
++        "x : string | number",
++        "x = x.slice() : string",
++        "x.slice() : string",
++        "x : string",
++        "slice : (start?: number, end?: number) => string",
++    ] {
++        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
++    }
++}

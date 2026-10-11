@@ -2358,6 +2358,31 @@ impl<'a, 'n> Checker<'a, 'n> {
                 {
                     return Some(format!("typeof {name}"));
                 }
+                // r7-printer §26: with no name in scope for the namespace
+                // (`trySymbolTable` excludes a UMD alias inside an external
+                // module), `getSymbolChain`'s `export =` shortcut
+                // (`nodebuilderimpl.go:1124`) makes its whole chain the
+                // module it is the `export =` of: `typeof import("./react")`.
+                // `createAnonymousTypeNode` writes `typeof` for a value module
+                // or an enum (`nodebuilderimpl.go:2805`); a function merged
+                // with an uninstantiated namespace prints structurally.
+                if self.module_host.is_some()
+                    && !self.is_module_symbol(symbol)
+                    && !self.is_ambient_module(symbol)
+                    && self
+                        .binder
+                        .symbols()
+                        .get(symbol)
+                        .flags
+                        .intersects(SymbolFlags::VALUE_MODULE | SymbolFlags::ENUM)
+                    && self.declared_in_file_module(symbol)
+                    && self.best_name(symbol, reference).is_none()
+                    && let Some((root, None)) = self.module_rooted_segment_at(symbol, reference)
+                {
+                    let specifier = self.module_specifier_for_symbol(root, reference)?;
+                    self.track_unsafe_import(&specifier, symbol, root);
+                    return Some(format!("typeof import({specifier})"));
+                }
                 // Ambient modules (`declare module "x"`) resolve since the
                 // `tryFindAmbientModule` arm (`checker-notes-modobj.md` §10)
                 // and must take the same interception: their baked text is the
@@ -3501,10 +3526,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 matches!(self.node_map.get(declaration), Some(Node::ModuleDeclaration(module))
                     if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
             });
-        let mut text = if root_is_module {
-            format!("import({})", self.module_specifier_for_symbol(root, reference)?)
+        let specifier = if root_is_module {
+            Some(self.module_specifier_for_symbol(root, reference)?)
         } else {
-            self.binder.symbols().get(root).name.to_string()
+            None
+        };
+        let mut text = match &specifier {
+            Some(specifier) => format!("import({specifier})"),
+            None => self.binder.symbols().get(root).name.to_string(),
         };
         for &part in rest {
             // `createAccessFromSymbolChain` spells a member whose name is no
@@ -3516,6 +3545,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             text.push('.');
             text.push_str(name);
+        }
+        // `symbolToTypeNode`'s portability report (`nodebuilderimpl.go:681`)
+        // follows every import-type spelling, this one included
+        // (r7-printer §28); a no-op outside a tracker.
+        if let Some(specifier) = &specifier {
+            self.track_unsafe_import(specifier, symbol, root);
         }
         Some(text)
     }
@@ -3606,6 +3641,29 @@ impl<'a, 'n> Checker<'a, 'n> {
             return None;
         }
         let Some(container) = self.binder.symbols().get(symbol).parent else {
+            // r7-printer §24: `getContainersOfSymbol`'s fallback
+            // (`symbolaccessibility.go:288`) offers the module of a
+            // declaration that is a direct child of it when the module
+            // exports an alias of the symbol (`class C {}` then
+            // `export { C }`), so the chain is `[t1, C]`. The resolver ports
+            // that fallback; ask it for a symbol declared at a module's top
+            // level that no in-scope name reaches (`best_name`, the port's
+            // `trySymbolTable` walk).
+            if self.module_host.is_some()
+                && self.best_name(symbol, reference).is_none()
+                && self.binder.symbols().get(symbol).declarations.iter().any(|&declaration| {
+                    self.nodes.parent(declaration).is_some_and(|parent| {
+                        self.nodes.kind(parent) == SyntaxKind::SourceFile
+                            && self.is_external_or_common_js_module(parent)
+                    })
+                })
+                && let Some((root, leaf)) = self.module_rooted_chain_at(symbol, reference, meaning)
+                && self.binder.symbols().get(leaf).name == name
+            {
+                let specifier = self.module_specifier_for_symbol(root, reference)?;
+                self.track_unsafe_import(&specifier, symbol, root);
+                return Some(format!("import({specifier})."));
+            }
             // No container — for a symbol that lives in `c.globals` this is not
             // the end of the road upstream, it is `trySymbolTable`'s LAST arm.
             return self.global_this_chain(symbol, name, reference, meaning);
@@ -3631,6 +3689,17 @@ impl<'a, 'n> Checker<'a, 'n> {
                 SymbolFlags::NAMESPACE
             };
             if let Some(alias) = self.module_alias_at(parent, reference, left_meaning) {
+                return Some(format!("{alias}."));
+            }
+            // r7-printer §25: `trySymbolTable`'s alias loop
+            // (`symbolaccessibility.go:575`) searches each in-scope alias's
+            // resolved EXPORTS, not its target's identity: a namespace
+            // import of a module that re-exports the container's members
+            // (`export * from 'ph'`) reaches the symbol, and the chain is
+            // `[ph, constants]`.
+            if self.module_host.is_some()
+                && let Some(alias) = self.alias_rooted_chain_at(symbol, reference, meaning)
+            {
                 return Some(format!("{alias}."));
             }
             // The ambient branch of `getSpecifierForModuleSymbol`
@@ -3801,6 +3870,18 @@ impl<'a, 'n> Checker<'a, 'n> {
                 return Some(out);
             }
         }
+        // A print baked with the symbol's own name (`typeof default`, the
+        // constructor side of an `export default class C`) is spelled as
+        // written too (r7-printer §27).
+        if written != "default"
+            && let Some(suffix_at) = Self::split_around_name(printed, "default")
+        {
+            let mut out = String::with_capacity(printed.len() + written.len());
+            out.push_str(&printed[..suffix_at - "default".len()]);
+            out.push_str(written);
+            out.push_str(&printed[suffix_at..]);
+            return Some(out);
+        }
         None
     }
 
@@ -3914,6 +3995,28 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// runs only where the port's printer has already found that the bare
     /// name does not resolve to the symbol and no in-scope alias names its
     /// module (`symbol_chain`'s file-module arm).
+    /// The in-scope alias that roots `getSymbolChain`'s two-element answer
+    /// for `symbol` at `reference` (`[alias, symbol]`), by name. `None` when
+    /// the chain is anything else.
+    fn alias_rooted_chain_at(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
+            .symbol_chain_at(symbol, reference, meaning, true, true, 0);
+        let &[root, leaf] = chain.as_slice() else { return None };
+        let symbols = self.binder.symbols();
+        if !symbols.get(root).flags.contains(SymbolFlags::ALIAS)
+            || symbols.get(leaf).name != symbols.get(symbol).name
+            || !crate::objects::is_identifier_text(symbols.get(root).name)
+        {
+            return None;
+        }
+        Some(symbols.get(root).name.to_string())
+    }
+
     fn module_rooted_chain_at(
         &mut self,
         symbol: SymbolId,
@@ -4362,6 +4465,12 @@ impl<'a, 'n> Checker<'a, 'n> {
                 if name == "default" || name == "export=" {
                     continue;
                 }
+                // trySymbolTable excludes a UMD alias (`export as namespace`)
+                // in an external module file (symbolaccessibility.go:568;
+                // r7-printer §26).
+                if self.is_umd_alias_excluded_at(candidate, reference) {
+                    continue;
+                }
                 // A DEFAULT import is excluded: under esModuleInterop its
                 // chain runs through the synthetic default, and upstream
                 // prints the module-qualified form there —
@@ -4403,6 +4512,20 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         None
+    }
+
+    /// `trySymbolTable`'s UMD exclusion (`symbolaccessibility.go:568`): an
+    /// alias declared by `export as namespace` is no name for its target from
+    /// inside an external module file.
+    fn is_umd_alias_excluded_at(&self, candidate: SymbolId, reference: NodeId) -> bool {
+        self.binder.symbols().get(candidate).declarations.first().is_some_and(|&declaration| {
+            self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
+        }) && self.source_file_of(reference).and_then(|file| self.node_map.get(file)).is_some_and(
+            |file| {
+                matches!(file, Node::SourceFile(source)
+                    if tsr_binder::is_external_module_in(source, self.nodes))
+            },
+        )
     }
 
     fn module_name_at(
