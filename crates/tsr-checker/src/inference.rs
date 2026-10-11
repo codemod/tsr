@@ -1720,11 +1720,28 @@ impl<'a> Checker<'a, '_> {
         (map, parameters, names): (&[(TypeId, TypeId)], &[TypeId], &[&str]),
     ) {
         let Some(call) = call else { return };
-        let candidates: Vec<NodeId> = arguments
+        let mut candidates: Vec<Expression<'_>> = arguments
             .iter()
-            .filter_map(|&argument| self.resolved_literal_argument_recheck(Some(call), argument))
-            .filter(|id| self.node_types.contains_key(id))
+            .copied()
+            .filter(|&argument| {
+                self.resolved_literal_argument_recheck(Some(call), argument)
+                    .is_some_and(|id| self.node_types.contains_key(&id))
+            })
             .collect();
+        // A function argument keeps the type its first check gave it (native
+        // caches the signature's return), but the writer still re-reads its
+        // return expression in the resolved context: `f(() => [1, "hi", true])`
+        // keeps `[number, string, true]` against `() => [number, string,
+        // boolean]`. Only a concise literal body of a function that is not
+        // context-sensitive, under the same boundary as a literal argument.
+        for &argument in arguments {
+            if let Some(body) = self.concise_literal_body(argument)
+                && body.node_id().is_some_and(|id| self.node_types.contains_key(&id))
+                && self.resolved_literal_argument_recheck(Some(call), body).is_some()
+            {
+                candidates.push(body);
+            }
+        }
         if candidates.is_empty() {
             return;
         }
@@ -1733,16 +1750,34 @@ impl<'a> Checker<'a, '_> {
         let Some(instance) = self.instantiate_signature(instance, map, parameters, names) else {
             return;
         };
-        for (&argument, id) in arguments.iter().zip(arguments.iter().map(Expression::node_id)) {
-            let Some(id) = id.filter(|id| candidates.contains(id)) else { continue };
+        for candidate in candidates {
+            let Some(id) = candidate.node_id() else { continue };
             self.evict_literal_subtree(id);
             let previous = self.call_inference_signatures.insert(call, instance.clone());
-            self.check_expression(argument);
+            self.check_expression(candidate);
             match previous {
                 Some(previous) => self.call_inference_signatures.insert(call, previous),
                 None => self.call_inference_signatures.remove(&call),
             };
         }
+    }
+
+    /// The array or object literal that is the concise body of an arrow
+    /// argument which is not context-sensitive (parentheses peeled).
+    fn concise_literal_body<'e>(&self, argument: Expression<'e>) -> Option<Expression<'e>> {
+        let Expression::ArrowFunction(arrow) = argument else { return None };
+        if self.is_context_sensitive_argument(&argument) {
+            return None;
+        }
+        let mut body = tsr_ast::Expression::try_from(tsr_ast::Node::from(arrow.body?)).ok()?;
+        while let Expression::ParenthesizedExpression(node) = body {
+            body = node.expression?;
+        }
+        matches!(
+            body,
+            Expression::ArrayLiteralExpression(_) | Expression::ObjectLiteralExpression(_)
+        )
+        .then_some(body)
     }
 
     /// The argument node [`Checker::recheck_literal_arguments_in_resolved_signature`]

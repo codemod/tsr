@@ -680,3 +680,18 @@ A binding element destructuring an `unknown` (a `catch` variable under
 The two reports belong to `nonexistent_property.rs` /
 `index_access_reports.rs` (r7-flow) and are not emitted yet for an `unknown`
 parent (routed).
+
+## 20. ARG-CONTEXT-RESOLVED-SIG: a concise literal body of an arrow argument
+
+`f(() => [1, "hi", true])` with `f<T>(cb: () => T): T` under
+`const [e1, e2, e3] = …`: native caches the arrow's signature return from
+its first (inference-pass) check, but the type writer re-reads the return
+expression with its contextual type read through the resolved signature
+(`() => [number, string, boolean]`), so the literal prints
+`[number, string, true]`. `recheck_literal_arguments_in_resolved_signature` now
+also re-checks the concise array/object-literal body of an arrow argument
+that is not context-sensitive, under §1's boundary. The function node and its
+symbol's type are untouched (only the body's `node_types` are evicted), so
+the function's type stays its first check's, as natively. Block bodies'
+`return` expressions would need `signatures.rs`' private
+`return_expressions_of` and are not covered.
