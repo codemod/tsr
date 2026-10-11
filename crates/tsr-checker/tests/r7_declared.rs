@@ -216,3 +216,14 @@ fn a_deferred_conditional_with_a_function_operand_keeps_its_signature() {
         "<S>(x: (S extends () => any ? never : S) | (() => S)) => S"
     );
 }
+
+/// §15: a rest tuple inherits `Array<E>`'s members with `E` the union of its
+/// element type arguments (getTupleBaseType), so `slice` resolves (tsgo:
+/// `t : (string | number)[]`); it was `error`.
+#[test]
+fn a_rest_tuple_reads_its_array_base_members() {
+    let source = "interface Array<T> { slice(start?: number): T[]; length: number }\n\
+         declare const r: [string, ...number[]];\n\
+         const t = r.slice(1);\n";
+    assert_eq!(type_of_last_initializer(source), "(string | number)[]");
+}

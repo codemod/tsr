@@ -3507,6 +3507,11 @@ impl<'a> Checker<'a, '_> {
         if callee_type == self.intrinsics.error {
             return None;
         }
+        if matches!(callee, Expression::KeywordExpression(keyword)
+            if keyword.kind == tsr_ast::SyntaxKind::SuperKeyword)
+        {
+            return self.super_call_argument_context(call, callee_type, index);
+        }
         // `getContextualTypeForArgumentAtIndex` (`checker.go:29772`) reads the
         // call's resolved signature. An untyped call resolves to
         // `anySignature` (`resolveUntypedCall`, `checker.go:9902`), and an
@@ -3549,6 +3554,66 @@ impl<'a> Checker<'a, '_> {
         // converges to when the position's type mentions no type parameter
         // (`parenthesizedContexualTyping2`'s FuncType callbacks, 73 lines).
         let candidates = self.call_signatures_of_type(callee_type)?;
+        self.agreed_candidate_argument_type(&candidates, call.arguments.len(), index)
+    }
+
+    /// resolveCallExpression's `super` arm (`checker.go:8471`): a super call's
+    /// candidates are the base constructor type's construct signatures
+    /// instantiated with the `extends` clause's type arguments
+    /// (`getInstantiatedConstructorsForTypeArguments`), so `super(value =>
+    /// …)` under `extends A<number, string>` types `value` as `number`. An
+    /// `any` super type is resolveUntypedCall's `anySignature` (every argument
+    /// `any`); with no base type node the call is untyped as well.
+    fn super_call_argument_context(
+        &mut self,
+        call: &'a CallExpression<'a>,
+        super_type: TypeId,
+        index: usize,
+    ) -> Option<TypeId> {
+        if super_type == self.intrinsics.native_error
+            || self.store.get(super_type).flags.intersects(crate::flags::TypeFlags::ANY)
+        {
+            return Some(self.intrinsics.any);
+        }
+        let call_id = call.node_id?;
+        let class = self
+            .nodes
+            .ancestors(call_id)
+            .find(|&id| self.nodes.kind(id) == tsr_ast::SyntaxKind::Constructor)
+            .and_then(|constructor| self.nodes.parent(constructor))?;
+        let heritage = match self.node_map.get(class)? {
+            Node::ClassDeclaration(class) => class.heritage_clauses,
+            Node::ClassExpression(class) => class.heritage_clauses,
+            _ => return None,
+        };
+        let Some(base) = heritage
+            .iter()
+            .find(|clause| clause.token.kind == tsr_ast::SyntaxKind::ExtendsKeyword)
+            .and_then(|clause| clause.types.first())
+        else {
+            return Some(self.intrinsics.any);
+        };
+        let candidates =
+            self.instantiated_constructors_for_type_arguments(super_type, base.type_arguments)?;
+        match candidates.as_slice() {
+            [] => None,
+            [single] => {
+                let single = single.clone();
+                self.contextual_argument_type(&single, index, call.arguments.len())
+            }
+            _ => self.agreed_candidate_argument_type(&candidates, call.arguments.len(), index),
+        }
+    }
+
+    /// The overload-set read of [`Checker::contextual_type_for_argument`]'s
+    /// resolving road: the sole arity-matching candidate, else the
+    /// candidates' agreement at `index` (§70, SS114).
+    fn agreed_candidate_argument_type(
+        &mut self,
+        candidates: &[Signature],
+        argument_count: usize,
+        index: usize,
+    ) -> Option<TypeId> {
         // SS114 family 1: when the candidates DISAGREE at this index (or a
         // candidate lacks the position), upstream would contextually type
         // through the RESOLVED signature - the first discriminator of which
@@ -3558,19 +3623,17 @@ impl<'a> Checker<'a, '_> {
         // thirteen None positions on the head case, all at mixed-arity
         // overload pairs.
         let by_arity: Vec<&Signature> =
-            candidates.iter().filter(|c| c.parameters.len() == call.arguments.len()).collect();
+            candidates.iter().filter(|c| c.parameters.len() == argument_count).collect();
         if let [chosen] = by_arity.as_slice() {
-            let parameter_type =
-                self.contextual_argument_type(chosen, index, call.arguments.len())?;
+            let parameter_type = self.contextual_argument_type(chosen, index, argument_count)?;
             if self.mentions_any_type_parameter(parameter_type, 2) {
                 return None;
             }
             return Some(parameter_type);
         }
         let mut agreed: Option<TypeId> = None;
-        for candidate in &candidates {
-            let parameter_type =
-                self.contextual_argument_type(candidate, index, call.arguments.len())?;
+        for candidate in candidates {
+            let parameter_type = self.contextual_argument_type(candidate, index, argument_count)?;
             if self.mentions_any_type_parameter(parameter_type, 2) {
                 return None;
             }

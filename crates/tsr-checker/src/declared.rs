@@ -2114,6 +2114,22 @@ impl<'a> Checker<'a, '_> {
                     let Some(next) = self.resolve_alias(merged) else { break };
                     merged = self.binder.merged_symbol(next);
                 }
+                // getTypeReferenceType over a target that merges an alias
+                // with a value (`import { A } from "./b"; const A = 1;
+                // export { A }`): it is no pure alias, so resolveAlias stops
+                // at it, and tryGetDeclaredTypeOfSymbol answers
+                // getDeclaredTypeOfAlias (`checker.go:14523`), the declared
+                // type of its own alias target. resolveName admitted the
+                // reference because getSymbolFlags accumulates the chain's
+                // flags (exportNamespace9's `type _ = A` is `number`).
+                for _ in 0..8 {
+                    let flags = self.binder.symbols().get(merged).flags;
+                    if flags.intersects(SymbolFlags::TYPE) || !flags.contains(SymbolFlags::ALIAS) {
+                        break;
+                    }
+                    let Some(next) = self.resolve_alias(merged) else { break };
+                    merged = self.binder.merged_symbol(next);
+                }
                 if let Some(required) = required_name
                     && self.declaration_written_name(merged) != Some(required)
                 {

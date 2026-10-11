@@ -1184,6 +1184,11 @@ impl Checker<'_, '_> {
         if let Some(Node::VariableStatement(statement)) = self.node_map.get(owner) {
             return self.await_using_keyword_start(owner, statement);
         }
+        // A `CONST | USING` list starts at its `await` (`parseVariableDeclarationList`
+        // takes the keyword, `parser.go:1563`): `GetRangeOfTokenAtPosition(node.Pos())`.
+        if block_scope == tsr_ast::NodeFlags::CONSTANT {
+            return Some(self.nodes.span(list).start);
+        }
         // A `for` head: the `await` is the token before the list.
         let list_start = self.nodes.span(list).start;
         let file = self.source_file_of_for_diagnostics(list)?;

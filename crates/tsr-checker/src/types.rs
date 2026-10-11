@@ -260,6 +260,13 @@ pub struct TypeStore {
     /// literal's interned key, so every entry is complete; it is dropped when
     /// `complete_object` rewrites an identity (`r5-checkperf.md` §5).
     literal_twins: FxHashMap<(TypeId, bool), TypeId>,
+    /// An object-literal member's display at the literal's own site
+    /// (`PrintedSlot::at_site`, `r7-perf.md` §15), keyed by the member type
+    /// and the literal node it is rendered from. The literal's checker owns
+    /// it; an entry is absent until the member's first composer asks, then
+    /// published once and immutable. Display metadata only: it never enters
+    /// an intern key or a semantic decision.
+    site_display_texts: FxHashMap<(TypeId, tsr_ast::NodeId), String>,
 }
 
 impl TypeStore {
@@ -311,6 +318,27 @@ impl TypeStore {
         let twin = self.intern_literal(flags, data, fresh);
         self.literal_twins.insert((id, fresh), twin);
         twin
+    }
+
+    /// The published site display of an object-literal member
+    /// (`PrintedSlot::at_site`), if its first composer has asked.
+    pub(crate) fn site_display_text(
+        &self,
+        member: TypeId,
+        reference: tsr_ast::NodeId,
+    ) -> Option<&str> {
+        self.site_display_texts.get(&(member, reference)).map(String::as_str)
+    }
+
+    /// Publish a member's site display once; a later publication of the same
+    /// key keeps the first text.
+    pub(crate) fn publish_site_display_text(
+        &mut self,
+        member: TypeId,
+        reference: tsr_ast::NodeId,
+        text: String,
+    ) {
+        self.site_display_texts.entry((member, reference)).or_insert(text);
     }
 
     /// Create a type without interning, always a fresh identity.

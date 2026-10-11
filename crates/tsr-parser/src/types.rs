@@ -643,21 +643,14 @@ impl<'a> Parser<'a> {
         {
             return None;
         }
+        // Past that test native commits (`parseFunctionOrConstructorType`,
+        // `parser.go:2731`): a `<` or an unambiguous `(` is a function type,
+        // and a missing `=>` is `parseReturnType`'s `'=>' expected`
+        // (`shouldParseReturnType`), not a fallback to a parenthesized type.
         let start = self.pos();
-        let parsed = self.try_parse(|p| {
-            let type_parameters = p.parse_type_parameters();
-            if !p.at(SyntaxKind::OpenParenToken) {
-                return None;
-            }
-            // `parseParameters(ParseFlagsType)`: no await context.
-            let parameters = p.with_function_context(false, false, Self::parse_parameter_list);
-            if !p.at(SyntaxKind::EqualsGreaterThanToken) {
-                return None;
-            }
-            Some((type_parameters, parameters))
-        })?;
-
-        let (type_parameters, parameters) = parsed;
+        let type_parameters = self.parse_type_parameters();
+        // `parseParameters(ParseFlagsType)`: no await context.
+        let parameters = self.with_function_context(false, false, Self::parse_parameter_list);
         self.expect(SyntaxKind::EqualsGreaterThanToken);
         // `(x: T) => x is U` is a predicate, same as a function's return type.
         let return_type = self.with_conditional_types_allowed(Parser::parse_type_or_type_predicate);

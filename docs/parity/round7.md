@@ -419,3 +419,47 @@ strict clippy green. Callgrind Ir: generic-imports 1.0019, domain-model
 | `checker_types_configured` | 1,818 | 1,818 |
 | `diagnostics` | 4,934 | 4,949 |
 | `diagnostics_configured` | 1,003 | 1,003 |
+
+### Batch 17 — r7-calls `b8168c30`, r7-contextual `2abb9ccd`, r7-flow `3d2d17f8`, r7-grammar `f562b3f8`, r7-perf `804c649f`
+
+Every lane went idle for about 18 hours after a session interruption. The
+first gate run was cut off part-way and re-run on resumption. Merged onto
+main `4a5c81bf`, plus a fmt fix in `strict_mode.rs`. Gate against the
+batch-16 freeze: types +39 RIGHT / 0 lost / 0 missing, diagnostics +11
+cases / 0 lost / 0 missing; jsTyping 126 → 125 unique lines, new_false 0,
+lost_true 0; tests and strict clippy green. Callgrind Ir: generic-imports
+0.9995, **domain-model 0.9600**. That is r7-perf's lazy object-literal member
+text: native prints only on error paths, and the CLI-message audit is in
+r7-perf.md. No suite's failure count rose. The gate scripts are now in
+`scripts/integration/`.
+
+| Suite | Batch 16 | Batch 17 |
+|---|---|---|
+| `checker_types` | 8,825 | 8,831 |
+| `checker_types_configured` | 1,818 | 1,818 |
+| `diagnostics` | 4,949 | 4,958 |
+| `diagnostics_configured` | 1,003 | 1,005 |
+
+### Batch 18 — r7-declared `5e8714ed`, r7-parser `529fa4ba`, r7-printer `c228f3a7`, r7-shared `4caebf2b`
+
+Merged onto main `9acf69d7`. Gate against the batch-17 freeze: types +43
+RIGHT / 0 lost / 0 missing, diagnostics +10 cases / 0 lost / 0 missing;
+jsTyping 125/125, new_false 0, lost_true 0; tests, fmt, strict clippy green;
+callgrind Ir generic-imports 0.9999, domain-model 1.0002. No suite's failure
+count rose.
+
+| Suite | Batch 17 | Batch 18 |
+|---|---|---|
+| `checker_types` | 8,831 | 8,839 |
+| `checker_types_configured` | 1,818 | 1,818 |
+| `diagnostics` | 4,958 | 4,968 |
+| `diagnostics_configured` | 1,005 | 1,005 |
+
+**Exact native oracle baseline.** The full-output oracle (`parity_gate.sh
+oracle-native` / `oracle-tsr`, docs/parity/notes/oracle.md) compares
+messages, chains, related information, spans, order and type text. It reads
+**9,554 / 12,797 EXACT (74.66%)** on batch-17 main `9acf69d7`, up from 8,303
+at the round-6 owner continuation. It becomes a gate leg (`exact-candidate`,
+no EXACT loss) once its run fits inside a session. Session interruptions
+killed long background jobs three times today, so gates now run as
+supervised orb services (`scripts/integration/svcgate.sh`).

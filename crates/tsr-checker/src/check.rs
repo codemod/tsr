@@ -10556,6 +10556,9 @@ impl Checker<'_, '_> {
             Node::IndexSignatureDeclaration(n) => n.r#type.and_then(|t| t.node_id()),
             _ => None,
         };
+        // "Check decorator placement in JS files" (`checkJSDecoratorSyntax`,
+        // `parser.go:6657`), between upstream's two switches.
+        self.check_js_decorator_syntax(node, typed);
         // A type parameter list — upstream's second `switch`, first arm.
         let type_parameters: &[&tsr_ast::TypeParameterDeclaration<'_>] = match typed {
             Node::ClassDeclaration(n) => n.type_parameters,
@@ -10704,6 +10707,85 @@ impl Checker<'_, '_> {
         let end =
             listed.last().map_or(self.nodes.span(first).end, |last| self.nodes.span(last).end);
         self.report(file, Diagnostic::new(message, tsr_core::Span::new(start, end)));
+    }
+
+    /// `checkJSDecoratorSyntax` (`parser.go:6657`): a decorator on a node that
+    /// cannot have one is TS1206 on the first decorator
+    /// (`ast.CanHaveIllegalDecorators`); on a class declaration, a decorator
+    /// between `export` and `default` is TS1206, and decorators both before
+    /// and after `export` are TS8038 on the first one after it.
+    /// `docs/parity/notes/r7-parser.md` §6.
+    fn check_js_decorator_syntax(&mut self, node: NodeId, typed: Node<'_>) {
+        let Some(modifiers) = modifiers_of(typed) else { return };
+        if modifiers.is_empty() {
+            return;
+        }
+        let is_decorator =
+            |m: &tsr_ast::ModifierLike<'_>| matches!(m, tsr_ast::ModifierLike::Decorator(_));
+        let is_keyword = |m: &tsr_ast::ModifierLike<'_>, kind: SyntaxKind| matches!(m, tsr_ast::ModifierLike::Token(token) if token.kind == kind);
+        // `ast.CanHaveIllegalDecorators` (`ast/utilities.go:1072`).
+        let can_have_illegal_decorators = matches!(
+            typed,
+            Node::PropertyAssignment(_)
+                | Node::ShorthandPropertyAssignment(_)
+                | Node::FunctionDeclaration(_)
+                | Node::ConstructorDeclaration(_)
+                | Node::IndexSignatureDeclaration(_)
+                | Node::ClassStaticBlockDeclaration(_)
+                | Node::MissingDeclaration(_)
+                | Node::VariableStatement(_)
+                | Node::InterfaceDeclaration(_)
+                | Node::TypeAliasDeclaration(_)
+                | Node::EnumDeclaration(_)
+                | Node::ModuleDeclaration(_)
+                | Node::ImportEqualsDeclaration(_)
+                | Node::ImportDeclaration(_)
+                | Node::NamespaceExportDeclaration(_)
+                | Node::ExportDeclaration(_)
+                | Node::ExportAssignment(_)
+        );
+        if can_have_illegal_decorators {
+            if let Some(decorator) =
+                modifiers.iter().find(|m| is_decorator(m)).and_then(tsr_ast::ModifierLike::node_id)
+            {
+                self.report_js_only(decorator, &messages::DECORATORS_ARE_NOT_VALID_HERE, None);
+            }
+            return;
+        }
+        // `ast.CanHaveDecorators` (`ast/utilities.go:1133`): of its kinds only
+        // a class declaration has an `export`/`default` placement rule.
+        let Node::ClassDeclaration(_) = typed else { return };
+        let Some(decorator_index) = modifiers.iter().position(is_decorator) else { return };
+        let Some(export_index) =
+            modifiers.iter().position(|m| is_keyword(m, SyntaxKind::ExportKeyword))
+        else {
+            return;
+        };
+        let default_index =
+            modifiers.iter().position(|m| is_keyword(m, SyntaxKind::DefaultKeyword));
+        if decorator_index > export_index && default_index.is_some_and(|d| decorator_index < d) {
+            // A decorator between `export` and `default`.
+            if let Some(decorator) = modifiers[decorator_index].node_id() {
+                self.report_js_only(decorator, &messages::DECORATORS_ARE_NOT_VALID_HERE, None);
+            }
+        } else if decorator_index < export_index
+            && let Some(trailing) = modifiers[export_index..].iter().find(|m| is_decorator(m))
+            && let Some(trailing) = trailing.node_id()
+            && let Some(file) = self.source_file_of_for_diagnostics(node)
+        {
+            let mut diagnostic = Diagnostic::new(
+                &messages::DECORATORS_MAY_NOT_APPEAR_AFTER_EXPORT_OR_EXPORT_DEFAULT_IF_THEY_ALSO_APPEAR_BEFORE_EXPORT,
+                self.nodes.span(trailing),
+            );
+            let related = modifiers[decorator_index].node_id().map(|first| {
+                Diagnostic::new(
+                    &messages::DECORATOR_USED_BEFORE_EXPORT_HERE,
+                    self.nodes.span(first),
+                )
+            });
+            diagnostic.add_related_information(related);
+            self.report(file, diagnostic);
+        }
     }
 
     /// `jsErrorAtRange` — the node's own span, with an optional argument. §569.

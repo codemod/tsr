@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8825/9538 (92.52%)
-Assertion lines: 475209/478853 (99.24%)  — a gradient, not a pass rate
-Failed         : 713
+Passed         : 8839/9538 (92.67%)
+Assertion lines: 475291/478853 (99.26%)  — a gradient, not a pass rate
+Failed         : 699
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,13 +12,11 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 713 failures:
+First 100 of 699 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
   acceptSymbolAsWeakType.ts: >f : error — expected >f : FinalizationRegistry<unknown>
-compiler/aliasDoesNotDuplicateSignatures
-  user.ts: >f : any — expected >f : () => void
 compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1
   aliasInstantiationExpressionGenericIntersectionNoCrash1.ts: >e : ErrAlias<number> — expected >e : { new (): ErrImpl<number>; prototype: ErrImpl<any>; } & (() => number)
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -119,10 +117,6 @@ compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
   complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts: >ChannelType : Channel extends { type: infer R; } ? R : never — expected >ChannelType : "email" | "text"
 compiler/complicatedIndexesOfIntersectionsAreInferencable
   complicatedIndexesOfIntersectionsAreInferencable.ts: >{    initialValues: {        foo: ""    },    validate: props => {        props.foo;    }} : error — expected >{    initialValues: {        foo: ""    },    validate: props => {        props.foo;    }} : { initialValues: { foo: string; }; validate: (props: { foo: string; }) => void; }
-compiler/computedPropertiesInDestructuring1
-  computedPropertiesInDestructuring1.ts: >{[foo]: bar} : any — expected >{[foo]: bar} : { [foo]: any; }
-compiler/computedPropertiesInDestructuring1_ES6
-  computedPropertiesInDestructuring1_ES6.ts: >{[foo]: bar} : any — expected >{[foo]: bar} : { [foo]: any; }
 compiler/computedPropertiesWithSetterAssignment
   /a.ts: >foo[k] : Set<string> — expected >foo[k] : Iterable<string>
 compiler/computedTypesKeyofNoIndexSignatureType
@@ -140,9 +134,9 @@ compiler/conditionalTypeGenericInSignatureTypeParameterConstraint
 compiler/conflictMarkerTrivia3
   conflictMarkerTrivia3.tsx: 16 assertion(s), expected 4
 compiler/conflictingDeclarationsImportFromNamespace1
-  node_modules/@types/lodash/pick.d.ts: >pick : any — expected >pick : <T extends object, U extends keyof T>(object: T, ...props: Array<U>) => Pick<T, U>
+  index.ts: >pick : { default: <T extends object, U extends keyof T>(object: T, ...props: Array<U>) => Pick<T, U>; } — expected >pick : () => any
 compiler/conflictingDeclarationsImportFromNamespace2
-  node_modules/@types/lodash/pick.d.ts: >pick : any — expected >pick : <T extends object, U extends keyof T>(object: T, ...props: Array<U>) => Pick<T, U>
+  index.ts: >pick : { default: <T extends object, U extends keyof T>(object: T, ...props: Array<U>) => Pick<T, U>; } — expected >pick : () => any
 compiler/constEnums
   constEnums.ts: >e : I — expected >e : I.V2 | I.V3 | I.V4
 compiler/contextualOuterTypeParameters
@@ -213,3 +207,9 @@ compiler/cyclicGenericTypeInstantiation
   cyclicGenericTypeInstantiation.ts: >foo : <T>() => { y2: { y2: typeof z; }; } — expected >foo : <T>() => { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: any; }; }; }; }; }; }; }; }; }; }; }
 compiler/cyclicGenericTypeInstantiationInference
   cyclicGenericTypeInstantiationInference.ts: >foo : <T>() => { y2: { y2: typeof z; }; } — expected >foo : <T>() => { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: any; }; }; }; }; }; }; }; }; }; }; }
+compiler/cyclicTypeInstantiation
+  cyclicTypeInstantiation.ts: >foo : <T>() => { a: T; b: { a: T; b: typeof x; }; } — expected >foo : <T>() => { a: T; b: any; }
+compiler/declFileRestParametersOfFunctionAndFunctionType
+  declFileRestParametersOfFunctionAndFunctionType.ts: >f5 : <T extends { (...args: any[]): void; }>() => void — expected >f5 : <T extends { (...args: any): void; }>() => void
+compiler/declarationAssertionNodeNotReusedWhenTypeNotEquivalent1
+  declarationAssertionNodeNotReusedWhenTypeNotEquivalent1.ts: >unwrapped : { prop1: "hello" extends Record<string, Wrapper<any>> ? { [x: number]: never; toString: never; charAt: never; charCodeAt: never; concat: never; indexOf: never; lastIndexOf: never; localeCompare: Unwrap<{ (that: string): number; (that: string, locales?: string | string[], options?: Intl.CollatorOptions): number; }>; match: Unwrap<{ (regexp: string | RegExp): RegExpMatchArray | null; (matcher: { [Symbol.match](string: string): RegExpMatchArray | null; }): RegExpMatchArray | null; }>; replace: Unwrap<{ (searchValue: string | RegExp, replaceValue: string): string; (searchValue: string | RegExp, replacer: (substring: string, ...args: any[]) => string): string; (searchValue: { [Symbol.replace](string: string, replaceValue: string): string; }, replaceValue: string): string; (searchValue: { [Symbol.replace](string: string, replacer: (substring: string, ...args: any[]) => string): string; }, replacer: (substring: string, ...args: any[]) => string): string; }>; search: Unwrap<{ (regexp: string | RegExp): number; (searcher: { [Symbol.search](string: string): number; }): number; }>; slice: never; split: Unwrap<{ (separator: string | RegExp, limit?: number): string[]; (splitter: { [Symbol.split](string: string, limit?: number): string[]; }, limit?: number): string[]; }>; substring: never; toLowerCase: never; toLocaleLowerCase: never; toUpperCase: never; toLocaleUpperCase: never; trim: never; readonly length: never; substr: never; valueOf: never; codePointAt: never; includes: never; endsWith: never; normalize: Unwrap<{ (form: "NFC" | "NFD" | "NFKC" | "NFKD"): string; (form?: string): string; }>; repeat: never; startsWith: never; anchor: never; big: never; blink: never; bold: never; fixed: never; fontcolor: never; fontsize: Unwrap<{ (size: number): string; (size: string): string; }>; italics: never; link: never; small: never; strike: never; sub: never; sup: never; } : "hello"; } — expected >unwrapped : { prop1: "hello"; }
