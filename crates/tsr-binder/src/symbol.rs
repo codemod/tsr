@@ -169,6 +169,11 @@ impl SymbolFlags {
     /// its excludes silently permits every redeclaration, which is the failure
     /// mode a parallel list invites.
     #[must_use]
+    #[allow(
+        clippy::inline_always,
+        reason = "measured: outlined, these binder predicates cost +0.4% Ir on generic-imports (r7-shared.md §16)"
+    )]
+    #[inline(always)]
     pub fn excludes(self) -> Self {
         // `var` may be redeclared as `var`, but not as anything else with a value.
         if self.contains(Self::FUNCTION_SCOPED_VARIABLE) {

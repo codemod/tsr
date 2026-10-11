@@ -690,3 +690,30 @@ the rule that file already applies to a union constituent (homomorphic
 the symbol, `property_signature_is_readonly` included as native's
 `isReadonlySymbol` covers a readonly property signature). The only change in
 r7-flow's file is that function's visibility (`pub(crate)`). No cache.
+
+## 16. `bindNamespaceExportDeclaration`'s placement diagnostics
+
+Routed from r7-grammar. `export as namespace N` (binder.go:820): any modifier
+is TS1184 and the declaration still binds; then outside a source file's top
+level TS1316, in a script TS1314, in a non-declaration file TS1315 — each on
+the statement, and none of the three declares the UMD alias. The binder
+declared it unconditionally and reported nothing. `Binder::statement_span`
+is `getErrorSpanForNode`'s default arm (the node's span from its first token).
+
+Not ported here: TS18012 (`#constructor`, `checkPrivateIdentifier`,
+binder.go:1323) is reported only when the file has no parse diagnostics
+(`len(b.file.Diagnostics()) == 0`), which this binder cannot see — its
+inputs are the AST and `FileInfo { name, text }`. Porting it faithfully needs
+the parse-diagnostic count at bind time (a `FileInfo` field, which every
+construction site across the compiler, conformance and test crates would
+have to supply), routed back to the integrator.
+
+Perf: the arm sits behind `declare`'s `GlobalExports` destination (unique to
+this declaration) in a `#[cold]` function, so other nodes pay nothing. The
+binder's growth from this lane's arms pushed four tiny predicates
+(`SymbolFlags::excludes`, `computed_property_name`,
+`is_exported_from_container`, `is_parameter_property`) out of line in the
+merged `bind_inner`: callgrind Ir generic-imports +0.42% until they were
+marked `#[inline(always)]` (`#[inline]` alone was not honoured), after which
+the lane's head reads generic-imports 1.0011, domain-model 1.0003 against
+batch 19.

@@ -3370,6 +3370,11 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// Upstream: `ast.IsParameterPropertyDeclaration`. The accessibility,
     /// `readonly`, and `override` modifiers are the ones that promote a parameter
     /// to a property; `constructor(x)` alone does not.
+    #[allow(
+        clippy::inline_always,
+        reason = "measured: outlined, these binder predicates cost +0.4% Ir on generic-imports (r7-shared.md §16)"
+    )]
+    #[inline(always)]
     fn is_parameter_property(&self, node: Node<'a>) -> bool {
         let Node::ParameterDeclaration(parameter) = node else { return false };
         if !parameter.modifiers.iter().any(|modifier| {
@@ -3392,6 +3397,11 @@ impl<'a, 'n> Binder<'a, 'n> {
     /// Upstream: the `hasExportModifier || container.Flags&NodeFlagsExportContext`
     /// test in `declareModuleMember`. Two ways to be exported from a namespace —
     /// say so, or be inside an ambient one that exports everything implicitly.
+    #[allow(
+        clippy::inline_always,
+        reason = "measured: outlined, these binder predicates cost +0.4% Ir on generic-imports (r7-shared.md §16)"
+    )]
+    #[inline(always)]
     fn is_exported_from_container(&self, node: Node<'a>) -> bool {
         // An export specifier is *always* an export of its container, and there is
         // no `export` modifier on it to find — the keyword belongs to the
@@ -4465,6 +4475,7 @@ impl<'a, 'n> Binder<'a, 'n> {
         if let Some(name_node) = name_node_of(node) {
             self.name_nodes.push((id, name_node));
         }
+
         // bindCallExpression (native 5b1047d1 binder.go:920): syntactic
         // require calls mark JS CommonJS modules even when the binding is
         // shadowed. Semantic require-call recognition belongs to the checker.
@@ -4550,6 +4561,15 @@ impl<'a, 'n> Binder<'a, 'n> {
         }
 
         let (flags, destination) = self.classify(node, id)?;
+        // `bindNamespaceExportDeclaration` (binder.go:820). `GlobalExports` is
+        // that declaration's destination alone, so the hot path for every
+        // other node pays one comparison it already made.
+        if destination == Destination::GlobalExports
+            && let Node::NamespaceExportDeclaration(declaration) = node
+            && self.namespace_export_declaration_is_misplaced(declaration, id)
+        {
+            return None;
+        }
 
         // A *late-bound* name — `[Symbol.iterator]`, `[k]`, `[foo()]` — is
         // whatever the expression evaluates to, which needs the checker. Upstream
@@ -4789,6 +4809,64 @@ impl<'a, 'n> Binder<'a, 'n> {
     ///
     /// The declaration's name, falling back to the declaration itself — upstream's
     /// `declarationName == nil` branch (`binder.go:245`).
+    /// `bindNamespaceExportDeclaration` (binder.go:820): modifiers are
+    /// TS1184 and the declaration still binds; outside a source file's top
+    /// level (TS1316), in a script (TS1314) or in a non-declaration file
+    /// (TS1315) it reports on the statement and declares nothing
+    /// (`docs/parity/notes/r7-shared.md` §16). Answers whether it declares
+    /// nothing.
+    #[cold]
+    #[inline(never)]
+    fn namespace_export_declaration_is_misplaced(
+        &mut self,
+        declaration: &tsr_ast::NamespaceExportDeclaration<'a>,
+        id: NodeId,
+    ) -> bool {
+        let span = self.statement_span(id);
+        if !declaration.modifiers.is_empty() {
+            self.diagnostics.push(Diagnostic::new(&messages::MODIFIERS_CANNOT_APPEAR_HERE, span));
+        }
+        let misplaced = if self.nodes.parent(id).map(|parent| self.nodes.kind(parent))
+            != Some(SyntaxKind::SourceFile)
+        {
+            Some(&messages::GLOBAL_MODULE_EXPORTS_MAY_ONLY_APPEAR_AT_TOP_LEVEL)
+        } else if !self.is_module {
+            Some(&messages::GLOBAL_MODULE_EXPORTS_MAY_ONLY_APPEAR_IN_MODULE_FILES)
+        } else if !self.in_declaration_file {
+            Some(&messages::GLOBAL_MODULE_EXPORTS_MAY_ONLY_APPEAR_IN_DECLARATION_FILES)
+        } else {
+            None
+        };
+        if let Some(message) = misplaced {
+            self.diagnostics.push(Diagnostic::new(message, span));
+            return true;
+        }
+        false
+    }
+
+    /// `getErrorSpanForNode` for a node without a name arm: its span from
+    /// the first token, leading trivia skipped (`scanner.SkipTrivia`).
+    fn statement_span(&self, node: NodeId) -> tsr_core::Span {
+        let span = self.nodes.span(node);
+        let start =
+            self.source.get(span.start as usize..span.end as usize).map_or(span.start, |text| {
+                let mut rest = text;
+                loop {
+                    let trimmed = rest.trim_start();
+                    if let Some(after) = trimmed.strip_prefix("//") {
+                        rest = after.find('\n').map_or("", |end| &after[end..]);
+                    } else if let Some(after) = trimmed.strip_prefix("/*") {
+                        rest = after.find("*/").map_or("", |end| &after[end + 2..]);
+                    } else {
+                        rest = trimmed;
+                        break;
+                    }
+                }
+                span.start + u32::try_from(text.len() - rest.len()).unwrap_or(0)
+            });
+        tsr_core::Span::new(start, span.end)
+    }
+
     fn declaration_name_span(&mut self, declaration: NodeId) -> tsr_core::Span {
         for &(id, name) in &self.name_nodes[self.name_indexed..] {
             self.name_index.insert(id, name);
@@ -5475,6 +5553,11 @@ fn bindable_object_define_property_target(node: Node<'_>) -> Option<Expression<'
 }
 
 /// The computed property name a declaration was written with, if it was.
+#[allow(
+    clippy::inline_always,
+    reason = "measured: outlined, these binder predicates cost +0.4% Ir on generic-imports (r7-shared.md §16)"
+)]
+#[inline(always)]
 fn computed_property_name(node: Node<'_>) -> Option<&tsr_ast::ComputedPropertyName<'_>> {
     let name = match node {
         Node::PropertyDeclaration(n) => n.name,
