@@ -5475,6 +5475,19 @@ impl<'a> Checker<'a, '_> {
                 let Some(target) = self.global_type_symbol(target_name) else { return Some(error) };
                 return Some(self.create_type_reference(target, vec![mapped_element]));
             }
+            // The members-owner image reads the source's own table, which
+            // keeps a private or protected member; resolveMappedTypeMembers
+            // enumerates through getLiteralTypeFromProperty, which drops them
+            // (checker.go:26746). Such a source takes the mapped road
+            // (r7-declared §20).
+            if self.get_property_names_of_type(arguments[0]).is_some_and(|names| {
+                names.iter().any(|name| {
+                    self.get_property_of_type(arguments[0], name)
+                        .is_some_and(|property| self.is_non_public_member(property))
+                })
+            }) {
+                return None;
+            }
             let source_owner = self.members_owner_of(arguments[0])?;
             // Native getTypeAliasInstantiation owns completed reuse by alias
             // symbol and ordered type identities, never rendered argument text.

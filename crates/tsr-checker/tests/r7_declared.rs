@@ -227,3 +227,17 @@ fn a_rest_tuple_reads_its_array_base_members() {
          const t = r.slice(1);\n";
     assert_eq!(type_of_last_initializer(source), "(string | number)[]");
 }
+
+/// §20: a homomorphic mapping over a class enumerates no key for a private or
+/// protected member (getLiteralTypeFromProperty's non-public arm; tsgo:
+/// `Property 'a' does not exist on type 'Req<PrivateState>'`), so its keys
+/// are the public ones only.
+#[test]
+fn a_mapped_type_over_a_class_drops_non_public_members() {
+    let source = "class PrivateState { private a = 1; protected c = 3; b = 2; }\n\
+         type Req<T> = { [K in keyof T]-?: T[K] };\n\
+         declare const r: Req<PrivateState>;\n\
+         declare function keys<T>(x: T): keyof T;\n\
+         const k = keys(r);\n";
+    assert_eq!(type_of_last_initializer(source), "\"b\"");
+}

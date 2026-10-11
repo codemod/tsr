@@ -751,3 +751,26 @@ them: an enum member, class or interface target cannot close one.
 (conformance/enums 4, checkerInitializationCrash 1; circular4 stays RIGHT);
 diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm
 1.0000.
+
+## 20. A homomorphic mapping over a class drops its non-public members (routed from r7-reports)
+
+**Forcing constraint.** resolveMappedTypeMembers enumerates the modifiers
+type's properties through getLiteralTypeFromProperty (`checker.go:26746`),
+which answers `never` for a private or protected member. So `Req<T> = { [K
+in keyof T]-?: T[K] }` over `class PrivateState { private a; b }` has
+only `b`, and `r.a` is TS2339 natively. TSR had two roads that kept `a`:
+- `mapped_member_keys` (`mapped.rs`) took every property name;
+- `instantiate_identity_mapped_alias`'s members-owner image (`declared.rs`)
+  reads the source class's own table.
+
+TSR therefore reported TS2341 ("private and only accessible within class")
+where tsgo reports TS2339.
+
+**Port.** `mapped_member_keys` skips a non-public property
+(`is_non_public_member`), and the identity image declines a source with a
+non-public member, so it takes the mapped road. No state.
+
+**Measured** (unfiltered against `4af98855`): types 0 / 0, diagnostics
+0 / 0 (no corpus case reads such a member); jsTyping new_false 0 /
+lost_true 0; Ir gi 1.0001, dm 1.0002. Probe: `Req<PrivateState>`'s `a` is
+TS2339, as in tsgo.
