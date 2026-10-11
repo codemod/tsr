@@ -1485,7 +1485,36 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `node.TypeParameters()`: the written list, or, in a JS file, the
+    /// `@template` list the reparser hosts on a function-like or class whose
+    /// written list is empty (`reparseHosted`'s `KindJSDocTemplateTag` arm,
+    /// `parser/reparser.go:446`). The hosted list is `jsdoc_template_lists`'
+    /// for the comment's host: the node itself, or the ancestor (a variable
+    /// statement, property, export assignment …) whose comment
+    /// `jsdoc_function_like_host` maps to this node (r7-grammar §27).
     fn type_parameters_of(&self, node: NodeId) -> Vec<NodeId> {
+        let written = self.written_type_parameters_of(node);
+        if !written.is_empty() || !self.in_js_file(node) {
+            return written;
+        }
+        let kind = self.nodes.kind(node);
+        let hosts = std::iter::once(node).chain(
+            self.nodes
+                .ancestors(node)
+                .take(4)
+                .filter(|&ancestor| self.jsdoc_function_like_host(ancestor) == Some(node)),
+        );
+        for host in hosts {
+            for (hosted_kind, list) in self.jsdoc_template_lists(host) {
+                if hosted_kind == kind {
+                    return list.iter().filter_map(|parameter| parameter.node_id).collect();
+                }
+            }
+        }
+        written
+    }
+
+    fn written_type_parameters_of(&self, node: NodeId) -> Vec<NodeId> {
         let collect = |parameters: &[&tsr_ast::TypeParameterDeclaration<'_>]| -> Vec<NodeId> {
             parameters.iter().filter_map(|p| p.node_id).collect()
         };

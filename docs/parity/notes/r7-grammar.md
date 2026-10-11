@@ -516,6 +516,28 @@ source-text test) — are gone: `await_using_list_await_start`
 flags directly. Correction of the record: those sections' "this parser eats
 the `await`" no longer holds as of `054b714f`.
 
+## §27 Unused `@template` type parameters in JS (TS6133/TS6196/TS6205)
+
+`checkUnusedTypeParameters` (`checker.go:7290`) reads `node.TypeParameters()`.
+In a JS file the reparser hosts a comment's `@template` list there when the
+written list is empty (`reparseHosted`'s `KindJSDocTemplateTag` arm,
+`parser/reparser.go:446`). `type_parameters_of` (`unused.rs`) took only the
+written list, so `/** @template T */ function f() {}` reported nothing where
+upstream reports TS6196 on `T`. It now falls back to `jsdoc_template_lists`
+for the comment's host, the same list `checkTypeParameters` already reads for
+these nodes (check.rs). The host is the node itself, or the ancestor (at most
+four levels up: a variable statement, property assignment, expression
+statement) whose comment `jsdoc_function_like_host` maps to this node, which
+is the forward direction of that mapping. A list is used only when its kind
+is the node's kind, so a `@typedef`'s `@template` list (kind
+`TypeAliasDeclaration`) never lands on a function. References to the
+parameter are the existing `symbol_reference_kinds`, so a parameter the
+binder does not bind is not reported. No cache; this runs once per checked
+declaration in the unused pass.
+*Falsifier.* A TS6133/TS6196 on a `@template` parameter that a JSDoc type
+references, or on a function that has a written `<T>` list.
+Converted: `unusedTypeParameters_templateTag`.
+
 ## §29 TS2564's constructor arm on the flow query (CLASS-PROPERTY-INITIALIZER)
 
 `checkPropertyInitialization` (`checker.go:4933`) reports TS2564 when
