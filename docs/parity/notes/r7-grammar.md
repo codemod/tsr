@@ -883,3 +883,18 @@ its file (§34). This was the `TS2728 in TS2552` family of `full_oracle_run
 rank` (about 34 cases over five buckets). Measured near-full oracle vs
 `f32a7263e`, together with §44: +42, 0 lost. Not changed: the JSX-factory
 and export-specifier suggestion sites, whose messages are other codes.
+
+## §46 TS2448/TS2449/TS2450's related declaration
+
+`checkResolvedBlockScopedVariable` (`checker.go:1895`) adds
+`'{0}' is declared here.` at the block-scoped, class or enum declaration to
+every used-before-declaration report
+(`AddRelatedInfo(createDiagnosticForNode(declaration, …))`). The port's
+reporter (check.rs, a declaration check) emitted the head alone at both of
+its report sites (the class's own computed-name/decorator arm and the
+ordinary arm). `report_used_before_declaration` now builds both with the
+related diagnostic, with its file (§34). This was the `TS2728 in
+TS2448/TS2449/TS2450` family (about 25 cases in `full_oracle_run rank` on
+`bdd9ce10`). Measured near-full oracle vs `dbb3ef7ef`: +34, 0 lost. Not here:
+TS2729's related declaration (`Property used before its initialization`,
+24 cases), whose reporter is readonly_target.rs (r7-flow's).
