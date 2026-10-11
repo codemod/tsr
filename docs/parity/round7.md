@@ -463,3 +463,22 @@ at the round-6 owner continuation. It becomes a gate leg (`exact-candidate`,
 no EXACT loss) once its run fits inside a session. Session interruptions
 killed long background jobs three times today, so gates now run as
 supervised orb services (`scripts/integration/svcgate.sh`).
+
+### Batch 19 — r7-contextual `2bd6ce94`, r7-declared `9b77d498`, r7-grammar `71d23989`, r7-perf `246ff8b6`, r7-printer `7d71f6ba`, r7-reports `6e683aec`
+
+Merged onto main `ee67a1d5` (r7-calls conflicted and was returned for a rebase).
+This is the first batch gated by the exact native oracle as well: **9,554 → 9,582 EXACT
+(74.88%), 28 gained, 0 lost, 0 missing** against the batch-17 report. The
+legacy compare against the batch-18 freeze: types +30 RIGHT / 0 lost / 0
+missing, diagnostics +8 cases / 0 lost / 0 missing; jsTyping 125/125,
+new_false 0, lost_true 0; tests, fmt, strict clippy green; callgrind Ir
+generic-imports 1.0001, domain-model 1.0029 (r7-reports' TS7034/TS7005
+auto reporter walks flow once per auto-typed read, as native's
+checkIdentifier does). No suite's failure count rose.
+
+| Suite | Batch 18 | Batch 19 |
+|---|---|---|
+| `checker_types` | 8,839 | 8,845 |
+| `checker_types_configured` | 1,818 | 1,818 |
+| `diagnostics` | 4,968 | 4,976 |
+| `diagnostics_configured` | 1,005 | 1,005 |
