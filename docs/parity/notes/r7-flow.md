@@ -853,3 +853,40 @@ Measured on `0a4150b0` unfiltered: types **+2** (`narrowingUnionWithBang`
 0:49/0:51), diagnostics unchanged, 0 lost; exact oracle 9664 → 9665, 0 lost;
 jsTyping 122 → 122, new_false 0,
 lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## §28 The function miss certificate reads function expressions and arrows too
+
+`function_declaration_lacks` certifies a miss on a function's type:
+`resolveAnonymousTypeMembers` gives it the symbol's exports, then
+`getPropertyOfTypeEx` falls to the global `Function` family and `Object`
+(`checker.go:18899`). It accepted only a `function` declaration's symbol, so
+`const { date } = (inspectedElement: any) => 0` (`destructuringControlFlowNoCrash`)
+was silent where native reports TS2339 "Property 'date' does not exist on
+type '(inspectedElement: any) => number'". A function expression's or arrow's
+type is the same anonymous function type over its own symbol, so the
+certificate now admits those declarations too (still not in JS). An expando
+assignment (`const f = () => {}; f.x = 1`) binds to the initializer's symbol
+(`initializer_symbol`, as native's expando container), whose non-empty exports
+keep declining.
+
+Measured on `ef61f7d9` unfiltered: diagnostics **+1**
+(`destructuringControlFlowNoCrash`), types unchanged, 0 lost; jsTyping
+unchanged.
+
+## §29 `typeof globalThis` leaves out ambient modules for an indexed access type
+
+`resolveAnonymousTypeMembers`' globalThis arm (`checker.go:20674-20680`)
+keeps a global only when it is not block-scoped and not a value module whose
+every declaration is an ambient module. The indexed-access report
+(`index_access_reports.rs`) tested the block-scoped half only, so
+`(typeof globalThis)["\"ambientModule\""]` found `declare module
+"ambientModule"`'s symbol and was silent (`globalThisAmbientModules`, two
+TS2339). It now applies both halves (an ambient module is a
+`ModuleDeclaration` with a string-literal name).
+
+Measured (§28 + §29) on `ef61f7d9` unfiltered: diagnostics **+2**
+(`destructuringControlFlowNoCrash`, `globalThisAmbientModules`), types
+unchanged, 0 lost; exact oracle 9665 → 9666 (`destructuringControlFlowNoCrash`;
+`globalThisAmbientModules` keeps a `globalThis.namespaceModule.typ` printing
+row), 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 0.9999, dm
+1.0000.
