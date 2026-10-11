@@ -2,14 +2,14 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 printer_round_trip Summary:
 What a pass means: every unit of the case parses, prints, and reparses to the same tree
-Passed         : 11806/11815 (99.92%)
-Failed         : 4
+Passed         : 11814/11824 (99.92%)
+Failed         : 5
 Unsupported    : 5
-Skipped        : 629 (excluded from the denominator)
+Skipped        : 620 (excluded from the denominator)
 
   1  printer does not implement JSDocNonNullableType
   4  printer does not implement JSDocNullableType
-  629  skipped: the case does not parse cleanly, so there is no tree to preserve
+  620  skipped: the case does not parse cleanly, so there is no tree to preserve
 
 compiler/accessorBodyInTypeContext
   tree differs at node 4: Block became TypeAliasDeclaration
@@ -19,3 +19,5 @@ compiler/errorOnInitializerInObjectTypeLiteralProperty
   tree differs at node 6: NumericLiteral(5) became VariableStatement
 compiler/throwWithoutNewLine2
   printed text does not parse: Expression expected.
+conformance/instantiationExpressions
+  tree differs at node 33: ExpressionWithTypeArguments became Identifier(fx)

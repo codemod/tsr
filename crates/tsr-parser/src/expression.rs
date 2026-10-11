@@ -557,6 +557,24 @@ impl<'a> Parser<'a> {
         } else if self.at(SyntaxKind::SuperKeyword) {
             self.parse_super_expression()
         } else if self.at(SyntaxKind::ImportKeyword)
+            && self.peek_kind(|kind| {
+                matches!(kind, SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken)
+            })
+        {
+            // `parseLeftHandSideExpressionOrHigher`'s import-call arm
+            // (`parser.go:5180`): only an `import` followed by `(` or `<` is a
+            // keyword expression. Any other `import` here falls through to
+            // `parsePrimaryExpression`, which has no `import` arm — TS1109
+            // (`var x = import { foo } from …`).
+            self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT;
+            let kind = self.token.kind;
+            self.next_token();
+            Expression::KeywordExpression(self.finish_node(
+                KeywordExpression::new(kind),
+                kind,
+                start,
+            ))
+        } else if self.at(SyntaxKind::ImportKeyword)
             && !self.peek_kind(|kind| {
                 matches!(kind, SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken)
             })
@@ -1356,9 +1374,9 @@ impl<'a> Parser<'a> {
             // `this`, `super`, `true`, `false`, `null`.
             //
             // Only these: `parsePrimaryExpression` (`parser.go:5530`) takes
-            // `this`/`super`/`null`/`true`/`false` as token nodes, and `import`
-            // reaches here for `import(…)`/`import.meta`
-            // (`parseMemberExpressionOrHigher`). Every other reserved word falls
+            // `this`/`super`/`null`/`true`/`false` as token nodes; an import
+            // call's `import` is taken by `parse_call_or_member_expression`
+            // before a primary is parsed. Every other reserved word falls
             // to `parseIdentifierWithDiagnostic(Expression_expected)` below and
             // is left for the statement that follows — `1 +⏎return;` is TS1109
             // at `return`, not a keyword operand.
@@ -1366,17 +1384,8 @@ impl<'a> Parser<'a> {
             | SyntaxKind::SuperKeyword
             | SyntaxKind::NullKeyword
             | SyntaxKind::TrueKeyword
-            | SyntaxKind::FalseKeyword
-            | SyntaxKind::ImportKeyword => {
+            | SyntaxKind::FalseKeyword => {
                 let kind = self.token.kind;
-                if kind == SyntaxKind::ImportKeyword {
-                    // `parseMemberExpressionOrHigher`'s import-call arm
-                    // (`parser.go:5183`). Set for every `import` keyword
-                    // expression, a superset of upstream's `(`/`<` lookahead:
-                    // the flag only gates the loader's dynamic-import walk
-                    // (`references.rs`), which finds nothing extra.
-                    self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT;
-                }
                 self.next_token();
                 let node = self.finish_node(KeywordExpression::new(kind), kind, start);
                 Expression::KeywordExpression(node)
@@ -3110,6 +3119,7 @@ impl<'a> Parser<'a> {
         //
         // The `expect` here already returned the answer; only the `if` was
         // missing.
+        let open = self.pos();
         if !self.expect(SyntaxKind::OpenParenToken) {
             return Vec::new();
         }
@@ -3122,9 +3132,14 @@ impl<'a> Parser<'a> {
         // `with_function_context`; the await context it replaced is the one the
         // parameters' decorators are parsed in (`parser.go:3296`).
         let outer_await = self.outer_await_context;
-        let (parameters, _) = self.parse_delimited_list(ParsingContext::Parameters, |parser| {
-            parser.parse_parameter_ex(outer_await)
-        });
+        let (parameters, trailing_comma) = self
+            .parse_delimited_list(ParsingContext::Parameters, |parser| {
+                parser.parse_parameter_ex(outer_await)
+            });
+        // Only a trailing comma is a fact here: an empty `()` is the list.
+        if trailing_comma {
+            self.note_bracketed_list(crate::parser::ListKind::Parameters, open, false, true);
+        }
         self.expect(SyntaxKind::CloseParenToken);
         parameters
     }
@@ -3166,16 +3181,24 @@ impl<'a> Parser<'a> {
                 Span::new(modifiers_full_start, end),
             );
         }
+        // A `this` parameter (`parseParameterWorker`'s `KindThisKeyword` arm,
+        // `parser.go:3325`) is the name and a type annotation — no `?`, no
+        // initializer, so `this?: C` and `this: C = …` leave the `?`/`=` to
+        // the list (`',' expected`). Only before a `...`: `...this` is a
+        // missing name plus TS1359 (`thisTypeInFunctionsNegative`).
+        if self.at(SyntaxKind::ThisKeyword) {
+            let name = BindingName::Identifier(self.parse_identifier_name());
+            let type_node = self.parse_type_annotation();
+            let modifiers = self.arena.alloc_slice(&modifiers);
+            return self.finish_node(
+                ParameterDeclaration::new(modifiers, None, Some(name), None, type_node, None),
+                SyntaxKind::Parameter,
+                start,
+            );
+        }
         let dot_dot_dot =
             if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
-        // A `this` parameter is the one reserved word a parameter name admits:
-        // upstream's `parseParameter` reads it with `parseIdentifierName`
-        // (`parser.go`, the `KindThisKeyword` arm).
-        // Only as the plain first parameter: `...this` is upstream's missing
-        // identifier plus an error (`thisTypeInFunctionsNegative`).
-        let name = if self.at(SyntaxKind::ThisKeyword) && dot_dot_dot.is_none() {
-            BindingName::Identifier(self.parse_identifier_name())
-        } else if self.at(SyntaxKind::PrivateIdentifier) {
+        let name = if self.at(SyntaxKind::PrivateIdentifier) {
             // Native parseParameterEx supplies this diagnostic to
             // createIdentifierWithDiagnostic, then consumes the private token
             // as an identifier rather than manufacturing a missing name.
@@ -3189,7 +3212,17 @@ impl<'a> Parser<'a> {
                 start,
             ))
         } else {
-            self.parse_binding_name()
+            let name = self.parse_binding_name();
+            // `parseNameOfParameter` (`parser.go:3363`): a missing name with no
+            // modifiers at a modifier keyword (`function f(default: number)`)
+            // skips the keyword, or the parameter list would not advance.
+            if modifiers.is_empty()
+                && self.token.kind.is_modifier()
+                && matches!(name, BindingName::Identifier(id) if id.text.is_empty())
+            {
+                self.next_token();
+            }
+            name
         };
         let question =
             if self.at(SyntaxKind::QuestionToken) { Some(self.take_token()) } else { None };

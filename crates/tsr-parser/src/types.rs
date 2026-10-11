@@ -8,7 +8,7 @@ use tsr_ast::*;
 use tsr_diagnostics::messages;
 
 use crate::list::ParsingContext;
-use crate::parser::Parser;
+use crate::parser::{ListFact, ListKind, Parser};
 
 impl<'a> Parser<'a> {
     /// Parse `: T`, if present.
@@ -251,14 +251,10 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.next_token();
-            if self.eat(SyntaxKind::CloseBracketToken) {
-                let node = self.finish_node(
-                    ArrayTypeNode::new(Some(type_node)),
-                    SyntaxKind::ArrayType,
-                    start,
-                );
-                type_node = TypeNode::ArrayTypeNode(node);
-            } else {
+            // `parsePostfixTypeOrHigher` (`parser.go:2783`): an index type
+            // only where a type can start; anything else is an array type
+            // whose `]` is expected (`C[#bar]` is `']' expected`).
+            if self.is_start_of_type(false) {
                 let index = self.parse_type();
                 self.expect(SyntaxKind::CloseBracketToken);
                 let node = self.finish_node(
@@ -267,6 +263,14 @@ impl<'a> Parser<'a> {
                     start,
                 );
                 type_node = TypeNode::IndexedAccessTypeNode(node);
+            } else {
+                self.expect(SyntaxKind::CloseBracketToken);
+                let node = self.finish_node(
+                    ArrayTypeNode::new(Some(type_node)),
+                    SyntaxKind::ArrayType,
+                    start,
+                );
+                type_node = TypeNode::ArrayTypeNode(node);
             }
         }
         type_node
@@ -563,7 +567,15 @@ impl<'a> Parser<'a> {
                 TypeNode::TypeReferenceNode(node)
             }
             _ => {
-                self.error_at_current(&messages::TYPE_EXPECTED);
+                // `parseTypeReference`'s `parseEntityName(…, Type_expected)` →
+                // `createIdentifierWithDiagnostic` (`parser.go:5841`): at end of
+                // file the report sits zero-width at the token's full start.
+                let span = if self.at(SyntaxKind::EndOfFile) {
+                    tsr_core::Span::at(self.node_end())
+                } else {
+                    self.token.span
+                };
+                self.error_at(&messages::TYPE_EXPECTED, span);
                 self.missing_type()
             }
         }
@@ -1252,15 +1264,20 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `canFollowGetOrSetKeyword` (`parser.go:4036`) on the next token: `[`
+    /// or `isLiteralPropertyName` — an identifier or keyword
+    /// (`tokenIsIdentifierOrKeyword`, `kind >= KindIdentifier`, which also
+    /// admits a private name: `{ get #foo() {} }`), a string, numeric or
+    /// bigint literal.
     pub(crate) fn next_starts_property_name(&mut self) -> bool {
         self.peek_kind(|kind| {
             matches!(
                 kind,
-                SyntaxKind::Identifier
-                    | SyntaxKind::StringLiteral
+                SyntaxKind::StringLiteral
                     | SyntaxKind::NumericLiteral
+                    | SyntaxKind::BigIntLiteral
                     | SyntaxKind::OpenBracketToken
-            ) || kind.is_keyword()
+            ) || crate::list::token_is_identifier_or_keyword(kind)
         })
     }
 
@@ -1357,7 +1374,10 @@ impl<'a> Parser<'a> {
         name
     }
 
-    /// Type arguments for a call: `f<T>(x)`.
+    /// Type arguments in an expression: `f<T>(x)` — the parse half of
+    /// `tryParseTypeArgumentsInExpression` (`parser.go:5247`); every caller
+    /// runs it under `try_parse` and adds `canFollowTypeArgumentsInExpression`
+    /// ([`Parser::at_instantiation_terminator`]).
     ///
     /// Returns `None` rather than recovering, because the caller uses failure to
     /// decide that `<` was a comparison after all.
@@ -1368,54 +1388,57 @@ impl<'a> Parser<'a> {
         if self.script_kind.is_javascript() {
             return None;
         }
-        // `Foo<<T>() => void>` opens with a single `<<` shift token.
+        // `Foo<<T>() => void>` opens with a single `<<` shift token
+        // (`reScanLessThanToken`).
         if self.at(SyntaxKind::LessThanLessThanToken) {
             self.rescan_less_than();
         }
+        let open = self.pos();
         if !self.eat(SyntaxKind::LessThanToken) {
             return None;
         }
-        let before = self.diagnostics.len();
-        let mut arguments = Vec::new();
-        let mut missing_slots: Vec<u32> = Vec::new();
-        loop {
-            // §421: an ELIDED slot — `Foo<a,,b>()` — is a missing type with a
-            // deferred "Type expected", not a disambiguation failure:
-            // upstream's parseDelimitedList reports and the list still
-            // succeeds (`callExpressionWithMissingTypeArgument1`). The
-            // diagnostic is emitted only once the `>` confirms the list, so
-            // the complaint gate below keeps rejecting real less-than chains.
-            if self.at(SyntaxKind::CommaToken) {
-                missing_slots.push(self.pos());
-                let missing = self.missing_identifier();
-                let reference = self.finish_node(
-                    tsr_ast::TypeReferenceNode::new(
-                        Some(tsr_ast::EntityName::Identifier(missing)),
-                        &[],
-                    ),
-                    SyntaxKind::TypeReference,
-                    self.pos(),
-                );
-                arguments.push(TypeNode::TypeReferenceNode(reference));
-            } else {
-                arguments.push(self.parse_type());
-            }
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-        }
+        // `parseDelimitedList(PCTypeArguments, parseType)`: the list
+        // machinery's recovery, so `<a,,b>` keeps its TS1110 at the second
+        // comma and `<>` is an empty list. Its diagnostics stand when the list
+        // is accepted; the caller's `try_parse` drops them when it is not.
+        let (arguments, trailing_comma) =
+            self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
+        // "If it doesn't have the closing `>` then it's definitely not an type
+        // argument list." Native's scanner returns a lone `>` and
+        // `reScanGreaterThanToken` combines it into `>=`, `>>`, … when the
+        // text continues so; this port's scanner already returns the combined
+        // token. A combined token is therefore native's refusal, not a `>` to
+        // split: `ver < (a >= b ? …)` stays a comparison.
         if !self.at(SyntaxKind::GreaterThanToken) {
-            self.rescan_greater_than();
-        }
-        // Any complaint means this was not a type-argument list.
-        if !self.at(SyntaxKind::GreaterThanToken) || self.diagnostics.len() != before {
             return None;
         }
-        for slot in missing_slots {
-            self.error_at(&messages::TYPE_EXPECTED, tsr_core::Span::at(slot));
-        }
+        self.note_bracketed_list(
+            ListKind::TypeArguments,
+            open,
+            arguments.is_empty(),
+            trailing_comma,
+        );
         self.next_token();
         Some(arguments)
+    }
+
+    /// Record an empty or comma-terminated bracketed list for its owner
+    /// ([`crate::parser::ListFact`]), with the cursor on the closing token
+    /// (or where it was expected).
+    pub(crate) fn note_bracketed_list(
+        &mut self,
+        kind: ListKind,
+        open: u32,
+        empty: bool,
+        trailing_comma: bool,
+    ) {
+        if !empty && !trailing_comma {
+            return;
+        }
+        // The comma is the last token consumed: it ends where the cursor's
+        // trivia begins.
+        let trailing_comma = trailing_comma.then(|| self.node_end() - 1);
+        self.note_list_fact(ListFact { kind, open, close: self.pos(), empty, trailing_comma });
     }
 
     /// `<A, B>` after a type reference, if present.
@@ -1431,14 +1454,21 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }
+        let open = self.pos();
         self.next_token();
         // `parseBracketedList(PCTypeArguments, parseType, <, >)` (`parser.go:3014`).
-        let (arguments, _) =
+        let (arguments, trailing_comma) =
             self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
         // `List<List<T>>` lexes the close as `>>`; split it.
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
         }
+        self.note_bracketed_list(
+            ListKind::TypeArguments,
+            open,
+            arguments.is_empty(),
+            trailing_comma,
+        );
         self.expect(SyntaxKind::GreaterThanToken);
         arguments
     }
@@ -1455,12 +1485,19 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }
+        let open = self.pos();
         self.next_token();
-        let (parameters, _) =
+        let (parameters, trailing_comma) =
             self.parse_delimited_list(ParsingContext::TypeParameters, Self::parse_type_parameter);
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
         }
+        self.note_bracketed_list(
+            ListKind::TypeParameters,
+            open,
+            parameters.is_empty(),
+            trailing_comma,
+        );
         self.expect(SyntaxKind::GreaterThanToken);
         parameters
     }
