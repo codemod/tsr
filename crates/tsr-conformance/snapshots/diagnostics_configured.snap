@@ -34,7 +34,7 @@ compiler/argumentsBindsToFunctionScopeArgumentList(alwaysstrict=true)
 compiler/bigintAmbientMinimal(target=es2015)
   1 missing (first TS2737 at /main.ts(5,17))
 compiler/bigintWithoutLib(target=es2015)
-  18 missing (first TS2737 at bigintWithoutLib.ts(7,30))
+  13 missing (first TS2737 at bigintWithoutLib.ts(7,30))
 compiler/blockScopedVariablesUseBeforeDef(target=es2015)
   3 unexpected (first TS2448 at blockScopedVariablesUseBeforeDef.ts(127,9)), 0 missing
 compiler/classStaticPropertyAccess(target=es2015)
