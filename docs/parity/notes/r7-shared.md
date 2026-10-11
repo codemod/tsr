@@ -437,3 +437,45 @@ where the 94 losses' cases are already covered by tests that would catch
 them, and the conflict count dropping below a few hunks.
 
 Still-missing gain cases (lines): compiler/expressionWithJSDocTypeArguments 34; conformance/controlFlowAliasing 16; compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject2 16; compiler/chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2 16; compiler/emptyObjectNotSubtypeOfIndexSignatureContainingObject1 9; compiler/inferenceContextualReturnTypeUnion2 6; conformance/keyofIntersection 5; compiler/selfReferentialFunctionType 5; compiler/emptyTypeArgumentListWithNew 5; compiler/emptyTypeArgumentList 5; conformance/genericRestParameters1 4; conformance/strictBindCallApply1 3; conformance/importCallExpressionWithTypeArgument 3; conformance/conditionalTypes1 3; compiler/selfReferentialDefaultNoStackOverflow 3; compiler/ramdaToolsNoInfinite 3; compiler/circularInstantiationExpression 3; compiler/aliasInstantiationExpressionGenericIntersectionNoCrash1 3; conformance/mappedTypeRelationships 2; conformance/arbitraryModuleNamespaceIdentifiers_importEmpty 2; compiler/promiseChaining2 2; compiler/promiseChaining1 2; compiler/promiseChaining 2; compiler/missingCommaInTemplateStringsArray 2; compiler/excessPropertyCheckIntersectionWithRecursiveType 2; compiler/enumAssignmentCompat4 2; compiler/deferredConditionalTypes 2; compiler/arrayFlatNoCrashInferenceDeclarations 2; compiler/arrayFlatNoCrashInference 2; compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased 2; conformance/thisTypeErrors 1; conformance/readonlyArraysAndTuples 1; conformance/genericRestParameters2 1; compiler/unusedTypeParametersNotCheckedByNoUnusedLocals 1; compiler/unusedTypeParametersCheckedByNoUnusedParameters 1; compiler/ramdaToolsNoInfinite2 1; compiler/parserPrivateIdentifierInArrayAssignment 1; compiler/keyRemappingKeyofResult 1; compiler/inferredRestTypeFixedOnce 1; compiler/conditionalTypeGenericInSignatureTypeParameterConstraint 1; compiler/circularlyReferentialInterfaceAccessNoCrash 1; 
+
+## 8. `getExternalModuleMember` admits every `export =` member (EXTERNAL-MODULE-MEMBER-EXPORT-EQUALS)
+
+### Cause
+
+`getExternalModuleMember` (`checker.go:14667`) reads a named import from an
+`export =` module as `getPropertyOfType(getTypeOfSymbol(target), name,
+skipObjectFunctionPropertyAugment = true)`, with no condition on the
+member's type. The port admitted only scalar-typed members (string, number,
+literal, enum-like, unique symbol, …): an object or function member "can
+carry named types whose shortest accessible chain depends on this import
+site", so it was withheld to keep the printer from spelling it wrongly.
+`import { f } from "./m"` of `export = { f }`-style namespaces, classes and
+`EventEmitter` read `any`, and `import * as pick` merged with a local
+`const pick` lost TS2440/TS7023's inputs.
+
+### The port
+
+The type gate is removed; alias members still decline (the branch does not
+`resolveSymbol` them). No cache.
+
+### Measured (against `f51103ba`)
+
++20 type lines, +1 diagnostics case, zero losses:
+`aliasDoesNotDuplicateSignatures` converts (types and diagnostics);
+`importDeclFromTypeNodeInJsSource` (10 lines), `conflictingDeclarationsImportFromNamespace1/2`
+(3 each) and `namedImportNonExistentName` (2) gain lines. Three lines move
+GAP→WRONG, all `exportAssignedNamespaceIsVisibleInDeclarationEmit` 1:0–1:3's
+spelling: the member now resolves to native's type and the printer writes
+`Foo.Bar` where native's accessible-chain search answers
+`import("./thing").Bar` (routed to r7-printer with §4's similar line). That
+is the trade the old gate refused; at 20 right for 3 wrong spellings, with
+no right line lost, it is taken.
+Two `cross_file_aliases.rs` tests pinned the retired gate and now pin the
+native answer: `make` from `export = Owner` resolves (its spelling is the
+printer's), and `Item` resolves to the target's object member over the
+module's invalid numeric export. Re-verified on batch-14 main `9db14f99`
+together with §7 (+23 type lines, +1 diagnostics case, 0 lost); coverage
+`checker_types` 8,814/9,538, `checker_types_configured` 1,796/1,928,
+`diagnostics` 4,928/5,502, `diagnostics_configured` 1,003/1,091; child CPU
+21 samples 1.0073 / 0.9207; jsTyping new_false 0, lost_true 0; callgrind Ir
+domain-model 0.99996, generic-imports 0.99987; strict clippy and tests green.

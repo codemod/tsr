@@ -2462,43 +2462,19 @@ impl<'a> Checker<'a, '_> {
         let target_type = self.get_type_of_symbol(target);
         let value = self.get_property_of_type_ex(target_type, name, true);
         let value_was_found = value.is_some();
-        // This semantic resolver must not outrun the site-aware spelling lane.
-        // A pure alias target can replace a written local type name with the
-        // remote declaration's name, while an object/function member can carry
-        // named types whose shortest accessible chain depends on this import
-        // site. Scalar members retain their native type identity: enum types
-        // keep their owner for type_to_string_at's qualification, and unique
-        // symbols stay unique on the import (only a copied initializer widens
-        // to symbol). Neither should be replaced with its primitive base or
-        // with the export-equals namespace object.
-        // The lookup above separately excludes Object/Function fallback
-        // members, matching native's `skipObjectFunctionPropertyAugment = true`;
-        // filtering by the member's type would not suffice because fallback
-        // members such as Function.length and Function.name are primitives.
-        let value = if let Some(value) = value {
-            let flags = self.binder.symbols().get(value).flags;
-            if flags.intersects(SymbolFlags::ALIAS) {
-                None
-            } else {
-                let value_type = self.get_type_of_symbol(value);
-                let type_flags = self.store.get(value_type).flags;
-                let site_independent = TypeFlags::STRING
-                    | TypeFlags::NUMBER
-                    | TypeFlags::BIG_INT
-                    | TypeFlags::BOOLEAN
-                    | TypeFlags::ES_SYMBOL
-                    | TypeFlags::LITERAL
-                    | TypeFlags::VOID_LIKE
-                    | TypeFlags::NULL;
-                type_flags
-                    .intersects(
-                        site_independent | TypeFlags::ENUM_LIKE | TypeFlags::UNIQUE_ES_SYMBOL,
-                    )
-                    .then_some(value)
-            }
-        } else {
-            None
-        };
+        // `symbolFromVariable = getPropertyOfType(getTypeOfSymbol(target),
+        // name, skipObjectFunctionPropertyAugment = true)` (`checker.go:14690`)
+        // admits every member, whatever its type. The scalar-only gate that
+        // stood here (members whose printed type could depend on the import
+        // site were withheld) is retired: measured, it was costing 20 RIGHT
+        // lines for 3 that become printer-spelling wrongs
+        // (`docs/parity/notes/r7-shared.md` §8). Alias members still decline:
+        // `resolveSymbol` would follow them, which this branch does not.
+        // The lookup above excludes Object/Function fallback members, matching
+        // native's `skipObjectFunctionPropertyAugment = true`.
+        let value = value.filter(|&value| {
+            !self.binder.symbols().get(value).flags.intersects(SymbolFlags::ALIAS)
+        });
         // getExportsOfModuleWorker (checker.go:16148) follows export= before
         // reading exports. Only TYPE/NAMESPACE-only names absent from the
         // target's exports are carried over from the original module; its

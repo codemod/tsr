@@ -668,11 +668,11 @@ fn a_plain_es_module_named_import_keeps_its_existing_path() {
 }
 
 #[test]
-fn a_member_needing_site_aware_type_spelling_remains_a_gap() {
-    // Native can spell this return type as `import("./m").Result` from the
-    // importing file. This checker currently bakes `Owner.Result` into the
-    // function type, so resolving the member would replace a semantic gap with
-    // a wrong spelling. Primitive members do not cross that naming boundary.
+fn a_member_needing_site_aware_type_spelling_resolves() {
+    // getExternalModuleMember admits every `export =` member
+    // (checker.go:14690). Native spells this return type
+    // `import("./m").Result` from the importing file; the spelling belongs
+    // to the printer (r7-shared.md §8), so only the resolution is pinned.
     let arena = Arena::new();
     let fixture = program(
         &arena,
@@ -684,7 +684,8 @@ fn a_member_needing_site_aware_type_spelling_remains_a_gap() {
             ("a", "import { make } from \"./m\";\n"),
         ],
     );
-    assert_eq!(type_of_alias(&fixture, "make", true), "error");
+    assert!(alias_resolves(&fixture, "make"));
+    assert_ne!(type_of_alias(&fixture, "make", true), "error");
 }
 
 #[test]
@@ -807,9 +808,9 @@ fn an_original_module_value_export_cannot_replace_an_export_equals_member() {
 }
 
 #[test]
-fn an_original_value_export_cannot_make_a_declined_object_member_representable() {
-    // Native selects the target's object here too, not the numeric export.
-    // The former is outside this port's representable slice, so keep the gap.
+fn an_original_value_export_cannot_replace_an_object_member() {
+    // Native selects the target's object here too, not the numeric export
+    // (getExternalModuleMember's export= branch, r7-shared.md §8).
     let arena = Arena::new();
     let fixture = program(
         &arena,
@@ -821,7 +822,8 @@ fn an_original_value_export_cannot_make_a_declined_object_member_representable()
             ("a", "import { Item as selected } from \"./m\";\n"),
         ],
     );
-    assert!(!alias_resolves(&fixture, "selected"));
+    assert!(alias_resolves(&fixture, "selected"));
+    assert_eq!(alias_rendered_at(&fixture, "selected"), "{ wrong: string; }");
 }
 
 #[test]
