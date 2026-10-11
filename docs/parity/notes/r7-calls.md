@@ -638,6 +638,20 @@ expressions join the re-checked shapes: their literal or template-literal
 type follows the contextual type. `foo("um", [])` over `foo(x: "hi", …)` /
 `foo(x: "bye", …)` reports native's chained TS2769 (overloadingOnConstants2).
 
+## 16. A non-array rest parameter with no trailing argument
+
+`isSignatureApplicable` (`checker.go:9256`) relates the arguments before a
+non-array rest parameter (`getNonArrayRestType`) one by one
+(`argCount = min(getParameterCount - 1, len(args))`), then the remainder as
+one `getSpreadArgumentType` tuple, reported at the call when there is no
+remainder (`restArgCount == 0`). `report_signature_applicability` declined
+every such signature. It now relates the leading arguments and, when nothing
+trails, the empty tuple: `foo()` over `(...args: never)`
+(topFunctionTypeNotCallable) and `f1()` over `...args: [...F[], G]`
+(contextualTypeTupleEnd) report TS2345 at the call. Trailing arguments still
+decline. Their tuple is `inference.rs`'s `inference_spread_argument_type`,
+private to that file (visibility requested from the integrator).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

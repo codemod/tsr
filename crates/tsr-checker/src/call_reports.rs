@@ -233,10 +233,18 @@ impl<'a> Checker<'a, '_> {
             Ternary::NotRelated => return ApplicabilityReport::Reported,
             Ternary::Unknown => return ApplicabilityReport::Declined,
         }
-        if self.signature_non_array_rest_type(signature).is_some() {
-            return ApplicabilityReport::Declined;
-        }
-        for (position, argument) in arguments.iter().enumerate() {
+        // `getNonArrayRestType`: a rest parameter whose type is not an array
+        // (a tuple, `never`, a type variable). The arguments before it relate
+        // one by one (`argCount = min(getParameterCount - 1, len(args))`);
+        // the rest are related as one `getSpreadArgumentType` tuple below.
+        let rest = self.signature_non_array_rest_type(signature);
+        let argument_count = match rest {
+            Some(_) => {
+                self.signature_parameter_count(signature).saturating_sub(1).min(arguments.len())
+            }
+            None => arguments.len(),
+        };
+        for (position, argument) in arguments.iter().take(argument_count).enumerate() {
             let Some(target) = self.signature_type_at_position(signature, position) else {
                 return ApplicabilityReport::Declined;
             };
@@ -353,6 +361,41 @@ impl<'a> Checker<'a, '_> {
             }
             if verdict == Some(Ternary::NotRelated) && !literal {
                 return ApplicabilityReport::Declined;
+            }
+        }
+        if let Some(rest) = rest {
+            // `getSpreadArgumentType` over the trailing arguments. With none
+            // it is the empty tuple, reported at the call itself
+            // (`restArgCount == 0`, errorNode = node). Trailing arguments
+            // need its full construction (contextual element types, spread
+            // tuples), which this pass does not build yet: declined.
+            if arguments.len() > argument_count {
+                return ApplicabilityReport::Declined;
+            }
+            if self.is_gap(rest) {
+                return ApplicabilityReport::Declined;
+            }
+            let spread = self.create_tuple_type(Vec::new(), false);
+            match self.relate_ternary(spread, rest, Relation::Assignable) {
+                Ternary::Related => {}
+                Ternary::Unknown => return ApplicabilityReport::Declined,
+                Ternary::NotRelated => {
+                    let span = self.error_span(node);
+                    return if self.report_relation_failure(
+                        node,
+                        span,
+                        None,
+                        spread,
+                        rest,
+                        Some(
+                            &messages::ARGUMENT_OF_TYPE_0_IS_NOT_ASSIGNABLE_TO_PARAMETER_OF_TYPE_1,
+                        ),
+                    ) {
+                        ApplicabilityReport::Reported
+                    } else {
+                        ApplicabilityReport::Declined
+                    };
+                }
             }
         }
         ApplicabilityReport::Applicable
