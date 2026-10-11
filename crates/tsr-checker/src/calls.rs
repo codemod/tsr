@@ -2139,7 +2139,7 @@ impl Checker<'_, '_> {
         CallArity::Reported
     }
 
-    /// Whether the signature's declaration ends in `...[a, b]`.
+    /// Whether the signature's declaration ends in an unannotated `...[a, b]`.
     fn has_binding_pattern_rest(&self, signature: &Signature) -> bool {
         let parameters = match self.node_map.get(signature.declaration) {
             Some(tsr_ast::Node::FunctionDeclaration(node)) => node.parameters,
@@ -2149,8 +2149,11 @@ impl Checker<'_, '_> {
             Some(tsr_ast::Node::ConstructorDeclaration(node)) => node.parameters,
             _ => return false,
         };
+        // An annotated rest parameter has its annotation's type; only an
+        // unannotated pattern takes `getTypeFromBindingPattern`'s tuple.
         parameters.last().is_some_and(|parameter| {
             parameter.dot_dot_dot_token.is_some()
+                && parameter.r#type.is_none()
                 && matches!(parameter.name, Some(tsr_ast::BindingName::BindingPattern(_)))
         })
     }
