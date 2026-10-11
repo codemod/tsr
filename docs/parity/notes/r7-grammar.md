@@ -461,3 +461,40 @@ dispatch): a tagged template with a `?.` token or inside an optional chain
 `6b560647`, which parses a template after `?.` as a tagged template. Its
 `checkGrammarTypeArguments` sibling is not ported. Converted:
 `taggedTemplateChain`.
+
+## §21 TS2790 reads the receiver's member, and the `exactOptionalPropertyTypes` arm
+
+`checkDeleteExpressionMustBeOptional` (`checker.go:10825`) tests
+`getTypeOfSymbol` of the property the access resolved, and under
+`exactOptionalPropertyTypes` the symbol's `Optional` flag instead of the
+type's `undefined` fact. `delete_operand.rs` read the source declaration's
+type, so a mapped receiver's optional member (`Partial<Foo>`'s `a`, whose
+transient symbol this port does not mint) drew TS2790; the type is now the
+receiver's member type (`get_type_of_property_of_type`). The exact arm reads
+the declaration's `?` (`property_is_optional`) when the member is the
+declaration's own, reached through its declared parent; a mapped or
+instantiated member's optionality is the receiver's
+(`identity_mapped_source_property_is_optional`, private to `members.rs`), so
+that case declines — routed as a visibility request. Converted:
+`deleteExpressionMustBeOptional_exactOptionalPropertyTypes` (exact true and
+false).
+
+## §22 `checkGrammarBindingElement` (GRAMMAR-BINDING-PATTERN-REST)
+
+`check_grammar_binding_element` (`grammar.rs`) is `checkGrammarBindingElement`
+(`grammarchecks.go:1536`), first in `checkBindingElement` (`checker.go:4274`,
+one line in the dispatch): a rest element not last in its pattern is TS2462,
+one with a property name TS2566 on the name, one with an initializer TS1186
+on the `=` (`Initializer.Pos()-1`; this tree's spans start after trivia, so
+the `=` is found by skipping back over it in the source). Not ported: the
+trailing-comma arm (TS1013), which needs the parser to record a binding
+pattern's trailing comma. Converted: `restElementWithInitializer1`,
+`objectBindingPattern_restElementWithPropertyName`.
+
+## §23 `using` declarations in an ambient context (TS1545/TS1546)
+
+`checkGrammarVariableDeclarationList`'s ambient arm (`grammarchecks.go:1662`):
+a `using` / `await using` list with `NodeFlagsAmbient` is TS1545 / TS1546 on
+the list (from the `await` for the latter). Read through `has_ambient_flag`
+(§1). The arm returns, so the `await using` tail (§9) no longer adds TS2852
+there. Converted: `usingDeclarations.16`, `awaitUsingDeclarations.16`.
