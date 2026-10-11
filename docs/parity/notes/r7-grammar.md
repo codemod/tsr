@@ -711,3 +711,31 @@ sites, and on TS2403's `errorNextVariableOrPropertyDeclarationMustHaveSameType`
 Converted (oracle subset `uplicate`): `duplicateIdentifierRelatedSpans1`–`7`,
 `duplicateIdentifierRelatedSpans_moduleAugmentation`,
 `letDeclarations-scopes-duplicates2`–`7`, `duplicateIdentifierEnum`.
+
+## §35 Exact-oracle text, span and metadata fixes in this lane's reports
+
+From `full_oracle_run rank` on `59ceea97`:
+
+* *TS2564 message text* (5 cases, a computed name).
+  `scanner.DeclarationNameToString(propName)` is the name's source text
+  (`GetTextOfNode`), so `[x = 0]` prints as written. The shared
+  `declaration_name_to_string` spells a computed name only through an entity
+  name, giving `[(Missing)]`. `check_property_initialization` now prints
+  `declaration_name_source_text` (class_fields.rs) and keeps that helper's
+  answer only for the flow query's spelling and as the fallback.
+* *TS2376 span* (3 cases). `GetErrorRangeForNode`'s `KindConstructor` arm
+  (`scanner.go:2632`) runs from the constructor's first token to the end of
+  the `constructor` keyword (or a string-literal name). The shared
+  `error_span` has no such arm and gives the whole declaration.
+  `constructor_error_span` (class_fields.rs) is the arm, used for TS2376.
+  Routed: adding it to `error_span` itself would correct every
+  constructor-anchored report (TS2377, TS2392's span-only bucket and others),
+  but that helper is shared.
+* *skippedOnNoEmit* (TS1216's metadata bucket, 2 cases). TS1216
+  (`grammarErrorOnNodeSkippedOnNoEmit`) and TS2441/TS2818
+  (`errorSkippedOnNoEmit`) are marked with the flag that
+  `FilterNoEmitSemanticDiagnostics` (`compiler/program.go:1333`) reads, and
+  they are dropped under `noEmit`. This program has no such filter, so
+  `report_skipped_on_no_emit` (module_format.rs) drops them at the producer.
+  TS2441's producer already returned under `noEmit`; TS1216 and TS2818 did
+  not. Routed: the program-level filter, after which the producer drop goes.

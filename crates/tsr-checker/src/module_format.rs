@@ -202,6 +202,20 @@ impl Checker<'_, '_> {
         self.report(file, Diagnostic::with_args(message, span, args));
     }
 
+    /// `errorSkippedOnNoEmit` / `grammarErrorOnNodeSkippedOnNoEmit`
+    /// (`checker.go:14005`, `grammarchecks.go:47`): the diagnostic marked
+    /// `SetSkippedOnNoEmit`, which `FilterNoEmitSemanticDiagnostics`
+    /// (`compiler/program.go:1333`) drops under `noEmit`. This port's program
+    /// has no such filter, so the drop happens here, as TS2441's producer
+    /// already did (r7-grammar §35).
+    pub(crate) fn report_skipped_on_no_emit(&mut self, file: NodeId, mut diagnostic: Diagnostic) {
+        if self.module_format_options.no_emit {
+            return;
+        }
+        diagnostic.set_skipped_on_no_emit();
+        self.report(file, diagnostic);
+    }
+
     /// TS1202 — `checkImportEqualsDeclaration`'s external-reference arm
     /// (`checker.go:5494`):
     ///
@@ -346,13 +360,18 @@ impl Checker<'_, '_> {
         } else {
             format == ModuleKind::CommonJS
         };
-        if !reports || self.module_format_options.no_emit {
+        if !reports {
             return;
         }
-        self.error_on_node(
-            name,
-            &messages::DUPLICATE_IDENTIFIER_0_COMPILER_RESERVES_NAME_1_IN_TOP_LEVEL_SCOPE_OF_A_MODULE,
-            vec![text.to_string(), text.to_string()],
+        let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
+        let span = self.error_span(name);
+        self.report_skipped_on_no_emit(
+            file,
+            Diagnostic::with_args(
+                &messages::DUPLICATE_IDENTIFIER_0_COMPILER_RESERVES_NAME_1_IN_TOP_LEVEL_SCOPE_OF_A_MODULE,
+                span,
+                [text.to_string(), text.to_string()],
+            ),
         );
     }
 
@@ -409,10 +428,13 @@ impl Checker<'_, '_> {
         }
         let Some(name) = declaration.name.and_then(|n| n.node_id()) else { return };
         if let Some(marker) = self.es_module_marker_in_binding_name(name) {
-            self.error_on_node(
-                marker,
-                &messages::IDENTIFIER_EXPECTED_ESMODULE_IS_RESERVED_AS_AN_EXPORTED_MARKER_WHEN_TRANSFORMING_ECMASCRIPT_MODULES,
-                Vec::new(),
+            let span = self.error_span(marker);
+            self.report_skipped_on_no_emit(
+                file,
+                Diagnostic::new(
+                    &messages::IDENTIFIER_EXPECTED_ESMODULE_IS_RESERVED_AS_AN_EXPORTED_MARKER_WHEN_TRANSFORMING_ECMASCRIPT_MODULES,
+                    span,
+                ),
             );
         }
     }
