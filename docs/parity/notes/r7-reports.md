@@ -960,3 +960,122 @@ undecided steps hid the line.
 
 **Measured** (diagnostics and types, unfiltered, against batch 19 with
 §17–§20 on top): +1 case, 0 lost, types unchanged.
+
+## 22. A closed mapped source has no signatures for `shouldReportUnmatchedPropertyError`
+
+**Forcing case.** `consistentAliasVsNonAliasRecordBehavior` (18,5)(22,5)(34,5)(38,5).
+`Record<string, string> → Record2<"a", string>` is false natively with head
+TS2741 (`Property 'a' is missing…`). This port kept TS2322:
+`unmatched_property_report` asked `signatures_of_type_kind` of the source
+for `shouldReportUnmatchedPropertyError` (`relater.go:959`), and for a mapped
+alias image that reader answers None (undecided).
+
+**Upstream.** `resolveMappedTypeMembers` publishes no call or construct
+signatures, so a mapped source is never signature-only and the gate passes.
+
+**Port.** A mapped source that is not `isGenericMappedType` reads as having
+no signatures. A generic mapped source is left to the reader:
+`mappedTypeUnionConstrainTupleTreatedAsArrayLike` (9,9) keeps native's
+TS2322 head, because there the failure comes from the source's constraint,
+not this arm. The first draft took every mapped source and lost that case
+(TS2740).
+
+**Decline: a missing late-bound name of a mapped source.** This port's
+mapped member lists omit late-bound keys. `{ [K in keyof number[] as
+Exclude<K, "length">]: … }` (`mappedTypeWithAsClauseAndLateBoundProperty`
+(3,1)) and `Readonly<PathPathComponents>` (jsTyping's `resolutionCache.ts`
+(460,44)(463,84)) list no `[Symbol.iterator]` or `[Symbol.unscopables]`.
+Without the decline, the first draft moved the jsTyping lines from a false
+TS2322 to a false TS2739 (`new_false=2`), and the corpus case from TS2322 to
+TS2739 where native has TS2741. A mapped source whose missing list holds a
+late-bound name (`[…]`) keeps the caller's head. The member-list producer
+fix is `members.rs`/`mapped.rs` (reported).
+
+**Measured** (diagnostics, unfiltered, against batch 19 with §17–§21 on
+top): +1 case, 0 lost.
+
+## 23. `elaborateObjectLiteral` speaks before `hasExcessProperties`
+
+**Forcing case.** `objectLiteralFunctionArgContextualTyping2` (11,6)(12,6)(13,17).
+`f2({ toString: (s) => s })` against `I2` (`value`, `doStuff`) is native
+TS2322 at `toString`: `Type '(s: any) => any' is not assignable to type '()
+=> string'`. This port reported TS2353 (`'toString' does not exist in type
+'I2'`).
+
+**Upstream.** `checkTypeRelatedToAndOptionallyElaborate` runs `elaborateError`
+before `checkTypeRelatedTo`. `elaborateObjectLiteral` relates each member,
+in source order, to `getBestMatchIndexedAccessTypeOrUndefined(source,
+target, name)`. That is an indexed access through `getPropertyOfType`, so it
+finds an apparent `Object` member such as `toString`, which `isKnownProperty`
+(own members and index signatures only) does not know. Every failing member
+is reported. Only when none is does the relation run, and
+`hasExcessProperties` reports the first unknown member.
+
+So `{ hello: 1, value: 2 }` against `I2` is TS2322 at `value` with no
+TS2353, and `{ value: 2, hello: 1 }` is the TS2322 alone (both checked
+against pinned tsgo). This port reported the first unknown member as soon
+as it met it, before any later member was related, and treated an apparent
+member as unknown.
+
+**Port** (`assignreport.rs::check_excess_properties`). Two passes. First,
+every member whose name is a known member, or for which
+`get_type_of_property_of_type` finds a member (the apparent `Object`
+members included), is related and reported (`check_object_literal_member`).
+If that reported anything the check ends. Otherwise the first member
+outside the known table is the excess report, as before.
+
+**Measured** (diagnostics, unfiltered, against batch 22 with §17–§22 on
+top): `objectLiteralFunctionArgContextualTyping2` RIGHT, 0 lost.
+
+## 24. The excess check reads index signatures instead of declining them
+
+**Forcing case.** `objectLitIndexerContextualType` (18,5). `y = { s: t => t
+* t }` with `J { [s: number]: … }` is native TS2353: `isKnownProperty`
+(`relater.go:719`) knows a declared property or a name that an applicable
+index signature admits (`getApplicableIndexInfoForName`). A number index
+signature does not admit `s`.
+
+**Port** (`assignreport.rs::check_excess_properties`).
+- This check declined every target with an index signature, through
+  `relation_members_are_complete`, on the ground that "an index signature
+  makes every name known". That holds only for a string index signature.
+- It now reads the target's index infos when `relation_property_table`
+  answers (the declared table is complete apart from index signatures). A
+  name is known when it is declared or an index signature applies to it.
+- The elaboration pass (§23) relates a member admitted only by an index
+  signature to that signature's value, as `getIndexedAccessTypeOrUndefined`
+  does.
+- An index-signature-only target is not the empty target the TS2322 rule
+  exempts.
+
+**Measured** (diagnostics, unfiltered, against batch 23 with §17–§23 on
+top): `objectLitIndexerContextualType` RIGHT, 0 lost.
+
+## 25. Refused: relating a union-bodied alias image as its body
+
+**Finding.** In `typeAssignabilityErrorMessage` (40,5), `Foo<string> →
+Bar<number>` with `Bar<T> = { foo: { what: T } } | boolean` is Related here
+and false natively. The target is an alias-reference image. Its body has
+object constituents, so `non_object_alias_image_body` keeps the image (the
+r5-relater4 §1 memory blow-up). The image's member table is the alias
+symbol's, which lists none of the constituents' members, and the
+structural walk relates vacuously. The same vacuity is behind §17's
+`Schema1<…>` image, there with an intersection body.
+
+**Tried.** Relate an image whose body is a union as that body, unless the
+other side is an image of the same alias (which keeps the variance road).
+- Unrestricted, it lost `assignmentTypeNarrowing` (33,7) and
+  `recursiveReverseMappedType` (8,5). A literal source's own type was
+  computed with the image as contextual type, which this port does not read
+  as the union: `[{ x: "ok" }]` widens to `{ x: string }[]`, and `['marker',
+  ...l]` is no tuple.
+- With object-literal, array and tuple sources keeping the image, it gained
+  `typeAssignabilityErrorMessage` and `jsxElementTypeLiteralWithGeneric`
+  with no case lost. It still lost the type line
+  `styledComponentsInstantiaionLimitNotReached` (0:82): `children` printed
+  `React.ReactNode` expanded. Its run time also went from 50 to 75 ms.
+
+**Refused** on that type line (gate: 0 lost). **What would change it:** an alias-reference producer whose image exposes the union body
+to both the relater and the contextual machinery (declared.rs; routed). With
+that, the vacuous structural walk goes away at its source, and the
+literal-source restriction is no longer needed.

@@ -1685,14 +1685,23 @@ impl<'a> Checker<'a, '_> {
         }) {
             return;
         }
-        // Index-signature-fatal completeness: an index signature on the target
-        // makes every name known, so this is the predicate that must decline it
-        // — the same one `crate::nonexistent_property` uses, and *not* the
-        // property enumeration TS2741 uses.
-        if !self.relation_members_are_complete(target) {
-            return;
-        }
+        // `isKnownProperty` (`relater.go:719`) knows a declared property or a
+        // name an applicable index signature admits
+        // (`getApplicableIndexInfoForName`). The declared table is complete
+        // except for index signatures when `relation_property_table` answers
+        // and `relation_members_are_complete` does not; those are read here
+        // rather than declined, so `{ s: … }` against a number-only index
+        // signature is excess (`objectLitIndexerContextualType` (18,5);
+        // r7-reports §24).
         let Some(known) = self.relation_property_table(target) else { return };
+        let indexed = if self.relation_members_are_complete(target) {
+            false
+        } else {
+            match self.get_index_infos_of_type(target) {
+                Some(infos) if !infos.is_empty() => true,
+                _ => return,
+            }
+        };
         // An **empty** target is not an excess-property site. `class C {}` with
         // `c = { foo: '' }` reads TS2322 upstream, not TS2353
         // (`conformance/classWithEmptyBody`), because nothing about the literal
@@ -1700,7 +1709,7 @@ impl<'a> Checker<'a, '_> {
         // the rest of the relation would have succeeded. This port runs no
         // relation here, so the emptiness test stands in for that condition —
         // and it was this rule's only loss.
-        if known.is_empty() {
+        if known.is_empty() && !indexed {
             return;
         }
         let names: Vec<&str> = literal
@@ -1727,14 +1736,32 @@ impl<'a> Checker<'a, '_> {
         if names.len() != literal.properties.len() {
             return;
         }
-        for name in names {
-            if known.iter().any(|(seen, _)| seen == name) {
-                // A **known** property is not excess; its value is checked
-                // against the target's member instead.
-                // `everyTypeWithAnnotationAndInvalidInitializer.ts(43,28)` is the
-                // `id` of `var anObjectLiteral: I = { id: 'a string' }` — the
-                // property *name*, not the value and not the declaration.
+        // `checkTypeRelatedToAndOptionallyElaborate` runs `elaborateError`
+        // (`elaborateObjectLiteral`) before the relation: every member whose
+        // target member `getBestMatchIndexedAccessTypeOrUndefined` finds — a
+        // declared one, or an apparent `Object` member such as `toString`
+        // that `isKnownProperty` does not know — is related and reported in
+        // source order. Only when none reports does `hasExcessProperties`
+        // speak, for the first unknown member (r7-reports §23).
+        // `everyTypeWithAnnotationAndInvalidInitializer.ts(43,28)` is the
+        // `id` of `var anObjectLiteral: I = { id: 'a string' }` — the
+        // property *name*, not the value and not the declaration.
+        let before = self.diagnostics.len();
+        for &name in &names {
+            if known.iter().any(|(seen, _)| seen == name)
+                || self.get_type_of_property_of_type(target, name).is_some()
+                || indexed && self.applicable_index_value(target, name).is_some()
+            {
                 self.check_object_literal_member(literal, target, name);
+            }
+        }
+        if self.diagnostics.len() != before {
+            return;
+        }
+        for name in names {
+            if known.iter().any(|(seen, _)| seen == name)
+                || indexed && self.applicable_index_value(target, name).is_some()
+            {
                 continue;
             }
             let Some(at) = self.excess_property_name_node(literal, name) else { return };
@@ -1783,9 +1810,22 @@ impl<'a> Checker<'a, '_> {
     ) {
         let Some(at) = self.excess_property_name_node(literal, name) else { return };
         let Some(value) = self.object_literal_member_value(literal, name) else { return };
-        let Some(member) = self.get_type_of_property_of_type(target, name) else { return };
+        // getIndexedAccessTypeOrUndefined: the property, else an applicable
+        // index signature's value.
+        let Some(member) = self
+            .get_type_of_property_of_type(target, name)
+            .or_else(|| self.applicable_index_value(target, name))
+        else {
+            return;
+        };
         let source = self.check_expression_at_node(value);
         self.report_assignability_failure(at, value, source, member);
+    }
+
+    /// `getApplicableIndexInfoForName(target, name)`'s value type.
+    fn applicable_index_value(&mut self, target: TypeId, name: &str) -> Option<TypeId> {
+        let key = self.property_name_key_type(name);
+        self.get_applicable_index_info(target, key).map(|info| info.value)
     }
 
     /// The initialiser node of the literal's property called `name`.
