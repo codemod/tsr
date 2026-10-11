@@ -1214,6 +1214,19 @@ impl Checker<'_, '_> {
         else {
             return None;
         };
+        if self.binder.symbols().get(owner).flags.intersects(SymbolFlags::CLASS) {
+            let mut indexed = false;
+            if !self.class_chain_lacks(owner, name, &mut Vec::new(), &mut indexed)? {
+                return Some(false);
+            }
+            // With no index signature declared anywhere on the chain the
+            // resolved type has no index infos, whatever the port's index
+            // walk makes of a circular base.
+            if !indexed {
+                return Some(true);
+            }
+            return self.no_index_signature_admits(apparent, name);
+        }
         let declarations = self.binder.symbols().get(owner).declarations.to_vec();
         let mut interfaces = 0usize;
         let mut extends = false;
@@ -1253,6 +1266,108 @@ impl Checker<'_, '_> {
             }
         }
         self.no_index_signature_admits(apparent, name)
+    }
+
+    /// The miss certificate for a class instance type whose table
+    /// `declared_members_are_complete` does not certify: a generic or
+    /// circular base, or an unresolved one.
+    ///
+    /// `resolveObjectTypeMembers` (`checker.go:19143`) layers the base
+    /// types' properties under the declared ones, and member *names* do not
+    /// depend on type arguments (§41's audit in `crate::member_completeness`),
+    /// so `class N extends M<string>` lacks a name exactly when `N`'s and
+    /// `M`'s declarations do. Two native rules end the base walk:
+    ///
+    /// - a circular base (`class M<T> extends M<string>`) is reported
+    ///   (TS2506) and resolves no base types (`resolveBaseTypes`,
+    ///   `checker.go:19189`), so a symbol met again contributes nothing;
+    /// - an `extends` expression naming nothing has the `errorType` base
+    ///   constructor (TS2304), which adds no base type.
+    ///
+    /// Any other base this port cannot follow (an alias, a type parameter,
+    /// a mixin call) declines. Own members must all have bound names; a
+    /// namespace merged onto the class adds exports, not members. No cache:
+    /// run once per reported miss, bounded by the chain's symbols.
+    fn class_chain_lacks(
+        &mut self,
+        owner: tsr_binder::SymbolId,
+        name: &str,
+        visiting: &mut Vec<tsr_binder::SymbolId>,
+        indexed: &mut bool,
+    ) -> Option<bool> {
+        if visiting.contains(&owner) {
+            return Some(true);
+        }
+        visiting.push(owner);
+        let declarations = self.binder.symbols().get(owner).declarations.to_vec();
+        let mut heritage = Vec::new();
+        for declaration in declarations {
+            match self.node_map.get(declaration) {
+                Some(
+                    Node::ClassDeclaration(tsr_ast::ClassDeclaration {
+                        members,
+                        heritage_clauses,
+                        ..
+                    })
+                    | Node::ClassExpression(tsr_ast::ClassExpression {
+                        members,
+                        heritage_clauses,
+                        ..
+                    }),
+                ) => {
+                    if !members.iter().all(|member| class_member_name_is_bound(*member)) {
+                        return None;
+                    }
+                    *indexed |= members.iter().any(|member| {
+                        matches!(member, tsr_ast::ClassElement::IndexSignatureDeclaration(_))
+                    });
+                    heritage.extend(heritage_clauses.iter().copied());
+                }
+                Some(Node::InterfaceDeclaration(interface)) => {
+                    if !interface.members.iter().all(|member| member_name_is_bound(*member)) {
+                        return None;
+                    }
+                    *indexed |= interface.members.iter().any(|member| {
+                        matches!(member, tsr_ast::TypeElement::IndexSignatureDeclaration(_))
+                    });
+                    heritage.extend(interface.heritage_clauses.iter().copied());
+                }
+                Some(Node::ModuleDeclaration(_) | Node::VariableDeclaration(_)) => {}
+                _ => return None,
+            }
+        }
+        if self.binder.symbols().get(owner).members.contains_key(name) {
+            return Some(false);
+        }
+        for clause in heritage {
+            if clause.token.kind != SyntaxKind::ExtendsKeyword {
+                continue;
+            }
+            for entry in clause.types {
+                // An unresolvable `extends X` is native's errorType base.
+                if let Some(tsr_ast::Expression::Identifier(identifier)) = entry.expression
+                    && let Some(id) = identifier.node_id
+                    && self
+                        .binder
+                        .resolve_name(
+                            self.nodes,
+                            self.node_map,
+                            id,
+                            identifier.text,
+                            SymbolFlags::all(),
+                        )
+                        .is_none()
+                {
+                    continue;
+                }
+                let base = self.base_symbol_of_heritage_entry(entry, false)?;
+                if !self.class_chain_lacks(base, name, visiting, indexed)? {
+                    return Some(false);
+                }
+            }
+        }
+        visiting.pop();
+        Some(true)
     }
 
     /// The miss certificate for an intersection and for a type alias
