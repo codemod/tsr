@@ -959,6 +959,21 @@ The first chain run of the read alone lost two cases (batch 35 base):
   consumer. The file is r7-grammar's; the integrator was asked for a grant
   before landing (§13's condition).
 
+**Held (2026-10-11, batch 35 base).** The second chain run of read +
+mapper + heritage form cleared both first losses and measured four new ones,
+all at heritage checks that now compare substituted members:
+
+| case | cause | owner |
+|---|---|---|
+| `arityAndOrderCompatibility01`, `coAndContraVariantInferences2` (false TS2430 on `extends Array<…>`) | `generic_heritage_member` read a generic base's `this` as the instantiated base reference, not the receiver | this lane, **fixed** (the walk now carries `this_argument`) |
+| `superPropertyAccessNoError` (false TS2416 on `returnThis() { return super.returnThis() }`) | `super` is typed as the plain base, so `super.returnThis()` reads `B` where native reads the derived `this`; `checkSuperExpression` answers `getTypeWithThisArgument(baseClassType, classType.thisType)` | `expressions.rs::check_super_expression`, routed |
+| `inferenceErasedSignatures` (false TS2415 and 3 type lines) | `SomeClass` is not assignable to `SomeAbstractClass<number, string, boolean>` even as a plain assignment: the inherited `set<K extends keyof this>(key: K, value: this[K]): this[K]` now reads `SomeClass[K]` against `SomeAbstractClass<…>[K]`, which native relates (generic signatures instantiated in context, then `S[K]` to `T[K]` through `S` to `T`) and this relater does not. Before §24 both sides kept the raw base `this` and agreed by accident | `relater.rs`, routed |
+
+The read is native's on every witness probed. What it exposes are gaps in
+consumers that the raw `this` used to hide, so it stays on
+`box/r7-shared-held` until the two routed items land. This is a correctness
+prerequisite, not a speed claim.
+
 **Alternatives rejected.**
 - Copying the access road's "first minted this-type anywhere" scan: it is a
   table-wide search with no owner, and it picks an arbitrary this-type when

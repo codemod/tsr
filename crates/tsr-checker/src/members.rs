@@ -1830,7 +1830,8 @@ impl Checker<'_, '_> {
         // instantiation goes through §226's `base_type_of_heritage_entry`
         // plus the reference road's own member typing instead. Cycles are
         // guarded by the walk's visited set.
-        if let Some(member) = self.generic_heritage_member(id, name, &mut Vec::new()) {
+        if let Some(member) = self.generic_heritage_member(id, name, this_argument, &mut Vec::new())
+        {
             return Some(member);
         }
         if let Some(member) = self.expression_heritage_member(id, name, this_argument) {
@@ -2030,6 +2031,7 @@ impl Checker<'_, '_> {
         &mut self,
         id: TypeId,
         name: &str,
+        this_argument: TypeId,
         visiting: &mut Vec<SymbolId>,
     ) -> Option<TypeId> {
         let TypeData::Named { members: Some(owner), .. } = self.store.get(id).data else {
@@ -2099,7 +2101,21 @@ impl Checker<'_, '_> {
                     // mutually-generic bases.
                     if let Some(property) = self.get_property_of_type(base_type, name) {
                         let declared = self.get_type_of_symbol(property);
-                        let instantiated = self.instantiate_for_reference(base_type, declared);
+                        // The base is instantiated with the derived
+                        // this-argument (`resolveObjectTypeMembers`), so its
+                        // `this` is the receiver's, not the base reference
+                        // (`r7-shared.md` §24).
+                        let instantiated = self.instantiate_for_reference_with_this(
+                            base_type,
+                            declared,
+                            this_argument,
+                        );
+                        let instantiated = self.instantiate_inherited_this(
+                            base_type,
+                            property,
+                            instantiated,
+                            this_argument,
+                        );
                         if instantiated != self.intrinsics.error {
                             // §923: the SECOND substitution. The step above maps
                             // the base's parameters onto the heritage entry's
@@ -2124,7 +2140,9 @@ impl Checker<'_, '_> {
                             return Some(instantiated);
                         }
                     }
-                    if let Some(member) = self.generic_heritage_member(base_type, name, visiting) {
+                    if let Some(member) =
+                        self.generic_heritage_member(base_type, name, this_argument, visiting)
+                    {
                         // Resolve inherited members under every enclosing
                         // reference mapper, including indirect generic bases.
                         let member = self.instantiate_for_reference(id, member);
