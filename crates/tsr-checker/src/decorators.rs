@@ -87,7 +87,14 @@ impl<'a> Checker<'a, '_> {
 
     fn decorator_function_type(&mut self, signature: Signature) -> TypeId {
         let text = self.signature_to_string(&signature);
-        let ty = self.store.new_named(TypeFlags::OBJECT, text, None);
+        // Native mints a symbol-less anonymous object type with the one call
+        // signature (`newObjectType(ObjectFlagsAnonymous, nil)`); this port's
+        // anonymous types carry a symbol, so the decorated declaration's own
+        // symbol stands in, which printing does not read for a signature type.
+        let ty = match self.binder.symbol_of(signature.declaration) {
+            Some(symbol) => self.store.new_anonymous(TypeFlags::OBJECT, text, symbol, true),
+            None => self.store.new_named(TypeFlags::OBJECT, text, None),
+        };
         self.signature_types.insert(ty, vec![signature]);
         ty
     }

@@ -766,6 +766,23 @@ carry the parent's file and span (`NewDiagnosticChain`); this port's
 `Diagnostic::new_chain` children have no file (reported to the integrator
 as shared infrastructure).
 
+## 24. Decorator function types are anonymous function types
+
+`decorator_function_type` minted ES member decorator signature types as
+`TypeData::Named` carrying `signature_types` (the second proposed issue
+below). The relater could not decide them, so `checkDecorator`'s return
+check stayed silent for ES member decorators. They are now this port's
+anonymous function type (`TypeData::Anonymous { signature: true }`). Native
+creates them symbol-less (`newObjectType(ObjectFlagsAnonymous, nil)`); this
+port's anonymous types carry a symbol, so the decorated declaration's
+symbol stands in. Printing a signature type reads its text, not the symbol,
+and the union now prints with native's parentheses
+(`void | ((this: X, value: any) => any)`). Probe:
+`declare function r(...args: any[]): number; class X { @r foo: any; @r bar() {} }`
+reports native's two member TS1270s. potentiallyUncalledDecorators' TS1270s
+stay missing: `OmniDecorator`'s generic call signatures leave the relation
+undecided, which is the relater's.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
