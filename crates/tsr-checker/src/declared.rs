@@ -11,7 +11,7 @@
 use crate::type_literal_index_symbols::TypeLiteralComputedName;
 use std::borrow::Cow;
 
-use tsr_ast::{Expression, Node, NodeId, Statement, SyntaxKind, TypeNode};
+use tsr_ast::{Expression, Node, NodeId, SyntaxKind, TypeNode};
 use tsr_binder::{SymbolFlags, SymbolId};
 
 use crate::{
@@ -6791,7 +6791,7 @@ impl<'a> Checker<'a, '_> {
             return error;
         }
         if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
-            && self.alias_rooted_reference_declines(node, namespace, resolved)
+            && self.alias_rooted_reference_declines(node, resolved)
         {
             return self.unresolved_type_reference(node);
         }
@@ -7294,53 +7294,21 @@ impl<'a> Checker<'a, '_> {
     ///   surfaced it as a new diagnostic in
     ///   `reactTagNameComponentWithPropsNoOOM2`. Owned by the relater /
     ///   base-type lanes (CLASS-GET-BASE-TYPES, INTERFACE-BASE-FROM-TYPE-NODE).
-    /// - **Module augmentation.** The binder does not run
-    ///   `mergeModuleAugmentation` (`checker.go:1407`), so a module augmented
-    ///   from the reference's file has an incomplete export table
-    ///   (`moduleAugmentationDoes{Interface,Namespace}MergeOfReexport`: TS2339
-    ///   on members the augmentation adds). Only augmentations in the
-    ///   reference's own file are seen; elsewhere this road matches the
-    ///   ES-import road, which ignores augmentations too.
+    /// - **Module augmentation** (removed, r7-declared §17). The arm declined
+    ///   every reference whose own file augments the alias's module, because
+    ///   the binder did not run `mergeModuleAugmentation` (`checker.go:1407`).
+    ///   `merge_module_augmentations` (tsr-binder) now does, and its named
+    ///   falsifiers (`moduleAugmentationDoes{Interface,Namespace}MergeOfReexport`)
+    ///   turn RIGHT with the arm gone.
     ///
-    /// Delete each arm when its owner lands; the falsifier is the named case
-    /// going `EMPTY_RIGHT` with the arm removed.
+    /// Delete the remaining arm when its owner lands; the falsifier is the
+    /// named case going `EMPTY_RIGHT` with the arm removed.
     fn alias_rooted_reference_declines(
         &mut self,
         node: &tsr_ast::TypeReferenceNode<'a>,
-        namespace: SymbolId,
         resolved: SymbolId,
     ) -> bool {
-        if !node.type_arguments.is_empty() && self.has_generic_heritage(resolved) {
-            return true;
-        }
-        let Some(target) = self.resolve_alias(namespace) else { return false };
-        let target = self.binder.merged_symbol(target);
-        // Only a module can be augmented; skip the statement scan otherwise.
-        if !self.binder.symbols().get(target).flags.intersects(SymbolFlags::VALUE_MODULE) {
-            return false;
-        }
-        let Some(mut file) = node.node_id else { return false };
-        while let Some(parent) = self.nodes.parent(file) {
-            file = parent;
-        }
-        let Some(Node::SourceFile(source)) = self.node_map.get(file) else { return false };
-        if !tsr_binder::is_external_module(source) {
-            return false;
-        }
-        for statement in source.statements {
-            let Statement::ModuleDeclaration(module) = statement else { continue };
-            let Some(tsr_ast::ModuleName::StringLiteral(name)) = module.name else { continue };
-            let (Some(declaration), Some(specifier)) = (module.node_id, name.node_id) else {
-                continue;
-            };
-            if self
-                .resolve_external_module_name(declaration, specifier)
-                .is_some_and(|augmented| self.binder.merged_symbol(augmented) == target)
-            {
-                return true;
-            }
-        }
-        false
+        !node.type_arguments.is_empty() && self.has_generic_heritage(resolved)
     }
 
     /// A class or interface declaration of `symbol` whose heritage clause
