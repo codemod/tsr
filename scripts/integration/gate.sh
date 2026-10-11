@@ -45,7 +45,7 @@ done
 /tmp/integ/jstyping.sh $base/tsr target/release/tsr | tee -a $log
 /tmp/integ/ir.sh $base/tsr target/release/tsr | tee -a $log
 if [ -n "${ORACLE_BASE:-}" ]; then
-  scripts/parity_gate.sh exact-candidate /tmp/integ/oracle/native "$ORACLE_BASE" $out/oracle --workers 4 > $out/oracle.txt 2>&1; say "ORACLE_EXIT $?"
+  scripts/parity_gate.sh exact-candidate /tmp/integ/oracle/native "$ORACLE_BASE" $out/oracle --workers 2 > $out/oracle.txt 2>&1; say "ORACLE_EXIT $?"
   head -5 $out/oracle.txt | tee -a $log
 fi
 say "GATE_DONE"
