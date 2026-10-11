@@ -10375,10 +10375,26 @@ impl Checker<'_, '_> {
     /// - an index signature only as a class element (`parseClassElement`,
     ///   `:1871`), not as a type member;
     /// - a method signature never: only type members are method signatures,
-    ///   and `parsePropertyOrMethodSignature` has no call.
+    ///   and `parsePropertyOrMethodSignature` has no call;
+    /// - an expression with type arguments only in a class's `extends`
+    ///   clause (`parseClassDeclarationOrExpression`, `:1777`), not in an
+    ///   interface's or an `implements` clause.
     fn reaches_check_js_syntax(&self, node: NodeId, typed: Node<'_>) -> bool {
         let parent_kind = || self.nodes.parent(node).map(|parent| self.nodes.kind(parent));
         match typed {
+            Node::ExpressionWithTypeArguments(_) => {
+                let Some(clause) = self.nodes.parent(node) else { return true };
+                let Some(Node::HeritageClause(heritage)) = self.node_map.get(clause) else {
+                    return true;
+                };
+                heritage.token.kind == SyntaxKind::ExtendsKeyword
+                    && self.nodes.parent(clause).is_some_and(|owner| {
+                        matches!(
+                            self.nodes.kind(owner),
+                            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+                        )
+                    })
+            }
             Node::MethodSignatureDeclaration(_) => false,
             Node::ParameterDeclaration(_) => matches!(
                 parent_kind(),
