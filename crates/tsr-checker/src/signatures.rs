@@ -6535,7 +6535,9 @@ impl<'a> Checker<'a, '_> {
             node.node_id.and_then(|parameter| self.jsdoc_template_constraint(parameter))
         });
         spell(self, constraint_node);
-        let constraint = match resolve(self, constraint_node) {
+        let resolved_constraint = resolve(self, constraint_node);
+        let constraint_resolved = resolved_constraint.is_some();
+        let constraint = match resolved_constraint {
             Some(constraint) => constraint,
             None => Some(self.intrinsics.any),
         };
@@ -6558,6 +6560,49 @@ impl<'a> Checker<'a, '_> {
             .node_id
             .and_then(|id| self.binder.symbol_of(id))
             .map(|symbol| self.get_declared_type_of_symbol(symbol));
+        // `getConstraintOfTypeParameter` (`checker.go:17059`): a written
+        // constraint whose base constraint is circular (`<T extends T>`,
+        // `<U extends T, T extends U>`) is no constraint
+        // (`hasNonCircularBaseConstraint`), so the parameter prints and
+        // relates as unconstrained (`docs/parity/notes/r7-shared.md` §18).
+        // Native resolves the constraint lazily, so a constraint naming a
+        // value (`<T extends typeof j>` inside `j`'s own annotation) never
+        // forms a cycle at signature construction; only a constraint that is
+        // itself a type parameter or an indexed access can be circular, and
+        // only those are asked here.
+        let circular = constraint.is_some_and(|written| {
+            self.store
+                .get(written)
+                .flags
+                .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
+        }) && constraint_node.is_some()
+            && resolved_type.is_some_and(|parameter| {
+                matches!(
+                    self.constraint_of_type(parameter),
+                    crate::constraints::ConstraintOfType::Nil
+                )
+            });
+        let (constraint, written_constraint) =
+            if circular { (None, None) } else { (constraint, written_constraint) };
+        // `getConstraintFromTypeParameter` (`checker.go:17085`): a written
+        // `any` constraint (not the error type) is `unknown` — a mapped type's
+        // key parameter takes `stringNumberSymbolType` instead, which never
+        // reaches a signature's type parameters — so `<T extends any>` prints
+        // `<T extends unknown>` (`r7-shared.md` §20).
+        let (constraint, written_constraint) = match constraint {
+            Some(written)
+                if constraint_resolved
+                    && self.store.get(written).flags.intersects(TypeFlags::ANY)
+                    && !self.is_error(written)
+                    && node
+                        .node_id
+                        .and_then(|id| self.nodes.parent(id))
+                        .is_none_or(|parent| self.nodes.kind(parent) != SyntaxKind::MappedType) =>
+            {
+                (Some(self.intrinsics.unknown), None)
+            }
+            _ => (constraint, written_constraint),
+        };
         Some(TypeParameter {
             resolved_type,
             is_const,
