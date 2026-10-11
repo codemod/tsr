@@ -461,3 +461,20 @@ dispatch): a tagged template with a `?.` token or inside an optional chain
 `6b560647`, which parses a template after `?.` as a tagged template. Its
 `checkGrammarTypeArguments` sibling is not ported. Converted:
 `taggedTemplateChain`.
+
+## §21 TS2790 reads the receiver's member, and the `exactOptionalPropertyTypes` arm
+
+`checkDeleteExpressionMustBeOptional` (`checker.go:10825`) tests
+`getTypeOfSymbol` of the property the access resolved, and under
+`exactOptionalPropertyTypes` the symbol's `Optional` flag instead of the
+type's `undefined` fact. `delete_operand.rs` read the source declaration's
+type, so a mapped receiver's optional member (`Partial<Foo>`'s `a`, whose
+transient symbol this port does not mint) drew TS2790; the type is now the
+receiver's member type (`get_type_of_property_of_type`). The exact arm reads
+the declaration's `?` (`property_is_optional`) when the member is the
+declaration's own, reached through its declared parent; a mapped or
+instantiated member's optionality is the receiver's
+(`identity_mapped_source_property_is_optional`, private to `members.rs`), so
+that case declines — routed as a visibility request. Converted:
+`deleteExpressionMustBeOptional_exactOptionalPropertyTypes` (exact true and
+false).

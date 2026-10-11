@@ -39,7 +39,9 @@ impl Checker<'_, '_> {
                 &messages::THE_OPERAND_OF_A_DELETE_OPERATOR_CANNOT_BE_A_PRIVATE_IDENTIFIER,
             );
         }
-        let Some(symbol) = self.delete_operand_resolved_symbol(expr) else { return };
+        let Some((symbol, apparent, name)) = self.delete_operand_resolved_symbol(expr) else {
+            return;
+        };
         if self.delete_operand_is_readonly(symbol) {
             self.report_delete_operand(
                 expr,
@@ -60,16 +62,37 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        let ty = self.get_type_of_symbol(symbol);
+        // `getTypeOfSymbol(symbol)` of the property the access resolved: the
+        // receiver's member, so a mapped receiver's (`Partial<Foo>`) optional
+        // property reads its mapped type — this port has no transient
+        // property symbol for it, only the source declaration's.
+        let declared = self.get_type_of_symbol(symbol);
+        let ty = self.get_type_of_property_of_type(apparent, &name).unwrap_or(declared);
         if self.is_type_any(ty)
             || self.store.get(ty).flags.intersects(TypeFlags::ANY_OR_UNKNOWN | TypeFlags::NEVER)
         {
             return;
         }
-        // `hasTypeFacts(t, TypeFactsIsUndefined)`; the
-        // `exactOptionalPropertyTypes` arm is not ported (§587 of
-        // `checker-notes-diag2.md`).
-        if self.nullish_facts(ty).1 {
+        let optional = if self.exact_optional_property_types {
+            // `symbol.Flags&ast.SymbolFlagsOptional != 0`. Read off the
+            // declaration where the receiver's member is that declaration's
+            // own type, read through its own declared parent; a mapped or
+            // instantiated member's optionality is the
+            // receiver's (members.rs's `identity_mapped_source_property_is_optional`,
+            // not reachable from here), so that case declines.
+            let parent = self.binder.symbols().get(symbol).parent;
+            let own_receiver = parent.is_some_and(|parent| {
+                self.get_declared_type_of_symbol(self.binder.merged_symbol(parent)) == apparent
+            });
+            if ty != declared || !own_receiver {
+                return;
+            }
+            self.property_is_optional(symbol)
+        } else {
+            // `hasTypeFacts(t, TypeFactsIsUndefined)`.
+            self.nullish_facts(ty).1
+        };
+        if optional {
             return;
         }
         self.report_delete_operand(
@@ -100,7 +123,10 @@ impl Checker<'_, '_> {
     /// canonical numeric literal. `None` when the access resolves no
     /// property here (upstream then skips both arms too, or this port cannot
     /// find the member).
-    fn delete_operand_resolved_symbol(&mut self, expr: NodeId) -> Option<SymbolId> {
+    fn delete_operand_resolved_symbol(
+        &mut self,
+        expr: NodeId,
+    ) -> Option<(SymbolId, crate::types::TypeId, String)> {
         let (receiver, name): (Expression<'_>, String) = match self.node_map.get(expr)? {
             Node::PropertyAccessExpression(access) => match access.name? {
                 MemberName::Identifier(name) => (access.expression?, name.text.to_string()),
@@ -149,7 +175,8 @@ impl Checker<'_, '_> {
             return None;
         }
         let apparent = self.apparent_type(receiver_type);
-        self.get_property_of_type(apparent, &name)
+        let symbol = self.get_property_of_type(apparent, &name)?;
+        Some((symbol, apparent, name))
     }
 
     /// `isReadonlySymbol` (`checker.go:13849`). The port's
