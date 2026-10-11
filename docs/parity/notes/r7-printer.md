@@ -1174,3 +1174,37 @@ in the package's index) spelled the specifier without reporting it.
 module-rooted text is complete; outside a tracker that is a no-op. `bar`'s
 TS2883 still waits on the checker: the port types `thing.arg` as `any`
 where native has `Other`, so there is no import to report.
+
+## 29. A written name is not reused through a namespace import's module clone
+
+**Forcing constraint.** `moduleAugmentationDuringSyntheticDefaultCheck`
+2:2. In `node_modules/moment-timezone/index.d.ts`, which writes
+`import * as moment from 'moment'` (with `esModuleInterop`) and augments
+`"moment"`, native prints the augmentation's name as
+`"moment" : () => Moment`. The port reused the written return annotation of
+`declare function moment(): moment.Moment` and printed
+`() => moment.Moment`.
+
+**Cause.** `serializeReturnTypeForSignature` reuses the written node only
+when each entity name in it is the same reference at the print site
+(`trackExistingEntityName` → `getSymbolIfSameReference`, which compares
+`resolveSymbol` of both). Here `resolveSymbol` of the namespace import is
+`resolveESModuleSymbol`'s clone (`cloneTypeAsModuleType`), never the
+`export =` target, so the comparison fails and the type serializes to
+`Moment`. The port's `resolve_alias_fully` reaches the target itself.
+
+**The port.** `track_existing_leftmost_identifier` (node_reuse.rs) refuses
+the reuse when the site's symbol is a different alias, declared by a
+namespace import, whose value is a recorded module clone. That is
+`alias_targets_module_clone`, §2's stand-in for the clone symbol, now
+`pub(crate)`. No cache or table.
+
+Only a namespace import is asked, because only `getTargetOfNamespaceImport`
+resolves through `resolveESModuleSymbol`'s clone. The first cut asked every
+site alias. Typing an alias is module-resolution work, and the
+`parameter_source_views_…_without_work` unit test caught a source-view plan
+doing it (its host panics on `module_resolution_found`).
+
+The case's 3:x lines still differ:
+- the `{ default: … }` member text is baked (`_moment.Moment`);
+- the merged overloads of `strftime`.
