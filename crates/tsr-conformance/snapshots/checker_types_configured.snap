@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types_configured Summary:
 What a pass means: the checker_types judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .types baseline
-Passed         : 1818/1928 (94.29%)
-Assertion lines: 77933/78552 (99.21%)  — a gradient, not a pass rate
-Failed         : 110
+Passed         : 1820/1928 (94.40%)
+Assertion lines: 77939/78552 (99.22%)  — a gradient, not a pass rate
+Failed         : 108
 Skipped        : 2240 (excluded from the denominator)
 
   36  skipped: the .types baseline has no assertions
@@ -27,7 +27,7 @@ Skipped        : 2240 (excluded from the denominator)
   2  skipped: upstream skips this case: unsupported outFile /.src/outfile.js
   1244  skipped: upstream skips this case: unsupported target ES5
 
-First 100 of 110 failures:
+First 100 of 108 failures:
 compiler/accessorWithInitializer(target=es2015)
   accessorWithInitializer.ts: >v : any — expected >v : number
 compiler/accessorWithRestParam(target=es2015)
@@ -100,10 +100,6 @@ compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
   intersectionsAndOptionalProperties3.ts: >ab_disabled_read : boolean — expected >ab_disabled_read : boolean | undefined
 compiler/iterableWithNeverAsUnionMember(target=esnext)
   iterableWithNeverAsUnionMember.ts: >elem : any — expected >elem : number
-compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=preserve)
-  /index.tsx: >Comp : () => EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
-compiler/jsxNamespaceImplicitImportJSXNamespaceFromConfigPickedOverGlobalOne(jsx=react-jsx)
-  /index.tsx: >Comp : () => EmotionJSX.Element — expected >Comp : () => import("@emotion/react/jsx-runtime").JSX.Element
 compiler/modularizeLibrary_ErrorFromUsingES6ArrayWithOnlyES6ArrayLib(target=es2015)
   modularizeLibrary_ErrorFromUsingES6ArrayWithOnlyES6ArrayLib.ts: >arguments : any — expected >arguments : {}
 compiler/neverAsDiscriminantType(strict=false)
@@ -228,3 +224,7 @@ conformance/parserStatementIsNotAMemberVariableDeclaration1(alwaysstrict=true)
   parserStatementIsNotAMemberVariableDeclaration1.ts: >{  "set": function (key, value) {    // 'private' should not be considered a member variable here.    private[key] = value;  }} : any — expected >{  "set": function (key, value) {    // 'private' should not be considered a member variable here.    private[key] = value;  }} : { set: (key: any, value: any) => void; }
 conformance/privateNameInObjectLiteral-3(target=es2015)
   privateNameInObjectLiteral-3.ts: 5 assertion(s), expected 4
+conformance/restPropertyWithBindingPattern(target=es2015)
+  restPropertyWithBindingPattern.ts: >{...[]} : any — expected >{...[]} : { [n: number]: never; toString(): string; toLocaleString(): string; toLocaleString(locales: string | string[], options?: Intl.NumberFormatOptions & Intl.DateTimeFormatOptions): string; pop(): undefined; push(...items: never[]): number; concat(...items: ConcatArray<never>[]): never[]; concat(...items: ConcatArray<never>[]): never[]; join(separator?: string): string; reverse(): never[]; shift(): undefined; slice(start?: number, end?: number): never[]; sort(compareFn?: ((a: never, b: never) => number) | undefined): []; splice(start: number, deleteCount?: number): never[]; splice(start: number, deleteCount: number, ...items: never[]): never[]; unshift(...items: never[]): number; indexOf(searchElement: never, fromIndex?: number): number; lastIndexOf(searchElement: never, fromIndex?: number): number; every<S extends never>(predicate: (value: never, index: number, array: never[]) => value is S, thisArg?: any): this is S[]; every(predicate: (value: never, index: number, array: never[]) => unknown, thisArg?: any): boolean; some(predicate: (value: never, index: number, array: never[]) => unknown, thisArg?: any): boolean; forEach(callbackfn: (value: never, index: number, array: never[]) => void, thisArg?: any): void; map<U>(callbackfn: (value: never, index: number, array: never[]) => U, thisArg?: any): U[]; filter<S extends never>(predicate: (value: never, index: number, array: never[]) => value is S, thisArg?: any): S[]; filter(predicate: (value: never, index: number, array: never[]) => unknown, thisArg?: any): never[]; reduce(callbackfn: (previousValue: never, currentValue: never, currentIndex: number, array: never[]) => never): never; reduce(callbackfn: (previousValue: never, currentValue: never, currentIndex: number, array: never[]) => never, initialValue: never): never; reduce<U>(callbackfn: (previousValue: U, currentValue: never, currentIndex: number, array: never[]) => U, initialValue: U): U; reduceRight(callbackfn: (previousValue: never, currentValue: never, currentIndex: number, array: never[]) => never): never; reduceRight(callbackfn: (previousValue: never, currentValue: never, currentIndex: number, array: never[]) => never, initialValue: never): never; reduceRight<U>(callbackfn: (previousValue: U, currentValue: never, currentIndex: number, array: never[]) => U, initialValue: U): U; find<S extends never>(predicate: (value: never, index: number, obj: never[]) => value is S, thisArg?: any): S | undefined; find(predicate: (value: never, index: number, obj: never[]) => unknown, thisArg?: any): undefined; findIndex(predicate: (value: never, index: number, obj: never[]) => unknown, thisArg?: any): number; fill(value: never, start?: number, end?: number): []; copyWithin(target: number, start: number, end?: number): []; [Symbol.iterator](): ArrayIterator<never>; entries(): ArrayIterator<[number, never]>; keys(): ArrayIterator<number>; values(): ArrayIterator<never>; [Symbol.unscopables]: { [x: number]: boolean | undefined; length?: boolean | undefined; toString?: boolean | undefined; toLocaleString?: boolean | undefined; pop?: boolean | undefined; push?: boolean | undefined; concat?: boolean | undefined; join?: boolean | undefined; reverse?: boolean | undefined; shift?: boolean | undefined; slice?: boolean | undefined; sort?: boolean | undefined; splice?: boolean | undefined; unshift?: boolean | undefined; indexOf?: boolean | undefined; lastIndexOf?: boolean | undefined; every?: boolean | undefined; some?: boolean | undefined; forEach?: boolean | undefined; map?: boolean | undefined; filter?: boolean | undefined; reduce?: boolean | undefined; reduceRight?: boolean | undefined; find?: boolean | undefined; findIndex?: boolean | undefined; fill?: boolean | undefined; copyWithin?: boolean | undefined; [Symbol.iterator]?: boolean | undefined; entries?: boolean | undefined; keys?: boolean | undefined; values?: boolean | undefined; readonly [Symbol.unscopables]?: boolean | undefined; }; length: 0; }
+conformance/staticPropertyNameConflicts(target=es2015,usedefineforclassfields=false)
+  staticPropertyNameConflicts.ts: >prototype : number — expected >prototype : StaticPrototype

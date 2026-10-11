@@ -3561,6 +3561,29 @@ impl<'a, 'n> Checker<'a, 'n> {
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
             return None;
         }
+        // r7-printer §14: a namespace segment whose own container is a file
+        // module takes the resolver's `getSymbolChain` whole, so a route
+        // through a module that re-exports it under another name
+        // (`export { EmotionJSX as JSX }`) spells the alias's name,
+        // `createAccessFromSymbolChain`'s `getNameOfSymbolAsWritten` of the
+        // chain's member, not the namespace's own.
+        if self.module_host.is_some()
+            && self
+                .binder
+                .symbols()
+                .get(parent)
+                .parent
+                .is_some_and(|grand| self.is_module_symbol(self.binder.merged_symbol(grand)))
+            && self.best_name(parent, reference).is_none()
+            && let Some((root, leaf)) =
+                self.module_rooted_chain_at(parent, reference, SymbolFlags::NAMESPACE)
+            && crate::objects::is_identifier_text(self.binder.symbols().get(leaf).name)
+        {
+            let specifier = self.module_specifier_for_symbol(root, reference)?;
+            self.track_unsafe_import(&specifier, parent, root);
+            let leaf_name = self.binder.symbols().get(leaf).name;
+            return Some(format!("import({specifier}).{leaf_name}."));
+        }
         // The RENAME applies to chain *segments* too (`§10.9`'s 67-line
         // residue): a chain rooted at `__React` prints under the innermost
         // accessible name for that segment — `React.Component`, not

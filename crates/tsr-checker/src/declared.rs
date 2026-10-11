@@ -6787,7 +6787,19 @@ impl<'a> Checker<'a, '_> {
             }
             return self.unresolved_type_reference(node);
         };
-        if in_alias_cycle {
+        // A declared-type cycle runs only through type aliases (and the
+        // aliases that reach them): an enum member, class or interface target
+        // (`type TypeFlag = SymbolFlags.Type` through `import type {
+        // SymbolFlags }`, conformance/enums) cannot close one, and resolves
+        // as the annotation road does (r7-declared §19).
+        if in_alias_cycle
+            && self
+                .binder
+                .symbols()
+                .get(self.binder.merged_symbol(resolved))
+                .flags
+                .intersects(SymbolFlags::TYPE_ALIAS | SymbolFlags::ALIAS)
+        {
             return error;
         }
         if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)

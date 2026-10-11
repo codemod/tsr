@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8845/9538 (92.73%)
-Assertion lines: 475321/478853 (99.26%)  — a gradient, not a pass rate
-Failed         : 693
+Passed         : 8851/9538 (92.80%)
+Assertion lines: 475335/478853 (99.27%)  — a gradient, not a pass rate
+Failed         : 687
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 693 failures:
+First 100 of 687 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -81,8 +81,6 @@ compiler/checkJsdocTypeTagOnExportAssignment6
   b.js: >a : any — expected >a : import("./a").Foo
 compiler/checkMergedGlobalUMDSymbol
   test.ts: >m : typeof THREE — expected >m : typeof import("./three")
-compiler/checkerInitializationCrash
-  /node_modules/@fullcalendar/core/index.d.ts: >VNode : any — expected >VNode : VNode
 compiler/checkingObjectWithThisInNamePositionNoCrash
   checkingObjectWithThisInNamePositionNoCrash.ts: >this : this — expected >this : { doit(): { [x: number]: string; }; }
 compiler/circularInlineMappedGenericTupleTypeNoCrash
@@ -213,3 +211,5 @@ compiler/declFileRestParametersOfFunctionAndFunctionType
   declFileRestParametersOfFunctionAndFunctionType.ts: >f5 : <T extends { (...args: any[]): void; }>() => void — expected >f5 : <T extends { (...args: any): void; }>() => void
 compiler/declarationAssertionNodeNotReusedWhenTypeNotEquivalent1
   declarationAssertionNodeNotReusedWhenTypeNotEquivalent1.ts: >unwrapped : { prop1: "hello" extends Record<string, Wrapper<any>> ? { [x: number]: never; toString: never; charAt: never; charCodeAt: never; concat: never; indexOf: never; lastIndexOf: never; localeCompare: Unwrap<{ (that: string): number; (that: string, locales?: string | string[], options?: Intl.CollatorOptions): number; }>; match: Unwrap<{ (regexp: string | RegExp): RegExpMatchArray | null; (matcher: { [Symbol.match](string: string): RegExpMatchArray | null; }): RegExpMatchArray | null; }>; replace: Unwrap<{ (searchValue: string | RegExp, replaceValue: string): string; (searchValue: string | RegExp, replacer: (substring: string, ...args: any[]) => string): string; (searchValue: { [Symbol.replace](string: string, replaceValue: string): string; }, replaceValue: string): string; (searchValue: { [Symbol.replace](string: string, replacer: (substring: string, ...args: any[]) => string): string; }, replacer: (substring: string, ...args: any[]) => string): string; }>; search: Unwrap<{ (regexp: string | RegExp): number; (searcher: { [Symbol.search](string: string): number; }): number; }>; slice: never; split: Unwrap<{ (separator: string | RegExp, limit?: number): string[]; (splitter: { [Symbol.split](string: string, limit?: number): string[]; }, limit?: number): string[]; }>; substring: never; toLowerCase: never; toLocaleLowerCase: never; toUpperCase: never; toLocaleUpperCase: never; trim: never; readonly length: never; substr: never; valueOf: never; codePointAt: never; includes: never; endsWith: never; normalize: Unwrap<{ (form: "NFC" | "NFD" | "NFKC" | "NFKD"): string; (form?: string): string; }>; repeat: never; startsWith: never; anchor: never; big: never; blink: never; bold: never; fixed: never; fontcolor: never; fontsize: Unwrap<{ (size: number): string; (size: string): string; }>; italics: never; link: never; small: never; strike: never; sub: never; sup: never; } : "hello"; } — expected >unwrapped : { prop1: "hello"; }
+compiler/declarationEmitAliasFromIndirectFile
+  instance.d.ts: >l10ns : { [k in LocaleKey]?: CustomLocale; } & { default: Locale; } — expected >l10ns : { ar?: CustomLocale | undefined; bg?: CustomLocale | undefined; } & { default: Locale; }

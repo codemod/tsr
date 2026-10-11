@@ -1125,8 +1125,11 @@ impl Checker<'_, '_> {
         let text = name.text;
         let Some(at) = name.node_id else { return };
         let Some(nearest) = self.nearest_class_declaring_private_name(node, text) else { return };
-        let Some(receiver_id) = receiver.node_id() else { return };
-        let Some(other) = self.annotated_class_of(receiver_id) else { return };
+        // `checkPrivateIdentifierPropertyAccess` (`checker.go:11494`) reads
+        // the receiver's *type*: the class whose instance (or static side)
+        // it is, among `getPropertiesOfType(leftType)`.
+        let receiver_type = self.check_expression(receiver);
+        let Some((other, is_static)) = self.class_of_receiver_type(receiver_type) else { return };
         if other == nearest {
             return;
         }
@@ -1137,10 +1140,10 @@ impl Checker<'_, '_> {
         if !self.nodes.ancestors(nearest).any(|ancestor| ancestor == other) {
             return;
         }
-        if !self.class_declares_private_name(other, text) {
+        if !self.class_declares_private_name_on_side(other, text, is_static) {
             return;
         }
-        let Some(class_name) = self.class_name_text(other) else { return };
+        let class_name = self.type_to_string(receiver_type);
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let span = self.nodes.span(at);
         self.report(
@@ -1263,57 +1266,56 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// The class declaration a receiver's written annotation names. §628.
-    fn annotated_class_of(&mut self, receiver: NodeId) -> Option<NodeId> {
-        let text = self.identifier_text(receiver)?.to_string();
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            receiver,
-            &text,
-            tsr_binder::SymbolFlags::VALUE,
-        )?;
-        let declarations =
-            self.binder.symbols().get(self.binder.merged_symbol(symbol)).declarations.clone();
-        for declaration in declarations {
-            // **A class name used as a value names its own declaration.**
-            // `A.#x` reaches the statics of `A`; the receiver is the class
-            // itself, not something annotated with it. §630.
-            if matches!(
-                self.node_map.get(declaration),
-                Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
-            ) {
-                return Some(declaration);
-            }
-            let annotation = match self.node_map.get(declaration) {
-                Some(Node::ParameterDeclaration(p)) => p.r#type,
-                Some(Node::VariableDeclaration(v)) => v.r#type,
-                _ => None,
-            };
-            let Some(reference) = annotation.and_then(|a| a.node_id()) else { continue };
-            let Some(Node::TypeReferenceNode(reference)) = self.node_map.get(reference) else {
-                continue;
-            };
-            let Some(name) = reference.type_name.and_then(|n| n.node_id()) else { continue };
-            let Some(name_text) = self.identifier_text(name).map(str::to_string) else { continue };
-            let Some(class_symbol) = self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                name,
-                &name_text,
-                tsr_binder::SymbolFlags::TYPE,
-            ) else {
-                continue;
-            };
-            return self
-                .binder
-                .symbols()
-                .get(self.binder.merged_symbol(class_symbol))
-                .declarations
-                .first()
-                .copied();
+    /// The class declaration whose instance type (`false`) or constructor
+    /// side (`true`) `receiver_type` is: the declared class of a class
+    /// reference, or the class symbol of `typeof C`.
+    fn class_of_receiver_type(
+        &self,
+        receiver_type: crate::types::TypeId,
+    ) -> Option<(NodeId, bool)> {
+        let (symbol, is_static) = match self.store.get(receiver_type).data {
+            crate::types::TypeData::Named { members: Some(owner), .. } => (owner, false),
+            crate::types::TypeData::Anonymous { symbol, .. } => (symbol, true),
+            _ => return None,
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self.binder.symbols().get(symbol).flags.intersects(tsr_binder::SymbolFlags::CLASS) {
+            return None;
         }
-        None
+        let class = self.binder.symbols().get(symbol).declarations.iter().copied().find(|&d| {
+            matches!(
+                self.node_map.get(d),
+                Some(Node::ClassDeclaration(_) | Node::ClassExpression(_))
+            )
+        })?;
+        Some((class, is_static))
+    }
+
+    /// [`Self::class_declares_private_name`] restricted to the static or the
+    /// instance side, which is where `getPropertiesOfType` finds it.
+    fn class_declares_private_name_on_side(
+        &self,
+        class: NodeId,
+        text: &str,
+        is_static: bool,
+    ) -> bool {
+        let members: &[tsr_ast::ClassElement<'_>] = match self.node_map.get(class) {
+            Some(Node::ClassDeclaration(n)) => n.members,
+            Some(Node::ClassExpression(n)) => n.members,
+            _ => return false,
+        };
+        members.iter().any(|member| {
+            let (name, modifiers) = match member {
+                tsr_ast::ClassElement::PropertyDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::MethodDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) => (n.name, n.modifiers),
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) => (n.name, n.modifiers),
+                _ => return false,
+            };
+            matches!(name, tsr_ast::PropertyName::PrivateIdentifier(p) if p.text == text)
+                && tsr_ast::has_syntactic_modifier(modifiers, SyntaxKind::StaticKeyword)
+                    == is_static
+        })
     }
 
     /// The written name of a class declaration. §628.

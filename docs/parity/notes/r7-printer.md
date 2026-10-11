@@ -704,3 +704,30 @@ outer one takes the scope's name. Retiring that shortcut needs the scope to
 record its own type parameters' ids: `push_render_type_parameter_scope`
 (inference.rs) and its call in `signature_to_string_at` (signatures.rs),
 neither this lane's. Routed.
+
+## 14. A namespace segment takes its whole chain from the resolver
+
+**Forcing constraint.** `jsxNamespaceImplicitImportJSXNamespaceFrom{Pragma,Config}PickedOverGlobalOne`
+(three cases): `index.tsx`'s JSX element type is `EmotionJSX.Element`
+(`export namespace EmotionJSX` in `jsx-namespace.d.ts`), which
+`@emotion/react/jsx-runtime` re-exports as `export { EmotionJSX as JSX }`.
+Native prints `import("@emotion/react/jsx-runtime").JSX.Element`; the port
+printed `EmotionJSX.Element`.
+
+**Cause.** `getSymbolChain` for `Element` walks to its parent `EmotionJSX`,
+whose chain is `[jsx-runtime, JSX]`: the re-exporting module wins
+`sortByBestName` (fewer path components), and `getAliasForSymbolInContainer`
+gives the export specifier `JSX`. `createAccessFromSymbolChain` writes each
+member's own name, so the segment is `JSX`. `symbol_chain` returns a
+*prefix* for a name the caller appends, and §1's file-module arm declines a
+chain whose leaf renames the symbol, so the namespace segment fell back to
+its declared name.
+
+**The port.** At the namespace-parent step, a namespace whose own container
+is a file module and that no in-scope name reaches (`best_name`) asks the
+resolver (`module_rooted_chain_at`) and writes the whole segment,
+`import(<specifier>).<leaf>.`, with the leaf's name (an identifier; else
+declined as §9). No cache or table.
+
+**Measured** against §13's commit (`7d71f6ba0`), both dumps unfiltered:
+types **+9 / −0** (the three cases, 3 lines each), diagnostics unchanged.
