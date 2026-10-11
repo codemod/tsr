@@ -739,3 +739,14 @@ From `full_oracle_run rank` on `59ceea97`:
   `report_skipped_on_no_emit` (module_format.rs) drops them at the producer.
   TS2441's producer already returned under `noEmit`; TS1216 and TS2818 did
   not. Routed: the program-level filter, after which the producer drop goes.
+
+## §36 TS1051 on a JSDoc-optional set-accessor parameter
+
+`checkGrammarAccessor`'s `parameter.QuestionToken != nil` arm
+(`grammarchecks.go`) also sees the `?` the reparser makes from a JS
+accessor's `@param [x]` or `{T=}` (`makeQuestionIfOptional`). That token is
+located at its tag. `check_grammar_accessor_declaration` read only a written
+`?`. It now also reads `jsdoc_reparsed_function(accessor)`'s slot for the
+value parameter, exactly as `check_grammar_parameter_list` reads its
+reparsed `?` (ADR-0046), and reports at the tag. Converted:
+`jsDeclarationsReusesExistingTypeAnnotations`.
