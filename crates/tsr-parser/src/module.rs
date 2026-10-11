@@ -85,7 +85,7 @@ impl<'a> Parser<'a> {
                 if self.at_binding_identifier() { Some(self.parse_identifier()) } else { None };
             // A default import may be followed by named or namespace bindings.
             let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
-                self.parse_named_import_bindings()
+                Some(self.parse_named_import_bindings())
             } else {
                 None
             };
@@ -114,7 +114,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `* as ns` or `{ a, b as c }`.
-    pub(crate) fn parse_named_import_bindings(&mut self) -> Option<NamedImportBindings<'a>> {
+    pub(crate) fn parse_named_import_bindings(&mut self) -> NamedImportBindings<'a> {
         let start = self.pos();
         if self.at(SyntaxKind::AsteriskToken) {
             self.next_token();
@@ -125,10 +125,17 @@ impl<'a> Parser<'a> {
                 SyntaxKind::NamespaceImport,
                 start,
             );
-            return Some(NamedImportBindings::NamespaceImport(node));
+            return NamedImportBindings::NamespaceImport(node);
         }
+        // `parseNamedImports`' `parseBracketedList` (`parser.go:2390`): a
+        // missing `{` is `'{' expected` and an empty, zero-width list
+        // (`import d, from "m"`).
         if !self.at(SyntaxKind::OpenBraceToken) {
-            return None;
+            self.expect(SyntaxKind::OpenBraceToken);
+            let at = self.node_end();
+            let node =
+                self.finish_node_with_end(NamedImports::new(&[]), SyntaxKind::NamedImports, at, at);
+            return NamedImportBindings::NamedImports(node);
         }
 
         self.next_token();
@@ -141,7 +148,7 @@ impl<'a> Parser<'a> {
         self.expect(SyntaxKind::CloseBraceToken);
         let elements = self.arena.alloc_slice(&elements);
         let node = self.finish_node(NamedImports::new(elements), SyntaxKind::NamedImports, start);
-        Some(NamedImportBindings::NamedImports(node))
+        NamedImportBindings::NamedImports(node)
     }
 
     /// typescript-go's `Parser.parseImportSpecifier` (`parser.go`).
