@@ -241,7 +241,6 @@ function whose recovery differed. Each landed as its own commit:
 | `parseForOrForInOrForOfStatement` (`:1307`) | `for await` did not expect `of` | parser.forAwait.es2018 |
 | `typeHasArrowFunctionBlockingParseError` (`:4450`) | `(a): => {}` taken as an arrow | parserX_ArrowFunction3, ArrowFunction3 |
 | `parseThisTag` (`jsdoc.go:985`) | `@this` required braces | thisPrototypeMethodCompoundAssignmentJs |
-
 | `ReScanSlashToken` (`scanner.go:1067`) | an unterminated regex ran to the line end | parserRegularExpressionDivideAmbiguity4 |
 | `parseVariableDeclarationList` (`:1563`) | `await using` flagged `Using` alone | awaitUsingDeclarationsInForIn, awaitUsingDeclarationsWithImportHelpers |
 | `checkJSDecoratorSyntax` (`:6657`) | no TS1206/TS8038 decorator placement in `.js` | esDecorators-classDeclaration-exportModifier |
@@ -257,6 +256,12 @@ function whose recovery differed. Each landed as its own commit:
 | `canFollowGetOrSetKeyword` (`:4036`) | `get #foo()` in an object literal was a property | privateNameInObjectLiteral-3 |
 | `parseParameterWorker`'s `this` arm (`:3325`) | `this?:`/`this: C = …` parsed `?`/initializer | thisTypeInFunctionsNegative's parse errors |
 | `createIdentifierWithDiagnostic` at EOF (`:5841`) | a missing type at EOF reported over the EOF token | commonJsExportTypeDeclarationError |
+| `parseJsxChild`'s EOF arm (`:4847`) | TS17008 for a missing tag name sat on the next token and swallowed its report | parseJsxElementInUnaryExpressionNoCrash3 |
+| `parseConditionalExpressionRest` (`:4552`) | `whenTrue` kept a `for` head's no-`in` context, and a missing `:` still parsed `whenFalse` (a second report, TS1109) | jsxAndTypeAssertion (with §7's argument-aware fold) |
+| `ScanJsxTokenEx`'s text loop (`scanner.go:1281`) | a `<<<<<<< ` marker inside JSX text scanned as `<` tokens | conflictMarkerTrivia3 (types; diagnostics wait on the checker's TS17004, unported) |
+| `parseJSDocComment`'s `PCJSDocComment` (`jsdoc.go:168`) | a list inside a comment's type expression skipped a token it could not use instead of aborting, as every token is that context's element | jsdocFunctionTypeFalsePositive's parse errors (diagnostics wait on TS1098 from the list facts, §10) |
+| `parsePrimaryExpression` / `parseTemplateHead` re-scan gate (`:5551`, `:3691`) | every untagged template was re-scanned, so an unterminated one reported TS1160 a second time after a parser error at it, and the guard dropped the next error at end of file | labeledStatementDeclarationListInLoopNoCrash4 |
+| `scanner.TokenToString` (`scanner.go:124`) | `'{0}' expected` knew twenty token texts and printed any other kind's name (`'LessThanSlashToken' expected.`) | message text only (the exact oracle; the diagnostics suite compares codes) |
 
 The type-argument list is now native's `parseDelimitedList(PCTypeArguments,
 parseType)`; its diagnostics stand when the list is accepted and the
@@ -281,6 +286,17 @@ Held, with the reason:
   `super<T>` is the checker resolving the type arguments of a super call
   outside a constructor, which native does not.
 
+Refused, with the number:
+
+- Every missing identifier at its full start, as native's `createIdentifier`
+  (`nodePos()`) places it, instead of at the next token's start. Measured
+  against batch 22: diagnostics +1 / −2. The two losses,
+  taggedTemplatesWithIncompleteTemplateExpressions4 and 5, are checker
+  reports whose spans assume a trivia-free start on the missing node. The
+  JSX end-of-file arm above applies the full start locally instead, where
+  only the parser reads the span. Revisit when the checker's error spans
+  skip trivia (`getErrorSpanForNode`'s `SkipTrivia`) for missing nodes.
+
 ## 7. Scanner reports go through the parser's sink
 
 Native's scanner reports through `scanError` → `parseErrorAtRange`
@@ -295,8 +311,10 @@ TS1003 at `32`, then TS1005 at `data`. Native keeps all three.
 Now each scan moves the scanner's reports into the parser's list through the
 same guard, in report order (`sync_scanner_diagnostics`: one emptiness test
 per scanned token, and the move itself is out of line). `finish` sorts by
-position and folds only exact repeats (same span and code), as
-`SortAndDeduplicateDiagnostics` does. A speculative parse rewinds both
+position and folds only exact repeats (same span, code and arguments), as
+`SortAndDeduplicateDiagnostics` does: it compares the message text, so
+`':' expected` and `'</' expected` at one end of file both stand
+(jsxAndTypeAssertion). Folding on span and code alone merged them. A speculative parse rewinds both
 together, because the reports are in the list `save_state` measures.
 §195's case (TS1127 alone at an invalid character) is the consecutive guard's,
 and still holds.

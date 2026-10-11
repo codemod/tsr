@@ -6317,6 +6317,43 @@ impl<'a> Checker<'a, '_> {
                 self.render_type_parameter_scope.push((parameter.name.clone(), symbol));
             }
         }
+        // `enterNewScope` names the signature's own type parameters first
+        // (`typeParameterToName`, cached by type id in `typeParameterNames`),
+        // so a reference to one inside the signature answers that name by its
+        // identity, and a different type parameter with the same declaration
+        // (an instantiated signature's clone keeps its original's symbol)
+        // takes the next free name: `<S extends S_1>` (r7-printer §15). The
+        // callers truncate `allocations` with the scope.
+        // A clone the signature's own types never mention is not the type
+        // its parameters and return refer to (a contextual signature on an
+        // unannotated arrow records a fresh clone while its parameter keeps
+        // the instantiated one; native shares one type there). Naming it by id
+        // would rename the referenced one, so it is left to the by-symbol
+        // answer.
+        if let Some(types) = self.type_parameter_types(signature) {
+            let mut slots: Vec<TypeId> = vec![signature.r#type];
+            for parameter in &signature.parameters {
+                slots.push(self.parameter_type(parameter));
+            }
+            for (parameter, id) in signature.type_parameters.iter().zip(types) {
+                let symbol = self.type_parameter_symbols.get(&id).copied();
+                let declared =
+                    symbol.is_some_and(|symbol| self.get_declared_type_of_symbol(symbol) == id);
+                if !declared
+                    && !slots.iter().any(|&slot| self.mentions_type_parameter(slot, &[id], &[]))
+                {
+                    continue;
+                }
+                if !self
+                    .render_type_parameter_names
+                    .allocations
+                    .iter()
+                    .any(|(owner, _)| *owner == id)
+                {
+                    self.render_type_parameter_names.allocations.push((id, parameter.name.clone()));
+                }
+            }
+        }
     }
 
     /// §102's print-only clone, the DECODED two-mechanism form

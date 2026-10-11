@@ -162,9 +162,12 @@ impl<'a> Parser<'a> {
         // `+3` past the opening `/**`, `-2` short of the closing `*/`: the window
         // is exactly the comment body, so end-of-window is end-of-comment.
         self.scanner.set_range(range.start + 3, range.end - 2);
+        let saved_parsing_contexts = self.parsing_contexts;
+        self.parsing_contexts |= crate::list::ParsingContext::JSDocComment.bit();
 
         #[allow(clippy::cast_possible_truncation)]
         let doc = self.parse_jsdoc_comment_worker(range, indent as u32);
+        self.parsing_contexts = saved_parsing_contexts;
 
         // Moved aside rather than reported (`parseJSDocComment`, `jsdoc.go:171`).
         // In a `.ts` file the comment is not part of the program's syntax, so
@@ -1831,11 +1834,8 @@ impl<'a> Parser<'a> {
         if self.eat_jsdoc(kind) {
             true
         } else {
-            let text = match kind {
-                SyntaxKind::BacktickToken => "`",
-                kind => crate::parser::token_to_text(kind),
-            };
-            self.error_at_current_with(&messages::_0_EXPECTED, &[text]);
+            let text = crate::parser::token_to_text(kind);
+            self.error_at_current_with(&messages::_0_EXPECTED, &[&text]);
             false
         }
     }

@@ -5,7 +5,7 @@ use tsr_ast::{
 };
 use tsr_core::{Arena, Span};
 use tsr_diagnostics::{Diagnostic, Message, messages};
-use tsr_scanner::{Scanner, Token};
+use tsr_scanner::{Scanner, Token, TokenFlags};
 
 /// Which dialect a file is parsed as.
 ///
@@ -610,9 +610,13 @@ impl<'a> Parser<'a> {
         // token was scanned ([`Self::sync_scanner_diagnostics`]), through the
         // same-position guard native's single sink applies (`parser.go:327`);
         // only the reparse's carried scanner reports remain separate. The
-        // list is then sorted by position, and an exact repeat (same span and
-        // code: a token re-scanned after a speculative parse rewound past it)
-        // is folded as `SortAndDeduplicateDiagnostics` folds it. An earlier
+        // list is then sorted by position, and an exact repeat (same span,
+        // code and arguments: a token re-scanned after a speculative parse
+        // rewound past it) is folded as `SortAndDeduplicateDiagnostics` folds
+        // it — anywhere among the reports at that span, since that sort puts
+        // equal reports together. Comparing the arguments keeps `':' expected`
+        // and `'</' expected` at one end of file apart, as the message text
+        // comparison does natively. An earlier
         // version deduplicated by start alone across both lists, which also
         // dropped a parser error the scanner had not reported just before it
         // (§195's TS1127-alone case is the consecutive guard's, and still
@@ -621,12 +625,12 @@ impl<'a> Parser<'a> {
         let mut diagnostics = self.diagnostics;
         diagnostics.extend(self.carried_scanner_diagnostics);
         diagnostics.sort_by_key(|d| (d.span.start, d.span.end));
-        diagnostics.dedup_by(|a, b| a.span == b.span && a.message.code() == b.message.code());
+        fold_exact_repeats(&mut diagnostics);
         let mut jsdoc_diagnostics = self.jsdoc_diagnostics;
         // A comment re-read after a speculative parse rewinds reports again;
         // upstream's `SortAndDeduplicateDiagnostics` folds the repeats.
         jsdoc_diagnostics.sort_by_key(|d| (d.span.start, d.span.end));
-        jsdoc_diagnostics.dedup_by(|a, b| a.span == b.span && a.message.code() == b.message.code());
+        fold_exact_repeats(&mut jsdoc_diagnostics);
         let jsdoc = JSDocTable { entries: self.jsdoc, diagnostics: jsdoc_diagnostics };
         (diagnostics, self.nodes, jsdoc, self.node_map)
     }
@@ -730,7 +734,7 @@ impl<'a> Parser<'a> {
         if self.eat(kind) {
             return true;
         }
-        self.error_at_current_with(&messages::_0_EXPECTED, &[token_to_text(kind)]);
+        self.error_at_current_with(&messages::_0_EXPECTED, &[&token_to_text(kind)]);
         false
     }
 
@@ -803,6 +807,23 @@ impl<'a> Parser<'a> {
         self.token = self.scanner.rescan_template(is_tagged);
         self.token_value = capture_value(&self.scanner);
         self.sync_scanner_diagnostics();
+    }
+
+    /// The re-scan `parsePrimaryExpression` (`parser.go:5551`) and
+    /// `parseTemplateHead` (`parser.go:3691`) make of an untagged template's
+    /// first token: only when its first scan found an invalid escape, the one
+    /// thing a reporting scan changes. Re-scanning every template also
+    /// reported an unterminated one twice, and the second report followed a
+    /// parser error at the template, so the same-position guard then dropped
+    /// the next error at end of file (labeledStatementDeclarationListInLoopNoCrash4).
+    /// A tagged template's head is never re-scanned; either way its
+    /// continuations report as the tag says.
+    pub(crate) fn rescan_template_head_if_invalid(&mut self, is_tagged: bool) {
+        if !is_tagged && self.token.flags.contains(TokenFlags::CONTAINS_INVALID_ESCAPE) {
+            self.rescan_template(false);
+        } else {
+            self.scanner.set_report_template_escapes(!is_tagged);
+        }
     }
 
     /// Re-scan a `}` as the continuation of a template literal.
@@ -1428,27 +1449,103 @@ fn capture_value(scanner: &Scanner<'_>) -> Option<String> {
     scanner.decoded_value().map(str::to_string)
 }
 
-/// Human-readable text for a token kind, for `'{0}' expected.`
-pub(crate) fn token_to_text(kind: SyntaxKind) -> &'static str {
-    match kind {
+/// Human-readable text for a token kind, for `'{0}' expected.` — native's
+/// `scanner.TokenToString` (`scanner.go:124`'s `textToToken`, inverted):
+/// every punctuator and keyword spells its own text. An earlier table here
+/// knew twenty kinds and fell back to the kind's name, so `parseExpected
+/// (LessThanSlashToken)` printed `'LessThanSlashToken' expected.`.
+pub(crate) fn token_to_text(kind: SyntaxKind) -> std::borrow::Cow<'static, str> {
+    use std::borrow::Cow;
+    let text = match kind {
         SyntaxKind::OpenBraceToken => "{",
         SyntaxKind::CloseBraceToken => "}",
         SyntaxKind::OpenParenToken => "(",
         SyntaxKind::CloseParenToken => ")",
         SyntaxKind::OpenBracketToken => "[",
         SyntaxKind::CloseBracketToken => "]",
+        SyntaxKind::DotToken => ".",
+        SyntaxKind::DotDotDotToken => "...",
         SyntaxKind::SemicolonToken => ";",
         SyntaxKind::CommaToken => ",",
-        SyntaxKind::ColonToken => ":",
-        SyntaxKind::DotToken => ".",
-        SyntaxKind::EqualsToken => "=",
-        SyntaxKind::EqualsGreaterThanToken => "=>",
         SyntaxKind::LessThanToken => "<",
         SyntaxKind::GreaterThanToken => ">",
+        SyntaxKind::LessThanEqualsToken => "<=",
+        SyntaxKind::GreaterThanEqualsToken => ">=",
+        SyntaxKind::EqualsEqualsToken => "==",
+        SyntaxKind::ExclamationEqualsToken => "!=",
+        SyntaxKind::EqualsEqualsEqualsToken => "===",
+        SyntaxKind::ExclamationEqualsEqualsToken => "!==",
+        SyntaxKind::EqualsGreaterThanToken => "=>",
+        SyntaxKind::PlusToken => "+",
+        SyntaxKind::MinusToken => "-",
+        SyntaxKind::AsteriskAsteriskToken => "**",
+        SyntaxKind::AsteriskToken => "*",
+        SyntaxKind::SlashToken => "/",
+        SyntaxKind::PercentToken => "%",
+        SyntaxKind::PlusPlusToken => "++",
+        SyntaxKind::MinusMinusToken => "--",
+        SyntaxKind::LessThanLessThanToken => "<<",
+        SyntaxKind::LessThanSlashToken => "</",
+        SyntaxKind::GreaterThanGreaterThanToken => ">>",
+        SyntaxKind::GreaterThanGreaterThanGreaterThanToken => ">>>",
+        SyntaxKind::AmpersandToken => "&",
+        SyntaxKind::BarToken => "|",
+        SyntaxKind::CaretToken => "^",
+        SyntaxKind::ExclamationToken => "!",
+        SyntaxKind::TildeToken => "~",
+        SyntaxKind::AmpersandAmpersandToken => "&&",
+        SyntaxKind::BarBarToken => "||",
         SyntaxKind::QuestionToken => "?",
+        SyntaxKind::QuestionQuestionToken => "??",
+        SyntaxKind::QuestionDotToken => "?.",
+        SyntaxKind::ColonToken => ":",
+        SyntaxKind::EqualsToken => "=",
+        SyntaxKind::PlusEqualsToken => "+=",
+        SyntaxKind::MinusEqualsToken => "-=",
+        SyntaxKind::AsteriskEqualsToken => "*=",
+        SyntaxKind::AsteriskAsteriskEqualsToken => "**=",
+        SyntaxKind::SlashEqualsToken => "/=",
+        SyntaxKind::PercentEqualsToken => "%=",
+        SyntaxKind::LessThanLessThanEqualsToken => "<<=",
+        SyntaxKind::GreaterThanGreaterThanEqualsToken => ">>=",
+        SyntaxKind::GreaterThanGreaterThanGreaterThanEqualsToken => ">>>=",
+        SyntaxKind::AmpersandEqualsToken => "&=",
+        SyntaxKind::BarEqualsToken => "|=",
+        SyntaxKind::CaretEqualsToken => "^=",
+        SyntaxKind::BarBarEqualsToken => "||=",
+        SyntaxKind::AmpersandAmpersandEqualsToken => "&&=",
+        SyntaxKind::QuestionQuestionEqualsToken => "??=",
+        SyntaxKind::AtToken => "@",
+        SyntaxKind::HashToken => "#",
+        SyntaxKind::BacktickToken => "`",
         SyntaxKind::Identifier => "identifier",
-        SyntaxKind::WhileKeyword => "while",
-        SyntaxKind::FromKeyword => "from",
+        // A keyword's text is its kind's name without `Keyword`, lowercased
+        // (`InstanceOfKeyword` → `instanceof`).
+        keyword if keyword.is_keyword() => {
+            let name = keyword.name();
+            return Cow::Owned(name.strip_suffix("Keyword").unwrap_or(name).to_ascii_lowercase());
+        }
         other => other.name(),
+    };
+    Cow::Borrowed(text)
+}
+
+/// Drop each report that repeats an earlier one at the same span with the same
+/// code and arguments, keeping first-report order: the fold
+/// `SortAndDeduplicateDiagnostics` applies, over a list already sorted by span.
+fn fold_exact_repeats(diagnostics: &mut Vec<Diagnostic>) {
+    let mut kept = 0;
+    for i in 0..diagnostics.len() {
+        let current = &diagnostics[i];
+        let repeat = diagnostics[..kept]
+            .iter()
+            .rev()
+            .take_while(|d| d.span == current.span)
+            .any(|d| d.message.code() == current.message.code() && d.args == current.args);
+        if !repeat {
+            diagnostics.swap(kept, i);
+            kept += 1;
+        }
     }
+    diagnostics.truncate(kept);
 }

@@ -215,16 +215,23 @@ impl<'a> Parser<'a> {
 
         if self.at(SyntaxKind::QuestionToken) {
             // `parseConditionalExpressionRest` (`parser.go:4552`).
+            // `whenTrue` explicitly allows `in`; a missing `:` leaves a
+            // missing `whenFalse` with no report of its own, as native's
+            // `NodeIsPresent(colonToken)` branch does.
             let question = self.take_token();
+            let saved_no_in = std::mem::take(&mut self.no_in);
             let when_true = self.parse_assignment_expression_worker(false);
-            let colon = if self.at(SyntaxKind::ColonToken) {
-                self.take_token()
+            self.no_in = saved_no_in;
+            let (colon, when_false) = if self.at(SyntaxKind::ColonToken) {
+                let colon = self.take_token();
+                let when_false =
+                    self.parse_assignment_expression_worker(allow_return_type_in_arrow_function);
+                (colon, when_false)
             } else {
                 self.error_at_current_with(&messages::_0_EXPECTED, &[":"]);
-                self.alloc_token(SyntaxKind::ColonToken, Span::at(self.pos()))
+                let colon = self.alloc_token(SyntaxKind::ColonToken, Span::at(self.pos()));
+                (colon, Expression::Identifier(self.missing_identifier()))
             };
-            let when_false =
-                self.parse_assignment_expression_worker(allow_return_type_in_arrow_function);
             let node = self.finish_node(
                 ConditionalExpression::new(
                     Some(left),
@@ -1276,7 +1283,7 @@ impl<'a> Parser<'a> {
             SyntaxKind::NoSubstitutionTemplateLiteral => {
                 // Untagged: re-scan reporting invalid escapes, since the first
                 // pass is silent (`scanner.go:522`). §223.
-                self.rescan_template(false);
+                self.rescan_template_head_if_invalid(false);
                 let raw = self.token_text();
                 let (text, flags) = self.take_literal();
                 let node = self.finish_node(
@@ -1287,7 +1294,7 @@ impl<'a> Parser<'a> {
                 Expression::NoSubstitutionTemplateLiteral(node)
             }
             SyntaxKind::TemplateHead => {
-                self.rescan_template(false);
+                self.rescan_template_head_if_invalid(false);
                 self.parse_template_expression()
             }
             // `parsePrimaryExpression` has no `<` arm: a type assertion is a
@@ -2322,7 +2329,14 @@ impl<'a> Parser<'a> {
     /// four diagnostics upstream has none of. `templateLiteralEscapeSequence`
     /// invents thirty-two lines that way. §223.
     fn parse_template_literal(&mut self, is_tagged: bool) -> TemplateLiteral<'a> {
-        self.rescan_template(is_tagged);
+        // `parseTaggedTemplateRest` (`parser.go:5514`) re-scans a template
+        // without substitutions unconditionally; a head goes through
+        // `parseTemplateHead`'s gate.
+        if self.at(SyntaxKind::NoSubstitutionTemplateLiteral) {
+            self.rescan_template(is_tagged);
+        } else {
+            self.rescan_template_head_if_invalid(is_tagged);
+        }
         if self.at(SyntaxKind::NoSubstitutionTemplateLiteral) {
             let start = self.pos();
             let raw = self.token_text();

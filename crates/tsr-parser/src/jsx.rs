@@ -263,8 +263,17 @@ impl<'a> Parser<'a> {
                         );
                     }
                     JsxOpeningTag::Element(element) => {
-                        // Cover only 'Foo.Bar' in < Foo.Bar >.
-                        let span = self.jsx_tag_name_span(element.tag_name);
+                        // Cover only 'Foo.Bar' in < Foo.Bar >:
+                        // `min(SkipTrivia(tag.Pos()), tag.End())`. A missing
+                        // tag name is zero-width at its full start, right
+                        // after the `<` (`!< {:>`), not at the next token.
+                        let mut span = self.jsx_tag_name_span(element.tag_name);
+                        if span.is_empty()
+                            && let Some(id) = element.node_id
+                        {
+                            let after_less_than = self.nodes.span(id).start + 1;
+                            span = tsr_core::Span::at(after_less_than);
+                        }
                         let text = self.jsx_tag_name_text(element.tag_name);
                         self.error_at_with(
                             &messages::JSX_ELEMENT_0_HAS_NO_CORRESPONDING_CLOSING_TAG,
@@ -645,7 +654,7 @@ impl<'a> Parser<'a> {
         if self.at(kind) {
             return true;
         }
-        self.error_at_current_with(&messages::_0_EXPECTED, &[crate::parser::token_to_text(kind)]);
+        self.error_at_current_with(&messages::_0_EXPECTED, &[&crate::parser::token_to_text(kind)]);
         false
     }
 

@@ -671,7 +671,7 @@ impl Checker<'_, '_> {
     /// decides, as [`Self::is_assignment_to_readonly_property`] decides for
     /// a non-union receiver. `Mutable<A | B>` distributes to `Mutable<A> |
     /// Mutable<B>`, whose `flags` is writable though `A.flags` is readonly.
-    fn constituent_property_is_readonly(
+    pub(crate) fn constituent_property_is_readonly(
         &mut self,
         part: crate::types::TypeId,
         name: &str,

@@ -875,3 +875,125 @@ pins the case. r7-printer's compensating `HasPrefix` fold can now be
 re-measured for removal; it is native's own fold
 (`tspath.HasPrefix(..., !useCaseSensitiveFileNames)`), so keeping it is
 also faithful.
+
+## §19 Ratios after batch 19, and jsTyping's batch-6 CPU regression
+
+**Dist ratios** (TSR/tsgo, `whole_project_perf.py`, 21 samples, one session,
+on `41f3c70b` plus this branch; release in parentheses):
+
+| project | wall | CPU |
+|---|---:|---:|
+| domain-model | **0.605** (0.577) | 0.408 (0.411) |
+| domain-model-large | **0.584** (0.620) | 0.449 (0.482) |
+| generic-imports | **0.599** (0.631) | 0.298 (0.320) |
+
+domain-model-large moved from 0.716 to 0.584, mostly from §15's deferred
+literal text. The 0.50 target is not met.
+
+**jsTyping regressed 46% in CPU at batch 6.** Dist jsTyping read 7.4× tsgo
+(14.3 s against 1.93 s), against 4.16× at batch 5. Default-mode user CPU
+on jsTyping, with the gate leg's command, at each batch merge:
+
+| binary | user CPU | wall |
+|---|---:|---:|
+| batch 5 `20501307` | 28.2 s | 10.4 s |
+| + r7-calls (`56f5a49b`, batch 6's first merge) | **41.1 s** | 18.9 s |
+| batch 6 `5f2713fe` / 7 `2c34a50e` / 8 `0aa00136` | 39.9 / 39.9 / 40.5 s | ~18.9 s |
+| batch 9 `92fe8f05` (mimalloc) | 33.0 s | 16.8 s |
+
+The merge holds one commit, `23550f9d` ("the overload walk checks a nested
+call argument under its first candidate"), the fix for §4's cluster 5. It
+removed 7 false jsTyping lines (259 → 252). Single-threaded perf samples go
+from 8 K to 12 K, spread evenly with no new hot symbol. That points to a
+nested call argument being re-checked per candidate or per pass where
+native resolves it once (`getResolvedSignature`'s
+`links.resolvedSignature`). It was routed to r7-calls on 2026-10-11.
+jsTyping is not in the CPU gate (domain-model and generic-imports only),
+which is why the regression went unseen for 13 batches.
+
+**Oracle tooling.** With the gate's 60 s TSR deadline,
+`compiler/recursiveConditionalCrash3.ts` grows to 3.4 GB in 25 s on base
+and candidate alike. Within the orb's 6 GiB workload cgroup, one such
+worker beside the others is an OOM kill of the whole service
+(`memory.oom.group`). This lane's exact-candidate run therefore used
+`--deadline 20 --workers 3` for both base and candidate. The outcome set is
+unchanged (TSR_TIMEOUT 2, TSR_FAILED 1, exact 9,582).
+
+## §20 domain-model-large after the literal print: what checker 0 still pays
+
+Pool probe (temporary timer, not committed; two runs, release, main
+`41f3c70b` plus this branch). On domain-model-large, checker 0 finishes in
+292–381 ms and checkers 1–3 in 195–308 ms: `src/main.ts` still makes
+checker 0 the critical path, at about 1.45× the others, where §14 measured
+about 2×. domain-model's four checkers are within 41–65 ms of each other.
+
+Per `main.ts` block (perf with dwarf call graphs, inclusive sample delta
+K = 200 − K = 25 blocks, single-threaded): the object-literal print is gone.
+What remains:
+
+- flow narrowing: `get_type_at_flow_condition` 171,
+  `get_type_at_flow_branch_label` 155, `narrow_type` 64. These narrow
+  `createdNNN.ok` / `createdNNN.value` and walk the long `run()` body's
+  flow graph.
+- `get_effects_signature` 62 and `get_type_at_flow_call` 59: each flow
+  call node a walk crosses asks for the call's effects signature again.
+  Native reads the call's `links.resolvedSignature` (`getEffectsSignature`
+  → `getResolvedSignature`).
+- `report_signature_applicability` 93, mostly the arguments' first check.
+- hashbrown probing (`_mm_movemask_epi8` 44 self) from side-table reads.
+
+All of these are r7-flow's (`flow.rs`) and r7-calls' (`calls.rs`,
+`call_reports.rs`) files. They are routed through the integrator.
+
+## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
+
+**Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
+
+| project | dist | release |
+|---|---|---|
+| domain-model | **0.537** · 0.380 | 0.630 · 0.442 |
+| domain-model-large | **0.566** · 0.460 | 0.619 · 0.485 |
+| generic-imports | **0.640** · 0.326 | 0.658 · 0.338 |
+| jsTyping | **7.17** · 5.68 | 7.53 · 5.88 |
+
+jsTyping still carries §19's batch-6 regression.
+
+**jsTyping delta** (123 TSR lines against tsgo's 86): 39 extra (TS2345 15,
+TS2322 13, TS18048 7, TS7053 2, TS2769 1, TS2365 1) and 2 missing
+(TS7006, TS7031 at `sys.ts(1696)`). Clusters, all routed on 2026-10-11:
+
+- **r7-flow, aliased-condition inlining** (3 lines). Reduction: `const node
+  = d.attributes; if (node) d.attributes.token` gives a false TS18048.
+- **r7-flow, destructuring-assignment narrowing** (5 lines). Reduction:
+  `if (typeof major === "string") ({ major } = parse(major)); return major`
+  gives a false TS2322.
+- **r7-reports, `Pick<…>` against a string-index target** (8 lines;
+  `isObjectTypeWithInferableIndex` for a mapped type literal). It has a
+  reduction.
+- **r7-contextual, `??=` RHS return-type inference** (2 lines, plus a
+  duplicate TS7053 report at one span). It has a reduction.
+- Not reduced:
+  - r7-flow: closure narrowing of an outer `let` (3 lines), plus equality
+    and `asserts`-overload narrowing (4 lines);
+  - r7-reports/inference: generic-signature assignability (5 lines);
+  - r7-contextual: tuple context through overloaded `append` (4 lines; two
+    reductions passed);
+  - r7-declared: `Readonly<array intersection>` (2 lines);
+  - BindableStatic* overloads (3 lines);
+  - r7-reports: missing implicit-any reports (2 lines).
+
+**`getEffectsSignature`'s nil-dotted-name negative** (a scratch measurement
+in a separate worktree; the code is in r7-flow's `flow.rs` and was not
+committed here). `get_effects_signature` runs about 300 K times on dml, 2.3%
+of Ir. 102,709 of those calls re-run `get_type_of_dotted_name` for an
+expression-statement call whose callee has no explicit type, for example
+`serviceNNN.move(...)` in `main.ts`. Each answers nil again. Native
+publishes `unknownSignature` in `signatureLinks.effectsSignature` for
+exactly that answer (`flow.go:2060`, `:2079-2082`). This port publishes
+negatives only for written non-predicate returns. Publishing the nil
+answer, under `effects_completion_context_is_original`, measured
+**dml −1.7% and dm −0.3% Ir**. CLI output was identical on dm, dml and gi;
+the jsTyping leg gave new_false 0 / lost_true 0. Separately, publishing
+negatives for unannotated signatures whose lazy return is no longer
+pending moved Ir by 0.00%. That is not where the walk's cost is, so it is
+not proposed.
