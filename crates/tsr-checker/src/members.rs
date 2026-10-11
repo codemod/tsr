@@ -2643,8 +2643,14 @@ impl Checker<'_, '_> {
                 readonly.all(&mut is_readonly)
             };
         }
-        self.get_property_of_type(receiver, name)
-            .is_some_and(|property| self.is_readonly_symbol(property))
+        // A mapped member's symbol here is its modifiers type's; native's is
+        // the transient mapped symbol whose CheckFlagsReadonly
+        // resolveMappedTypeMembers set from the mapping's modifier
+        // (`checker.go:20894`), so `Readwrite<Bar>`'s `b` is writable though
+        // `Bar.b` is readonly. The same rule as a union constituent's
+        // (`readonly_target.rs`, r7-shared.md §15).
+        let Some(property) = self.get_property_of_type(receiver, name) else { return false };
+        self.constituent_property_is_readonly(receiver, name, property)
     }
 
     /// `getWriteTypeOfSymbol(getPropertyOfType(receiver, name))`
@@ -5422,5 +5428,172 @@ impl StructuredNamesWalk {
             unsettled: false,
             memoised: false,
         }
+    }
+}
+
+/// `r7-shared.md` §13 step 1: the `getTypeWithThisArgument` identity, with no
+/// consumer yet (step 2 wires member reads and inherited signatures).
+// Step 1 has no reader yet; step 2 (member reads, inherited signatures)
+// removes this allowance.
+#[allow(dead_code)]
+impl Checker<'_, '_> {
+    /// `getTypeWithThisArgument` (`checker.go:19573`): a class or interface
+    /// reference with `this_argument` as its this-type argument
+    /// (`createTypeReference(target, [typeArguments…, thisArgument])`), each
+    /// constituent of an intersection likewise, and otherwise the type itself
+    /// (its apparent type when `need_apparent_type`). `None` takes the
+    /// target's own this-type, as native's nil does.
+    ///
+    /// # The identity, and why it is a side table (`r7-shared.md` §13)
+    ///
+    /// - **Native operation:** the reference whose resolved type arguments
+    ///   carry one more entry than the target's type parameters.
+    /// - **Identity and owner:** [`Checker::this_argument_references`], key
+    ///   `(reference, this_argument)`, value a fresh `TypeId` that shares the
+    ///   reference's `type_reference_targets` entry (same target, same
+    ///   arguments) and its printed text and members symbol, so every reader
+    ///   that does not ask about `this` sees the reference it expects;
+    ///   [`Checker::reference_this_arguments`] is the inverse. A this-argument
+    ///   equal to the reference itself is the reference (its implicit
+    ///   this-argument), so no image is made for it.
+    /// - **Publication:** interned on the first request, before any member of
+    ///   the image is read; a pure function of its two `TypeId`s, never
+    ///   provisional, never removed.
+    /// - **Receiver context:** the this-argument is the whole receiver
+    ///   context; no mapper or print mode enters the key.
+    /// - **Work boundary:** one map lookup per request; member resolution of
+    ///   an image is the consumers' (later steps), keyed by the image `TypeId`.
+    ///
+    /// Step 1 of §13: no consumer reads an image yet.
+    pub(crate) fn get_type_with_this_argument(
+        &mut self,
+        t: TypeId,
+        this_argument: Option<TypeId>,
+        need_apparent_type: bool,
+    ) -> TypeId {
+        if let Some(target) = self.this_argument_target(t) {
+            let this_argument = match this_argument {
+                Some(this_argument) => this_argument,
+                None => self.class_or_interface_this_type(target),
+            };
+            if this_argument == t {
+                return t;
+            }
+            if let Some(&image) = self.this_argument_references.get(&(t, this_argument)) {
+                return image;
+            }
+            let flags = self.store.get(t).flags;
+            let crate::types::TypeData::Named { ref text, members } = self.store.get(t).data else {
+                return t;
+            };
+            let image = self.store.new_named(flags, text.clone(), members);
+            if let Some(entry) = self.type_reference_targets.get(&t).cloned() {
+                self.type_reference_targets.insert(image, entry);
+            }
+            self.this_argument_references.insert((t, this_argument), image);
+            self.reference_this_arguments.insert(image, (t, this_argument));
+            return image;
+        }
+        if let TypeData::Intersection { types, .. } = self.type_of(t).data.clone() {
+            let mapped: Vec<TypeId> = types
+                .iter()
+                .map(|&constituent| {
+                    self.get_type_with_this_argument(constituent, this_argument, need_apparent_type)
+                })
+                .collect();
+            if mapped == types {
+                return t;
+            }
+            return self.get_intersection_type(&mapped, None);
+        }
+        if need_apparent_type { self.apparent_type(t) } else { t }
+    }
+
+    /// The class or interface symbol `t` references, when `t` is a reference
+    /// whose arguments fill the target's type parameters
+    /// (`len(target.TypeParameters()) == len(typeArguments)`): a generic
+    /// reference through `type_reference_targets`, or a non-generic class or
+    /// interface instance type itself. An image answers its reference's target.
+    fn this_argument_target(&mut self, t: TypeId) -> Option<SymbolId> {
+        let t = self.reference_this_arguments.get(&t).map_or(t, |&(reference, _)| reference);
+        let (symbol, arguments) = if let Some(entry) = self.type_reference_targets.get(&t).cloned()
+        {
+            entry
+        } else {
+            let crate::types::TypeData::Named { members: Some(symbol), .. } =
+                self.store.get(t).data
+            else {
+                return None;
+            };
+            (symbol, Vec::new())
+        };
+        let symbol = self.binder.merged_symbol(symbol);
+        if !self
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return None;
+        }
+        let parameters = self.local_type_parameter_types_of(symbol)?;
+        (parameters.len() == arguments.len()).then_some(symbol)
+    }
+
+    /// A class's or interface's this-type (`target.thisType`), minted as
+    /// `this` expressions mint it (`expressions.rs`, `this_types`).
+    fn class_or_interface_this_type(&mut self, symbol: SymbolId) -> TypeId {
+        if let Some(&existing) = self.this_types.get(&symbol) {
+            return existing;
+        }
+        let this_type =
+            self.store.new_named(TypeFlags::TYPE_PARAMETER, "this".to_string(), Some(symbol));
+        self.this_types.insert(symbol, this_type);
+        this_type
+    }
+}
+
+#[cfg(test)]
+mod this_argument_tests {
+    use tsr_ast::HasNodeId;
+    use tsr_core::Arena;
+
+    use crate::Checker;
+
+    /// `r7-shared.md` §13 step 1: the image identity of
+    /// `getTypeWithThisArgument`.
+    #[test]
+    fn this_argument_images_are_interned_and_share_their_reference() {
+        let source = "interface Base<T> { (value: T): this; }\ninterface Derived extends Base<string> { extra: number; }\ndeclare const b: Base<string>;\ndeclare const d: Derived;";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "this.ts", text: source },
+        );
+        let root = parsed.source_file.node_id().unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let base = checker.get_type_of_symbol(bound.lookup_local(root, "b").unwrap());
+        let derived = checker.get_type_of_symbol(bound.lookup_local(root, "d").unwrap());
+        // Its own this-argument is the reference itself.
+        assert_eq!(checker.get_type_with_this_argument(base, Some(base), false), base);
+        let image = checker.get_type_with_this_argument(base, Some(derived), false);
+        assert_ne!(image, base);
+        assert_eq!(checker.get_type_with_this_argument(base, Some(derived), false), image);
+        assert_eq!(checker.reference_this_arguments.get(&image), Some(&(base, derived)));
+        assert_eq!(
+            checker.type_reference_targets.get(&image),
+            checker.type_reference_targets.get(&base)
+        );
+        assert_eq!(checker.type_to_string(image), checker.type_to_string(base));
+        // The declared form: the target's own this-type.
+        let declared = checker.get_type_with_this_argument(derived, None, false);
+        assert_ne!(declared, derived);
+        // A non-reference is unchanged.
+        let number = checker.intrinsics().number;
+        assert_eq!(checker.get_type_with_this_argument(number, Some(derived), false), number);
     }
 }

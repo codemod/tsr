@@ -479,3 +479,266 @@ together with §7 (+23 type lines, +1 diagnostics case, 0 lost); coverage
 `diagnostics` 4,928/5,502, `diagnostics_configured` 1,003/1,091; child CPU
 21 samples 1.0073 / 0.9207; jsTyping new_false 0, lost_true 0; callgrind Ir
 domain-model 0.99996, generic-imports 0.99987; strict clippy and tests green.
+
+## 10. A JS require binding element binds as an alias (`IsVariableDeclarationInitializedToRequire`)
+
+### Cause
+
+`bindVariableDeclarationOrBindingElement` (binder.go:1168) binds a
+declaration as an `Alias` when `IsVariableDeclarationInitializedToRequire`
+holds, and that predicate climbs a binding element's `Parent.Parent` to its
+variable declaration (utilities.go:2825): in `const { K } =
+require("./mod1")`, `K` is an alias, resolved by
+`getTargetOfImportSpecifier`'s `IsBindingElement` arm through
+`getExternalModuleMember(GetRootDeclaration(node), node)`, whose module
+specifier is the require call's argument (`getExternalModuleRequireArgument`).
+The binder admitted only an identifier-named variable declaration, so `K`
+was a block-scoped variable typed by destructuring.
+
+### The port
+
+- Binder: `is_require_alias_variable` admits a binding element with an
+  identifier name whose pattern's parent is a require declaration
+  (`is_require_declaration`, the old variable test); one level only, as
+  native.
+- `symbols.rs`: `declaration_of_alias_symbol` admits such a binding element;
+  `get_target_of_alias_symbol` routes it to `get_external_module_member`
+  with the declaration as root; that function takes the specifier from the
+  require call (`require_declaration_argument`) and the name from the
+  element's property name or name.
+- `declared.rs` (r7-declared's file, granted/routed): the type-reference
+  alias road admits an unrenamed binding element exactly as it admits an
+  unrenamed import specifier; without it `@param {K} k` lost three right
+  lines (`commonJSImportClassTypeReference` 0:4/0:5/0:8).
+
+No cache.
+
+## 11. Implied binding-pattern types for type-position parameters (BINDING-PATTERN-IMPLIED-TYPE)
+
+`getTypeForVariableLikeDeclaration`'s binding-pattern arm
+(`getTypeFromBindingPattern`, checker.go:17904) types an unannotated pattern
+parameter by its pattern wherever no contextual type applies.
+`get_widened_type_for_variable_like_declaration`'s §429 gate admitted
+function and method declarations, and arrows/function expressions only where
+`has_no_contextual_type` shows there is none; a function type's or
+signature member's parameter fell through to the gap. Those parameters sit
+in a type node, which `getContextualType` cannot reach, so they are
+admitted unconditionally — the list `signatures.rs::parameter_of`'s §875
+already uses: `FunctionType`, `ConstructorType`, `CallSignature`,
+`ConstructSignature`, `MethodSignature`, `IndexSignature`. No cache.
+
+## 12. A conflicting global merge over a UMD alias stores the source (checkMergedGlobalUMDSymbol)
+
+`initializeChecker` puts `export as namespace THREE`'s alias in the globals
+first-in-wins, then merges `declare global { export const THREE }` into it.
+`mergeSymbol` resolves the alias (to the `./global` module, a value module),
+the const's excludes hit it, and the conflict arm reports
+`reportMergeSymbolError` and returns `source`, which `mergeSymbolTable`
+stores: `globals["THREE"]` is the const, so `const m = THREE` in another
+file is `typeof import("./three")`. The binder's UMD arm handled only the
+non-conflicting merge; `BindResult::umd_alias_conflicts` is the other half —
+the slot takes the source and the pair stays in `alias_merges`, so the two
+TS2451 reports are unchanged. No cache.
+
+## 13. A whole-type `getTypeWithThisArgument` (step 1 built; steps 2–3 planned)
+
+Routed from r7-grammar: TS2415/TS2430 false positives (`contextualThisType`,
+`thisTypeInFunctions3`, `genericDefaults`, `indexSignatureInOtherFile/1`)
+because `relate_ternary` compares declared types whose `this` differ. Also
+the harvest spec `calls_concrete_receiver.rs` (inherited `(value: T): this`
+called through `Derived` returns `Derived`). Nothing below exists yet.
+
+**Native operation.** `getTypeWithThisArgument(t, thisArgument)`
+(`checker.go:19573`): a class/interface reference `C<A…>` becomes
+`createTypeReference(C, [A…, thisArgument])` — the this-type is one more type
+argument, so `C<A>` with `this = D` is a distinct reference with its own
+identity, members and relations; an intersection maps per constituent.
+Callers: `resolveObjectTypeMembers` (each base is instantiated with the
+derived type's `thisType`), `getBaseTypes` consumers in
+`checkClassLikeDeclaration`/`checkInterfaceDeclaration` (TS2415/TS2430
+relate the derived type to `getTypeWithThisArgument(base, derived.thisType)`),
+and member access (`getTypeOfPropertyOfType` on the receiver with the
+original receiver as this).
+
+**Today.** `this_types[class symbol]` mints one this-type per class
+(`expressions.rs`); `members.rs` §164/§165 substitutes it per member read
+(`get_type_of_property_with_this_argument`); `calls.rs` substitutes a
+returned this-type at a property-access call. There is no reference whose
+identity carries a this-argument, so relations and inherited signatures see
+the base's own `this`.
+
+**Proposed identity and owner.** Keep `type_reference_targets`' `(SymbolId,
+Vec<TypeId>)` as is (225 readers). Add one Checker-owned intern table
+`this_argument_references: FxHashMap<(TypeId /*reference*/, TypeId /*this*/),
+TypeId>` and its inverse `reference_this_arguments: FxHashMap<TypeId, (TypeId
+/*reference*/, TypeId /*this*/)>`. The image is a new `TypeId` with the same
+`type_reference_targets` entry (same target and arguments) — exactly native's
+"same target, one more argument" — so every existing reader sees the
+reference it expects, and only this-aware readers consult the inverse table.
+A reference with no entry has itself as its this-argument (native's default
+`thisArgument = target.thisType`, which the reference's mapper sends to the
+reference).
+
+**Publication.** Interned on first request, before any member of the image
+is read; never removed; no provisional state (the image is a pure function
+of its two `TypeId`s).
+
+**Receiver context.** Member reads on an image take its this-argument
+(`members.rs`' §164/§165 read becomes "this-argument of the receiver, else
+the receiver"); `signature_candidates_of_interface_symbol` instantiates each
+inherited base through `get_type_with_this_argument(base, derived this-type)`
+before the receiver mapper — the `interface_signatures` key then needs no
+this component, because the declared set is expressed in the derived's own
+this-type and the receiver mapper substitutes it; the relater compares an
+image structurally through those members.
+
+**Expensive work.** Bounded by the images requested: one per (base
+reference, derived this-type) from base resolution and one per heritage
+check; member images reuse the existing per-reference member caches keyed by
+the image `TypeId`.
+
+**Order.** (1) the intern tables and `get_type_with_this_argument` in
+`members.rs`/`instantiate` (this lane), with unit tests from the harvest spec;
+(2) inherited signatures (`signatures.rs`, this lane); (3) the heritage
+checks' consumer (`heritage_conformance.rs`, r7-grammar) and the relater's
+structural arm (`relater.rs`, r7-reports), coordinated through the
+integrator. Each step gated alone. Falsifier: a corpus case where two
+references differing only in this-argument must be identical natively (none
+known — native's identity is by argument list).
+
+## 14. `getLateBoundSymbol`'s declarations as a query (late-bound member symbols)
+
+Routed from r7-reports: TS7032/TS7006 on a late-bound accessor pair
+(`get [k]()` / `set [k](v)` with `const k = "m"`) decline because
+`implicit_any.rs::accessor_pair` reads the member's own `__computed` symbol,
+which never holds the sibling accessor; native reads the late-bound symbol
+(`getSymbolOfDeclaration` → `getLateBoundSymbol`, checker.go:14390), whose
+declarations `lateBindMember` (:16005) gathered by property name.
+
+The binder keeps one anonymous `__computed` symbol per computed member and
+the checker already resolves the late-bound names
+(`members.rs::late_bound_members_of`, memoised in `late_bound_member_names`);
+`get_type_of_accessors_worker` reconstructed the pair inline (§523).
+`Checker::late_bound_symbol_declarations(symbol)` is that reconstruction as
+a query: the declarations of the container and staticness whose computed
+names bind to the same late-bound name, in declaration order. The accessor
+typing now calls it (behavior-neutral); `implicit_any.rs`' accessor pair is
+its second consumer (r7-reports' file, routed): for a `__computed` own
+symbol, take the getter/setter from these declarations and drop
+`accessor_has_late_bindable_name`'s decline.
+
+Not built: a late-bound *symbol* identity (native's merged transient symbol
+with its own links). Every reader here goes by declarations; a consumer that
+needs one symbol for the pair (relations of a late-bound property, its
+flags) still reads the per-member `__computed` symbol.
+
+Checker port convention: no new cache; the publication is the existing
+`late_bound_member_names` memo (key `(container SymbolId, is_static)`, owned
+by the Checker, an empty sentinel while resolving), and the expensive work
+stays one name resolution per computed member per container.
+
+### Step 1 (built): the identity, no consumer
+
+Approved by the integrator in outline (keep `type_reference_targets`' key;
+interned `(reference, this) → image` and its inverse; the image shares the
+reference's target and arguments). `Checker::get_type_with_this_argument`
+(`members.rs`) and the two tables (`checker.rs`) exist, with the
+conventions entry on the function. No caller reads an image yet, so the
+block carries `#[allow(dead_code)]` until step 2. Unit test
+`this_argument_tests`: an image is interned once, differs from its
+reference, shares its `type_reference_targets` entry and printed text; a
+reference's own this-argument is the reference; `None` takes the target's
+this-type; a non-reference is unchanged. Expected corpus delta: zero.
+
+### Step 2 (built, HELD on `box/r7-shared-held`): inherited and receiver signatures take the this-argument
+
+- `signatures.rs::instantiate_signature_for_receiver`: the existing reference
+  mapper (`instantiate_signature_for_reference`, `inference.rs`, unchanged)
+  followed by the target's this-type(s) → the receiver's this-argument (an
+  image's, else the receiver itself), used for a named receiver's
+  call/construct candidates; inherited bases are instantiated through
+  `get_type_with_this_argument(base, derived declaration's this-type)`.
+- This-type identities: a class has one (`this_types`), an interface one per
+  *declaration* (`this_type_nodes`, `declared.rs`), unlike native's one per
+  symbol, so the substitution maps every minted one (unifying them is
+  `declared.rs`', r7-declared).
+- Harvest spec `tests/calls_concrete_receiver.rs` passes with it.
+- Step 2b: `get_type_of_property_of_type` passes an image's this-argument.
+
+**Why held.** Corpus delta zero (batch 19, both steps), but callgrind Ir
+domain-model **+0.57%** (step 2) and +0.08% (2b): every named-type
+candidate set now takes a second instantiation pass whenever the target has
+a minted this-type, and lib interfaces (`Array`'s `this is S[]` predicates)
+do. Native pays this inside one cached member resolution per reference.
+Before re-landing with step 3: fold the this pairs into the reference
+mapper's single pass and skip targets whose this-type the signature cannot
+mention, then re-measure Ir.
+
+## 15. `isReadonlySymbol` of a mapped member in `is_readonly_property_of_type`
+
+Routed from r7-flow (holds its r6-errorsplit3 diff R: +16
+`controlFlowAliasing`, −2 `mappedTypes6` 277/279). `isReadonlySymbol(
+getPropertyOfType(receiver, name))` (checker.go:13849) reads, for a mapped
+member, the transient mapped symbol whose `CheckFlagsReadonly`
+`resolveMappedTypeMembers` (:20894) set from the mapping's `readonly` /
+`-readonly` modifier or the modifiers property. This port's
+`get_property_of_type` answers the modifiers type's own symbol, so the
+non-union tail read `Bar.b`'s `readonly` for `Readwrite<Bar>`'s `b`.
+The tail now asks `readonly_target.rs::constituent_property_is_readonly` —
+the rule that file already applies to a union constituent (homomorphic
+`mapped_identity_optionality` first, then the member image's modifier, then
+the symbol, `property_signature_is_readonly` included as native's
+`isReadonlySymbol` covers a readonly property signature). The only change in
+r7-flow's file is that function's visibility (`pub(crate)`). No cache.
+
+## 16. `bindNamespaceExportDeclaration`'s placement diagnostics
+
+Routed from r7-grammar. `export as namespace N` (binder.go:820): any modifier
+is TS1184 and the declaration still binds; then outside a source file's top
+level TS1316, in a script TS1314, in a non-declaration file TS1315 — each on
+the statement, and none of the three declares the UMD alias. The binder
+declared it unconditionally and reported nothing. `Binder::statement_span`
+is `getErrorSpanForNode`'s default arm (the node's span from its first token).
+
+Not ported here: TS18012 (`#constructor`, `checkPrivateIdentifier`,
+binder.go:1323) is reported only when the file has no parse diagnostics
+(`len(b.file.Diagnostics()) == 0`), which this binder cannot see — its
+inputs are the AST and `FileInfo { name, text }`. Porting it faithfully needs
+the parse-diagnostic count at bind time (a `FileInfo` field, which every
+construction site across the compiler, conformance and test crates would
+have to supply), routed back to the integrator.
+
+Perf: the arm sits behind `declare`'s `GlobalExports` destination (unique to
+this declaration) in a `#[cold]` function, so other nodes pay nothing. The
+binder's growth from this lane's arms pushed four tiny predicates
+(`SymbolFlags::excludes`, `computed_property_name`,
+`is_exported_from_container`, `is_parameter_property`) out of line in the
+merged `bind_inner`: callgrind Ir generic-imports +0.42% until they were
+marked `#[inline(always)]` (`#[inline]` alone was not honoured), after which
+the lane's head reads generic-imports 1.0011, domain-model 1.0003 against
+batch 19.
+## 17. Bind-time alias merges and import-equals / namespace-import targets
+
+§2's alias-target pass ran only over the merges an augmentation declined.
+`initializeChecker` merges script locals and `declare global` blocks into the
+globals before any module augmentation, through the same `mergeSymbol`, so
+the bind-time declines (`merge_into_globals`) are re-decided first, from
+index 0 of `alias_merges`. `resolve_alias_for_merge` gains
+`getTargetOfImportEqualsDeclaration`'s three forms (a `require`, through
+`export =`; an identifier; a qualified name, each left side resolved as
+`resolveQualifiedName` does) and `getTargetOfNamespaceImport` (the module
+through its `export =`). A local import alias is found by asking the binder's
+lookup for `NAMESPACE | ALIAS`: its meaning filter only admits an alias by
+the target's meaning through the checker's callback, which the binder does
+not have, so the walk finds the alias itself and follows it.
+
+`checkerInitializationCrash`: `export import VNode = react.ReactNode` in a
+global namespace meets `type VNode = preact.VNode<any>`; the alias resolves
+to `React.ReactNode` (a type alias), the excludes hit, so the namespace's
+`VNode` slot takes the source and both TS2300s report. Not converted by this
+alone: the alias side's TS2300 sits at the statement where native names the
+alias (`GetNameOfDeclaration(ImportEqualsDeclaration)`, the name;
+`merge_conflicts.rs::report_merge_symbol_error` has that arm only for
+`export as namespace`), and line 1:2 (`type VNode = preact.VNode<any>` reads
+`any`) is the declared-type-alias body road over a qualified name through an
+alias — the root routed to r7-declared with `conformance/enums`.

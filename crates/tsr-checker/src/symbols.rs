@@ -352,6 +352,39 @@ impl<'a> Checker<'a, '_> {
         self.get_signature_from_declaration(setter)?.parameters.into_iter().next()
     }
 
+    /// `getLateBoundSymbol(symbol).Declarations` (`checker.go:14390` /
+    /// `lateBindMember`, `:16005`) for a member whose binder symbol is a
+    /// `__computed` one: every member of the same container and staticness
+    /// whose computed name binds to the same late-bound name
+    /// ([`Checker::late_bound_members_of`]), in declaration order, the member
+    /// itself included. `None` for a symbol that is not late-bound or whose
+    /// name does not resolve. Read by the accessor pairing here and by
+    /// `implicit_any.rs`' accessor pair (r7-reports); the names come from the
+    /// existing `late_bound_member_names` memo, so no new cache
+    /// (`docs/parity/notes/r7-shared.md` §14).
+    pub(crate) fn late_bound_symbol_declarations(
+        &mut self,
+        symbol: SymbolId,
+    ) -> Option<Vec<NodeId>> {
+        let entry = self.binder.symbols().get(symbol);
+        if entry.name != "__computed" {
+            return None;
+        }
+        let parent = entry.parent?;
+        let own_declaration = *entry.declarations.first()?;
+        let is_static = self.property_has_modifier(symbol, SyntaxKind::StaticKeyword);
+        let members = self.late_bound_members_of(parent, is_static);
+        let own_name =
+            members.iter().find(|(_, id)| *id == own_declaration).map(|(name, _)| name.clone())?;
+        Some(
+            members
+                .into_iter()
+                .filter(|(name, _)| *name == own_name)
+                .map(|(_, member)| member)
+                .collect(),
+        )
+    }
+
     fn get_type_of_accessors_worker(&mut self, symbol: SymbolId) -> TypeId {
         let mut declarations =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
@@ -360,27 +393,17 @@ impl<'a> Checker<'a, '_> {
         // method precedent), so the setter's symbol alone never sees the
         // getter upstream's merged symbol reads
         // (`set [Symbol.toPrimitive](x)` wants the getter's `string`,
-        // `symbolDeclarationEmit4/10/11`). Reconstruct the pair through the
-        // same sibling walk §383 uses: same spelled name, accessor kinds.
-        if self.binder.symbols().get(symbol).name == "__computed"
-            && let Some(parent) = self.binder.symbols().get(symbol).parent
-            && let Some(own_declaration) = declarations.first().copied()
-        {
-            let is_static = self.property_has_modifier(symbol, SyntaxKind::StaticKeyword);
-            let members = self.late_bound_members_of(parent, is_static);
-            let own_name =
-                members.iter().find(|(_, id)| *id == own_declaration).map(|(name, _)| name.clone());
-            if let Some(own_name) = own_name {
-                for (name, member) in members {
-                    if name == own_name
-                        && !declarations.contains(&member)
-                        && matches!(
-                            self.node_map.get(member),
-                            Some(Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_))
-                        )
-                    {
-                        declarations.push(member);
-                    }
+        // `symbolDeclarationEmit4/10/11`). The late-bound symbol's accessor
+        // declarations are the pair.
+        if let Some(late) = self.late_bound_symbol_declarations(symbol) {
+            for member in late {
+                if !declarations.contains(&member)
+                    && matches!(
+                        self.node_map.get(member),
+                        Some(Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_))
+                    )
+                {
+                    declarations.push(member);
                 }
             }
         }
@@ -1316,6 +1339,14 @@ impl<'a> Checker<'a, '_> {
             SyntaxKind::ExportSpecifier => return self.export_specifier_target(declaration),
             // `getTargetOfImportSpecifier` (`checker.go:14647`).
             SyntaxKind::ImportSpecifier => return self.import_specifier_target(declaration),
+            // Its `IsBindingElement` arm (`:14659`): the root is the require
+            // declaration (`GetRootDeclaration`), the name the element's
+            // property name or name (r7-shared.md §10).
+            SyntaxKind::BindingElement => {
+                let pattern = self.nodes.parent(declaration)?;
+                let root = self.nodes.parent(pattern)?;
+                return self.get_external_module_member(root, declaration);
+            }
             // `getTargetOfExportAssignment` (`checker.go:14889`) — `export = X`
             // where `X` is an identifier or a class expression. Every
             // other expression shape declines (upstream's
@@ -1702,6 +1733,15 @@ impl<'a> Checker<'a, '_> {
                 | SyntaxKind::NamespaceExport
                 | SyntaxKind::ImportSpecifier
                 | SyntaxKind::ExportSpecifier => true,
+                // `IsVariableDeclarationInitializedToRequire`'s binding-element
+                // climb: the binder flags `const { art } = require("./ex")`'s
+                // `art` an alias only in that shape (r7-shared.md §10).
+                SyntaxKind::BindingElement => {
+                    self.in_js_file(declaration)
+                        && self.binder.symbol_of(declaration).is_some_and(|symbol| {
+                            self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ALIAS)
+                        })
+                }
                 // The binder admits only unannotated, unexported JS variables
                 // initialized to a bare string-literal require call.
                 SyntaxKind::VariableDeclaration => {
@@ -2418,7 +2458,11 @@ impl<'a> Checker<'a, '_> {
     ///   `tryFindAmbientModule`, which
     ///   [`Checker::resolve_external_module_name`] does not port.
     fn get_external_module_member(&mut self, node: NodeId, specifier: NodeId) -> Option<SymbolId> {
-        let module_specifier = self.external_module_name(node)?;
+        // `getExternalModuleRequireArgument(node) ?? GetExternalModuleName(node)`
+        // (`checker.go:14670`): a require declaration's specifier is its call's
+        // argument.
+        let module_specifier =
+            self.external_module_name(node).or_else(|| self.require_declaration_argument(node))?;
         let module_symbol = self.resolve_external_module_name(node, module_specifier)?;
         // `specifier.PropertyNameOrName()` (`checker.go:14677`), read through
         // `name.Text()`. A string-literal name — `import { "a-b" as c }` — is
@@ -2430,6 +2474,18 @@ impl<'a> Checker<'a, '_> {
                 node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
             }
             Node::ExportSpecifier(node) => node.property_name.or(node.name),
+            // `PropertyNameOrName()`, which must be an identifier or a string
+            // literal (`checker.go:14680`).
+            Node::BindingElement(element) => match (element.property_name, element.name) {
+                (Some(tsr_ast::PropertyName::Identifier(name)), _)
+                | (None, Some(tsr_ast::BindingName::Identifier(name))) => {
+                    Some(tsr_ast::ModuleExportName::Identifier(name))
+                }
+                (Some(tsr_ast::PropertyName::StringLiteral(name)), _) => {
+                    Some(tsr_ast::ModuleExportName::StringLiteral(name))
+                }
+                _ => None,
+            },
             _ => return None,
         }?;
         let name = crate::module_exports::module_export_name_text(name);
@@ -3846,6 +3902,23 @@ impl<'a> Checker<'a, '_> {
     /// and `ImportTypeNode`; none of those reaches this function in this port,
     /// and listing a kind whose caller does not exist would be an intention
     /// documented as though it were built.
+    /// `getExternalModuleRequireArgument` (`checker.go`): the string-literal
+    /// argument of a JS require declaration's `require("…")` initializer.
+    fn require_declaration_argument(&self, node: NodeId) -> Option<NodeId> {
+        let Node::VariableDeclaration(variable) = self.node_map.get(node)? else { return None };
+        let Some(Expression::CallExpression(call)) = variable.initializer else { return None };
+        if !matches!(call.expression, Some(Expression::Identifier(name)) if name.text == "require")
+            || call.arguments.len() != 1
+        {
+            return None;
+        }
+        match call.arguments[0] {
+            argument @ (Expression::StringLiteral(_)
+            | Expression::NoSubstitutionTemplateLiteral(_)) => argument.node_id(),
+            _ => None,
+        }
+    }
+
     pub(crate) fn external_module_name(&self, node: NodeId) -> Option<NodeId> {
         let specifier = match self.node_map.get(node)? {
             Node::ImportDeclaration(node) => node.module_specifier,
@@ -5789,7 +5862,21 @@ impl<'a> Checker<'a, '_> {
                     // contextually typed upstream and the implied `any`
                     // there was 78 G->W (`coAndContraVariantInferences3`).
                     && self.nodes.parent(declaration).is_some_and(|f| match self.nodes.kind(f) {
-                        SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
+                        // §875 (`signatures.rs::parameter_of`): a function TYPE's
+                        // and a signature member's parameters live in a type
+                        // node, which `getContextualType` cannot reach, so they
+                        // are uncontextual unconditionally, like a declaration's:
+                        // `type F = ([a, b, c]) => string` is `([a, b, c]: [any,
+                        // any, any]) => string` (`docs/parity/notes/r7-shared.md`
+                        // §11).
+                        SyntaxKind::FunctionDeclaration
+                        | SyntaxKind::MethodDeclaration
+                        | SyntaxKind::FunctionType
+                        | SyntaxKind::ConstructorType
+                        | SyntaxKind::CallSignature
+                        | SyntaxKind::ConstructSignature
+                        | SyntaxKind::MethodSignature
+                        | SyntaxKind::IndexSignature => true,
                         // §561: an ARROW or FUNCTION EXPRESSION too, but ONLY
                         // where §94's predicate can SHOW there is no contextual
                         // type at its position. §429 excluded them wholesale and

@@ -451,6 +451,17 @@ pub struct Checker<'a, 'n> {
     pub(crate) resolving_iteration_types: rustc_hash::FxHashSet<TypeId>,
     /// `getResolvedMembersOrExportsOfSymbol` / `lateBindMember`: semantic names,
     /// with an empty entry installed while resolving to break recursive keys.
+    /// `getTypeWithThisArgument` images (`checker.go:19573`): a class or
+    /// interface reference `C<A…>` with an explicit this-argument is
+    /// `createTypeReference(C, [A…, this])`, its own identity. Key: the
+    /// reference `TypeId` and the this-argument `TypeId`; value: the image.
+    /// Owned by this checker for its lifetime; published once, when first
+    /// requested, never provisional. `docs/parity/notes/r7-shared.md` §13.
+    pub(crate) this_argument_references: FxHashMap<(TypeId, TypeId), TypeId>,
+    /// The inverse of [`Checker::this_argument_references`]: an image to its
+    /// `(reference, this-argument)`. A reference with no entry is its own
+    /// this-argument (`resolveTypeReferenceMembers` appends the reference).
+    pub(crate) reference_this_arguments: FxHashMap<TypeId, (TypeId, TypeId)>,
     pub(crate) late_bound_member_names:
         rustc_hash::FxHashMap<(SymbolId, bool), Vec<(String, tsr_ast::NodeId)>>,
     /// §469's other half of the signature-links table: DECLARATIONS whose
@@ -1548,6 +1559,8 @@ impl<'a, 'n> Checker<'a, 'n> {
             resolving_signature_calls: rustc_hash::FxHashSet::default(),
             context_checked_arguments: rustc_hash::FxHashSet::default(),
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
+            this_argument_references: FxHashMap::default(),
+            reference_this_arguments: FxHashMap::default(),
             late_bound_member_names: rustc_hash::FxHashMap::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_this_parameters: FxHashMap::default(),
