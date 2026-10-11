@@ -1279,3 +1279,35 @@ as it already does for an alias image normalization may rewrite.
 **Measured** (diagnostics and types, unfiltered, the change alone on batch
 37 with §30–§32): `jsxClassAttributeResolution` RIGHT, 0 lost, types
 unchanged.
+
+## 34. The intersection property-check pass over a non-enumerable target
+
+**Forcing case.** `nestedExcessPropertyChecking` (30,22). `{ variables: {
+overrides: false } }` against `Partial<{ something: any }> & { variables: {
+overrides?: OverridesInput } & Partial<{ overrides?: OverridesInput }> }` is
+native TS2559 at `overrides`.
+
+**Upstream.** After relating the source to each constituent under
+`IntersectionStateTarget`, `structuredTypeRelatedTo` (`relater.go:3232`)
+relates the source's members to the target's combined property types with
+`IntersectionStateNone`. That pass is where the nested weak type `false →
+OverridesInput` fails: under `IntersectionStateTarget` the
+common-property check does not run.
+
+**Port** (`relater.rs`). The pass declined, so the constituent walk's
+verdict stood, wherever `properties_related_to` could not enumerate the
+target's combined member list. A mapped constituent (`Partial<…>`) is
+enough to cause that. The pass's only new question is still answerable,
+though: each member the source and the target share, related to the
+combined property type with the state clear.
+- A target member the source lacks was the constituent walk's. A member any
+  constituent requires is the intersection's.
+- A source member the target lacks is `hasExcessProperties`'.
+
+So when the full pass is Unknown, `shared_members_related_to` answers it.
+
+**Measured** (diagnostics and types, unfiltered, the change alone on batch
+37 with §30–§33): `nestedExcessPropertyChecking`,
+`identicalTypesNoDifferByCheckOrder` and `reactDefaultPropsInferenceSuccess`
+RIGHT, one more line of `excessPropertyCheckIntersectionWithRecursiveType`,
+0 lost, types unchanged.

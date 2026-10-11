@@ -4858,6 +4858,18 @@ impl Relater<'_, '_, '_> {
             && !self.intersection_is_generic_object(&constituents)
         {
             let mut pass = self.properties_related_to(source, target);
+            // Where the target's combined member list is not enumerable (a
+            // mapped constituent: `{ … } & Partial<{ … }>`), the pass's
+            // only new question is still answerable: each member the source
+            // and the target share, related with IntersectionStateNone to
+            // the combined property type. A target member the source lacks
+            // was the constituent walk's (a required member of any
+            // constituent is the intersection's), and a source member the
+            // target lacks is `hasExcessProperties`' (`nestedExcessPropertyChecking`
+            // (30,22); r7-reports §34).
+            if pass == RelationResult::Unknown {
+                pass = self.shared_members_related_to(source, target);
+            }
             if pass.is_success() && self.checker.fresh_object_literal_types.contains(&source) {
                 let index = self
                     .related_index_signatures(source, target)
@@ -4869,6 +4881,35 @@ impl Relater<'_, '_, '_> {
             }
         }
         result
+    }
+
+    /// Each member `source` shares with `target`, related to the target's
+    /// (combined) property type; Unknown where the source's names or a
+    /// member type cannot be read.
+    fn shared_members_related_to(&mut self, source: TypeId, target: TypeId) -> RelationResult {
+        let Some(names) = self.checker.get_property_names_of_type_shared(source) else {
+            return RelationResult::Unknown;
+        };
+        let mut parts = Vec::with_capacity(names.len());
+        for name in names.iter() {
+            let Some(target_member) = self.checker.get_type_of_property_of_type(target, name)
+            else {
+                continue;
+            };
+            let Some(source_member) = self.checker.get_type_of_property_of_type(source, name)
+            else {
+                return RelationResult::Unknown;
+            };
+            if self.checker.is_gap(source_member) || self.checker.is_gap(target_member) {
+                return RelationResult::Unknown;
+            }
+            let related = self.is_related_to(source_member, target_member);
+            if related == RelationResult::NotRelated {
+                return related;
+            }
+            parts.push(related);
+        }
+        RelationResult::all(parts)
     }
 
     /// The source switch's template-literal and string-mapping cases
