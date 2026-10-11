@@ -442,3 +442,20 @@ Measured on `4a5c81bf`: diagnostics **+5** (`recursiveBaseCheck3/4/6`,
 `destructuringParameterProperties4`), types text identical, 0 lost; jsTyping
 unchanged. `complicatedGenericRecursiveBaseClassReference` still misses its
 TS2554 (call arity, not this rule).
+
+## §14 TS18014 reads the receiver's type (routed from r7-grammar)
+
+`checkPrivateIdentifierPropertyAccess` (`checker.go:11494`) looks the
+private name up among `getPropertiesOfType(leftType)`: the receiver's
+*type*. `check_private_name_shadowing` found the receiver's class from its
+written annotation (`annotated_class_of`), so `new C().#bar` inside a nested
+class declaring its own `#bar` was silent (`privateNameNestedMethodAccess`).
+It now takes the class of the receiver type (a class reference's declared
+class, or `typeof C`'s class for the static side), checks the name on that
+side, and prints `TypeToString(leftType)` as native does. The written-name
+helper is deleted. TS1111 (the same tail) is plain-JS-only
+(`IsPlainJSFile`, `checker.go:11304`) and not ported here.
+
+Measured on `9acf69d7` + `c6df7541`: diagnostics **+1**
+(`privateNameNestedMethodAccess`), types text identical, 0 lost, jsTyping
+unchanged.
