@@ -800,6 +800,46 @@ reports native's chained TS2769 (taggedTemplateStringsWithOverloadResolution3
 new_false 0, lost_true 0; Ir generic-imports 0.9999 / 0.9998,
 domain-model 0.9999 / 1.0000; exact 0 gained, 0 lost for both.
 
+## 26. A tagged template's overload walk publishes and reports its failure
+
+`check_tagged_template_expression` chose among an overloaded tag's
+candidates by passing them, shifted past the strings parameter, to
+`choose_overload` with no call node. The transcribed walk could not read
+the substitutions' contextual types through the call memo, and could not
+publish `overload_argument_failures`, so a failing generic overload set was
+silent. The walk now receives the tagged template's node; the shifted
+candidates match `contextual_type_for_template_substitution`'s shifted memo.
+`check_tagged_template_resolution` reports `CallArity::Applicable(None)`
+through `report_overload_argument_failure`, which reads a tagged template's
+substitutions as the arguments (positions are the shifted candidate's).
+``fn4 `${ null }${ null }` `` reports native's TS2769
+(taggedTemplateStringsWithOverloadResolution3 64:9, 65:18).
+
+## 27. A tagged template resolves before its callback substitutions' bodies
+
+`checkTaggedTemplateExpression` resolves the tag (`resolveCall`) before any
+callback substitution's body is checked, so `assignContextualParameterTypes`
+gives the callback the chosen candidate's parameter types once. The
+diagnostic walk visits the tagged template before its substitutions, and
+calls already get this ordering through `resolve_call_before_callback_bodies`
+(`check.rs`). Tagged templates did not, so a callback body typed its
+parameters through the stateless contextual road. `check_tagged_template_diagnostics`
+now demands the tagged template's type first when a substitution is
+context sensitive. ``fn5 `${ (n) => n.toFixed() }` `` over `fn5(strs, f: (n:
+string) => void)` / `fn5(strs, f: (n: number) => void)` types `n` as
+`string` and reports native's TS2551
+(taggedTemplateStringsWithOverloadResolution3 71:18).
+
+**Measured** §26 and §27, each against its parent (base `3cfd38a7` on
+`d798df0f`):
+- §26: diagnostics +1 (taggedTemplateContextualTyping1), types +18
+  (taggedTemplateStringsWithOverloadResolution3 and its `_ES6` twin, 9 each),
+  0 lost; Ir generic-imports 0.9999, domain-model 1.0000;
+- §27: diagnostics +2 (taggedTemplateStringsWithOverloadResolution3 and its
+  `_ES6` twin), 0 lost; types 0/0; Ir 0.9998 / 1.0000.
+
+Both: jsTyping new_false 0, lost_true 0; exact 0 gained, 0 lost.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

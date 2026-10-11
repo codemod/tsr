@@ -66,6 +66,11 @@ pub struct FlowType {
     pub incomplete: bool,
 }
 
+/// `getKeyPropertyName` and its constituent map
+/// ([`Checker::key_property_map`]): the key property's name, and each regular
+/// key literal with its constituent (`None` for a duplicated key).
+type KeyPropertyMap = (String, Vec<(TypeId, Option<TypeId>)>);
+
 /// The auto query's answer ([`Checker::identifier_flow_auto_kind`]):
 /// native's `flowType == autoType || flowType == autoArrayType`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7854,6 +7859,78 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `getKeyPropertyName` with its constituent map
+    /// (`computeKeyPropertyNameAndMap`, `relater.go:1141`): for a union of at
+    /// least ten object or instantiable constituents, the first unit-typed
+    /// property of the first such constituent
+    /// (`getKeyPropertyCandidateName`), when every object, intersection or
+    /// instantiable constituent has a literal type for it and at least ten,
+    /// and half of all constituents, have a key no other shares
+    /// (`mapTypesByKeyProperty`). The map pairs each regular key literal with
+    /// its constituent, `None` for a duplicated key (native's `unknownType`
+    /// entry). Native caches both on the union; here they are computed per
+    /// narrowing, which only a union of ten or more objects pays for.
+    fn key_property_map(&mut self, t: TypeId) -> Option<KeyPropertyMap> {
+        let TypeData::Union { types, .. } = &self.store.get(t).data else { return None };
+        let types = types.clone();
+        let object_like = TypeFlags::OBJECT | TypeFlags::INSTANTIABLE_NON_PRIMITIVE;
+        if types.len() < 10
+            || types
+                .iter()
+                .filter(|&&part| self.store.get(part).flags.intersects(object_like))
+                .count()
+                < 10
+        {
+            return None;
+        }
+        let mut key = None;
+        'candidate: for &part in &types {
+            if !self.store.get(part).flags.intersects(object_like) {
+                continue;
+            }
+            for name in self.get_property_names_of_type(part)? {
+                let property = self.get_type_of_property_of_type(part, &name)?;
+                if self.store.get(property).flags.intersects(TypeFlags::UNIT) {
+                    key = Some(name);
+                    break 'candidate;
+                }
+            }
+        }
+        let key = key?;
+        let mut map: Vec<(TypeId, Option<TypeId>)> = Vec::new();
+        let mut count = 0;
+        for &part in &types {
+            if !self.store.get(part).flags.intersects(object_like | TypeFlags::INTERSECTION) {
+                continue;
+            }
+            let discriminant = self.get_type_of_property_of_type(part, &key)?;
+            if !self.is_literal_type(discriminant) {
+                return None;
+            }
+            let distributed = match &self.store.get(discriminant).data {
+                TypeData::Union { types, .. } => types.clone(),
+                _ => vec![discriminant],
+            };
+            let mut duplicate = false;
+            for literal in distributed {
+                let regular = self.get_regular_type_of_literal_type(literal);
+                match map.iter_mut().find(|(k, _)| *k == regular) {
+                    None => map.push((regular, Some(part))),
+                    Some(entry) => {
+                        if entry.1.is_some() {
+                            entry.1 = None;
+                            duplicate = true;
+                        }
+                    }
+                }
+            }
+            if !duplicate {
+                count += 1;
+            }
+        }
+        (count >= 10 && count * 2 >= types.len()).then_some((key, map))
+    }
+
     /// `isLiteralType` (`checker.go:25393`).
     pub(crate) fn is_literal_type(&self, t: TypeId) -> bool {
         let ty = self.store.get(t);
@@ -7872,15 +7949,13 @@ impl Checker<'_, '_> {
     /// `narrowTypeByDiscriminantProperty` (`flow.go:702`). §752 — the
     /// equality arm's swap onto the pair, replacing §51.1's inline test.
     ///
-    /// The key-property fast path (`:703`-`:719`) is **not ported**: it needs
-    /// `getKeyPropertyName` and `getConstituentTypeForKeyType`, and this port
-    /// interns no key-property index for a union. Declining it is upstream's
-    /// own behaviour for every union whose `keyPropertyName` is empty, which
-    /// is the general case; for a union that HAS one, the filter below
-    /// reaches the same constituent by comparability instead of by lookup,
-    /// losing only the `removeType` shortcut on the negative `===` branch and
-    /// the O(1). It is an optimisation with one behavioural edge, not a
-    /// mechanism the arm depends on.
+    /// The key-property arm (`:703`-`:719`) answers first for a `===`/`!==`
+    /// on a union with a key property ([`Checker::key_property_map`]): the
+    /// matching constituent itself on the branch where the property equals
+    /// the value, which drops a nullable constituent the comparability filter
+    /// below keeps (`narrowingUnionWithBang`'s ten-member `thing!.name`), and
+    /// the union without it on the other branch when its key is a unit type
+    /// (`r7-flow.md` §27).
     fn narrow_type_by_discriminant_property(
         &mut self,
         t: TypeId,
@@ -7889,6 +7964,32 @@ impl Checker<'_, '_> {
         value: NodeId,
         assume_true: bool,
     ) -> TypeId {
+        if matches!(
+            operator,
+            SyntaxKind::EqualsEqualsEqualsToken | SyntaxKind::ExclamationEqualsEqualsToken
+        ) && let Some((key, map)) = self.key_property_map(t)
+            && self.get_accessed_property_name(access).as_deref() == Some(key.as_str())
+        {
+            let Some(value_type) = self.narrow_value_type(value) else { return t };
+            let regular = self.get_regular_type_of_literal_type(value_type);
+            if let Some(&(_, Some(candidate))) = map.iter().find(|(k, _)| *k == regular) {
+                let equal = operator == SyntaxKind::EqualsEqualsEqualsToken;
+                if assume_true == equal {
+                    return candidate;
+                }
+                if self.get_type_of_property_of_type(candidate, &key).is_some_and(|property| {
+                    self.store.get(property).flags.intersects(TypeFlags::UNIT)
+                }) {
+                    let TypeData::Union { types, .. } = &self.store.get(t).data else {
+                        return t;
+                    };
+                    let kept: Vec<TypeId> =
+                        types.iter().copied().filter(|&part| part != candidate).collect();
+                    return self.rebuild_union_subset(t, &kept);
+                }
+                return t;
+            }
+        }
         // Upstream passes `narrowTypeByEquality` with no chain flag: the
         // optional-chain strip belongs to `narrowTypeByDiscriminant`, which
         // does it on the RECEIVER before reading the property, so passing it
@@ -8440,8 +8541,22 @@ impl Checker<'_, '_> {
         if t == candidate || self.store.get(t).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) {
             return Some(candidate);
         }
+        // `getNarrowedTypeWorker`'s key property (`flow.go:885-899`): a union
+        // with one compares each candidate part with the constituent its
+        // discriminant selects, when there is one.
+        let key_map = self.key_property_map(t);
         let narrowed = self.map_narrowing_type(candidate, &mut |checker, candidate_part| {
-            let directly_related = checker.map_narrowing_type(t, &mut |checker, part| {
+            let matching = key_map
+                .as_ref()
+                .and_then(|(key, map)| {
+                    let discriminant = checker.get_type_of_property_of_type(candidate_part, key)?;
+                    let regular = checker.get_regular_type_of_literal_type(discriminant);
+                    map.iter()
+                        .find(|(k, _)| *k == regular)
+                        .and_then(|(_, constituent)| *constituent)
+                })
+                .unwrap_or(t);
+            let directly_related = checker.map_narrowing_type(matching, &mut |checker, part| {
                 if check_derived {
                     return Some(if checker.is_derived_from_decidable(part, candidate_part)? {
                         part
@@ -8623,6 +8738,31 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `getTypeOfExpression(value)` for an equality narrowing's operand: a
+    /// nullable literal directly, else the expression's type through the
+    /// Checker-owned `NodeId` memo and re-entry guard (`None` on re-entry).
+    fn narrow_value_type(&mut self, value: NodeId) -> Option<TypeId> {
+        if let Some(literal) = self.nullable_literal_type(value) {
+            return Some(literal);
+        }
+        if !self.narrow_value_stack.insert(value) {
+            return None;
+        }
+        let value_type = if let Some(&cached) = self.narrow_value_types.get(&value) {
+            cached
+        } else {
+            let computed = self
+                .node_map
+                .get(value)
+                .and_then(|node| tsr_ast::Expression::try_from(node).ok())
+                .map_or(self.intrinsics.error, |expression| self.check_expression(expression));
+            self.narrow_value_types.insert(value, computed);
+            computed
+        };
+        self.narrow_value_stack.remove(&value);
+        Some(value_type)
+    }
+
     fn narrow_type_by_equality(
         &mut self,
         t: TypeId,
@@ -8652,26 +8792,7 @@ impl Checker<'_, '_> {
         // the existing Checker-owned NodeId memo/re-entry guard for all other
         // operands. This routes an already-computed nullable leaf through the
         // same facts worker; no new cache, mapper image or forcing is added.
-        let value_type = if let Some(literal) = self.nullable_literal_type(value) {
-            literal
-        } else {
-            if !self.narrow_value_stack.insert(value) {
-                return t;
-            }
-            let value_type = if let Some(&cached) = self.narrow_value_types.get(&value) {
-                cached
-            } else {
-                let computed = self
-                    .node_map
-                    .get(value)
-                    .and_then(|node| tsr_ast::Expression::try_from(node).ok())
-                    .map_or(self.intrinsics.error, |expression| self.check_expression(expression));
-                self.narrow_value_types.insert(value, computed);
-                computed
-            };
-            self.narrow_value_stack.remove(&value);
-            value_type
-        };
+        let Some(value_type) = self.narrow_value_type(value) else { return t };
         let value_flags = self.store.get(value_type).flags;
         if !value_flags.intersects(TypeFlags::NULLABLE) {
             // §52 (`checker-notes-narrow.md`): the comparable-filter half

@@ -822,3 +822,71 @@ each, `intersectionNarrowing` 1), diagnostics unchanged, 0 lost; jsTyping 122
 → 122, new_false 0, lost_true 0; exact oracle 9660 → 9664 (those four cases), 0
 lost; Ir gi 0.9999, dm 0.9999. No cache added; the export arm runs inside
 the existing once-per-root marking walk.
+
+## §27 The key-property map (`getKeyPropertyName`) in discriminant and predicate narrowing
+
+`computeKeyPropertyNameAndMap` (`relater.go:1141`) indexes a union of at
+least ten object/instantiable constituents by its first unit-typed property
+when the keys are literal and mostly unique. `narrowTypeByDiscriminantProperty`
+(`flow.go:702-719`) answers a `===`/`!==` on that property by lookup: the
+matching constituent itself on the equal branch, the union without it on the
+other when its key is a unit type. `getNarrowedTypeWorker` (`flow.go:885-899`)
+compares each candidate part with the constituent its discriminant selects.
+The port had neither ("an optimisation with one behavioural edge", the old
+doc said). The edge is real: the lookup answers the constituent alone where
+the comparability filter keeps every constituent without the property,
+including a nullable one. `narrowingUnionWithBang`'s ten-member optional
+`thing` narrowed by `working.thing!.name !== "Correct"` is native `{ name:
+'Correct'; id: string; }` in the else branch, the port's `… | undefined`
+(its nine-member twin has no key property and keeps `undefined` natively too).
+
+`key_property_map` (flow.rs) computes the name and map per narrowing. Native
+caches both on the union type; here only a union of ten or more object
+constituents pays the walk (one property-name list and one property type per
+constituent), so no cache was added. Property order is
+`get_property_names_of_type`'s, the declaration order native's
+`getPropertiesOfType` yields for the type literals these unions are made of.
+The value's type for the lookup goes through the equality arm's existing
+memo and re-entry guard, now shared as `narrow_value_type`.
+
+Measured on `0a4150b0` unfiltered: types **+2** (`narrowingUnionWithBang`
+0:49/0:51), diagnostics unchanged, 0 lost; exact oracle 9664 → 9665, 0 lost;
+jsTyping 122 → 122, new_false 0,
+lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## §28 The function miss certificate reads function expressions and arrows too
+
+`function_declaration_lacks` certifies a miss on a function's type:
+`resolveAnonymousTypeMembers` gives it the symbol's exports, then
+`getPropertyOfTypeEx` falls to the global `Function` family and `Object`
+(`checker.go:18899`). It accepted only a `function` declaration's symbol, so
+`const { date } = (inspectedElement: any) => 0` (`destructuringControlFlowNoCrash`)
+was silent where native reports TS2339 "Property 'date' does not exist on
+type '(inspectedElement: any) => number'". A function expression's or arrow's
+type is the same anonymous function type over its own symbol, so the
+certificate now admits those declarations too (still not in JS). An expando
+assignment (`const f = () => {}; f.x = 1`) binds to the initializer's symbol
+(`initializer_symbol`, as native's expando container), whose non-empty exports
+keep declining.
+
+Measured on `ef61f7d9` unfiltered: diagnostics **+1**
+(`destructuringControlFlowNoCrash`), types unchanged, 0 lost; jsTyping
+unchanged.
+
+## §29 `typeof globalThis` leaves out ambient modules for an indexed access type
+
+`resolveAnonymousTypeMembers`' globalThis arm (`checker.go:20674-20680`)
+keeps a global only when it is not block-scoped and not a value module whose
+every declaration is an ambient module. The indexed-access report
+(`index_access_reports.rs`) tested the block-scoped half only, so
+`(typeof globalThis)["\"ambientModule\""]` found `declare module
+"ambientModule"`'s symbol and was silent (`globalThisAmbientModules`, two
+TS2339). It now applies both halves (an ambient module is a
+`ModuleDeclaration` with a string-literal name).
+
+Measured (§28 + §29) on `ef61f7d9` unfiltered: diagnostics **+2**
+(`destructuringControlFlowNoCrash`, `globalThisAmbientModules`), types
+unchanged, 0 lost; exact oracle 9665 → 9666 (`destructuringControlFlowNoCrash`;
+`globalThisAmbientModules` keeps a `globalThis.namespaceModule.typ` printing
+row), 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 0.9999, dm
+1.0000.

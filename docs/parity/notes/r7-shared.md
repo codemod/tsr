@@ -919,3 +919,18 @@ threads it. That is four signatures, and their many callers would all pass
 `typeOnlyExportStarMap` gate is part of the star road, which this arm does
 not take. Falsifier: a corpus case where a type-only re-export through
 `export *` should resolve in a type query.
+
+## 27. `export import X = N.Y` makes a file a module
+
+`isAnExternalModuleIndicatorNode` (ast/parseoptions.go:95) tests
+`HasSyntacticModifier(node, ModifierFlagsExport)` before its kind arms, so
+an exported import-equals with an entity-name reference is a module
+indicator. The parser's copy (`tsr-parser/src/references.rs`) had that.
+The binder's `is_external_module` matched `ImportEqualsDeclaration` on the
+external-module-reference form only, and its arm shadowed the generic
+export-modifier arm. So a declaration file whose only statement is `export
+import Component = CompletelyMissing;` bound as a script: no file symbol,
+TS2306 at every import of it, and `any` for `import * as Second`
+(`reexportedMissingAlias`). The arm now ORs the export modifier in. Every
+checker caller of `is_external_module` reads the same answer, as native's
+one `ExternalModuleIndicator` gives. No cache, and the scan is unchanged.

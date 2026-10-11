@@ -459,13 +459,32 @@ impl Checker<'_, '_> {
                 // `globals["globalThis"]` is the `globalThis` module symbol
                 // itself (`initializeChecker`), which this binder does not
                 // declare.
+                // `resolveAnonymousTypeMembers`' globalThis arm
+                // (`checker.go:20674-20680`): neither block-scoped nor a value
+                // module every declaration of which is an ambient module
+                // (`declare module "m"`).
                 let present = name == "globalThis"
                     || self.binder.global(&name).is_some_and(|symbol| {
-                        !self.binder.symbols().get(symbol).flags.intersects(
-                            tsr_binder::SymbolFlags::BLOCK_SCOPED_VARIABLE
-                                | tsr_binder::SymbolFlags::CLASS
-                                | tsr_binder::SymbolFlags::ENUM,
-                        )
+                        let entry = self.binder.symbols().get(symbol);
+                        let ambient_module =
+                            entry.flags.intersects(tsr_binder::SymbolFlags::VALUE_MODULE)
+                                && !entry.declarations.is_empty()
+                                && entry.declarations.iter().all(|&declaration| {
+                                    matches!(
+                                        self.node_map.get(declaration),
+                                        Some(Node::ModuleDeclaration(module))
+                                            if matches!(
+                                                module.name,
+                                                Some(tsr_ast::ModuleName::StringLiteral(_))
+                                            )
+                                    )
+                                });
+                        !ambient_module
+                            && !entry.flags.intersects(
+                                tsr_binder::SymbolFlags::BLOCK_SCOPED_VARIABLE
+                                    | tsr_binder::SymbolFlags::CLASS
+                                    | tsr_binder::SymbolFlags::ENUM,
+                            )
                     });
                 if present {
                     continue;

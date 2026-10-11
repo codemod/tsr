@@ -743,15 +743,24 @@ impl Checker<'_, '_> {
     ) -> Diagnostic {
         let mut diagnostic = Diagnostic::with_args(message, span, args);
         if let Some(file) = self.source_file_of_for_diagnostics(node)
-            && let Some(host) = self.module_host
-            && let Some(name) = host.file_path(file)
-            && let Some(text) = host.source_text(file, self.nodes)
+            && let Some(image) = self.diagnostic_file_image(file)
         {
-            diagnostic.set_file(std::sync::Arc::new(tsr_diagnostics::format::DiagnosticFile::new(
-                name, text,
-            )));
+            diagnostic.set_file(image);
         }
         diagnostic
+    }
+
+    /// The program's file image for `file` (its name and text), as
+    /// `Diagnostic::set_file` takes it, for a diagnostic that is nested in
+    /// another rather than reported with its own file. Built per call.
+    pub(crate) fn diagnostic_file_image(
+        &self,
+        file: NodeId,
+    ) -> Option<std::sync::Arc<tsr_diagnostics::format::DiagnosticFile>> {
+        let host = self.module_host?;
+        let name = host.file_path(file)?;
+        let text = host.source_text(file, self.nodes)?;
+        Some(std::sync::Arc::new(tsr_diagnostics::format::DiagnosticFile::new(name, text)))
     }
 
     /// `Checker.grammarErrorOnNode` with no arguments: the node's error span.

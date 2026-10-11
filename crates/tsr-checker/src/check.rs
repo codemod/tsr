@@ -8397,10 +8397,19 @@ impl Checker<'_, '_> {
         } else {
             &messages::SUBSEQUENT_VARIABLE_DECLARATIONS_MUST_HAVE_THE_SAME_TYPE_VARIABLE_0_MUST_BE_OF_TYPE_1_BUT_HERE_HAS_TYPE_2
         };
-        self.report(
-            file,
-            Diagnostic::with_args(message, span, [text.to_string(), first_text, next_text]),
-        );
+        // `errorNextVariableOrPropertyDeclarationMustHaveSameType`
+        // (`checker.go:5949`): `'{0}' was also declared here.` at the first
+        // declaration (`createDiagnosticForNode(firstDeclaration)`, its error
+        // span), r7-grammar §39.
+        let mut diagnostic =
+            Diagnostic::with_args(message, span, [text.to_string(), first_text, next_text]);
+        diagnostic.add_related_information(Some(self.related_diagnostic_at(
+            primary,
+            &messages::_0_WAS_ALSO_DECLARED_HERE,
+            self.error_span(primary),
+            vec![text.to_string()],
+        )));
+        self.report(file, diagnostic);
     }
 
     /// `isGlobalSymbolConstructor`: the node is a declaration of the global
@@ -12175,13 +12184,20 @@ impl Checker<'_, '_> {
             let span = self
                 .jsdoc_overload_error_span(declaration)
                 .unwrap_or_else(|| self.error_span(declaration));
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
-                    span,
-                ),
+            // `.AddRelatedInfo(createDiagnosticForNode(bodyDeclaration,
+            // The_implementation_signature_is_declared_here))`
+            // (`checker.go:3693`), r7-grammar §42.
+            let mut diagnostic = Diagnostic::new(
+                &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
+                span,
             );
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                body,
+                &messages::THE_IMPLEMENTATION_SIGNATURE_IS_DECLARED_HERE,
+                self.error_span(body),
+                Vec::new(),
+            )));
+            self.report(file, diagnostic);
             break;
         }
     }

@@ -5451,9 +5451,9 @@ fn has_export_declarations(module: &tsr_ast::ModuleDeclaration<'_>) -> bool {
 /// scan is over top-level statements only, so it is a few dozen comparisons on a
 /// list the binder is about to walk anyway.
 ///
-/// One indicator is **not** implemented: upstream also treats a file containing
-/// `import.meta` anywhere as a module (`getImportMetaIfNecessary`), which needs a
-/// full-tree walk under specific module settings the binder does not have.
+/// One indicator is not here: upstream also treats a file containing
+/// `import.meta` anywhere as a module (`getImportMetaIfNecessary`), a full-tree
+/// walk that [`is_external_module_in`] adds behind the parser's flag.
 #[must_use]
 pub fn is_external_module(file: &SourceFile<'_>) -> bool {
     file.statements.iter().any(|statement| {
@@ -5462,10 +5462,16 @@ pub fn is_external_module(file: &SourceFile<'_>) -> bool {
             Node::ImportDeclaration(_) | Node::ExportAssignment(_) | Node::ExportDeclaration(_) => {
                 true
             }
-            Node::ImportEqualsDeclaration(n) => matches!(
-                n.module_reference,
-                Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
-            ),
+            // `HasSyntacticModifier(node, ModifierFlagsExport)` comes first in
+            // `isAnExternalModuleIndicatorNode` and covers this kind too:
+            // `export import X = N.Y;` makes the file a module
+            // (`reexportedMissingAlias`, r7-shared.md §27).
+            Node::ImportEqualsDeclaration(n) => {
+                matches!(
+                    n.module_reference,
+                    Some(tsr_ast::ModuleReference::ExternalModuleReference(_))
+                ) || modifiers_of(node).is_some_and(has_export)
+            }
             _ => modifiers_of(node).is_some_and(has_export),
         }
     })
