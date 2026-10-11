@@ -844,7 +844,7 @@ impl<'a> Checker<'a, '_> {
             let apparent = self.apparent_type(source);
             self.mapped_modifiers_instance(apparent)
         });
-        let keys = self.mapped_member_keys(&info, modifiers)?;
+        let keys = self.mapped_member_keys(&info, modifiers, false)?;
         let mut names = Vec::new();
         for key in keys {
             let name =
@@ -903,6 +903,7 @@ impl<'a> Checker<'a, '_> {
         &mut self,
         info: &MappedTypeInfo,
         modifiers: Option<TypeId>,
+        members: bool,
     ) -> Option<Vec<TypeId>> {
         use crate::{flags::TypeFlags, types::TypeData};
         let mut keys = Vec::new();
@@ -987,7 +988,24 @@ impl<'a> Checker<'a, '_> {
                 keys.extend(indexes.into_iter().map(|index| index.key));
             }
         } else {
-            let mut pending = vec![info.constraint];
+            // Member resolution walks the lower bound; getIndexTypeForMappedType
+            // reads the constraint itself (a generic one defers before it).
+            let start = if members {
+                self.lower_bound_of_key_type(info.constraint, 0)
+            } else {
+                info.constraint
+            };
+            // Containment: a lowered generic constraint publishes its property
+            // keys only. Its index keys (`keyof Shape` over `Shape extends
+            // Record<string, string>` lowers to `string | number`) are
+            // native's too, but the access sites here do not yet decline an
+            // index signature for a write to a generic object
+            // (checkPropertyAccessExpressionOrQualifiedName's
+            // `assignmentKind == None || !isGenericObjectType(leftType)`), so
+            // `obj.unknownLiteralKey = 3` would read `number`
+            // (r7-declared §34).
+            let lowered = start != info.constraint;
+            let mut pending = vec![start];
             while let Some(key) = pending.pop() {
                 // getLowerBoundOfKeyType (native checker.go:21040) preserves
                 // only primitive-first canonical-empty intersections. Other
@@ -1032,6 +1050,16 @@ impl<'a> Checker<'a, '_> {
                     if self.signature_parameter_type_is_generic(key) {
                         return None;
                     }
+                    if lowered
+                        && info.name_type.is_none()
+                        && !self.store.get(key).flags.intersects(
+                            TypeFlags::STRING_LITERAL
+                                | TypeFlags::NUMBER_LITERAL
+                                | TypeFlags::UNIQUE_ES_SYMBOL,
+                        )
+                    {
+                        continue;
+                    }
                     keys.push(key);
                 } else if key != self.intrinsics.never {
                     return None;
@@ -1039,6 +1067,90 @@ impl<'a> Checker<'a, '_> {
             }
         }
         Some(keys)
+    }
+
+    /// getLowerBoundOfKeyType (checker.go:21021): the keys a generic
+    /// mapped constraint certainly has, which resolveMappedTypeMembers
+    /// enumerates (`forEachType(getLowerBoundOfKeyType(constraintType), …)`).
+    /// `keyof T` is the index type of `T`'s apparent type; a distributive
+    /// conditional (`Exclude<keyof T, "a">`) is instantiated at its check
+    /// type's lower bound; unions and intersections map their constituents
+    /// (the `string & {}` pair kept); anything else is itself. Bounded like
+    /// the alias chains (r7-declared §34).
+    fn lower_bound_of_key_type(&mut self, t: TypeId, depth: usize) -> TypeId {
+        use crate::{flags::TypeFlags, types::TypeData};
+        if depth > 8 {
+            return t;
+        }
+        if let Some(&operand) = self.deferred_keyof_operands.get(&t) {
+            let apparent = self.apparent_type(operand);
+            if apparent == operand || self.is_generic_tuple_type(apparent) {
+                return t;
+            }
+            return self.resolved_keyof_type(apparent).unwrap_or(t);
+        }
+        match self.store.get(t).data.clone() {
+            TypeData::Union { types, .. } => {
+                let bounds: Vec<TypeId> = types
+                    .iter()
+                    .map(|&part| self.lower_bound_of_key_type(part, depth + 1))
+                    .collect();
+                return if bounds == types { t } else { self.get_union_type(&bounds) };
+            }
+            TypeData::Intersection { types, .. } => {
+                if types.len() == 2
+                    && self
+                        .store
+                        .get(types[0])
+                        .flags
+                        .intersects(TypeFlags::STRING | TypeFlags::NUMBER | TypeFlags::BIG_INT)
+                    && self.is_unaliased_empty_type_literal(types[1])
+                {
+                    return t;
+                }
+                let bounds: Vec<TypeId> = types
+                    .iter()
+                    .map(|&part| self.lower_bound_of_key_type(part, depth + 1))
+                    .collect();
+                return if bounds == types { t } else { self.get_intersection_type(&bounds, None) };
+            }
+            _ => {}
+        }
+        // A deferred distributive conditional alias reference: its check
+        // parameter's argument at that argument's lower bound
+        // (getConditionalTypeInstantiation with the prepended mapping).
+        if self.store.get(t).flags.contains(TypeFlags::CONDITIONAL)
+            && let Some((alias, arguments)) = self.type_reference_targets.get(&t).cloned()
+            && let Some(index) = self.distributive_alias_check_index(alias)
+            && let Some(&argument) = arguments.get(index)
+        {
+            let bound = self.lower_bound_of_key_type(argument, depth + 1);
+            if bound != argument {
+                let mut arguments = arguments;
+                arguments[index] = bound;
+                return self.create_type_reference(alias, arguments);
+            }
+        }
+        t
+    }
+
+    /// The position of the type parameter a conditional alias's body checks
+    /// nakedly (`root.isDistributive`): `T` in `type Exclude<T, U> = T extends
+    /// U ? never : T`.
+    fn distributive_alias_check_index(&self, alias: SymbolId) -> Option<usize> {
+        let declaration = self.type_alias_declaration_of(alias)?;
+        let Some(Node::TypeAliasDeclaration(node)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        let mut body = node.r#type?;
+        while let TypeNode::ParenthesizedTypeNode(inner) = body {
+            body = inner.r#type?;
+        }
+        let TypeNode::ConditionalTypeNode(conditional) = body else { return None };
+        let parameter = self.distributive_conditional_parameter(conditional.check_type?)?;
+        node.type_parameters.iter().position(|declared| {
+            declared.node_id.and_then(|id| self.binder.symbol_of(id)) == Some(parameter)
+        })
     }
 
     /// getPropertiesOfUnionOrIntersectionType (checker.go:18861) for a
@@ -1131,7 +1243,7 @@ impl<'a> Checker<'a, '_> {
             let apparent = self.apparent_type(source);
             self.mapped_modifiers_instance(apparent)
         });
-        let Some(keys) = self.mapped_member_keys(&info, modifiers) else { return };
+        let Some(keys) = self.mapped_member_keys(&info, modifiers, true) else { return };
         // resolveMappedTypeMembers combines source keys before substituting
         // the template, so colliding names see the entire key union.
         let mut members: Vec<(TypeId, TypeId, TypeId)> = Vec::new();
