@@ -1256,17 +1256,23 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `canFollowGetOrSetKeyword` (`parser.go:4036`) on the next token: `[`
+    /// or `isLiteralPropertyName` — an identifier or keyword
+    /// (`tokenIsIdentifierOrKeyword`, `kind >= KindIdentifier`, which also
+    /// admits a private name: `{ get #foo() {} }`), a string, numeric or
+    /// bigint literal.
     pub(crate) fn next_starts_property_name(&mut self) -> bool {
         self.peek_kind(|kind| {
             matches!(
                 kind,
-                SyntaxKind::Identifier
-                    | SyntaxKind::StringLiteral
+                SyntaxKind::StringLiteral
                     | SyntaxKind::NumericLiteral
+                    | SyntaxKind::BigIntLiteral
                     | SyntaxKind::OpenBracketToken
-            ) || kind.is_keyword()
+            ) || crate::list::token_is_identifier_or_keyword(kind)
         })
     }
+
     /// Whether `[` opens an index signature rather than a computed name.
     ///
     /// `[k: string]: T` has `identifier :` inside; `[Symbol.iterator]()` does not.
