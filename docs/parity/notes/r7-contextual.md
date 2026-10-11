@@ -450,3 +450,46 @@ that reads a sibling binding), `objectBindingPatternContextuallyTypesArgument`
 (an argument contextually typed by the pattern), `literalTypesAndTypeAssertions`
 and the optional flags in `declarationEmitDestructuring2` (`{ x?: …; y?: … }`,
 `padObjectLiteralType`).
+
+## 11. BINDING-ELEMENT-COMPUTED-NAME-INDEXED-ACCESS: a certain miss is `errorType`
+
+`let {[foo]: bar} = {bar: "bar"}` with `foo: string`: in
+`getBindingElementTypeFromParentType`, the computed-name arm indexes the
+parent with `getIndexedAccessTypeEx(parent, string, …, name)`
+(`checker.go:17741`). A binding element is not an access expression, so
+`getPropertyTypeForIndexType` takes its no-signature leg
+(`:27100-27130`): it reports TS2537 (already reported here) and answers nil,
+and `getIndexedAccessTypeEx` (`:26927`) turns that into `errorType` for its
+access node. That is native's any-flagged error, printed `any`, not this
+port's gap, so the assignment-pattern literals built from the bound names
+(`{ [foo]: any; }`, `[{ [x: string]: any; }]`) now type. The arm answered the
+gap. It now answers `native_error` when `computed_key_certainly_unmatched`
+certifies the miss: a non-literal `string`/`number` key, and a non-generic
+object whose member table is complete and has no index signature. Anything
+else keeps the gap.
+
+Result (commit 10): types +21 RIGHT (`computedPropertiesInDestructuring1` 10,
+`computedPropertiesInDestructuring1_ES6` 10, `objectRest` 1), 0 lost;
+diagnostics unchanged; jsTyping unchanged.
+
+## 12. CONTEXTUAL-ARG-SUPER-CALL: `super(...)` arguments read the instantiated base constructors
+
+In resolveCallExpression's `super` arm (`checker.go:8471`), a super call
+resolves against the base constructor type's construct signatures,
+instantiated with the `extends` clause's type arguments
+(`getInstantiatedConstructorsForTypeArguments`). An `any` super type is
+`resolveUntypedCall`, every argument `any`. The argument's contextual type
+reads that resolution (`getContextualTypeForArgumentAtIndex`), so
+`super(value => String(value<string>()))` under `extends A<number, string>`
+types `value` as `number`, and the TS2349 for calling it follows. TSR's
+resolving road asked the `super` expression's type for *call* signatures and
+found none. `super_call_argument_context` (contextual.rs) now takes the
+candidates from `calls.rs::instantiated_constructors_for_type_arguments`
+(made `pub(crate)`, granted, visibility only). It reads a single candidate's
+parameter, or the overload set through the road's existing arity/agreement
+step (factored as `agreed_candidate_argument_type`).
+
+Result (commit 11): types +18 RIGHT (`superCallParameterContextualTyping1` 6,
+`…3` 6, `…2` 3, `targetTypeBaseCalls` 3), diagnostics +2
+(`targetTypeBaseCalls`, `superCallParameterContextualTyping2`), 0 lost;
+jsTyping unchanged.
