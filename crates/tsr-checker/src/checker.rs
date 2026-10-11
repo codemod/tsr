@@ -3615,7 +3615,12 @@ impl<'a, 'n> Checker<'a, 'n> {
         if parent_name.contains('.') {
             return Some(format!("{parent_name}."));
         }
-        Some(match self.symbol_chain(parent, reference, SymbolFlags::NAMESPACE, depth + 1) {
+        // `getQualifiedLeftMeaning` (`symbolaccessibility.go:108`): a value
+        // reference keeps value meaning for its containers, so a local
+        // `var X` shadows namespace `X` in `typeof X.Y` (r7-printer §19).
+        let left_meaning =
+            if meaning == SymbolFlags::VALUE { SymbolFlags::VALUE } else { SymbolFlags::NAMESPACE };
+        Some(match self.symbol_chain(parent, reference, left_meaning, depth + 1) {
             Some(prefix) => format!("{prefix}{parent_name}."),
             // The container itself resolves bare here: the chain stops, which
             // is the recursion's base case rather than a refusal.
