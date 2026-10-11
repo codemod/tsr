@@ -479,3 +479,36 @@ together with §7 (+23 type lines, +1 diagnostics case, 0 lost); coverage
 `diagnostics` 4,928/5,502, `diagnostics_configured` 1,003/1,091; child CPU
 21 samples 1.0073 / 0.9207; jsTyping new_false 0, lost_true 0; callgrind Ir
 domain-model 0.99996, generic-imports 0.99987; strict clippy and tests green.
+
+## 10. A JS require binding element binds as an alias (`IsVariableDeclarationInitializedToRequire`)
+
+### Cause
+
+`bindVariableDeclarationOrBindingElement` (binder.go:1168) binds a
+declaration as an `Alias` when `IsVariableDeclarationInitializedToRequire`
+holds, and that predicate climbs a binding element's `Parent.Parent` to its
+variable declaration (utilities.go:2825): in `const { K } =
+require("./mod1")`, `K` is an alias, resolved by
+`getTargetOfImportSpecifier`'s `IsBindingElement` arm through
+`getExternalModuleMember(GetRootDeclaration(node), node)`, whose module
+specifier is the require call's argument (`getExternalModuleRequireArgument`).
+The binder admitted only an identifier-named variable declaration, so `K`
+was a block-scoped variable typed by destructuring.
+
+### The port
+
+- Binder: `is_require_alias_variable` admits a binding element with an
+  identifier name whose pattern's parent is a require declaration
+  (`is_require_declaration`, the old variable test); one level only, as
+  native.
+- `symbols.rs`: `declaration_of_alias_symbol` admits such a binding element;
+  `get_target_of_alias_symbol` routes it to `get_external_module_member`
+  with the declaration as root; that function takes the specifier from the
+  require call (`require_declaration_argument`) and the name from the
+  element's property name or name.
+- `declared.rs` (r7-declared's file, granted/routed): the type-reference
+  alias road admits an unrenamed binding element exactly as it admits an
+  unrenamed import specifier; without it `@param {K} k` lost three right
+  lines (`commonJSImportClassTypeReference` 0:4/0:5/0:8).
+
+No cache.

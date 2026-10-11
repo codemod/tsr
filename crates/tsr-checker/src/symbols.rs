@@ -1316,6 +1316,14 @@ impl<'a> Checker<'a, '_> {
             SyntaxKind::ExportSpecifier => return self.export_specifier_target(declaration),
             // `getTargetOfImportSpecifier` (`checker.go:14647`).
             SyntaxKind::ImportSpecifier => return self.import_specifier_target(declaration),
+            // Its `IsBindingElement` arm (`:14659`): the root is the require
+            // declaration (`GetRootDeclaration`), the name the element's
+            // property name or name (r7-shared.md §10).
+            SyntaxKind::BindingElement => {
+                let pattern = self.nodes.parent(declaration)?;
+                let root = self.nodes.parent(pattern)?;
+                return self.get_external_module_member(root, declaration);
+            }
             // `getTargetOfExportAssignment` (`checker.go:14889`) — `export = X`
             // where `X` is an identifier or a class expression. Every
             // other expression shape declines (upstream's
@@ -1702,6 +1710,15 @@ impl<'a> Checker<'a, '_> {
                 | SyntaxKind::NamespaceExport
                 | SyntaxKind::ImportSpecifier
                 | SyntaxKind::ExportSpecifier => true,
+                // `IsVariableDeclarationInitializedToRequire`'s binding-element
+                // climb: the binder flags `const { art } = require("./ex")`'s
+                // `art` an alias only in that shape (r7-shared.md §10).
+                SyntaxKind::BindingElement => {
+                    self.in_js_file(declaration)
+                        && self.binder.symbol_of(declaration).is_some_and(|symbol| {
+                            self.binder.symbols().get(symbol).flags.contains(SymbolFlags::ALIAS)
+                        })
+                }
                 // The binder admits only unannotated, unexported JS variables
                 // initialized to a bare string-literal require call.
                 SyntaxKind::VariableDeclaration => {
@@ -2418,7 +2435,11 @@ impl<'a> Checker<'a, '_> {
     ///   `tryFindAmbientModule`, which
     ///   [`Checker::resolve_external_module_name`] does not port.
     fn get_external_module_member(&mut self, node: NodeId, specifier: NodeId) -> Option<SymbolId> {
-        let module_specifier = self.external_module_name(node)?;
+        // `getExternalModuleRequireArgument(node) ?? GetExternalModuleName(node)`
+        // (`checker.go:14670`): a require declaration's specifier is its call's
+        // argument.
+        let module_specifier =
+            self.external_module_name(node).or_else(|| self.require_declaration_argument(node))?;
         let module_symbol = self.resolve_external_module_name(node, module_specifier)?;
         // `specifier.PropertyNameOrName()` (`checker.go:14677`), read through
         // `name.Text()`. A string-literal name — `import { "a-b" as c }` — is
@@ -2430,6 +2451,18 @@ impl<'a> Checker<'a, '_> {
                 node.property_name.or(node.name.map(tsr_ast::ModuleExportName::Identifier))
             }
             Node::ExportSpecifier(node) => node.property_name.or(node.name),
+            // `PropertyNameOrName()`, which must be an identifier or a string
+            // literal (`checker.go:14680`).
+            Node::BindingElement(element) => match (element.property_name, element.name) {
+                (Some(tsr_ast::PropertyName::Identifier(name)), _)
+                | (None, Some(tsr_ast::BindingName::Identifier(name))) => {
+                    Some(tsr_ast::ModuleExportName::Identifier(name))
+                }
+                (Some(tsr_ast::PropertyName::StringLiteral(name)), _) => {
+                    Some(tsr_ast::ModuleExportName::StringLiteral(name))
+                }
+                _ => None,
+            },
             _ => return None,
         }?;
         let name = crate::module_exports::module_export_name_text(name);
@@ -3846,6 +3879,23 @@ impl<'a> Checker<'a, '_> {
     /// and `ImportTypeNode`; none of those reaches this function in this port,
     /// and listing a kind whose caller does not exist would be an intention
     /// documented as though it were built.
+    /// `getExternalModuleRequireArgument` (`checker.go`): the string-literal
+    /// argument of a JS require declaration's `require("…")` initializer.
+    fn require_declaration_argument(&self, node: NodeId) -> Option<NodeId> {
+        let Node::VariableDeclaration(variable) = self.node_map.get(node)? else { return None };
+        let Some(Expression::CallExpression(call)) = variable.initializer else { return None };
+        if !matches!(call.expression, Some(Expression::Identifier(name)) if name.text == "require")
+            || call.arguments.len() != 1
+        {
+            return None;
+        }
+        match call.arguments[0] {
+            argument @ (Expression::StringLiteral(_)
+            | Expression::NoSubstitutionTemplateLiteral(_)) => argument.node_id(),
+            _ => None,
+        }
+    }
+
     pub(crate) fn external_module_name(&self, node: NodeId) -> Option<NodeId> {
         let specifier = match self.node_map.get(node)? {
             Node::ImportDeclaration(node) => node.module_specifier,

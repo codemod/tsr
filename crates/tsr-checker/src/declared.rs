@@ -2038,6 +2038,13 @@ impl<'a> Checker<'a, '_> {
                     Some(Node::ImportSpecifier(specifier)) if specifier.property_name.is_none() => {
                         Some(None)
                     }
+                    // A JS require binding element (`const { K } =
+                    // require("./m")`) is `getTargetOfImportSpecifier`'s
+                    // `IsBindingElement` arm: the same road as an unrenamed
+                    // specifier (r7-shared.md §10).
+                    Some(Node::BindingElement(element)) if element.property_name.is_none() => {
+                        Some(None)
+                    }
                     // §493: the default clause must carry the name-agreement
                     // gate, checked against the target below.
                     Some(Node::ImportClause(clause)) => clause.name.map(|local| Some(local.text)),

@@ -3204,14 +3204,49 @@ impl<'a, 'n> Binder<'a, 'n> {
 
     /// `IsVariableDeclarationInitializedToRequire` (native utilities.go:2825).
     /// This is syntactic, unlike the checker's admission of require CALLS.
-    /// Binding patterns are a separate import-specifier resolution path.
+    ///
+    /// A binding element climbs `node.Parent.Parent` to its variable
+    /// declaration (`const { art } = require("./ex")`), and
+    /// `bindVariableDeclarationOrBindingElement` (binder.go:1168) binds it as
+    /// an `Alias` when that declaration is a require declaration and its own
+    /// name is an identifier. One level only: a nested pattern's grandparent
+    /// is a binding element, not a declaration (`docs/parity/notes/r7-shared.md`
+    /// §10).
     fn is_require_alias_variable(&self, node: Node<'a>, id: NodeId) -> bool {
+        if !self.in_js_file {
+            return false;
+        }
+        if let Node::BindingElement(element) = node {
+            if !matches!(element.name, Some(tsr_ast::BindingName::Identifier(_))) {
+                return false;
+            }
+            // `ancestors` ends at the binding pattern; the declaration is the
+            // entry before it.
+            let [.., (declaration_id, declaration), (_, pattern)] = self.ancestors.as_slice()
+            else {
+                return false;
+            };
+            if !matches!(pattern, Node::BindingPattern(_))
+                || self.nodes.parent(id) != self.ancestors.last().map(|(pattern, _)| *pattern)
+            {
+                return false;
+            }
+            return self.is_require_declaration(*declaration, *declaration_id);
+        }
         let Node::VariableDeclaration(variable) = node else { return false };
-        if !self.in_js_file
-            || variable.r#type.is_some()
-            || !matches!(variable.name, Some(tsr_ast::BindingName::Identifier(_)))
-            || self.jsdoc_type_hosts.contains(&id)
-        {
+        if !matches!(variable.name, Some(tsr_ast::BindingName::Identifier(_))) {
+            return false;
+        }
+        self.is_require_declaration(node, id)
+    }
+
+    /// `isVariableDeclarationInitializedWithRequireHelper(node, false)`
+    /// (utilities.go:2836): a JS variable declaration, not exported, without a
+    /// type (here: without a JSDoc type host), initialized to a bare
+    /// `require("…")` call.
+    fn is_require_declaration(&self, node: Node<'a>, id: NodeId) -> bool {
+        let Node::VariableDeclaration(variable) = node else { return false };
+        if !self.in_js_file || variable.r#type.is_some() || self.jsdoc_type_hosts.contains(&id) {
             return false;
         }
         let statement = self.nodes.parent(id).and_then(|list| self.nodes.parent(list));
