@@ -1725,6 +1725,7 @@ impl<'a> Checker<'a, '_> {
             .copied()
             .filter(|&argument| {
                 self.resolved_literal_argument_recheck(Some(call), argument)
+                    .or_else(|| self.resolved_literal_argument_late_recheck(call, argument))
                     .is_some_and(|id| self.node_types.contains_key(&id))
             })
             .collect();
@@ -1811,6 +1812,58 @@ impl<'a> Checker<'a, '_> {
         (!self.literal_subtree_resolves(id)).then_some(id)
     }
 
+    /// The end-of-inference counterpart of
+    /// [`Checker::resolved_literal_argument_recheck`] (§21): an array or object
+    /// literal, context-sensitive or not, whose subtree holds no call, `new`,
+    /// tagged template, class, method or accessor. Function expressions and
+    /// arrows may be present; [`Checker::evict_literal_subtree`] keeps their
+    /// types, so only the literal's own nodes are re-read.
+    fn resolved_literal_argument_late_recheck(
+        &self,
+        call: NodeId,
+        argument: Expression<'_>,
+    ) -> Option<NodeId> {
+        use tsr_ast::SyntaxKind as K;
+        if self.contextual_prefers_uninstantiated
+            || self.uninstantiated_context_node.is_some()
+            || !self.flow_loop_stack.is_empty()
+            || self.narrow_value_stack.contains(&call)
+            || !matches!(
+                argument,
+                Expression::ArrayLiteralExpression(_) | Expression::ObjectLiteralExpression(_)
+            )
+        {
+            return None;
+        }
+        // A literal holding functions is admitted only when context-sensitive:
+        // the deferred pass re-checks those under the inference context
+        // before inferring, so no later inference reads this re-check. A
+        // non-context-sensitive one would be read from the cache by a later
+        // worker run (computedPropertyNamesContextualType6).
+        if !self.is_context_sensitive_argument(&argument) {
+            return None;
+        }
+        let root = argument.node_id()?;
+        let mut stack = vec![root];
+        while let Some(id) = stack.pop() {
+            match self.nodes.kind(id) {
+                K::CallExpression
+                | K::NewExpression
+                | K::TaggedTemplateExpression
+                | K::ClassExpression
+                | K::MethodDeclaration
+                | K::GetAccessor
+                | K::SetAccessor => return None,
+                K::ArrowFunction | K::FunctionExpression => continue,
+                _ => {}
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        Some(root)
+    }
+
     /// Forget the expression answers under a literal argument that holds no
     /// resolving node, so its next check recomputes them in the current
     /// contextual state. Unlike [`Checker::evict_subtree`] the property
@@ -1822,8 +1875,16 @@ impl<'a> Checker<'a, '_> {
     /// from this very literal — still reads the previous symbols' types
     /// instead of re-entering the member being re-checked (TS7022).
     fn evict_literal_subtree(&mut self, root: NodeId) {
+        use tsr_ast::SyntaxKind as K;
         let mut stack = vec![root];
         while let Some(id) = stack.pop() {
+            // A function keeps its first check's type (native caches it on
+            // the symbol and the signature); only the literal's own nodes are
+            // re-read (§21).
+            if id != root && matches!(self.nodes.kind(id), K::ArrowFunction | K::FunctionExpression)
+            {
+                continue;
+            }
             self.node_types.remove(&id);
             if let Some(node) = self.node_map.get(id) {
                 tsr_ast::for_each_child_id(node, |child| stack.push(child));
