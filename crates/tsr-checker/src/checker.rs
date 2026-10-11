@@ -3519,10 +3519,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 matches!(self.node_map.get(declaration), Some(Node::ModuleDeclaration(module))
                     if matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_))))
             });
-        let mut text = if root_is_module {
-            format!("import({})", self.module_specifier_for_symbol(root, reference)?)
+        let specifier = if root_is_module {
+            Some(self.module_specifier_for_symbol(root, reference)?)
         } else {
-            self.binder.symbols().get(root).name.to_string()
+            None
+        };
+        let mut text = match &specifier {
+            Some(specifier) => format!("import({specifier})"),
+            None => self.binder.symbols().get(root).name.to_string(),
         };
         for &part in rest {
             // `createAccessFromSymbolChain` spells a member whose name is no
@@ -3534,6 +3538,12 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             text.push('.');
             text.push_str(name);
+        }
+        // `symbolToTypeNode`'s portability report (`nodebuilderimpl.go:681`)
+        // follows every import-type spelling, this one included
+        // (r7-printer §28); a no-op outside a tracker.
+        if let Some(specifier) = &specifier {
+            self.track_unsafe_import(specifier, symbol, root);
         }
         Some(text)
     }

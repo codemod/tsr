@@ -1153,3 +1153,24 @@ How these were found: marking the producer's printer-`None` as a distinct
 string (locally, uncommitted) over the 148 gap cases showed only these 5
 lines are the printer declining. Every other gap line is a checker-side
 error type.
+
+## 28. An import type re-spelled from the chain is tracked for portability
+
+**Forcing constraint.** `declarationEmitUsingTypeAlias1`: native reports
+TS2883 on `foo`, "The inferred type of 'foo' cannot be named without a
+reference to 'SomeType' from '../node_modules/some-dep/dist/inner'". The
+port printed the same inferred type,
+`(thing: SomeType) => import("../node_modules/some-dep/dist/inner").SomeType`,
+and reported nothing.
+
+**Cause.** `symbolToTypeNode`'s import arm reports a likely-unsafe import
+after every import-type spelling (`nodebuilderimpl.go:681`). The port
+reports through `track_unsafe_import` from each road that spells
+`import(…)`. The §5/§10 re-spell of a print baked with a written import
+root (`symbol_chain_text_at`, here `import('./inner').SomeType` as written
+in the package's index) spelled the specifier without reporting it.
+
+**The port.** `symbol_chain_text_at` calls `track_unsafe_import` once its
+module-rooted text is complete; outside a tracker that is a no-op. `bar`'s
+TS2883 still waits on the checker: the port types `thing.arg` as `any`
+where native has `Other`, so there is no import to report.
