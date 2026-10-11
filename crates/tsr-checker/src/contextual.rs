@@ -2443,6 +2443,17 @@ impl<'a> Checker<'a, '_> {
             }
             return Some(self.get_union_type_without_reduction(&types));
         }
+        // getContextualTypeForElementExpression reads the element through
+        // getTypeOfPropertyOfContextualType (`checker.go:30555`), whose
+        // intersection arm replaces an `any` constituent's property with
+        // `unknown` (appendContextualPropertyTypeConstituent, `:30671`):
+        // `[any] & [1]` gives `[1]` its literal context.
+        if first_spread.is_none_or(|spread| index < spread)
+            && matches!(self.store.get(contextual).data, TypeData::Intersection { .. })
+            && let Some(property) = self.contextual_property_type(contextual, &index.to_string())
+        {
+            return Some(property);
+        }
         if first_spread.is_none_or(|spread| index < spread)
             && let Some(property) =
                 self.get_type_of_property_of_type(contextual, &index.to_string())

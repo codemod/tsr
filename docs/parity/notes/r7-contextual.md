@@ -563,3 +563,17 @@ diagnostics 0 / 0, jsTyping unchanged (125, new_false 0, lost_true 0), Ir
 builder.ts:1304 still reports, because its condition holds a call
 (`isString(emitSignature)`), which the boundary above excludes. That needs §8's
 held call boundary.
+
+## 16. Array-element context of an intersection reads `getTypeOfPropertyOfContextualType`
+
+`getContextualTypeForElementExpression` reads a known element position
+through `getTypeOfPropertyOfContextualType` (`checker.go:30555`). On an
+intersection, that function collects each object constituent's property and
+replaces an `any` with `unknown` (`appendContextualPropertyTypeConstituent`,
+`:30671`): "`any` doesn't provide any contextual information but could spoil
+the overall result". So `const a: [any] & [1] = [1]` keeps `[1]`, and
+`any[] & 1[]` gives `1[]`. `contextual_type_for_element_expression` used the
+plain property read (`any & 1` is `any`). For an intersection context it now
+asks `contextual_property_type` (symbols.rs), the existing port of
+`getTypeOfPropertyOfContextualTypeEx`. Other contexts keep their current read.
+No new table.
