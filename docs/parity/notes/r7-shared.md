@@ -863,3 +863,29 @@ call it cost +0.28% Ir on domain-model; an always-inlined prelude (arrival
 present and a function-like location) in front of an out-of-line remainder
 that tests `Block`/`Parameter`/the JSDoc kind range before any table read
 brings it to domain-model 1.0011, generic-imports 1.0000.
+
+## 25. An anonymous class's static side asks `getBaseTypeVariableOfClass` (CLASS-TYPE-BASE-TYPE-VARIABLE-INTERSECTION, partial)
+
+`getTypeOfFuncClassEnumModuleWorker` (checker.go:16923) intersects a
+class's static side with `getBaseTypeVariableOfClass(symbol)` (:16936),
+which is the base constructor type when that is a type variable, or the
+first type-variable constituent of an intersection one. The anonymous
+`typeof (Anonymous class)` arm used a syntactic proxy for that test (the
+`extends` expression names a parameter) and declined. That is wrong for a
+mixin whose parameter is *not* a type variable: `function Mix(Base:
+Constructor) { return class extends Base {} }` is `(Base: Constructor) =>
+typeof (Anonymous class)` natively (`declarationsForFileShadowingGlobalNoError`
+2:4/2:5/2:7), and it was `any`.
+
+The worker now asks the native question through
+`base_types.rs::get_base_constructor_type_of_class`, the existing memoised
+`ResolvedBaseConstructorType` resolution. It answers `typeof
+(Anonymous class)` when there is no base type variable and declines when
+there is one. The intersection itself prints structurally (`{ new (...args:
+any[]): (Anonymous class); prototype: …; } & TBase`), which needs the
+printer to spell a class's static side as an object literal. Not built;
+that half of the item stays open (`anonClassDeclarationEmitIsAnon`).
+`anonymous_class_written_name`'s other callers (`declared.rs`,
+`meaning_mismatch.rs`) keep the proxy. They read the name, not this type,
+and asking the base constructor type from those positions is a new
+resolution order that has not been measured.
