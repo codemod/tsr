@@ -887,3 +887,41 @@ types unchanged.
 **Falsifier.** A pair whose union index distributes into a constituent this
 port then answers differently from the whole access, so a RIGHT relation
 turns. None was measured.
+
+## 20. Three nil contexts the TS7013 / TS7006 rules missed
+
+Three missing lines, each a nil that native reports on and this port either
+skipped or could not prove.
+
+- **`noImplicitAnyModule` (4,9), TS7013.** `checkSignatureDeclaration`
+  (`checker.go:2749`) reports a construct or call signature with no return
+  annotation under `noImplicitAny`, and nothing more. There is no ambient
+  condition. `check_implicit_any_signature_return` returned early on the
+  walk's `ambient` flag, which silenced `new ();` in an interface inside a
+  `declare namespace`. The flag is no longer read. `check.rs` still passes
+  it; the parameter is `_ambient` so the call site stays untouched.
+- **`tsxInArrowFunction` (15,7), TS7006.** `getContextualTypeForChildJsxExpression`
+  (`jsx.go:241`) is nil when `getJsxElementChildrenPropertyName` answers
+  `Missing` or `""`, whatever the attributes type. Under the classic
+  runtime that answer is decided: there is no `ElementChildrenAttribute`
+  (or no JSX namespace), or a container whose complete member table does not
+  hold exactly one name. The automatic runtime reads the import source's
+  namespace, which `jsx_children_name` does not, so it is not decided.
+- **`tsxAttributeResolution2` (13,18), TS7006.** `getContextualTypeForJsxAttribute`
+  (`jsx.go:214`) is nil when `getTypeOfPropertyOfContextualType` finds
+  neither a member nor an applicable index signature (`data-c1` on an
+  intrinsic element whose props lack it). This is decided only for an
+  intrinsic element whose props type is computed, not `any`, not a union,
+  not instantiable and not mapped, with a complete member table.
+  - The first draft also decided this for value tags. It lost
+    `tsxInferenceShouldNotYieldAnyOnUnions` (26,53)(27,51): a generic
+    component's attributes type is the candidate's mid-inference
+    instantiation, not the declared props. That draft was refused.
+
+The two JSX proofs are `jsx_intrinsic.rs::jsx_children_name_is_absent` and
+`jsx_attribute_context_is_absent`. The implicit-any rule reaches them
+through `jsx_context_is_absent`, after the no-contextual-type arms. It looks
+through parentheses and refuses a spread child.
+
+**Measured** (diagnostics, unfiltered, against batch 19 with §17–§19 on
+top): +3 cases, 0 lost.

@@ -855,6 +855,75 @@ impl Checker<'_, '_> {
         Some(nonuniform && literal)
     }
 
+    /// Does `getJsxElementChildrenPropertyName` (`jsx.go:1095`) answer
+    /// `InternalSymbolNameMissing` or `""`, so that
+    /// `getContextualTypeForChildJsxExpression` (`jsx.go:241`) is nil for
+    /// every child whatever the attributes type? Decided under the classic
+    /// runtime: no `ElementChildrenAttribute` container (or no JSX namespace),
+    /// or a container whose member table is complete and does not hold
+    /// exactly one name. The automatic runtime's namespace is the import
+    /// source's, which [`Checker::jsx_children_name`] does not read.
+    pub(crate) fn jsx_children_name_is_absent(&mut self, location: NodeId) -> bool {
+        if matches!(self.jsx_emit, tsr_core::JsxEmit::ReactJsx | tsr_core::JsxEmit::ReactJsxDev) {
+            return false;
+        }
+        let Some(symbol) = self.jsx_type_symbol(location, "ElementChildrenAttribute") else {
+            return true;
+        };
+        let ty = self.get_declared_type_of_symbol(symbol);
+        self.get_property_names_of_type(ty).is_some_and(|names| names.len() != 1)
+    }
+
+    /// Is `getContextualTypeForJsxAttribute` (`jsx.go:214`) nil for this
+    /// attribute because `getTypeOfPropertyOfContextualType` finds neither a
+    /// member nor an applicable index signature? Decided only for an
+    /// intrinsic element, whose attributes type involves no signature
+    /// resolution or inference, and a props type this port reads whole:
+    /// computed, not `any`, not a union (whose discrimination selects the
+    /// constituent), not instantiable, with a complete member table. A
+    /// value tag's props come from the candidate being resolved, which a
+    /// generic component instantiates mid-inference
+    /// (`tsxInferenceShouldNotYieldAnyOnUnions`).
+    pub(crate) fn jsx_attribute_context_is_absent(&mut self, attribute: NodeId) -> bool {
+        use crate::flags::TypeFlags;
+        let Some(Node::JsxAttribute(node)) = self.node_map.get(attribute) else { return false };
+        let Some(name) = node.name.and_then(jsx_attribute_name_text) else { return false };
+        let Some(opening) = self.nodes.parent(attribute).and_then(|a| self.nodes.parent(a)) else {
+            return false;
+        };
+        let tag = match self.node_map.get(opening) {
+            Some(Node::JsxOpeningElement(element)) => element.tag_name,
+            Some(Node::JsxSelfClosingElement(element)) => element.tag_name,
+            _ => None,
+        };
+        if tag.is_none_or(|tag| jsx_intrinsic_tag_text(tag).is_none()) {
+            return false;
+        }
+        let Some(props) = self.jsx_attributes_context(opening) else { return false };
+        let props = self.apparent_contextual_type(props);
+        if self.is_gap(props)
+            || self.store.get(props).flags.intersects(
+                TypeFlags::ANY | TypeFlags::UNKNOWN | TypeFlags::UNION | TypeFlags::INSTANTIABLE,
+            )
+        {
+            return false;
+        }
+        self.ensure_mapped_type_info(props);
+        if self.mapped_types.contains_key(&props) {
+            return false;
+        }
+        let Some(names) = self.get_property_names_of_type(props) else { return false };
+        if names.contains(&name) {
+            return false;
+        }
+        let key = self.store.intern_literal(
+            TypeFlags::STRING_LITERAL,
+            crate::types::TypeData::StringLiteral(name),
+            false,
+        );
+        self.get_applicable_index_info(props, key).is_none()
+    }
+
     pub(crate) fn jsx_attribute_context(
         &mut self,
         attribute: NodeId,

@@ -491,10 +491,43 @@ impl Checker<'_, '_> {
         if self.has_no_reparsed_contextual_type(function) {
             return !self.returned_from_an_iife(function);
         }
-        if self.parameter_assigned_without_context(parameter) {
+        if self.parameter_assigned_without_context(parameter)
+            || self.jsx_context_is_absent(function)
+        {
             return true;
         }
         self.contextual_signature_types_no_parameter(function, parameter)
+    }
+
+    /// Is `function` a JSX attribute's value or a JSX child whose contextual
+    /// type `getContextualTypeForJsxAttribute` /
+    /// `getContextualTypeForChildJsxExpression` answers nil (r7-reports §20)?
+    /// Parentheses are looked through, as `getContextualType` does.
+    fn jsx_context_is_absent(&mut self, function: NodeId) -> bool {
+        let mut node = function;
+        let mut parent = self.nodes.parent(node);
+        while let Some(id) = parent
+            && self.nodes.kind(id) == SyntaxKind::ParenthesizedExpression
+        {
+            node = id;
+            parent = self.nodes.parent(id);
+        }
+        let Some(expression) =
+            parent.filter(|&id| self.nodes.kind(id) == SyntaxKind::JsxExpression)
+        else {
+            return false;
+        };
+        if !matches!(self.node_map.get(expression), Some(Node::JsxExpression(e))
+            if e.dot_dot_dot_token.is_none() && e.expression.and_then(|e| e.node_id()) == Some(node))
+        {
+            return false;
+        }
+        let Some(owner) = self.nodes.parent(expression) else { return false };
+        match self.nodes.kind(owner) {
+            SyntaxKind::JsxAttribute => self.jsx_attribute_context_is_absent(owner),
+            SyntaxKind::JsxElement => self.jsx_children_name_is_absent(owner),
+            _ => false,
+        }
     }
 
     /// The contextual-signature half of
@@ -862,8 +895,13 @@ impl Checker<'_, '_> {
     /// namelessness: a construct signature and a call signature each have their
     /// own code, in their own function, and neither is the function-expression
     /// form `check_implicit_any_return`'s closing comment names. §438.
-    pub(crate) fn check_implicit_any_signature_return(&mut self, node: NodeId, ambient: bool) {
-        if ambient || !self.no_implicit_any {
+    ///
+    /// No ambient gate: `checkSignatureDeclaration` reports a construct or
+    /// call signature in a `declare namespace`'s interface as anywhere else
+    /// (`noImplicitAnyModule` (4,9); r7-reports §20). The walk's `ambient`
+    /// flag is accepted and not read.
+    pub(crate) fn check_implicit_any_signature_return(&mut self, node: NodeId, _ambient: bool) {
+        if !self.no_implicit_any {
             return;
         }
         let (annotation, message) = match self.node_map.get(node) {
