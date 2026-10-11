@@ -944,3 +944,56 @@ What remains:
 
 All of these are r7-flow's (`flow.rs`) and r7-calls' (`calls.rs`,
 `call_reports.rs`) files. They are routed through the integrator.
+
+## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
+
+**Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
+
+| project | dist | release |
+|---|---|---|
+| domain-model | **0.537** · 0.380 | 0.630 · 0.442 |
+| domain-model-large | **0.566** · 0.460 | 0.619 · 0.485 |
+| generic-imports | **0.640** · 0.326 | 0.658 · 0.338 |
+| jsTyping | **7.17** · 5.68 | 7.53 · 5.88 |
+
+jsTyping still carries §19's batch-6 regression.
+
+**jsTyping delta** (123 TSR lines against tsgo's 86): 39 extra (TS2345 15,
+TS2322 13, TS18048 7, TS7053 2, TS2769 1, TS2365 1) and 2 missing
+(TS7006, TS7031 at `sys.ts(1696)`). Clusters, all routed on 2026-10-11:
+
+- **r7-flow, aliased-condition inlining** (3 lines). Reduction: `const node
+  = d.attributes; if (node) d.attributes.token` gives a false TS18048.
+- **r7-flow, destructuring-assignment narrowing** (5 lines). Reduction:
+  `if (typeof major === "string") ({ major } = parse(major)); return major`
+  gives a false TS2322.
+- **r7-reports, `Pick<…>` against a string-index target** (8 lines;
+  `isObjectTypeWithInferableIndex` for a mapped type literal). It has a
+  reduction.
+- **r7-contextual, `??=` RHS return-type inference** (2 lines, plus a
+  duplicate TS7053 report at one span). It has a reduction.
+- Not reduced:
+  - r7-flow: closure narrowing of an outer `let` (3 lines), plus equality
+    and `asserts`-overload narrowing (4 lines);
+  - r7-reports/inference: generic-signature assignability (5 lines);
+  - r7-contextual: tuple context through overloaded `append` (4 lines; two
+    reductions passed);
+  - r7-declared: `Readonly<array intersection>` (2 lines);
+  - BindableStatic* overloads (3 lines);
+  - r7-reports: missing implicit-any reports (2 lines).
+
+**`getEffectsSignature`'s nil-dotted-name negative** (a scratch measurement
+in a separate worktree; the code is in r7-flow's `flow.rs` and was not
+committed here). `get_effects_signature` runs about 300 K times on dml, 2.3%
+of Ir. 102,709 of those calls re-run `get_type_of_dotted_name` for an
+expression-statement call whose callee has no explicit type, for example
+`serviceNNN.move(...)` in `main.ts`. Each answers nil again. Native
+publishes `unknownSignature` in `signatureLinks.effectsSignature` for
+exactly that answer (`flow.go:2060`, `:2079-2082`). This port publishes
+negatives only for written non-predicate returns. Publishing the nil
+answer, under `effects_completion_context_is_original`, measured
+**dml −1.7% and dm −0.3% Ir**. CLI output was identical on dm, dml and gi;
+the jsTyping leg gave new_false 0 / lost_true 0. Separately, publishing
+negatives for unannotated signatures whose lazy return is no longer
+pending moved Ir by 0.00%. That is not where the walk's cost is, so it is
+not proposed.
