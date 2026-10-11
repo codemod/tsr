@@ -643,6 +643,131 @@ text. That is the printer lane's (`printing.rs`, `symbol_accessibility.rs`)
 and the contextual lane's (`objects.rs`) to build. It is routed through
 the integrator, not built here.
 
+## §15 Object-literal member text is rendered at its site only when a composer asks
+
+The integrator granted this on 2026-10-10:
+`check_object_literal_members`' mint site in `objects.rs`, the type
+store's deferred display text, and `PrintedSlot` plumbing. r7-contextual,
+r7-printer and r7-shared keep off those spots. §14 is the forcing
+measurement: `member_text_at` was 6.2% of dml's CPU and 17.3% of checker 0.
+
+**Pinned native operation.** `checkObjectLiteral` (`checker.go:13225`)
+builds the literal's members and never prints them. A member's display
+exists only when a node builder serializes it: `addPropertyToElementList`
+→ `serializeTypeForDeclaration` (`nodebuilderimpl.go:2486`, `:2181`) at a
+print site, which happens on an error path or in a `.types` writer.
+§735's render-at-reference (`member_text_at`) asked
+`type_to_string_at(member, literal)` for every plain property at the mint,
+the work native never does.
+
+**Probe first** (`/tmp/box/exp1`, not committed): with `member_text_at`
+answering the site-free print for every member, the unfiltered dumps
+moved by 4 type rows and no diagnostics. One was a loss,
+`jsxFunctionTypeChildren:0:29`, where a spread composed the batch literal's
+member text and printed `Element` for `JSX.Element`. So the site render is
+read almost only by composers that build another type's text from the
+member's own: spreads, const/inference images, declared instantiations.
+Each reaches it through the canonical reader
+`Checker::property_printed_type`, which is `&mut` and can therefore render
+on demand.
+
+**Change.**
+
+- `PrintedSlot::at_site(member_type, literal)` (`objects.rs`) is a slot
+  whose text is the member's render at the literal's node, asked by
+  `property_printed_type` through `Checker::site_display_text` (the same
+  `type_to_string_at`, with the same site-free fallback, as
+  `member_text_at`).
+- `check_object_literal_members`' plain property path gives its
+  `AnonymousProperty` that slot, except when the pseudochecker's
+  single-quoted reuse applies or `member_text_at`'s pending-return guard
+  holds; both keep today's eager text. The literal's own display
+  (`render_object_type`, `object_literal_members`) takes the member's
+  site-free print, and `literal_property_members` builds the sorted member
+  list without asking any slot.
+- Methods, accessors and the other `member_text_at` callers are unchanged.
+
+**Convention record.**
+
+- *Key identity and owner:* `(member TypeId, literal NodeId)` in
+  `TypeStore::site_display_texts`, owned by the literal's checker.
+- *Publication states:* absent (nobody has asked), then published once and
+  immutable (`publish_site_display_text` keeps the first text).
+- *Receiver, alias and site context:* exactly the literal node, captured at
+  the mint, as `member_text_at` used. The render's scope chain, aliases and
+  type-parameter names are those of `type_to_string_at` from that node.
+- *Expensive-work boundary:* `symbol_chain`/`symbol_accessibility`, about
+  0.25 ms per named member in a file with 600 imports. It now runs at most
+  once per `(member, literal)`, and only for members whose text is
+  composed. It is display metadata only: it enters no intern key, and the
+  relater, inference and narrowing read type ids.
+
+**Measured, first cut (superseded by §15.1)** (base `92fe8f05` plus this branch's docs commits, frozen as
+`/tmp/box/base9`):
+
+- Diagnostics dump byte-identical. Types dump: 3 rows change, all
+  `conformance/typeParametersAvailableInNestedScope3` WRONG → RIGHT
+  (`:0:0`, `:0:17`, `:0:20`). The nested literal's `a` now prints
+  native's `<T_2>` instead of the mint-time `<T_1>`, because its
+  composer asks at its own render depth. `compare`: 3 gained, 0 lost, 0
+  missing.
+- A/B, interleaved, 21 samples, new/base: domain-model-large wall **0.825**
+  · CPU 0.952; domain-model wall **0.933** · CPU 0.954.
+
+### §15.1 The landed cut: anonymous members keep the eager render
+
+*This corrects the first cut above.* Two audits narrowed it before it
+became landable.
+
+**CLI-message audit** (the integrator asked for it on 2026-10-10:
+display text that becomes site-free could change TS2322 elaboration text,
+which the diagnostics dump does not compare). A scratch example (not
+committed) printed the full text of every diagnostic, with the flattened
+message chain plus related information, for every case the diagnostics
+dump judges, under the dump's own `case_guard`. That is 36,246
+diagnostics, 1,010 of which embed an object type, in 385 cases. It ran on
+`cd4afbcb` and on the branch. The first cut changed one message:
+`aliasUsageInOrExpression` printed `{ x: typeof
+/.src/aliasUsageInOrExpression_moduleA; } | null` where the base printed
+`typeof moduleA` (native prints `typeof
+import("aliasUsageInOrExpression_moduleA")`; both are wrong). That is a
+union composing the literal's own display, with a module object's baked
+file-path placeholder in place of its site render.
+
+**jsTyping gate leg** (against `target/tsgo-pinned`): the first cut added
+**15 lines tsgo does not report** (new_false = 15, lost_true = 0). Among
+them are `tsbuildPublic.ts(783..789)` TS18048 `'cache' is possibly
+'undefined'`, `checker.ts(8637)`/`(8643)` and `program.ts(784)`. None of
+these moves a display. Rendering a callable member at the mint completes
+its signatures' lazy returns in this port's order, and later answers in
+jsTyping depend on that order. A hand reduction (`d1` in §4's cluster 4)
+did not reproduce it, so the dependency needs the whole program. That is a
+real resolution-order sensitivity in the checker, recorded here for the
+lanes that own lazy returns. This cut does not change it.
+
+**Landed rule.** A plain property member defers its site render only when
+its type holds **no anonymous object type**, itself or as a
+union/intersection constituent (`holds_anonymous_object`). Anonymous object
+types are functions, methods, class, module and namespace values, which
+covers both findings. Named types (interfaces, classes, aliases with
+arguments), literals and primitives defer. `main.ts`'s `item: Model000` is
+the case §14 measured.
+
+**Measured** (against main `cd4afbcb`, frozen as `/tmp/box/base10`):
+
+- Both unfiltered dumps are **byte-identical** (`compare`: 0 gained, 0 lost,
+  0 missing). The first cut's three `typeParametersAvailableInNestedScope3`
+  gains came from function-typed members and are not in this cut.
+- CLI-message audit: **0 of 36,246** diagnostics differ.
+- jsTyping gate leg: base 127 / new 127 unique lines, new_false = 0,
+  lost_true = 0.
+- Callgrind Ir, `--singleThreaded` (the integrator's deterministic guard),
+  base → new:
+  - generic-imports: 223,400,828 → 223,301,915 (−0.04%)
+  - domain-model: 944,935,150 → 907,756,871 (**−3.9%**)
+  - domain-model-large: 4,475,766,740 → 3,860,034,591 (**−13.8%**)
+- Interleaved A/B (21 samples, noisy host): domain-model-large wall
+  0.748 · CPU 0.901; domain-model 0.950 · 0.923.
 ## §16 generic-imports' CPU creep across batches 10–12: no instruction regression
 
 **Question** (integrator, 2026-10-10): main at batch 12 (`cd4afbcb`)
