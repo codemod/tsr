@@ -1,0 +1,23 @@
+diff --git a/crates/tsr-checker/src/check.rs b/crates/tsr-checker/src/check.rs
+index e6dda8f4a..cca1cde25 100644
+--- a/crates/tsr-checker/src/check.rs
++++ b/crates/tsr-checker/src/check.rs
+@@ -4148,8 +4148,17 @@ impl Checker<'_, '_> {
+             // mentions `this.<name>` cannot assign it on any path, so the flow
+             // query upstream runs would answer "declared type survives" and
+             // report. Any other constructor declines.
++            // PROTOTYPE (r7-flow measurement, not shipped).
+             if let Some(body) = constructor_body {
+-                if self.subtree_accesses_this_member(body, &name, 0) {
++                let ctor = self.nodes.parent(body);
++                let literal = !matches!(property.name, tsr_ast::PropertyName::ComputedPropertyName(_));
++                if let (Some(ctor), true) = (ctor, literal) {
++                    let initial = self.get_optional_type(declared, false);
++                    let flowed = self.flow_type_of_this_property_at(ctor, &name, declared, initial);
++                    if !self.contains_undefined_type(flowed) {
++                        continue;
++                    }
++                } else if self.subtree_accesses_this_member(body, &name, 0) {
+                     continue;
+                 }
+             }
