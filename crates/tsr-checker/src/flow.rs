@@ -4066,6 +4066,20 @@ impl Checker<'_, '_> {
         self.narrow_type(state, t, id, true)
     }
 
+    /// `newFlowType` (`flow.go:28`): an incomplete `never` is
+    /// `silentNeverType` — "the *only* place a silent never type is ever
+    /// generated" (`getTypeAtFlowCondition`'s comment, `flow.go:359-365`).
+    /// A loop's provisional pass then narrows a reference to nothing without
+    /// reporting on what it is applied to (`r7-flow.md` §21). Only the
+    /// condition arm builds an incomplete type from a narrowing here; the
+    /// port's branch label does not carry `incomplete`.
+    fn new_flow_type(&mut self, t: TypeId, incomplete: bool) -> FlowType {
+        if incomplete && self.store.get(t).flags.contains(TypeFlags::NEVER) {
+            return FlowType { t: self.get_silent_never_type(), incomplete };
+        }
+        FlowType { t, incomplete }
+    }
+
     fn get_type_at_flow_condition(&mut self, state: &mut FlowState, flow: FlowId) -> FlowType {
         let binder = self.binder;
         let Some(antecedent) = binder.flow().antecedent(flow) else {
@@ -4081,10 +4095,7 @@ impl Checker<'_, '_> {
         if narrowed == incoming.t {
             return incoming;
         }
-        // Upstream switches to `silentNeverType` when narrowing an *incomplete*
-        // type to `never`, so that a loop's provisional pass reports nothing.
-        // Not ported: nothing here produces an incomplete type yet.
-        FlowType { t: narrowed, incomplete: incoming.incomplete }
+        self.new_flow_type(narrowed, incoming.incomplete)
     }
     /// The converging loop-label walk — `Checker.getTypeAtFlowLoopLabel`
     /// (`internal/checker/flow.go:1325`). On-stack re-entry answers with the

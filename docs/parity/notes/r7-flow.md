@@ -683,3 +683,59 @@ false TS2339 on a receiver the port narrows less than native:
 
 The gate stays until those land; the previous measurement (+12/−5) had one
 more narrowing loss, since closed.
+
+## §21 `newFlowType`'s `silentNeverType`
+
+`getTypeAtFlowCondition` narrows a loop's provisional (incomplete) type, and
+`newFlowType` (`flow.go:28`) turns an incomplete `never` into
+`silentNeverType`, "the *only* place a silent never type is ever generated"
+(`flow.go:359-365`). A property access on it is any-like (`isAnyLike`,
+`checker.go:11266`, `:11314-11321`: it answers itself, no lookup, no report),
+a call resolves to `silentNeverSignature` (`resolveCallExpression`,
+`checker.go:8512`), and `getAssignmentReducedType` keeps an assigned `never`,
+so the path drops out of the loop's join. In `controlFlowWithIncompleteTypes`'
+`foo2` (`while (cond) { if (typeof x === "number") x = "abc"; else x =
+x.slice(); }`) the else branch's `x` is `never` on the provisional pass; the
+port typed `x.slice()` as `error`, the assignment as the declared union, and
+the loop as `string | number | boolean` (native `string | number`).
+
+This commit adds `new_flow_type` at the condition arm (the stale "not ported:
+nothing here produces an incomplete type yet" comment is gone: the loop
+label's on-stack answer has been incomplete since §12.8). The port's branch
+label does not carry `incomplete` (native's `seenIncomplete`), so the
+condition arm is the only producer here, as natively it is the only place a
+narrowing makes one. Alone it changes nothing measurable: the two consumers
+are `members.rs` (r7-shared) and `calls.rs` (r7-calls), routed as
+`r7-flow-silent-never-callers.diff` with its test
+(`tests/r7_flow_silent_never.rs`). With the diff, on `a9e63316`: types **+13**
+(`controlFlowWithIncompleteTypes` 7, `typeGuardsAsAssertions` 6), diagnostics
+unchanged, 0 lost; exact oracle 9659 → 9660 (`controlFlowWithIncompleteTypes`),
+0 lost; jsTyping unchanged; Ir gi 1.0001, dm 1.0003. It also closes one of
+§20's four losses (`controlFlowWithIncompleteTypes`).
+
+## §22 TS2339 for a destructured name of an `unknown` parent
+
+`getBindingElementTypeFromParentType` (`checker.go:17707`) returns early only
+for `isTypeAny(parentType)`; an `unknown` parent goes on to
+`getIndexedAccessTypeEx`, whose `getPropertyTypeForIndexType` finds no
+property and no index info on its reduced apparent type (`unknown` under
+`strictNullChecks`, `emptyObjectType` otherwise, `getApparentType`) and
+reports "Property 'x' does not exist on type 'unknown'" (`'{}'` non-strict)
+at the name. `destructured_property_is_absent` declined every `unknown`
+parent; it now certifies the miss for it, printing that apparent type, after
+the same source-flow certification as any other parent
+(`destructureCatchClause`'s `catch ({ x }: unknown)`, 8 lines over its four
+variants).
+
+Decline kept, narrowed: an unannotated parameter's `unknown`
+(`index_access_reports.rs`). The port's contextual parameter type is
+`unknown` in `inferredRestTypeFixedOnce` (`wrap(({ cancelable } = {}) =>
+{})` under `Args extends unknown[]`), where native's parameter is `{
+cancelable: any; }`; without the decline that case got a false TS2339
+(measured, EMPTY_RIGHT → EMPTY_WRONG). Only a written or catch-clause
+`unknown` is certified; the contextual road waits on the implied pattern
+type (BINDING-PATTERN-IMPLIED-TYPE, r7-contextual).
+
+`destructureCatchClause` stays non-exact on TS2488 for the array patterns
+(`checkIteratedTypeOrElementType` on `unknown`, `iteration.rs`, not this
+lane's).

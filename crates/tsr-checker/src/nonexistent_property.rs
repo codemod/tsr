@@ -1108,7 +1108,7 @@ impl Checker<'_, '_> {
     /// defers only generic tuples for it), so a type parameter reads through
     /// its constraint. An `any`/`never` object answers itself, a JS literal
     /// `any`, and `allow_missing` (a defaulted name) an object literal
-    /// `undefined` — none reports. No cache: run once per destructured name
+    /// `undefined` — none reports; `unknown` misses every name. No cache: run once per destructured name
     /// after the parent type is answered.
     pub(crate) fn destructured_property_is_absent(
         &mut self,
@@ -1119,9 +1119,7 @@ impl Checker<'_, '_> {
     ) -> Option<TypeId> {
         use crate::flags::TypeFlags;
         let flags = self.store.get(parent).flags;
-        if flags.intersects(TypeFlags::ANY | TypeFlags::UNKNOWN | TypeFlags::NEVER)
-            || self.is_type_any(parent)
-        {
+        if flags.intersects(TypeFlags::ANY | TypeFlags::NEVER) || self.is_type_any(parent) {
             return None;
         }
         if let Some(source) = source {
@@ -1131,6 +1129,19 @@ impl Checker<'_, '_> {
             {
                 return None;
             }
+        }
+        // `unknown` is not any-like here (`getBindingElementTypeFromParentType`
+        // passes it on, `checker.go:17707`): its reduced apparent type is
+        // itself under `strictNullChecks` and `emptyObjectType` otherwise
+        // (`getApparentType`), neither with a property or an index info, so
+        // `getPropertyTypeForIndexType` reports the name against it
+        // (`destructureCatchClause`'s `catch ({ x }: unknown)`).
+        if flags.contains(TypeFlags::UNKNOWN) {
+            return Some(if self.strict_null_checks {
+                parent
+            } else {
+                self.intrinsics.empty_object
+            });
         }
         let apparent =
             if matches!(self.store.get(parent).data, crate::types::TypeData::Union { .. }) {
