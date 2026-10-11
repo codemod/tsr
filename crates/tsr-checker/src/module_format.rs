@@ -173,7 +173,6 @@ impl Checker<'_, '_> {
                 self.check_collisions_in_generated_code(node, ambient);
                 self.check_class_name_collision_with_object(node, ambient);
             }
-            Node::ArrowFunction(arrow) => self.check_reserved_arrow_type_parameters(arrow),
             Node::TypeAssertion(_) => self.check_reserved_type_assertion(node),
             Node::CaseOrDefaultClause(clause) => self.check_fallthrough_case(node, clause),
             _ => {}
@@ -726,9 +725,88 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// TS7060 — `checkGrammarArrowFunction` (`grammarchecks.go:772`): a
-    /// generic arrow whose only type parameter has no constraint and no
-    /// trailing comma reads as a JSX-like `<T>` in a `.mts`/`.cts` file.
+    /// `checkGrammarArrowFunction` (`grammarchecks.go:772`), the fourth arm
+    /// of `checkGrammarFunctionLikeDeclaration`'s `||` chain (`:758`). The
+    /// check walk calls it when `checkGrammarParameterList` reported nothing;
+    /// `checkGrammarModifiers` (memoized) is asked here, and the empty
+    /// type-parameter-list arm (TS1098) has no producer, since the tree
+    /// cannot tell `<>` from no list. Returns whether it reported TS1200.
+    ///
+    /// Two arms, as upstream:
+    ///
+    /// * TS7060 — a generic arrow whose only type parameter has no constraint
+    ///   and no trailing comma reads as a JSX-like `<T>` in a `.mts`/`.cts`
+    ///   file. Reported without returning: upstream's `TODO(danielr): should
+    ///   we return early here?` falls through to the line-break arm.
+    /// * TS1200 — the `=>` token's full text (`Pos()` to `End()`, so its
+    ///   leading trivia) contains a line break.
+    ///
+    /// No cache: one scan of the trivia before one token per arrow, on the
+    /// check walk's single visit (r7-grammar §25).
+    pub(crate) fn check_grammar_arrow_function(
+        &mut self,
+        node: NodeId,
+        arrow: &tsr_ast::ArrowFunction<'_>,
+    ) -> bool {
+        if self.check_grammar_modifiers(node) {
+            return true;
+        }
+        self.check_reserved_arrow_type_parameters(arrow);
+        if self.file_has_parse_errors || !self.line_break_before_arrow(node, arrow) {
+            return false;
+        }
+        let Some(token) = arrow.equals_greater_than_token.and_then(|token| token.node_id) else {
+            return false;
+        };
+        self.grammar_error_on_node(token, &messages::LINE_TERMINATOR_NOT_PERMITTED_BEFORE_ARROW);
+        true
+    }
+
+    /// `strings.ContainsFunc(file.Text()[arrow.Pos():arrow.End()], IsLineBreak)`
+    /// for the arrow's `=>`. A token's span here starts after its leading
+    /// trivia, so the trivia is re-scanned: from the end of the last child
+    /// written before `=>` (return type, parameters, type parameters or
+    /// modifiers — each ends on a token boundary), the scanner runs to the
+    /// `=>` and reads its `PRECEDING_LINE_BREAK`, which it sets for a line
+    /// break anywhere in the trivia, inside a multi-line comment included.
+    /// Declined without a host that can supply the text.
+    fn line_break_before_arrow(&self, node: NodeId, arrow: &tsr_ast::ArrowFunction<'_>) -> bool {
+        let Some(token) = arrow.equals_greater_than_token.and_then(|token| token.node_id) else {
+            return false;
+        };
+        let arrow_start = self.nodes.span(token).start;
+        let ends = arrow
+            .modifiers
+            .iter()
+            .filter_map(tsr_ast::ModifierLike::node_id)
+            .chain(arrow.type_parameters.iter().filter_map(|parameter| parameter.node_id))
+            .chain(arrow.parameters.iter().filter_map(|parameter| parameter.node_id))
+            .chain(arrow.r#type.and_then(|t| t.node_id()))
+            .map(|child| self.nodes.span(child).end)
+            .filter(|&end| end <= arrow_start);
+        let anchor = ends.max().unwrap_or_else(|| self.nodes.span(node).start);
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return false };
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(anchor as usize..))
+        else {
+            return false;
+        };
+        let target = arrow_start - anchor;
+        let mut scanner = tsr_scanner::Scanner::new(rest);
+        loop {
+            let token = scanner.scan();
+            if token.kind == SyntaxKind::EndOfFile || token.span.start > target {
+                return false;
+            }
+            if token.span.start == target {
+                return token.flags.contains(tsr_scanner::TokenFlags::PRECEDING_LINE_BREAK);
+            }
+        }
+    }
+
+    /// TS7060, the first arm of [`Checker::check_grammar_arrow_function`].
     ///
     /// The parser does not record a type-parameter list's trailing comma, so
     /// the comma is read from the source after the parameter — on this error

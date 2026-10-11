@@ -959,6 +959,7 @@ impl Checker<'_, '_> {
         self.check_kinds_of_property_member_overrides(node);
         if matches!(typed, Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_)) {
             self.check_grammar_accessor(node, typed);
+            self.check_accessor_pair_modifiers(node);
             self.resolve_accessor_symbol_type(node);
         }
         // **Every kind 's default arm names**, not
@@ -970,7 +971,13 @@ impl Checker<'_, '_> {
         self.check_dynamic_import_specifier(typed);
         self.check_interface_computed_name(node, typed);
         self.check_grammar_for_generator(node, typed);
-        self.check_grammar_parameter_list(node);
+        // `checkGrammarFunctionLikeDeclaration`'s `||` chain: the arrow arm
+        // runs only when the parameter list reported nothing.
+        if !self.check_grammar_parameter_list(node)
+            && let Node::ArrowFunction(arrow) = typed
+        {
+            self.check_grammar_arrow_function(node, arrow);
+        }
         // §876: upstream calls these behind `!c.checkGrammarModifiers(node)`.
         if !self.modifier_chain_reported.contains(&node) {
             self.check_grammar_modifier_shapes(node, typed);
@@ -8838,9 +8845,9 @@ impl Checker<'_, '_> {
     /// One loop with a `seenOptionalParameter` flag, returning on the **first**
     /// offender, which is why this runs once per *list* and not once per
     /// parameter. §287.
-    fn check_grammar_parameter_list(&mut self, owner: NodeId) {
+    fn check_grammar_parameter_list(&mut self, owner: NodeId) -> bool {
         if self.file_has_parse_errors {
-            return;
+            return false;
         }
         let parameters = self.parameters_of(owner);
         let count = parameters.len();
@@ -8870,7 +8877,7 @@ impl Checker<'_, '_> {
                     continue;
                 };
                 self.report_grammar_at(at, message);
-                return;
+                return true;
             }
             // `isOptionalDeclaration` is **`ast.HasQuestionToken` alone**
             // (`checker/utilities.go:299`) — an initialiser does *not* make a
@@ -8879,7 +8886,14 @@ impl Checker<'_, '_> {
             // lines, every one of them a defaulted parameter. §288.
             if question.is_some() {
                 seen_optional = true;
-                // TS1015 is §103's, reported once per list from its own arm.
+                // TS1015 is §103's, reported once per list from its own arm
+                // (`check_optional_parameter_initializer`); upstream returns
+                // `true` here, which ends the loop (no TS1016 after it) and is
+                // what `checkGrammarFunctionLikeDeclaration`'s `||` chain reads
+                // (r7-grammar §25). A reparsed `?` never has the written token.
+                if declaration.question_token.is_some() && declaration.initializer.is_some() {
+                    return true;
+                }
                 continue;
             }
             // `seenOptionalParameter && parameter.Initializer == nil`
@@ -8902,9 +8916,10 @@ impl Checker<'_, '_> {
                     name,
                     &messages::A_REQUIRED_PARAMETER_CANNOT_FOLLOW_AN_OPTIONAL_PARAMETER,
                 );
-                return;
+                return true;
             }
         }
+        false
     }
 
     /// `checkAccessorDeclaration`'s grammar arm (`checker.go:2932`):

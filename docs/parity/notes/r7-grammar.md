@@ -516,6 +516,78 @@ source-text test) — are gone: `await_using_list_await_start`
 flags directly. Correction of the record: those sections' "this parser eats
 the `await`" no longer holds as of `054b714f`.
 
+## §25 `checkGrammarArrowFunction` (TS1200) and the accessor-pair arm (TS2676/TS2808)
+
+**TS1200.** `checkGrammarArrowFunction` (`grammarchecks.go:772`) is the
+fourth arm of `checkGrammarFunctionLikeDeclaration`'s `||` chain (`:758`):
+modifiers, then the type-parameter list, then the parameter list, then the
+arrow. `check_grammar_arrow_function` (`module_format.rs`) is the whole Go
+function: the TS7060 `.mts`/`.cts` arm, which used to stand alone in
+`check_module_format` behind its `module: none` return, and the line-break
+arm. Upstream reports TS7060 and does **not** return
+(`TODO(danielr): should we return early here?`), so the line-break arm still
+runs. The check walk calls it only when `check_grammar_parameter_list`
+(`check.rs`, which now returns whether it reported) reported nothing.
+`checkGrammarModifiers` is asked inside it, memoized as §1 describes.
+TS1098, the empty-list arm, has no producer: the tree's `&[]` cannot tell
+`<>` from no list. That is routed to r7-parser, with TS1099.
+
+*Forcing constraint.* Upstream tests the `=>` token's **full** text
+(`Pos()`..`End()`) for a line break. That text is its leading trivia, and a
+multi-line comment counts (`(x) /*\n */ => x` is TS1200). This tree's token
+spans start after trivia, and no per-token scanner flags are stored. So the
+trivia is re-scanned. The scan starts at the end of the last child written
+before `=>`, which is a token boundary: the return type, else the last
+parameter, type parameter or modifier, else the arrow's own start. The
+scanner runs forward to the token at the `=>`'s start and reads its
+`PRECEDING_LINE_BREAK`, which the scanner sets for a break anywhere in the
+trivia.
+*Alternatives.* (a) Step backwards from `=>` over whitespace, as
+`full_start_before` does. That cannot step over a comment, and `//` comments
+make a backward scan ambiguous. (b) Have the parser store a
+preceding-line-break flag on the token. That is cleaner, and it would win if
+the parser started recording token flags for other checks; it is r7-parser's
+file. The forward scan reads at most the `)`/`,`/`>` tokens between the last
+child and `=>`, once per arrow, on the walk's single visit. It is not cached.
+*Falsifier.* A TS1200 at an arrow whose `=>` has no line break before it, or
+a missing one where it does. `disallowLineTerminatorBeforeArrow` covers
+comments, return types, rest/optional/default parameters and nesting.
+
+**The parameter list returns at TS1015.** Upstream's
+`checkGrammarParameterList` returns `true` at a `?` parameter with an
+initializer (`grammarchecks.go:711`). That ends the loop, so no TS1016
+follows it, and the `||` chain reads it. TS1015 itself is still reported once
+per list by `check_optional_parameter_initializer`; the loop now returns
+`true` at that parameter.
+
+**TS2676/TS2808.** `checkAccessorDeclaration`'s accessor-pair arm
+(`checker.go:2954`) takes the member symbol's first get and first set accessor
+(`GetDeclarationOfKind`). Differing `abstract` is TS2676, and a `protected`
+getter with a setter neither `protected` nor `private`, or a `private` getter
+with a non-`private` setter, is TS2808. Each is reported on both names.
+Upstream checks the pair once, from whichever accessor is checked first,
+behind the getter's `NodeCheckFlagsTypeChecked` link.
+`check_accessor_pair_modifiers` (`grammar.rs`) instead reports on each
+accessor's **own** name when that accessor is checked. The walk checks both,
+and diagnostics are per file, so the set is the same and there is no link to
+own. The only divergence is an accessor that is never checked (a library
+declaration merged with a user one). Upstream's diagnostic for it lands in a
+file whose diagnostics are not collected, so dropping it changes nothing.
+`ModifierFlags()` includes the JSDoc modifiers the reparser hosts
+(`has_effective_modifier`). A dynamic computed name is declined: a
+late-bindable one pairs only through the late-bound member symbol, which this
+checker does not build (r7-reports §3).
+*Falsifier.* A TS2676/TS2808 on one accessor's name but not its partner's in
+a checked file, or a set that differs between `--singleThreaded` and
+`--checkers 4`.
+
+**Deferred: `checkTupleType`'s element grammar** (TS1257/1265/1266, TS2574).
+The order arms are syntactic. The variadic arm needs `isArrayLikeType`, which
+answers `false` on an undecided relation (so TS2574 could be reported
+falsely), and `isArrayType || isTupleType && combinedFlags&Rest` over this
+checker's print-only variadic tuples (`declared.rs` §40). It would convert
+one single-code case (`optionalTupleElements1`) for that risk.
+
 ## §27 Unused `@template` type parameters in JS (TS6133/TS6196/TS6205)
 
 `checkUnusedTypeParameters` (`checker.go:7290`) reads `node.TypeParameters()`.
