@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8882/9538 (93.12%)
-Assertion lines: 475560/478853 (99.31%)  — a gradient, not a pass rate
-Failed         : 656
+Passed         : 8894/9538 (93.25%)
+Assertion lines: 475618/478853 (99.32%)  — a gradient, not a pass rate
+Failed         : 644
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 656 failures:
+First 100 of 644 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -70,13 +70,11 @@ compiler/callsOnComplexSignatures
 compiler/capturedParametersInInitializers1
   capturedParametersInInitializers1.ts: >foo3 : (y?: { x: number; }, z?: number) => void — expected >foo3 : (y?: { x: typeof z; }, z?: number) => void
 compiler/checkJsdocTypeTagOnExportAssignment1
-  b.js: >a : any — expected >a : import("./a").Foo
-compiler/checkJsdocTypeTagOnExportAssignment2
-  c.js: >b : any — expected >b : import("./a").Foo
+  b.js: >a : Foo — expected >a : import("./a").Foo
 compiler/checkJsdocTypeTagOnExportAssignment5
-  b.js: >a : any — expected >a : import("./a").Foo
+  b.js: >a : Foo — expected >a : import("./a").Foo
 compiler/checkJsdocTypeTagOnExportAssignment6
-  b.js: >a : any — expected >a : import("./a").Foo
+  b.js: >a : Foo — expected >a : import("./a").Foo
 compiler/checkingObjectWithThisInNamePositionNoCrash
   checkingObjectWithThisInNamePositionNoCrash.ts: >this : this — expected >this : { doit(): { [x: number]: string; }; }
 compiler/circularInlineMappedGenericTupleTypeNoCrash
@@ -213,3 +211,5 @@ compiler/declarationEmitClassMixinLocalClassDeclaration
   declarationEmitClassMixinLocalClassDeclaration.ts: >Mixin(    [Base],    (base: AnyConstructor<Base, typeof Base>) => {        class XmlElement2 extends base {            num: number = 0        }        return XmlElement2;    }) : error — expected >Mixin(    [Base],    (base: AnyConstructor<Base, typeof Base>) => {        class XmlElement2 extends base {            num: number = 0        }        return XmlElement2;    }) : XmlElement2
 compiler/declarationEmitComputedPropertyNameEnum1
   index.ts: >foo : { x?: { [Enum.A]: 0; }; } — expected >foo : { x?: { a: 0; }; }
+compiler/declarationEmitComputedPropertyNameEnum3
+  index.ts: >foo : { x?: { [Foo.Enum]: 0; }; } — expected >foo : { x?: {}; }
