@@ -251,14 +251,10 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.next_token();
-            if self.eat(SyntaxKind::CloseBracketToken) {
-                let node = self.finish_node(
-                    ArrayTypeNode::new(Some(type_node)),
-                    SyntaxKind::ArrayType,
-                    start,
-                );
-                type_node = TypeNode::ArrayTypeNode(node);
-            } else {
+            // `parsePostfixTypeOrHigher` (`parser.go:2783`): an index type
+            // only where a type can start; anything else is an array type
+            // whose `]` is expected (`C[#bar]` is `']' expected`).
+            if self.is_start_of_type(false) {
                 let index = self.parse_type();
                 self.expect(SyntaxKind::CloseBracketToken);
                 let node = self.finish_node(
@@ -267,6 +263,14 @@ impl<'a> Parser<'a> {
                     start,
                 );
                 type_node = TypeNode::IndexedAccessTypeNode(node);
+            } else {
+                self.expect(SyntaxKind::CloseBracketToken);
+                let node = self.finish_node(
+                    ArrayTypeNode::new(Some(type_node)),
+                    SyntaxKind::ArrayType,
+                    start,
+                );
+                type_node = TypeNode::ArrayTypeNode(node);
             }
         }
         type_node
@@ -1263,7 +1267,6 @@ impl<'a> Parser<'a> {
             ) || kind.is_keyword()
         })
     }
-
     /// Whether `[` opens an index signature rather than a computed name.
     ///
     /// `[k: string]: T` has `identifier :` inside; `[Symbol.iterator]()` does not.
