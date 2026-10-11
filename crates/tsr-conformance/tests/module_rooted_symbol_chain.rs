@@ -282,3 +282,31 @@ exports.K = K;
     );
     assert_has(&lines, &["K : typeof K"]);
 }
+
+/// `trySymbolTable`'s alias loop (`symbolaccessibility.go:575`) searches an
+/// in-scope alias's resolved exports: a namespace import of `node:ph`, which
+/// re-exports `ph` with `export *`, reaches `ph`'s `constants`, so the chain
+/// is `[ph, constants]` rather than `import("ph")`
+/// (`nodeColonModuleResolution`'s native baseline; r7-printer §25).
+#[test]
+fn an_alias_whose_exports_reach_the_symbol_roots_its_chain() {
+    let lines = assertions(
+        "probe/module_rooted_alias_exports",
+        r"// @target: es2015
+// @moduleResolution: bundler
+// @filename: /a/b/node_modules/@types/node/ph.d.ts
+declare module 'ph' {
+    namespace constants {
+        const NODE_PERFORMANCE_GC_MAJOR: number;
+    }
+}
+declare module 'node:ph' {
+    export * from 'ph';
+}
+// @filename: /a/b/main.ts
+import * as ph from 'node:ph'
+ph.constants.NODE_PERFORMANCE_GC_MAJOR;
+",
+    );
+    assert_has(&lines, &["ph.constants : typeof ph.constants", "constants : typeof ph.constants"]);
+}

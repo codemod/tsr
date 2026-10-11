@@ -1048,3 +1048,31 @@ Teaching the resolver to see that binding as an alias would have re-derived
 the binder's decision outside the binder, so the arm waited. r7-shared's
 `7c17ce541` ("bind a JS require binding element as an alias") made the
 binding an alias, and the case is now RIGHT with the arm.
+
+## 25. An alias whose exports reach the symbol roots its chain
+
+**Forcing constraint.** `nodeColonModuleResolution`, 2 lines. Ambient
+`'ph'` declares `namespace constants`, ambient `'node:ph'` writes
+`export * from 'ph'`, and `main.ts` imports `* as ph from 'node:ph'`.
+Native prints `ph.constants : typeof ph.constants`; the port printed
+`typeof import("ph").constants`.
+
+**Cause.** `trySymbolTable`'s alias loop (`symbolaccessibility.go:575`)
+resolves each in-scope alias and searches its target's *exports*
+(`getExportsOfSymbol`, which carries `export *`) for the symbol, so the
+chain is `[ph, constants]`. The module-parent arm of `symbol_chain` asked
+only `module_alias_at`, which finds an alias whose target *is* the
+container (`'ph'`). `ph` names `'node:ph'`, so the arm fell through to the
+ambient specifier.
+
+**The port.** After `module_alias_at`, the arm asks the resolver's
+`getSymbolChain` (`DeclarationEmitResolver::symbol_chain_at`, which ports
+the alias loop over the memoized exports). A two-element chain rooted at an
+in-scope alias with an identifier name spells `{alias}.`
+(`alias_rooted_chain_at`). It runs only with a module host, before both
+the ambient and the file-module `import("…")` spellings. No cache or table
+beyond the resolver's.
+
+**Alternative rejected.** Widening `module_alias_at` to search exports
+would duplicate the resolver's alias loop in a second place, along with
+its candidate order (`sortByBestName`), which only the resolver has.

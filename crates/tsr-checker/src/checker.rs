@@ -3649,6 +3649,17 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(alias) = self.module_alias_at(parent, reference, left_meaning) {
                 return Some(format!("{alias}."));
             }
+            // r7-printer §25: `trySymbolTable`'s alias loop
+            // (`symbolaccessibility.go:575`) searches each in-scope alias's
+            // resolved EXPORTS, not its target's identity: a namespace
+            // import of a module that re-exports the container's members
+            // (`export * from 'ph'`) reaches the symbol, and the chain is
+            // `[ph, constants]`.
+            if self.module_host.is_some()
+                && let Some(alias) = self.alias_rooted_chain_at(symbol, reference, meaning)
+            {
+                return Some(format!("{alias}."));
+            }
             // The ambient branch of `getSpecifierForModuleSymbol`
             // (`nodebuilderimpl.go:1260`): the specifier IS the module's name,
             // **with its quotes taken off** —
@@ -3930,6 +3941,28 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// runs only where the port's printer has already found that the bare
     /// name does not resolve to the symbol and no in-scope alias names its
     /// module (`symbol_chain`'s file-module arm).
+    /// The in-scope alias that roots `getSymbolChain`'s two-element answer
+    /// for `symbol` at `reference` (`[alias, symbol]`), by name. `None` when
+    /// the chain is anything else.
+    fn alias_rooted_chain_at(
+        &mut self,
+        symbol: SymbolId,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<String> {
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
+            .symbol_chain_at(symbol, reference, meaning, true, true, 0);
+        let &[root, leaf] = chain.as_slice() else { return None };
+        let symbols = self.binder.symbols();
+        if !symbols.get(root).flags.contains(SymbolFlags::ALIAS)
+            || symbols.get(leaf).name != symbols.get(symbol).name
+            || !crate::objects::is_identifier_text(symbols.get(root).name)
+        {
+            return None;
+        }
+        Some(symbols.get(root).name.to_string())
+    }
+
     fn module_rooted_chain_at(
         &mut self,
         symbol: SymbolId,
