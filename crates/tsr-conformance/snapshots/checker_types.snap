@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8941/9538 (93.74%)
-Assertion lines: 475855/478853 (99.37%)  — a gradient, not a pass rate
-Failed         : 597
+Passed         : 8947/9538 (93.80%)
+Assertion lines: 475869/478853 (99.38%)  — a gradient, not a pass rate
+Failed         : 591
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 597 failures:
+First 100 of 591 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
@@ -89,8 +89,6 @@ compiler/classAccessorInitializationInferenceWithElementAccess1
   classAccessorInitializationInferenceWithElementAccess1.ts: >x : any — expected >x : number[]
 compiler/classPropInitializationInferenceWithElementAccess
   classPropInitializationInferenceWithElementAccess.ts: >x : any — expected >x : number[]
-compiler/coAndContraVariantInferences3
-  coAndContraVariantInferences3.ts: >args : OverloadParameters<T> — expected >args : Parameters<{ [P in Extract<keyof T, number>]: T[P]; }[Extract<keyof T, number>]>
 compiler/commentsOnObjectLiteral2
   commentsOnObjectLiteral2.ts: >{        /**         This is just another way to define a constructor.         @constructs         @param {string} name The name of the person.         */        initialize: function(name) {            this.name = name;        } /* trailing comment 1*/,    } : any — expected >{        /**         This is just another way to define a constructor.         @constructs         @param {string} name The name of the person.         */        initialize: function(name) {            this.name = name;        } /* trailing comment 1*/,    } : { initialize: (name: any) => void; }
 compiler/commonJsImportClassExpression
@@ -213,3 +211,5 @@ compiler/declarationEmitHigherOrderRetainedGenerics
   declarationEmitHigherOrderRetainedGenerics.ts: >zipWith : <F_1 extends TypeLambda>(F: SemiApplicative<F_1>) => { <R2_1, O2_1, E2_1, B_1, A, C>(that: Kind<F_1, R2_1, O2_1, E2_1, B_1>, f: (a: A, b: B_1) => C): <R1_1, O1_1, E1_1>(self: Kind<F_1, R1_1, O1_1, E1_1, A>) => Kind<F_1, R1_1 & R2_1, O1_1 | O2_1, E1_1 | E2_1, C>; <R1_1, O1_1, E1_1, A, R2_1, O2_1, E2_1, B_1, C>(self: Kind<F_1, R1_1, O1_1, E1_1, A>, that: Kind<F_1, R2_1, O2_1, E2_1, B_1>, f: (a: A, b: B_1) => C): Kind<F_1, R1_1 & R2_1, O1_1 | O2_1, E1_1 | E2_1, C>; } — expected >zipWith : <F extends TypeLambda>(F: SemiApplicative<F>) => { <R2_1, O2_1, E2_1, B_1, A, C>(that: Kind<F, R2_1, O2_1, E2_1, B_1>, f: (a: A, b: B_1) => C): <R1_1, O1_1, E1_1>(self: Kind<F, R1_1, O1_1, E1_1, A>) => Kind<F, R1_1 & R2_1, O2_1 | O1_1, E2_1 | E1_1, C>; <R1_1, O1_1, E1_1, A, R2_1, O2_1, E2_1, B_1, C>(self: Kind<F, R1_1, O1_1, E1_1, A>, that: Kind<F, R2_1, O2_1, E2_1, B_1>, f: (a: A, b: B_1) => C): Kind<F, R1_1 & R2_1, O1_1 | O2_1, E1_1 | E2_1, C>; }
 compiler/declarationEmitInferredTypeAlias4
   declarationEmitInferredTypeAlias4.ts: >f : <A>() => Foo<A[]> — expected >f : <A>() => A[] | { x: A[] | any; }
+compiler/declarationEmitInlinedDistributiveConditional
+  test.ts: >dropPrivateProps2 : <Obj>(obj: Obj) => { [K in PublicKeys2<keyof Obj>]: Obj[K]; } — expected >dropPrivateProps2 : <Obj>(obj: Obj) => { [K in keyof Obj extends infer T ? T extends keyof Obj ? T extends `_${string}` ? never : T : never : never]: Obj[K]; }
