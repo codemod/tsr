@@ -157,6 +157,10 @@ struct SyntheticAccess {
     /// The accessed names, innermost first: `const { a: { b } } = x` gives
     /// `x["a"]["b"]` for `b`.
     names: Vec<String>,
+    /// The root is a synthetic `this` (`isPropertyInitializedInConstructor`,
+    /// `checker.go:4977`) rather than `FlowState::reference`, which is then
+    /// the constructor the fresh node is parented to.
+    this_root: bool,
 }
 
 /// `getLiteralPropertyNameText` (`flow.go:1806`) for a written name: an
@@ -710,7 +714,7 @@ impl Checker<'_, '_> {
             shared_flow_start: self.shared_flows.len(),
             element_dedupe_mark: 0,
             depth: 0,
-            synthetic: Some(SyntheticAccess { owner: node, names }),
+            synthetic: Some(SyntheticAccess { owner: node, names, this_root: false }),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
@@ -816,6 +820,55 @@ impl Checker<'_, '_> {
         answer.t == auto || answer.t == self.intrinsics.unreachable_never
     }
 
+    /// `isPropertyInitializedInConstructor`'s flow query (`checker.go:4977`):
+    /// the flow type of a synthetic `this.<name>` parented to `constructor`,
+    /// starting at its `ReturnFlowNode`, with `declared` and `initial`
+    /// (native passes `propType` and `getOptionalType(propType)`). A
+    /// constructor without a return flow node answers `declared`
+    /// (`getFlowTypeOfReferenceEx` with no flow node).
+    ///
+    /// The reference is matched structurally: any `this.<name>` or
+    /// `this["<name>"]` in the graph. A computed property name the caller
+    /// cannot spell as a literal has no counterpart here. No cache; one walk
+    /// per call, as native.
+    #[allow(dead_code)]
+    pub(crate) fn flow_type_of_this_property_at(
+        &mut self,
+        constructor: NodeId,
+        name: &str,
+        declared: TypeId,
+        initial: TypeId,
+    ) -> TypeId {
+        if self.flow_analysis_disabled {
+            return self.intrinsics.error;
+        }
+        let Some(flow) = self.binder.return_flow(constructor) else { return declared };
+        let mut state = FlowState {
+            array_elements: Vec::new(),
+            reduce_labels: Vec::new(),
+            reference: constructor,
+            symbol: None,
+            declared_type: declared,
+            initial_type: initial,
+            is_auto: false,
+            discriminant_pattern: None,
+            is_auto_array: false,
+            outer_reference: false,
+            flow_container: None,
+            shared_flow_start: self.shared_flows.len(),
+            element_dedupe_mark: 0,
+            depth: 0,
+            synthetic: Some(SyntheticAccess {
+                owner: constructor,
+                names: vec![name.to_string()],
+                this_root: true,
+            }),
+        };
+        let answer = self.get_type_at_flow_node(&mut state, flow);
+        self.shared_flows.truncate(state.shared_flow_start);
+        if answer.t == self.intrinsics.unreachable_never { declared } else { answer.t }
+    }
+
     /// `getSyntheticElementAccess` (`checker.go:17857`): the root and names
     /// of `node`'s synthetic access, when its parent access has a flow node
     /// and `node` has a literal destructuring name.
@@ -872,14 +925,21 @@ impl Checker<'_, '_> {
     /// `isMatchingReference(synthetic, target)` (`flow.go:1597`) for the
     /// synthetic access `base[names…]`: the access arm, same accessed name
     /// and a matching receiver, down to the root's own match.
+    ///
+    /// The root is optional: `None`
+    /// is a synthetic `this`, which matches a `this` keyword target
+    /// (`isMatchingReference`'s `KindThisKeyword` arm, `flow.go:1617`).
     fn synthetic_reference_matches(
         &mut self,
-        base: NodeId,
+        base: Option<NodeId>,
         names: &[String],
         target: NodeId,
     ) -> bool {
         let Some((last, receiver_names)) = names.split_last() else {
-            return self.references_match(base, target);
+            return match base {
+                Some(base) => self.references_match(base, target),
+                None => self.this_keyword_target(target),
+            };
         };
         if let Some(inner) = self.matching_reference_target(target) {
             return self.synthetic_reference_matches(base, names, inner);
@@ -895,6 +955,22 @@ impl Checker<'_, '_> {
         self.synthetic_reference_matches(base, receiver_names, receiver)
     }
 
+    /// A runtime `this` target, through the target-side wrappers.
+    fn this_keyword_target(&self, target: NodeId) -> bool {
+        if let Some(inner) = self.matching_reference_target(target) {
+            return self.this_keyword_target(inner);
+        }
+        self.nodes.kind(target) == SyntaxKind::ThisKeyword && !self.is_this_in_type_query(target)
+    }
+
+    /// The synthetic access's root for matching: `None` for a synthetic `this`.
+    fn synthetic_root(state: &FlowState) -> Option<NodeId> {
+        match &state.synthetic {
+            Some(synthetic) if synthetic.this_root => None,
+            _ => Some(state.reference),
+        }
+    }
+
     /// For an access reference, real or synthetic: its accessed name when
     /// `target` matches its receiver (`isMatchingReference(reference.Expression(),
     /// target)` with `getAccessedPropertyName(reference)`).
@@ -903,7 +979,7 @@ impl Checker<'_, '_> {
             let (last, receiver_names) = synthetic.names.split_last()?;
             let (last, receiver_names) = (last.clone(), receiver_names.to_vec());
             return self
-                .synthetic_reference_matches(state.reference, &receiver_names, target)
+                .synthetic_reference_matches(Self::synthetic_root(state), &receiver_names, target)
                 .then_some(last);
         }
         let receiver = self.expression_of_access(state.reference)?;
@@ -4923,7 +4999,7 @@ impl Checker<'_, '_> {
     fn is_matching_reference(&mut self, state: &FlowState, node: NodeId) -> bool {
         if let Some(synthetic) = &state.synthetic {
             let names = synthetic.names.clone();
-            return self.synthetic_reference_matches(state.reference, &names, node);
+            return self.synthetic_reference_matches(Self::synthetic_root(state), &names, node);
         }
         if node == state.reference {
             return true;
@@ -4981,13 +5057,20 @@ impl Checker<'_, '_> {
         // `base`'s own parts.
         if let Some(synthetic) = &state.synthetic {
             let names = synthetic.names.clone();
+            let root = Self::synthetic_root(state);
             for length in (1..names.len()).rev() {
-                if self.synthetic_reference_matches(source, &names[..length], node) {
+                if self.synthetic_reference_matches(root, &names[..length], node) {
                     return true;
                 }
             }
-            if self.reference_part_matches(source, node) {
-                return true;
+            match root {
+                Some(root) => {
+                    if self.reference_part_matches(root, node) {
+                        return true;
+                    }
+                }
+                // `this` has no parts of its own.
+                None => return self.this_keyword_target(node),
             }
         }
         while let Some(receiver) = match self.node_map.get(source) {

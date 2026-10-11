@@ -459,3 +459,26 @@ helper is deleted. TS1111 (the same tail) is plain-JS-only
 Measured on `9acf69d7` + `c6df7541`: diagnostics **+1**
 (`privateNameNestedMethodAccess`), types text identical, 0 lost, jsTyping
 unchanged.
+
+## §15 `isPropertyInitializedInConstructor`'s synthetic `this.<name>` (requested by r7-grammar)
+
+`isPropertyInitializedInConstructor` (`checker.go:4977`) builds a fresh
+`this.<name>` (or `this[<expr>]`) parented to the constructor, gives it the
+constructor's `ReturnFlowNode`, and asks `getFlowTypeOfReferenceEx(reference,
+propType, getOptionalType(propType))`; TS2564 reports when the answer contains
+`undefined`. `flow_type_of_this_property_at(constructor, name, declared,
+initial)` is that query on §7's synthetic access: `SyntheticAccess` gains a
+`this_root`, whose root matches any runtime `this` target
+(`isMatchingReference`'s `KindThisKeyword` arm, `flow.go:1617`) and has no
+parts of its own; `FlowState::reference` is the constructor (container
+lookups). No return flow node answers `declared`, as native's nil flow node
+does. A computed name the caller cannot spell as a literal has no
+counterpart.
+
+Checker port boundary: no cache; one walk per property, as native.
+
+Measured on `52536a40`: the API alone is corpus-neutral (types text and
+diagnostics verdicts identical). With the measurement-only wiring
+`r7-flow-ts2564-prototype.diff` (check.rs `check_property_initialization`,
+r7-grammar's to port), diagnostics **+1** (`detachedCommentAtStartOfConstructor2`),
+0 lost, jsTyping unchanged.
