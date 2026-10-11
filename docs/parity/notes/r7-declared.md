@@ -1298,3 +1298,34 @@ one row in the first cut). No new state.
 genericCallInferenceInConditionalTypes1 1,
 indexedAccessKeyofNestedSimplifiedSubstituteUnwrapped 1); diagnostics 0 / 0;
 jsTyping new_false 0 / lost_true 0; Ir gi 0.9998, dm 1.0002.
+
+## 39. `keyof` over a deferred indexed access is one deferred index type
+
+**Forcing constraint.** getIndexTypeEx defers under shouldDeferIndexType
+(`checker.go:26834`) for an instantiable operand, so `keyof Original[T]` is an
+index type printed from its operand, and `type NestedKeyOfOriginalFor<T
+extends keyof Original> = keyof Original[T]` declares `keyof Original[T]`
+(correlatedUnions). TSR's evaluated `keyof` arm deferred type parameters,
+mapped types and `any`/`never`/`unknown`, and sent a deferred indexed access
+to the key walk, which answered `error`.
+
+**Port.** A deferred indexed-access operand (`deferred_indexed_access_types`,
+not an unresolved mint) joins the arm that answers `resolved_keyof_type`,
+whose instantiable branch mints the deferred index type. No state.
+
+**Measured** (unfiltered against the rebased `42fc9dcc`): types **+4, 0
+lost** (correlatedUnions 0:439, 448, 449, 454); diagnostics 0 / 0; jsTyping
+new_false 0 / lost_true 0; Ir gi 1.0000, dm 0.9999.
+
+**Measured and not taken: the own-access test for an indexed-access alias.**
+`type Format<I, F> = { s: I[2]; n: I[3] }[F]` at `"n"` resolves the access
+and answers the property type `I[3]` with no alias (getIndexedAccessTypeOrUndefined's
+resolved arm), so `type Pos<I> = Format<I, "n">` declares `I[3]`; the indexed
+arm of `create_type_reference` re-mints any deferred answer under the
+alias's name. Re-minting only when the deferred access is the body's own
+(object or index under the bindings) fixed a local probe and measured 0 / 0
+on the corpus: the corpus rows (ramdaToolsNoInfinite2 `Pos`, `Key`) reach
+`Format` through an `import` alias, which `alias_reference_target`
+(`resolve_entity_name` with the type meaning) does not follow, and following
+it through `resolve_alias_fully` sent the reference down the import road,
+which mints `Format<I, "n">` itself. Both pieces wait for one reference road.

@@ -661,6 +661,10 @@ impl<'a> Checker<'a, '_> {
                 let target = self.get_type_from_type_node(inner);
                 // getIndexTypeEx (checker.go:26701): any, never and unknown
                 // answer stringNumberSymbolType/never directly.
+                // shouldDeferIndexType (checker.go:26834): any other
+                // instantiable operand (a deferred `Original[T]`) keeps one
+                // deferred index type, printed from its operand (r7-declared
+                // §39).
                 if self.mapped_types.contains_key(&target)
                     || self.store.get(target).flags.intersects(
                         TypeFlags::TYPE_PARAMETER
@@ -668,6 +672,8 @@ impl<'a> Checker<'a, '_> {
                             | TypeFlags::NEVER
                             | TypeFlags::UNKNOWN,
                     )
+                    || (self.deferred_indexed_access_types.contains_key(&target)
+                        && !self.unresolved_types.contains(&target))
                 {
                     return self.resolved_keyof_type(target).unwrap_or(self.intrinsics.error);
                 }
