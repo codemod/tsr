@@ -397,7 +397,21 @@ impl Printer<'_> {
                 if let Some(inner) = &node.expression {
                     self.emit_expression(inner);
                 }
-                self.emit_type_arguments(node.type_arguments);
+                // An instantiation expression always carries its list, even
+                // an empty one (`fx<>`, `parseExpressionWithTypeArguments`
+                // after a `<`); upstream's `NodeList` is non-nil there and
+                // `emitTypeArguments` writes `<>`. Only a heritage clause's
+                // element (`extends Foo`) has no list. The port's slice cannot
+                // tell the two apart, so the parent decides (r7-printer §16).
+                let in_heritage =
+                    node.node_id.and_then(|id| self.nodes.parent(id)).is_some_and(|parent| {
+                        self.nodes.kind(parent) == tsr_ast::SyntaxKind::HeritageClause
+                    });
+                if node.type_arguments.is_empty() && !in_heritage {
+                    self.write("<>");
+                } else {
+                    self.emit_type_arguments(node.type_arguments);
+                }
             }
             // Ported from `Printer.emitMetaProperty` (`internal/printer/printer.go`).
             Expression::MetaProperty(node) => {

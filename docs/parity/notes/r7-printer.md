@@ -772,3 +772,18 @@ non-declared id). The two-clone signature is a construction deviation
 
 **Measured** against §14's commit, both dumps unfiltered (see the commit
 message for the base).
+
+## 16. An instantiation expression with an empty type-argument list prints `<>`
+
+Routed by the integrator: r7-parser's batch 23 parses
+`conformance/instantiationExpressions` cleanly, as native does, so
+`printer_round_trip` judges it, and it failed at `let f0 = fx<>;`
+("ExpressionWithTypeArguments became Identifier(fx)"). The parser builds an
+`ExpressionWithTypeArguments` with an empty list after `<` `>`; native's
+`TypeArguments` is a non-nil empty `NodeList` and `emitTypeArguments`
+writes `<>`. The port's slice cannot tell an empty list from an absent one,
+and the only `ExpressionWithTypeArguments` without a list is a heritage
+clause's element (`extends Foo`), so the printer writes `<>` for an empty
+list outside a `HeritageClause`. Measured: `printer_round_trip` 11,814 →
+11,815 passes, failures 5 → 4, 0 newly failing; the checker does not depend
+on `tsr-printer`.
