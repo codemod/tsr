@@ -1747,13 +1747,26 @@ impl<'a> Checker<'a, '_> {
         // `id` of `var anObjectLiteral: I = { id: 'a string' }` — the
         // property *name*, not the value and not the declaration.
         let before = self.diagnostics.len();
+        let mut seen_names: Vec<&str> = Vec::new();
         for &name in &names {
-            if known.iter().any(|(seen, _)| seen == name)
+            if !(known.iter().any(|(seen, _)| seen == name)
                 || self.get_type_of_property_of_type(target, name).is_some()
-                || indexed && self.applicable_index_value(target, name).is_some()
+                || indexed && self.applicable_index_value(target, name).is_some())
             {
-                self.check_object_literal_member(literal, target, name);
+                continue;
             }
+            if names.iter().filter(|&&other| other == name).count() > 1 {
+                // A name written twice: the literal's member is the last
+                // occurrence's (last wins), and `elaborateObjectLiteral`
+                // relates that one member at every occurrence
+                // (`lastPropertyInLiteralWins`; r7-reports §35).
+                if !seen_names.contains(&name) {
+                    seen_names.push(name);
+                    self.check_duplicated_object_literal_member(literal, target, name);
+                }
+                continue;
+            }
+            self.check_object_literal_member(literal, target, name);
         }
         if self.diagnostics.len() != before {
             return;
@@ -1826,6 +1839,73 @@ impl<'a> Checker<'a, '_> {
     fn applicable_index_value(&mut self, target: TypeId, name: &str) -> Option<TypeId> {
         let key = self.property_name_key_type(name);
         self.get_applicable_index_info(target, key).map(|info| info.value)
+    }
+
+    /// The initializer of the last property assignment named `name`.
+    fn last_object_literal_member_value(
+        &self,
+        literal: &tsr_ast::ObjectLiteralExpression<'_>,
+        name: &str,
+    ) -> Option<NodeId> {
+        literal.properties.iter().rev().find_map(|property| {
+            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
+                return None;
+            };
+            let id = assignment.name.node_id()?;
+            let text = match self.node_map.get(id) {
+                Some(Node::Identifier(identifier)) => identifier.text,
+                Some(Node::StringLiteral(literal)) => literal.text,
+                _ => return None,
+            };
+            (text == name)
+                .then(|| assignment.initializer.and_then(|value| value.node_id()))
+                .flatten()
+        })
+    }
+
+    /// [`Checker::check_object_literal_member`] for a name the literal writes
+    /// more than once: every occurrence is related with the last
+    /// occurrence's value type, the literal's member, and reported at its
+    /// own name with its own initializer elaborated.
+    fn check_duplicated_object_literal_member(
+        &mut self,
+        literal: &tsr_ast::ObjectLiteralExpression<'_>,
+        target: TypeId,
+        name: &str,
+    ) {
+        let mut occurrences = Vec::new();
+        for property in literal.properties {
+            let tsr_ast::ObjectLiteralElementLike::PropertyAssignment(assignment) = property else {
+                continue;
+            };
+            let Some(id) = assignment.name.node_id() else { continue };
+            let text = match self.node_map.get(id) {
+                Some(Node::Identifier(identifier)) => identifier.text,
+                Some(Node::StringLiteral(literal)) => literal.text,
+                _ => continue,
+            };
+            if text != name {
+                continue;
+            }
+            let Some(value) = assignment.initializer.and_then(|value| value.node_id()) else {
+                return;
+            };
+            occurrences.push((id, value));
+        }
+        let Some(last) = self.last_object_literal_member_value(literal, name) else { return };
+        if occurrences.is_empty() {
+            return;
+        }
+        let Some(member) = self
+            .get_type_of_property_of_type(target, name)
+            .or_else(|| self.applicable_index_value(target, name))
+        else {
+            return;
+        };
+        let source = self.check_expression_at_node(last);
+        for (at, value) in occurrences {
+            self.report_assignability_failure(at, value, source, member);
+        }
     }
 
     /// The initialiser node of the literal's property called `name`.
@@ -3546,11 +3626,21 @@ impl<'a> Checker<'a, '_> {
             members.push((name_id, next, name, target_property_type, head));
         }
         let mut reported = false;
+        let written: Vec<String> = members.iter().map(|(_, _, name, _, _)| name.clone()).collect();
         for (name_id, next, name, target_property_type, head) in members {
             // `getIndexedAccessTypeOrUndefined(source, nameType, …)` reads the
             // completed source member, including mutable-location widening.
-            let Some(source_property_type) = self.get_type_of_property_of_type(source, &name)
-            else {
+            // A name written twice is the last occurrence's member, which
+            // this port's literal member type does not yet read (r7-reports
+            // §35).
+            let duplicated = written.iter().filter(|&other| *other == name).count() > 1;
+            let source_property_type = if duplicated {
+                self.last_object_literal_member_value(literal, &name)
+                    .map(|value| self.check_expression_at_node(value))
+            } else {
+                self.get_type_of_property_of_type(source, &name)
+            };
+            let Some(source_property_type) = source_property_type else {
                 continue;
             };
             reported |= self.elaborate_element_with(

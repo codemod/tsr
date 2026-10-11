@@ -1311,3 +1311,30 @@ So when the full pass is Unknown, `shared_members_related_to` answers it.
 `identicalTypesNoDifferByCheckOrder` and `reactDefaultPropsInferenceSuccess`
 RIGHT, one more line of `excessPropertyCheckIntersectionWithRecursiveType`,
 0 lost, types unchanged.
+
+## 35. A name written twice in an object literal: the last occurrence is the member
+
+**Forcing lines.** `lastPropertyInLiteralWins` (8,5)(9,5). In `test({
+thunk: (str: string) => {}, thunk: (num: number) => {} })` the literal's
+member is the last `thunk`. `elaborateObjectLiteral` relates that one
+member at every written occurrence and reports TS2322 at both (the first
+occurrence through `checkExpressionForMutableLocationWithContextualType`'s
+fallback to the member type).
+
+**Port** (`assignreport.rs`).
+- `check_excess_properties`' elaboration pass related only the first
+  occurrence, with its own value.
+- `elaborate_object_literal` read the member type from this port's literal
+  type, which for a duplicated name is not the last occurrence's (it
+  prints `(str: string) => error`; the producer is `objects.rs`).
+
+Both now take the last occurrence's value type for a duplicated name and
+relate it at each occurrence.
+
+**Measured** (diagnostics and types, unfiltered, the change alone): in the
+already-WRONG case (8,5)(9,5) are fixed and (14,5)'s extra TS2322 is gone.
+The second call still fails, now as (12,6) TS2345 instead: its literal
+type's member is the producer's broken `(str: string) => error`. No other
+case moved, and types are unchanged. **What would finish it:** the
+literal's own member type taking the last declaration (objects.rs,
+reported).
