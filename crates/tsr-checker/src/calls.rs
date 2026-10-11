@@ -1295,10 +1295,10 @@ impl Checker<'_, '_> {
     ///
     /// The list is put in `reorderCandidates` order
     /// ([`Checker::reorder_candidates`]; declaration groups of a union's
-    /// composite signatures stay in constituent order). A candidate with a
-    /// literal or `null` parameter type is declined, as is a spread
-    /// argument: the argument walk reads each argument's checked type, which
-    /// for such a parameter is not the one checked under it as context.
+    /// composite signatures stay in constituent order). A spread argument is
+    /// declined. A literal or `null` parameter type is not: the argument
+    /// walk re-checks an argument whose type follows its contextual type
+    /// under each candidate ([`Checker::check_overload_candidates_arguments`]).
     fn non_generic_overload_candidates(
         &mut self,
         candidates: &[Signature],
@@ -1312,18 +1312,8 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        for candidate in candidates {
-            if !candidate.type_parameters.is_empty()
-                || candidate.parameters.iter().any(|parameter| {
-                    let parameter_type = self.parameter_type(parameter);
-                    self.store
-                        .get(parameter_type)
-                        .flags
-                        .intersects(TypeFlags::LITERAL | TypeFlags::NULL)
-                })
-            {
-                return None;
-            }
+        if candidates.iter().any(|candidate| !candidate.type_parameters.is_empty()) {
+            return None;
         }
         let mut matched = Vec::new();
         for candidate in self.reorder_candidates(candidates.to_vec()) {
@@ -1385,9 +1375,14 @@ impl Checker<'_, '_> {
                 let Some(expression) = parenthesized.expression else { return false };
                 inner = expression;
             }
+            // A template expression keeps a literal or template literal
+            // type only under a contextual type that admits one, so it is
+            // re-checked like an object or array literal.
             let literal = matches!(
                 inner,
-                Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
+                Expression::ObjectLiteralExpression(_)
+                    | Expression::ArrayLiteralExpression(_)
+                    | Expression::TemplateExpression(_)
             );
             if literal
                 && strings.is_none()

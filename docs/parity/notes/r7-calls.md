@@ -628,6 +628,16 @@ information (`The_last_overload_is_declared_here`, possibly in another file,
 and `addImplementationSuccessElaboration`) is not attached; this checker's
 diagnostics carry no cross-file related location.
 
+## 15. Non-generic overload sets with literal parameter types reach the walk
+
+`non_generic_overload_candidates` declined a set in which a candidate had a
+literal or `null` parameter type, because the walk read published argument
+types. Since §8 the walk re-checks an argument whose type follows its
+contextual type under each candidate, so the decline goes. Template
+expressions join the re-checked shapes: their literal or template-literal
+type follows the contextual type. `foo("um", [])` over `foo(x: "hi", …)` /
+`foo(x: "bye", …)` reports native's chained TS2769 (overloadingOnConstants2).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
