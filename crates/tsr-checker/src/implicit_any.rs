@@ -1035,6 +1035,94 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// TS7034 / TS7005 for an auto-typed variable read where its type cannot
+    /// be determined: `checkIdentifier`'s auto arm (`checker.go:11182`).
+    ///
+    /// A `var`/`let` without an initializer (or with `null`/`undefined`)
+    /// under `noImplicitAny` is `autoType`, and an ordinary read gets its
+    /// control-flow type. When that flow type is still `autoType` itself
+    /// (the read sits where no assignment reaches it: a captured outer
+    /// variable read before any assignment the read can see), native reports
+    /// TS7034 at the declaration's name and TS7005 at the reference, both
+    /// with `TypeToString(autoType)`, `any`. The flow answer is r7-flow's
+    /// `identifier_flow_type_is_auto` (`flow.rs`), which answers the auto
+    /// track only, not `autoArrayType`.
+    ///
+    /// Asked for a value reference that is not a definite assignment target
+    /// (`checkIdentifier` returns the declared type for those first) and not
+    /// an export assignment's expression, as r7-flow's measured prototype
+    /// did (`docs/parity/notes/r7-flow-auto-reporter-prototype.diff`).
+    /// Native's diagnostic collection drops an identical repeat; the
+    /// declaration's TS7034 is reported once here for the same reason.
+    pub(crate) fn check_implicit_any_auto_reference(&mut self, node: NodeId, text: &str) {
+        if !self.no_implicit_any || !self.is_value_reference(node) {
+            return;
+        }
+        if self.assignment_target_kind(node) == crate::expressions::AssignmentTargetKind::Definite {
+            return;
+        }
+        if self
+            .nodes
+            .parent(node)
+            .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ExportAssignment)
+        {
+            return;
+        }
+        let Some(symbol) = self.resolve_identifier_memo(
+            node,
+            text,
+            SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+        ) else {
+            return;
+        };
+        if !self.identifier_flow_type_is_auto(node, symbol) {
+            return;
+        }
+        let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
+            return;
+        };
+        let Some(Node::VariableDeclaration(variable)) = self.node_map.get(declaration) else {
+            return;
+        };
+        // In JS the reparsed `@type` is the declaration's annotation, which
+        // `getTypeForVariableLikeDeclaration` reads before its auto arm: the
+        // variable is not `autoType` at all (`typeFromJSInitializer4`).
+        if self.jsdoc_type_annotation(declaration).is_some() {
+            return;
+        }
+        let name = self.binder.symbols().get(symbol).name.to_string();
+        if let Some(name_id) = variable.name.and_then(|name| name.node_id())
+            && let Some(file) = self.source_file_of_for_diagnostics(name_id)
+        {
+            let span = self.nodes.span(name_id);
+            let code = messages::VARIABLE_0_IMPLICITLY_HAS_TYPE_1_IN_SOME_LOCATIONS_WHERE_ITS_TYPE_CANNOT_BE_DETERMINED.code();
+            if !self.diagnostics.iter().any(|(reported_file, diagnostic)| {
+                *reported_file == file
+                    && diagnostic.span == span
+                    && diagnostic.message.code() == code
+            }) {
+                self.report(
+                    file,
+                    Diagnostic::with_args(
+                        &messages::VARIABLE_0_IMPLICITLY_HAS_TYPE_1_IN_SOME_LOCATIONS_WHERE_ITS_TYPE_CANNOT_BE_DETERMINED,
+                        span,
+                        [name.clone(), "any".to_string()],
+                    ),
+                );
+            }
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
+        let span = self.nodes.span(node);
+        self.report(
+            file,
+            Diagnostic::with_args(
+                &messages::VARIABLE_0_IMPLICITLY_HAS_AN_1_TYPE,
+                span,
+                [name, "any".to_string()],
+            ),
+        );
+    }
+
     /// TS7005 — `Variable '{0}' implicitly has an '{1}' type.`
     ///
     /// The variable arm of `reportImplicitAny`. Restricted to declarations
