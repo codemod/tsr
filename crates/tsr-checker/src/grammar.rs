@@ -2783,7 +2783,16 @@ impl Checker<'_, '_> {
             self.grammar_error_on_node(rest, &messages::A_SET_ACCESSOR_CANNOT_HAVE_REST_PARAMETER);
             return true;
         }
-        if let Some(question) = parameter.question_token.and_then(|token| token.node_id) {
+        // A JS accessor's `@param [x]` / `{T=}` is a reparsed `?`
+        // (`makeQuestionIfOptional`) located at its tag, as
+        // `check_grammar_parameter_list` reads it (ADR-0046; r7-grammar §36).
+        let question = parameter.question_token.and_then(|token| token.node_id).or_else(|| {
+            let reparsed = self.jsdoc_reparsed_function(node).parameters;
+            let slot =
+                reparsed.get(usize::from(has_this_parameter)).filter(|slot| slot.question)?;
+            slot.tag?.node_id
+        });
+        if let Some(question) = question {
             self.grammar_error_on_node(
                 question,
                 &messages::A_SET_ACCESSOR_CANNOT_HAVE_AN_OPTIONAL_PARAMETER,
