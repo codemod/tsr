@@ -899,3 +899,305 @@ Answering the written reference moves the merged `import b` declaration's
 own line, which native prints as the alias's errorType (`any`) while TSR
 prints the merged var's type. That line is `getTypeOfAlias`'s, owned by
 `symbols.rs`.
+
+## 26. `keyof` over a lone string index is stringOrNumberType, with no origin
+
+**Forcing constraint.** getLiteralTypeFromProperties (`checker.go:26717`)
+lists one entry per property and per included index info, and a string index
+contributes the single `stringOrNumberType` entry. getUnionTypeEx
+(`checker.go:25632`) answers a one-entry list with that entry and never
+reads the origin, so `keyof T1` over `type T1 = { [key: string]: X }` is
+`string | number` (tsgo: `Type 'string | number' is not assignable…` for
+`c10<T1>` with `type c10<Tg> = keyof Tg`). TSR pushed `string` and `number`
+as two keys and attached the `keyof T1` origin to the resulting union, which
+printed `keyof T1`.
+
+**Port.** `resolved_keyof_type_worker` counts native's list (a string index
+counts once) and returns the bare union when the count is one. No state.
+
+**Measured** alone (unfiltered against `cf8bae56`): types 0 / 0, diagnostics
+0 / 0, jsTyping 0 / 0, Ir 1.0000 / 1.0000. No corpus row prints this, so the
+port is recorded for the probe (`keyof c18<T1>` style reads), not for a
+number.
+
+## 27. A generic alias over a homomorphic mapped alias reference is the inner instance
+
+**Forcing constraint.** `type ObjMapReadOnly<T> = Readonly<ObjMap<T>>` at
+`Resolver` records `Readonly<{ [key: string]: Readonly<Resolver>; }>`
+(inferrenceInfiniteLoopWithSubtyping), and `type Q<T> = Partial<T>` at
+`{ a: number }` is `Partial<{ a: number; }>`. getTypeAliasInstantiation
+instantiates Q's declared type, which is Partial's homomorphic mapped type,
+and instantiateMappedType maps a non-union homomorphic image through
+instantiateConstituent with a nil alias, so the instance keeps the inner
+alias (`alias_instantiation_keeps_declared_alias` already names which
+declared types keep theirs). TSR minted a print-only `Named` over the outer
+alias, which printed `Q<…>` and, for inference, was an opaque reference.
+
+**Port.** `instantiate_homomorphic_reference_alias`: a generic alias whose
+body is a reference to a generic mapped alias, where the outer alias does not
+receive a new alias and keeps the declared one, answers the evaluated body
+when that is the inner alias's mapped instance. A union image (mapTypeWithAlias
+hands the outer alias to the union) is not the inner instance and keeps the
+existing mint. No new state: the answer is cached in `instantiations` like
+every other arm of `create_type_reference`.
+
+**Measured** with §26 (unfiltered against the rebased tip `d1120e60`): types
+**+11, 0 lost** (reverseMappedPartiallyInferableTypes 6, mappedTypeWithAny 3,
+inferrenceInfiniteLoopWithSubtyping 1, ramdaToolsNoInfinite 1); diagnostics
+0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0002.
+
+**Refused, with the number that refused it: the non-homomorphic image.** The
+same arm extended to an outer alias that RECEIVES the new alias (`type c18<T>
+= c17<T, string>` over `type c17<T, K extends keyof T> = { [P in K]: T[P] }`;
+`Omit` over `Pick`), re-minting the inner mapped instance under the outer
+name with its mapped parts, measured **+13 / −73 types and −5 diagnostic
+cases** (first cut, reference pair on the inner alias), and after moving the
+pair to the outer alias the Omit losses remained in two shapes:
+`Omit<this, …>["publicProp"]` (the mapped road cannot enumerate a generic
+`Exclude<keyof this, K>` constraint; native reads getLowerBoundOfKeyType) and
+`bar.c : error` for a key Omit removed (the mapped road leaves a missing
+property a gap where `members.rs`'s Omit arm answered). The port that would
+win is getLowerBoundOfKeyType in `mapped_member_keys` plus the missing-key
+answer on the mapped road; until both exist the outer alias keeps the
+existing mint.
+
+**Routed: the index road of an alias reference.** What `c18<T1>["x"]`
+actually lacks is an alias arm in `index_signatures.rs::get_index_infos_of_type`
+(the twin of `members.rs::property_type_via_shape`'s alias arm: a `Named`
+whose owner is a TYPE_ALIAS answers its evaluated body's index infos).
+Prototyped (`r7-declared-ROUTED-index-alias-arm.diff`) against `cf8bae56`+§26: types
+**+10 / 0** (intersectionWithIndexSignatures' `q["asd"]` among them), but
+diagnostics **−2**: conformance/unionTypeInference gains a TS2322 at 62:11
+(`DeepPromised<T>` to `DeepPromised<{ [name: string]: … }>`, whose target now
+has its string index; the relation that native passes there is the
+relater's), and compiler/contextuallyTypedJsxAttribute2 turns its `onClick`
+gap into `(e: any) => void` and reports TS7006 (the JSX attributes'
+contextual type through `Omit<ComponentPropsWithRef<…>, "as">`). Not owned
+here; offered to the integration owner with both causes.
+
+## 28. A definite generic conditional alias declares its branch; the infer arm defers on isDeferredType
+
+**Forcing constraint.** getConditionalType (`checker.go:24377`, `:24415`)
+attaches the alias only to a deferred result: a definitely false or true
+check answers `instantiateType(branch, mapper)` with no alias. So a generic
+alias whose conditional body is not deferred declares its branch:
+`type P<V> = ((h: V, b: string) => void) extends (...a: infer R) => void ?
+R : any` is `[h: V, b: string]`, and `type T07<T extends any[]> =
+Parameters<(...args: T) => void>` is `T` (genericRestParameters1), because
+getTypeFromTypeAliasReference hands the declaring alias to
+getConditionalTypeInstantiation and the same rule drops it. TSR minted the
+alias name for every generic conditional alias, and its infer arm declined
+any check that mentioned a type parameter (`(h: V) => void`), which native
+does not defer (the check is not generic, isDeferredType).
+
+**Port.**
+- `evaluate_conditional_inference` no longer declines a check that merely
+  mentions a type parameter: the caller already deferred a generic one. When
+  the check or the inferred extends type mentions a parameter, a deferred
+  inferred extends type defers, and the branch is chosen by
+  `definite_conditional_outcome` (permissive instantiations not related:
+  false; restrictive related: true; otherwise deferred), the §3 relation.
+  Without a mention the plain relation stands, which is the same three
+  outcomes.
+- `get_declared_type_of_type_alias`: a conditional body
+  (`DeclaredBody::Conditional`) publishes its evaluated branch when neither
+  operand defers (`conditional_alias_check_is_deferred`) and the answer is
+  not the written deferred mint; a body that references a conditional alias
+  (`DeclaredBody::ConditionalReference`) publishes the reference's answer
+  when that is not the target's deferred reference or mint.
+
+No new state.
+- Containment: `signature_rest_relation_undecided`. compareSignaturesRelated
+  compares a non-array rest type (getNonArrayRestType: `(...t: T) => any`)
+  against the other signature's rest at the shorter count, so `Tail<T> =
+  ((...t: T) => any) extends ((_: any, ...tail: infer TT) => any) ? TT : []`
+  relates `T` to `[_: any, ...tail: T[number][]]`, fails restrictively, and
+  stays deferred (ramdaToolsNoInfinite `>Tail : Tail<T>`). The relater here
+  pairs the positions and relates them, so such a check over a different
+  parameter count is not decided here. Without this, `Last<Tail<T>>` turned
+  into a gap and TS2502 at Last (ramdaToolsNoInfinite: 1 type lost, 1
+  diagnostic case lost). Routed: the relater's non-array-rest arm.
+- A first cut published a conditional-reference body when the reference's
+  answer was not the target's deferred mint: −3 (ramdaToolsNoInfinite2
+  `_Reverse`, `GapsOf`, `_ListOf`), where the reference's check
+  (`__Reverse<…>`, a generic indexed-access alias) defers natively and this
+  port answered an unresolved `Cast`. The arm now asks
+  `conditional_reference_resolves` (the written arguments, then
+  `conditional_alias_check_is_deferred`) and declines on any error answer.
+
+**Measured** (unfiltered against `488e514e`): types **+20, 0 lost**
+(inferenceContextualReturnTypeUnion2 6, genericRestParameters1 4,
+strictBindCallApply1 3, arrayFlatNoCrashInference 2,
+arrayFlatNoCrashInferenceDeclarations 2, conditionalTypeGenericInSignatureTypeParameterConstraint
+1, deferredConditionalTypes 1, ramdaToolsNoInfinite2 1); diagnostics **+1
+case, 0 lost** (tsxNotUsingApparentTypeOfSFC); jsTyping new_false 0 /
+lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+**Not reached:** `type Prepend<V, T extends any[]> = ((head: V, ...args: T)
+=> void) extends (...args: infer R) => void ? R : any` still declares
+`Prepend<V, T>` (native `[head: V, ...args: T]`): the containment above
+declines it (2 parameters against 1), and inferring `R` from a generic rest
+is `inference.rs`'s.
+
+## 29. A non-generic alias over a generic class/interface-reference alias carries its own name
+
+**Forcing constraint.** `type GenericSettingsResult1 =
+GenericSettingsAccess<"audio">` over `type GenericSettingsAccess<T extends
+keyof SettingsTypes> = Settings<SettingsTypes[T]>` records
+`>GenericSettingsResult1 : GenericSettingsResult1` (mappedTypeRelationships
+0:426/427). GenericSettingsAccess's declared type is a deferred type
+reference carrying its alias (§22), and getTypeFromTypeAliasReference
+instantiates it with the new alias, which getObjectTypeInstantiation attaches.
+`new_alias_instantiation` declined any result that already carried
+`alias_of`, so §22's image kept the inner alias's name
+(`GenericSettingsAccess<"audio">`).
+
+**Port.** `new_alias_reference_instantiation`: a result whose `alias_of`
+names the referenced generic alias and whose reference pair targets a class
+or interface (§22's image) is re-minted under the new alias, keeping the
+member owner, reference pair and signatures, with `alias_of` recording the
+new alias. Cache: the existing `deferred_alias_references[(alias, result)]`.
+
+**Measured** (unfiltered against `fb7388a3`): types **+2, 0 lost**
+(mappedTypeRelationships 0:426, 0:427); diagnostics 0 / 0; jsTyping
+new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## 30. Refused: a union-bodied alias instance that reduces to one type
+
+getUnionTypeEx answers a set that reduced to one type with that type, before
+the alias is considered, so `type Narrow<A> = (A extends Narrowable ? A :
+never) | { [K in keyof A]: Narrow<A[K]> }` at `{ value: "1" }` is `{ value:
+"1"; }` and `type U<A> = (A extends string ? A : never) | { k: A }` at
+`number` is `{ k: number; }`. TSR prints `Narrow<{ value: "1"; }>` and
+`U<number>`: `is_union_alias_body` admits only keyword, literal, function and
+constructor constituents (§10).
+
+A `reduced_union_alias_instance` arm evaluated any other union body and took
+a single, non-gap answer, guarded by an `(alias, arguments)` stack (the
+per-alias guard of §10 kept the nested `Narrow<"1">` on the mint; the keyed
+stack lets it resolve, bounded at eight nestings). Measured with §29 against
+`fb7388a3`: types +2 (§29's two), **diagnostics −1**
+(typePredicateFreshLiteralWidening gains TS2322 at 20:35, where TSR's
+inference answers `TNarrow = { value: string }` and the reduced `Narrow<…>`
+now relates structurally), Ir dm **1.0018**. No type row gained: the
+corpus's `Narrow` rows also need the inference (`satisfies<Item>()({ value:
+"1" })` infers `{ value: "1" }` natively, an `inference.rs` question), so
+the arm was not taken.
+
+## 31. A mapped property's type includes undefined when the property is optional
+
+**Forcing constraint.** getTypeOfMappedSymbol (`checker.go:20984`) adds
+undefined to an optional property's instantiated template under
+strictNullChecks (getOptionalType, isProperty) unless the template already
+admits undefined or void. So `{ [K in keyof Obj]?: Obj[K] }` over `{ a: 1 }`
+declares `a?: 1 | undefined` and prints it, and `{ [K in keyof
+Partial<Obj>]: Obj[K] }` (optional through its modifiers type) does too
+(mappedTypeIndexedAccessConstraint `mapped`). TSR stored the bare template
+and added undefined only on reads, so reads were right and the structural
+print was `{ a?: 1; }`.
+
+**Port.** `get_type_of_mapped_symbol` adds the optional type when the slot is
+optional and the instantiated template may not be undefined or void, as
+native's first arm; the strip arm is native's second. Reads through
+`get_type_of_property` already unioned undefined, so they are unchanged (the
+union dedupes). No state.
+
+**Measured** (unfiltered against `fb7388a3`): types **+14, 0 lost**
+(mappedTypeGenericIndexedAccess 11, mappedTypeIndexedAccessConstraint 3);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0001, dm
+1.0002.
+
+**Not this port:** a homomorphic mapping whose modifiers type is an alias of
+a mapped type (`{ [K in keyof O]: O[K] }` with `type O = Omit<Mappings,
+"foo">`) still enumerates no key (`{}`; native `{ "12": number; 42: string;
+}`), and an optional property linked to a source declaration prints the
+declaration's annotation (`b?: 2`, node reuse of `b?: 2` whose declared type
+equals the property type) where TSR prints `b?: 2 | undefined`, which is the
+printer's reuse arm.
+
+## 32. A homomorphic mapping over a mapped-alias reference enumerates the instance's keys
+
+**Forcing constraint.** getModifiersTypeFromMappedType takes `X` from a
+`keyof X` constraint, and an alias reference `X` IS its instantiated body
+natively: `{ [K in keyof O]: O[K] }` with `type O = Omit<Mappings, "foo">`
+enumerates Pick's instance (`{ "12": number; 42: string; }`), and over
+`Partial<Pick<Mappings, "foo">>` it reads `foo?`. TSR's alias reference is a
+`Named` over the alias symbol whose member table the mapped producer cannot
+list, so the mapping enumerated no key and printed `{}`.
+
+**Port.** `mapped_modifiers_instance` (both producers that read the
+modifiers type): a reference to a mapped alias answers its own mapped capture
+(`ensure_mapped_type_info`); a reference whose evaluated body is a mapped
+instance (`Omit` over `Pick`) answers that instance; anything else is
+unchanged. And a key that names its property by a string literal which is not
+an identifier prints quoted when no source property supplies the printed name
+(createPropertyNameNodeForIdentifierOrLiteral: `"12"`, while the numeric key
+`42` stays bare), the rule the `as`-clause arm already applied.
+
+**Measured** with §29 (unfiltered against the `fb7388a3`+§31 freeze, whose
+difference from this commit's parent is §29's two mappedTypeRelationships
+rows): types **+8, 0 lost** beyond §29 (mappedTypeIndexedAccessConstraint 5,
+declarationQuotedMembers 3); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0; Ir gi 1.0000, dm 1.0001.
+
+**Not this port:** an intersection modifiers type of such references
+(`{ [K in keyof PartMappings]: … }` over `Omit<…> & Partial<Pick<…>>`) still
+enumerates nothing. Admitting it through
+`composite_modifiers_property_names` listed the names but lost the
+optionality and the numeric key provenance of the mapped constituents (a
+mapped member has no property symbol for the composite's
+`get_property_of_type` to find), printing a wrong member table where `{}`
+stood; the members' modifiers need the type road through composites first.
+
+## 33. An intersection modifiers type with a mapped constituent lists its members
+
+**Forcing constraint.** `{ [K in keyof PartMappings]: (o: MapperArgs<K>) =>
+PartMappings[K] }` over `type PartMappings = SetOptional<Mappings, "foo">`
+(`Omit<T, K> & Partial<Pick<T, K>>`) enumerates every constituent's
+properties (getPropertiesOfUnionOrIntersectionType), each with
+createUnionOrIntersectionProperty's modifiers: an intersection property is
+optional, and readonly, only when every constituent that has it is
+(`checker.go:21452`). Its keys keep the providing constituent's provenance
+(the numeric `42`). §32's mapped instances have no property symbol for the
+composite symbol lookup, so the mapping listed nothing (`{}`), and the
+`mapper` literal's methods lost their contextual signatures.
+
+**Port.** `composite_modifiers_property_names` resolves each intersection
+constituent through `mapped_modifiers_instance` and takes a mapped
+constituent's names as listed; `intersection_modifier_member` answers the
+modifiers and key of a name over an intersection with a mapped constituent
+(mapped slots for mapped constituents, the symbol road for the rest), read by
+the key producer and the member worker. Unions are unchanged. No state.
+
+**Measured** (unfiltered against `8d1ae151`): types **+31, 0 lost**
+(mappedTypeIndexedAccessConstraint); diagnostics **+1 case, 0 lost**
+(mappedTypeIndexedAccessConstraint); jsTyping new_false 0 / lost_true 0; Ir
+gi 0.9999, dm 1.0001.
+
+**Residue:** the five `mapper` lines print `"12"` and `42` before `foo?`,
+native `foo?` first. getIntersectionTypeEx keeps insertion order
+(`orderedSet`, `checker.go:26057`) and getPropertiesOfUnionOrIntersectionType
+walks constituents in order, which would put Omit's keys first too, so the
+native order comes from somewhere this note has not found (the apparent
+intersection's rebuild in getApparentTypeOfIntersectionType is the next
+place to read).
+
+## 35. A non-distributive infer conditional infers from a whole union check
+
+**Forcing constraint.** getConditionalType distributes only over a naked
+type-parameter check (`root.isDistributive`); any other check is inferred
+from as a whole, so `type ChannelType = Channel extends { type: infer R } ?
+R : never` over `Channel = TextChannel | EmailChannel` infers `R` from both
+constituents (getCommonSupertype of two string literals is their union) and
+declares `"email" | "text"` (complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound).
+`evaluate_conditional_inference` declined every union check, which is right
+only for the distributive shape the caller already distributed.
+
+**Port.** The union decline is kept for a distributive conditional (its
+check node is a naked parameter, `distributive_conditional_parameter`) and
+dropped otherwise; `never` checks still decline. No state.
+
+**Measured** (unfiltered against the rebased `89f0f0df`): types **+10, 0
+lost** (complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound 7,
+coAndContraVariantInferences3 3); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0; Ir gi 0.9999, dm 1.0000.
