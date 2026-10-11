@@ -569,3 +569,16 @@ previous freeze: types +8 RIGHT / 0 lost / 0 missing, diagnostics +11 cases / 0 
 | `diagnostics_configured` | 1,009 | 1,009 |
 
 The loop's first run of this batch was OOM-killed in the exact-oracle leg (4 workers on the 7 GB orb); the leg now runs on 2 workers and clears a stale report directory before it starts.
+
+### Batch 25 — r7-declared `b414e1af`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **9607 / 12797 EXACT (75.07%)**, 2 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +13 RIGHT / 0 lost / 0 missing, diagnostics +0 cases / 0 lost / 0 missing. jsTyping 123 → 123 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0000, domain-model 1.0004. No suite's failure count rose.
+
+| Suite | Before | Batch 25 |
+|---|---|---|
+| `checker_types` | 8,858 | 8,861 |
+| `checker_types_configured` | 1,820 | 1,820 |
+| `diagnostics` | 4,997 | 4,997 |
+| `diagnostics_configured` | 1,009 | 1,009 |
