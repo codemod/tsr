@@ -482,3 +482,19 @@ checkIdentifier does). No suite's failure count rose.
 | `checker_types_configured` | 1,818 | 1,818 |
 | `diagnostics` | 4,968 | 4,976 |
 | `diagnostics_configured` | 1,005 | 1,005 |
+
+### Batch 20 — r7-calls `f58c43de`, r7-contextual `cb00835f`, r7-declared `b66cdba0`, r7-flow `52536a40`, r7-perf `2dff7977`, r7-printer `ec650c97`
+
+Merged onto main `41f3c70b`. Exact oracle 9,582 → **9,591 EXACT (74.95%)**,
+0 lost, 0 missing; legacy compare against the batch-19 freeze: types +20
+RIGHT / 0 lost / 0 missing, diagnostics +10 cases / 0 lost / 0 missing;
+jsTyping 125/125, new_false 0, lost_true 0; tests, fmt, strict clippy green;
+callgrind Ir generic-imports 0.9999, domain-model 1.0006. No suite's failure
+count rose.
+
+| Suite | Batch 19 | Batch 20 |
+|---|---|---|
+| `checker_types` | 8,845 | 8,851 |
+| `checker_types_configured` | 1,818 | 1,820 |
+| `diagnostics` | 4,976 | 4,984 |
+| `diagnostics_configured` | 1,005 | 1,005 |
