@@ -501,9 +501,11 @@ pub struct FileLoader<'host, 'a> {
     /// Root file texts read ahead of the walk, by file name, consumed by
     /// [`FileLoader::load_task`]. See [`FileLoader::prefetch_root_files`].
     prefetched: FxHashMap<String, Option<String>>,
-    /// Private root parses, keyed by canonical task path. Discovery, metadata,
-    /// package identity and publication still follow the original serial walk.
-    prepared_roots: FxHashMap<Path, tsr_parser::ParsedFile>,
+    /// Private root and predicted lib parses queued on the dependency pool,
+    /// keyed by canonical task path; the walk waits on a ticket at the file's
+    /// visit. Discovery, metadata, package identity and publication still
+    /// follow the original serial walk.
+    prepared_roots: FxHashMap<Path, crate::front_end::Ticket<DependencyParse>>,
     dependency_pool: Option<DependencyPool>,
     /// Exact file spelling and the immutable loader parse options identify an
     /// owned preparation. This map does not claim paths or choose package IDs.
@@ -581,6 +583,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // Drain even unused bounded work before binding acquires its worker
         // lease. No private AST/source owner survives program construction.
         loader.prepared_dependencies.clear();
+        loader.prepared_roots.clear();
         loader.dependency_pool.take();
         let (mut result, order) = loader.collect_files();
         if load_started.is_some() {
@@ -719,7 +722,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
 
     fn prepare_root_parses(&mut self) {
         let mut seen = rustc_hash::FxHashSet::default();
-        let inputs: Vec<_> = self
+        let mut inputs: Vec<_> = self
             .root_tasks
             .iter()
             .filter_map(|&index| {
@@ -737,7 +740,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
                     return None;
                 }
                 let text = self.prefetched.get(&task.file_name)?.as_ref()?;
-                Some((task.path.clone(), text, self.parse_options(&task.file_name)))
+                Some((task.path.clone(), text.as_str(), self.parse_options(&task.file_name)))
             })
             .collect();
         let workers = if inputs.iter().map(|(_, text, _)| text.len()).sum::<usize>() < 128 * 1024 {
@@ -748,25 +751,87 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         if workers == 1 {
             return;
         }
-        let started = self.options.extended_diagnostics.is_true().then(Instant::now);
-        let mut prepared = FxHashMap::default();
-        crate::front_end::ordered(
-            &inputs,
-            workers,
-            crate::front_end::Lookahead::One,
-            |_, (_, text, options)| {
-                tsr_parser::ParsedFile::parse_with_options((*text).clone(), *options)
-            },
-            |index, parsed| {
-                prepared.insert(inputs[index].0.clone(), parsed);
-            },
-        );
-        self.prepared_roots = prepared;
-        if let Some(started) = started {
-            let elapsed = started.elapsed();
-            self.statistics.parse_time += elapsed;
-            self.statistics.parse_preparation_time += elapsed;
+        // Native queues the lib tasks with the roots before `filesParser.start`
+        // (`fileloader.go:157`), so `lib.dom.d.ts` parses beside them. This
+        // walk visits the libs after every root; prepare them with the roots
+        // (`r7-perf.md` §25).
+        for (path, text, options) in self.predicted_lib_parses() {
+            if seen.insert(path.clone()) {
+                inputs.push((path, text, options));
+            }
         }
+        // Jobs start in the order the walk visits them, except the largest
+        // file (`lib.dom.d.ts` under the default libs), which starts first:
+        // it is visited last and alone takes longer to parse than the walk
+        // spends publishing everything before it.
+        if let Some(largest) = (0..inputs.len()).max_by_key(|&index| inputs[index].1.len()) {
+            let file = inputs.remove(largest);
+            inputs.insert(0, file);
+        }
+        let inputs: Vec<_> = inputs
+            .into_iter()
+            .map(|(path, text, options)| (path, text.to_owned(), options))
+            .collect();
+        self.start_dependency_pool(workers);
+        let Some(pool) = &self.dependency_pool else { return };
+        self.statistics.dependency_parse_workers = pool.workers();
+        // The walk waits on a file's ticket only at its visit, so it
+        // publishes each root while later ones still parse. A dependency the
+        // walk meets queues behind these jobs on the same workers.
+        for (path, text, options) in inputs {
+            self.prepared_roots.insert(path, pool.submit((text, options)));
+        }
+    }
+
+    /// Leases `requested` parser workers for the rest of the walk, shared by
+    /// root preparation and the dependency frontier.
+    fn start_dependency_pool(&mut self, requested: usize) {
+        let measured = self.options.extended_diagnostics.is_true();
+        self.dependency_pool = DependencyPool::new(requested, move |(text, options)| {
+            let started = measured.then(Instant::now);
+            let file = tsr_parser::ParsedFile::parse_with_options(text, options);
+            DependencyParse {
+                file,
+                elapsed: started.map_or(Duration::ZERO, |start| start.elapsed()),
+            }
+        });
+    }
+
+    /// The bundled lib files the walk will load, before it runs: the default
+    /// libs ([`Self::add_lib_file_tasks`]) and, transitively, the
+    /// `/// <reference lib>` directives in their texts, which the walk follows
+    /// with the same table. A file the walk then does not visit costs only its
+    /// unused parse; a visit validates the prepared text, as for a root.
+    fn predicted_lib_parses(&self) -> Vec<(Path, &'static str, tsr_parser::ParseOptions)> {
+        // Under `libReplacement` a lib's path is a module resolution, which
+        // traces; it is left to the walk.
+        if self.options.lib_replacement.is_true() {
+            return Vec::new();
+        }
+        let fs = self.host.fs();
+        let mut pending: Vec<&'static str> =
+            tsr_tsoptions::libs::lib_file_names_with_index(&self.options)
+                .into_iter()
+                .map(|(_, name)| name)
+                .collect();
+        let mut visited = rustc_hash::FxHashSet::default();
+        let mut parses = Vec::new();
+        while let Some(name) = pending.pop() {
+            if !visited.insert(name) {
+                continue;
+            }
+            let file_name = self.path_for_lib_file(name);
+            let Some(text) = fs.read_static(&file_name) else { continue };
+            for reference in tsr_parser::parse_file_references(text).lib_reference_directives {
+                if let Some(referenced) =
+                    tsr_tsoptions::libs::get_lib_file_name(&reference.file_name)
+                {
+                    pending.push(referenced);
+                }
+            }
+            parses.push((self.to_path(&file_name), text, self.parse_options(&file_name)));
+        }
+        parses
     }
 
     /// The default libs, or the ones `--lib` named (`fileloader.go:157-171`).
@@ -973,15 +1038,7 @@ impl<'host, 'a> FileLoader<'host, 'a> {
             if requested < 2 {
                 return;
             }
-            let measured = self.options.extended_diagnostics.is_true();
-            self.dependency_pool = DependencyPool::new(requested, move |(text, options)| {
-                let started = measured.then(Instant::now);
-                let file = tsr_parser::ParsedFile::parse_with_options(text, options);
-                DependencyParse {
-                    file,
-                    elapsed: started.map_or(Duration::ZERO, |start| start.elapsed()),
-                }
-            });
+            self.start_dependency_pool(requested);
         }
         let Some(pool) = &self.dependency_pool else { return };
         let limit = 2 * pool.workers();
@@ -1116,9 +1173,9 @@ impl<'host, 'a> FileLoader<'host, 'a> {
         // would give two files the same `NodeId`s.
         let parse_started = self.options.extended_diagnostics.is_true().then(Instant::now);
         let is_prepared_dependency = prepared_dependency.is_some();
-        let parsed = match prepared_dependency
-            .or_else(|| self.prepared_roots.remove(&self.tasks[index].path))
-        {
+        let parsed = match prepared_dependency.or_else(|| {
+            self.prepared_roots.remove(&self.tasks[index].path).map(|ticket| ticket.wait().file)
+        }) {
             Some(prepared) if prepared.source() == text => {
                 // Dependency cells have already been consumed by exact file
                 // spelling; root cells still validate their canonical text.
