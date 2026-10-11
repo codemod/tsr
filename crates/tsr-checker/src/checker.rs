@@ -992,6 +992,12 @@ pub struct Checker<'a, 'n> {
     pub(crate) render_type_parameter_scope: Vec<(String, tsr_binder::SymbolId)>,
     /// Private node-builder allocations; never part of a semantic mapper.
     pub(crate) render_type_parameter_names: crate::printing::TypeParameterNames,
+    /// r7-printer §22: a print with no enclosing declaration
+    /// (`typeToString(t, nil)`) is in progress — every symbol reference is
+    /// spelled by its own name, as `lookupSymbolChainWorker` builds no chain
+    /// (`nodebuilderimpl.go:1070`). Set only by
+    /// [`Checker::type_to_string_for_message`] for the duration of one print.
+    pub(crate) print_without_enclosing: bool,
     /// §91: the conditional-alias evaluator's binding frames — type-parameter
     /// symbol → the argument it is bound to during one body evaluation. Empty
     /// outside evaluation, which is the gate on the evaluator's node arms.
@@ -1681,6 +1687,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             identity_unmapped_type_parameters: false,
             render_type_parameter_scope: Vec::new(),
             render_type_parameter_names: crate::printing::TypeParameterNames::default(),
+            print_without_enclosing: false,
             alias_body_evaluations: FxHashMap::default(),
             type_literal_types: FxHashMap::default(),
             type_literal_origins: FxHashMap::default(),
@@ -2212,6 +2219,25 @@ impl<'a, 'n> Checker<'a, 'n> {
         result
     }
 
+    /// `Checker.TypeToString` (`printer.go:177` with a nil
+    /// `enclosingDeclaration`): the spelling diagnostic messages use. With no
+    /// enclosing declaration `lookupSymbolChainWorker`
+    /// (`nodebuilderimpl.go:1070`) builds no chain, so every symbol reference
+    /// — the outer name, type arguments, members, `typeof` operands, an enum
+    /// member's enum — prints by its own name: `publicClass`, not
+    /// `privateModule.publicClass`.
+    ///
+    /// The port's renderer needs a node for what is not naming (type
+    /// parameter scopes); `reference` is the diagnostic's node and only that
+    /// part reads it. A print this road cannot form falls back to the
+    /// site-free [`Checker::type_to_string`] (r7-printer §22).
+    pub fn type_to_string_for_message(&mut self, id: TypeId, reference: NodeId) -> String {
+        let saved = std::mem::replace(&mut self.print_without_enclosing, true);
+        let printed = self.type_to_string_at(id, reference);
+        self.print_without_enclosing = saved;
+        printed.unwrap_or_else(|| self.type_to_string(id))
+    }
+
     fn type_to_string_at_worker(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
         // typeToTypeNodeHelper reduces before printing (nodebuilderimpl.go:3228).
         let id = self.get_reduced_type(id);
@@ -2233,6 +2259,13 @@ impl<'a, 'n> Checker<'a, 'n> {
         if let crate::types::TypeData::Anonymous { symbol, .. } = self.store.get(id).data
             && self.binder.symbols().get(symbol).flags.contains(SymbolFlags::MODULE_EXPORTS)
         {
+            // §22: a `module.exports` object names no module with no
+            // enclosing declaration; the port carries a `module.exports =
+            // class` instance type on that symbol, where native's is the
+            // class, so the message road keeps the baked print.
+            if self.print_without_enclosing {
+                return None;
+            }
             return self.module_exports_text_at(id, symbol, reference);
         }
         if let Some(&(_, source)) = self.module_value_clones.get(&id) {
@@ -2256,7 +2289,11 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
             return self.module_clone_name_at(id, reference).map(|name| format!("typeof {name}"));
         }
-        if let Some(text) = self.export_equals_class_text_at(id, reference) {
+        // §22: the `export =` import-type spellings are chain roots; with no
+        // enclosing declaration the class names itself.
+        if !self.print_without_enclosing
+            && let Some(text) = self.export_equals_class_text_at(id, reference)
+        {
             return Some(text);
         }
         // A cloned module alias cannot name the original class instance or
@@ -2282,7 +2319,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
         // The instance side of `export_equals_class_text_at`, after the
         // module-clone guard (`crate::import_type_meaning`).
-        if let Some(text) = self.export_equals_class_instance_text_at(id, reference) {
+        if !self.print_without_enclosing
+            && let Some(text) = self.export_equals_class_instance_text_at(id, reference)
+        {
             return Some(text);
         }
         let module = match &self.store.get(id).data {
@@ -3015,6 +3054,13 @@ impl<'a, 'n> Checker<'a, 'n> {
             if let Some(&owner) = self.enum_member_owners.get(&id) {
                 let owner = self.binder.merged_symbol(owner);
                 let owner_name = self.binder.symbols().get(owner).name;
+                // §22: with no enclosing declaration the enum is named by its
+                // own name (`typeToTypeNode`'s enum-literal arm names the
+                // parent through `symbolToTypeNode`, nodebuilderimpl.go:818),
+                // so a baked written qualifier before it is dropped.
+                if self.print_without_enclosing {
+                    return Some(Self::strip_qualifier_before(&printed, owner_name));
+                }
                 // Enum member names can be indexed accesses too. Rename the
                 // owner at the site without changing the member's literal type
                 // or its fresh/regular identity (nodebuilderimpl.go:821).
@@ -3084,6 +3130,33 @@ impl<'a, 'n> Checker<'a, 'n> {
             && let Some(renamed) = self.default_symbol_text_as_written(symbol, &printed, reference)
         {
             return Some(renamed);
+        }
+        // §22: no enclosing declaration, no chain — the reference is its
+        // own name, whatever qualifier its print was baked with.
+        if self.print_without_enclosing {
+            if !self.is_module_symbol(symbol)
+                && let Some((start, end)) = Self::split_around_qualified_name(&printed, name)
+            {
+                // An enum member names its enum, then itself
+                // (`typeToTypeNode`'s enum-literal arm, nodebuilderimpl.go:818).
+                let parent = self.binder.symbols().get(symbol).parent;
+                let spelled = match parent {
+                    Some(parent)
+                        if self
+                            .binder
+                            .symbols()
+                            .get(symbol)
+                            .flags
+                            .contains(SymbolFlags::ENUM_MEMBER) =>
+                    {
+                        let parent = self.binder.merged_symbol(parent);
+                        format!("{}.{name}", self.binder.symbols().get(parent).name)
+                    }
+                    _ => name.to_string(),
+                };
+                return Some(format!("{}{spelled}{}", &printed[..start], &printed[end..]));
+            }
+            return Some(printed);
         }
         // r7-printer §5: a print baked with a written qualifier
         // (`B.A`, `foo.Provide`) is re-spelled from `getSymbolChain` at the
@@ -3342,6 +3415,19 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// type, r7-printer §10), possibly under `typeof` and possibly with type
     /// arguments: `(start, end)` of the whole path. `None` for a bare name
     /// ([`Checker::split_around_name`]'s shape) or anything else.
+    /// `printed` with any dotted identifier qualifier directly before its
+    /// leading `name.` segment removed (`X.Foo.B` → `Foo.B` for `Foo`).
+    /// Unchanged when `name.` does not follow such a qualifier.
+    fn strip_qualifier_before(printed: &str, name: &str) -> String {
+        let segment = format!(".{name}.");
+        if let Some(at) = printed.find(&segment)
+            && printed[..at].split('.').all(Self::is_identifier_segment)
+        {
+            return printed[at + 1..].to_string();
+        }
+        printed.to_string()
+    }
+
     fn split_around_qualified_name(printed: &str, name: &str) -> Option<(usize, usize)> {
         if name.is_empty() {
             return None;
@@ -3397,6 +3483,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         reference: NodeId,
         meaning: SymbolFlags,
     ) -> Option<String> {
+        if self.print_without_enclosing {
+            return None;
+        }
         let chain = crate::symbol_access::DeclarationEmitResolver::new(self)
             .symbol_chain_at(symbol, reference, meaning, true, true, 0);
         let (&root, rest) = chain.split_first()?;
@@ -3502,7 +3591,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     ) -> Option<String> {
         // Upstream has no cap; a cycle in `parent` would be a binder defect and
         // this guard exists so that one cannot hang the corpus.
-        if depth >= Self::MAX_SYMBOL_CHAIN {
+        if depth >= Self::MAX_SYMBOL_CHAIN || self.print_without_enclosing {
             return None;
         }
         let name = self.binder.symbols().get(symbol).name;
@@ -4726,6 +4815,9 @@ impl<'a, 'n> Checker<'a, 'n> {
             chains.into_iter().next()
         }
 
+        if self.print_without_enclosing {
+            return None;
+        }
         let target = self.binder.merged_symbol(target);
         self.semantic_type_naming_alias_target(target, SymbolFlags::TYPE, &mut Vec::new())?;
         let parent = self.binder.symbols().get(target).parent?;
@@ -4835,6 +4927,10 @@ impl<'a, 'n> Checker<'a, 'n> {
             Exports(SymbolId),
             ClassName(&'a str, SymbolId),
             Globals,
+        }
+        // §22: no enclosing declaration, no scope tables to rename from.
+        if self.print_without_enclosing {
+            return None;
         }
         let own = self.binder.symbols().get(symbol).name;
         let target = self.binder.merged_symbol(symbol);

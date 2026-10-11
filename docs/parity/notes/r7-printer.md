@@ -898,3 +898,83 @@ decide, as before. No cache or table.
 
 **Measured** against §19's commit (`536991f4f`), both dumps unfiltered:
 types **+9 / −0**, diagnostics unchanged.
+
+## 22. A message prints with no enclosing declaration
+
+**Forcing constraint.** The EXACT oracle report at main `127660ee9` holds
+91 diagnostic messages in 41 cases whose only difference from native is
+how a type reference is named. In 79 the port is the more qualified side
+(the other 12 are `getTypeNamesForErrorDisplay`'s fully qualified retry,
+which native takes when both sides print alike). Native
+writes `Type 'null' is not assignable to type 'publicClass'` and the port
+writes `'privateModule.publicClass'` (`privacyFunctionReturnTypeDeclFile`
+18 lines, `privacyAccessorDeclFile` 12, `qualify` 4, `temporal` 3, …).
+
+**Cause.** Messages print through `Checker.TypeToString` (`printer.go:177`
+with a nil `enclosingDeclaration`). With no enclosing declaration
+`lookupSymbolChainWorker` (`nodebuilderimpl.go:1070`) builds no chain: the
+chain is `[symbol]`, so every reference prints only its own name. That
+covers the outer name, type arguments (`IPromise<number>`), members
+(`{ (): connectExport; … }`), `typeof` operands (`typeof g`) and an enum
+member's enum (`Foo.B`, from the enum-literal arm's parent print,
+`nodebuilderimpl.go:818`). The report lanes print with the site-free
+`type_to_string`, whose baked text keeps the qualifier as written.
+
+**The port.** `Checker::type_to_string_for_message(id, reference)` runs the
+site renderer with `print_without_enclosing` set. Under it, the naming
+hooks behave as native's no-chain path:
+- `symbol_chain`, `symbol_chain_text_at`, `best_name` and
+  `accessible_type_name_chain_at` decline;
+- `qualified_name_at` replaces a baked qualified path with the symbol's own
+  name (an enum member's with `{enum}.{member}`), and strips a baked
+  qualifier before an enum member's enum;
+- the `export =` class arms (`export_equals_class_text_at` and its
+  instance side) and the `module.exports` arm do not fire. Their import-type
+  spellings are chain roots, and with no chain native names the class itself
+  (`importAliasModuleExports` wants `'Alias'`; the instance arm printed
+  `'import("./mod1")'`, the one loss of the first measurement). The
+  `module.exports` arm declines to the baked print instead, because the port
+  carries a `module.exports = class` instance type on that symbol where
+  native's symbol is the class.
+
+The renderer still needs a node for what is not naming (type-parameter
+scopes); `reference` is the diagnostic's node. A print this road cannot form
+falls back to `type_to_string`.
+
+The flag lives for one print, set and restored by the entry. Convention
+record: native operation `TypeToString` / `lookupSymbolChainWorker` with nil
+enclosing at 5b1047d; no cache, no table, so no key, owner or publication
+state; the flag is checker-owned render state like
+`render_type_parameter_names`. Expensive-work boundary: it skips the
+accessibility walks entirely, so a message print is cheaper than a site
+print.
+
+**Alternatives.**
+- *Strip qualifiers from the baked text.* Rejected: a heuristic over
+  strings, and it cannot tell `Foo.B` (an enum member) from `M.C`.
+- *Change `type_to_string` itself.* Rejected: it has 110 callers, some of
+  which compare prints for identity (`report_relation_head`'s
+  same-name test); the switch belongs to each report site.
+- *Outer name only (as `type_name_for_error_display` does).* Rejected:
+  misses type arguments and members.
+
+**Adoption is the report lanes'.** The entry changes no output by itself.
+The measured adoption diff switches `report_relation_head`
+(`assignreport.rs`, the TS2322 family and its same-name test), the
+`check_nonexistent_property` receivers (`nonexistent_property.rs`, TS2339)
+and TS2403 (`check.rs`, which printed at the site) to the entry. Measured
+on the EXACT oracle against §21's run (`581ff4186`): exact **9644 → 9660,
++16 / −0**. Naming-only message diffs fall from 91 in 41 cases to 27 in
+15. The rest are at sites that diff does not touch:
+- TS2741's `missing_properties_diagnostic`, which has no node and also owes
+  `getTypeNamesForErrorDisplay`'s same-print retry;
+- TS2746 (`jsx_component.rs`);
+- TS2367 (`comparison_overlap.rs`);
+- TS2353;
+- the TS2345 paths in `call_reports.rs`.
+
+**How to know this is wrong.** A message line where native prints a
+qualified name with no same-print retry behind it (TS2719 and
+`getTypeNamesForErrorDisplay` are the retries) would mean a native message
+passes an enclosing declaration that this road drops. That site would then
+call `type_to_string_at` instead.
