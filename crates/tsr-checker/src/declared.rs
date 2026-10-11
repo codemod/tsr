@@ -1139,6 +1139,17 @@ impl<'a> Checker<'a, '_> {
                 if let (Some(object), Some(index)) = (node.object_type, node.index_type) {
                     let object = self.get_type_from_type_node(object);
                     let index = self.get_type_from_type_node(index);
+                    // getPropertyTypeForIndexType (checker.go:27084): an `any`
+                    // object answers itself. An unresolved reference is
+                    // native's errorType carrying the written alias
+                    // (getUnresolvedSymbolForEntityName), so `C1.Red["toString"]`
+                    // is `C1.Red` (r7-declared §25).
+                    if self.unresolved_types.contains(&object)
+                        && !self.is_gap(object)
+                        && !self.store.get(index).flags.contains(TypeFlags::NEVER)
+                    {
+                        return object;
+                    }
                     if let Some(t) = self.resolved_indexed_access_type(object, index, false) {
                         if self.store.get(index).flags.contains(TypeFlags::UNION)
                             && let crate::types::TypeData::Union { types, .. } =
