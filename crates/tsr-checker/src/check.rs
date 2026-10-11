@@ -10363,6 +10363,43 @@ impl Checker<'_, '_> {
         std::mem::replace(&mut self.diagnostics, saved)
     }
 
+    /// Whether upstream's parser hands `node` to `checkJSSyntax` at all. It
+    /// calls it from particular parse functions, not on every node, and this
+    /// walk visits every node, so three kinds need the call site's test:
+    ///
+    /// - a parameter only from `parseParametersWorker` without
+    ///   `ParseFlagsType` (`parser.go:3303`): a function-like with a body, not
+    ///   a function or constructor type, a call/construct/method signature, or
+    ///   an index signature (whose `[k: string]` is `parseBracketedList` of
+    ///   `parseParameter`, `:3563`);
+    /// - an index signature only as a class element (`parseClassElement`,
+    ///   `:1871`), not as a type member;
+    /// - a method signature never: only type members are method signatures,
+    ///   and `parsePropertyOrMethodSignature` has no call.
+    fn reaches_check_js_syntax(&self, node: NodeId, typed: Node<'_>) -> bool {
+        let parent_kind = || self.nodes.parent(node).map(|parent| self.nodes.kind(parent));
+        match typed {
+            Node::MethodSignatureDeclaration(_) => false,
+            Node::ParameterDeclaration(_) => matches!(
+                parent_kind(),
+                Some(
+                    SyntaxKind::FunctionDeclaration
+                        | SyntaxKind::FunctionExpression
+                        | SyntaxKind::ArrowFunction
+                        | SyntaxKind::MethodDeclaration
+                        | SyntaxKind::Constructor
+                        | SyntaxKind::GetAccessor
+                        | SyntaxKind::SetAccessor
+                )
+            ),
+            Node::IndexSignatureDeclaration(_) => matches!(
+                parent_kind(),
+                Some(SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression)
+            ),
+            _ => true,
+        }
+    }
+
     /// `checkJSSyntax` (`parser.go:6711`). Upstream runs this in the **parser**;
     /// this port's parser does not emit diagnostics, so the rules live here and
     /// [`Checker::js_syntax_diagnostics`] runs them as the separate, syntactic
@@ -10373,7 +10410,7 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §569.
     fn check_js_syntax(&mut self, node: NodeId, typed: Node<'_>) {
-        if !self.in_js_file(node) {
+        if !self.in_js_file(node) || !self.reaches_check_js_syntax(node, typed) {
             return;
         }
         match typed {
