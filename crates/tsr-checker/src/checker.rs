@@ -2351,6 +2351,31 @@ impl<'a, 'n> Checker<'a, 'n> {
                 {
                     return Some(format!("typeof {name}"));
                 }
+                // r7-printer §26: with no name in scope for the namespace
+                // (`trySymbolTable` excludes a UMD alias inside an external
+                // module), `getSymbolChain`'s `export =` shortcut
+                // (`nodebuilderimpl.go:1124`) makes its whole chain the
+                // module it is the `export =` of: `typeof import("./react")`.
+                // `createAnonymousTypeNode` writes `typeof` for a value module
+                // or an enum (`nodebuilderimpl.go:2805`); a function merged
+                // with an uninstantiated namespace prints structurally.
+                if self.module_host.is_some()
+                    && !self.is_module_symbol(symbol)
+                    && !self.is_ambient_module(symbol)
+                    && self
+                        .binder
+                        .symbols()
+                        .get(symbol)
+                        .flags
+                        .intersects(SymbolFlags::VALUE_MODULE | SymbolFlags::ENUM)
+                    && self.declared_in_file_module(symbol)
+                    && self.best_name(symbol, reference).is_none()
+                    && let Some((root, None)) = self.module_rooted_segment_at(symbol, reference)
+                {
+                    let specifier = self.module_specifier_for_symbol(root, reference)?;
+                    self.track_unsafe_import(&specifier, symbol, root);
+                    return Some(format!("typeof import({specifier})"));
+                }
                 // Ambient modules (`declare module "x"`) resolve since the
                 // `tryFindAmbientModule` arm (`checker-notes-modobj.md` §10)
                 // and must take the same interception: their baked text is the
@@ -4411,6 +4436,12 @@ impl<'a, 'n> Checker<'a, 'n> {
                 if name == "default" || name == "export=" {
                     continue;
                 }
+                // trySymbolTable excludes a UMD alias (`export as namespace`)
+                // in an external module file (symbolaccessibility.go:568;
+                // r7-printer §26).
+                if self.is_umd_alias_excluded_at(candidate, reference) {
+                    continue;
+                }
                 // A DEFAULT import is excluded: under esModuleInterop its
                 // chain runs through the synthetic default, and upstream
                 // prints the module-qualified form there —
@@ -4452,6 +4483,20 @@ impl<'a, 'n> Checker<'a, 'n> {
             }
         }
         None
+    }
+
+    /// `trySymbolTable`'s UMD exclusion (`symbolaccessibility.go:568`): an
+    /// alias declared by `export as namespace` is no name for its target from
+    /// inside an external module file.
+    fn is_umd_alias_excluded_at(&self, candidate: SymbolId, reference: NodeId) -> bool {
+        self.binder.symbols().get(candidate).declarations.first().is_some_and(|&declaration| {
+            self.nodes.kind(declaration) == SyntaxKind::NamespaceExportDeclaration
+        }) && self.source_file_of(reference).and_then(|file| self.node_map.get(file)).is_some_and(
+            |file| {
+                matches!(file, Node::SourceFile(source)
+                    if tsr_binder::is_external_module_in(source, self.nodes))
+            },
+        )
     }
 
     fn module_name_at(

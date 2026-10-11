@@ -310,3 +310,44 @@ ph.constants.NODE_PERFORMANCE_GC_MAJOR;
     );
     assert_has(&lines, &["ph.constants : typeof ph.constants", "constants : typeof ph.constants"]);
 }
+
+/// `trySymbolTable` excludes a UMD alias (`export as namespace React`) in an
+/// external module file (`symbolaccessibility.go:568`), so no name in scope
+/// reaches the namespace and `getSymbolChain`'s `export =` shortcut roots it
+/// at its module: `typeof import("./react")`. A script still names it through
+/// the UMD global (`reactImportDropped`'s native baseline; r7-printer §26).
+#[test]
+fn a_umd_namespace_inside_an_external_module_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/module_rooted_umd_namespace",
+        r"// @module: es6
+// @moduleResolution: bundler
+// @target: es6
+// @allowJs: true
+// @outDir: build
+// @filename: react.d.ts
+export = React;
+export as namespace React;
+declare namespace React {
+    function createClass(spec: any): number;
+}
+// @filename: tab.js
+export default React.createClass({});
+// @filename: script.js
+React.createClass({});
+",
+    );
+    // `react.d.ts`'s three, then `tab.js`, then `script.js`.
+    let react: Vec<_> = lines.iter().filter(|line| line.starts_with("React : ")).collect();
+    assert_eq!(
+        react,
+        [
+            "React : typeof React",
+            "React : typeof React",
+            "React : typeof React",
+            "React : typeof import(\"./react\")",
+            "React : typeof React",
+        ],
+        "{lines:?}"
+    );
+}

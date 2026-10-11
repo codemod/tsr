@@ -1076,3 +1076,51 @@ beyond the resolver's.
 **Alternative rejected.** Widening `module_alias_at` to search exports
 would duplicate the resolver's alias loop in a second place, along with
 its candidate order (`sortByBestName`), which only the resolver has.
+
+## 26. A UMD namespace inside an external module is spelled through its module (TRYSYMBOLTABLE-UMD-ALIAS-EXCLUSION)
+
+**Forcing constraint.** `reactImportDropped` 1:2. `react.d.ts` writes
+`export = React; export as namespace React; declare namespace React {…}`,
+and `src/components/TabBar.js`, an external module (`export default`),
+writes `React.createClass(…)`. Native prints
+`React : typeof import("../../react")`; the port printed `typeof React`.
+
+**Cause.** `trySymbolTable` skips a UMD alias when the enclosing file is an
+external module (`symbolaccessibility.go:568`). No other name in scope
+reaches the namespace, so `getSymbolChain` falls back to its containers.
+The namespace is its module's `export =`, so the shortcut at
+`nodebuilderimpl.go:1124` makes the whole chain that module. The port
+failed in two places:
+- `export_equals_alias_name_at` (§501's namespace-object road) had no UMD
+  exclusion, unlike `best_name` and `module_alias_at`, so it named the
+  namespace by the global alias;
+- no road spelled a namespace object whose chain is its module alone. The
+  baked `typeof React` stood. `symbol_chain` answers only a prefix, and a
+  one-element module chain has none.
+
+**The port.**
+- `is_umd_alias_excluded_at` carries the exclusion into
+  `export_equals_alias_name_at`.
+- After that road, a value-module or enum object declared in a file module,
+  with no in-scope name (`best_name`), whose resolver chain is a module
+  alone (`module_rooted_segment_at`, §18/§21's `(module, None)`), prints
+  `typeof import(spec)`.
+
+**The value-module gate.** The first measurement of this arm accepted any
+namespace flag and lost `esModuleInteropImportCall` 1:7 and 1:9 (types
++4 / −2). There, `foo` is a function merged with an uninstantiated
+`declare namespace foo {}`, and native prints `f.default : () => void`.
+`createAnonymousTypeNode` writes `typeof` only for a class, under its own
+conditions, or for an enum or value module (`nodebuilderimpl.go:2805`); a
+function with a type-only namespace prints structurally. The arm now
+requires `VALUE_MODULE | ENUM`.
+
+No cache or table beyond the resolver's.
+
+A script (`script.js` in the test) still prints `typeof React`: there the
+UMD alias is in scope.
+
+`reactImportDropped` 2:0 still differs. Native writes
+`import("../../../react.js")` at the import declaration and
+`import("../../../react")` at the JSX element of the same file. That is a
+per-site specifier-ending choice, not ported here.
