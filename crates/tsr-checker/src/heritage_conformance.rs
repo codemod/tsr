@@ -282,14 +282,24 @@ impl Checker<'_, '_> {
             let span = self.error_span(name_node);
             let source_text = self.type_to_string(source);
             let target_text = self.type_to_string(target);
-            self.report(
-                file,
-                Diagnostic::with_args(
+            let args = [printed.unwrap_or(name), source_text, target_text];
+            // `NewDiagnosticChain(diags[0], Property_0_in_type_1_is_not_assignable…)`
+            // over `checkTypeAssignableToEx(propType, basePropType, name, nil, &diags)`
+            // (`checker.go:4472`), r7-grammar §41.
+            let diagnostic = match self.relation_failure_diagnostic(name_node, property, base_property)
+            {
+                Some(child) => Diagnostic::new_chain(
+                    Some(child),
+                    &messages::PROPERTY_0_IN_TYPE_1_IS_NOT_ASSIGNABLE_TO_THE_SAME_PROPERTY_IN_BASE_TYPE_2,
+                    args,
+                ),
+                None => Diagnostic::with_args(
                     &messages::PROPERTY_0_IN_TYPE_1_IS_NOT_ASSIGNABLE_TO_THE_SAME_PROPERTY_IN_BASE_TYPE_2,
                     span,
-                    [printed.unwrap_or(name), source_text, target_text],
+                    args,
                 ),
-            );
+            };
+            self.report(file, diagnostic);
         }
         if issued || undecided {
             return;
@@ -303,10 +313,66 @@ impl Checker<'_, '_> {
         if self.report_weak_type_failure(at, span, source, target) {
             return;
         }
+        self.report_heritage_relation(at, source, target, broad);
+    }
+
+    /// `checkTypeAssignableTo(source, target, errorNode, headMessage)` for a
+    /// heritage relation (TS2415/TS2430): the relater's report under the head
+    /// message, with its elaboration chain, through `report_relation_failure`.
+    /// Only TS2415 and TS2430 take that road: both implements heads
+    /// (`Class_0_incorrectly_implements_interface_1` and the
+    /// `…implements_class_1_Did_you_mean_to_extend…` variant) are
+    /// `isConversionOrInterfaceImplementationMessage` heads, which keep
+    /// themselves over a missing-property chain (`relater.go:4816`). That
+    /// reporter does not make the exception, so they keep the bare head.
+    /// A report the relater declines also keeps the bare head (r7-grammar §41).
+    fn report_heritage_relation(
+        &mut self,
+        at: NodeId,
+        source: TypeId,
+        target: TypeId,
+        head: &'static Message,
+    ) {
+        let span = self.error_span(at);
+        let through_relater =
+            std::ptr::eq(head, &raw const messages::CLASS_0_INCORRECTLY_EXTENDS_BASE_CLASS_1)
+                || std::ptr::eq(
+                    head,
+                    &raw const messages::INTERFACE_0_INCORRECTLY_EXTENDS_INTERFACE_1,
+                );
+        if through_relater
+            && self.report_relation_failure(at, span, None, source, target, Some(head))
+        {
+            return;
+        }
         let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
         let source_text = self.type_to_string(source);
         let target_text = self.type_to_string(target);
-        self.report(file, Diagnostic::with_args(broad, span, [source_text, target_text]));
+        self.report(file, Diagnostic::with_args(head, span, [source_text, target_text]));
+    }
+
+    /// `checkTypeAssignableToEx(source, target, errorNode, nil, &diags)`'s
+    /// `diags[0]`: the relater's report at `at` with no head message,
+    /// collected instead of reported (the error output container), with its
+    /// file attached for nesting. `None` when the reporter declines.
+    fn relation_failure_diagnostic(
+        &mut self,
+        at: NodeId,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Diagnostic> {
+        let span = self.error_span(at);
+        let mark = self.diagnostics.len();
+        let reported = self.report_relation_failure(at, span, None, source, target, None);
+        let mut collected: Vec<(NodeId, Diagnostic)> = self.diagnostics.drain(mark..).collect();
+        if !reported || collected.is_empty() {
+            return None;
+        }
+        let (file, mut first) = collected.remove(0);
+        if let Some(image) = self.diagnostic_file_image(file) {
+            first.set_file(image);
+        }
+        Some(first)
     }
 
     /// `checkMembersForOverrideModifier` / `checkMemberForOverrideModifier`
@@ -621,17 +687,11 @@ impl Checker<'_, '_> {
                 {
                     continue;
                 }
-                let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
-                let span = self.error_span(name);
-                let source_text = self.type_to_string(source);
-                let target_text = self.type_to_string(target);
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::INTERFACE_0_INCORRECTLY_EXTENDS_INTERFACE_1,
-                        span,
-                        [source_text, target_text],
-                    ),
+                self.report_heritage_relation(
+                    name,
+                    source,
+                    target,
+                    &messages::INTERFACE_0_INCORRECTLY_EXTENDS_INTERFACE_1,
                 );
             }
         }

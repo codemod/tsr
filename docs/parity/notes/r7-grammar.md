@@ -777,3 +777,38 @@ with `related_diagnostic_at` (so it carries its file, §34) and wraps it with
 `mergedInterfacesWithConflictingPropertyNames`, `baseTypePrivateMemberClash`,
 `conflictingMemberTypesInBases`, `genericAndNonGenericInheritedSignature1`
 (bucket `TS2319 in TS2320`, 14 cases).
+
+## §41 TS2416, TS2415 and TS2430 with the relater's elaboration
+
+`issueMemberSpecificError` (`checker.go:4472`) reports a member's TS2416 as
+`NewDiagnosticChain(diags[0], Property_0_in_type_1_is_not_assignable…)`.
+`diags[0]` is what `checkTypeAssignableToEx(propType, basePropType,
+memberName, nil, &diags)` collected: the relater's own report (TS2322, TS2741,
+…) with its chain, at the member name. The broad TS2415/TS2430 is
+`checkTypeAssignableTo(typeWithThis, baseWithThis, name, broadDiag)`, the
+relater's report under that head message. heritage_conformance.rs reported
+all three as bare heads.
+
+*Port.* TS2415/TS2430 go through `report_relation_failure` with the head
+(`report_heritage_relation`). TS2416's child is collected by
+`relation_failure_diagnostic`: it marks the diagnostics length, runs the same
+reporter with no head, and drains what it added. That is the error output
+container `&diags` stands for; only the first collected diagnostic is used,
+as upstream uses `diags[0]`. The child gets its file attached
+(`diagnostic_file_image`, §34), since nested diagnostics have no report slot.
+When the reporter declines, the bare head stays, as before.
+
+*The implements heads keep the bare head.* `Class_0_incorrectly_implements_interface_1`
+(TS2420) and `Class_0_incorrectly_implements_class_1_Did_you_mean_to_extend…`
+(TS2720) are `isConversionOrInterfaceImplementationMessage` heads. Those keep
+themselves over a missing-property chain (`relater.go:4816`). So only TS2415
+and TS2430 go through the relater (an allowlist; a first cut that exempted
+only TS2420 lost five class-implements-class cases in the legacy compare).
+`report_relation_failure` always lets that chain replace the head (its doc
+says no caller passes such a message), so routing TS2420 through it would
+turn TS2420 into TS2741. The exception is routed to the reporter's owner
+(assignreport.rs); after it lands, TS2420 can take the same path.
+
+Measured (near-full oracle vs `c91f027e2`, with §40): +19, 0 lost.
+*Falsifier.* A TS2416 whose chain child differs from the relater's report at
+the same member against the same base member type.
