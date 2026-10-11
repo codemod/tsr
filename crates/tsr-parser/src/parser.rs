@@ -1063,7 +1063,13 @@ impl<'a> Parser<'a> {
         T: HasNodeId,
         &'a T: Into<tsr_ast::Node<'a>>,
     {
-        let end = self.node_end();
+        // A node that covers no token starts at the next token and would end
+        // at the previous one's end, before its start when trivia came
+        // between (an empty `<div >`'s attributes, an omitted `[, x]`
+        // element, a missing type after `:`). It is zero-width at its start,
+        // as this port's missing nodes are. The inverted span reached the
+        // exact oracle's writer (constructorWithIncompleteTypeAnnotation).
+        let end = self.node_end().max(start);
         self.finish_node_with_end(node, kind, start, end)
     }
 
