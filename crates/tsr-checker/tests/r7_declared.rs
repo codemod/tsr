@@ -312,3 +312,15 @@ fn an_optional_mapped_property_includes_undefined() {
          const x = m;\n";
     assert_eq!(type_of_last_initializer(source), "{ a?: 1 | undefined; b?: 2 | undefined; }");
 }
+
+/// §32: a homomorphic mapping over a reference to a mapped alias
+/// enumerates that instance's keys (tsgo: `{ "12": number; 42: string; }`).
+#[test]
+fn a_homomorphic_mapping_over_a_mapped_alias_reference_has_its_keys() {
+    let source = "type M = { foo: boolean; \"12\": number; 42: string };\n\
+         type P<T, K extends keyof T> = { [Q in K]: T[Q] };\n\
+         type O = P<M, \"12\" | 42>;\n\
+         declare const m: { [K in keyof O]: O[K] };\n\
+         const x = m;\n";
+    assert_eq!(type_of_last_initializer(source), "{ \"12\": number; 42: string; }");
+}

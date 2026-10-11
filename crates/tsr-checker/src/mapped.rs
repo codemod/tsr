@@ -740,12 +740,48 @@ impl<'a> Checker<'a, '_> {
         self.mapped_members_in_progress.remove(&id);
     }
 
+    /// getModifiersTypeFromMappedType (checker.go): for a `keyof X`
+    /// constraint the modifiers type is `X`, and an alias reference `X` IS its
+    /// instantiated body natively (`type O = Omit<Mappings, "foo">` is Pick's
+    /// mapped instance). This port's alias reference is a `Named` over the
+    /// alias symbol with no member table of its own, so the homomorphic
+    /// mapping enumerated no key (`{ [K in keyof O]: O[K] }` was `{}`). A
+    /// reference to a mapped alias answers its own mapped capture
+    /// (`ensure_mapped_type_info`); a reference whose evaluated body is a
+    /// mapped instance (`Omit` over `Pick`) answers that instance. Anything
+    /// else stays as it is (r7-declared §32).
+    fn mapped_modifiers_instance(&mut self, source: TypeId) -> TypeId {
+        if self.mapped_types.contains_key(&source) {
+            return source;
+        }
+        let Some((target, arguments)) = self.type_reference_targets.get(&source).cloned() else {
+            return source;
+        };
+        if !self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return source;
+        }
+        self.ensure_mapped_type_info(source);
+        if self.mapped_types.contains_key(&source) {
+            return source;
+        }
+        match self.evaluate_alias_body(target, &arguments) {
+            Some(body) if body != source && !self.is_gap(body) => {
+                self.ensure_mapped_type_info(body);
+                if self.mapped_types.contains_key(&body) { body } else { source }
+            }
+            _ => source,
+        }
+    }
+
     /// getIndexTypeForMappedType (checker.go:26871). Unremapped keys are
     /// exactly the constraint; remapped keys follow the same per-property mapper.
     pub(crate) fn mapped_index_type(&mut self, id: TypeId) -> Option<TypeId> {
         let info = self.mapped_types.get(&id)?.clone();
         let Some(name_type) = info.name_type else { return Some(info.constraint) };
-        let modifiers = info.modifiers_source.map(|source| self.apparent_type(source));
+        let modifiers = info.modifiers_source.map(|source| {
+            let apparent = self.apparent_type(source);
+            self.mapped_modifiers_instance(apparent)
+        });
         let keys = self.mapped_member_keys(&info, modifiers)?;
         let mut names = Vec::new();
         for key in keys {
@@ -1019,7 +1055,10 @@ impl<'a> Checker<'a, '_> {
             self.object_literal_index_infos.insert(id, indexes);
             return;
         }
-        let modifiers = info.modifiers_source.map(|source| self.apparent_type(source));
+        let modifiers = info.modifiers_source.map(|source| {
+            let apparent = self.apparent_type(source);
+            self.mapped_modifiers_instance(apparent)
+        });
         let Some(keys) = self.mapped_member_keys(&info, modifiers) else { return };
         // resolveMappedTypeMembers combines source keys before substituting
         // the template, so colliding names see the entire key union.
@@ -1156,7 +1195,21 @@ impl<'a> Checker<'a, '_> {
                     crate::printing::quote(&name)
                 }
             } else {
-                captured.map_or_else(|| name.clone(), |property| property.printed_name.clone())
+                // createPropertyNameNodeForIdentifierOrLiteral: a string-named
+                // key that is not an identifier prints quoted (`"12"`), a
+                // numeric one bare (`42`).
+                captured.map_or_else(
+                    || {
+                        if crate::objects::is_identifier_text(&name)
+                            || !matches!(self.store.get(name_type).data, TypeData::StringLiteral(_))
+                        {
+                            name.clone()
+                        } else {
+                            crate::printing::quote(&name)
+                        }
+                    },
+                    |property| property.printed_name.clone(),
+                )
             };
             let origin = link_declarations
                 .then(|| captured.and_then(|property| property.origin).or(source_property))

@@ -1114,3 +1114,37 @@ a mapped type (`{ [K in keyof O]: O[K] }` with `type O = Omit<Mappings,
 declaration's annotation (`b?: 2`, node reuse of `b?: 2` whose declared type
 equals the property type) where TSR prints `b?: 2 | undefined`, which is the
 printer's reuse arm.
+
+## 32. A homomorphic mapping over a mapped-alias reference enumerates the instance's keys
+
+**Forcing constraint.** getModifiersTypeFromMappedType takes `X` from a
+`keyof X` constraint, and an alias reference `X` IS its instantiated body
+natively: `{ [K in keyof O]: O[K] }` with `type O = Omit<Mappings, "foo">`
+enumerates Pick's instance (`{ "12": number; 42: string; }`), and over
+`Partial<Pick<Mappings, "foo">>` it reads `foo?`. TSR's alias reference is a
+`Named` over the alias symbol whose member table the mapped producer cannot
+list, so the mapping enumerated no key and printed `{}`.
+
+**Port.** `mapped_modifiers_instance` (both producers that read the
+modifiers type): a reference to a mapped alias answers its own mapped capture
+(`ensure_mapped_type_info`); a reference whose evaluated body is a mapped
+instance (`Omit` over `Pick`) answers that instance; anything else is
+unchanged. And a key that names its property by a string literal which is not
+an identifier prints quoted when no source property supplies the printed name
+(createPropertyNameNodeForIdentifierOrLiteral: `"12"`, while the numeric key
+`42` stays bare), the rule the `as`-clause arm already applied.
+
+**Measured** with §29 (unfiltered against the `fb7388a3`+§31 freeze, whose
+difference from this commit's parent is §29's two mappedTypeRelationships
+rows): types **+8, 0 lost** beyond §29 (mappedTypeIndexedAccessConstraint 5,
+declarationQuotedMembers 3); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0; Ir gi 1.0000, dm 1.0001.
+
+**Not this port:** an intersection modifiers type of such references
+(`{ [K in keyof PartMappings]: … }` over `Omit<…> & Partial<Pick<…>>`) still
+enumerates nothing. Admitting it through
+`composite_modifiers_property_names` listed the names but lost the
+optionality and the numeric key provenance of the mapped constituents (a
+mapped member has no property symbol for the composite's
+`get_property_of_type` to find), printing a wrong member table where `{}`
+stood; the members' modifiers need the type road through composites first.
