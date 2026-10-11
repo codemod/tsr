@@ -650,7 +650,7 @@ reference, shares its `type_reference_targets` entry and printed text; a
 reference's own this-argument is the reference; `None` takes the target's
 this-type; a non-reference is unchanged. Expected corpus delta: zero.
 
-### Step 2 (built, HELD on `box/r7-shared-held`): inherited and receiver signatures take the this-argument
+### Step 2 (built): inherited and receiver signatures take the this-argument
 
 - `signatures.rs::instantiate_signature_for_receiver`: the existing reference
   mapper (`instantiate_signature_for_reference`, `inference.rs`, unchanged)
@@ -665,14 +665,17 @@ this-type; a non-reference is unchanged. Expected corpus delta: zero.
 - Harvest spec `tests/calls_concrete_receiver.rs` passes with it.
 - Step 2b: `get_type_of_property_of_type` passes an image's this-argument.
 
-**Why held.** Corpus delta zero (batch 19, both steps), but callgrind Ir
-domain-model **+0.57%** (step 2) and +0.08% (2b): every named-type
-candidate set now takes a second instantiation pass whenever the target has
-a minted this-type, and lib interfaces (`Array`'s `this is S[]` predicates)
-do. Native pays this inside one cached member resolution per reference.
-Before re-landing with step 3: fold the this pairs into the reference
-mapper's single pass and skip targets whose this-type the signature cannot
-mention, then re-measure Ir.
+**Held, then fixed.** First measured (batch 19): corpus delta zero, but
+callgrind Ir domain-model **+0.57%** (step 2) and +0.08% (2b). Folding the
+this pairs into the reference mapper's single pass and skipping signatures
+that cannot mention `this` (`declarations_mentioning_this`, a syntactic memo
+per declaration: a written `this` type or a body) left it at +0.68%: the
+cost was that the inherited-base arm *minted* a this-type for every
+interface declaration with heritage, and a minted this-type moves every
+later member read of that interface onto the this-substitution road. The
+derived this-type is now minted only for an inherited signature that can
+mention `this`: domain-model 1.0004, generic-imports 1.0000 against the same
+build directory.
 
 ## 15. `isReadonlySymbol` of a mapped member in `is_readonly_property_of_type`
 
@@ -826,3 +829,27 @@ named `prototype` whose parent node is a class) and answers
 itself, and computed names that late-bind to `prototype`
 (`[FunctionPropertyNames.prototype]`, `staticPropertyNameConflicts` 65/195/330),
 which `lateBindMember` resolves against the early prototype symbol.
+
+## 23. Parameters and body variables are not visible from outside a function's body (RESOLVE-NAME-FUNCTION-LIKE-PARAMETER-SCOPE)
+
+`resolveNameHelper`'s `useResult` block (binder/nameresolver.go:61-80) for a
+function-like `location` reached from anything but its body: a type found in
+its locals is visible only if it is a type parameter seen from the parameter
+list or return type (§842, ported); a function-scoped *variable* (a
+parameter or a `var` in the body) only from a parameter, or from the return
+type when it is declared in a parameter. Only the type-parameter-list case of
+the variable arm existed (§838), so `function bar(): typeof b { var b }`
+resolved `b` (native TS2304) and a member's computed name `[foo<T>(a)]<T>(a:
+T)` resolved `a` to the member's own parameter (native `any`, TS2552).
+`function_scoped_variable_hidden_outside_body` is the arm; a JSDoc-kind
+arrival is treated as native's synthesized reparsed node, which sees the
+parameters. `useOuterVariableScopeInParameter` stays the caller's.
+`functionVariableInReturnTypeAnnotation` converts (diagnostics);
+`typeParametersAndParametersInComputedNames` now reads `a : any` and reports
+TS2552, still missing TS2304 for the type argument `T`.
+
+Perf: the arm runs on every successful local lookup at check time. As a plain
+call it cost +0.28% Ir on domain-model; an always-inlined prelude (arrival
+present and a function-like location) in front of an out-of-line remainder
+that tests `Block`/`Parameter`/the JSDoc kind range before any table read
+brings it to domain-model 1.0011, generic-imports 1.0000.

@@ -10536,11 +10536,14 @@ impl Checker<'_, '_> {
             Node::ArrowFunction(n) => n.type_parameters,
             _ => &[],
         };
+        // Over the whole list, `list.Loc` (`parser.go:6777`): `class B<T:
+        // BaseA>` recovers `BaseA` as a second parameter, and the report
+        // spans `T: BaseA`, not `T`.
         if let Some(first) = type_parameters.first().and_then(|p| p.node_id) {
-            self.report_js_only(
+            self.report_js_only_over(
                 first,
+                type_parameters.iter().filter_map(|p| p.node_id),
                 &messages::TYPE_PARAMETER_DECLARATIONS_CAN_ONLY_BE_USED_IN_TYPESCRIPT_FILES,
-                None,
             );
         }
         // `ast.IsFunctionLike(node) && node.Body() == nil` takes the place of

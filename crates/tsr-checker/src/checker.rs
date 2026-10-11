@@ -462,6 +462,12 @@ pub struct Checker<'a, 'n> {
     /// `(reference, this-argument)`. A reference with no entry is its own
     /// this-argument (`resolveTypeReferenceMembers` appends the reference).
     pub(crate) reference_this_arguments: FxHashMap<TypeId, (TypeId, TypeId)>,
+    /// Whether a signature declaration can mention its owner's this-type:
+    /// it writes a `this` type or has a body. Key: the declaration `NodeId`
+    /// (syntax only, so complete on first computation); owner: this checker.
+    /// Read by `instantiate_signature_for_receiver` to skip the this-type
+    /// pairs a signature cannot contain (`r7-shared.md` §13 step 2).
+    pub(crate) declarations_mentioning_this: FxHashMap<NodeId, bool>,
     pub(crate) late_bound_member_names:
         rustc_hash::FxHashMap<(SymbolId, bool), Vec<(String, tsr_ast::NodeId)>>,
     /// §469's other half of the signature-links table: DECLARATIONS whose
@@ -1561,6 +1567,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             resolving_iteration_types: rustc_hash::FxHashSet::default(),
             this_argument_references: FxHashMap::default(),
             reference_this_arguments: FxHashMap::default(),
+            declarations_mentioning_this: FxHashMap::default(),
             late_bound_member_names: rustc_hash::FxHashMap::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_this_parameters: FxHashMap::default(),

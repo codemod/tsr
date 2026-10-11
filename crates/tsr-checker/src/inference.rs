@@ -1529,12 +1529,16 @@ impl<'a> Checker<'a, '_> {
                                 parameter_type,
                                 &[type_parameter],
                                 &[name],
-                            ) && !argument_types.get(index).is_some_and(|&source| {
-                                // Nor does a tuple whose arity rules the tuple
-                                // parameter out: `inferFromObjectTypes` returns
-                                // at `typesDefinitelyUnrelated`
-                                // (`inference.go:715`) before any element.
-                                self.tuple_types_definitely_unrelated(source, parameter_type)
+                            ) && argument_types.get(index).is_none_or(|&source| {
+                                // Nor does a source certified to supply none
+                                // (§7, §17, §18).
+                                self.source_could_supply_candidate(
+                                    source,
+                                    parameter_type,
+                                    type_parameter,
+                                    name,
+                                    0,
+                                )
                             }) && !argument_types.get(index).is_some_and(|&source| {
                                 self.predicate_only_inference_has_no_source(
                                     source,
@@ -3260,6 +3264,216 @@ impl<'a> Checker<'a, '_> {
     /// Ported from inferFromObjectTypes (internal/checker/inference.go:714-809).
     /// Rest slots are represented here by their array operand; upstream stores
     /// the element argument instead. Convert at the inference boundary.
+    /// Whether inferring from `source` to `target` could give `parameter` a
+    /// candidate natively, `true` where this port cannot certify otherwise.
+    /// Certified absences follow `inferFromTypes`' own exits:
+    /// - a target that does not mention the parameter;
+    /// - a null/undefined, `any` or `unknown` source (candidates only at naked
+    ///   variables, which this collector has; §4);
+    /// - `typesDefinitelyUnrelated` (`inference.go:715`): incompatible tuple
+    ///   arities (§7), or objects with mutually unmatched required properties,
+    ///   a primitive read through its apparent type as the default arm does
+    ///   (§17);
+    /// - two single non-generic signatures (`inferFromSignatures`,
+    ///   `applyToParameterTypes`): only parameter pairs below the shorter
+    ///   arity, the `this` pair when the source declares one, and the return
+    ///   pair are visited, so a parameter mentioned only in an unpaired
+    ///   position (a callback written with fewer parameters, the target's
+    ///   `this` against a source without one) gets nothing (§18).
+    fn source_could_supply_candidate(
+        &mut self,
+        source: TypeId,
+        target: TypeId,
+        parameter: TypeId,
+        name: &str,
+        depth: u8,
+    ) -> bool {
+        use crate::flags::TypeFlags;
+        if !self.mentions_type_parameter(target, &[parameter], &[name]) {
+            return false;
+        }
+        if source != self.intrinsics.error
+            && self
+                .type_of(source)
+                .flags
+                .intersects(TypeFlags::NULLABLE | TypeFlags::ANY_OR_UNKNOWN)
+        {
+            return false;
+        }
+        if depth > 4 || source == self.intrinsics.error {
+            return true;
+        }
+        if self.tuple_types_definitely_unrelated(source, target) {
+            return false;
+        }
+        let object_source = if self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE) {
+            self.apparent_type(source)
+        } else {
+            source
+        };
+        if self.object_types_definitely_unrelated(object_source, target) {
+            return false;
+        }
+        let pure_function = |checker: &mut Self, t: TypeId| {
+            checker.signature_types.contains_key(&t)
+                && checker.get_property_names_of_type(t).is_some_and(|names| names.is_empty())
+        };
+        if pure_function(self, source)
+            && pure_function(self, target)
+            && let (Some(sources), Some(targets)) =
+                (self.call_signatures_of_type(source), self.call_signatures_of_type(target))
+            && let ([source_signature], [target_signature]) =
+                (sources.as_slice(), targets.as_slice())
+            && source_signature.type_parameters.is_empty()
+            && target_signature.type_parameters.is_empty()
+            && !source_signature.parameters.iter().any(|p| p.rest)
+            && !target_signature.parameters.iter().any(|p| p.rest)
+        {
+            let (source_signature, target_signature) =
+                (source_signature.clone(), target_signature.clone());
+            let paired = source_signature.parameters.len().min(target_signature.parameters.len());
+            for index in 0..paired {
+                let from = self.parameter_type(&source_signature.parameters[index]);
+                let to = self.parameter_type(&target_signature.parameters[index]);
+                if self.source_could_supply_candidate(from, to, parameter, name, depth + 1) {
+                    return true;
+                }
+            }
+            if let (Some(from), Some(to)) =
+                (&source_signature.this_parameter, &target_signature.this_parameter)
+            {
+                let (from, to) = (self.parameter_type(from), self.parameter_type(to));
+                if self.source_could_supply_candidate(from, to, parameter, name, depth + 1) {
+                    return true;
+                }
+            }
+            return self.source_could_supply_candidate(
+                source_signature.r#type,
+                target_signature.r#type,
+                parameter,
+                name,
+                depth + 1,
+            );
+        }
+        true
+    }
+
+    /// `typesDefinitelyUnrelated`' object half (`inference.go:1185`): each type
+    /// has a required property the other lacks (`getUnmatchedProperty`,
+    /// `relater.go:984`, matching unit-typed discriminants in the source
+    /// direction). Decided only for two plain object types whose property
+    /// lists this port can enumerate completely; anything else is "possibly
+    /// related", which keeps the existing inference.
+    fn object_types_definitely_unrelated(&mut self, source: TypeId, target: TypeId) -> bool {
+        use crate::flags::TypeFlags;
+        let plain = |checker: &Self, t: TypeId| {
+            let flags = checker.store.get(t).flags;
+            flags.contains(TypeFlags::OBJECT)
+                && !flags.intersects(
+                    TypeFlags::UNION | TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE,
+                )
+                && !checker.mapped_types.contains_key(&t)
+                && !checker.unresolved_types.contains(&t)
+                && !checker.tuple_element_lists.contains_key(&t)
+                && !checker.variadic_tuple_elements.contains_key(&t)
+        };
+        // A generic alias instance is its body's type natively; this port
+        // keeps the alias identity, whose own member table is empty.
+        let source = self.binding_type_alias_body(source);
+        let target = self.binding_type_alias_body(target);
+        if !plain(self, source)
+            || !plain(self, target)
+            || !self.member_names_are_literal(source)
+            || !self.member_names_are_literal(target)
+        {
+            return false;
+        }
+        let (Some(source_names), Some(target_names)) =
+            (self.get_property_names_of_type(source), self.get_property_names_of_type(target))
+        else {
+            return false;
+        };
+        self.unmatched_property(source, &source_names, target, &target_names, true) == Some(true)
+            && self.unmatched_property(target, &target_names, source, &source_names, false)
+                == Some(true)
+    }
+
+    /// Whether `t`'s property names are all ones this port lists: its
+    /// symbol's declarations name members literally or as a well-known
+    /// `Symbol.x`, and inherit nothing through a heritage clause. Another
+    /// computed name (`[observable]()` with `observable: typeof Symbol.obs`)
+    /// is a late-bound member this port may not list, so the complete name
+    /// list it answers cannot certify an absence.
+    fn member_names_are_literal(&self, t: TypeId) -> bool {
+        use tsr_ast::SyntaxKind as K;
+        let TypeData::Named { members: Some(symbol), .. } = self.store.get(t).data else {
+            return false;
+        };
+        let declarations = self.binder.symbols().get(symbol).declarations.to_vec();
+        !declarations.is_empty()
+            && declarations.iter().all(|&declaration| {
+                let Some(node) = self.node_map.get(declaration) else { return false };
+                let mut clean = true;
+                tsr_ast::for_each_child_id(node, |member| {
+                    if self.nodes.kind(member) == K::HeritageClause {
+                        clean = false;
+                        return;
+                    }
+                    if let Some(member_node) = self.node_map.get(member) {
+                        tsr_ast::for_each_child_id(member_node, |name| {
+                            if self.nodes.kind(name) == K::ComputedPropertyName
+                                && !matches!(self.node_map.get(name),
+                                    Some(tsr_ast::Node::ComputedPropertyName(computed))
+                                        if matches!(computed.expression,
+                                            Some(tsr_ast::Expression::PropertyAccessExpression(access))
+                                                if matches!(access.expression,
+                                                    Some(tsr_ast::Expression::Identifier(root))
+                                                        if root.text == "Symbol")))
+                            {
+                                clean = false;
+                            }
+                        });
+                    }
+                });
+                clean
+            })
+    }
+
+    /// `getUnmatchedProperty(source, target, false, matchDiscriminants)`
+    /// over complete name lists; `None` where a property cannot be read.
+    fn unmatched_property(
+        &mut self,
+        source: TypeId,
+        source_names: &[String],
+        target: TypeId,
+        target_names: &[String],
+        match_discriminants: bool,
+    ) -> Option<bool> {
+        use crate::flags::TypeFlags;
+        for name in target_names {
+            let target_property = self.get_property_of_type(target, name)?;
+            if self.property_is_optional(target_property) {
+                continue;
+            }
+            if !source_names.contains(name) {
+                return Some(true);
+            }
+            if match_discriminants {
+                let target_type = self.get_type_of_property_of_type(target, name)?;
+                if self.store.get(target_type).flags.intersects(TypeFlags::UNIT) {
+                    let source_type = self.get_type_of_property_of_type(source, name)?;
+                    if !self.store.get(source_type).flags.intersects(TypeFlags::ANY)
+                        && self.get_regular_type_of_literal_type(source_type)
+                            != self.get_regular_type_of_literal_type(target_type)
+                    {
+                        return Some(true);
+                    }
+                }
+            }
+        }
+        Some(false)
+    }
+
     /// `tupleTypesDefinitelyUnrelated` (`inference.go:1195`) over this port's
     /// tuple element lists; a `*_rest` entry is the array element of a rest
     /// (non-variadic) spread.
@@ -4983,7 +5197,43 @@ impl<'a> Checker<'a, '_> {
             }
             return;
         }
+        // inferFromTypes' default arm (`inference.go:262-274`): the source is
+        // replaced by its apparent type (the NoConstraints case returned
+        // above). An apparent type that is neither an object nor an
+        // intersection restarts `inferFromTypes` with it; an object one is the
+        // source of the structural inference below, so `"abc"` against
+        // `Iterable<T>` reads `String`'s `[Symbol.iterator]`. Ported for
+        // primitive sources only: the instantiable and intersection half waits
+        // on readers outside this file (docs/parity/notes/r7-contextual.md §17).
+        let source =
+            if self.store.get(source).flags.intersects(crate::flags::TypeFlags::PRIMITIVE) {
+                let apparent = self.apparent_type(source);
+                if apparent == source || apparent == self.intrinsics.error {
+                    source
+                } else if !self.store.get(apparent).flags.intersects(
+                    crate::flags::TypeFlags::OBJECT | crate::flags::TypeFlags::INTERSECTION,
+                ) {
+                    self.infer_from_types_within(
+                        apparent,
+                        target,
+                        original,
+                        parameters,
+                        out,
+                        depth + 1,
+                    );
+                    return;
+                } else {
+                    apparent
+                }
+            } else {
+                source
+            };
         if self.infer_to_mapped_type(source, target, parameters, out, depth) {
+            return;
+        }
+        // inferFromObjectTypes infers from members only when the two types
+        // are possibly related (`typesDefinitelyUnrelated`, `inference.go:715`).
+        if self.object_types_definitely_unrelated(source, target) {
             return;
         }
         // invokeOnce (inference.go:335) remembers both completed pairs and
