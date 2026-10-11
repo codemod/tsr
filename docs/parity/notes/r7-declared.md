@@ -875,3 +875,27 @@ new_false 0 / lost_true 0; Ir gi 0.9999, dm 1.0000. importTypeGenericTypes'
 `import("./foo2").Bar.I<{ x: number; }>` now prints `Bar.I<…>` (GAP →
 WRONG): the site renderer names the reference by its chain. That is
 r7-printer's symbol-chain arm.
+
+## 25. An indexed access over an unresolved reference answers the reference (TYPEREF-UNRESOLVED-ALIAS-TARGET-SYMBOL, part)
+
+**Forcing constraint.** getPropertyTypeForIndexType (`checker.go:27084`)
+answers an `any` object itself. An unresolved type reference is native's
+errorType carrying the written alias (getUnresolvedSymbolForEntityName), and
+IsTypeAny holds for it, so `C1.Red["toString"]` (where `C1` is a type
+alias, not a namespace) is `C1.Red` (errorForUsingPropertyOfTypeAsType03
+c2/d2). TSR's indexed-access type-node arm answered `error`.
+
+**Port.** In that arm, a non-gap unresolved mint (`unresolved_types`, not
+`is_gap`: the OBJECT-flagged deferred mints are the port's own gaps and stay
+declined) answers itself, unless the index is `never`. No state.
+
+**Measured** (unfiltered against `b414e1af`): types **+2, 0 lost**
+(errorForUsingPropertyOfTypeAsType03 0:19, 0:25); diagnostics 0 / 0;
+jsTyping new_false 0 / lost_true 0; Ir gi 1.0001, dm 1.0001.
+
+**Not taken, with cause:** importDeclWithClassModifiers / importDeclWithDeclareModifier
+(`var b: a` through `import a = x.c` of an unexported member: native `a`).
+Answering the written reference moves the merged `import b` declaration's
+own line, which native prints as the alias's errorType (`any`) while TSR
+prints the merged var's type. That line is `getTypeOfAlias`'s, owned by
+`symbols.rs`.
