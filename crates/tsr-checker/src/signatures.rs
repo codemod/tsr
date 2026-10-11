@@ -6558,6 +6558,30 @@ impl<'a> Checker<'a, '_> {
             .node_id
             .and_then(|id| self.binder.symbol_of(id))
             .map(|symbol| self.get_declared_type_of_symbol(symbol));
+        // `getConstraintOfTypeParameter` (`checker.go:17059`): a written
+        // constraint whose base constraint is circular (`<T extends T>`,
+        // `<U extends T, T extends U>`) is no constraint
+        // (`hasNonCircularBaseConstraint`), so the parameter prints and
+        // relates as unconstrained (`docs/parity/notes/r7-shared.md` §18).
+        // Native resolves the constraint lazily, so a constraint naming a
+        // value (`<T extends typeof j>` inside `j`'s own annotation) never
+        // forms a cycle at signature construction; only a constraint that is
+        // itself a type parameter or an indexed access can be circular, and
+        // only those are asked here.
+        let circular = constraint.is_some_and(|written| {
+            self.store
+                .get(written)
+                .flags
+                .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
+        }) && constraint_node.is_some()
+            && resolved_type.is_some_and(|parameter| {
+                matches!(
+                    self.constraint_of_type(parameter),
+                    crate::constraints::ConstraintOfType::Nil
+                )
+            });
+        let (constraint, written_constraint) =
+            if circular { (None, None) } else { (constraint, written_constraint) };
         Some(TypeParameter {
             resolved_type,
             is_const,

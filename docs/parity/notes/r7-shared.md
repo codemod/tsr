@@ -742,3 +742,16 @@ alias (`GetNameOfDeclaration(ImportEqualsDeclaration)`, the name;
 `export as namespace`), and line 1:2 (`type VNode = preact.VNode<any>` reads
 `any`) is the declared-type-alias body road over a qualified name through an
 alias — the root routed to r7-declared with `conformance/enums`.
+
+## 18. A circular type-parameter constraint is no constraint (CONSTRAINT-OF-TYPE-PARAMETER-CIRCULARITY)
+
+`getConstraintOfTypeParameter` (checker.go:17059) answers nil when
+`hasNonCircularBaseConstraint` fails (`<T extends T>`, `<U extends T, T
+extends U>`): the type parameter is unconstrained for printing
+(`typeParameterToDeclaration` writes no `extends`) and for relations. The
+signature's `TypeParameter` carried the written constraint regardless, so
+signatures printed `<T extends T>`. `type_parameter_of` now asks
+`constraints.rs::constraint_of_type` (already `getConstraintOfTypeParameter`
+with the circularity test) whenever a constraint is written and drops it on
+`Nil`. TS2313 still reports once, from the same base-constraint resolution.
+No cache beyond `base_constraint_cache`'s.
