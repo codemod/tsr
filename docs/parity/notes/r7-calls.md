@@ -718,6 +718,23 @@ only to an unannotated pattern (`has_binding_pattern_rest`)
 (iterableArrayPattern16, 26 and 29: native's TS2345 at the argument where
 the decline fell back to the syntactic arity check's TS2554).
 
+## 22. A non-generic overload walk re-checks array literals under each candidate
+
+`overload_pass` checked an array-literal argument under a candidate only when
+that candidate's parameter was a tuple. Native's `isSignatureApplicable`
+checks every argument under each candidate's parameter, and an array
+literal's type follows the context beyond tuple-ness: under
+`ConcatArray<[number, number]>` the inner literals of `[[3, 4], [5, 6]]`
+are tuples. For a wholly non-generic set (`retain_context`), an array
+literal free of nested resolutions (`literal_subtree_has_resolution`) is
+now re-checked under each candidate like an object literal, and the picked
+candidate's check is the published type (concatTuples:
+`ijs.concat([[3, 4], [5, 6]])` prints `[number, number][]`).
+
+**Measured** against `68ef70c0` on `127660ee`: types +3 (concatTuples),
+0 lost; diagnostics 0/0; jsTyping new_false 0, lost_true 0; Ir
+generic-imports 0.9999, domain-model 1.0000; exact +1, exact_lost 0.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

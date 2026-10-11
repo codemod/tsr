@@ -6071,6 +6071,15 @@ impl Checker<'_, '_> {
                                 || self
                                     .variadic_tuple_elements
                                     .contains_key(&parameter_types[index])))
+                        // A non-generic set's array literal free of nested
+                        // resolutions follows its candidate's parameter too
+                        // (an element context can make an inner literal a
+                        // tuple), as native's per-candidate check does.
+                        || (retain_context
+                            && matches!(argument, Expression::ArrayLiteralExpression(_))
+                            && argument
+                                .node_id()
+                                .is_some_and(|id| !self.literal_subtree_has_resolution(id)))
                 })
                 .collect();
             let contextual = contextual_arguments.iter().any(|&needed| needed);
