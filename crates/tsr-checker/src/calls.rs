@@ -1489,25 +1489,33 @@ impl Checker<'_, '_> {
         );
         self.restore_literal_subtree_state(saved);
         if candidates.len() > 1 {
-            for (_, diagnostic) in &mut self.diagnostics[before..] {
-                let span = diagnostic.span;
-                let child = std::mem::replace(
-                    diagnostic,
-                    Diagnostic::new(&messages::NO_OVERLOAD_MATCHES_THIS_CALL, span),
-                );
-                let chained = Diagnostic::new_chain(
-                    Some(child),
-                    &messages::THE_LAST_OVERLOAD_GAVE_THE_FOLLOWING_ERROR,
-                    [],
-                );
-                *diagnostic = Diagnostic::new_chain(
-                    Some(chained),
-                    &messages::NO_OVERLOAD_MATCHES_THIS_CALL,
-                    [],
-                );
-            }
+            self.chain_overload_failure(before);
         }
         true
+    }
+
+    /// `reportCallResolutionErrors`' chain over several candidates
+    /// (`checker.go:9656`): every report made since `before` becomes the child
+    /// of `The_last_overload_gave_the_following_error`, under
+    /// `No_overload_matches_this_call` (TS2769). The related information
+    /// (`The_last_overload_is_declared_here`, which may sit in another file,
+    /// and `addImplementationSuccessElaboration`) is not attached: this
+    /// port's checker diagnostics carry no cross-file related location.
+    fn chain_overload_failure(&mut self, before: usize) {
+        for (_, diagnostic) in &mut self.diagnostics[before..] {
+            let span = diagnostic.span;
+            let child = std::mem::replace(
+                diagnostic,
+                Diagnostic::new(&messages::NO_OVERLOAD_MATCHES_THIS_CALL, span),
+            );
+            let chained = Diagnostic::new_chain(
+                Some(child),
+                &messages::THE_LAST_OVERLOAD_GAVE_THE_FOLLOWING_ERROR,
+                [],
+            );
+            *diagnostic =
+                Diagnostic::new_chain(Some(chained), &messages::NO_OVERLOAD_MATCHES_THIS_CALL, []);
+        }
     }
 
     /// `checkExpressionWithContextualType(arg, paramType)` for an object or
@@ -1645,13 +1653,32 @@ impl Checker<'_, '_> {
             Ternary::NotRelated => &[],
             Ternary::Unknown => return true,
         };
+        // `isSignatureApplicable` with `reportErrors` checks every argument
+        // under the last candidate's (instantiated) parameter. An object or
+        // array literal the walk did not check under it, with no nested
+        // resolution, is re-checked so (as
+        // [`Checker::check_overload_candidates_arguments`] does); its
+        // published state is put back after the report.
+        let mut saved = Vec::new();
         for (position, argument) in arguments.iter().enumerate() {
             let Some(argument_id) = argument.node_id() else { break };
             let Some(target) = self.signature_type_at_position(&last, position) else { break };
             if self.is_gap(target) {
                 break;
             }
-            let checked = failure.checked.get(position).copied().flatten();
+            let mut checked = failure.checked.get(position).copied().flatten();
+            if checked.is_none()
+                && matches!(
+                    Self::effective_check_expression(*argument),
+                    Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
+                )
+                && !self.is_context_sensitive_argument(argument)
+                && !self.literal_subtree_has_resolution(argument_id)
+            {
+                saved.extend(self.literal_subtree_state(argument_id));
+                checked =
+                    Some(self.check_literal_argument_in_candidate(node, &last, *argument, false));
+            }
             if checked.is_none() && self.report_argument_type_is_not_upstreams(*argument) {
                 break;
             }
@@ -1709,11 +1736,9 @@ impl Checker<'_, '_> {
             }
             break;
         }
+        self.restore_literal_subtree_state(saved);
         if failure.count > 1 {
-            for (_, diagnostic) in &mut self.diagnostics[before..] {
-                diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
-                diagnostic.args.clear();
-            }
+            self.chain_overload_failure(before);
         }
         true
     }

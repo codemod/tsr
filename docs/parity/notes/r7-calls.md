@@ -605,6 +605,29 @@ exposed three false TS2345s from type-road defects elsewhere. Two came from
 the written-type-argument overload walk (§9); the third, `checker.ts:51482`,
 from the evolving-array receiver after `result ||= []` (r7-flow, `3d2d17f8`).
 
+## 14. The overload walk's failure report re-checks literal arguments under the last candidate
+
+**Native.** `reportCallResolutionErrors` (`checker.go:9649`) re-runs
+`isSignatureApplicable` with `reportErrors` over the last entry of
+`candidatesForArgumentError`, the instantiated candidate for a generic set.
+Every argument is checked with `checkExpressionWithContextualType` under
+that candidate's parameter.
+
+**Before.** `report_overload_argument_failure` read the walk's recorded
+`checked` types and declined an object or array literal the walk had not
+checked under the failing candidate. `new Map([["", true], ["", 0]])` (two
+generic construct overloads, the literal's parameter an array, not a tuple)
+was silent.
+
+**Change.** Such a literal, with no nested resolution, is re-checked under the
+last candidate (`check_literal_argument_in_candidate`, §8). The report is
+made while it holds those types, and the published state is restored
+afterwards. The TS2769 head is chained (`chain_overload_failure`, shared with
+§8's site) instead of relabelling the argument's diagnostic. The related
+information (`The_last_overload_is_declared_here`, possibly in another file,
+and `addImplementationSuccessElaboration`) is not attached; this checker's
+diagnostics carry no cross-file related location.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
