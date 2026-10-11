@@ -625,3 +625,61 @@ dm 1.0003. With the reporter diff: diagnostics **+3**
 +2, 0 lost. Checker port convention: no cache or side table; `Array<auto>` is
 the existing instantiation table's entry; the walk is the §8 walk, now also
 run for array-track symbols the reporter asks about.
+
+## §19 `reportNonexistentProperty`'s union-constituent chain
+
+`reportNonexistentProperty` (`checker.go:11545-11552`) starts every message
+for a property access on a union receiver (not a private name, no primitive
+flags: `boolean` and an enum's declared union are primitive) with the first
+constituent that has neither the property (`getPropertyOfType`, over the
+reduced apparent type) nor an applicable index signature, as "Property 'p'
+does not exist on type '<constituent>'", and chains each of the four
+messages (TS2576, the lib suggestion, TS2551, TS2339) onto it. The port
+reported the head alone: `x.nope()` on `"foo" | "bar"` printed one line where
+native prints two (`unionPropertyExistence`, `isArray`, the `typeGuard*`
+cases).
+
+`union_constituent_miss` reads each constituent with the certificate the
+union's own miss used (`union_property_lacks`: the primitive apparent type,
+then `apparent_type_lacks`); a constituent it cannot certify either way
+declines the chain, and the message is reported without it, as before.
+`chained_miss` is `NewDiagnosticChainForNode` (the child is at the same name,
+so the head keeps the span). No cache: one pass over the union per reported
+miss.
+
+Measured on `a9e63316` unfiltered: types and legacy diagnostics verdicts
+unchanged (the legacy suites compare codes and positions); exact oracle 9659
+→ 9659, 0 gained, 0 lost (the chained cases stay non-exact on other rows, see
+below); jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 1.0001, dm
+1.0000. Test: `tsr-checker/tests/r7_flow_union_miss_chain.rs`.
+
+The chained row itself is not exact yet, for every chain in the port: a chain
+child (and every related-information entry) is published without a file, so
+its oracle row is file-less with position `-`, where native's
+`NewDiagnosticChainForNode`/`NewDiagnosticForNode` give it the node's file and
+span. On the `909a027b` base report, 83 non-exact cases differ from native
+only in those columns of `C`/`R` rows. That is diagnostics infrastructure
+(`tsr-diagnostics`' chain constructor or the checker's `report`), routed to
+the integrator.
+
+## §20 NONEXISTENT-PROPERTY-CERTIFICATION-GATE: `union_receiver_flow_is_uncertified`, re-measured
+
+Dropping the gate (both call sites answering "certified") on `909a027b`
+(main `b563c6b9` + the §18 commit) + §19:
+diagnostics **+13** (`inKeywordTypeguard(strict=false)`, `isArray`,
+`narrowByClauseExpressionInSwitchTrue6`, `typeGuardConstructorClassAndNumber`,
+`unionPropertyExistence`, `discriminatedUnionTypes2`, `typeGuardOfFormInstanceOf`,
+`typeGuardRedundancy`, `typeGuardsWithInstanceOf`,
+`typeGuardsWithInstanceOfByConstructorSignature`,
+`typeGuardsWithInstanceOfBySymbolHasInstance`, `unionTypeMembers`,
+`unionTypeReadonly`) against **4 lost**, each EMPTY_RIGHT → EMPTY_WRONG with a
+false TS2339 on a receiver the port narrows less than native:
+
+| case | false TS2339 | the narrowing gap | owner |
+|---|---|---|---|
+| `controlFlowWithIncompleteTypes` | `x.slice()` on `string \| boolean` (native `string`) | `getTypeAtFlowLoopLabel`'s incomplete in-loop types (`silentNeverType` from an incomplete never narrowing, `flow.go`) | flow.rs |
+| `typeGuardNarrowByUntypedField`, `typeGuardNarrowByMutableUntypedField` | `.length` on `ArrayLike<any> \| Iterable<any>` | the predicate `{ readonly [K in P]: unknown }` instantiated at `'length'` is a memberless mapped mint | mapped.rs |
+| `discriminatedUnionTypes3` | `.property` on `SomeReturnType` | `areTypesComparable(undefined, \`${string} is wrong!\`)` is Unknown, so `narrowTypeByDiscriminant` declines | relater.rs |
+
+The gate stays until those land; the previous measurement (+12/−5) had one
+more narrowing loss, since closed.
