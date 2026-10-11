@@ -622,3 +622,45 @@ Other splits of tsr-2zk.1166 and where they live. TS1111 is
 is `checkObjectTypeForDuplicateDeclarations` (check.rs). The `#x in expr`
 codes (TS2571/2406/18016/1451) are `checkInExpression`'s. TS18046 and TS7022
 are receiver and inference arms. None of these is in this lane's files.
+
+## §33 The super-call arm of `checkConstructorDeclaration` (TS2401/TS2376; CLASS-PROPERTY-INITIALIZER-CHECKS split)
+
+`checkConstructorDeclaration` (`checker.go:2850`-`:2881`) runs this for each
+constructor of a derived class-like.
+
+* `findFirstSuperCall(body)`. With none, the constructor is TS2377's
+  (`check_derived_constructor_calls_super`).
+* `superCallShouldBeRootLevel` (`:2860`): not `emitStandardClassFields`
+  (`useDefineForClassFields` with target ≥ ES2022), and the class has an
+  instance property with an initializer or any private-named element
+  (`isInstancePropertyWithInitializerOrPrivateIdentifierProperty`), or the
+  constructor has a parameter-property modifier (accessibility, `readonly`,
+  `override`).
+* A first super call that is not a root-level expression statement of the
+  body (`superCallIsRootLevelInConstructor`, through parentheses) is TS2401
+  at the call. Otherwise, a body whose statements reach `super`/`this`
+  (`nodeImmediatelyReferencesSuperOrThis`) before the super-call statement is
+  TS2376 at the constructor.
+
+`check_super_call_is_first` (check.rs) used to be a TS2376-only stand-in with
+five departures from this:
+* it had no `emitStandardClassFields` gate, which gave false TS2376 in
+  `privateNameBadSuperUseDefineForClassFields`;
+* it counted static initialized properties and missed private methods and
+  accessors;
+* it took any modifier token on a parameter as a parameter property;
+* it returned on `extends null`, which upstream does not do (TS17005 is
+  separate);
+* it used a function-boundary scan in place of
+  `nodeImmediatelyReferencesSuperOrThis`. Upstream's scan stops at a property
+  declaration and at a method body, but still visits a method's computed name
+  and parameters.
+
+It also had no TS2401 arm and ran only for class declarations. The predicates
+are in `class_fields.rs`. The check.rs function is the loop, now also called
+from the `ClassExpression` arm.
+
+*Falsifier.* A TS2401 on a super call that is a parenthesized root
+statement, or TS2376 under `useDefineForClassFields` with target ES2022.
+Converted: `privateNameBadSuperUseDefineForClassFields` (es2022, esnext),
+`derivedClassSuperStatementPosition`, `derivedClassSuperProperties`.
