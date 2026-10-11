@@ -507,3 +507,121 @@ stays WRONG on two TS2564 lines, r7-grammar's port), exact oracle 0 gained
 
 Checker port boundary: no cache; one flow walk per qualifying constructor
 read, the walk native runs on every such read anyway.
+
+## §17 `Extract<T, U>`'s base constraint reads the true branch's substitution (routed: `declared.rs`)
+
+`controlFlowGenericTypes` 0:38-0:41 (`f2<T>(x: Extract<T, string |
+undefined> | null)`, `if (x) { x.length; return x }`): native prints `x :
+string` in both constraint positions, the port `NonNullable<Extract<…>>` with
+`length : any`.
+
+**Native.** `getNarrowableTypeForReference` (`checker.go:31491`) substitutes
+base constraints when some constituent `isGenericTypeWithUnionConstraint`.
+The conditional's base constraint is `getConstraintFromConditionalType`
+(`:17255`): no distributive constraint (the check `T` is unconstrained), so
+`getDefaultConstraintOfConditionalType` (`:17263`), whose true constraint is
+`getInferredTrueTypeFromConditionalType`. A reference to the check type in
+the true branch is a substitution type (`getConditionalFlowTypeOfType`,
+`:24952`; `getImpliedConstraint`, `:24989`), and its base constraint is
+`getSubstitutionIntersection`'s `T & (string | undefined)` =
+`(T & string) | (T & undefined)`, base constraint `string | undefined`: a
+union, so the reference is substituted and truthiness narrows it to `string`.
+
+**Port.** `capture_conditional_alias_branches` (`declared.rs`) published the
+bare `T` as the true branch, whose base constraint is none. The fix publishes
+`extends & T` when the true branch is the naked check parameter, the check is
+bound to a type parameter, and the extends type is not `any`/`unknown`
+(instantiateType's Substitution arm keeps the substitution exactly then: a
+restrictive type variable is assignable only to a top type). The table is read
+only by `next_base_constraint` and `const_type_variable_inner`, which both see
+through the intersection; the relater reads only `(c, c)` distributive pairs,
+which this does not write. Not covered: a substituted reference below the true
+branch's top level (`T | null`, `[T]`), which keeps the bare check, as before.
+
+Not my file: held as `r7-flow-conditional-substitution-constraint.diff` (with
+its test, `tests/r7_flow_conditional_substitution.rs`), routed to the
+integrator. Measured on `127660ee` unfiltered: types **+4**
+(`controlFlowGenericTypes` 0:38-0:41), diagnostics unchanged, 0 lost; jsTyping
+122 → 122, new_false 0, lost_true 0; Ir gi 0.9999, dm 1.0001. No cache: one
+intersection per captured alias reference, built where the branch is captured.
+
+## §18 The auto-array track: `autoArrayType`'s identity and the junction's subtype reduction
+
+`let r; if (c) r ??= []; else r = [1]; r` is native `any[]` with TS7034/TS7005
+`any[]`; `let x = []; let y = x` reports both with `any[]`
+(`controlFlowArrayErrors`, `evolvingArrayResolvedAssert`). The port answered
+`any[] | number[]`, `y : any`, and reported nothing for the array track (§8
+left it uncovered).
+
+**Native.** `getTypeAtFlowBranchLabel` hands the antecedent types to
+`getUnionOrEvolvingArrayType` with `UnionReductionSubtype` when one is not a
+subset of the initial type (`flow.go:1280`, `:1309`); its mixed arm
+finalizes each evolving array and unions with that reduction (`flow.go:1318`),
+so `autoArrayType | number[]` is `autoArrayType`. An evolving array with no
+elements finalizes to `autoArrayType` (`createFinalArrayType`, `flow.go:1582`),
+which is `createArrayType(autoType)`, a distinct identity printing `any[]`.
+`checkIdentifier` reports when the flow type is `autoType` or
+`autoArrayType` (`checker.go:11182`), with `TypeToString(flowType)`.
+
+**Port, query road.**
+
+- `union_or_evolving_array` takes the junction's `subtype_reduction` and
+  runs `union_with_subtype_reduction` over the finalized list (the literal
+  union where it declines, as before).
+- `finalize_evolving_array` finalized an element-less evolving array to the
+  declared type. For `let x = []` that is `Array<any>` already; for `let r;`
+  it was `any`, so `r = []; let y = r` read `y : any`. It now finalizes to
+  `Array<any>` — **except** where the initial type is the declared one (an
+  initialized outer reference, or non-strict), because there the START arm
+  also answers the declared `any` and this port spells the evolving array as
+  the declared type (§736), so the answer cannot say which it is. Those keep
+  `any`, the previous answer. Would be wrong if a corpus line wants `any[]`
+  for an evolving `let r;` read through a closure or in a non-strict file; the
+  fix is a distinct evolving spelling on the query road, which every narrowing
+  arm would then have to finalize first, as native's `getTypeAtFlowCondition`
+  does.
+
+**Port, auto query.** `identifier_flow_auto_kind` (flow.rs) generalizes §8's
+`identifier_flow_type_is_auto` (now its scalar half, unchanged for the
+reporter) to native's two identities, answering `AutoFlowType::{Auto,
+AutoArray}` with the printed `text()`:
+
+- declared type `autoType` for `let r;`, `Array<auto>` (native's
+  `autoArrayType` is exactly `createArrayType(autoType)`) for `let x = []`;
+  the assignment arm is the automatic one for both (`flow.go:232`);
+- the evolving array is spelled `Array<auto>` through the new
+  `FlowState::evolving`, so `autoType` (unassigned) and the evolving array
+  are apart in this walk; every evolving test reads `evolving_type()`, which
+  is `declared_type` on the query road (no change there);
+- `assumeInitialized` for a `let x = []` outer reference holds outright (an
+  initializer means never `isNeverInitialized`), so its initial type is the
+  declared type;
+- `FlowState::auto_query` replaces the `declared == auto` tests (loop-key bit,
+  the junction shortcut, the UNREACHABLE arm's `convertAutoToAny`, which now
+  converts `autoArrayType` to `any[]` too).
+
+Boundary, as §8: `auto` and `Array<auto>` never leave the walk; the answer is
+the enum. `Array<auto>` is an ordinary interned instantiation keyed by the
+`auto` argument, which only this walk passes. Accepted: where the walk's
+`let x = []` declared type and evolving spelling coincide, the junction
+shortcut (`flow.go:1270`) can take an evolving path for a declared one; both
+finalize to `autoArrayType` when no element was pushed, which is the only
+answer the test reads.
+
+Behaviour change without the reporter: `identifier_flow_type_is_auto` now
+also answers for an array-track `let r;` whose flow type is still `autoType`
+(an outer read before any assignment, native TS7034 `any`); it used to
+decline every array-track symbol.
+
+Reporter (`implicit_any.rs`, r7-reports): `r7-flow-auto-array-reporter.diff`
+asks `identifier_flow_auto_kind` and prints `kind.text()` in both messages.
+
+Measured on `127660ee` unfiltered. This commit: types **+2**
+(`controlFlowArrayErrors` 0:18-0:19, `let y = x : any[]`), diagnostics
+unchanged, 0 lost; jsTyping 122 → 122, new_false 0, lost_true 0; Ir gi 0.9999,
+dm 1.0003. With the reporter diff: diagnostics **+3**
+(`controlFlowArrayErrors`, `evolvingArrayResolvedAssert`,
+`narrowSwitchOptionalChainContainmentEvolvingArrayNoCrash1`), types the same
++2, 0 lost. Checker port convention: no cache or side table; `Array<auto>` is
+the existing instantiation table's entry; the walk is the §8 walk, now also
+run for array-track symbols the reporter asks about.

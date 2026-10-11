@@ -1,0 +1,95 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index 859fa3811..ce5103ce1 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -9779,10 +9779,33 @@ impl<'a> Checker<'a, '_> {
+         }
+         self.instantiation_depth += 1;
+         self.alias_evaluation_bindings.push(frame);
++        let check_parameter =
++            conditional.check_type.and_then(|node| self.distributive_conditional_parameter(node));
++        let yes_is_check = check_parameter.is_some()
++            && self.distributive_conditional_parameter(yes) == check_parameter;
++        let extends = conditional.extends_type.map(|node| self.get_type_from_type_node(node));
+         let yes = self.get_type_from_type_node(yes);
+         let no = self.get_type_from_type_node(no);
+         self.alias_evaluation_bindings.pop();
+         self.instantiation_depth -= 1;
++        // getInferredTrueTypeFromConditionalType: a true branch that is the
++        // check type itself reads it as a substitution type
++        // (getConditionalFlowTypeOfType, checker.go:24952; getImpliedConstraint,
++        // :24989). Instantiated at a type variable, the substitution survives
++        // unless the extends type is a top type (instantiateType's
++        // Substitution arm: a restrictive type variable relates to nothing
++        // else), and its base constraint is getSubstitutionIntersection's.
++        let yes = match extends {
++            Some(extends)
++                if yes_is_check
++                    && extends != self.intrinsics.error
++                    && self.store.get(yes).flags.contains(TypeFlags::TYPE_PARAMETER)
++                    && !self.store.get(extends).flags.intersects(TypeFlags::ANY_OR_UNKNOWN) =>
++            {
++                self.get_intersection_type(&[extends, yes], None)
++            }
++            _ => yes,
++        };
+         if yes != self.intrinsics.error && no != self.intrinsics.error {
+             self.conditional_constraint_branches.insert(id, (yes, no));
+         }
+diff --git a/crates/tsr-conformance/tests/r7_flow_conditional_substitution.rs b/crates/tsr-conformance/tests/r7_flow_conditional_substitution.rs
+new file mode 100644
+index 000000000..b959afa23
+--- /dev/null
++++ b/crates/tsr-conformance/tests/r7_flow_conditional_substitution.rs
+@@ -0,0 +1,51 @@
++//! A conditional's true branch that is its check type reads as a
++//! substitution type (getConditionalFlowTypeOfType, pinned checker.go:24952),
++//! so `Extract<T, string | undefined>` has the base constraint
++//! `string | undefined` and getNarrowableTypeForReference (:31491)
++//! substitutes it in a constraint position.
++//!
++//! Expected lines are pinned tsgo 5b1047d10d32e7d5b446be4de56b126ff42f82bb
++//! (`controlFlowGenericTypes.types` for `f2`); the probe has no errors there.
++use tsr_conformance::{TestCase, types_baseline::FileTypes, types_producer};
++
++fn lines(source: &str) -> Vec<String> {
++    let case = TestCase::parse("probe/r7_flow_conditional_substitution", "probe.ts", source);
++    let expected: Vec<_> = case
++        .files
++        .iter()
++        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
++        .collect();
++    types_producer::assertions_for_case(&case, &expected, false)
++        .iter()
++        .flatten()
++        .map(types_producer::Assertion::line)
++        .collect()
++}
++
++#[test]
++fn extract_of_unconstrained_parameter_narrows_through_its_substitution_constraint() {
++    let lines = lines(
++        r#"// @strict: true
++type Pick1<T, U> = T extends U ? T : never;
++function f2<T>(x: Extract<T, string | undefined> | null): string {
++    if (x) {
++        x;
++        x.length;
++        return x;
++    }
++    return "hello";
++}
++function f3<T>(x: Pick1<T, unknown> | null) {
++    if (x) {
++        x;
++    }
++}
++"#,
++    );
++    let at = |text: &str| lines.iter().filter(|line| *line == text).count();
++    assert_eq!(at("x : NonNullable<Extract<T, string | undefined>>"), 1, "{lines:?}");
++    assert_eq!(at("x : string"), 2, "{lines:?}");
++    assert_eq!(at("x.length : number"), 1, "{lines:?}");
++    // An unknown extends type keeps the bare check type (no substitution).
++    assert_eq!(at("x : NonNullable<Pick1<T, unknown>>"), 1, "{lines:?}");
++}

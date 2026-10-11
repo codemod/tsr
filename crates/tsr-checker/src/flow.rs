@@ -66,6 +66,27 @@ pub struct FlowType {
     pub incomplete: bool,
 }
 
+/// The auto query's answer ([`Checker::identifier_flow_auto_kind`]):
+/// native's `flowType == autoType || flowType == autoArrayType`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AutoFlowType {
+    /// `autoType`, printed `any`.
+    Auto,
+    /// `autoArrayType`, printed `any[]`.
+    AutoArray,
+}
+
+impl AutoFlowType {
+    /// `TypeToString` of the identity, the reporters' `{1}` argument.
+    #[allow(dead_code)]
+    pub(crate) fn text(self) -> &'static str {
+        match self {
+            AutoFlowType::Auto => "any",
+            AutoFlowType::AutoArray => "any[]",
+        }
+    }
+}
+
 /// One `getFlowTypeOfReference` invocation's working state
 /// (upstream's `FlowState`, `flow.go`).
 struct FlowState {
@@ -105,10 +126,17 @@ struct FlowState {
     /// the declaration instead, in [`Checker::is_auto_typed_declaration`]; see
     /// that method for why the identity trick is not reproduced.
     is_auto: bool,
-    /// Whether the declaration is upstream's `autoArrayType` trigger — no
-    /// annotation, empty-array-literal initializer (`flow.go:1404`'s guard).
-    /// Decides the §14 `ARRAY_MUTATION` depth accounting.
-    is_auto_array: bool,
+    /// The array track (upstream's `autoArrayType` trigger, an
+    /// `isEmptyArrayAssignment` somewhere: [`Checker::is_auto_array_declaration`])
+    /// and the spelling of its unfinalized evolving array. `None` off the
+    /// track. The query road spells it as `declared_type` (§736); the auto
+    /// query as `autoArrayType`, apart from its declared `autoType`
+    /// (`r7-flow.md` §18). Decides the §14 `ARRAY_MUTATION` depth accounting.
+    evolving: Option<TypeId>,
+    /// Whether this is the auto query ([`Checker::identifier_flow_auto_kind`]):
+    /// its `autoType`/`autoArrayType` identities are walked rather than
+    /// spelled as `any`, and its loop results never cross the query road's.
+    auto_query: bool,
     /// Whether the reference's control-flow container differs from its
     /// declaration's — upstream's `isOuterVariable`, deciding the START arm's
     /// answer (`checker-notes-narrow.md` §9.7).
@@ -324,7 +352,7 @@ impl Checker<'_, '_> {
     ///   "selected by an empty-array initialiser, which this port answers
     ///   `false` for". That is **stale**: [`Checker::is_auto_array_declaration`]
     ///   answers `true` for exactly `var x = []` with no annotation, so the
-    ///   array half IS selected and `state.is_auto_array` is set.
+    ///   array half IS selected and `state.evolving` is set.
     ///
     ///   The gap is one step further in: the `ARRAY_MUTATION` arm below only
     ///   guards recursion depth and then walks to the antecedent — it never
@@ -407,7 +435,8 @@ impl Checker<'_, '_> {
             initial_type: parent_union,
             is_auto: false,
             discriminant_pattern: Some(pattern),
-            is_auto_array: false,
+            evolving: None,
+            auto_query: false,
             outer_reference: false,
             flow_container: self.control_flow_container(reference),
             shared_flow_start: self.shared_flows.len(),
@@ -573,7 +602,10 @@ impl Checker<'_, '_> {
             },
             is_auto,
             discriminant_pattern: None,
-            is_auto_array: symbol.is_some_and(|symbol| self.is_auto_array_declaration(symbol)),
+            evolving: symbol
+                .filter(|&symbol| self.is_auto_array_declaration(symbol))
+                .map(|_| declared_type),
+            auto_query: false,
             outer_reference: self.is_outer_reference(reference, symbol),
             // checkIdentifier supplies its explicit variable bound. Receiver
             // and access callers use native getFlowTypeOfReference's nil bound;
@@ -652,7 +684,8 @@ impl Checker<'_, '_> {
             initial_type,
             is_auto: true,
             discriminant_pattern: None,
-            is_auto_array: false,
+            evolving: None,
+            auto_query: false,
             outer_reference: false,
             flow_container: self.extended_flow_container(reference, None),
             shared_flow_start: self.shared_flows.len(),
@@ -707,7 +740,8 @@ impl Checker<'_, '_> {
             initial_type: declared_type,
             is_auto: false,
             discriminant_pattern: None,
-            is_auto_array: false,
+            evolving: None,
+            auto_query: false,
             outer_reference: false,
             // Native `getFlowTypeOfReference`'s nil flow container.
             flow_container: None,
@@ -837,68 +871,110 @@ impl Checker<'_, '_> {
     /// flow type of `reference`, an identifier read of the auto-typed
     /// `symbol`, is `autoType` itself — every path reaching the top of the
     /// graph with the auto initial type unchanged, no assignment and no
-    /// union with anything else. Native then reports TS7034 at the
-    /// declaration and TS7005 at the reference (under `noImplicitAny`) and
-    /// answers `convertAutoToAny`; this answers only the test, for the
-    /// reporter in `implicit_any.rs`.
-    ///
-    /// The query road spells `autoType` as `anyType`, so `auto ∪ string`
-    /// (native `anyType`) and `auto` alone are one answer there. This walks
-    /// the same graph once more with [`Intrinsics::auto`](crate::intrinsics::Intrinsics)
-    /// as the declared type, where `getUnionType`'s any collapse
-    /// (`includes.error.unwrap_or(any)`) and member dedupe separate them as
-    /// native's identity does. The initial type is native's for an
-    /// automatic type: `undefinedType` unless `assumeInitialized`, whose
-    /// outer-variable disjunct is the START arm's declared-type exit.
-    ///
-    /// **Boundary.** `intrinsics.auto` never leaves this function: it is the
-    /// walk's declared type, the UNREACHABLE arm converts it to `any` as
-    /// `convertAutoToAny` does, loop-cache keys carry an auto bit so no
-    /// result crosses between this walk and the query road, and the answer
-    /// is a `bool`. Not covered: the auto-array track (`autoArrayType`,
-    /// `any[]`), and `assumeInitialized`'s module-exports, spread-target and
-    /// same-scoped-binding disjuncts. Cost: one extra walk per auto-typed
-    /// identifier read the reporter asks about (`noImplicitAny` only).
-    // Its caller is r7-reports' TS7034/TS7005 reporter in `implicit_any.rs`
-    // (`docs/parity/notes/r7-flow.md` §8).
+    /// union with anything else. The scalar half of
+    /// [`Checker::identifier_flow_auto_kind`], kept for the reporter in
+    /// `implicit_any.rs`, which prints `any`.
+    // Unused once the reporter asks `identifier_flow_auto_kind` itself
+    // (`docs/parity/notes/r7-flow-auto-array-reporter.diff`).
     #[allow(dead_code)]
     pub(crate) fn identifier_flow_type_is_auto(
         &mut self,
         reference: NodeId,
         symbol: SymbolId,
     ) -> bool {
-        if !self.is_auto_typed_declaration(symbol)
-            || self.is_auto_array_declaration(symbol)
-            || self.is_evolving_array_operation_target(reference)
-        {
-            return false;
+        self.identifier_flow_auto_kind(reference, symbol) == Some(AutoFlowType::Auto)
+    }
+
+    /// `checkIdentifier`'s implicit-any test (`checker.go:11182`): whether the
+    /// flow type of `reference`, an identifier read of the auto-typed
+    /// `symbol`, is `autoType` or `autoArrayType` itself. Native then reports
+    /// TS7034 at the declaration and TS7005 at the reference (under
+    /// `noImplicitAny`), both with `TypeToString(flowType)` — `any` or
+    /// `any[]` ([`AutoFlowType::text`]) — and answers `convertAutoToAny`;
+    /// this answers only the test.
+    ///
+    /// The query road spells `autoType` as `anyType` and `autoArrayType` as
+    /// `Array<any>`, so `auto ∪ string` (native `anyType`) and `auto` alone,
+    /// or a real `any[]` and `autoArrayType`, are one answer there. This
+    /// walks the same graph once more with native's identities: the declared
+    /// type is [`Intrinsics::auto`](crate::intrinsics::Intrinsics) for
+    /// `let x;` and `createArrayType(autoType)` for `let x = []` (native's
+    /// `autoArrayType` is that array), where `getUnionType`'s any collapse
+    /// (`includes.error.unwrap_or(any)`) and member dedupe separate them as
+    /// native's identity does. On the array track (`isEmptyArrayAssignment`
+    /// somewhere, [`Checker::is_auto_array_declaration`]) the evolving array
+    /// is spelled `autoArrayType` rather than the declared `autoType`, and an
+    /// evolving array with no elements finalizes to it (`createFinalArrayType`,
+    /// `flow.go:1582`). The initial type is native's for an automatic type:
+    /// `undefinedType` unless `assumeInitialized`, whose outer-variable
+    /// disjunct is the START arm's declared-type exit; a `let x = []`
+    /// declaration is never `isNeverInitialized` (it has an initializer).
+    ///
+    /// **Boundary.** `autoType` and `autoArrayType` never leave this
+    /// function: they are the walk's declared, initial and evolving types,
+    /// the UNREACHABLE arm converts them as `convertAutoToAny` does,
+    /// loop-cache keys carry an auto bit (`FlowState::auto_query`) so no
+    /// result crosses between this walk and the query road, and the answer
+    /// is an [`AutoFlowType`]. Not covered: `assumeInitialized`'s
+    /// module-exports, spread-target and same-scoped-binding disjuncts.
+    /// Cost: one extra walk per auto-typed identifier read the reporter asks
+    /// about (`noImplicitAny` only).
+    pub(crate) fn identifier_flow_auto_kind(
+        &mut self,
+        reference: NodeId,
+        symbol: SymbolId,
+    ) -> Option<AutoFlowType> {
+        let scalar = self.is_auto_typed_declaration(symbol);
+        let array_track = self.is_auto_array_declaration(symbol);
+        if !scalar && !array_track || self.is_evolving_array_operation_target(reference) {
+            return None;
         }
         if self.flow_analysis_disabled {
-            return false;
+            return None;
         }
+        let auto = self.intrinsics.auto;
+        let auto_array = if array_track {
+            let array = self.global_type_symbol("Array")?;
+            Some(self.create_type_reference(array, vec![auto]))
+        } else {
+            None
+        };
+        let declared = if scalar { auto } else { auto_array? };
+        let kind = |t: TypeId| {
+            if t == auto {
+                Some(AutoFlowType::Auto)
+            } else if Some(t) == auto_array {
+                Some(AutoFlowType::AutoArray)
+            } else {
+                None
+            }
+        };
         // `getFlowTypeOfReferenceEx` answers the declared type without a
         // flow node.
-        let Some(flow) = self.binder.flow_of(reference) else { return true };
-        let auto = self.intrinsics.auto;
+        let Some(flow) = self.binder.flow_of(reference) else { return kind(declared) };
         let outer_reference = self.is_outer_reference(reference, Some(symbol));
         // `assumeInitialized` (`checker.go:11150`) for an automatic type is
         // its outer-variable disjunct, the condition of the START arm's
-        // declared-type exit; then the initial type is `autoType` itself.
-        let initial_type = if outer_reference && self.outer_auto_reference_is_initialized(symbol) {
-            auto
-        } else {
-            self.intrinsics.undefined
-        };
+        // declared-type exit; then the initial type is the declared type.
+        let initial_type =
+            if outer_reference && (!scalar || self.outer_auto_reference_is_initialized(symbol)) {
+                declared
+            } else {
+                self.intrinsics.undefined
+            };
         let mut state = FlowState {
             array_elements: Vec::new(),
             reduce_labels: Vec::new(),
             reference,
             symbol: Some(symbol),
-            declared_type: auto,
+            declared_type: declared,
             initial_type,
+            // `getTypeAtFlowAssignment`'s automatic arm reads `declaredType ==
+            // autoType || declaredType == autoArrayType` (`flow.go:232`).
             is_auto: true,
             discriminant_pattern: None,
-            is_auto_array: false,
+            evolving: auto_array,
+            auto_query: true,
             outer_reference,
             flow_container: self.extended_flow_container(reference, Some(symbol)),
             shared_flow_start: self.shared_flows.len(),
@@ -907,9 +983,27 @@ impl Checker<'_, '_> {
             synthetic: None,
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
+        let answer = self.finalize_evolving_array(&mut state, answer).t;
         self.shared_flows.truncate(state.shared_flow_start);
         // `flow.go:111`: an unreachable read answers the declared type.
-        answer.t == auto || answer.t == self.intrinsics.unreachable_never
+        if answer == self.intrinsics.unreachable_never { kind(declared) } else { kind(answer) }
+    }
+
+    /// `convertAutoToAny` (`checker.go:31216`) for the auto query's
+    /// identities; the query road's declared types are already converted.
+    fn convert_auto_to_any(&mut self, state: &FlowState, t: TypeId) -> TypeId {
+        if !state.auto_query {
+            t
+        } else if t == self.intrinsics.auto {
+            self.intrinsics.any
+        } else if Some(t) == state.evolving {
+            match self.global_type_symbol("Array") {
+                Some(array) => self.create_type_reference(array, vec![self.intrinsics.any]),
+                None => t,
+            }
+        } else {
+            t
+        }
     }
 
     /// `isPropertyInitializedInConstructor`'s flow query (`checker.go:4977`):
@@ -944,7 +1038,8 @@ impl Checker<'_, '_> {
             initial_type: initial,
             is_auto: false,
             discriminant_pattern: None,
-            is_auto_array: false,
+            evolving: None,
+            auto_query: false,
             outer_reference: false,
             flow_container: None,
             shared_flow_start: self.shared_flows.len(),
@@ -1125,7 +1220,9 @@ impl Checker<'_, '_> {
     fn union_or_evolving_array(
         &mut self,
         state: &mut FlowState,
+        evolving: TypeId,
         types: &[TypeId],
+        subtype_reduction: bool,
     ) -> Option<TypeId> {
         if types.is_empty() {
             return None;
@@ -1133,17 +1230,23 @@ impl Checker<'_, '_> {
         // `isEvolvingArrayTypeList`: every non-`never` constituent is evolving,
         // and at least one is. `never` constituents are skipped by the caller
         // already, so "at least one" is simply a non-empty list.
-        if types.iter().all(|&t| t == state.declared_type) {
-            return Some(state.declared_type);
+        if types.iter().all(|&t| t == evolving) {
+            return Some(evolving);
         }
-        if !types.contains(&state.declared_type) {
+        if !types.contains(&evolving) {
             return None;
         }
         // `core.SameMap(types, c.finalizeEvolvingArrayType)` — finalise the
-        // evolving constituents, leave the rest, then union.
+        // evolving constituents, leave the rest, then union with the
+        // junction's reduction (`getUnionTypeEx(…, subtypeReduction)`,
+        // `flow.go:1318`): `autoArrayType | number[]` is `autoArrayType`.
+        // Where the subtype pass declines, the literal union, as before.
         let finalized = self.finalized_array_type(state)?;
         let mapped: Vec<TypeId> =
-            types.iter().map(|&t| if t == state.declared_type { finalized } else { t }).collect();
+            types.iter().map(|&t| if t == evolving { finalized } else { t }).collect();
+        if subtype_reduction && let Some(reduced) = self.union_with_subtype_reduction(&mapped) {
+            return Some(reduced);
+        }
         Some(self.get_union_type(&mapped))
     }
 
@@ -1153,9 +1256,17 @@ impl Checker<'_, '_> {
         let array = self.global_type_symbol("Array")?;
         let elements = state.array_elements.clone();
         // `createFinalArrayType` answers `autoArrayType` for a `never` element
-        // type (`flow.go:1582`), which is the no-elements-yet case here.
-        let element =
-            if elements.is_empty() { self.intrinsics.any } else { self.get_union_type(&elements) };
+        // type (`flow.go:1582`), which is the no-elements-yet case here. The
+        // query road spells it `Array<any>`; the auto query keeps native's
+        // identity, `createArrayType(autoType)` (`checker.go`'s
+        // `autoArrayType`), so its answer can be compared with it.
+        let element = if !elements.is_empty() {
+            self.get_union_type(&elements)
+        } else if state.auto_query {
+            self.intrinsics.auto
+        } else {
+            self.intrinsics.any
+        };
         Some(self.create_type_reference(array, vec![element]))
     }
 
@@ -1189,7 +1300,7 @@ impl Checker<'_, '_> {
     /// could not explain. It was never a merge problem: it is one finalisation
     /// per recursion level where upstream has one per query. §737.
     fn finalize_evolving_array(&mut self, state: &mut FlowState, answer: FlowType) -> FlowType {
-        if !state.is_auto_array || answer.t != state.declared_type {
+        if state.evolving != Some(answer.t) {
             return answer;
         }
         let Some(array) = self.global_type_symbol("Array") else { return answer };
@@ -1208,12 +1319,19 @@ impl Checker<'_, '_> {
             let auto_array = self.create_type_reference(array, vec![self.intrinsics.any]);
             return FlowType { t: auto_array, incomplete: answer.incomplete };
         }
-        if state.array_elements.is_empty() {
+        // An evolving array with no elements finalizes to `autoArrayType`
+        // (`createFinalArrayType`, `flow.go:1582`). On the query road the
+        // evolving spelling of a `let x;` track is the declared `any`, which
+        // the START arm also answers where the initial type is the declared
+        // one (an initialized outer reference, or non-strict); there `any`
+        // cannot say which it is and stays `any`, as before (§18).
+        if state.array_elements.is_empty()
+            && !state.auto_query
+            && state.initial_type == state.declared_type
+        {
             return answer;
         }
-        let elements = state.array_elements.clone();
-        let element = self.get_union_type(&elements);
-        let evolved = self.create_type_reference(array, vec![element]);
+        let Some(evolved) = self.finalized_array_type(state) else { return answer };
         FlowType { t: evolved, incomplete: answer.incomplete }
     }
 
@@ -1370,17 +1488,10 @@ impl Checker<'_, '_> {
                 // upstream's follow-up here: it maps `autoType` to `anyType`.
                 // An automatic declaration's `declared_type` on the query road
                 // already *is* `anyType`; only the auto query
-                // ([`Checker::identifier_flow_type_is_auto`]) walks with
-                // `intrinsics.auto`, and converts here as native does.
+                // ([`Checker::identifier_flow_auto_kind`]) walks with
+                // `autoType`/`autoArrayType`, and converts here as native does.
                 let declared = state.declared_type;
-                break FlowType {
-                    t: if declared == self.intrinsics.auto {
-                        self.intrinsics.any
-                    } else {
-                        declared
-                    },
-                    incomplete: false,
-                };
+                break FlowType { t: self.convert_auto_to_any(state, declared), incomplete: false };
             } else {
                 // §14: an ARRAY_MUTATION node against an auto-array
                 // reference is a RECURSION upstream (`flow.go:1404` calls
@@ -1388,7 +1499,7 @@ impl Checker<'_, '_> {
                 // what makes `largeControlFlowGraph` bail deliberately. This
                 // walk skips the node iteratively, so the recursion is
                 // accounted for explicitly — one depth step per mutation.
-                if flags.contains(FlowFlags::ARRAY_MUTATION) && state.is_auto_array {
+                if flags.contains(FlowFlags::ARRAY_MUTATION) && state.evolving.is_some() {
                     // §710: `addEvolvingArrayElementType` — `x.push(a)`
                     // contributes each argument, `x[i] = e` the right-hand side.
                     if let Some(mutation) = binder.flow().node(flow) {
@@ -1581,8 +1692,10 @@ impl Checker<'_, '_> {
             // zero.** With `never[]` coming back, `answer.t == state.declared_type`
             // never held and the accumulated elements were discarded however
             // many `x.push(…)` had contributed.
-            if state.is_auto_array && self.is_empty_array_assignment(node) {
-                return Some(FlowType { t: state.declared_type, incomplete: false });
+            if let Some(evolving) = state.evolving
+                && self.is_empty_array_assignment(node)
+            {
+                return Some(FlowType { t: evolving, incomplete: false });
             }
             // `flow.go:232`. Upstream then asks whether the assigned type is
             // assignable to the declared one and falls back to `any[]`; the
@@ -2890,7 +3003,7 @@ impl Checker<'_, '_> {
         // operand is `[]`"* — a per-flow-NODE test. `let x; x = [];` takes that
         // second disjunct and never the first.
         //
-        // This port has to answer earlier than upstream does. `is_auto_array`
+        // This port has to answer earlier than upstream does. `state.evolving`
         // selects whether the ARRAY_MUTATION arm accumulates, and the mutations
         // are met on the way BACK to the assignment, so the flag must be set
         // before the walk starts. The declaration-shaped stand-in for upstream's
@@ -3994,7 +4107,7 @@ impl Checker<'_, '_> {
         // nine sites plus one enclosing condition.
         // The auto query walks with `intrinsics.auto` as its declared type:
         // its loop results never replay into, or from, the query road's.
-        let auto_query = u64::from(state.declared_type == self.intrinsics.auto) << 62;
+        let auto_query = u64::from(state.auto_query) << 62;
         let key = (
             tsr_core::index::Idx::index(flow),
             auto_query
@@ -4100,7 +4213,7 @@ impl Checker<'_, '_> {
             // So this gate does not depart from upstream; it restores what
             // upstream does, from which the stand-in had silently diverged.
             // Worth +2 W→R over the corpus at zero adverse.
-            if flow_type.t == state.declared_type && !state.is_auto_array {
+            if flow_type.t == state.declared_type && state.evolving != Some(flow_type.t) {
                 break;
             }
         }
@@ -4152,7 +4265,7 @@ impl Checker<'_, '_> {
     /// §739: merge a cached loop label's element slice into the querying
     /// state — the accumulation the skipped antecedent walk would have done.
     fn replay_loop_elements(state: &mut FlowState, elements: &[TypeId]) {
-        if !state.is_auto_array {
+        if state.evolving.is_none() {
             return;
         }
         for &element in elements {
@@ -4217,14 +4330,14 @@ impl Checker<'_, '_> {
             // `flow.go:1270`: a path answering the declared type, when the
             // reference is always assigned (declared == initial), decides the
             // join — the rest could only add subtypes. Only the auto query
-            // (`identifier_flow_type_is_auto`) takes it: there the identity
+            // (`identifier_flow_auto_kind`) takes it: there the identity
             // is the answer, and its initial type is native's. The query road
             // keeps its own initial (the declared type even where native's
             // `assumeInitialized` is false and its initial is
             // `getOptionalType(declared)`), so `declared == initial` there is
             // not native's test: `typeGuardsWithInstanceOf` lost 8 lines
             // (`r7-flow.md` §8).
-            if t == self.intrinsics.auto && state.initial_type == t {
+            if state.auto_query && t == state.declared_type && state.initial_type == t {
                 return FlowType { t, incomplete: false };
             }
             // `never` from a path means that path cannot reach here, so it
@@ -4270,7 +4383,7 @@ impl Checker<'_, '_> {
                 && !self.bypass_of_exhaustive_switch(bypass)
             {
                 // `flow.go:1293`, the same declared-type shortcut.
-                if t == self.intrinsics.auto && state.initial_type == t {
+                if state.auto_query && t == state.declared_type && state.initial_type == t {
                     return FlowType { t, incomplete: false };
                 }
                 types.push(t);
@@ -4298,8 +4411,9 @@ impl Checker<'_, '_> {
         // §737: `getUnionOrEvolvingArrayType` (`flow.go:1314`) runs at every
         // junction, BEFORE the ordinary union — see
         // [`Checker::union_or_evolving_array`].
-        if state.is_auto_array
-            && let Some(t) = self.union_or_evolving_array(state, &types)
+        if let Some(evolving) = state.evolving
+            && let Some(t) =
+                self.union_or_evolving_array(state, evolving, &types, subtype_reduction)
         {
             return FlowType { t, incomplete: false };
         }
@@ -6113,7 +6227,8 @@ impl Checker<'_, '_> {
             declared_type: declared,
             initial_type: initial,
             is_auto: false,
-            is_auto_array: false,
+            evolving: None,
+            auto_query: false,
             outer_reference: false,
             discriminant_pattern: None,
             flow_container: None,
