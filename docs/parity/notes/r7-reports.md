@@ -1205,3 +1205,25 @@ does.
 
 **Measured** (diagnostics and types, unfiltered, the change alone on the
 same tree): `checkJsxChildrenProperty4` RIGHT, 0 lost, types unchanged.
+
+## 31. A missing required member decides a hyphen-sensitive JSX relation
+
+**Forcing case.** `ignoredJsxAttributes` (20,11). `<Yadda bar="hello"
+data-yadda={42}/>` against `Props { foo: string; [dataProp: string]:
+string }` is native TS2741 (`foo` missing).
+- `jsx_attributes_relation` declines any source with a hyphenated member
+  against a target where one of the two hyphen rules could decide the
+  answer: `membersRelatedToIndexInfo` skipping it, or `hasCommonProperties`
+  counting it. This port's relater carries no `ObjectFlagsJsxAttributes`.
+- `propertiesRelatedTo` fails on a required target member the source lacks,
+  and neither rule can turn that around. A hyphenated source member neither
+  supplies a non-hyphenated name nor is consulted for it.
+
+**Port.** Before declining, a target (or an intersection constituent,
+whose required member is the intersection's) with a complete member table
+that declares a required, non-hyphenated member the source lacks decides
+NotRelated. A union target still declines, since its constituent choice is
+the relation's.
+
+**Measured** (diagnostics, the 375 JSX-named cases, the change alone):
+`ignoredJsxAttributes` RIGHT, nothing else moved. The full gate follows.
