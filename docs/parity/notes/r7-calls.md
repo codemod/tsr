@@ -718,6 +718,41 @@ only to an unannotated pattern (`has_binding_pattern_rest`)
 (iterableArrayPattern16, 26 and 29: native's TS2345 at the argument where
 the decline fell back to the syntactic arity check's TS2554).
 
+## 21. JS-FILE-CHECK-DECLINE: call resolution runs in JS files
+
+`check_resolve_call_arity` answered `CallArity::Undecided` for every call in
+a JS file, so no arity or applicability report ran there. Native has no
+such gate: `resolveCall` runs the same in a JS file. The JS-specific
+behaviour lives in the signatures it reads: optional JSDoc parameters,
+`arguments`-implied rest, `@overload` tags, `@callback`/`@type` signatures.
+Those come from this port's signature construction, and the lift shows they
+already answer native's arity and parameter types for the corpus cases it
+converts. The gate is removed (call and `new`; `call_arity.rs`'s syntactic
+fallbacks keep their own JS gates, which the lifted path no longer reaches
+for resolved callees).
+
+**Held** (`box/r7-calls-held-js`). Measured against `b70ba689`: diagnostics
++10 (argumentsPropertyNameInJsMode1/2, argumentsReferenceInFunction1_Js,
+contextuallyTypedParametersOptionalInJSDoc, jsdocCallbackAndType,
+callWithMissingVoidUndefinedUnknownAnyInJs ×2, jsdocPostfixEqualsAddsOptionality,
+overloadTag1/2) but 2 lost, and the exact oracle +5 / −4. The losses are
+two JS signature and type gaps the gate was hiding:
+
+- `unannotatedParametersAreOptional`: native's `getMinArgumentCount`
+  answers 0 for a signature flagged `SignatureFlagsIsUntypedSignatureInJSFile`
+  (`checker.go:19847`, `relater.go:1729`: a JS function-like declaration
+  with no parameter annotation and no contextual signature). This port's
+  signature carries no such flag, so `f()` over `function f(x) {}` reports
+  a false TS2554. The flag belongs to signature construction (r7-shared).
+- `checkExportsObjectAssignProperty`: in a `.js` file,
+  `Object.defineProperty(exports, "p", { /** @param {string} str */ set(str) {…} })`
+  relates `{ set(str: string): void; }` as not assignable to
+  `PropertyDescriptor & ThisType<any>` (the same literal in a `.ts` file
+  relates). That is the JS object literal's type or its relation
+  (r7-reports' JS/JSDoc files).
+
+The lift lands once both are fixed.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

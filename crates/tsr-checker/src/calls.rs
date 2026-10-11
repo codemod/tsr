@@ -1071,9 +1071,6 @@ impl Checker<'_, '_> {
         apparent: TypeId,
         kind: SignatureKind,
     ) -> CallArity {
-        if self.in_js_file(node) {
-            return CallArity::Undecided;
-        }
         let Some(signatures) = self.head_signatures(apparent, kind) else {
             return CallArity::Undecided;
         };
