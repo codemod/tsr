@@ -719,7 +719,7 @@ impl Checker<'_, '_> {
                 // of those signatures are compatible with each other").
                 if construct_count == 0
                     && self.could_contain_type_variables_at_head(func_type, 3)
-                    && !self.union_members_have_call_signatures(apparent)
+                    && !self.union_members_have_signatures(apparent, SignatureKind::Call)
                 {
                     return CallHead::Unknown;
                 }
@@ -2626,7 +2626,14 @@ impl Checker<'_, '_> {
         let Some(call_signatures) = self.head_signatures(apparent, SignatureKind::Call) else {
             return CallHead::Unknown;
         };
-        if self.could_contain_type_variables_at_head(expression_type, 3) {
+        // The refusal of [`Checker::could_contain_type_variables_at_head`],
+        // except for a union every member of which has a decided, non-empty
+        // construct list: its empty composite is `getUnionSignatures`' own
+        // verdict, as for a call.
+        if self.could_contain_type_variables_at_head(expression_type, 3)
+            && !(call_signatures.is_empty()
+                && self.union_members_have_signatures(apparent, SignatureKind::Construct))
+        {
             return CallHead::Unknown;
         }
         match call_signatures.as_slice() {
@@ -2639,11 +2646,18 @@ impl Checker<'_, '_> {
                 CallHead::Done
             }
             // `resolveCall` picks the sole non-generic candidate whatever the
-            // arguments; an overload set or a generic one needs the chosen,
+            // arguments. Over an overload set, a `new` with no argument list
+            // passes `hasCorrectArity` only for a candidate whose minimum
+            // argument count is 0, with no argument to check, so the first
+            // such candidate in `reorderCandidates` order is chosen. Any other
+            // overload set, or a generic candidate, needs the chosen,
             // instantiated signature, which this head does not compute.
-            [signature] if signature.type_parameters.is_empty() => {
+            signatures
+                if let Some(signature) =
+                    self.new_head_candidate(node, new.type_arguments, signatures) =>
+            {
                 if !self.no_implicit_any
-                    && let Some(signature) = self.complete_signature_return(signature.clone())
+                    && let Some(signature) = self.complete_signature_return(signature)
                     && signature.r#type != self.intrinsics.void
                     && !self.is_gap(signature.r#type)
                 {
@@ -2659,6 +2673,35 @@ impl Checker<'_, '_> {
             }
             _ => CallHead::Resolve(apparent),
         }
+    }
+
+    /// The signature `resolveNewExpression`'s `resolveCall` picks over a
+    /// callee's call signatures when this head can tell without resolution:
+    /// the sole non-generic candidate, or, for a `new` with no argument list
+    /// and no type arguments, the first candidate in `reorderCandidates`
+    /// order whose minimum argument count is 0, when it is not generic.
+    fn new_head_candidate(
+        &mut self,
+        node: tsr_ast::NodeId,
+        type_arguments: &[tsr_ast::TypeNode<'_>],
+        signatures: &[Signature],
+    ) -> Option<Signature> {
+        if let [signature] = signatures {
+            return signature.type_parameters.is_empty().then(|| signature.clone());
+        }
+        let Some(tsr_ast::Node::NewExpression(new)) = self.node_map.get(node) else {
+            return None;
+        };
+        if !type_arguments.is_empty()
+            || !self.new_has_no_argument_list(node, new.expression, type_arguments)
+        {
+            return None;
+        }
+        let candidate = self
+            .reorder_candidates(signatures.to_vec())
+            .into_iter()
+            .find(|signature| self.signature_min_argument_count(signature) == 0)?;
+        candidate.type_parameters.is_empty().then_some(candidate)
     }
 
     /// `checkNonNullTypeWithReporter` (`checker.go:7413`) with
@@ -2791,11 +2834,11 @@ impl Checker<'_, '_> {
     }
 
     /// Whether `t` is a union every member of which has a decided, non-empty
-    /// call signature list.
-    fn union_members_have_call_signatures(&mut self, t: TypeId) -> bool {
+    /// signature list of `kind`.
+    fn union_members_have_signatures(&mut self, t: TypeId, kind: SignatureKind) -> bool {
         let TypeData::Union { types, .. } = self.store.get(t).data.clone() else { return false };
         types.into_iter().all(|member| {
-            self.signatures_of_type_kind(member, SignatureKind::Call)
+            self.signatures_of_type_kind(member, kind)
                 .is_some_and(|signatures| !signatures.is_empty())
         })
     }
