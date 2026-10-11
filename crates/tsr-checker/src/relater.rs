@@ -1093,6 +1093,15 @@ impl Checker<'_, '_> {
         // (getSingleBaseForNonAugmentingSubtype), is left there; an alias of a
         // type literal or mapped type is its own normal form (r7-reports §5).
         for side in [source, target] {
+            // A class or interface reference minted under an alias's printed
+            // name (`alias_of`: `IntrinsicClassAttributes<T>` over
+            // `IntrinsicClassAttributesAlias<T>`): the missing-property
+            // message names the reference, the head the alias, so
+            // chainArgsMatch fails and the head stays
+            // (`jsxClassAttributeResolution` (2,19); r7-reports §33).
+            if self.alias_of.contains_key(&side) {
+                return None;
+            }
             if let TypeData::Named { members: Some(owner), .. } = self.type_of(side).data
                 && self.binder.symbols().get(owner).flags.intersects(SymbolFlags::TYPE_ALIAS)
                 && !self.alias_object_body_is_its_own_normal_form(side, owner)

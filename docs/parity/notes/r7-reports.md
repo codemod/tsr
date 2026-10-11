@@ -1258,3 +1258,24 @@ unchanged. Cost: the first draft built each instantiation's full table on
 every weak test and raised domain-model's callgrind Ir by 1.37%. The test
 now stops at the first required member, which nearly every instantiation
 has. That brought it to +0.25% (gi +0.02%).
+
+## 33. An alias-named reference keeps the caller's head
+
+**Forcing case.** `jsxClassAttributeResolution` (2,19). Under `declare
+namespace JSX { type IntrinsicClassAttributes<T> =
+IntrinsicClassAttributesAlias<T> }`, `<App></App>` is native TS2322: `Type
+'{}' is not assignable to type 'IntrinsicClassAttributes<T>'`, with the
+chain `Property 'ref' is missing in type '{}' but required in type
+'IntrinsicClassAttributesAlias<T>'`. The head names the alias and the
+missing-property message names the reference, so `chainArgsMatch` fails
+and the head stays. This port reported TS2741 as the head.
+
+**Port** (`relater.rs::unmatched_property_report`). r7-declared mints a
+class or interface reference under an alias's printed name and records
+the alias in `alias_of`. Such a side is a type the head prints differently
+from the reference the chain names, so the report keeps the caller's head,
+as it already does for an alias image normalization may rewrite.
+
+**Measured** (diagnostics and types, unfiltered, the change alone on batch
+37 with §30–§32): `jsxClassAttributeResolution` RIGHT, 0 lost, types
+unchanged.
