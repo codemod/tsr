@@ -718,6 +718,54 @@ only to an unannotated pattern (`has_binding_pattern_rest`)
 (iterableArrayPattern16, 26 and 29: native's TS2345 at the argument where
 the decline fell back to the syntactic arity check's TS2554).
 
+## 22. A non-generic overload walk re-checks array literals under each candidate
+
+`overload_pass` checked an array-literal argument under a candidate only when
+that candidate's parameter was a tuple. Native's `isSignatureApplicable`
+checks every argument under each candidate's parameter, and an array
+literal's type follows the context beyond tuple-ness: under
+`ConcatArray<[number, number]>` the inner literals of `[[3, 4], [5, 6]]`
+are tuples. For a wholly non-generic set (`retain_context`), an array
+literal free of nested resolutions (`literal_subtree_has_resolution`) is
+now re-checked under each candidate like an object literal, and the picked
+candidate's check is the published type (concatTuples:
+`ijs.concat([[3, 4], [5, 6]])` prints `[number, number][]`).
+
+**Measured** against `68ef70c0` on `127660ee`: types +3 (concatTuples),
+0 lost; diagnostics 0/0; jsTyping new_false 0, lost_true 0; Ir
+generic-imports 0.9999, domain-model 1.0000; exact +1, exact_lost 0.
+
+## 23. `invocationErrorDetails`' chain under TS2349/TS2351
+
+`invocation_error` emitted only the head (`This expression is not
+callable.`/`… constructable.`), so every such report missed native's text.
+It now builds `invocationErrorDetails`' chain (`checker.go:9940`) from the
+apparent type every caller already holds (call, `new`, tagged template and
+decorator heads):
+
+- a non-union: `Type '…' has no call signatures.` (or construct);
+- a union: the first constituent with no signatures, under
+  `Not all constituents of type '…' are callable.`;
+- every constituent without signatures: `No constituent of type '…' is
+  callable.`;
+- every constituent with signatures but no composite: `Each member of the
+  union type '…' has signatures, but none of those signatures are compatible
+  with each other.`
+
+A constituent whose signature list this port cannot decide leaves the head
+alone. `Did you forget to use 'await'?`'s related information and
+`invocationErrorRecovery`'s import-originated related information are not
+modelled (the checker's related diagnostics carry no file yet).
+
+**Measured** against `14511e3e` on `0c8b7f43`: diagnostics 0/0 (the
+diagnostics suite compares code and position), types 0/0; jsTyping
+new_false 0, lost_true 0; Ir generic-imports 0.9999, domain-model 1.0001;
+exact 0 gained, 0 lost. The chain text now matches native byte for byte on
+probe files, but the exact oracle still differs. Native's chain children
+carry the parent's file and span (`NewDiagnosticChain`); this port's
+`Diagnostic::new_chain` children have no file (reported to the integrator
+as shared infrastructure).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

@@ -1450,7 +1450,10 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
-        self.get_type_of_property_with_this_argument(id, name, id, false)
+        // A `getTypeWithThisArgument` image reads its members with its own
+        // this-argument; any other type is its own (r7-shared.md §13).
+        let this_argument = self.this_argument_of(id);
+        self.get_type_of_property_with_this_argument(id, name, this_argument, false)
     }
 
     /// Source optionality follows the ordinary supplier, not the reused symbol's flags.
@@ -5453,11 +5456,8 @@ impl StructuredNamesWalk {
     }
 }
 
-/// `r7-shared.md` §13 step 1: the `getTypeWithThisArgument` identity, with no
-/// consumer yet (step 2 wires member reads and inherited signatures).
-// Step 1 has no reader yet; step 2 (member reads, inherited signatures)
-// removes this allowance.
-#[allow(dead_code)]
+/// `r7-shared.md` §13: the `getTypeWithThisArgument` identity and the
+/// this-type identities it substitutes.
 impl Checker<'_, '_> {
     /// `getTypeWithThisArgument` (`checker.go:19573`): a class or interface
     /// reference with `this_argument` as its this-type argument
@@ -5536,7 +5536,7 @@ impl Checker<'_, '_> {
     /// (`len(target.TypeParameters()) == len(typeArguments)`): a generic
     /// reference through `type_reference_targets`, or a non-generic class or
     /// interface instance type itself. An image answers its reference's target.
-    fn this_argument_target(&mut self, t: TypeId) -> Option<SymbolId> {
+    pub(crate) fn this_argument_target(&mut self, t: TypeId) -> Option<SymbolId> {
         let t = self.reference_this_arguments.get(&t).map_or(t, |&(reference, _)| reference);
         let (symbol, arguments) = if let Some(entry) = self.type_reference_targets.get(&t).cloned()
         {
@@ -5563,9 +5563,24 @@ impl Checker<'_, '_> {
         (parameters.len() == arguments.len()).then_some(symbol)
     }
 
-    /// A class's or interface's this-type (`target.thisType`), minted as
-    /// `this` expressions mint it (`expressions.rs`, `this_types`).
-    fn class_or_interface_this_type(&mut self, symbol: SymbolId) -> TypeId {
+    /// A class's or interface's this-type (`target.thisType`), with the
+    /// identities this port mints: one per class symbol (`this_types`, as
+    /// `this` expressions and annotations mint it), one per interface
+    /// *declaration* (`this_type_nodes`, `declared.rs`'
+    /// `get_type_from_this_type_node`); an interface answers its first
+    /// declaration's.
+    pub(crate) fn class_or_interface_this_type(&mut self, symbol: SymbolId) -> TypeId {
+        let interface = self
+            .binder
+            .symbols()
+            .get(symbol)
+            .declarations
+            .iter()
+            .copied()
+            .find(|&id| self.nodes.kind(id) == tsr_ast::SyntaxKind::InterfaceDeclaration);
+        if let Some(declaration) = interface {
+            return self.interface_declaration_this_type(declaration);
+        }
         if let Some(&existing) = self.this_types.get(&symbol) {
             return existing;
         }
@@ -5573,6 +5588,43 @@ impl Checker<'_, '_> {
             self.store.new_named(TypeFlags::TYPE_PARAMETER, "this".to_string(), Some(symbol));
         self.this_types.insert(symbol, this_type);
         this_type
+    }
+
+    /// One interface declaration's this-type, minted as
+    /// `get_type_from_this_type_node` mints it.
+    pub(crate) fn interface_declaration_this_type(
+        &mut self,
+        declaration: tsr_ast::NodeId,
+    ) -> TypeId {
+        if let Some(&existing) = self.this_type_nodes.get(&declaration) {
+            return existing;
+        }
+        let minted = self.store.new_named(
+            TypeFlags::TYPE_PARAMETER,
+            "this".to_string(),
+            self.binder.symbol_of(declaration),
+        );
+        self.this_type_nodes.insert(declaration, minted);
+        minted
+    }
+
+    /// Every this-type identity of a class or interface that has been minted:
+    /// the class's one, or each interface declaration's (an unminted one is
+    /// mentioned by no type).
+    pub(crate) fn this_types_of_target(&self, symbol: SymbolId) -> Vec<TypeId> {
+        let mut out: Vec<TypeId> = self.this_types.get(&symbol).copied().into_iter().collect();
+        for declaration in &self.binder.symbols().get(symbol).declarations {
+            if let Some(&this_type) = self.this_type_nodes.get(declaration) {
+                out.push(this_type);
+            }
+        }
+        out
+    }
+
+    /// The this-argument a receiver carries: an image's, else the receiver
+    /// itself (`resolveTypeReferenceMembers` appends the reference).
+    pub(crate) fn this_argument_of(&self, receiver: TypeId) -> TypeId {
+        self.reference_this_arguments.get(&receiver).map_or(receiver, |&(_, this)| this)
     }
 }
 
