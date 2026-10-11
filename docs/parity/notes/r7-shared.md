@@ -808,3 +808,21 @@ an array literal without a global `Array` (`createArrayType` over
 `emptyGenericType`, `[1, 2, 3] : {}`; `noCrashOnNoLib`,
 `arrayIterationLibES5TargetDifferent(nolib)`) is the array-literal road
 (r7-contextual).
+
+## 22. A static `prototype` property is the class's prototype (BIND-CLASS-PROTOTYPE-SYMBOL, partial)
+
+`bindClassLikeDeclaration` (binder.go:962) gives every class a
+`Property|Prototype` `prototype` export before its body binds. A written
+`static prototype` *property* merges into it (property excludes are
+empty), so `getTypeOfVariableOrParameterOrPropertyWorker`'s
+`SymbolFlagsPrototype` arm (checker.go:16580) types the declaration
+`getTypeOfPrototypeProperty` (the instance type, `any` per type parameter):
+`static prototype;` is `C2`. A static method or accessor conflicts (TS2300)
+and keeps its own symbol. This binder mints no prototype symbol; the
+variable/property worker recognises the merge (a static `PropertyDeclaration`
+named `prototype` whose parent node is a class) and answers
+`members.rs::prototype_type_of_class`, the helper the static side's
+`C.prototype` read (§117) now shares. Not ported: the binder-level symbol
+itself, and computed names that late-bind to `prototype`
+(`[FunctionPropertyNames.prototype]`, `staticPropertyNameConflicts` 65/195/330),
+which `lateBindMember` resolves against the early prototype symbol.

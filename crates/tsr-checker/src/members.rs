@@ -1322,6 +1322,20 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `getTypeOfPrototypeProperty` (`checker.go:18041`): a class's
+    /// `prototype` is its instance type, a generic class's instantiated with
+    /// `any` for each type parameter. `None` when the instance type is the gap.
+    pub(crate) fn prototype_type_of_class(&mut self, class: SymbolId) -> Option<TypeId> {
+        let parameters = self.local_type_parameters_of(class);
+        if parameters.is_empty() {
+            let instance = self.get_declared_type_of_symbol(class);
+            return (instance != self.intrinsics.error).then_some(instance);
+        }
+        let any = self.intrinsics.any;
+        let arguments = vec![any; parameters.len()];
+        Some(self.create_type_reference(class, arguments))
+    }
+
     pub(crate) fn apparent_type(&mut self, id: TypeId) -> TypeId {
         let id = self.apparent_mapped_type(id);
         // Upstream's order, arm for arm (`checker.go:21745-21751`). `NUMBER_LIKE`
@@ -1710,16 +1724,8 @@ impl Checker<'_, '_> {
                 .contains(SymbolFlags::CLASS)
         {
             let class = self.binder.merged_symbol(symbol);
-            let parameters = self.local_type_parameters_of(class);
-            if parameters.is_empty() {
-                let instance = self.get_declared_type_of_symbol(class);
-                if instance != self.intrinsics.error {
-                    return Some(instance);
-                }
-            } else {
-                let any = self.intrinsics.any;
-                let arguments = vec![any; parameters.len()];
-                return Some(self.create_type_reference(class, arguments));
+            if let Some(prototype) = self.prototype_type_of_class(class) {
+                return Some(prototype);
             }
         }
         // §117 slice 4: a TUPLE's `.length` is the LITERAL element count
