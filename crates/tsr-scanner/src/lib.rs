@@ -1551,6 +1551,15 @@ impl<'a> Scanner<'a> {
         self.token
     }
 
+    /// Whether the continuations of the template just entered report invalid
+    /// escapes, without re-scanning its head: native passes the tag to each
+    /// `reScanTemplateToken` (`parser.go:3728`) but re-scans a head only when
+    /// its first scan found an invalid escape (`parseTemplateHead`,
+    /// `parser.go:3691`). §223.
+    pub fn set_report_template_escapes(&mut self, report: bool) {
+        self.report_template_escapes = report;
+    }
+
     /// `ReScanTemplateToken` for a template **continuation** — the `}` that
     /// resumes the literal after a substitution.
     ///
@@ -1737,7 +1746,31 @@ impl<'a> Scanner<'a> {
         let mut leading_line_break = false;
 
         while let Some(ch) = self.peek() {
-            if ch == '<' || ch == '{' {
+            if ch == '<' {
+                // `ScanJsxTokenEx` (`scanner.go:1281`): a `<<<<<<< ` marker at
+                // a line start inside the text ends it as one
+                // `ConflictMarkerTrivia` token from the text's start to the
+                // marker line's end, reported as `scanConflictMarkerTrivia`
+                // reports it. Line start is the trivia loop's test (§301): the
+                // byte before is a line break, or there is none.
+                let bytes = self.source.as_bytes();
+                let at = self.pos as usize;
+                let limit = self.limit as usize;
+                if (at == 0 || matches!(bytes[at - 1], b'\n' | b'\r'))
+                    && Self::is_conflict_marker(bytes, at, limit)
+                {
+                    self.error(
+                        &tsr_diagnostics::messages::MERGE_CONFLICT_MARKER_ENCOUNTERED,
+                        Span::new(self.pos, self.pos + 7),
+                    );
+                    while self.peek().is_some_and(|c| !is_line_break(c)) {
+                        self.bump();
+                    }
+                    return SyntaxKind::ConflictMarkerTrivia;
+                }
+                break;
+            }
+            if ch == '{' {
                 break;
             }
             // `scanJsxTokenEx` (`scanner.go`): a bare `>` or `}` in JSX text

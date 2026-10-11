@@ -654,7 +654,7 @@ impl<'a> Parser<'a> {
         if self.at(kind) {
             return true;
         }
-        self.error_at_current_with(&messages::_0_EXPECTED, &[crate::parser::token_to_text(kind)]);
+        self.error_at_current_with(&messages::_0_EXPECTED, &[&crate::parser::token_to_text(kind)]);
         false
     }
 
