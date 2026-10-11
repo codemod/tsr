@@ -784,3 +784,41 @@ string]` rather than the alias `EmitSignature`, as natively, and this port's
 an inference/relation gap (r7-contextual / r7-reports), not a flow one. The
 lookup stays until it is fixed; the removal is two hunks in
 `flow.rs`'s branch label.
+
+## §25 `isParameterOrMutableLocalVariable` as written, and `markNodeAssignments`' export-specifier arm
+
+`checkIdentifier` extends a closure's flow container to the declaring
+function when the variable is a parameter or mutable local and the read is
+past its last assignment (`isPastLastAssignment`, `flow.go:2668`); a mutable
+local is a `let` neither exported nor at the top of a **global** script
+(`isMutableLocalVariableDeclaration`, `utilities.go:1053`). The port's
+position reader refused every file-level `let`, an approximation kept because
+moving it "moves `checker_types`" (`checker-notes-diag2.md` §42), and did not
+port `markNodeAssignmentsWorker`'s export-specifier arm (`flow.go:2726`: a
+value re-export `export { x }` marks `x` assigned at `MaxInt32`, so a read is
+never past it). `narrowingPastLastAssignmentInModule`'s module-level `x4`/`x5`
+read in an arrow stayed `string | number` (native `string`).
+
+Both are ported: `is_parameter_or_mutable_local_variable` is now the written
+predicate (the separate `_faithful` copy is gone), and `mark_exported_local`
+is the export-specifier arm (not type-only, no module specifier, an
+identifier name resolved as a value). The arm is what keeps `export { x2 }`
+and `export { x3 as foo }` wide once module-level `let`s qualify.
+
+## §26 `isUnitLikeType` and `extractUnitType` in the switch default filter
+
+`narrowTypeBySwitchOnDiscriminant`'s default clause (`flow.go:1139`) keeps a
+constituent unless it is unit-like (`isUnitLikeType`, `checker.go:25414`: read
+through its base constraint, a unit type or an intersection with a unit
+member) and its unit (`extractUnitType`, `:25424`) is comparable to some case.
+The port asked the constituent's own `UNIT` flag, so `T & 1 | T & 2` kept
+both in `default:` (`intersectionNarrowing` `f4`, native `never`).
+`is_unit_like_type`/`extract_unit_type` port both; `narrowTypeByEquality`'s
+false-branch filter, which had the unit-like test inline, now shares it.
+
+Measured (§25 + §26) on `edf2a433` unfiltered: types **+7**
+(`narrowingPastLastAssignmentInModule` 2, `nestedBlockScopedBindings7/8` 2
+each, `intersectionNarrowing` 1), diagnostics unchanged, 0 lost; jsTyping 122
+→ 122, new_false 0, lost_true 0; exact oracle 9660 → 9664 (those four cases), 0
+lost; Ir gi 0.9999, dm 0.9999. No cache added; the export arm runs inside
+the existing once-per-root marking walk.
