@@ -121,6 +121,13 @@ impl Printer<'_> {
                 if let Some(tag) = &node.tag {
                     self.emit_expression(tag);
                 }
+                // ``a?.`b` `` keeps its `?.` (`parseTaggedTemplateRest`; the
+                // checker reports TS1358). Upstream's emitter drops the token,
+                // which would reparse as a plain tagged template
+                // (docs/parity/notes/r7-printer.md §11).
+                if node.question_dot_token.is_some() {
+                    self.write("?.");
+                }
                 self.emit_type_arguments(node.type_arguments);
                 if let Some(template) = &node.template {
                     self.any_expression(tsr_ast::Node::from(*template));

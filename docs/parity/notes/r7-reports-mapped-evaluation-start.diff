@@ -1,0 +1,43 @@
+diff --git a/crates/tsr-checker/src/mapped.rs b/crates/tsr-checker/src/mapped.rs
+index a72085a7..df431e5a 100644
+--- a/crates/tsr-checker/src/mapped.rs
++++ b/crates/tsr-checker/src/mapped.rs
+@@ -36,6 +36,14 @@ pub(crate) struct MappedTypeInfo {
+     /// getResolvedApparentTypeOfMappedType re-instantiates with the
+     /// homomorphic type variable prepended ([`Checker::apparent_mapped_type`]).
+     pub(crate) instance: Option<std::rc::Rc<MappedInstance>>,
++    /// The store's length when this instance's evaluation began
++    /// ([`Checker::mapped_type_info`], [`Checker::instantiate_mapped_type`]):
++    /// every type its template and members created has an index at or past
++    /// it. Native instantiates a mapped type's template and resolves its
++    /// members on first read, so those types are newer than the instance;
++    /// the relater's deep-nesting test reads this to see that order here
++    /// (r7-reports §11).
++    pub(crate) evaluation_start: Option<usize>,
+ }
+ 
+ /// The target and mapper of a mapped instance ([`MappedTypeInfo::instance`]).
+@@ -444,6 +452,7 @@ impl<'a> Checker<'a, '_> {
+         &mut self,
+         node: &'a tsr_ast::MappedTypeNode<'a>,
+     ) -> Option<MappedTypeInfo> {
++        let evaluation_start = self.store.len();
+         let parameter = node.type_parameter?;
+         let symbol = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+         let parameter_type = self.get_declared_type_of_symbol(symbol);
+@@ -542,6 +551,7 @@ impl<'a> Checker<'a, '_> {
+             homomorphic_symbol,
+             node_key,
+             instance: None,
++            evaluation_start: Some(evaluation_start),
+         })
+     }
+ 
+@@ -1256,6 +1266,7 @@ impl<'a> Checker<'a, '_> {
+             return mapped;
+         }
+         info.node_key = None;
++        info.evaluation_start = Some(self.store.len());
+         info.instance = Some(std::rc::Rc::new(MappedInstance {
+             target: id,
+             mapper: (

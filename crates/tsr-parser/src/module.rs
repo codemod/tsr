@@ -70,31 +70,43 @@ impl<'a> Parser<'a> {
             return Statement::ImportEqualsDeclaration(node);
         }
 
-        let clause_start = self.pos();
-        // Contextual keywords are legal binding names: `import type from "m"`
-        // imports something called `type`.
-        let default_name =
-            if self.at_binding_identifier() { Some(self.parse_identifier()) } else { None };
-        // A default import may be followed by named or namespace bindings.
-        let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
-            self.parse_named_import_bindings()
+        // `tryParseImportClause` (`parser.go:2329`): a clause only when a
+        // default binding, `*` or `{` follows; otherwise the module specifier
+        // comes next, so `import⏎import { foo }…` reports the second `import`
+        // as a missing expression, not a missing `from`.
+        let clause = if self.at_binding_identifier()
+            || self.at(SyntaxKind::AsteriskToken)
+            || self.at(SyntaxKind::OpenBraceToken)
+        {
+            let clause_start = self.pos();
+            // Contextual keywords are legal binding names: `import type from "m"`
+            // imports something called `type`.
+            let default_name =
+                if self.at_binding_identifier() { Some(self.parse_identifier()) } else { None };
+            // A default import may be followed by named or namespace bindings.
+            let named_bindings = if default_name.is_none() || self.eat(SyntaxKind::CommaToken) {
+                self.parse_named_import_bindings()
+            } else {
+                None
+            };
+            let clause = self.finish_node(
+                ImportClause::new(phase, default_name, named_bindings),
+                SyntaxKind::ImportClause,
+                clause_start,
+            );
+            self.expect(SyntaxKind::FromKeyword);
+            Some(clause)
         } else {
             None
         };
-        let clause = self.finish_node(
-            ImportClause::new(phase, default_name, named_bindings),
-            SyntaxKind::ImportClause,
-            clause_start,
-        );
         self.statement_has_await_identifier = saved_await_identifier;
 
-        self.expect(SyntaxKind::FromKeyword);
         let specifier = self.parse_module_specifier();
         let attributes = self.parse_import_attributes();
         self.parse_semicolon();
 
         let node = self.finish_node(
-            ImportDeclaration::new(modifiers, Some(clause), Some(specifier), attributes),
+            ImportDeclaration::new(modifiers, clause, Some(specifier), attributes),
             SyntaxKind::ImportDeclaration,
             start,
         );

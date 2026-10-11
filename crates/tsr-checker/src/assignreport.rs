@@ -4007,7 +4007,7 @@ impl<'a> Checker<'a, '_> {
         }
         // `getPropertiesOfType` reads the reduced apparent type.
         let apparent = self.apparent_type(source);
-        let Some(names) = self.get_property_names_of_type(apparent) else { return false };
+        let Some(names) = self.common_check_property_names(apparent) else { return false };
         if names.is_empty() && !self.type_has_call_or_construct_signatures(source) {
             return false;
         }
@@ -4019,11 +4019,38 @@ impl<'a> Checker<'a, '_> {
         true
     }
 
+    /// `getPropertiesOfType` of a reduced apparent type, for
+    /// `hasCommonProperties`: an intersection's properties are every
+    /// constituent's (`getPropertiesOfUnionOrIntersectionType` creates a
+    /// property for a name any constituent declares), so
+    /// `T & { "ignore-prop": true }` over `T extends { b: number }` has `b`
+    /// and `ignore-prop` (`tsxStatelessFunctionComponentsWithTypeArguments4`).
+    /// `None` where a constituent's names are not enumerable.
+    fn common_check_property_names(&mut self, apparent: TypeId) -> Option<Vec<String>> {
+        let TypeData::Intersection { types, .. } = self.type_of(apparent).data.clone() else {
+            return self.get_property_names_of_type(apparent);
+        };
+        let mut names = Vec::new();
+        for part in types {
+            let part = self.apparent_type(part);
+            for name in self.common_check_property_names(part)? {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        Some(names)
+    }
+
     /// `isWeakType` (`relater.go:681`): an object type with at least one
     /// property, every property optional, and no signatures or index
     /// signatures; an intersection of only such. `None` where the member
     /// table is not certified.
     fn is_weak_type(&mut self, t: TypeId) -> Option<bool> {
+        // The substitution arm: `NoInfer<T>` is weak exactly when `T` is.
+        if let Some(base) = self.no_infer_base_type(t) {
+            return self.is_weak_type(base);
+        }
         if let TypeData::Intersection { types, .. } = self.type_of(t).data.clone() {
             for part in types {
                 if !self.is_weak_type(part)? {

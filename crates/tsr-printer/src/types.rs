@@ -291,6 +291,23 @@ impl Printer<'_> {
                     self.emit_type_node(r#type);
                 }
                 self.write(";");
+                // `node.Members` (`parseMappedType`'s recovery members, which
+                // the checker reports): after a line break (or a space on one
+                // line), the list as `LFPreserveLines`.
+                if !mapped.members.is_empty() {
+                    if single_line {
+                        self.write(" ");
+                    } else {
+                        self.write_line();
+                    }
+                    self.emit_list(
+                        mapped.members,
+                        ListFormat::PRESERVE_LINES,
+                        |printer, member| {
+                            printer.emit_type_element(member);
+                        },
+                    );
+                }
                 if single_line {
                     self.write(" ");
                 } else {

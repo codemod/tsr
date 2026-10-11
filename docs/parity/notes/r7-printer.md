@@ -606,3 +606,40 @@ new/old measured 1.044 (21 samples) and 1.038 (41) on domain-model while
 the host's absolute times were twice their earlier values (load ≈ 3.5 on
 four cores); the flat Ir says the work did not change. Test:
 `tests/module_rooted_symbol_chain.rs`' seventh case.
+
+## 11. `tsr-printer`: three round-trip gaps under r7-parser's trees
+
+Routed by the integrator (r7-printer owns `crates/tsr-printer` for these):
+r7-parser's stack (`cf833a47..1482cfad`) builds three recovery shapes the
+printer did not write back, and `printer_round_trip` went 11,804 → 11,802
+passes on a local merge. The suite reparses the printed text and compares
+the tree, including a histogram of optional-token kinds (`printer_suite.rs`).
+
+1. **`MappedTypeNode.members`** (`mappedTypeProperties`): `parseMappedType`
+   (`parser.go:3158`) keeps type members after the mapped member as
+   recovery, and the checker reports them. `emitMappedType`
+   (`printer.go:2137`) writes them after a line break (a space on one
+   line) as an `LFPreserveLines` list; ported.
+2. **`TaggedTemplateExpression.question_dot_token`** (`taggedTemplateChain`):
+   ``a?.`b` `` now parses as a tagged template carrying the `?.`
+   (`parseTaggedTemplateRest`), and the checker reports TS1358.
+   Native's `emitTaggedTemplateExpression` (`printer.go:2601`) writes no
+   `?.`, which would reparse as a plain tagged template; the printer writes
+   the token. A deliberate deviation for tree preservation, as §405's
+   recovery `?`.
+3. **Object-literal member modifiers and postfix tokens**
+   (`plainJSGrammarErrors`, and on main already `modifiersInObjectLiterals`
+   and `definiteAssignmentAssertionsWithObjectShortHand`): the parser keeps
+   `{ export a: 1 }`'s modifiers and a `!` postfix for the checker's grammar
+   reports. `emitPropertyAssignment` and `emitShorthandPropertyAssignment`
+   (`printer.go:4511`, `:4532`) write neither; the printer writes the
+   modifiers, and the postfix token by its own kind (it wrote `?` for any
+   postfix token, so `{ a! }` printed `{ a? }`).
+
+**Measured.** `printer_round_trip` on a local merge of `origin/box/r7-parser`
+(not pushed): 11,802 → **11,807** passes, 0 newly failing
+(`mappedTypeProperties`, `taggedTemplateChain`, `plainJSGrammarErrors`,
+`modifiersInObjectLiterals`, `definiteAssignmentAssertionsWithObjectShortHand`
+pass). On main alone: 11,804 → 11,806 (the last two), 0 newly failing.
+The checker does not depend on `tsr-printer`; both corpus dumps are
+unchanged.

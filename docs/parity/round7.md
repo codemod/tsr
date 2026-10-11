@@ -400,3 +400,22 @@ Grants: r7-declared adds the variadic/rest tuple arm to `members.rs`
 `get_type_of_property_with_this_argument`'s Array-base fallback
 (getTupleBaseType). r7-printer applies r7-shared's `resolve_symbol` diff,
 including its `symbols.rs` definition.
+
+### Batch 16 — r7-calls `0ff376e0`, r7-declared `77418645`, r7-parser `1482cfad`, r7-printer `ef891f87`, r7-reports `ac5dba13`
+
+Merged onto main `4bdd575d`. r7-parser's nine-commit stack lands with
+r7-printer's three round-trip fixes (mapped-type members, the `?.` of a
+tagged template, object-literal member modifiers). Without the fixes, the
+native trees cost printer_round_trip two passing cases. Gate against the
+batch-15 freeze: types +106 RIGHT / 0 lost / 0 missing, diagnostics +16
+cases / 0 lost / 0 missing; jsTyping new_false 0, lost_true 0; tests, fmt,
+strict clippy green. Callgrind Ir: generic-imports 1.0019, domain-model
+1.0008 (parser recovery work). printer_round_trip 11,804/11,815 →
+11,807/11,816 (failures 11 → 9), and no suite's failure count rose.
+
+| Suite | Batch 15 | Batch 16 |
+|---|---|---|
+| `checker_types` | 8,817 | 8,825 |
+| `checker_types_configured` | 1,818 | 1,818 |
+| `diagnostics` | 4,934 | 4,949 |
+| `diagnostics_configured` | 1,003 | 1,003 |

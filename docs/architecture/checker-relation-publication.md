@@ -41,6 +41,21 @@ encoding or cache lifetime. Repeated ordered pairs alone cannot discharge those
 obligations. Query/emit worker ownership remains `tsr-1yb.3.2`, while concrete
 receiver API coverage remains `tsr-1yb.4.1.5`.
 
+## Deep-nesting order for eagerly evaluated mapped instances (r7-reports, tsr-2zk.1276)
+
+`isDeeplyNestedType`'s count of same-identity stack entries reads `MappedTypeInfo.evaluation_start`, a creation-order watermark. The record follows the [checker port convention](../conventions.md#checker-ports-preserve-ownership-and-work-boundaries); the measurements are in [r7-reports.md §11](../parity/notes/r7-reports.md#11-closed-mapped-instances-relate-structurally-and-deep-nesting-follows-natives-creation-order).
+
+| Boundary | Record |
+|---|---|
+| Native operation | `internal/checker/relater.go::isDeeplyNestedType` (pinned `5b1047d`), consumed by `recursiveTypeRelatedTo`'s expanding flags. It counts stack entries with the current entry's recursion identity, "only … occurrences with a higher type id than the previous occurrence, since higher type ids are an indicator of newer instantiations caused by recursion". Native instantiates a mapped type's template and resolves its members (`resolveMappedTypeMembers`) on first read, so a nested instance the walk reaches is created after its outer instance. |
+| Why ids alone fail here | This port evaluates a mapped instance's template and members eagerly, inner first, so the same nested instance has a lower id than its outer one. `NestedRecord<"x.y.z.a.b.c", number> → …<…, string>` never reaches the threshold and relates its leaves (a false TS2322). tsgo accepts it. Reversing the order is wrong too: explicitly written nestings also have falling ids, in native as well, because type arguments resolve first, and tsgo reports `Record<"a", Record<"a", Record<"a", Record<"a", number>>>>` against its `string` twin (oracle-checked). Measured: a two-direction count, −1 case / −6 lines. "Not one of the instance's mapper arguments" broke TypeBox, whose nested `Evaluate` instances pre-exist (built by the inner `Type.Object` calls) and are older natively too. |
+| Identity and owner | `MappedTypeInfo.evaluation_start: Option<usize>`, a field of the existing `mapped_types` side entry: keyed by the instance `TypeId`, owned by the private Checker (`mapped.rs`), program lifetime. The value is `TypeStore::len()` when `mapped_type_info` (a node evaluation, before its template is evaluated) or `instantiate_mapped_type_worker` (an instance) starts. |
+| Publication | Written once, as the info is built and before the info is published into `mapped_types`. Never mutated. `None` only for infos built before the field existed (none now). |
+| Consumer | `Checker::created_during_mapped_evaluation(earlier, later)` (`relater.rs`): `later.index() >= earlier.evaluation_start`. `is_deeply_nested_type` admits an occurrence whose id is higher, or which was created during the previous occurrence's evaluation. That is native's lazy order: created during the outer evaluation means native creates it on first read, after the outer instance, and a type that existed before keeps its id order, as native's does. |
+| Expensive work | None added: one `usize` per mapped info, one map read per counted occurrence in a walk that already reads `mapped_types` for the identity. |
+| Controls | `deeplyNestedMappedTypes` (with r7-declared's mapped stack it gives exactly tsgo's five TS2322s). The oracle probes in r7-reports §11 (`NestedRecord` accepted; `Record`×4 and written mapped×4 reported). |
+| Falsifier | A recursive non-homomorphic mapped chain tsgo reports where this count finds deep nesting would show a nested instance that native resolves before its outer instance (an instantiation-cache hit native has and this port does not). |
+
 ## Checker-lifetime results (tsr-2zk.902)
 
 Measured at integration head `b23dd3d` against pinned tsgo `5b1047d`.
