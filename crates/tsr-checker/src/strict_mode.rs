@@ -311,10 +311,7 @@ impl Checker<'_, '_> {
                 return;
             };
             let span = self.nodes.span(node);
-            self.report(
-                file,
-                Diagnostic::with_args(message, span, [identifier.text.to_string()]),
-            );
+            self.report(file, Diagnostic::with_args(message, span, [identifier.text.to_string()]));
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
