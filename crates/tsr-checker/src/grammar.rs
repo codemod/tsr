@@ -750,6 +750,46 @@ impl Checker<'_, '_> {
         diagnostic
     }
 
+    /// `onFailedToResolveSymbol`'s spelling-suggestion arm
+    /// (`checker.go:1590`): the suggestion's text
+    /// ([`Checker::spelling_suggestion_for`]'s answer) and, when the
+    /// suggested symbol has a value declaration, the related `'{0}' is
+    /// declared here.` at it (`NewDiagnosticForNode(suggestion.ValueDeclaration,
+    /// X_0_is_declared_here, suggestionName)`). One suggestion lookup; the
+    /// global-augmentation exclusion is the same (r7-grammar §45).
+    pub(crate) fn spelling_suggestion_with_declaration(
+        &mut self,
+        location: NodeId,
+        name: &str,
+        meaning: tsr_binder::SymbolFlags,
+    ) -> Option<(String, Option<Diagnostic>)> {
+        match self.suggested_symbol_for_nonexistent_symbol(location, name, meaning)? {
+            crate::name_suggestion::NameSuggestion::Primitive(primitive) => {
+                Some((primitive.to_string(), None))
+            }
+            crate::name_suggestion::NameSuggestion::Symbol(symbol) => {
+                let entry = self.binder.symbols().get(symbol);
+                let declaration = entry.value_declaration;
+                if let Some(declaration) = declaration
+                    && matches!(self.node_map.get(declaration), Some(Node::ModuleDeclaration(module))
+                        if module.keyword.kind == SyntaxKind::GlobalKeyword)
+                {
+                    return None;
+                }
+                let text = entry.name.to_string();
+                let related = declaration.map(|declaration| {
+                    self.related_diagnostic_at(
+                        declaration,
+                        &messages::_0_IS_DECLARED_HERE,
+                        self.error_span(declaration),
+                        vec![text.clone()],
+                    )
+                });
+                Some((text, related))
+            }
+        }
+    }
+
     /// The program's file image for `file` (its name and text), as
     /// `Diagnostic::set_file` takes it, for a diagnostic that is nested in
     /// another rather than reported with its own file. Built per call.

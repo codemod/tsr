@@ -867,3 +867,19 @@ finds, and attaches TS2843 at `Span::at(parameter.end)` with its file (§34).
 Converted (oracle): `excessPropertyCheckWithSpread`,
 `paramterDestrcuturingDeclaration`, `renamingDestructuredPropertyInFunctionType`
 (both variants).
+
+## §45 TS2552/TS2833's related declaration of the suggestion
+
+`onFailedToResolveSymbol`'s spelling-suggestion arm (`checker.go:1590`)
+reports `Cannot find name '{0}'. Did you mean '{1}'?` (TS2552), or TS2833 for
+a namespace. When the suggested symbol has a value declaration, it adds
+`'{0}' is declared here.` there. The port's reporters (check.rs's value and
+type sites, namespace_not_found.rs) took only the suggestion's text from
+`spelling_suggestion_for`. `spelling_suggestion_with_declaration`
+(grammar.rs) makes the same single lookup
+(`suggested_symbol_for_nonexistent_symbol`, with the same
+global-augmentation exclusion) and also returns the related diagnostic, with
+its file (§34). This was the `TS2728 in TS2552` family of `full_oracle_run
+rank` (about 34 cases over five buckets). Measured near-full oracle vs
+`f32a7263e`, together with §44: +42, 0 lost. Not changed: the JSX-factory
+and export-specifier suggestion sites, whose messages are other codes.

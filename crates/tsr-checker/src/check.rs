@@ -4590,17 +4590,18 @@ impl Checker<'_, '_> {
         // precisely because a near neighbour makes TS2304 a wrong code at a
         // right position; with the algorithm already exact, reporting the code
         // it selects costs one message and converts its own row.
-        if let Some(suggestion) =
-            self.spelling_suggestion_for(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
-        {
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
-                    span,
-                    [text.to_string(), suggestion],
-                ),
+        if let Some((suggestion, related)) = self.spelling_suggestion_with_declaration(
+            node,
+            text,
+            SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE,
+        ) {
+            let mut diagnostic = Diagnostic::with_args(
+                &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
+                span,
+                [text.to_string(), suggestion],
             );
+            diagnostic.add_related_information(related);
+            self.report(file, diagnostic);
             return;
         }
         // `getCannotFindNameDiagnosticForName`'s remaining rows, which are
@@ -5134,15 +5135,16 @@ impl Checker<'_, '_> {
             return;
         }
         // The suggestion arm at `resolveTypeReferenceName`'s meaning, `Type`.
-        if let Some(suggestion) = self.spelling_suggestion_for(node, text, SymbolFlags::TYPE) {
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
-                    span,
-                    [text.to_string(), suggestion],
-                ),
+        if let Some((suggestion, related)) =
+            self.spelling_suggestion_with_declaration(node, text, SymbolFlags::TYPE)
+        {
+            let mut diagnostic = Diagnostic::with_args(
+                &messages::CANNOT_FIND_NAME_0_DID_YOU_MEAN_1,
+                span,
+                [text.to_string(), suggestion],
             );
+            diagnostic.add_related_information(related);
+            self.report(file, diagnostic);
             return;
         }
         // The same fallback as the value site — upstream reaches the table from
