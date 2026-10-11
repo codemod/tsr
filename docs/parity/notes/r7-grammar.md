@@ -764,3 +764,90 @@ from the integrator's re-triage instruction; this was the 54-case
 `TS6203 in TS2403` bucket of `full_oracle_run rank` on `bdd9ce10`.
 *Falsifier.* A TS2403/TS2717 whose related row names a declaration other than
 the symbol's first.
+
+## §40 TS2320's TS2319 chain
+
+`checkInheritedPropertiesAreIdentical` (`checker.go:5040`) reports TS2320 as
+`NewDiagnosticChain` over a TS2319 child (`Named property '{0}' of types
+'{1}' and '{2}' are not identical.`) built at the interface name. The head
+takes the child's location. `check_inherited_properties_are_identical`
+(heritage_conformance.rs) reported the bare head. It now builds the child
+with `related_diagnostic_at` (so it carries its file, §34) and wraps it with
+`Diagnostic::new_chain`. Converted (oracle):
+`mergedInterfacesWithConflictingPropertyNames`, `baseTypePrivateMemberClash`,
+`conflictingMemberTypesInBases`, `genericAndNonGenericInheritedSignature1`
+(bucket `TS2319 in TS2320`, 14 cases).
+
+## §41 TS2416, TS2415 and TS2430 with the relater's elaboration
+
+`issueMemberSpecificError` (`checker.go:4472`) reports a member's TS2416 as
+`NewDiagnosticChain(diags[0], Property_0_in_type_1_is_not_assignable…)`.
+`diags[0]` is what `checkTypeAssignableToEx(propType, basePropType,
+memberName, nil, &diags)` collected: the relater's own report (TS2322, TS2741,
+…) with its chain, at the member name. The broad TS2415/TS2430 is
+`checkTypeAssignableTo(typeWithThis, baseWithThis, name, broadDiag)`, the
+relater's report under that head message. heritage_conformance.rs reported
+all three as bare heads.
+
+*Port.* TS2415/TS2430 go through `report_relation_failure` with the head
+(`report_heritage_relation`). TS2416's child is collected by
+`relation_failure_diagnostic`: it marks the diagnostics length, runs the same
+reporter with no head, and drains what it added. That is the error output
+container `&diags` stands for; only the first collected diagnostic is used,
+as upstream uses `diags[0]`. The child gets its file attached
+(`diagnostic_file_image`, §34), since nested diagnostics have no report slot.
+When the reporter declines, the bare head stays, as before.
+
+*The implements heads keep the bare head.* `Class_0_incorrectly_implements_interface_1`
+(TS2420) and `Class_0_incorrectly_implements_class_1_Did_you_mean_to_extend…`
+(TS2720) are `isConversionOrInterfaceImplementationMessage` heads. Those keep
+themselves over a missing-property chain (`relater.go:4816`). So only TS2415
+and TS2430 go through the relater (an allowlist; a first cut that exempted
+only TS2420 lost five class-implements-class cases in the legacy compare).
+`report_relation_failure` always lets that chain replace the head (its doc
+says no caller passes such a message), so routing TS2420 through it would
+turn TS2420 into TS2741. The exception is routed to the reporter's owner
+(assignreport.rs); after it lands, TS2420 can take the same path.
+
+Measured (near-full oracle vs `c91f027e2`, with §40): +19, 0 lost.
+*Falsifier.* A TS2416 whose chain child differs from the relater's report at
+the same member against the same base member type.
+
+## §42 Related information on TS2394 and TS2813/TS2814
+
+Two `checkFunctionOrConstructorSymbol` reports (`checker.go:3661`, `:3693`)
+carry related information that the port dropped:
+
+* TS2394 (`This overload signature is not compatible with its implementation
+  signature.`) adds `The implementation signature is declared here.` at the
+  body declaration (`check_overloads_compatible_with_implementation`,
+  check.rs, a declaration check).
+* TS2813/TS2814 (a class merged with a function that has a body) set the same
+  list on every error: `Consider adding a 'declare' modifier to this class.`
+  at each class declaration of the symbol (`class_function_merge.rs`).
+
+Both are built with `related_diagnostic_at` (§34). Measured with oracle
+filters `verload`, `unction` and `lass`: about 22 cases convert
+(`callOverloads1`–`5`, `functionOverloads*`, `classOverloadForFunction`,
+`augmentedTypesFunction`, …), none lost.
+
+## §43 TS2411's property name as written, and its related declaration
+
+`checkIndexConstraintForProperty` (`checker.go`) names the property with
+`symbolToString(prop)`, i.e. `getNameOfSymbolAsWritten`
+(`nodebuilderimpl.go:973`): the first declaration's name as written
+(`DeclarationNameToString`), so `''`-named and `["get1"]` members print as
+`'""'` and `'["get1"]'`. `index_constraint.rs` printed the symbol's bare
+name. printing.rs's `symbol_name_as_written` covers identifier names only;
+`property_name_as_written` (index_constraint.rs) reads any name's source
+text, through `declaration_name_source_text` (§35). For a binary-expression
+declaration, or one named by a computed name, that is reported elsewhere
+(`propDeclaration`, `errorNode != propDeclaration`), the report adds
+`'{0}' is declared here.` at the declaration. Taken as a declaration-check
+cluster (index_constraint.rs has had no lane owner since dispatch).
+Measured with oracle filters `ndex`, `omputedPropertyNames` and
+`ymbolProperty`: +11, none lost. Not here: TS2411's span at a method
+signature (bucket `TS2411 span-only MethodSignature`). `GetErrorRangeForNode`
+gives a method signature its whole node (method signatures are not in its
+name list), and the shared `error_span` gives the name. That is the same
+arm TS7010's 10-case span bucket needs, and it belongs with grant (e).

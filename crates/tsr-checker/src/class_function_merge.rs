@@ -60,6 +60,22 @@ impl Checker<'_, '_> {
         if !has_non_ambient_class {
             return;
         }
+        // `relatedDiagnostics`: `Consider adding a 'declare' modifier to this
+        // class.` at every class declaration of the symbol, set on each error
+        // (`checker.go:3661`), r7-grammar §42.
+        let related: Vec<Diagnostic> = declarations
+            .iter()
+            .filter(|&&declaration| self.nodes.kind(declaration) == SyntaxKind::ClassDeclaration)
+            .map(|&declaration| {
+                self.related_diagnostic_at(
+                    declaration,
+                    &messages::CONSIDER_ADDING_A_DECLARE_MODIFIER_TO_THIS_CLASS,
+                    self.error_span(declaration),
+                    Vec::new(),
+                )
+            })
+            .collect();
+        let related = std::sync::Arc::new(related);
         for declaration in declarations {
             let class = match self.nodes.kind(declaration) {
                 SyntaxKind::ClassDeclaration => true,
@@ -69,7 +85,7 @@ impl Checker<'_, '_> {
             let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
             let at = self.declaration_name_of(declaration).unwrap_or(declaration);
             let span = self.nodes.span(at);
-            let diagnostic = if class {
+            let mut diagnostic = if class {
                 Diagnostic::with_args(
                     &messages::CLASS_DECLARATION_CANNOT_IMPLEMENT_OVERLOAD_LIST_FOR_0,
                     span,
@@ -81,6 +97,9 @@ impl Checker<'_, '_> {
                     span,
                 )
             };
+            if !related.is_empty() {
+                diagnostic.set_related_information(std::sync::Arc::clone(&related));
+            }
             self.report(file, diagnostic);
         }
     }

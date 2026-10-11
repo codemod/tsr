@@ -498,15 +498,46 @@ impl<'a> Checker<'a, '_> {
             let property_text = self.type_to_string(property_type);
             let key_text = self.type_to_string(info.key);
             let value_text = self.type_to_string(info.value);
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::PROPERTY_0_OF_TYPE_1_IS_NOT_ASSIGNABLE_TO_2_INDEX_TYPE_3,
-                    span,
-                    [name.to_string(), property_text, key_text, value_text],
-                ),
+            // `symbolToString(prop)`: `getNameOfSymbolAsWritten`
+            // (`nodebuilderimpl.go:973`), the first declaration's name as
+            // written (`DeclarationNameToString`), so `""` and `["get1"]` keep
+            // their spelling (r7-grammar §43).
+            let written =
+                self.property_name_as_written(property).unwrap_or_else(|| name.to_string());
+            let mut diagnostic = Diagnostic::with_args(
+                &messages::PROPERTY_0_OF_TYPE_1_IS_NOT_ASSIGNABLE_TO_2_INDEX_TYPE_3,
+                span,
+                [written.clone(), property_text, key_text, value_text],
             );
+            // `propDeclaration`: a binary-expression declaration or one named
+            // by a computed name gets `'{0}' is declared here.` when the
+            // error is elsewhere.
+            if let Some(declaration) = declaration
+                && declaration != error_node
+                && (self.nodes.kind(declaration) == SyntaxKind::BinaryExpression
+                    || self.declaration_name_of(declaration).is_some_and(|name| {
+                        self.nodes.kind(name) == SyntaxKind::ComputedPropertyName
+                    }))
+            {
+                diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                    declaration,
+                    &messages::_0_IS_DECLARED_HERE,
+                    self.error_span(declaration),
+                    vec![written],
+                )));
+            }
+            self.report(file, diagnostic);
         }
+    }
+
+    /// `getNameOfSymbolAsWritten`'s declaration arm (`nodebuilderimpl.go:987`):
+    /// the source text of the first declaration that has a name.
+    fn property_name_as_written(&self, symbol: SymbolId) -> Option<String> {
+        let declarations = self.binder.symbols().get(symbol).declarations.clone();
+        declarations
+            .iter()
+            .find_map(|&declaration| self.declaration_name_of(declaration))
+            .and_then(|name| self.declaration_name_source_text(name))
     }
 
     /// `checkIndexConstraintForIndexSignature` (`checker.go`).

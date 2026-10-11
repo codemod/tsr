@@ -12184,13 +12184,20 @@ impl Checker<'_, '_> {
             let span = self
                 .jsdoc_overload_error_span(declaration)
                 .unwrap_or_else(|| self.error_span(declaration));
-            self.report(
-                file,
-                Diagnostic::new(
-                    &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
-                    span,
-                ),
+            // `.AddRelatedInfo(createDiagnosticForNode(bodyDeclaration,
+            // The_implementation_signature_is_declared_here))`
+            // (`checker.go:3693`), r7-grammar §42.
+            let mut diagnostic = Diagnostic::new(
+                &messages::THIS_OVERLOAD_SIGNATURE_IS_NOT_COMPATIBLE_WITH_ITS_IMPLEMENTATION_SIGNATURE,
+                span,
             );
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                body,
+                &messages::THE_IMPLEMENTATION_SIGNATURE_IS_DECLARED_HERE,
+                self.error_span(body),
+                Vec::new(),
+            )));
+            self.report(file, diagnostic);
             break;
         }
     }
