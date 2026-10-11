@@ -1776,8 +1776,7 @@ impl Checker<'_, '_> {
             let targets = self.assignment_targets_under(root)?;
             let candidates = targets.get(name)?;
             Some(candidates.iter().any(|&id| {
-                self.binder.resolve_name(self.nodes, self.node_map, id, name, SymbolFlags::VALUE)
-                    == Some(symbol)
+                self.resolve_identifier_memo(id, name, SymbolFlags::VALUE) == Some(symbol)
             }))
         })()
         .unwrap_or(false);
@@ -2131,13 +2130,8 @@ impl Checker<'_, '_> {
                     if let Some(tsr_ast::Expression::Identifier(identifier)) = expression.expression
                         && let Some(id) = identifier.node_id
                     {
-                        next = self.binder.resolve_name(
-                            self.nodes,
-                            self.node_map,
-                            id,
-                            identifier.text,
-                            SymbolFlags::VALUE,
-                        );
+                        next =
+                            self.resolve_identifier_memo(id, identifier.text, SymbolFlags::VALUE);
                     }
                 }
             }
@@ -2220,13 +2214,9 @@ impl Checker<'_, '_> {
         let Some(Node::Identifier(identifier)) = self.node_map.get(reference) else {
             return true;
         };
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            reference,
-            identifier.text,
-            SymbolFlags::VALUE,
-        ) else {
+        let Some(symbol) =
+            self.resolve_identifier_memo(reference, identifier.text, SymbolFlags::VALUE)
+        else {
             return true;
         };
         let Some(&declaration) = self.binder.symbols().get(symbol).declarations.first() else {
@@ -2286,13 +2276,9 @@ impl Checker<'_, '_> {
                 if self.is_this_in_type_query(reference) {
                     return false;
                 }
-                let Some(symbol) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    reference,
-                    identifier.text,
-                    SymbolFlags::VALUE,
-                ) else {
+                let Some(symbol) =
+                    self.resolve_identifier_memo(reference, identifier.text, SymbolFlags::VALUE)
+                else {
                     return false;
                 };
                 if self.is_constant_variable(symbol) {
@@ -2584,13 +2570,8 @@ impl Checker<'_, '_> {
                 && let Some(id) = identifier.node_id
                 && let kind = self.assignment_target_kind(id)
                 && kind != crate::expressions::AssignmentTargetKind::None
-                && let Some(symbol) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    id,
-                    identifier.text,
-                    SymbolFlags::VALUE,
-                )
+                && let Some(symbol) =
+                    self.resolve_identifier_memo(id, identifier.text, SymbolFlags::VALUE)
             {
                 if kind == crate::expressions::AssignmentTargetKind::Definite
                     && self.is_parameter_or_mutable_local_variable(symbol)
@@ -2631,13 +2612,8 @@ impl Checker<'_, '_> {
         let name = specifier.property_name.or(specifier.name);
         let Some(tsr_ast::ModuleExportName::Identifier(name)) = name else { return };
         let Some(name_id) = name.node_id else { return };
-        let Some(symbol) = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            name_id,
-            name.text,
-            SymbolFlags::VALUE,
-        ) else {
+        let Some(symbol) = self.resolve_identifier_memo(name_id, name.text, SymbolFlags::VALUE)
+        else {
             return;
         };
         if self.is_parameter_or_mutable_local_variable(symbol) {
@@ -3152,14 +3128,7 @@ impl Checker<'_, '_> {
                     // the name. Resolve the target back to this symbol, exactly
                     // as `symbol_has_any_assignment` does.
                     if target.node_id.is_some_and(|id| {
-                        self.binder
-                            .resolve_name(
-                                self.nodes,
-                                self.node_map,
-                                id,
-                                name,
-                                tsr_binder::SymbolFlags::VALUE,
-                            )
+                        self.resolve_identifier_memo(id, name, tsr_binder::SymbolFlags::VALUE)
                             .is_some_and(|found| found == symbol)
                     }) {
                         return Some(true);
@@ -3612,13 +3581,8 @@ impl Checker<'_, '_> {
         // callee typing; no provisional return can leak to a cold helper's
         // completed slot. Unknown ownership keeps the ordinary effects path.
         if let Some(Node::Identifier(identifier)) = self.node_map.get(callee_id)
-            && let Some(symbol) = self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
-                callee_id,
-                identifier.text,
-                SymbolFlags::VALUE,
-            )
+            && let Some(symbol) =
+                self.resolve_identifier_memo(callee_id, identifier.text, SymbolFlags::VALUE)
             && self.function_symbol_has_no_effects(symbol)
         {
             return None;
@@ -5371,9 +5335,7 @@ impl Checker<'_, '_> {
         expression: tsr_ast::Expression<'_>,
     ) -> Option<SymbolId> {
         let symbol = match expression {
-            tsr_ast::Expression::Identifier(identifier) => self.binder.resolve_name(
-                self.nodes,
-                self.node_map,
+            tsr_ast::Expression::Identifier(identifier) => self.resolve_identifier_memo(
                 identifier.node_id?,
                 identifier.text,
                 SymbolFlags::VALUE,
@@ -5478,14 +5440,7 @@ impl Checker<'_, '_> {
                 let Some(Node::Identifier(identifier)) = self.node_map.get(node) else {
                     return false;
                 };
-                self.binder
-                    .resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        node,
-                        identifier.text,
-                        SymbolFlags::VALUE,
-                    )
+                self.resolve_identifier_memo(node, identifier.text, SymbolFlags::VALUE)
                     .is_some_and(|resolved| resolved == symbol)
             }
             // An access-expression reference: `a.b`, `this.x`, `a.b.c`.
@@ -5557,14 +5512,7 @@ impl Checker<'_, '_> {
         if let (Some(Node::Identifier(identifier)), Some(assigned)) =
             (self.node_map.get(source), self.binder.symbol_of(node))
             && self
-                .binder
-                .resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    source,
-                    identifier.text,
-                    SymbolFlags::VALUE,
-                )
+                .resolve_identifier_memo(source, identifier.text, SymbolFlags::VALUE)
                 .is_some_and(|resolved| resolved == assigned)
         {
             return true;
@@ -5739,9 +5687,7 @@ impl Checker<'_, '_> {
                                 return None;
                             };
                             let id = identifier.node_id?;
-                            let symbol = checker.binder.resolve_name(
-                                checker.nodes,
-                                checker.node_map,
+                            let symbol = checker.resolve_identifier_memo(
                                 id,
                                 identifier.text,
                                 SymbolFlags::VALUE,
@@ -5781,13 +5727,9 @@ impl Checker<'_, '_> {
                 if self.is_this_in_type_query(source) {
                     return self.nodes.kind(target) == SyntaxKind::ThisKeyword;
                 }
-                let Some(resolved) = self.binder.resolve_name(
-                    self.nodes,
-                    self.node_map,
-                    source,
-                    identifier.text,
-                    SymbolFlags::VALUE,
-                ) else {
+                let Some(resolved) =
+                    self.resolve_identifier_memo(source, identifier.text, SymbolFlags::VALUE)
+                else {
                     return false;
                 };
                 if let Some(declared) = self.binder.symbol_of(target) {
@@ -5796,8 +5738,7 @@ impl Checker<'_, '_> {
                 let Some(Node::Identifier(other)) = self.node_map.get(target) else {
                     return false;
                 };
-                self.binder
-                    .resolve_name(self.nodes, self.node_map, target, other.text, SymbolFlags::VALUE)
+                self.resolve_identifier_memo(target, other.text, SymbolFlags::VALUE)
                     .is_some_and(|candidate| candidate == resolved)
             }
             _ => false,
@@ -6647,10 +6588,7 @@ impl Checker<'_, '_> {
                     // `isConstantReference` answers false for it.
                     && state.synthetic.is_none()
                     && self.is_constant_reference(state.reference)
-                    && let Some(symbol) = self.binder.resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        condition,
+                    && let Some(symbol) = self.resolve_identifier_memo(condition,
                         identifier.text,
                         tsr_binder::SymbolFlags::VALUE,
                     )
@@ -7757,13 +7695,7 @@ impl Checker<'_, '_> {
         let Some(Node::Identifier(identifier)) = self.node_map.get(expr) else {
             return None;
         };
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            expr,
-            identifier.text,
-            SymbolFlags::VALUE,
-        )?;
+        let symbol = self.resolve_identifier_memo(expr, identifier.text, SymbolFlags::VALUE)?;
         let declaration = self.binder.symbols().get(symbol).value_declaration?;
         if self.nodes.parent(declaration) != Some(pattern) {
             return None;
@@ -7827,13 +7759,7 @@ impl Checker<'_, '_> {
         let Some(Node::Identifier(identifier)) = self.node_map.get(expr) else {
             return None;
         };
-        let symbol = self.binder.resolve_name(
-            self.nodes,
-            self.node_map,
-            expr,
-            identifier.text,
-            SymbolFlags::VALUE,
-        )?;
+        let symbol = self.resolve_identifier_memo(expr, identifier.text, SymbolFlags::VALUE)?;
         if !self.is_constant_variable(symbol) {
             return None;
         }
