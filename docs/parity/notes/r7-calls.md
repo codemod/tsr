@@ -692,6 +692,32 @@ workers):
 The oracle legs ran with 2 workers. With 4, the orb's 7 GiB OOM-killed
 `tsr-actual` workers alongside a concurrent build.
 
+## 19. `candidateForTypeArgumentError`: TS2344 when every candidate fails its type arguments
+
+`reportCallResolutionErrors`' third arm (`checker.go:9672`): with no
+argument error and no arity error, the last candidate whose written type
+arguments failed `checkTypeArguments` is checked again with `reportErrors`
+(TS2344 at the type argument). The overload walk's `overload_pass` now
+records that candidate (`OverloadArgumentFailure::type_argument_error`), the
+walk publishes a failure that carries only it, and
+`report_overload_argument_failure` reports it through the reporting
+constraint check when no candidate failed on its arguments.
+`fn4<boolean, Date>(null, null)` over `fn4<T extends string, U extends number>`
+and `fn4<T extends number, U extends string>` reports native's TS2344 at
+`boolean` against the last candidate's `number` (overloadResolution).
+
+## 20. An annotated binding-pattern rest parameter is an ordinary rest
+
+`check_candidates_arity` declined any candidate whose last parameter is a
+rest binding pattern (`...[a, b]`). That pattern's type is
+`getTypeFromBindingPattern`'s tuple only when the parameter has no
+annotation, which this port's signature does not model (it carries
+`any[]`). With an annotation, `...[[k1, v1], [k2, v2]]: [string, number][]`
+is an ordinary array rest of the annotated type, so the decline now applies
+only to an unannotated pattern (`has_binding_pattern_rest`)
+(iterableArrayPattern16, 26 and 29: native's TS2345 at the argument where
+the decline fell back to the syntactic arity check's TS2554).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
