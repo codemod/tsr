@@ -104,7 +104,13 @@ impl<'a> Checker<'a, '_> {
                         if self.is_gap(id) {
                             return None;
                         }
-                        self.type_to_string(id)
+                        // The query node is reused whole, its arguments
+                        // through `visitExistingNodeTreeSymbols`: a JSDoc
+                        // `?string?` is re-emitted as written
+                        // (`(string | null) | null`), not as its type
+                        // (`nodecopy.go:475`; r7-printer §23).
+                        self.reused_annotation_text(argument, id)
+                            .unwrap_or_else(|| self.type_to_string(id))
                     }
                 };
                 arguments.push(printed);

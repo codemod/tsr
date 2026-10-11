@@ -978,3 +978,38 @@ qualified name with no same-print retry behind it (TS2719 and
 `getTypeNamesForErrorDisplay` are the retries) would mean a native message
 passes an enclosing declaration that this road drops. That site would then
 call `type_to_string_at` instead.
+
+## 23. A reused type query's JSDoc arguments print as written
+
+**Forcing constraint.** `expressionWithJSDocTypeArguments`, 4 lines:
+native prints `type TComeOnFoo = typeof foo<?string?>` as
+`typeof foo<(string | null) | null>` and `typeof foo<?>` as
+`typeof foo<any | null>`. The port printed `typeof foo<string | null>` and
+`typeof foo<any>`.
+
+**Cause.** `createAnonymousTypeNodeEx` (`nodebuilderimpl.go:2816`) reuses
+the instantiation expression's whole `typeof` node, so its arguments go
+through `visitExistingNodeTreeSymbols`. That visitor's JSDoc arms
+(`nodecopy.go:475-503`) rewrite `?T` and `T?` into the union node
+`T | null`, without reducing it. `written_type_query_text`
+(`instantiation_type_query_reuse.rs`, r6-typesroots §4) printed each
+argument from its type, which the checker had reduced (`any | null` is
+`any`, a doubled `| null` is one). Separately, node_reuse's emitter decided
+parentheses from the *source* node's precedence. The printer reads the
+*emitted* node, here a union inside a union, which it parenthesises.
+
+**The port.**
+- Each argument goes through `reused_annotation_text` (the existing-node
+  visitor) and falls back to its type print when the visitor refuses it.
+  That is `nodecopy.go:56`'s per-node fallback.
+- `emitted_precedence` (node_reuse.rs) maps a JSDoc node to the kind the
+  visitor emits for it: nullable or optional to a union, variadic to an
+  array, and non-nullable or a type expression to its inner node. The
+  emitter's parenthesis test uses it. `node_precedence` stays
+  `GetTypeNodePrecedence`.
+
+No cache or table.
+
+**Alternative rejected.** Printing the argument's type with a
+JSDoc-specific suffix would need the node anyway, and the visitor already
+has the rewrites.
