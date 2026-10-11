@@ -168,8 +168,20 @@ impl Checker<'_, '_> {
         {
             return name.clone();
         }
+        // A scope entry for this declaration answers its name unless that
+        // name is pre-named by id to a different type parameter
+        // (`push_render_type_parameter_scope`): then this is another identity
+        // with the same declaration (an instantiated signature's clone and its
+        // original), and native's by-id cache gives it the next free name. A
+        // signature whose own ids cannot be read (a contextual signature on
+        // an unannotated arrow) keeps the by-symbol answer (r7-printer §15).
         if let Some((name, _)) =
             self.render_type_parameter_scope.iter().rev().find(|(_, owner)| *owner == symbol)
+            && !self
+                .render_type_parameter_names
+                .allocations
+                .iter()
+                .any(|(owner, allocated)| allocated == name && *owner != id)
         {
             return name.clone();
         }

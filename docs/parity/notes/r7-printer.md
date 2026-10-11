@@ -731,3 +731,44 @@ declined as §9). No cache or table.
 
 **Measured** against §13's commit (`7d71f6ba0`), both dumps unfiltered:
 types **+9 / −0** (the three cases, 3 lines each), diagnostics unchanged.
+
+## 15. A signature's own type parameters are named first, by identity (r7-calls' `S_1`)
+
+Routed from r7-calls, with `push_render_type_parameter_scope` (inference.rs)
+granted to this lane for it.
+
+**Forcing constraint.** `chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2`
+(16 lines): inside `then<S extends T>`, `(new Chain(s)).then` prints
+`<S extends S_1>(cb: (x: S_1) => S) => Chain<S>` natively; the port printed
+`<S extends S>(cb: (x: S) => S) => Chain<S>`.
+
+**What native does.** `enterNewScope` (`nodebuilderscopes.go:59`) names the
+signature's own type parameters first (`typeParameterToName`,
+`nodebuilderimpl.go:1404`), caching each by **type id**
+(`typeParameterNames`) and recording its text (`typeParameterNamesByText`).
+The instantiated `then`'s own `S` is a clone carrying the original's symbol
+(`cloneTypeParameter`), so it keeps `S`; the enclosing method's `S`, a
+different id, then finds `S` taken by text and becomes `S_1`.
+
+**The port.** `push_render_type_parameter_scope` now also pre-names the
+signature's own type parameters by id
+(`render_type_parameter_names.allocations`, truncated by every caller with
+the scope). `allocate_type_parameter_name` (printing.rs) used to answer any
+type parameter whose *declaration symbol* has a scope entry with that
+entry's name, which conflated the clone with its original; that by-symbol
+answer now applies only when the entry's name is not pre-named to a
+different id.
+
+**A guard for an inconsistent signature.** Pre-naming every own id measured
++22 / **−1**: `typeTagNoErasure` 0:1 printed `(dibbity: T1_1) => T1_1`. Its
+arrow's contextual signature records one clone of `T1` as its own type
+parameter (id 40) while its parameter and return refer to another (id 39);
+native's arrow shares the contextual signature's type parameters, so the two
+are one type there. A clone that none of the signature's own types mention
+is therefore not pre-named and keeps the by-symbol answer
+(`mentions_type_parameter` over the return and parameter types, only for a
+non-declared id). The two-clone signature is a construction deviation
+(contextual signature on an unannotated arrow); routed.
+
+**Measured** against §14's commit, both dumps unfiltered (see the commit
+message for the base).
