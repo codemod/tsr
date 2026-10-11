@@ -505,6 +505,8 @@ impl Checker<'_, '_> {
             // and TS2481 is one of its arms: `var { x } = …` declares `x` on
             // the element. §718.
             Node::BindingElement(_) => {
+                // `checkBindingElement` (`checker.go:4274`).
+                self.check_grammar_binding_element(node);
                 self.check_outer_scoped_variable(node);
                 self.check_renamed_binding_element_in_signature(node);
                 self.check_parameter_initializer_needs_body(node);

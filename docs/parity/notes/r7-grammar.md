@@ -478,3 +478,15 @@ instantiated member's optionality is the receiver's
 that case declines — routed as a visibility request. Converted:
 `deleteExpressionMustBeOptional_exactOptionalPropertyTypes` (exact true and
 false).
+
+## §22 `checkGrammarBindingElement` (GRAMMAR-BINDING-PATTERN-REST)
+
+`check_grammar_binding_element` (`grammar.rs`) is `checkGrammarBindingElement`
+(`grammarchecks.go:1536`), first in `checkBindingElement` (`checker.go:4274`,
+one line in the dispatch): a rest element not last in its pattern is TS2462,
+one with a property name TS2566 on the name, one with an initializer TS1186
+on the `=` (`Initializer.Pos()-1`; this tree's spans start after trivia, so
+the `=` is found by skipping back over it in the source). Not ported: the
+trailing-comma arm (TS1013), which needs the parser to record a binding
+pattern's trailing comma. Converted: `restElementWithInitializer1`,
+`objectBindingPattern_restElementWithPropertyName`.

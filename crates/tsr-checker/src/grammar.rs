@@ -3180,3 +3180,68 @@ impl Checker<'_, '_> {
         true
     }
 }
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarBindingElement` (`grammarchecks.go:1536`), from
+    /// `checkBindingElement` (`checker.go:4274`): a rest element that is not
+    /// the pattern's last is TS2462 on the element, one with a property name
+    /// TS2566 on its name, and one with an initializer TS1186 on the `=`
+    /// (`grammarErrorAtPos(node, Initializer.Pos()-1, 1)`: the token before
+    /// the initializer's full start). Not ported: the trailing-comma arm
+    /// (TS1013), which needs the parser to record a binding pattern's
+    /// trailing comma.
+    pub(crate) fn check_grammar_binding_element(&mut self, node: NodeId) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(Node::BindingElement(element)) = self.node_map.get(node) else { return false };
+        if element.dot_dot_dot_token.is_some() {
+            let last =
+                self.nodes.parent(node).and_then(|pattern| match self.node_map.get(pattern) {
+                    Some(Node::BindingPattern(pattern)) => {
+                        pattern.elements.last().and_then(|last| last.node_id)
+                    }
+                    _ => None,
+                });
+            if last != Some(node) {
+                self.grammar_error_on_node(
+                    node,
+                    &messages::A_REST_ELEMENT_MUST_BE_LAST_IN_A_DESTRUCTURING_PATTERN,
+                );
+                return true;
+            }
+            if element.property_name.is_some()
+                && let Some(name) = element.name.and_then(|name| name.node_id())
+            {
+                self.grammar_error_on_node(
+                    name,
+                    &messages::A_REST_ELEMENT_CANNOT_HAVE_A_PROPERTY_NAME,
+                );
+                return true;
+            }
+            if let Some(initializer) = element.initializer.and_then(|i| i.node_id()) {
+                // `Initializer.Pos() - 1`: this tree's spans start after
+                // trivia, so the `=` is found by skipping back over it.
+                let Some(file) = self.source_file_of_for_diagnostics(node) else { return true };
+                let start = self.nodes.span(initializer).start as usize;
+                let at = self
+                    .module_host
+                    .and_then(|host| host.source_text(file, self.nodes))
+                    .and_then(|text| text.get(..start))
+                    .map_or(start.saturating_sub(1), |before| {
+                        before.trim_end().len().saturating_sub(1)
+                    });
+                let at = u32::try_from(at).unwrap_or(0);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::A_REST_ELEMENT_CANNOT_HAVE_AN_INITIALIZER,
+                        tsr_core::Span::new(at, at + 1),
+                    ),
+                );
+                return true;
+            }
+        }
+        false
+    }
+}
