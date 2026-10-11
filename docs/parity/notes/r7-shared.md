@@ -217,8 +217,9 @@ Unresolved, the reference printed its written text (`ElementType`,
 reference with its filled default arguments (`ElementType<any>`,
 `Component<any, {}, {}>`), where native's node builder omits type arguments
 that equal the declared defaults for a reference written without them.
-Re-land when the printer drops default-equal trailing arguments (routed,
-r7-printer); the diff then needs re-measuring.
+Re-land when the printer drops default-equal trailing arguments (routed to
+r7-printer, then re-routed by the integrator to r7-declared); the diff then
+needs re-measuring. Re-measured on batch 44 in §29, with the same result.
 
 ## 4. `resolveQualifiedName`'s left side through an alias (QUALIFIED-NAME-LEFT-ALIAS-RESOLVE)
 
@@ -1178,3 +1179,17 @@ that is itself a unique symbol, which is the only unit case it changes.
 `is_literal_of_contextual_type` already carries native's
 `UniqueESSymbol` arm, so a symbol-typed context still keeps it. A union
 return is not a unit type and keeps its unique symbols, as natively.
+
+## 29. §3 re-derived and re-measured (batch 44)
+
+This session ported §3's step again without first finding §3, which was a
+wasted cycle. The code is the same: `get_external_module_member` follows
+`resolveESModuleSymbol`'s `IsNonLocalAlias` arm with
+`is_non_local_pure_alias` + `resolve_alias`. So is the measurement, on
+batch-44 main `27c17a4f`: `augmentExportEquals5` converts (+1 diagnostics
+case), and 8 type lines are lost, `contextuallyTypedJsxAttribute2` ×7 and
+`declarationEmitExportAssignedNamespaceNoTripleSlashTypesReference` 2:2.
+Every loss is the printer's default-type-argument omission named in §3
+(re-routed by the integrator from r7-printer to r7-declared). The commit
+stays on `box/r7-shared-held`. §3 is the record; this entry only
+supersedes its batch-2 numbers.

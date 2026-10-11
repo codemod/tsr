@@ -2511,13 +2511,22 @@ impl<'a> Checker<'a, '_> {
             _ => return None,
         }?;
         let name = crate::module_exports::module_export_name_text(name);
-        // `resolveESModuleSymbol` (`checker.go:15568`) reduces to
-        // `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias = true)`
-        // for both callers here: its synthetic-default and
-        // `cloneTypeAsModuleType` arms are guarded by `namespaceImport != nil ||
-        // IsImportCall(referenceParent)`, and a *named* import or re-export is
-        // neither.
+        // `resolveESModuleSymbol` (`checker.go:15568`) for both callers here
+        // is `resolveExternalModuleSymbol(moduleSymbol, dontResolveAlias =
+        // true)` and then its `IsNonLocalAlias` arm (`:15570`): an `export =`
+        // that is a pure alias is resolved through `resolveIndirectionAlias`,
+        // so `export = e` of a local namespace answers `e`, whose exports
+        // hold its types (`import { A } from` such a module, r7-shared.md
+        // §29). Its synthetic-default and `cloneTypeAsModuleType` arms are
+        // guarded by `namespaceImport != nil || IsImportCall(referenceParent)`,
+        // and a *named* import or re-export is neither.
         let target = self.resolve_external_module_symbol(module_symbol);
+        let target = if self.is_non_local_pure_alias(target) {
+            self.resolve_alias(target)
+                .map_or(target, |resolved| self.binder.merged_symbol(resolved))
+        } else {
+            target
+        };
         if target == module_symbol {
             return self.get_export_of_module(module_symbol, name);
         }
