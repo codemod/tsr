@@ -680,28 +680,6 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// The `await` of an `await using` statement. This port's parser flags
-    /// the list `USING` and drops the `await` (`check_grammar_variable_declaration_list`
-    /// in `grammar.rs`), so — as there — the `await` is the gap between a
-    /// modifier-less statement's start and its list's start; a
-    /// `CONST | USING` list (upstream's `NodeFlagsAwaitUsing`) is accepted
-    /// for when the parser keeps it.
-    fn await_using_keyword_start(
-        &self,
-        node: NodeId,
-        statement: &tsr_ast::VariableStatement<'_>,
-    ) -> Option<u32> {
-        let list = statement.declaration_list.and_then(|list| list.node_id)?;
-        let block_scope = self.nodes.flags(list) & tsr_ast::NodeFlags::BLOCK_SCOPED;
-        let statement_start = self.nodes.span(node).start;
-        let list_start = self.nodes.span(list).start;
-        let awaited = block_scope == tsr_ast::NodeFlags::CONSTANT
-            || (block_scope == tsr_ast::NodeFlags::USING
-                && statement.modifiers.is_empty()
-                && statement_start != list_start);
-        awaited.then_some(statement_start.min(list_start))
-    }
-
     /// Whether the file's name ends in `.mts` or `.cts`
     /// (`tspath.FileExtensionIsOneOf(file.FileName(), {Mts, Cts})`).
     fn is_mts_or_cts_file(&self, node: NodeId) -> bool {
@@ -968,8 +946,7 @@ impl Checker<'_, '_> {
     /// `await using` declaration list (`checkGrammarVariableDeclarationList`'s
     /// last step, `grammarchecks.go:1669`). `await_start` is where
     /// `GetRangeOfTokenAtPosition(sourceFile, node.Pos())` finds the `await`
-    /// keyword (this parser eats the `await` of `await using` before the
-    /// list, so the list's own span starts after it). Answers native's
+    /// keyword (an `await using` list's own start). Answers native's
     /// `hasError`.
     ///
     /// The arms, in order:
@@ -1166,35 +1143,16 @@ impl Checker<'_, '_> {
     /// The `await using` tail of `checkGrammarVariableDeclarationList`
     /// (`grammarchecks.go:1669`) for `list`, when it is one.
     pub(crate) fn check_await_using_declaration_list(&mut self, list: NodeId) -> bool {
-        let Some(statement) = self.nodes.parent(list) else { return false };
-        let Some(start) = self.await_using_list_await_start(list, statement) else { return false };
+        let Some(start) = self.await_using_list_await_start(list) else { return false };
         self.check_grammar_await_or_await_using(list, TopLevelAwait::AwaitUsing, start)
     }
 
-    /// The `await` keyword's start for an `await using` list: a
-    /// `CONST | USING` list (`NodeFlagsAwaitUsing`) or a `USING` list this
-    /// parser left an `await` in front of (`is_await_using_list`).
-    pub(crate) fn await_using_list_await_start(&self, list: NodeId, owner: NodeId) -> Option<u32> {
+    /// The `await` keyword's start for an `await using` list: a list flagged
+    /// `CONST | USING` (`NodeFlagsAwaitUsing`; r7-parser `054b714f`), whose
+    /// span starts at the `await` as `parseVariableDeclarationList` takes it
+    /// (`parser.go:1563`) — `GetRangeOfTokenAtPosition(node.Pos())`.
+    pub(crate) fn await_using_list_await_start(&self, list: NodeId) -> Option<u32> {
         let block_scope = self.nodes.flags(list) & tsr_ast::NodeFlags::BLOCK_SCOPED;
-        let awaited = block_scope == tsr_ast::NodeFlags::CONSTANT
-            || (block_scope == tsr_ast::NodeFlags::USING && self.is_await_using_list(list));
-        if !awaited {
-            return None;
-        }
-        if let Some(Node::VariableStatement(statement)) = self.node_map.get(owner) {
-            return self.await_using_keyword_start(owner, statement);
-        }
-        // A `CONST | USING` list starts at its `await` (`parseVariableDeclarationList`
-        // takes the keyword, `parser.go:1563`): `GetRangeOfTokenAtPosition(node.Pos())`.
-        if block_scope == tsr_ast::NodeFlags::CONSTANT {
-            return Some(self.nodes.span(list).start);
-        }
-        // A `for` head: the `await` is the token before the list.
-        let list_start = self.nodes.span(list).start;
-        let file = self.source_file_of_for_diagnostics(list)?;
-        let text = self.module_host.and_then(|host| host.source_text(file, self.nodes))?;
-        let before = text.get(..list_start as usize)?.trim_end();
-        let start = before.strip_suffix("await")?.len();
-        u32::try_from(start).ok()
+        (block_scope == tsr_ast::NodeFlags::CONSTANT).then(|| self.nodes.span(list).start)
     }
 }

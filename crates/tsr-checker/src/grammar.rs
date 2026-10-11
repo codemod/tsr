@@ -645,24 +645,18 @@ impl Checker<'_, '_> {
             );
             return true;
         }
-        // `NodeFlagsAwaitUsing` is `Const | Using` upstream. This parser
-        // flags an `await using` list plain `USING` and drops the `await`
-        // (the printer could not write it back otherwise), so the two
-        // spellings are told apart only where the tree still shows the
-        // `await`; a `CONST | USING` list is accepted for when it does.
+        // `NodeFlagsUsing` or `NodeFlagsAwaitUsing` (`Const | Using`).
         let block_scope = self.nodes.flags(list) & NodeFlags::BLOCK_SCOPED;
         if block_scope != NodeFlags::USING && block_scope != NodeFlags::CONSTANT {
             return false;
         }
         let Some(parent) = self.nodes.parent(list) else { return false };
         if self.nodes.kind(parent) == SyntaxKind::ForInStatement {
-            // `for (await using x in …)` and `for (using x in …)` parse to the
-            // same tree here; the eaten `await` is recovered from the source
-            // (`await_using_list_await_start`), and upstream's list — and so
-            // the report — starts at it.
+            // TS1493 / TS1494 on the list, which for `await using` starts at
+            // the `await`.
             let Some(file) = self.source_file_of_for_diagnostics(list) else { return true };
             let list_span = self.nodes.span(list);
-            let (message, span) = match self.await_using_list_await_start(list, parent) {
+            let (message, span) = match self.await_using_list_await_start(list) {
                 Some(start) => (
                     &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_AN_AWAIT_USING_DECLARATION,
                     tsr_core::Span::new(start, list_span.end),
@@ -680,7 +674,7 @@ impl Checker<'_, '_> {
         if self.has_ambient_flag(list) {
             let Some(file) = self.source_file_of_for_diagnostics(list) else { return true };
             let list_span = self.nodes.span(list);
-            let (message, span) = match self.await_using_list_await_start(list, parent) {
+            let (message, span) = match self.await_using_list_await_start(list) {
                 Some(start) => (
                     &messages::AWAIT_USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS,
                     tsr_core::Span::new(start, list_span.end),
@@ -692,7 +686,7 @@ impl Checker<'_, '_> {
             self.report(file, Diagnostic::new(message, span));
             return true;
         }
-        let Some(Node::VariableStatement(statement)) = self.node_map.get(parent) else {
+        let Some(Node::VariableStatement(_)) = self.node_map.get(parent) else {
             return false;
         };
         if !self.nodes.parent(parent).is_some_and(|clause| {
@@ -700,24 +694,13 @@ impl Checker<'_, '_> {
         }) {
             return false;
         }
-        // A statement with no modifiers starts where its list does, unless the
-        // parser consumed an `await` in front of the list: that gap is the
-        // `await`, and upstream's list (and so the report) starts there.
-        let statement_start = self.nodes.span(parent).start;
-        let list_span = self.nodes.span(list);
-        let awaited = block_scope == NodeFlags::CONSTANT
-            || (statement.modifiers.is_empty() && statement_start != list_span.start);
-        let (message, span) = if awaited {
-            (
-                &messages::AWAIT_USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK,
-                tsr_core::Span::new(statement_start.min(list_span.start), list_span.end),
-            )
+        // On the list, which for `await using` starts at the `await`.
+        let message = if block_scope == NodeFlags::CONSTANT {
+            &messages::AWAIT_USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK
         } else {
-            (
-                &messages::USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK,
-                list_span,
-            )
+            &messages::USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_CASE_OR_DEFAULT_CLAUSES_UNLESS_CONTAINED_WITHIN_A_BLOCK
         };
+        let span = self.nodes.span(list);
         let Some(file) = self.source_file_of_for_diagnostics(list) else { return true };
         self.report(file, Diagnostic::new(message, span));
         true
@@ -1607,9 +1590,8 @@ impl Checker<'_, '_> {
                 }),
             _ => NodeFlags::empty(),
         };
-        let is_await_using = block_scope_kind == NodeFlags::CONST | NodeFlags::USING
-            || self.is_await_using_statement(typed);
-        let is_using = block_scope_kind == NodeFlags::USING && !is_await_using;
+        let is_await_using = block_scope_kind == NodeFlags::CONST | NodeFlags::USING;
+        let is_using = block_scope_kind == NodeFlags::USING;
         let parent = self.nodes.parent(node);
         let parent_kind = parent.map(|parent| self.nodes.kind(parent));
         let parent_is_module_or_file =
@@ -2562,16 +2544,6 @@ impl Checker<'_, '_> {
         }
         self.node_map.get(other).and_then(crate::check::modifiers_of).is_some_and(|modifiers| {
             modifiers.iter().any(|modifier| matches!(modifier, ModifierLike::Decorator(_)))
-        })
-    }
-
-    /// Whether a variable statement is `await using`
-    /// (`NodeFlagsAwaitUsing`): this parser eats the `await` and flags the
-    /// list `Using` alone, so [`Checker::is_await_using_list`] recovers it.
-    fn is_await_using_statement(&self, typed: Node<'_>) -> bool {
-        let Node::VariableStatement(statement) = typed else { return false };
-        statement.declaration_list.and_then(|list| list.node_id).is_some_and(|list| {
-            self.nodes.flags(list).contains(NodeFlags::USING) && self.is_await_using_list(list)
         })
     }
 
