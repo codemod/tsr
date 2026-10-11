@@ -42,11 +42,15 @@ impl Checker<'_, '_> {
             return;
         }
         self.merge_conflicts_reported = true;
+        let mut pending = DuplicateDeclarationErrors::default();
         for &(target, source) in self.binder.merge_conflicts() {
-            self.report_one_merge_conflict(target, source);
+            self.report_one_merge_conflict(target, source, &mut pending);
         }
         for &(target, source) in self.binder.alias_merges() {
-            self.report_alias_merge_conflict(target, source);
+            self.report_alias_merge_conflict(target, source, &mut pending);
+        }
+        for (file, diagnostic) in pending.diagnostics {
+            self.report(file, diagnostic);
         }
         self.report_class_prototype_merge_conflicts();
     }
@@ -168,7 +172,12 @@ impl Checker<'_, '_> {
     /// `checkMergedGlobalUMDSymbol`: `export as namespace THREE` (an alias of
     /// the module) and `declare global { const THREE }` — the module is a
     /// `ValueModule`, which a `const` excludes. `misc-checks.md` §19.
-    fn report_alias_merge_conflict(&mut self, target: SymbolId, source: SymbolId) {
+    fn report_alias_merge_conflict(
+        &mut self,
+        target: SymbolId,
+        source: SymbolId,
+        pending: &mut DuplicateDeclarationErrors,
+    ) {
         let resolved = self.resolve_alias_fully(target);
         let resolved = self.binder.merged_symbol(resolved);
         let resolved_flags = self.binder.symbols().get(resolved).flags;
@@ -181,11 +190,16 @@ impl Checker<'_, '_> {
         {
             return;
         }
-        self.report_merge_symbol_error(target, source);
+        self.report_merge_symbol_error(target, source, pending);
     }
 
     /// `reportMergeSymbolError` for one pair, and the arm that precedes it.
-    fn report_one_merge_conflict(&mut self, target: SymbolId, source: SymbolId) {
+    fn report_one_merge_conflict(
+        &mut self,
+        target: SymbolId,
+        source: SymbolId,
+        pending: &mut DuplicateDeclarationErrors,
+    ) {
         // **The synthesised `undefined` global is not a merge target
         // upstream.** `addUndefinedToGlobalsOrErrorOnRedeclaration`
         // (`checker.go:1452`) installs `c.undefinedSymbol` in `c.globals`
@@ -234,11 +248,16 @@ impl Checker<'_, '_> {
             }
             return;
         }
-        self.report_merge_symbol_error(target, source);
+        self.report_merge_symbol_error(target, source, pending);
     }
 
     /// `reportMergeSymbolError` (`checker.go:14201`).
-    fn report_merge_symbol_error(&mut self, target: SymbolId, source: SymbolId) {
+    fn report_merge_symbol_error(
+        &mut self,
+        target: SymbolId,
+        source: SymbolId,
+        pending: &mut DuplicateDeclarationErrors,
+    ) {
         let target_flags = self.binder.symbols().get(target).flags;
         let source_flags = self.binder.symbols().get(source).flags;
         // The three-way choice at `checker.go:14203-14212`. Both sides are
@@ -264,12 +283,6 @@ impl Checker<'_, '_> {
         // reaches, because a symbol that collides in the *global* table has no
         // container to qualify with.
         let name = self.binder.symbols().get(source).name.to_string();
-        // `addDuplicateDeclarationErrorsForSymbols` (`checker.go:14225`) walks
-        // both symbols' declarations and reports on each. The related-info
-        // chain it also builds (`X_0_was_also_declared_here`, `X_and_here`) is
-        // not ported — `Diagnostic` carries no related information, and the
-        // `errors_baseline` parser treats `!!! related` lines as hints rather
-        // than diagnostics (`errors_baseline.rs:22`), so the suite never asks.
         // `isSourcePlainJS` / `isTargetPlainJS` (`checker.go:14215-14218`):
         // upstream suppresses the report **per side**, for whichever of the
         // two symbols' first declaration is in a plain JavaScript file
@@ -279,49 +292,133 @@ impl Checker<'_, '_> {
         // `lib.d.ts`, which the suite does not walk. The program answers the
         // file's plainness; a host that cannot tell leaves every JavaScript
         // file plain, which can only suppress a report upstream would make.
-        let mut declarations: Vec<tsr_ast::NodeId> = Vec::new();
-        for side in [source, target] {
-            let side_declarations = self.binder.symbols().get(side).declarations.to_vec();
-            if side_declarations.first().is_some_and(|&first| self.is_plain_js_declaration(first)) {
+        let source_declarations = self.binder.symbols().get(source).declarations.to_vec();
+        let target_declarations = self.binder.symbols().get(target).declarations.to_vec();
+        for (side, other) in [
+            (&source_declarations, &target_declarations),
+            (&target_declarations, &source_declarations),
+        ] {
+            if side.first().is_some_and(|&first| self.is_plain_js_declaration(first)) {
                 continue;
             }
-            declarations.extend(side_declarations);
-        }
-        for declaration in declarations {
-            let Some(file) = self.source_file_of_for_diagnostics(declaration) else { continue };
-            // `getAdjustedNodeForError` then `NewDiagnosticForNode` — the
-            // declaration's *name*, which is what `error_span` centralises
-            // (§48). `class c1 {}` reports at the `c1`.
-            //
-            // `GetNameOfDeclaration` also names an `export as namespace N`,
-            // which `error_span`'s declaration list does not; it is a
-            // declaration only an alias merge reaches here (§19).
-            let span = match self.node_map.get(declaration) {
-                Some(tsr_ast::Node::NamespaceExportDeclaration(export)) => export
-                    .name
-                    .and_then(|name| name.node_id)
-                    .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
-                // The reparsed `JSTypeAliasDeclaration`'s name.
-                Some(
-                    tsr_ast::Node::JSDocTypedefTag(tsr_ast::JSDocTypedefTag {
-                        name: Some(tsr_ast::JSDocFullName::Identifier(name)),
-                        ..
-                    })
-                    | tsr_ast::Node::JSDocCallbackTag(tsr_ast::JSDocCallbackTag {
-                        name: Some(tsr_ast::JSDocFullName::Identifier(name)),
-                        ..
-                    }),
-                ) => name
-                    .node_id
-                    .map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id)),
-                _ => self.error_span(declaration),
-            };
-            let diagnostic = if needs_name {
-                Diagnostic::with_args(message, span, [name.clone()])
-            } else {
-                Diagnostic::new(message, span)
-            };
-            self.report(file, diagnostic);
+            // `addDuplicateDeclarationErrorsForSymbols` (`checker.go:14225`).
+            for &declaration in side {
+                self.add_duplicate_declaration_error(
+                    declaration,
+                    message,
+                    needs_name.then_some(name.as_str()),
+                    &name,
+                    other,
+                    pending,
+                );
+            }
         }
     }
+
+    /// `getAdjustedNodeForError` then `NewDiagnosticForNode`: the
+    /// declaration's *name*, which is what `error_span` centralises (§48).
+    /// `class c1 {}` reports at the `c1`. `GetNameOfDeclaration` also names
+    /// an `export as namespace N`, which `error_span`'s declaration list does
+    /// not; it is a declaration only an alias merge reaches here (§19).
+    fn duplicate_declaration_span(&self, declaration: tsr_ast::NodeId) -> tsr_core::Span {
+        match self.node_map.get(declaration) {
+            Some(tsr_ast::Node::NamespaceExportDeclaration(export)) => export
+                .name
+                .and_then(|name| name.node_id)
+                .map_or_else(|| self.error_span(declaration), |name| self.nodes.span(name)),
+            // The reparsed `JSTypeAliasDeclaration`'s name.
+            Some(
+                tsr_ast::Node::JSDocTypedefTag(tsr_ast::JSDocTypedefTag {
+                    name: Some(tsr_ast::JSDocFullName::Identifier(name)),
+                    ..
+                })
+                | tsr_ast::Node::JSDocCallbackTag(tsr_ast::JSDocCallbackTag {
+                    name: Some(tsr_ast::JSDocFullName::Identifier(name)),
+                    ..
+                }),
+            ) => {
+                name.node_id.map_or_else(|| self.error_span(declaration), |id| self.nodes.span(id))
+            }
+            _ => self.error_span(declaration),
+        }
+    }
+
+    /// `addDuplicateDeclarationError` (`checker.go:14232`): the error at the
+    /// declaration's adjusted node, found or issued by `lookupOrIssueError`
+    /// (found only while an identical earlier error has no related
+    /// information yet), then for each related
+    /// declaration not at the error's own node, `'{0}' was also declared
+    /// here.` first and `and here.` after, skipping one already present and
+    /// stopping at five (r7-grammar §34).
+    fn add_duplicate_declaration_error(
+        &self,
+        declaration: tsr_ast::NodeId,
+        message: &'static tsr_diagnostics::Message,
+        argument: Option<&str>,
+        symbol_name: &str,
+        related: &[tsr_ast::NodeId],
+        pending: &mut DuplicateDeclarationErrors,
+    ) {
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
+        let span = self.duplicate_declaration_span(declaration);
+        let key = (file, span.start, span.end, message.code(), argument.map(str::to_string));
+        // `lookupOrIssueError`: `DiagnosticsCollection.Lookup` compares with
+        // `CompareDiagnostics`, related information included, so it finds an
+        // earlier error only while that error is still bare. One that took
+        // related nodes is a different diagnostic, and the new error is
+        // issued beside it. `SortAndDeduplicateDiagnostics`'
+        // `compactAndMergeRelatedInfos` (`compiler/program.go:1459`) folds the
+        // two, sorting and deduplicating their related lists.
+        let index = if let Some(&index) = pending.index.get(&key)
+            && pending.diagnostics[index].1.related_information().is_empty()
+        {
+            index
+        } else {
+            let diagnostic = match argument {
+                Some(argument) => Diagnostic::with_args(message, span, [argument.to_string()]),
+                None => Diagnostic::new(message, span),
+            };
+            pending.diagnostics.push((file, diagnostic));
+            pending.index.insert(key, pending.diagnostics.len() - 1);
+            pending.diagnostics.len() - 1
+        };
+        for &other in related {
+            let Some(other_file) = self.source_file_of_for_diagnostics(other) else { continue };
+            let other_span = self.duplicate_declaration_span(other);
+            if other_file == file && other_span == span {
+                continue;
+            }
+            let existing = pending.diagnostics[index].1.related_information();
+            let other_name = self.module_host.and_then(|host| host.file_path(other_file));
+            let already = existing.iter().any(|each| {
+                each.span == other_span
+                    && each.file().map(|f| f.file_name().to_string()) == other_name
+                    && matches!(each.message.code(), 6203 | 6204)
+            });
+            if existing.len() >= 5 || already {
+                continue;
+            }
+            let related = if existing.is_empty() {
+                self.related_diagnostic_at(
+                    other,
+                    &messages::_0_WAS_ALSO_DECLARED_HERE,
+                    other_span,
+                    vec![symbol_name.to_string()],
+                )
+            } else {
+                self.related_diagnostic_at(other, &messages::AND_HERE, other_span, Vec::new())
+            };
+            pending.diagnostics[index].1.add_related_information(Some(related));
+        }
+    }
+}
+
+/// The merge-conflict pass's errors, in issue order, with the latest error
+/// per `lookupOrIssueError` identity (file, span, code, argument) indexed.
+/// Owned by one `report_merge_conflicts` call and reported at its end; no
+/// state outlives it.
+#[derive(Default)]
+struct DuplicateDeclarationErrors {
+    diagnostics: Vec<(tsr_ast::NodeId, Diagnostic)>,
+    index: rustc_hash::FxHashMap<(tsr_ast::NodeId, u32, u32, u32, Option<String>), usize>,
 }

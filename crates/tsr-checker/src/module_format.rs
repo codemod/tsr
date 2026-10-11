@@ -1005,9 +1005,11 @@ impl Checker<'_, '_> {
                     && self.nodes.kind(container) != SyntaxKind::Constructor
                     && !self.declaration_has_async_modifier(container)
                 {
-                    diagnostic.add_related_information(Some(Diagnostic::new(
+                    diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                        container,
                         &messages::DID_YOU_MEAN_TO_MARK_THIS_FUNCTION_AS_ASYNC,
                         self.error_span(container),
+                        Vec::new(),
                     )));
                 }
                 self.report(file, diagnostic);
@@ -1057,9 +1059,11 @@ impl Checker<'_, '_> {
                         && self.nodes.kind(ancestor) != SyntaxKind::ClassStaticBlockDeclaration
                 }) && self.nodes.kind(function) != SyntaxKind::Constructor
                 {
-                    diagnostic.add_related_information(Some(Diagnostic::new(
+                    diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                        function,
                         &messages::DID_YOU_MEAN_TO_MARK_THIS_FUNCTION_AS_ASYNC,
                         self.error_span(function),
+                        Vec::new(),
                     )));
                 }
                 self.report(file, diagnostic);
