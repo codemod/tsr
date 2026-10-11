@@ -812,3 +812,21 @@ turn TS2420 into TS2741. The exception is routed to the reporter's owner
 Measured (near-full oracle vs `c91f027e2`, with §40): +19, 0 lost.
 *Falsifier.* A TS2416 whose chain child differs from the relater's report at
 the same member against the same base member type.
+
+## §42 Related information on TS2394 and TS2813/TS2814
+
+Two `checkFunctionOrConstructorSymbol` reports (`checker.go:3661`, `:3693`)
+carry related information that the port dropped:
+
+* TS2394 (`This overload signature is not compatible with its implementation
+  signature.`) adds `The implementation signature is declared here.` at the
+  body declaration (`check_overloads_compatible_with_implementation`,
+  check.rs, a declaration check).
+* TS2813/TS2814 (a class merged with a function that has a body) set the same
+  list on every error: `Consider adding a 'declare' modifier to this class.`
+  at each class declaration of the symbol (`class_function_merge.rs`).
+
+Both are built with `related_diagnostic_at` (§34). Measured with oracle
+filters `verload`, `unction` and `lass`: about 22 cases convert
+(`callOverloads1`–`5`, `functionOverloads*`, `classOverloadForFunction`,
+`augmentedTypesFunction`, …), none lost.
