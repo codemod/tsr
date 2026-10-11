@@ -413,3 +413,49 @@ Still open on this track (the auto-array identity, §8): `let r; if (c) r ??=
 answers `any[] | number[]`: its evolving-array join
 (`union_or_evolving_array`) unions without the junction's subtype reduction,
 which native passes to `getUnionOrEvolvingArrayType`.
+
+## §13 TS2339 on a class whose base is generic, circular or unresolved (routed from r7-grammar)
+
+`(new N).blah` with `class N extends N0<string>`, and `(new M).blah` with
+the circular `class M<T> extends M<string>`, were silent: the miss
+certificate (`apparent_type_lacks_at`) trusted a class table only through
+`declared_members_are_complete` (member_completeness.rs), which declines
+any instantiated or circular base. Native `resolveObjectTypeMembers`
+(`checker.go:19143`) layers the base types' properties under the declared
+ones, and member names do not depend on type arguments (§41's audit), so
+`class_chain_lacks` walks the class's declarations and its `extends` chain
+by name:
+
+- a circular base resolves no base types (`resolveBaseTypes`,
+  `checker.go:19189`, reported TS2506), so a symbol met again adds nothing;
+- an `extends X` that resolves to nothing is the `errorType` base
+  constructor (TS2304) and adds no base type;
+- any other base the port cannot follow (alias, type parameter, mixin call)
+  declines, as do computed member names.
+
+When no index signature is declared anywhere on the chain, the resolved type
+has no index infos; otherwise the existing `no_index_signature_admits`
+asks. No cache: run once per reported miss, bounded by the chain's symbols.
+
+Measured on `4a5c81bf`: diagnostics **+5** (`recursiveBaseCheck3/4/6`,
+`genericRecursiveImplicitConstructorErrors3`,
+`destructuringParameterProperties4`), types text identical, 0 lost; jsTyping
+unchanged. `complicatedGenericRecursiveBaseClassReference` still misses its
+TS2554 (call arity, not this rule).
+
+## §14 TS18014 reads the receiver's type (routed from r7-grammar)
+
+`checkPrivateIdentifierPropertyAccess` (`checker.go:11494`) looks the
+private name up among `getPropertiesOfType(leftType)`: the receiver's
+*type*. `check_private_name_shadowing` found the receiver's class from its
+written annotation (`annotated_class_of`), so `new C().#bar` inside a nested
+class declaring its own `#bar` was silent (`privateNameNestedMethodAccess`).
+It now takes the class of the receiver type (a class reference's declared
+class, or `typeof C`'s class for the static side), checks the name on that
+side, and prints `TypeToString(leftType)` as native does. The written-name
+helper is deleted. TS1111 (the same tail) is plain-JS-only
+(`IsPlainJSFile`, `checker.go:11304`) and not ported here.
+
+Measured on `9acf69d7` + `c6df7541`: diagnostics **+1**
+(`privateNameNestedMethodAccess`), types text identical, 0 lost, jsTyping
+unchanged.
