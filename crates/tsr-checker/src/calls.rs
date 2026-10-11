@@ -2594,6 +2594,19 @@ impl Checker<'_, '_> {
         };
         let Some(tag) = tagged.tag else { return };
         let Some(tag_id) = tag.node_id() else { return };
+        // `checkTaggedTemplateExpression` resolves the tag (assigning a
+        // callback substitution's contextual parameter types once) before
+        // any callback body is checked, as `resolve_call_before_callback_bodies`
+        // does for a call: the diagnostic walk reaches this rule before the
+        // substitutions, so a context-sensitive one is resolved here.
+        if let Some(tsr_ast::TemplateLiteral::TemplateExpression(template)) = tagged.template
+            && template.template_spans.iter().any(|span| {
+                span.expression
+                    .is_some_and(|expression| self.is_context_sensitive_argument(&expression))
+            })
+        {
+            self.check_expression(Expression::TaggedTemplateExpression(tagged));
+        }
         let tag_type = self.check_expression(tag);
         let apparent = self.apparent_type(tag_type);
         if self.is_error(apparent) || self.is_untyped_any_callee(tag_type, apparent) {
