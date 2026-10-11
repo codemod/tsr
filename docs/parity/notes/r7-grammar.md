@@ -898,3 +898,15 @@ TS2448/TS2449/TS2450` family (about 25 cases in `full_oracle_run rank` on
 `bdd9ce10`). Measured near-full oracle vs `dbb3ef7ef`: +34, 0 lost. Not here:
 TS2729's related declaration (`Property used before its initialization`,
 24 cases), whose reporter is readonly_target.rs (r7-flow's).
+
+## §47 TS1192 quotes the module
+
+`reportNonDefaultExport`'s TS1192 is `c.error(node, Module_0_has_no_default_export,
+c.symbolToString(moduleSymbol))`. An external or ambient module symbol is
+named with its quotes upstream (`"/.src/server"`), and with no enclosing
+declaration that name is what prints. This binder names those symbols with
+the bare path. `check_module_has_default_export` (check.rs, an
+import-declaration check) now quotes the name of a module whose declaration
+is a source file or a string-named module declaration. TS2305 is unaffected:
+it prints the specifier as written (`quoted_module_name`). Converted:
+`es6ImportDefaultBinding*` (5 cases, the `TS1192 message-text-only` bucket).

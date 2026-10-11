@@ -2820,7 +2820,23 @@ impl Checker<'_, '_> {
         if self.can_have_synthetic_default_for_usage(symbol, specifier) {
             return;
         }
-        let printed = self.binder.symbols().get(symbol).name.to_string();
+        // `symbolToString(moduleSymbol)`: an external or ambient module's
+        // symbol is named with its quotes upstream (`"/.src/server"`); this
+        // binder keeps the bare path (r7-grammar §47).
+        let record = self.binder.symbols().get(symbol);
+        let quoted =
+            record.declarations.iter().any(|&declaration| match self.node_map.get(declaration) {
+                Some(Node::SourceFile(_)) => true,
+                Some(Node::ModuleDeclaration(module)) => {
+                    matches!(module.name, Some(tsr_ast::ModuleName::StringLiteral(_)))
+                }
+                _ => false,
+            });
+        let printed = if quoted && !record.name.starts_with('"') {
+            format!("\"{}\"", record.name)
+        } else {
+            record.name.to_string()
+        };
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
         self.report(
