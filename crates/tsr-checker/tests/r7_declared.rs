@@ -363,3 +363,26 @@ fn a_generic_mapped_constraint_enumerates_its_lower_bound() {
          }\n";
     assert_eq!(type_of_last_initializer(source), "T[\"b\"]");
 }
+
+/// §36: a reference to an instantiation-expression alias is the
+/// instantiated signature (tsgo: `(x: string) => { v: string; }`).
+#[test]
+fn an_instantiation_expression_alias_reference_is_its_body() {
+    let source = "declare function g<T>(x: T): { v: T };\n\
+         type G<U> = typeof g<U>;\n\
+         declare const v: G<string>;\n\
+         const x = v;\n";
+    assert_eq!(type_of_last_initializer(source), "(x: string) => { v: string; }");
+}
+
+/// §37: a reference to an alias declared as a deferred conditional
+/// reference is the root alias's instance (tsgo: `C<T>`).
+#[test]
+fn a_deferred_conditional_reference_alias_instance_is_the_roots() {
+    let source = "type C<P> = P extends string ? 1 : 2;\n\
+         type D<T> = C<T>;\n\
+         function f<T>(d: D<T>) {\n\
+             const x = d;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "C<T>");
+}

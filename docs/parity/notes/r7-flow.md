@@ -739,3 +739,86 @@ type (BINDING-PATTERN-IMPLIED-TYPE, r7-contextual).
 `destructureCatchClause` stays non-exact on TS2488 for the array patterns
 (`checkIteratedTypeOrElementType` on `unknown`, `iteration.rs`, not this
 lane's).
+
+## §23 `instanceof` over a union callee maps `getInstanceType` per constituent
+
+`narrowTypeByInstanceof` (`flow.go:836`) narrows by `mapType(rightType,
+c.getInstanceType)`: a union callee `AA | BB` (`AA` a callable with
+`prototype: A`, `BB` with `new(): B`) narrows by `A | B`. The port's general
+road (§3) read `prototype` and the construct signatures off the union as a
+whole: the union has no `prototype` (one constituent lacks it) and no
+construct signatures (one constituent has none), so it declined and kept
+`A | B | C` (`narrowByInstanceof` 27:x). `instance_type_of_callee` is
+`getInstanceType` for one non-class callee, with the Function-derivation
+gate before it (a union passes `isTypeDerivedFrom(rightType,
+globalFunctionType)` only when every constituent does), and the arm maps it
+over the union's constituents. A callee constituent that declines declines
+the whole narrowing, as before. No cache: the same reads per constituent.
+
+Measured (§23 alone) on `379e4ed5` unfiltered: types **+1**
+(`narrowByInstanceof` 27:x), diagnostics unchanged, 0 lost; exact oracle 9659
+→ 9660 (`narrowByInstanceof`), 0 lost; jsTyping 122 → 122, new_false 0,
+lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## §24 The branch label's named-union lookup (§58): measured, held
+
+`checker-notes-narrow.md` §58 made a branch join whose union re-formed a
+*named* union's exact members answer the named type
+(`named_union_by_members`), at both the literal and the subtype-reduced join.
+Native has no such step: `getUnionOrEvolvingArrayType` (`flow.go:1314`)
+returns the declared type when the join has the declared union's
+constituents (§10's `declared_if_same_union`) and otherwise a fresh union;
+tsgo keys unions by alias too (`getUnionTypeFromSortedList`), so a plain
+`TestA | TestB` is not the alias `AllTests`. In `discriminantPropertyCheck`
+(`let test; test = mapOfTests[id]; if (test.type === 'testA') …; switch
+(test.type)`) the declared type is `autoType`, and native prints the join
+`TestA | TestB` where the port printed `AllTests`.
+
+Removing the lookup on `379e4ed5` + §23: types **+1** (that line, nothing
+else moves), diagnostics unchanged, exact +1, 0 lost, but jsTyping
+**new_false 1**: `builder.ts(1304,21)` TS2322 on `emitSignatures =
+append(emitSignatures, [fileId, cond ? emptyArray as [] : emitSignature])`.
+The narrowed `emitSignature` now reaches inference as `string | [signature:
+string]` rather than the alias `EmitSignature`, as natively, and this port's
+`append<T>` inference then picks a widened candidate native does not. That is
+an inference/relation gap (r7-contextual / r7-reports), not a flow one. The
+lookup stays until it is fixed; the removal is two hunks in
+`flow.rs`'s branch label.
+
+## §25 `isParameterOrMutableLocalVariable` as written, and `markNodeAssignments`' export-specifier arm
+
+`checkIdentifier` extends a closure's flow container to the declaring
+function when the variable is a parameter or mutable local and the read is
+past its last assignment (`isPastLastAssignment`, `flow.go:2668`); a mutable
+local is a `let` neither exported nor at the top of a **global** script
+(`isMutableLocalVariableDeclaration`, `utilities.go:1053`). The port's
+position reader refused every file-level `let`, an approximation kept because
+moving it "moves `checker_types`" (`checker-notes-diag2.md` §42), and did not
+port `markNodeAssignmentsWorker`'s export-specifier arm (`flow.go:2726`: a
+value re-export `export { x }` marks `x` assigned at `MaxInt32`, so a read is
+never past it). `narrowingPastLastAssignmentInModule`'s module-level `x4`/`x5`
+read in an arrow stayed `string | number` (native `string`).
+
+Both are ported: `is_parameter_or_mutable_local_variable` is now the written
+predicate (the separate `_faithful` copy is gone), and `mark_exported_local`
+is the export-specifier arm (not type-only, no module specifier, an
+identifier name resolved as a value). The arm is what keeps `export { x2 }`
+and `export { x3 as foo }` wide once module-level `let`s qualify.
+
+## §26 `isUnitLikeType` and `extractUnitType` in the switch default filter
+
+`narrowTypeBySwitchOnDiscriminant`'s default clause (`flow.go:1139`) keeps a
+constituent unless it is unit-like (`isUnitLikeType`, `checker.go:25414`: read
+through its base constraint, a unit type or an intersection with a unit
+member) and its unit (`extractUnitType`, `:25424`) is comparable to some case.
+The port asked the constituent's own `UNIT` flag, so `T & 1 | T & 2` kept
+both in `default:` (`intersectionNarrowing` `f4`, native `never`).
+`is_unit_like_type`/`extract_unit_type` port both; `narrowTypeByEquality`'s
+false-branch filter, which had the unit-like test inline, now shares it.
+
+Measured (§25 + §26) on `edf2a433` unfiltered: types **+7**
+(`narrowingPastLastAssignmentInModule` 2, `nestedBlockScopedBindings7/8` 2
+each, `intersectionNarrowing` 1), diagnostics unchanged, 0 lost; jsTyping 122
+→ 122, new_false 0, lost_true 0; exact oracle 9660 → 9664 (those four cases), 0
+lost; Ir gi 0.9999, dm 0.9999. No cache added; the export arm runs inside
+the existing once-per-root marking walk.

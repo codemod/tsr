@@ -119,3 +119,11 @@ fn a_satisfies_tag_expects_braces() {
         .collect();
     assert_eq!(comment, [(15, 17, 1005)]);
 }
+
+#[test]
+fn a_function_type_constituent_must_be_parenthesized() {
+    // `parseFunctionOrConstructorTypeToError`: over the constituent from its
+    // full start, the space after the operator included.
+    assert_eq!(reports("a.ts", "type U = string | () => void;"), vec![(17, 28, 1385, vec![])]);
+    assert_eq!(reports("a.ts", "type I = & new () => C;"), vec![(10, 22, 1388, vec![])]);
+}

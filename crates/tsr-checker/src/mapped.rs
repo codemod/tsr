@@ -1137,7 +1137,7 @@ impl<'a> Checker<'a, '_> {
     /// The position of the type parameter a conditional alias's body checks
     /// nakedly (`root.isDistributive`): `T` in `type Exclude<T, U> = T extends
     /// U ? never : T`.
-    fn distributive_alias_check_index(&self, alias: SymbolId) -> Option<usize> {
+    pub(crate) fn distributive_alias_check_index(&self, alias: SymbolId) -> Option<usize> {
         let declaration = self.type_alias_declaration_of(alias)?;
         let Some(Node::TypeAliasDeclaration(node)) = self.node_map.get(declaration) else {
             return None;

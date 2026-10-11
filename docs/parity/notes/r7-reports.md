@@ -1227,3 +1227,87 @@ the relation's.
 
 **Measured** (diagnostics, the 375 JSX-named cases, the change alone):
 `ignoredJsxAttributes` RIGHT, nothing else moved. The full gate follows.
+
+## 32. A weak JSX attributes intersection, and weakness of a class or interface instantiation
+
+**Forcing case.** `tsxSpreadAttributesResolution5` (35,10). `<EmptyProp
+{...o} />` with `o: { prop1: boolean }` against `IntrinsicAttributes &
+IntrinsicClassAttributes<EmptyProp> & { children?: ReactNode }` is native
+TS2559. Every constituent is weak and none knows `prop1`.
+
+**Two gaps.**
+1. *`isWeakType` of an instantiation.* `IntrinsicClassAttributes<EmptyProp>`
+   is weak through its inherited `ref?`/`key?`. `relation_property_table`
+   declines a reference with type arguments. `is_weak_type` now falls back,
+   for a class or interface instantiation that is not mapped, to the
+   complete name list and each name's declaration `?`. No type argument
+   changes that `?`. A member inherited through a generic base is read
+   through `generic_heritage_property_symbol`, as the relater's
+   `property_flags` reads it.
+2. *The JSX reporter decomposed first.*
+   `report_jsx_attributes_relation_failure` reports the first constituent
+   that fails under `IntersectionStateTarget`, and a weak-type failure fails
+   none of them. `isRelatedTo` runs the common-property check on the whole
+   target before the intersection is decomposed (`relater.go:2676`). The
+   reporter now asks `report_weak_type_failure` of the whole intersection
+   first.
+
+**Measured** (diagnostics and types, unfiltered, against the same tree
+without the change): `tsxSpreadAttributesResolution5` RIGHT, 0 lost, types
+unchanged. Cost: the first draft built each instantiation's full table on
+every weak test and raised domain-model's callgrind Ir by 1.37%. The test
+now stops at the first required member, which nearly every instantiation
+has. That brought it to +0.25% (gi +0.02%).
+
+## 33. An alias-named reference keeps the caller's head
+
+**Forcing case.** `jsxClassAttributeResolution` (2,19). Under `declare
+namespace JSX { type IntrinsicClassAttributes<T> =
+IntrinsicClassAttributesAlias<T> }`, `<App></App>` is native TS2322: `Type
+'{}' is not assignable to type 'IntrinsicClassAttributes<T>'`, with the
+chain `Property 'ref' is missing in type '{}' but required in type
+'IntrinsicClassAttributesAlias<T>'`. The head names the alias and the
+missing-property message names the reference, so `chainArgsMatch` fails
+and the head stays. This port reported TS2741 as the head.
+
+**Port** (`relater.rs::unmatched_property_report`). r7-declared mints a
+class or interface reference under an alias's printed name and records
+the alias in `alias_of`. Such a side is a type the head prints differently
+from the reference the chain names, so the report keeps the caller's head,
+as it already does for an alias image normalization may rewrite.
+
+**Measured** (diagnostics and types, unfiltered, the change alone on batch
+37 with §30–§32): `jsxClassAttributeResolution` RIGHT, 0 lost, types
+unchanged.
+
+## 34. The intersection property-check pass over a non-enumerable target
+
+**Forcing case.** `nestedExcessPropertyChecking` (30,22). `{ variables: {
+overrides: false } }` against `Partial<{ something: any }> & { variables: {
+overrides?: OverridesInput } & Partial<{ overrides?: OverridesInput }> }` is
+native TS2559 at `overrides`.
+
+**Upstream.** After relating the source to each constituent under
+`IntersectionStateTarget`, `structuredTypeRelatedTo` (`relater.go:3232`)
+relates the source's members to the target's combined property types with
+`IntersectionStateNone`. That pass is where the nested weak type `false →
+OverridesInput` fails: under `IntersectionStateTarget` the
+common-property check does not run.
+
+**Port** (`relater.rs`). The pass declined, so the constituent walk's
+verdict stood, wherever `properties_related_to` could not enumerate the
+target's combined member list. A mapped constituent (`Partial<…>`) is
+enough to cause that. The pass's only new question is still answerable,
+though: each member the source and the target share, related to the
+combined property type with the state clear.
+- A target member the source lacks was the constituent walk's. A member any
+  constituent requires is the intersection's.
+- A source member the target lacks is `hasExcessProperties`'.
+
+So when the full pass is Unknown, `shared_members_related_to` answers it.
+
+**Measured** (diagnostics and types, unfiltered, the change alone on batch
+37 with §30–§33): `nestedExcessPropertyChecking`,
+`identicalTypesNoDifferByCheckOrder` and `reactDefaultPropsInferenceSuccess`
+RIGHT, one more line of `excessPropertyCheckIntersectionWithRecursiveType`,
+0 lost, types unchanged.

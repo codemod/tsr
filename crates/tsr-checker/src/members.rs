@@ -737,7 +737,43 @@ impl Checker<'_, '_> {
             }
             return error;
         }
+        if let Some(member) = self.type_only_module_member(stripped, right.text) {
+            return self.get_type_of_symbol(member);
+        }
         self.access_member_lookup(stripped, right.text, node.node_id)
+    }
+
+    /// `getPropertyOfTypeEx(apparentType, right, …, includeTypeOnlyMembers:
+    /// node.Kind == KindQualifiedName)` (pinned 5b1047d, `checker.go:11323`):
+    /// a qualified name, the `typeof types.A` form, sees a module's
+    /// **type-only** exports, which `symbolIsValueEx(symbol, false)` hides from
+    /// a property access (`export type { A }` then `import * as types`:
+    /// `types.A` is TS2339, `typeof types.A` is `typeof A`). Answers only the
+    /// export that the ordinary lookup refuses for type-only-ness alone: an
+    /// alias of a module or namespace object type, with a type-only
+    /// declaration on its chain, whose chain still reaches a value
+    /// (`getSymbolFlagsEx` with `excludeTypeOnlyMeanings: false`). Everything
+    /// else takes the ordinary road. One exports read and no cache
+    /// (`r7-shared.md` §26).
+    fn type_only_module_member(&mut self, receiver: TypeId, name: &str) -> Option<SymbolId> {
+        let TypeData::Anonymous { symbol, .. } = self.store.get(receiver).data else {
+            return None;
+        };
+        if self.module_value_clones.contains_key(&receiver) {
+            return None;
+        }
+        let data = self.binder.symbols().get(symbol);
+        if !data.flags.intersects(SymbolFlags::VALUE_MODULE) {
+            return None;
+        }
+        let found = *data.exports.get(name)?;
+        let flags = self.binder.symbols().get(found).flags;
+        if flags.intersects(SymbolFlags::VALUE) || !flags.intersects(SymbolFlags::ALIAS) {
+            return None;
+        }
+        (self.alias_is_type_only(found)
+            && self.get_symbol_flags(found).intersects(SymbolFlags::VALUE))
+        .then_some(found)
     }
 
     /// The private-name arm of `checkPropertyAccessExpressionOrQualifiedName`

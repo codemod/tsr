@@ -4457,6 +4457,138 @@ impl<'a> Checker<'a, '_> {
         self.mapped_types.contains_key(&evaluated).then_some(evaluated)
     }
 
+    /// getTypeAliasInstantiation (checker.go:23641) over a declared type that
+    /// is an instantiation expression's type (`type ErrAlias<U> = typeof
+    /// Err<U>`): getTypeFromTypeQueryNode's result takes no alias, so
+    /// instantiateTypeWithAlias finds none to carry (`newAlias` is the
+    /// declared type's own, nil) and the instance prints its structure:
+    /// `ErrAlias<number>` is `{ new (): ErrImpl<number>; prototype:
+    /// ErrImpl<any>; } & (() => number)`. The declared type already answers
+    /// the body (`alias_free_generic_alias_body`); the reference evaluates the
+    /// same body under the alias's bindings instead of minting the alias
+    /// name (r7-declared §36).
+    fn instantiate_type_query_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if arguments.is_empty()
+            || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || self.local_type_parameters_of(symbol).len() != arguments.len()
+        {
+            return None;
+        }
+        let TypeNode::TypeQueryNode(query) =
+            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?
+        else {
+            return None;
+        };
+        if query.type_arguments.is_empty() {
+            return None;
+        }
+        let evaluated = self.evaluate_alias_body(symbol, arguments)?;
+        (!self.is_gap(evaluated) && !self.is_error(evaluated)).then_some(evaluated)
+    }
+
+    /// getConditionalTypeInstantiation (checker.go:22485) re-instantiating a
+    /// deferred conditional with no new alias: the result carries
+    /// `instantiateTypeAlias(root.alias, mapper)`, the alias that owns the
+    /// conditional node, not the alias whose declared type it is. A generic
+    /// alias declared as a reference to a conditional alias (`type
+    /// ComponentPropsWithoutRef<T> = PropsWithoutRef<ComponentProps<T>>`)
+    /// declares the deferred conditional under its own name (the declaring
+    /// alias is newAliasSymbol), but a reference to it elsewhere
+    /// (`props: ComponentPropsWithoutRef<T>` at another `T`) is the root's
+    /// instance, printed `PropsWithoutRef<ComponentProps<T>>`
+    /// (genericCallInferenceInConditionalTypes1). The reference's arguments
+    /// are resolved under the alias's bindings and the inner alias referenced
+    /// with them; only a deferred conditional answer is taken, any other keeps
+    /// the existing roads (r7-declared §37).
+    fn deferred_conditional_reference_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if arguments.is_empty()
+            || self.instantiation_depth >= 100
+            || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        let parameters = self.local_type_parameters_of(symbol);
+        if parameters.len() != arguments.len() {
+            return None;
+        }
+        let TypeNode::TypeReferenceNode(reference) =
+            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?
+        else {
+            return None;
+        };
+        let inner = self.alias_reference_target(reference)?;
+        if inner == symbol
+            || !self.alias_chain_ends_in_conditional(inner, 0)
+            || self.local_type_parameters_of(inner).len() != reference.type_arguments.len()
+        {
+            return None;
+        }
+        let mut frame = rustc_hash::FxHashMap::default();
+        for (parameter, &argument) in parameters.iter().zip(arguments) {
+            let parameter = parameter.node_id.and_then(|id| self.binder.symbol_of(id))?;
+            frame.insert(parameter, argument);
+        }
+        self.instantiation_depth += 1;
+        self.alias_evaluation_bindings.push(frame);
+        let inner_arguments: Vec<TypeId> = reference
+            .type_arguments
+            .iter()
+            .map(|&node| self.get_type_from_type_node(node))
+            .collect();
+        self.alias_evaluation_bindings.pop();
+        let result = if inner_arguments.iter().any(|&argument| self.is_gap(argument)) {
+            None
+        } else {
+            Some(self.create_type_reference(inner, inner_arguments))
+        };
+        self.instantiation_depth -= 1;
+        let result = result?;
+        let (target, target_arguments) = self.type_reference_targets.get(&result).cloned()?;
+        if !self.store.get(result).flags.contains(TypeFlags::CONDITIONAL)
+            || !matches!(
+                self.type_alias_body(target).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::ConditionalTypeNode(_))
+            )
+        {
+            return None;
+        }
+        // A distributive root over a union argument distributes
+        // (mapTypeWithAlias): the union carries the declared type's own alias,
+        // instantiated, so the reference keeps its name
+        // (`WithName<T>` over `DiscriminateUnion<BigUnion, "name", T>`).
+        let distributes = self.distributive_alias_check_index(target).is_some_and(|index| {
+            target_arguments.get(index).is_some_and(|&argument| {
+                self.store.get(argument).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER)
+            })
+        });
+        (!distributes).then_some(result)
+    }
+
+    /// Whether `symbol`'s body is a conditional, directly or through a chain
+    /// of generic alias references. Bounded like the other chains.
+    fn alias_chain_ends_in_conditional(&self, symbol: SymbolId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        match self.type_alias_body(symbol).and_then(Self::skip_type_parentheses) {
+            Some(TypeNode::ConditionalTypeNode(_)) => true,
+            Some(TypeNode::TypeReferenceNode(reference)) => {
+                self.alias_reference_target(reference).is_some_and(|inner| {
+                    inner != symbol && self.alias_chain_ends_in_conditional(inner, depth + 1)
+                })
+            }
+            _ => false,
+        }
+    }
+
     /// Whether a generic alias's declared type is a tuple built by
     /// createNormalizedTupleType (a body with a variadic element,
     /// checker.go:24121), directly or through a chain of alias references
@@ -8247,6 +8379,10 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), evaluated);
             return evaluated;
         }
+        if let Some(deferred) = self.deferred_conditional_reference_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), deferred);
+            return deferred;
+        }
         if self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
             && let Some(declaration) = self.type_alias_declaration_of(symbol)
             && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(declaration)
@@ -8335,6 +8471,10 @@ impl<'a> Checker<'a, '_> {
         if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), template);
             return template;
+        }
+        if let Some(query) = self.instantiate_type_query_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), query);
+            return query;
         }
         if let Some(mapped) = self.instantiate_normalized_mapped_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), mapped);

@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 1014/1091 (92.94%)
-Failed         : 77
+Passed         : 1016/1091 (93.13%)
+Failed         : 75
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -121,10 +121,6 @@ conformance/importTag15(module=es2015)
   2 missing (first TS2823 at 1.js(1,30))
 conformance/importTag15(module=esnext)
   2 missing (first TS2857 at 1.js(1,30))
-conformance/jsDeclarationsClassesErr(target=es2015)
-  16 unexpected (first TS8010 at index.js(13,11)), 0 missing
-conformance/jsDeclarationsInterfaces(target=es2015)
-  46 unexpected (first TS8010 at index.js(16,9)), 0 missing
 conformance/nodeModulesCJSEmit1(module=node18)
   1 missing (first TS1192 at /5.cjs(2,8))
 conformance/nodeModulesCJSEmit1(module=node20)
