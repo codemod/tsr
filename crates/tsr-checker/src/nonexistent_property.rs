@@ -1618,8 +1618,9 @@ impl Checker<'_, '_> {
         })
     }
 
-    /// `getPropertyOfTypeEx` (checker.go:18899) on a function declaration's
-    /// `typeof`: `resolveAnonymousTypeMembers` gives it the symbol's exports,
+    /// `getPropertyOfTypeEx` (checker.go:18899) on a function declaration's,
+    /// function expression's or arrow function's type:
+    /// `resolveAnonymousTypeMembers` gives it the symbol's exports,
     /// then the miss falls to the global `Function` family and `Object`.
     /// `Some(lacks)` once every table is certified, `None` for any other
     /// receiver or an uncertified table. A function with exports (a merged
@@ -1635,8 +1636,12 @@ impl Checker<'_, '_> {
             || !entry.exports.is_empty()
             || entry.declarations.is_empty()
             || !entry.declarations.iter().all(|&declaration| {
-                self.nodes.kind(declaration) == SyntaxKind::FunctionDeclaration
-                    && !self.in_js_file(declaration)
+                matches!(
+                    self.nodes.kind(declaration),
+                    SyntaxKind::FunctionDeclaration
+                        | SyntaxKind::FunctionExpression
+                        | SyntaxKind::ArrowFunction
+                ) && !self.in_js_file(declaration)
             })
         {
             return None;
