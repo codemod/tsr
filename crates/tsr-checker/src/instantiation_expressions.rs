@@ -108,6 +108,14 @@ pub(crate) struct InstantiationExpressionLinks {
     /// the stack: inserted before the body is evaluated, removed after. A
     /// re-entrant reference keeps the named mint (`r7-declared.md` §10).
     pub(crate) union_alias_in_progress: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    /// The aliases whose class/interface-reference body
+    /// (`Checker::instantiate_interface_reference_alias`, declared.rs) is
+    /// being evaluated: inserted before, removed after. A re-entry marks the
+    /// alias in `interface_alias_reentered` (written once, never cleared),
+    /// which keeps every instance of it on the named mint (`r7-declared.md`
+    /// §22).
+    pub(crate) interface_alias_in_progress: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    pub(crate) interface_alias_reentered: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
     /// The operand `t` of a resolved key union's `keyof t` origin
     /// (`Checker::union_with_keyof_origin`, unions.rs): origin-carrying union
     /// -> operand. Written once when the union is minted, never invalidated;

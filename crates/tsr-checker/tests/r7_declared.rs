@@ -241,3 +241,14 @@ fn a_mapped_type_over_a_class_drops_non_public_members() {
          const k = keys(r);\n";
     assert_eq!(type_of_last_initializer(source), "\"b\"");
 }
+
+/// §22: a generic alias whose body is an interface reference instantiates to
+/// that reference (a deferred type reference carrying the alias), so its
+/// call signature types an arrow function contextually (tsgo: `y : { v: number; }`).
+#[test]
+fn an_interface_reference_alias_instance_keeps_its_call_signature() {
+    let source = "interface EH<E> { (event: E): void; }\n\
+         type MH<T> = EH<{ v: T }>;\n\
+         const b: MH<number> = (y) => {};\n";
+    assert_eq!(type_of_last_initializer(source), "(y: { v: number; }) => void");
+}

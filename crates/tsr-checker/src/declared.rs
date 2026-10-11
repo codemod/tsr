@@ -4292,6 +4292,101 @@ impl<'a> Checker<'a, '_> {
         .then_some(target)
     }
 
+    /// getTypeAliasInstantiation (checker.go:23641) over a declared type that
+    /// is a generic class or interface reference written as the alias body
+    /// (`type MouseEventHandler<T> = EventHandler<MouseEvent<T>>` over
+    /// `interface EventHandler<E> { (event: E): void }`). The body node is a
+    /// deferred type reference (isDeferredTypeReferenceNode: it has an alias
+    /// symbol), created with the alias, and instantiating it keeps the alias
+    /// at the instantiated arguments: the instance IS `EventHandler<MouseEvent<any>>`,
+    /// printed `MouseEventHandler<any>`. This port minted a print-only
+    /// `Named` with the alias symbol as its member owner, so the instance had
+    /// no call signature and no members (contextual typing through it found
+    /// nothing). The body is evaluated under the alias's bindings and the
+    /// resulting reference re-minted under the alias's printed name, keeping
+    /// the target's member owner and its `(target, arguments)` pair, with
+    /// `alias_of` recording the alias (r7-declared §22).
+    fn instantiate_interface_reference_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+        shown: usize,
+    ) -> Option<TypeId> {
+        if arguments.is_empty()
+            || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || self.local_type_parameters_of(symbol).len() != arguments.len()
+        {
+            return None;
+        }
+        let TypeNode::TypeReferenceNode(reference) =
+            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?
+        else {
+            return None;
+        };
+        if reference.type_arguments.is_empty() {
+            return None;
+        }
+        let target = self.resolve_entity_name(reference.type_name?, SymbolFlags::TYPE)?;
+        let target = self.binder.merged_symbol(target);
+        if !self
+            .binder
+            .symbols()
+            .get(target)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+            || self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS)
+        {
+            return None;
+        }
+        // The global `Array`/`ReadonlyArray` targets print with the array
+        // shorthand from their reference pair, which the site renderer reads
+        // before an alias (`type Options<T> = Array<Option<T>>` printed
+        // `Option<T>[]` inside another alias's arguments): not admitted until
+        // the renderer prefers the alias there.
+        if ["Array", "ReadonlyArray"].iter().any(|name| {
+            self.global_type_symbol(name).map(|global| self.binder.merged_symbol(global))
+                == Some(target)
+        }) {
+            return None;
+        }
+        // A body that re-enters its own alias (`type InfBox<T> =
+        // Box<InfBox<T>>`) is a deferred type reference native resolves
+        // lazily; evaluated eagerly here it builds a different, partial
+        // type, so such an alias keeps the named mint.
+        if !self.instantiation_expressions.interface_alias_in_progress.insert(symbol) {
+            self.instantiation_expressions.interface_alias_reentered.insert(symbol);
+            return None;
+        }
+        let evaluated = self.evaluate_alias_body(symbol, arguments);
+        self.instantiation_expressions.interface_alias_in_progress.remove(&symbol);
+        if self.instantiation_expressions.interface_alias_reentered.contains(&symbol) {
+            return None;
+        }
+        let evaluated = evaluated?;
+        if self.is_gap(evaluated) {
+            return None;
+        }
+        let crate::types::TypeData::Named { members: Some(members), .. } =
+            self.store.get(evaluated).data
+        else {
+            return None;
+        };
+        let (reference_target, reference_arguments) =
+            self.type_reference_targets.get(&evaluated).cloned()?;
+        if reference_target != target {
+            return None;
+        }
+        let printed = self.type_reference_text(symbol, &arguments[..shown]);
+        let flags = self.store.get(evaluated).flags;
+        let named = self.store.new_named(flags, printed, Some(members));
+        self.type_reference_targets.insert(named, (reference_target, reference_arguments));
+        if let Some(signatures) = self.signature_types.get(&evaluated).cloned() {
+            self.signature_types.insert(named, signatures);
+        }
+        self.alias_of.insert(named, (symbol, arguments.to_vec()));
+        Some(named)
+    }
+
     /// Whether a generic alias's declared type is a tuple built by
     /// createNormalizedTupleType (a body with a variadic element,
     /// checker.go:24121), directly or through a chain of alias references
@@ -8031,6 +8126,12 @@ impl<'a> Checker<'a, '_> {
         if let Some(mapped) = self.instantiate_normalized_mapped_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
+        }
+        if let Some(reference) =
+            self.instantiate_interface_reference_alias(symbol, &arguments, shown)
+        {
+            self.instantiations.insert((symbol, arguments), reference);
+            return reference;
         }
         let printed = self.type_reference_text(symbol, &arguments[..shown]);
         // §90 (`checker-notes-narrow.md`): a TYPE_ALIAS target with a

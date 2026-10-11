@@ -774,3 +774,59 @@ non-public member, so it takes the mapped road. No state.
 0 / 0 (no corpus case reads such a member); jsTyping new_false 0 /
 lost_true 0; Ir gi 1.0001, dm 1.0002. Probe: `Req<PrivateState>`'s `a` is
 TS2339, as in tsgo.
+
+## 21. HELD: `keyof` of a non-generic object that mentions a type parameter resolves now
+
+getIndexTypeEx (`checker.go:26684`) defers only under shouldDeferIndexType
+(`:26834`). `keyof Dictionary<T>` over `interface Dictionary<T> { [key:
+string]: T }` is `string | number` whatever `T` is, but TSR's keyof arm
+deferred on any mentioned type parameter, so `Dictionary<T>[keyof
+Dictionary<T>]` was `error`, and r7-reports' `m4(foos, f => f.foo)` typed
+`f : any` (tsgo: `{ foo: string }`, result `Dictionary<string>`).
+`keyof_operand_resolves_now` admits a plain object operand that is not
+generic (`is_generic_type`). Measured alone against `4af98855`: types +2 / 0
+(deeplyNestedMappedTypes 0:164, thislessFunctionsNotContextSensitive1 0:5),
+**diagnostics −1: deeplyNestedMappedTypes**. That is again the TypeBox
+relation that was RIGHT over wrong types, the one .1266's stack fixes. It is
+held until .1266 lands, and will be re-measured then (`/tmp/r/keyof-now.diff`).
+
+## 22. A generic alias over a class or interface reference is that reference (tsxStatelessFunctionComponentOverload5, routed from r7-reports)
+
+**Forcing constraint.** `type MouseEventHandler<T> =
+EventHandler<MouseEvent<T>>` over `interface EventHandler<E> { (event: E):
+void }`: the body node has an alias symbol, so isDeferredTypeReferenceNode
+makes it a deferred type reference created with the alias. Instantiating it
+keeps the alias at the instantiated arguments: the instance is
+`EventHandler<MouseEvent<any>>`, printed `MouseEventHandler<any>`. TSR
+minted a print-only `Named` with the alias as its member owner, which has no
+call signature. `onClick={(e) => …}` through `React.MouseEventHandler<any>`
+typed `e : any`, and anyFunctionType against the alias was `Unknown`.
+
+**Port.** `instantiate_interface_reference_alias` (`create_type_reference`):
+- the body is evaluated under the alias's bindings;
+- the resulting class/interface reference (a `Named` with the target's
+  member owner and its `type_reference_targets` pair) is re-minted under
+  the alias's printed name, with `alias_of` recording the alias.
+
+Two declines, each with its reason:
+- the global `Array`/`ReadonlyArray` targets. The site renderer prints their
+  reference pair with the array shorthand before an alias (`type Options<T>
+  = Array<Option<T>>` printed `Option<T>[]` inside another alias's
+  arguments: −1, jsxComplexSignatureHasApplicabilityError:0:222);
+- an alias whose body re-enters itself (`type InfBox<T> =
+  Box<InfBox<T>>`). Native resolves that deferred reference lazily; eagerly
+  it built a partial type, and `unbox(b3)` lost `InfBox<string>` (−1,
+  recursiveConditionalTypes:0:83). A re-entry is recorded per alias
+  (`interface_alias_reentered`) and keeps the named mint.
+
+Checker port convention: the in-progress set (owner
+`instantiation_expressions.interface_alias_in_progress`, inserted and
+removed around the evaluation) and the re-entered set (written once, never
+cleared) are keyed by alias symbol. The instance itself is cached in the
+existing `instantiations[(alias, arguments)]`.
+
+**Measured** (unfiltered against `4af98855`, the declines in place): types
+**+7, 0 lost** (tsxStatelessFunctionComponentOverload5 4,
+tsxReactPropsInferenceSucceedsOnIntersections 3); diagnostics 0 / 0;
+jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0001. The first cut
+without the declines measured +7 / −2.
