@@ -830,3 +830,48 @@ existing `instantiations[(alias, arguments)]`.
 tsxReactPropsInferenceSucceedsOnIntersections 3); diagnostics 0 / 0;
 jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0001. The first cut
 without the declines measured +7 / −2.
+
+## 23. HELD: the non-generic type-literal alias body records `alias_of` (TYPE-ALIAS-ACCESSIBILITY-GATE (a), with r7-printer)
+
+`type AX = { readonly A: unique symbol }` minted its type-literal object with
+no `alias_of`, so the printer could not apply IsTypeSymbolAccessible to the
+alias (getAliasSymbolForTypeNode gives the literal its alias).
+[`r7-declared-HELD-type-literal-alias-of.diff`](r7-declared-HELD-type-literal-alias-of.diff)
+records it in `get_type_from_type_literal`. Measured against `41d542bb`'s
+base: types **+9 / 0**, diagnostics **−1**
+(declarationEmitExpressionWithNonlocalPrivateUniqueSymbol loses TS2527).
+With the alias recorded, the printer no longer expands AX down to the
+inaccessible `unique symbol`. That diagnostic is what r7-printer's
+IsTypeSymbolAccessible arm restores, so the two land together.
+
+## 24. A qualified import type with type arguments instantiates its class or interface (IMPORT-TYPE-NODE, part)
+
+**Forcing constraint.** getTypeFromImportTypeNode (`checker.go:24575`)
+resolves the qualifier and calls getTypeReferenceType with the node's type
+arguments: `import("./box").Box<{ boxed: import("./box").Box<number>; }>` is
+`Box` at that argument. TSR answered `error` for any import type with type
+arguments (declarationEmitTopLevelNodeFromCrossFile2,
+importUsedInGenericImportResolves).
+
+**Port.** `generic_import_type_reference` instantiates a class or interface
+target at the written arguments (`create_type_reference`). It mints the
+written import spelling with the printed arguments, the target's member
+owner and its reference pair, as the argument-less arm mints the written
+spelling over the target's members. The cache is the existing
+`qualified_reference_types[(text, symbol)]`. Declines, each keeping
+`error`:
+- a type alias target;
+- an arity mismatch;
+- **an argument that mentions a type parameter**. The baked argument text
+  would survive instantiation while the pair instantiates. The first cut
+  without this decline measured +8 / −6
+  (declarationEmitIsolatedDeclarationErrorNotEmittedForNonEmittedFile:
+  `initTRPC.create()`'s members read `any` where they were `{}`).
+
+**Measured** (unfiltered against `41d542bb`): types **+6, 0 lost**
+(declarationEmitTopLevelNodeFromCrossFile2 5,
+importUsedInGenericImportResolves 1); diagnostics 0 / 0; jsTyping
+new_false 0 / lost_true 0; Ir gi 0.9999, dm 1.0000. importTypeGenericTypes'
+`import("./foo2").Bar.I<{ x: number; }>` now prints `Bar.I<…>` (GAP →
+WRONG): the site renderer names the reference by its chain. That is
+r7-printer's symbol-chain arm.

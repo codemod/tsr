@@ -6784,7 +6784,7 @@ impl<'a> Checker<'a, '_> {
         if let Some(answer) = self.unqualified_import_type_meaning(node) {
             return answer;
         }
-        if node.is_type_of || !node.type_arguments.is_empty() {
+        if node.is_type_of {
             return error;
         }
         let Some(qualifier) = node.qualifier else { return error };
@@ -6828,11 +6828,83 @@ impl<'a> Checker<'a, '_> {
         // The written text, rebuilt: `import("<specifier>").<qualifier>`.
         let Some(Node::StringLiteral(spec)) = self.node_map.get(specifier) else { return error };
         let text = format!("import(\"{}\").{}", spec.text, segments.join("."));
+        if !node.type_arguments.is_empty() {
+            return self.generic_import_type_reference(node, symbol, &text);
+        }
         let key = (text.clone(), symbol);
         if let Some(&existing) = self.qualified_reference_types.get(&key) {
             return existing;
         }
         let minted = self.store.new_named(TypeFlags::OBJECT, text, Some(symbol));
+        self.qualified_reference_types.insert(key, minted);
+        minted
+    }
+
+    /// getTypeFromImportTypeNode (checker.go:24575) over a qualified import
+    /// type with type arguments: getTypeReferenceType(node, resolvedSymbol)
+    /// instantiates the class or interface at the written arguments
+    /// (`import("./box").Box<{ boxed: import("./box").Box<number>; }>`).
+    /// The node builder names it by its accessible chain, the import type
+    /// itself where the declaring module is not imported by name, so the
+    /// mint carries the written import spelling with the instantiated
+    /// arguments, the target's member owner and its reference pair (as the
+    /// argument-less arm above mints its written text over the target's
+    /// members). A type alias target and an arity mismatch keep `error`
+    /// (r7-declared §24).
+    fn generic_import_type_reference(
+        &mut self,
+        node: &tsr_ast::ImportTypeNode<'a>,
+        symbol: SymbolId,
+        text: &str,
+    ) -> TypeId {
+        let error = self.intrinsics.error;
+        if !self
+            .binder
+            .symbols()
+            .get(symbol)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+            || self.local_type_parameters_of(symbol).len() != node.type_arguments.len()
+        {
+            return error;
+        }
+        let arguments: Vec<TypeId> = node
+            .type_arguments
+            .iter()
+            .map(|&argument| self.get_type_from_type_node(argument))
+            .collect();
+        // The mint bakes its arguments' print; an argument that mentions a
+        // type parameter would keep that text across instantiation (the
+        // reference pair instantiates, the spelling does not), so such a
+        // reference keeps the previous answer.
+        if arguments
+            .iter()
+            .any(|&argument| self.is_gap(argument) || self.mentions_any_type_parameter(argument, 4))
+        {
+            return error;
+        }
+        let reference = self.create_type_reference(symbol, arguments.clone());
+        let crate::types::TypeData::Named { members: Some(members), .. } =
+            self.store.get(reference).data
+        else {
+            return error;
+        };
+        let Some(pair) = self.type_reference_targets.get(&reference).cloned() else {
+            return error;
+        };
+        let printed: Vec<String> =
+            arguments.iter().map(|&argument| self.type_to_string(argument)).collect();
+        let text = format!("{text}<{}>", printed.join(", "));
+        let key = (text.clone(), symbol);
+        if let Some(&existing) = self.qualified_reference_types.get(&key) {
+            return existing;
+        }
+        let flags = self.store.get(reference).flags;
+        let minted = self.store.new_named(flags, text, Some(members));
+        self.type_reference_targets.insert(minted, pair);
+        if let Some(signatures) = self.signature_types.get(&reference).cloned() {
+            self.signature_types.insert(minted, signatures);
+        }
         self.qualified_reference_types.insert(key, minted);
         minted
     }

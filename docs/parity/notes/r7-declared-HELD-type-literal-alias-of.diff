@@ -1,0 +1,24 @@
+diff --git a/crates/tsr-checker/src/declared.rs b/crates/tsr-checker/src/declared.rs
+index f3b045290..d3d17ca1a 100644
+--- a/crates/tsr-checker/src/declared.rs
++++ b/crates/tsr-checker/src/declared.rs
+@@ -2632,6 +2632,19 @@ impl<'a> Checker<'a, '_> {
+         }
+         self.store.complete_object(reserved, resolved);
+         self.type_literal_origins.insert(reserved, node_id);
++        // getTypeFromTypeLiteralOrFunctionOrConstructorTypeNode gives the
++        // literal getAliasSymbolForTypeNode's alias: a literal written as a
++        // non-generic alias body (`type AX = { readonly A: unique symbol }`)
++        // is that alias's declared type, and the printer applies
++        // IsTypeSymbolAccessible to it (ADR-0045 rule 2), as r6-accessible
++        // recorded for mapped bodies (r7-declared §23).
++        if let Some(host) = self.type_alias_host_for_type_node(node_id)
++            && let Some(Node::TypeAliasDeclaration(alias)) = self.node_map.get(host)
++            && alias.type_parameters.is_empty()
++            && let Some(alias_symbol) = self.binder.symbol_of(host)
++        {
++            self.alias_of.entry(reserved).or_insert((alias_symbol, Vec::new()));
++        }
+         if shared_empty {
+             self.empty_type_literal_type = Some(reserved);
+         }
