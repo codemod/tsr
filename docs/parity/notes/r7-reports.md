@@ -1079,3 +1079,73 @@ other side is an image of the same alias (which keeps the variance road).
 to both the relater and the contextual machinery (declared.rs; routed). With
 that, the vacuous structural walk goes away at its source, and the
 literal-source restriction is no longer needed.
+
+## 26. Refused: an arrow-body arm in `has_no_contextual_type`
+
+**Tried.** `getContextualType` answers `KindArrowFunction` with the `return`
+arm's `getContextualTypeForReturnExpression` (`checker.go:29358`). A
+`has_no_contextual_type` arm mirroring the `return` arm fixed
+`fatarrowfunctionsOptionalArgs` (88,31)(88,46), with a JSDoc-`@returns`
+decline for `instantiateTemplateTagTypeParameterOnVariableStatement` (6,18).
+
+**Refused.** It gained 43 type lines elsewhere but lost 12 in
+`conditionalTypeDoesntSpinForever`:
+`BuildPubSubRecordType<…>` printed `error`. The first measurement was
+diagnostics-only and missed them, and a types dump found them.
+`has_no_contextual_type` is also a type producer's proof (the written-tree
+proof the reporter's JS variant shares), so a new arm there changes which
+arrows' return types are inferred without context. The reporter needs the
+proof but the producers do not. §27's reporter-side walk covers the same
+lines (an owner with no contextual type at all is its first branch), so no
+`signatures.rs` arm is needed. **What would change it:** a
+`has_no_contextual_type` that a type producer does not read.
+
+## 27. An arrow body under an owner with a decided-absent contextual signature
+
+**Forcing lines.** `fatarrowfunctionsOptionalArgs` (129,13)(129,20).
+`foo(..., (a) => (b) => (c) => 121)` with `foo(...arg: any[])`. The
+argument's contextual type is `any`, which has no call signature. So the
+outer arrow's `getContextualSignatureForFunctionLikeDeclaration` is nil,
+`getContextualReturnType` gives its body no context, and `b` (then `c`) is
+implicitly `any`.
+
+**Port** (`implicit_any.rs::return_context_is_absent`).
+- The function is an arrow's expression body (parentheses looked through).
+  Its owner arrow has no return annotation (written or JSDoc `@returns`)
+  and is not an IIFE.
+- The owner's contextual signature must be decidedly nil, by the same
+  decision its own parameters' TS7006 reads: `Absent` (outside a generic
+  call, or arity-rejected there), or no contextual type at all.
+- An owner whose signature is undecided is itself asked one level up, to
+  depth 8. If that owner is the body of a context-free arrow, its type is
+  nil too.
+
+The owner with no contextual type at all (`has_no_reparsed_contextual_type`)
+is the first branch, and it covers (88,31)(88,46), the lines §26's refused
+`signatures.rs` arm aimed at. The rest is the semantic half, kept in the
+reporter because it needs the contextual signature.
+
+**Measured** (diagnostics and types, unfiltered, against batch 28 with
+§22–§25 on top): `fatarrowfunctionsOptionalArgs` RIGHT (all four lines),
+0 lost.
+
+## 28. A tuple source's discriminant candidates
+
+**Forcing case.** `jsxChildrenWrongType` (11,9)(12,9). The children
+attributes `{ children: [unknown, string] }` against `children: [string,
+number?] | Iterable<boolean>` are native-false and report TS2769. This port
+answered Unknown. `type_related_to_discriminated_type` asks the source's
+property names first, and a tuple reference's name list is undecided here,
+so every tuple source's discriminated-union arm was Unknown.
+
+**Port** (`relater.rs::tuple_discriminant_candidates`). For a fixed
+(non-variadic) tuple source the arm reads the element names and `length`.
+Native's `getPropertiesOfType` of a tuple also lists the global `Array`
+members, but none of them can be a discriminant: `isDiscriminantProperty`
+needs `CheckFlagsHasLiteralPart`, and they are methods or the
+`[Symbol.unscopables]` object. The rest of the arm is unchanged: a target
+constituent without one of the names is skipped, as native's
+`getPropertyOfType` miss is, and a combination with no match is false.
+
+**Measured** (diagnostics and types, unfiltered, against batch 28 with
+§22–§27 on top): `jsxChildrenWrongType` RIGHT, 0 lost, types unchanged.
