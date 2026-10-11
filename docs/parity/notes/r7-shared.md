@@ -605,3 +605,34 @@ structural arm (`relater.rs`, r7-reports), coordinated through the
 integrator. Each step gated alone. Falsifier: a corpus case where two
 references differing only in this-argument must be identical natively (none
 known — native's identity is by argument list).
+
+## 14. `getLateBoundSymbol`'s declarations as a query (late-bound member symbols)
+
+Routed from r7-reports: TS7032/TS7006 on a late-bound accessor pair
+(`get [k]()` / `set [k](v)` with `const k = "m"`) decline because
+`implicit_any.rs::accessor_pair` reads the member's own `__computed` symbol,
+which never holds the sibling accessor; native reads the late-bound symbol
+(`getSymbolOfDeclaration` → `getLateBoundSymbol`, checker.go:14390), whose
+declarations `lateBindMember` (:16005) gathered by property name.
+
+The binder keeps one anonymous `__computed` symbol per computed member and
+the checker already resolves the late-bound names
+(`members.rs::late_bound_members_of`, memoised in `late_bound_member_names`);
+`get_type_of_accessors_worker` reconstructed the pair inline (§523).
+`Checker::late_bound_symbol_declarations(symbol)` is that reconstruction as
+a query: the declarations of the container and staticness whose computed
+names bind to the same late-bound name, in declaration order. The accessor
+typing now calls it (behavior-neutral); `implicit_any.rs`' accessor pair is
+its second consumer (r7-reports' file, routed): for a `__computed` own
+symbol, take the getter/setter from these declarations and drop
+`accessor_has_late_bindable_name`'s decline.
+
+Not built: a late-bound *symbol* identity (native's merged transient symbol
+with its own links). Every reader here goes by declarations; a consumer that
+needs one symbol for the pair (relations of a late-bound property, its
+flags) still reads the per-member `__computed` symbol.
+
+Checker port convention: no new cache; the publication is the existing
+`late_bound_member_names` memo (key `(container SymbolId, is_static)`, owned
+by the Checker, an empty sentinel while resolving), and the expensive work
+stays one name resolution per computed member per container.

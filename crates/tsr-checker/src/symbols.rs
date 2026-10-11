@@ -352,6 +352,39 @@ impl<'a> Checker<'a, '_> {
         self.get_signature_from_declaration(setter)?.parameters.into_iter().next()
     }
 
+    /// `getLateBoundSymbol(symbol).Declarations` (`checker.go:14390` /
+    /// `lateBindMember`, `:16005`) for a member whose binder symbol is a
+    /// `__computed` one: every member of the same container and staticness
+    /// whose computed name binds to the same late-bound name
+    /// ([`Checker::late_bound_members_of`]), in declaration order, the member
+    /// itself included. `None` for a symbol that is not late-bound or whose
+    /// name does not resolve. Read by the accessor pairing here and by
+    /// `implicit_any.rs`' accessor pair (r7-reports); the names come from the
+    /// existing `late_bound_member_names` memo, so no new cache
+    /// (`docs/parity/notes/r7-shared.md` §14).
+    pub(crate) fn late_bound_symbol_declarations(
+        &mut self,
+        symbol: SymbolId,
+    ) -> Option<Vec<NodeId>> {
+        let entry = self.binder.symbols().get(symbol);
+        if entry.name != "__computed" {
+            return None;
+        }
+        let parent = entry.parent?;
+        let own_declaration = *entry.declarations.first()?;
+        let is_static = self.property_has_modifier(symbol, SyntaxKind::StaticKeyword);
+        let members = self.late_bound_members_of(parent, is_static);
+        let own_name =
+            members.iter().find(|(_, id)| *id == own_declaration).map(|(name, _)| name.clone())?;
+        Some(
+            members
+                .into_iter()
+                .filter(|(name, _)| *name == own_name)
+                .map(|(_, member)| member)
+                .collect(),
+        )
+    }
+
     fn get_type_of_accessors_worker(&mut self, symbol: SymbolId) -> TypeId {
         let mut declarations =
             self.binder.symbols().get(symbol).declarations.iter().copied().collect::<Vec<_>>();
@@ -360,27 +393,17 @@ impl<'a> Checker<'a, '_> {
         // method precedent), so the setter's symbol alone never sees the
         // getter upstream's merged symbol reads
         // (`set [Symbol.toPrimitive](x)` wants the getter's `string`,
-        // `symbolDeclarationEmit4/10/11`). Reconstruct the pair through the
-        // same sibling walk §383 uses: same spelled name, accessor kinds.
-        if self.binder.symbols().get(symbol).name == "__computed"
-            && let Some(parent) = self.binder.symbols().get(symbol).parent
-            && let Some(own_declaration) = declarations.first().copied()
-        {
-            let is_static = self.property_has_modifier(symbol, SyntaxKind::StaticKeyword);
-            let members = self.late_bound_members_of(parent, is_static);
-            let own_name =
-                members.iter().find(|(_, id)| *id == own_declaration).map(|(name, _)| name.clone());
-            if let Some(own_name) = own_name {
-                for (name, member) in members {
-                    if name == own_name
-                        && !declarations.contains(&member)
-                        && matches!(
-                            self.node_map.get(member),
-                            Some(Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_))
-                        )
-                    {
-                        declarations.push(member);
-                    }
+        // `symbolDeclarationEmit4/10/11`). The late-bound symbol's accessor
+        // declarations are the pair.
+        if let Some(late) = self.late_bound_symbol_declarations(symbol) {
+            for member in late {
+                if !declarations.contains(&member)
+                    && matches!(
+                        self.node_map.get(member),
+                        Some(Node::GetAccessorDeclaration(_) | Node::SetAccessorDeclaration(_))
+                    )
+                {
+                    declarations.push(member);
                 }
             }
         }
