@@ -1008,14 +1008,14 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(decorator_signature) = self.decorator_call_signature(node) else { return };
-        let arguments: Vec<ReportArgument<'_>> = decorator_signature
+        let argument_types: Vec<TypeId> = decorator_signature
             .parameters
             .iter()
-            .map(|parameter| ReportArgument::Synthetic {
-                at: expression_id,
-                r#type: self.parameter_type(parameter),
-                spread: false,
-            })
+            .map(|parameter| self.parameter_type(parameter))
+            .collect();
+        let arguments: Vec<ReportArgument<'_>> = argument_types
+            .iter()
+            .map(|&r#type| ReportArgument::Synthetic { at: expression_id, r#type, spread: false })
             .collect();
         // `resolveCall`: `reorderCandidates`, then `chooseOverload`'s
         // `hasCorrectArity` with the decorator's argument count.
@@ -1040,30 +1040,95 @@ impl Checker<'_, '_> {
             // is reported over the synthetic arguments (the expression).
             self.report_argument_arity_error(node, node, &candidates, &effective);
             self.chain_reports_under(before, head);
+            // `getCandidateForOverloadFailure`'s single candidate:
+            // `pickLongestCandidateSignature`, which instantiates a generic one
+            // by `inferSignatureInstantiationForOverloadFailure`.
             match candidates.as_slice() {
                 [single] if single.type_parameters.is_empty() => single.clone(),
+                [single] => {
+                    let Some(instantiated) =
+                        self.infer_decorator_candidate(node, single, &argument_types)
+                    else {
+                        return;
+                    };
+                    instantiated
+                }
                 _ => return,
             }
         } else {
             let [candidate] = arity_matched.as_slice() else { return };
-            if !candidate.type_parameters.is_empty() || candidate.this_parameter.is_some() {
+            if candidate.this_parameter.is_some() {
                 return;
             }
+            // `chooseOverload`: a generic candidate is checked as its
+            // `inferTypeArguments` instantiation.
+            let (candidate, context) = if candidate.type_parameters.is_empty() {
+                (candidate.clone(), CandidateContext::Declared)
+            } else {
+                let Some(instantiated) =
+                    self.infer_decorator_candidate(node, candidate, &argument_types)
+                else {
+                    return;
+                };
+                (instantiated, CandidateContext::Instantiated)
+            };
             let before = self.diagnostics.len();
-            if self.report_signature_applicability(
-                node,
-                &arguments,
-                candidate,
-                CandidateContext::Declared,
-                &[],
-            ) == ApplicabilityReport::Declined
+            if self.report_signature_applicability(node, &arguments, &candidate, context, &[])
+                == ApplicabilityReport::Declined
             {
                 return;
             }
             self.chain_reports_under(before, head);
-            candidate.clone()
+            candidate
         };
         self.check_decorator_return(node, parent, expression_id, &resolved, &decorator_signature);
+    }
+
+    /// `inferTypeArguments` (`checker.go:9390`) over a decorator's synthetic
+    /// arguments, then `getSignatureInstantiation`: each argument type is
+    /// inferred to `getTypeAtPosition(signature, i)` (a position past the
+    /// parameters is `any`, which infers nothing). No argument is an
+    /// expression, so nothing is checked with a contextual type and the
+    /// `couldContainTypeVariables` gate only skips work; the contextual
+    /// return inference excludes `KindDecorator` (`checker.go:9398`). A
+    /// `this` parameter (`getThisArgumentOfCall` reads a non-legacy
+    /// decorator's expression), a non-array rest (`getSpreadArgumentType`),
+    /// or an undecided position or inference declines.
+    fn infer_decorator_candidate(
+        &mut self,
+        node: tsr_ast::NodeId,
+        candidate: &Signature,
+        argument_types: &[TypeId],
+    ) -> Option<Signature> {
+        if candidate.this_parameter.is_some()
+            || self.signature_non_array_rest_type(candidate).is_some()
+        {
+            return None;
+        }
+        let parameters = self.type_parameter_types(candidate)?;
+        let names: Vec<String> =
+            candidate.type_parameters.iter().map(|parameter| parameter.name.clone()).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut inferences = Vec::new();
+        for (position, &argument) in argument_types.iter().enumerate() {
+            let Some(target) = self.signature_type_at_position(candidate, position) else {
+                continue;
+            };
+            if self.is_gap(argument) || self.is_error(target) {
+                return None;
+            }
+            self.infer_from_types(argument, target, &parameters, &mut inferences, 0);
+        }
+        let flags = if self.in_js_file(node) {
+            crate::inference::InferenceFlags::ANY_DEFAULT
+        } else {
+            crate::inference::InferenceFlags::NONE
+        };
+        let map = self.resolved_inference_map(&inferences, candidate, &parameters, flags)?;
+        let mut instantiated =
+            self.instantiate_signature(candidate.clone(), &map, &parameters, &names)?;
+        instantiated.type_parameters.clear();
+        Some(instantiated)
     }
 
     /// `checkDecorator`'s return check (`checker.go:6065-6092`): an `any`

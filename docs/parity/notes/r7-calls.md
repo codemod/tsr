@@ -859,19 +859,51 @@ string) => void)` / `fn5(strs, f: (n: number) => void)` types `n` as
 
 Both: jsTyping new_false 0, lost_true 0; exact 0 gained, 0 lost.
 
+## 28. A generic decorator resolves as its synthetic-argument inference
+
+§7 declined a generic decorator after its arity pass because this port's
+inference worker (`check_generic_call_with`) takes argument expressions.
+A decorator's effective arguments (`getEffectiveDecoratorArguments`,
+`checker.go:30142`) are synthetic, so `inferTypeArguments`
+(`checker.go:9390`) degenerates to its loop over the positions: infer from
+each synthetic argument type to `getTypeAtPosition(signature, i)`. No
+expression is checked with a contextual type, the contextual-return arm
+excludes `KindDecorator` (`checker.go:9398`), and the
+`couldContainTypeVariables` gate only skips work.
+`Checker::infer_decorator_candidate` runs that loop with the existing
+`infer_from_types` and `resolved_inference_map` (the entries the JSX
+resolver already uses for its synthetic props argument), then
+`instantiate_signature`. It adds no cache.
+
+Two arms use it:
+
+- `chooseOverload`: a single arity-matched generic candidate is checked as
+  its instantiation (`CandidateContext::Instantiated`), and its failure is
+  chained under the decorator head as before;
+- `getCandidateForOverloadFailure` after an arity failure over a single
+  generic candidate: `pickLongestCandidateSignature` instantiates it by
+  `inferSignatureInstantiationForOverloadFailure`, the same inference, and
+  `checkDecorator`'s return check reads that instantiation
+  (decoratorOnClassMethod8: `dec<T>(target: T): T` on a method infers `C`
+  from the prototype argument, so TS1270 reports `'C'` against
+  `void | TypedPropertyDescriptor<() => void>`).
+
+**Declines, stated:** a `this` parameter (`getThisArgumentOfCall` reads a
+non-legacy decorator's expression, which this helper does not type); a
+non-array rest (`getSpreadArgumentType`); an undecided position or
+inference; several arity-matched candidates (the overload walk over
+synthetic arguments is still not ported).
+
+decoratorCallGeneric's TS1238 now reaches the applicability report, which
+stays silent: the relater does not decide `typeof C` → `I<C>` (a static
+method's `void` return against `T`), with or without a decorator
+(`const x: I<C> = C` is silent too). Routed to r7-reports.
+
 ## Proposed issues (for the integrator to file)
 
-- **Decorator inference over synthetic arguments.** `resolveDecorator`'s
-  `resolveCall` infers a generic decorator's type arguments from
-  `getEffectiveDecoratorArguments`' synthetic arguments
-  (`inferTypeArguments`, `checker.go:9390`), and a failed resolution answers
-  `getCandidateForOverloadFailure`'s instantiation
-  (`inferSignatureInstantiationForOverloadFailure`). This port's inference
-  (`check_generic_call_with`) takes argument expressions, so a generic or
-  overloaded decorator declines after its arity pass. Cases: decoratorCallGeneric
-  (TS1238), decoratorOnClassMethod8 (TS1270). Needs a types-only inference
-  entry in `inference.rs` (r7-contextual) or a synthetic-argument path through
-  it.
+- **Decorator inference over synthetic arguments.** Done for a single
+  candidate in §28; the overload walk over synthetic arguments (several
+  arity-matched decorator candidates) is still not ported.
 - **Decorator function types are not relatable.**
   `decorators.rs::decorator_function_type` mints a `TypeData::Named` type
   carrying `signature_types` for the ES member decorator signatures (the
