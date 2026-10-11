@@ -399,3 +399,15 @@ fn keyof_a_deferred_indexed_access_defers() {
          }\n";
     assert_eq!(type_of_last_initializer(source), "keyof O[T]");
 }
+
+/// §41: an argument-less qualified reference to a fully defaulted generic
+/// alias prints its default arguments (tsgo: `NS.RT<number>`).
+#[test]
+fn a_bare_qualified_reference_fills_its_defaults() {
+    let source = "declare namespace NS {\n\
+             type RT<P = number> = { p: P };\n\
+         }\n\
+         declare const c: NS.RT;\n\
+         const x = c;\n";
+    assert_eq!(type_of_last_initializer(source), "NS.RT<number>");
+}

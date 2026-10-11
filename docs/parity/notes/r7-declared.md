@@ -1329,3 +1329,59 @@ on the corpus: the corpus rows (ramdaToolsNoInfinite2 `Pos`, `Key`) reach
 (`resolve_entity_name` with the type meaning) does not follow, and following
 it through `resolve_alias_fully` sent the reference down the import road,
 which mints `Format<I, "n">` itself. Both pieces wait for one reference road.
+
+## 40. Refused: function and constructor branches in a conditional mint's text
+
+`type ParentConfig<T> = Partial<{ [P in keyof T]: Required<T>[P] extends
+(...args: any) => any ? (...args: Parameters<Required<T>[P]>) =>
+ReturnType<Required<T>[P]> : T[P] }>` (thislessFunctionsNotContextSensitive3)
+declares the mapped type printed from its parts; TSR declares the alias
+name, because the conditional template's written mint
+(`conditional_mint_text`, `conditional_typed_mint_text`) has no text for a
+function-type branch (`written_type_text` has no function arm), so the
+template, the mapped type and the alias body are `error`.
+
+Two arms were measured, both refused for the same case:
+
+- printing a function or constructor branch from its resolved type: OOM in
+  recursiveConditionalTypes2 (5966 MiB at 8 s);
+- printing it syntactically (`written_signature_type_text`, parameters, rest,
+  optional, type parameters and return composed from `written_type_text`;
+  nothing resolved): the same OOM (5981 MiB at 7 s).
+
+The second shows the cost is not the branch print. A conditional that used to
+be `error` now has a mint, so `UnionToIntersection<{ [P in keyof T]:
+SimplifyPrivateSpec<T[P]> }[keyof T]>` keeps evaluating through
+`MaybeMergePrivateSuperSpec`'s recursion where the `error` stopped it. Native
+stops by deferring a generic check. Tracing where this port forces that
+recursion (`type_to_string` over the mapped check while it builds the mint is
+the first suspect) comes before either arm. Local probes: `ParentConfig` and
+`T[P] extends string ? (...args: Parameters<Required<T>[P]>) => 1 : 2` both
+print as native with either arm.
+
+## 41. An argument-less qualified reference to a fully defaulted generic is its defaults' instance
+
+**Forcing constraint.** fillMissingTypeArguments (`checker.go:19458`) fills
+an argument-less reference whose every type parameter has a default, and the
+node builder prints the filled arguments: `NS.RT` over `type RT<P = any> =
+…` is `NS.RT<any>` (callsOnComplexSignatures' `React.ReactType<any>`,
+reactSFCAndFunctionResolvable, the jsxNamespace cases), while a reused
+annotation keeps the written `NS.RT` (`f : (x: NS.RT) => NS.RT<any>`). The
+unqualified road already fills defaults (§890); the qualified one minted the
+bare written text for every argument-less reference.
+
+**Port.** `defaulted_qualified_reference`, ahead of the argument-less mint
+in `qualified_type_reference`: for a type alias, class or interface whose
+parameters all have defaults that resolve without mentioning a type
+parameter, the mint is §42 v2's generic one at the defaults (qualified
+print with the arguments, `qualified_generic_reference_types` key,
+`type_reference_targets` pair), and the written bare name goes to the
+`qualified_written_text` reuse channel. A forward default (one that mentions
+a parameter) and an intersection-bodied alias keep the existing road. No new
+state.
+
+**Measured** (unfiltered against `5367da5b`): types **+18, 0 lost**
+(callsOnComplexSignatures 5, reactSFCAndFunctionResolvable 4,
+jsxNamespaceGlobalReexport 3, jsxNamespaceGlobalReexportMissingAliasTarget 3,
+jsxNamespaceImplicitImportJSXNamespace 3); diagnostics 0 / 0; jsTyping
+new_false 0 / lost_true 0; Ir gi 0.9998, dm 1.0000.
