@@ -1357,7 +1357,10 @@ impl<'a> Parser<'a> {
         name
     }
 
-    /// Type arguments for a call: `f<T>(x)`.
+    /// Type arguments in an expression: `f<T>(x)` — the parse half of
+    /// `tryParseTypeArgumentsInExpression` (`parser.go:5247`); every caller
+    /// runs it under `try_parse` and adds `canFollowTypeArgumentsInExpression`
+    /// ([`Parser::at_instantiation_terminator`]).
     ///
     /// Returns `None` rather than recovering, because the caller uses failure to
     /// decide that `<` was a comparison after all.
@@ -1368,51 +1371,28 @@ impl<'a> Parser<'a> {
         if self.script_kind.is_javascript() {
             return None;
         }
-        // `Foo<<T>() => void>` opens with a single `<<` shift token.
+        // `Foo<<T>() => void>` opens with a single `<<` shift token
+        // (`reScanLessThanToken`).
         if self.at(SyntaxKind::LessThanLessThanToken) {
             self.rescan_less_than();
         }
         if !self.eat(SyntaxKind::LessThanToken) {
             return None;
         }
-        let before = self.diagnostics.len();
-        let mut arguments = Vec::new();
-        let mut missing_slots: Vec<u32> = Vec::new();
-        loop {
-            // §421: an ELIDED slot — `Foo<a,,b>()` — is a missing type with a
-            // deferred "Type expected", not a disambiguation failure:
-            // upstream's parseDelimitedList reports and the list still
-            // succeeds (`callExpressionWithMissingTypeArgument1`). The
-            // diagnostic is emitted only once the `>` confirms the list, so
-            // the complaint gate below keeps rejecting real less-than chains.
-            if self.at(SyntaxKind::CommaToken) {
-                missing_slots.push(self.pos());
-                let missing = self.missing_identifier();
-                let reference = self.finish_node(
-                    tsr_ast::TypeReferenceNode::new(
-                        Some(tsr_ast::EntityName::Identifier(missing)),
-                        &[],
-                    ),
-                    SyntaxKind::TypeReference,
-                    self.pos(),
-                );
-                arguments.push(TypeNode::TypeReferenceNode(reference));
-            } else {
-                arguments.push(self.parse_type());
-            }
-            if !self.eat(SyntaxKind::CommaToken) {
-                break;
-            }
-        }
+        // `parseDelimitedList(PCTypeArguments, parseType)`: the list
+        // machinery's recovery, so `<a,,b>` keeps its TS1110 at the second
+        // comma and `<>` is an empty list. Its diagnostics stand when the list
+        // is accepted; the caller's `try_parse` drops them when it is not.
+        let (arguments, _) =
+            self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
+        // "If it doesn't have the closing `>` then it's definitely not an type
+        // argument list." Native's scanner returns a lone `>` and
+        // `reScanGreaterThanToken` combines it into `>=`, `>>`, … when the
+        // text continues so; this port's scanner already returns the combined
+        // token. A combined token is therefore native's refusal, not a `>` to
+        // split: `ver < (a >= b ? …)` stays a comparison.
         if !self.at(SyntaxKind::GreaterThanToken) {
-            self.rescan_greater_than();
-        }
-        // Any complaint means this was not a type-argument list.
-        if !self.at(SyntaxKind::GreaterThanToken) || self.diagnostics.len() != before {
             return None;
-        }
-        for slot in missing_slots {
-            self.error_at(&messages::TYPE_EXPECTED, tsr_core::Span::at(slot));
         }
         self.next_token();
         Some(arguments)

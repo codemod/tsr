@@ -248,6 +248,16 @@ function whose recovery differed. Each landed as its own commit:
 | `parseFunctionOrConstructorType` (`:2731`) | speculative function type fell back to a parenthesized one | functionTypesLackingReturnTypes, parseErrorIncorrectReturnToken |
 | `parseElementAccessExpressionRest` (`:5436`) | `x[]` reported TS1109, not TS1011 | badArrayIndex, objectLitArrayDeclNoNew |
 | `nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine` (`:6324`) | `for (using of …)` read as a declaration | usingDeclarationsInForOf.2 |
+| `tryParseTypeArgumentsInExpression` (`:5247`) | a type-argument list with any diagnostic was refused (a "complaint gate"), so `foo<>()`, `foo<?>` and `foo<string?>` were comparisons | expressionWithJSDocTypeArguments; emptyTypeArgumentList(WithNew) now wait only on TS1099 |
+
+The type-argument list is now native's `parseDelimitedList(PCTypeArguments,
+parseType)`; its diagnostics stand when the list is accepted and the
+caller's `try_parse` drops them when it is not. One adaptation: native's
+scanner returns a lone `>` and `reScanGreaterThanToken` combines it, while
+this port's scanner returns `>=`, `>>`, … already combined, so a combined
+token after the list is native's refusal and is not split (the first draft
+split it and read `ver < (a >= b ? …)` as an instantiation,
+instantiationExpressionErrors).
 
 `await using` needed its reader in the same commit: before it,
 `using_declaration.rs::is_await_using_list` recovered the `await` from the
