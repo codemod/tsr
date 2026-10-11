@@ -1227,3 +1227,34 @@ the relation's.
 
 **Measured** (diagnostics, the 375 JSX-named cases, the change alone):
 `ignoredJsxAttributes` RIGHT, nothing else moved. The full gate follows.
+
+## 32. A weak JSX attributes intersection, and weakness of a class or interface instantiation
+
+**Forcing case.** `tsxSpreadAttributesResolution5` (35,10). `<EmptyProp
+{...o} />` with `o: { prop1: boolean }` against `IntrinsicAttributes &
+IntrinsicClassAttributes<EmptyProp> & { children?: ReactNode }` is native
+TS2559. Every constituent is weak and none knows `prop1`.
+
+**Two gaps.**
+1. *`isWeakType` of an instantiation.* `IntrinsicClassAttributes<EmptyProp>`
+   is weak through its inherited `ref?`/`key?`. `relation_property_table`
+   declines a reference with type arguments. `is_weak_type` now falls back,
+   for a class or interface instantiation that is not mapped, to the
+   complete name list and each name's declaration `?`. No type argument
+   changes that `?`. A member inherited through a generic base is read
+   through `generic_heritage_property_symbol`, as the relater's
+   `property_flags` reads it.
+2. *The JSX reporter decomposed first.*
+   `report_jsx_attributes_relation_failure` reports the first constituent
+   that fails under `IntersectionStateTarget`, and a weak-type failure fails
+   none of them. `isRelatedTo` runs the common-property check on the whole
+   target before the intersection is decomposed (`relater.go:2676`). The
+   reporter now asks `report_weak_type_failure` of the whole intersection
+   first.
+
+**Measured** (diagnostics and types, unfiltered, against the same tree
+without the change): `tsxSpreadAttributesResolution5` RIGHT, 0 lost, types
+unchanged. Cost: the first draft built each instantiation's full table on
+every weak test and raised domain-model's callgrind Ir by 1.37%. The test
+now stops at the first required member, which nearly every instantiation
+has. That brought it to +0.25% (gi +0.02%).
