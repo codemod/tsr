@@ -717,3 +717,28 @@ merged `bind_inner`: callgrind Ir generic-imports +0.42% until they were
 marked `#[inline(always)]` (`#[inline]` alone was not honoured), after which
 the lane's head reads generic-imports 1.0011, domain-model 1.0003 against
 batch 19.
+## 17. Bind-time alias merges and import-equals / namespace-import targets
+
+§2's alias-target pass ran only over the merges an augmentation declined.
+`initializeChecker` merges script locals and `declare global` blocks into the
+globals before any module augmentation, through the same `mergeSymbol`, so
+the bind-time declines (`merge_into_globals`) are re-decided first, from
+index 0 of `alias_merges`. `resolve_alias_for_merge` gains
+`getTargetOfImportEqualsDeclaration`'s three forms (a `require`, through
+`export =`; an identifier; a qualified name, each left side resolved as
+`resolveQualifiedName` does) and `getTargetOfNamespaceImport` (the module
+through its `export =`). A local import alias is found by asking the binder's
+lookup for `NAMESPACE | ALIAS`: its meaning filter only admits an alias by
+the target's meaning through the checker's callback, which the binder does
+not have, so the walk finds the alias itself and follows it.
+
+`checkerInitializationCrash`: `export import VNode = react.ReactNode` in a
+global namespace meets `type VNode = preact.VNode<any>`; the alias resolves
+to `React.ReactNode` (a type alias), the excludes hit, so the namespace's
+`VNode` slot takes the source and both TS2300s report. Not converted by this
+alone: the alias side's TS2300 sits at the statement where native names the
+alias (`GetNameOfDeclaration(ImportEqualsDeclaration)`, the name;
+`merge_conflicts.rs::report_merge_symbol_error` has that arm only for
+`export as namespace`), and line 1:2 (`type VNode = preact.VNode<any>` reads
+`any`) is the declared-type-alias body road over a qualified name through an
+alias — the root routed to r7-declared with `conformance/enums`.

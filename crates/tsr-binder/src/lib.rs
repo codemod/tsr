@@ -589,6 +589,11 @@ impl<'a> BindResult<'a> {
                 self.globals.insert(name, source);
             }
         }
+        // The bind-time merges (script locals and `declare global` blocks into
+        // the globals) declined every alias target too; `initializeChecker`
+        // runs them before any module augmentation, so they are re-decided
+        // first (`docs/parity/notes/r7-shared.md` §17).
+        self = self.merge_through_alias_targets(arena, nodes, node_map, 0, &mut resolve);
         let umd_merges = self.umd_alias_merges(nodes, node_map);
         if !umd_merges.is_empty() {
             self.alias_merges.retain(|&(alias, source)| {
@@ -812,6 +817,84 @@ impl<'a> BindResult<'a> {
                     binder::export_name(name),
                     resolve,
                 )?
+            }
+            // `getTargetOfImportEqualsDeclaration` (`checker.go:14439`): a
+            // `require` names the module (through `export =`); an entity name
+            // resolves by `resolveEntityName(…, Namespace)` with its left side
+            // resolved (`resolveQualifiedName`, `:15828`).
+            tsr_ast::Node::ImportEqualsDeclaration(import) => match import.module_reference? {
+                tsr_ast::ModuleReference::ExternalModuleReference(reference) => {
+                    let specifier = reference.expression?.node_id()?;
+                    let Some(tsr_ast::Node::StringLiteral(literal)) = node_map.get(specifier)
+                    else {
+                        return None;
+                    };
+                    let file = std::iter::once(declaration)
+                        .chain(nodes.ancestors(declaration))
+                        .find(|&node| nodes.kind(node) == SyntaxKind::SourceFile)?;
+                    let module =
+                        self.merged_symbol(resolve(self, file, literal.text, specifier, false)?);
+                    self.resolve_external_module_symbol(nodes, node_map, module)?
+                }
+                // The binder's lookup filters an alias by its target's
+                // meaning only through the checker; asking for `ALIAS` too
+                // finds a local import alias itself, which this walk follows.
+                tsr_ast::ModuleReference::Identifier(name) => self.resolve_name(
+                    nodes,
+                    node_map,
+                    name.node_id?,
+                    name.text,
+                    SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
+                )?,
+                tsr_ast::ModuleReference::QualifiedName(qualified) => {
+                    let mut segments = Vec::new();
+                    let mut current = qualified;
+                    let root = loop {
+                        segments.push(current.right?.text);
+                        match current.left? {
+                            tsr_ast::EntityName::Identifier(name) => break name,
+                            tsr_ast::EntityName::QualifiedName(inner) => current = inner,
+                        }
+                    };
+                    let mut namespace = self.resolve_name(
+                        nodes,
+                        node_map,
+                        root.node_id?,
+                        root.text,
+                        SymbolFlags::NAMESPACE | SymbolFlags::ALIAS,
+                    )?;
+                    for segment in segments.iter().rev() {
+                        namespace = self.merged_symbol(namespace);
+                        if self.symbols.get(namespace).flags.intersects(SymbolFlags::ALIAS) {
+                            namespace = self.resolve_alias_for_merge(
+                                nodes, node_map, namespace, resolve, visited,
+                            )?;
+                        }
+                        namespace = *self.symbols.get(namespace).exports.get(*segment)?;
+                    }
+                    namespace
+                }
+            },
+            // `getTargetOfNamespaceImport` (`checker.go:14724`): the module,
+            // through its `export =` (`resolveESModuleSymbol`; a clone it may
+            // make carries the same declarations, so a merge reads the target).
+            tsr_ast::Node::NamespaceImport(_) => {
+                let import = nodes.parent(nodes.parent(declaration)?)?;
+                let Some(tsr_ast::Node::ImportDeclaration(import_declaration)) =
+                    node_map.get(import)
+                else {
+                    return None;
+                };
+                let specifier = import_declaration.module_specifier?.node_id()?;
+                let Some(tsr_ast::Node::StringLiteral(literal)) = node_map.get(specifier) else {
+                    return None;
+                };
+                let file = std::iter::once(declaration)
+                    .chain(nodes.ancestors(declaration))
+                    .find(|&node| nodes.kind(node) == SyntaxKind::SourceFile)?;
+                let module =
+                    self.merged_symbol(resolve(self, file, literal.text, specifier, false)?);
+                self.resolve_external_module_symbol(nodes, node_map, module)?
             }
             tsr_ast::Node::ImportClause(_) => {
                 let import = nodes.parent(declaration)?;
