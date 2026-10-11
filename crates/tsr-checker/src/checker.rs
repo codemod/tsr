@@ -3506,7 +3506,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             return None;
         }
         let name = self.binder.symbols().get(symbol).name;
-        if !self.needs_qualification(symbol, name, reference, meaning) {
+        if !self.chain_needs_qualification(symbol, name, reference, meaning) {
             return None;
         }
         let Some(container) = self.binder.symbols().get(symbol).parent else {
@@ -3832,6 +3832,33 @@ impl<'a, 'n> Checker<'a, 'n> {
         }
     }
 
+    /// [`Checker::needs_qualification`] as [`Checker::symbol_chain`] asks it:
+    /// when `resolveName` finds a *different* symbol, no qualification is owed
+    /// only if `needsQualification`'s own walk (`someSymbolTableInScope`,
+    /// [`Checker::shadow_walk`]) meets the symbol itself first; a name no
+    /// honest table holds still qualifies (no accessible chain). The two differ where
+    /// `resolveName` looks in a table the accessibility walk never visits: an
+    /// enum's members, from the enum's own name (`const enum LOCAL { LOCAL }`
+    /// prints `LOCAL`, r7-printer §17). No resolution at all keeps the
+    /// conflated answer, which stands in for "no accessible chain".
+    fn chain_needs_qualification(
+        &mut self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> bool {
+        match self.resolve_name_at_print_site(reference, name, meaning) {
+            None => true,
+            Some(found)
+                if self.binder.merged_symbol(found) == self.binder.merged_symbol(symbol) =>
+            {
+                false
+            }
+            Some(_) => self.shadow_walk(symbol, name, reference, meaning) != Some(false),
+        }
+    }
+
     /// `trySymbolTable`'s globals arm
     /// (`internal/checker/symbolaccessibility.go:588-591`): the two-element
     /// chain `[globalThis, target]`, rendered as the prefix `"globalThis."`.
@@ -3979,6 +4006,19 @@ impl<'a, 'n> Checker<'a, 'n> {
         reference: NodeId,
         meaning: SymbolFlags,
     ) -> bool {
+        self.shadow_walk(symbol, name, reference, meaning).unwrap_or(false)
+    }
+
+    /// [`Checker::is_shadowed_at`]'s walk, tri-state: `Some(false)` when the
+    /// first table holding the name holds the symbol itself, `Some(true)` when
+    /// it holds another symbol of the meaning, `None` when no table does.
+    fn shadow_walk(
+        &mut self,
+        symbol: SymbolId,
+        name: &str,
+        reference: NodeId,
+        meaning: SymbolFlags,
+    ) -> Option<bool> {
         let target = self.binder.merged_symbol(symbol);
         // `enterNewScope`'s fake scope (`nodebuilderscopes.go`): while a
         // signature prints, its own type parameters are a table in scope
@@ -3990,14 +4030,14 @@ impl<'a, 'n> Checker<'a, 'n> {
                 self.render_type_parameter_scope.iter().rev().find(|(text, _)| text == name)
             && let Some(answer) = self.qualifies_for(owner, target, meaning)
         {
-            return answer;
+            return Some(answer);
         }
         let mut current = Some(reference);
         while let Some(location) = current {
             if let Some(&found) = self.binder.locals(location).and_then(|table| table.get(name))
                 && let Some(answer) = self.qualifies_for(found, target, meaning)
             {
-                return answer;
+                return Some(answer);
             }
             match self.nodes.kind(location) {
                 SyntaxKind::SourceFile | SyntaxKind::ModuleDeclaration => {
@@ -4005,7 +4045,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                         && let Some(&found) = self.binder.symbols().get(owner).exports.get(name)
                         && let Some(answer) = self.qualifies_for(found, target, meaning)
                     {
-                        return answer;
+                        return Some(answer);
                     }
                 }
                 SyntaxKind::ClassDeclaration
@@ -4024,7 +4064,7 @@ impl<'a, 'n> Checker<'a, 'n> {
                             .intersects(SymbolFlags::TYPE)
                         && let Some(answer) = self.qualifies_for(found, target, meaning)
                     {
-                        return answer;
+                        return Some(answer);
                     }
                 }
                 _ => {}
@@ -4034,9 +4074,9 @@ impl<'a, 'n> Checker<'a, 'n> {
         if let Some(&found) = self.binder.globals().get(name)
             && let Some(answer) = self.qualifies_for(found, target, meaning)
         {
-            return answer;
+            return Some(answer);
         }
-        false
+        None
     }
 
     /// One table hit of [`Checker::is_shadowed_at`]'s callback
@@ -4064,8 +4104,14 @@ impl<'a, 'n> Checker<'a, 'n> {
             .declarations
             .iter()
             .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::ExportSpecifier);
+        // An alias whose target does not resolve is `unknownSymbol`, whose
+        // flags are `SymbolFlagsProperty` (`checker.go`, `c.unknownSymbol`), a
+        // value meaning: it shadows a value of the same name (r7-printer §17).
         let flags = if flags.intersects(SymbolFlags::ALIAS) && !is_export_specifier {
-            self.get_symbol_flags(from_table)
+            match self.resolve_alias(from_table) {
+                Some(_) => self.get_symbol_flags(from_table),
+                None => SymbolFlags::PROPERTY,
+            }
         } else {
             flags
         };
