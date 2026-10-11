@@ -997,3 +997,86 @@ the jsTyping leg gave new_false 0 / lost_true 0. Separately, publishing
 negatives for unannotated signatures whose lazy return is no longer
 pending moved Ir by 0.00%. That is not where the walk's cost is, so it is
 not proposed.
+
+## §25 The loader prepares the libs beside the roots, and the walk publishes from tickets
+
+This section is numbered after §22–§24, which are on the
+`box/r7-perf-proposed` chain.
+
+**Forcing measurement.** A scratch timeline on dml (main `59ceea97`,
+4 checkers, release, a loaded box):
+
+| ms | event |
+|---:|---|
+| 1.4 | root prefetch starts |
+| 26.9 | `prepare_root_parses` barrier ends: 202 roots parsed privately with `ordered`, `Lookahead::One` |
+| 27 → 51 | the walk publishes the roots |
+| 51.8 | `lib.es5.d.ts` parsed serially (3.0 ms) |
+| 69.1 | `lib.dom.d.ts` parsed serially (15.5 ms) |
+| 70.8 → 93.2 | bind |
+
+The libs were never prepared, for two reasons. The lib tasks are added
+after the prefetch (`add_lib_file_tasks`). `prepare_dependencies` excludes
+static texts (r5-loader §2). Native queues the lib tasks with the roots
+before `filesParser.start` (`fileloader.go:157`), so `lib.dom.d.ts`
+parses beside them.
+
+**Change** (`FileLoader::prepare_root_parses`):
+
+1. When root preparation runs at all (the existing ≥128 KiB, ≥8-root
+   barrier), it also prepares the bundled libs the walk will load.
+   Those are the default libs plus, transitively, the
+   `/// <reference lib>` directives in their texts, read with
+   `parse_file_references` and resolved through `get_lib_file_name`, the
+   same functions the walk uses. Under `libReplacement` a lib path is a
+   traced module resolution, so prediction is skipped.
+2. The jobs go to the dependency pool in walk order, except the largest
+   file. That is `lib.dom.d.ts` under the default libs. It is visited last
+   but takes longer to parse than the walk spends publishing everything
+   before it, so it starts first.
+3. There is no barrier. The walk waits on a file's ticket at its visit,
+   so it publishes root *k* while later roots still parse. Dependencies
+   queue behind on the same leased workers. A separate pool would have
+   held the lease through the walk, and every `node_modules` dependency
+   would then have parsed serially.
+
+**Output.** Identical by construction. A prepared parse is used only
+when its text equals the visited text, as before, and publication is the
+path roots already took. CLI output and `--listFiles` are identical on
+dm, dml, gi and jsTyping. `tsr-compiler` tests pass.
+
+**Measured** on a quiet box at main `6faf95a3`, interleaved release runs
+against main. Wall and CPU from 25–30 runs; `--extendedDiagnostics` phases
+from 16 rounds.
+
+| project | wall main → change | CPU | `Program time` |
+|---|---|---|---|
+| domain-model | 131.0 → **124.6 ms** (−4.9%) | 303.5 → 300.0 ms | 53.5 → 47.0 ms |
+| domain-model-large | 405.5 → **383.0 ms** (−5.5%); repeat pair 401.2 → 385.6 ms | 1083 → 1081 ms | 92.5 → 71.0 ms |
+| generic-imports | 43.5 → 44.3 ms (noise) | | unchanged: its roots are under the barrier, so nothing is prepared |
+
+Check time did not move. A first 25-run session on the same binaries
+read dml +1%, against −5% in every later interleaved session. That is
+the VM's run-to-run noise at this size, so only the repeated pairs above
+count.
+
+**Rejected alternatives:**
+- *The barrier kept, with libs added and an unordered longest-first
+  pool.* The barrier still serialises the whole parse ahead of all
+  publication.
+- *Longest-first submission without a barrier.* The first root waited
+  24 ms behind every lib.
+- *Plain walk order.* dm's walk reached `lib.dom.d.ts` 23 ms before its
+  parse finished.
+
+r5-loader §6.2 refused a lib.dom side pool at 71.7 → 80.6 ms on gi.
+That was measured with lib.dom's private parse at 48.7 ms, and gi is
+not affected here.
+
+**How we would know it is wrong.** One sign would be a program whose
+predicted libs are not visited (a root with
+`/// <reference no-default-lib="true"/>`) and that pays the unused
+parses on wall. The pool drains queued jobs when the walk ends. Another
+would be a dependency-heavy root set (≥128 KiB of roots plus many
+`node_modules` declarations) where the queued root jobs delay the first
+dependency visits by more than the barrier used to cost.
