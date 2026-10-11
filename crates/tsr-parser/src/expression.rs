@@ -557,6 +557,24 @@ impl<'a> Parser<'a> {
         } else if self.at(SyntaxKind::SuperKeyword) {
             self.parse_super_expression()
         } else if self.at(SyntaxKind::ImportKeyword)
+            && self.peek_kind(|kind| {
+                matches!(kind, SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken)
+            })
+        {
+            // `parseLeftHandSideExpressionOrHigher`'s import-call arm
+            // (`parser.go:5180`): only an `import` followed by `(` or `<` is a
+            // keyword expression. Any other `import` here falls through to
+            // `parsePrimaryExpression`, which has no `import` arm — TS1109
+            // (`var x = import { foo } from …`).
+            self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT;
+            let kind = self.token.kind;
+            self.next_token();
+            Expression::KeywordExpression(self.finish_node(
+                KeywordExpression::new(kind),
+                kind,
+                start,
+            ))
+        } else if self.at(SyntaxKind::ImportKeyword)
             && !self.peek_kind(|kind| {
                 matches!(kind, SyntaxKind::OpenParenToken | SyntaxKind::LessThanToken)
             })
@@ -1356,9 +1374,9 @@ impl<'a> Parser<'a> {
             // `this`, `super`, `true`, `false`, `null`.
             //
             // Only these: `parsePrimaryExpression` (`parser.go:5530`) takes
-            // `this`/`super`/`null`/`true`/`false` as token nodes, and `import`
-            // reaches here for `import(…)`/`import.meta`
-            // (`parseMemberExpressionOrHigher`). Every other reserved word falls
+            // `this`/`super`/`null`/`true`/`false` as token nodes; an import
+            // call's `import` is taken by `parse_call_or_member_expression`
+            // before a primary is parsed. Every other reserved word falls
             // to `parseIdentifierWithDiagnostic(Expression_expected)` below and
             // is left for the statement that follows — `1 +⏎return;` is TS1109
             // at `return`, not a keyword operand.
@@ -1366,17 +1384,8 @@ impl<'a> Parser<'a> {
             | SyntaxKind::SuperKeyword
             | SyntaxKind::NullKeyword
             | SyntaxKind::TrueKeyword
-            | SyntaxKind::FalseKeyword
-            | SyntaxKind::ImportKeyword => {
+            | SyntaxKind::FalseKeyword => {
                 let kind = self.token.kind;
-                if kind == SyntaxKind::ImportKeyword {
-                    // `parseMemberExpressionOrHigher`'s import-call arm
-                    // (`parser.go:5183`). Set for every `import` keyword
-                    // expression, a superset of upstream's `(`/`<` lookahead:
-                    // the flag only gates the loader's dynamic-import walk
-                    // (`references.rs`), which finds nothing extra.
-                    self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT;
-                }
                 self.next_token();
                 let node = self.finish_node(KeywordExpression::new(kind), kind, start);
                 Expression::KeywordExpression(node)
