@@ -549,6 +549,29 @@ TS2351 at 46:5 now matches; the case stays WRONG on a missing TS7053
 (56:20, an element access, outside this lane). Callgrind Ir (single-threaded):
 generic-imports 1.0001, domain-model 1.0000.
 
+## 12. A `new` over non-generic construct overloads reports like a call
+
+**Native.** `resolveNewExpression` (`checker.go:8576`) runs `resolveCall`
+over the construct signatures exactly as `resolveCallExpression` does over
+call signatures: `chooseOverload` per candidate, then
+`reportCallResolutionErrors` (TS2769 chained under
+`The_last_overload_gave_the_following_error`).
+
+**Before.** `check_candidates_arity` handed `CallArity::ApplicableOverloads`
+only to calls and tagged templates. A `new` fell to `Applicable(None)`, which
+reads the transcribed walk's verdicts; that walk does not run for an
+all-non-generic set, so `new Foo(f1)` over `constructor(s: string)` /
+`constructor(n: number)` was silent.
+
+**Change.** A `new` with an argument list takes the same arm, and
+`check_new_expression_diagnostics` runs `check_overload_candidates_arguments`
+over it (§8's per-candidate literal re-check and chained report; the call
+memo `contextual_type_for_argument` reads is shared by `new`).
+
+**Measured** against `f5bcfcd7`: diagnostics +1 (constructorOverloads1), 0
+lost; types 0/0; jsTyping new_false 0, lost_true 0; callgrind Ir
+generic-imports 0.9999, domain-model 0.9999.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

@@ -1248,7 +1248,7 @@ impl Checker<'_, '_> {
             {
                 return CallArity::ApplicableGeneric(Box::new(candidate.clone()));
             }
-            if (is_call || tagged)
+            if (is_call || tagged || !no_argument_list)
                 && type_arguments.is_empty()
                 && let Some(overloads) = self.non_generic_overload_candidates(
                     &candidates,
@@ -2490,7 +2490,18 @@ impl Checker<'_, '_> {
                             self.check_new_arity(node, false);
                         }
                     }
-                    CallArity::Applicable(None) | CallArity::ApplicableOverloads(_) => {
+                    // `resolveNewExpression` runs `resolveCall` over the
+                    // construct signatures exactly as a call's
+                    // (`checker.go:8576`): a non-generic overload set is
+                    // checked and reported as one.
+                    CallArity::ApplicableOverloads(candidates) => {
+                        if !self.check_overload_candidates_arguments(node, &candidates)
+                            && !self.report_overload_argument_failure(node)
+                        {
+                            self.check_new_arity(node, false);
+                        }
+                    }
+                    CallArity::Applicable(None) => {
                         if !self.report_overload_argument_failure(node) {
                             self.check_new_arity(node, false);
                         }
