@@ -2245,6 +2245,63 @@ impl<'a, 'n> Checker<'a, 'n> {
         printed.unwrap_or_else(|| self.type_to_string(id))
     }
 
+    /// `getTypeNamesForErrorDisplay` (`relater.go:1277`): each side printed
+    /// as a message prints it — at its symbol's value declaration when that
+    /// is an expression that is not context sensitive
+    /// (`symbolValueDeclarationIsContextSensitive`, `relater.go:1301`), else
+    /// with no enclosing declaration ([`Checker::type_to_string_for_message`])
+    /// — and both fully qualified ([`Checker::type_name_for_error_display`])
+    /// when the two prints coincide (r7-printer §30).
+    pub fn type_names_for_error_display(
+        &mut self,
+        left: TypeId,
+        right: TypeId,
+        at: NodeId,
+    ) -> (String, String) {
+        let left_text = self.type_name_for_message(left, at);
+        let right_text = self.type_name_for_message(right, at);
+        if left_text == right_text {
+            return (
+                self.type_name_for_error_display(left),
+                self.type_name_for_error_display(right),
+            );
+        }
+        (left_text, right_text)
+    }
+
+    /// One side of [`Checker::type_names_for_error_display`].
+    fn type_name_for_message(&mut self, id: TypeId, at: NodeId) -> String {
+        let symbol = match &self.store.get(id).data {
+            crate::types::TypeData::Named { members, .. } => *members,
+            crate::types::TypeData::Anonymous { symbol, .. } => Some(*symbol),
+            crate::types::TypeData::Union { symbol, .. }
+            | crate::types::TypeData::Intersection { symbol, .. } => *symbol,
+            _ => None,
+        };
+        let declaration = symbol.and_then(|symbol| {
+            let entry = self.binder.symbols().get(symbol);
+            entry.value_declaration.or_else(|| {
+                // An object literal's symbol carries the literal as its one
+                // declaration; this binder leaves `value_declaration` unset.
+                entry
+                    .flags
+                    .contains(SymbolFlags::OBJECT_LITERAL)
+                    .then(|| entry.declarations.first().copied())
+                    .flatten()
+            })
+        });
+        if let Some(declaration) = declaration
+            && let Some(node) = self.node_map.get(declaration)
+            && let Ok(expression) = tsr_ast::Expression::try_from(node)
+            && !self.is_context_sensitive_argument(&expression)
+        {
+            return self
+                .type_to_string_at(id, declaration)
+                .unwrap_or_else(|| self.type_to_string(id));
+        }
+        self.type_to_string_for_message(id, at)
+    }
+
     fn type_to_string_at_worker(&mut self, id: TypeId, reference: NodeId) -> Option<String> {
         // typeToTypeNodeHelper reduces before printing (nodebuilderimpl.go:3228).
         let id = self.get_reduced_type(id);
@@ -3403,8 +3460,8 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// The chain [`Checker::type_name_for_error_display`] spells: the
     /// symbol's own name when the global table holds it, else its container's
     /// chain followed by it; a file module roots it as
-    /// `import("<file name>")`, an ambient module as `import("<name>")`.
-    #[allow(dead_code)]
+    /// `import("<file name without extension>")`, an ambient module as
+    /// `import("<name>")`.
     fn fully_qualified_symbol_text(&self, symbol: SymbolId) -> Option<String> {
         let mut parts: Vec<String> = Vec::new();
         let mut current = self.binder.merged_symbol(symbol);
@@ -3423,12 +3480,20 @@ impl<'a, 'n> Checker<'a, 'n> {
                 break;
             };
             if self.is_module_symbol(parent) {
+                // `getSpecifierForModuleSymbol` with no enclosing file
+                // (`nodebuilderimpl.go:1265`): a file module's symbol is named
+                // `"` + `tspath.RemoveFileExtension(fileName)` + `"`
+                // (`bindSourceFileAsExternalModule`), which
+                // `IsAmbientModuleSymbolName` accepts, so the specifier is the
+                // path without its extension, `.d.ts` whole:
+                // `import("/.src/renderer")` (r7-printer §30).
                 let file =
                     self.binder.symbols().get(parent).declarations.iter().copied().find(
                         |&declaration| self.nodes.kind(declaration) == SyntaxKind::SourceFile,
                     )?;
                 let path = self.module_host.and_then(|host| host.file_path(file))?;
-                parts.push(format!("import({})", crate::printing::quote(&path)));
+                let name = tsr_path::extension::remove_file_extension(&path);
+                parts.push(format!("import({})", crate::printing::quote(name)));
                 break;
             }
             if self.is_ambient_module(parent) {
