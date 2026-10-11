@@ -966,6 +966,34 @@ impl<'a> Checker<'a, '_> {
         name: &str,
         meaning: SymbolFlags,
     ) -> Option<SymbolId> {
+        // `getResolvedSymbol` resolves an identifier once (`links.resolvedSymbol`);
+        // this port's per-identifier rules ask once per rule, so an identifier
+        // resolved under its own text is memoised (`r7-perf.md` §27).
+        let own_text = matches!(
+            self.node_map.get(start),
+            Some(Node::Identifier(identifier)) if identifier.text == name
+        );
+        if !own_text {
+            return self.resolve_name_with_export_alias_walk(start, name, meaning);
+        }
+        let key = (start, meaning.bits());
+        if let Some(&answer) = self.perf_links.resolved_export_alias_names.get(&key) {
+            return answer;
+        }
+        let publish = self.alias_resolving == 0;
+        let answer = self.resolve_name_with_export_alias_walk(start, name, meaning);
+        if publish && self.alias_resolving == 0 {
+            self.perf_links.resolved_export_alias_names.insert(key, answer);
+        }
+        answer
+    }
+
+    fn resolve_name_with_export_alias_walk(
+        &mut self,
+        start: NodeId,
+        name: &str,
+        meaning: SymbolFlags,
+    ) -> Option<SymbolId> {
         let binder = self.binder;
         let nodes = self.nodes;
         let node_map = self.node_map;

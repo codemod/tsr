@@ -72,6 +72,12 @@ pub(crate) struct PerfLinks {
     /// the module host and completed alias targets; published outside alias
     /// resolution.
     pub(crate) type_only_alias_declarations: FxHashMap<SymbolId, Option<bool>>,
+    /// [`Checker::resolve_name_with_export_alias`]'s answer for an identifier
+    /// resolved under its own text, per `(node, meaning)`: native
+    /// `getResolvedSymbol`'s `links.resolvedSymbol`. The walk reads the
+    /// binder and completed alias targets; published only when no alias
+    /// resolution is open at either end (`r7-perf.md` §27).
+    pub(crate) resolved_export_alias_names: FxHashMap<(NodeId, u32), Option<SymbolId>>,
     /// Reused buffer for [`Checker::memo_frames`]' scope owners.
     owners_scratch: Vec<NodeId>,
     /// Reused `visiting` path for a property walk started from an empty path
