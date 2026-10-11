@@ -724,14 +724,13 @@ impl<'a> Checker<'a, '_> {
                 // is checked afresh here, under this candidate's own
                 // parameter type: `checkExpressionWithContextualType(arg,
                 // paramType, context)`, not a stateless contextual read.
-                let fresh_literal = !skip_context_sensitive
-                    && match self.resolved_literal_argument_recheck(call, argument) {
-                        Some(id) => {
-                            self.evict_literal_subtree(id);
-                            true
-                        }
-                        None => false,
-                    };
+                let fresh_literal = match self.resolved_literal_argument_recheck(call, argument) {
+                    Some(id) => {
+                        self.evict_literal_subtree(id);
+                        true
+                    }
+                    None => false,
+                };
                 let use_active_context = fresh_literal
                     || return_literal_map.is_some()
                         && matches!(
@@ -1643,14 +1642,15 @@ impl<'a> Checker<'a, '_> {
                 }
             }
         }
-        if !skip_context_sensitive {
-            self.recheck_literal_arguments_in_resolved_signature(
-                call,
-                signature,
-                arguments,
-                (&map, &parameters, &names),
-            );
-        }
+        // Also on inferSignatureInstantiationForOverloadFailure's retry: its
+        // candidate becomes the call's resolved signature
+        // (getCandidateForOverloadFailure), which the writer then reads.
+        self.recheck_literal_arguments_in_resolved_signature(
+            call,
+            signature,
+            arguments,
+            (&map, &parameters, &names),
+        );
         if let Some(slot) = instantiated {
             let returned_image = self.instantiate_type(returned, &map, &parameters, &names);
             let returned_image =

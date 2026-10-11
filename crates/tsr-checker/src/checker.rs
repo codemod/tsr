@@ -3250,9 +3250,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// chain, `nodebuilderimpl.go:1069`), and type arguments and members keep
     /// their site-free print (r7-printer §7). No cache.
     // Consumer: r7-reports' TS2719 arm of `reportRelationError`
-    // (`relater.rs`), routed by the integrator; until it lands, the
-    // printing test below is the only caller.
-    #[allow(dead_code)]
+    // (`assignreport.rs`, `report_relation_head`).
     pub(crate) fn type_name_for_error_display(&mut self, id: TypeId) -> String {
         let printed = self.type_to_string(id);
         if self.type_parameter_symbols.contains_key(&id) {
@@ -3941,6 +3939,18 @@ impl<'a, 'n> Checker<'a, 'n> {
         meaning: SymbolFlags,
     ) -> bool {
         let target = self.binder.merged_symbol(symbol);
+        // `enterNewScope`'s fake scope (`nodebuilderscopes.go`): while a
+        // signature prints, its own type parameters are a table in scope
+        // ahead of the reference's, so `<A>(x: A) => A` names an outer class
+        // `A` `globalThis.A` (r7-printer §13). The render scope
+        // ([`Checker::render_type_parameter_scope`]) is that table here.
+        if meaning.intersects(SymbolFlags::TYPE)
+            && let Some(&(_, owner)) =
+                self.render_type_parameter_scope.iter().rev().find(|(text, _)| text == name)
+            && let Some(answer) = self.qualifies_for(owner, target, meaning)
+        {
+            return answer;
+        }
         let mut current = Some(reference);
         while let Some(location) = current {
             if let Some(&found) = self.binder.locals(location).and_then(|table| table.get(name))
