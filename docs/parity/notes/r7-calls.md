@@ -663,6 +663,35 @@ method's own type carries its declaration's signatures, so its list is
 decided: the call head already exempts it (`is_function_or_method_type`), and
 the `new` head now does too (overloadsAndTypeArgumentArityErrors).
 
+## 18. Agreeing generic survivors run the walk with written type arguments
+
+§463's arm of `choose_ordered_overload` returns the first of several generic
+arity survivors whose return types print the same. It ran the transcribed
+walk first only without written type arguments, so `foo1<Date>("")` over
+`foo1<T extends Date>(test: T)` / `foo1<T extends Number>(test: string)`
+(both returning `any`) took the first survivor unchecked. Native's walk
+(`chooseOverload`) rejects the first on its argument and the second on
+`checkTypeArguments` (`Date` does not satisfy `Number`), and reports the
+first's TS2345. §9's walk reads written type arguments, so this arm now runs
+it too when it can (`walk_reads_written_type_arguments`)
+(typeArgumentConstraintResolution1).
+
+**Measured** for §14–§18, each against its parent (base `53dcad98` on
+`41f3c70b`), with both dumps unfiltered, the jsTyping leg, callgrind Ir
+(single-threaded) and the exact native oracle (`exact-candidate`, 2
+workers):
+
+| § | commit | diagnostics | types | jsTyping new_false / lost_true | Ir gi / dm | exact |
+|---|---|---|---|---|---|---|
+| 14 | literal re-check in the walk report | +2 (for-of39, iterableArrayPattern28), 0 lost | 0/0 | 0 / 0 | 0.9999 / 0.9997 | +0, 0 lost |
+| 15 | literal-typed overload parameters | +1 (overloadingOnConstants2), 0 lost | 0/0 | 0 / 0 | 0.9999 / 1.0000 | +0, 0 lost |
+| 16 | non-array rest, no trailing argument | +2 (topFunctionTypeNotCallable, contextualTypeTupleEnd), 0 lost | 0/0 | 0 / 0 | 0.9998 / 1.0000 | +1, 0 lost |
+| 17 | `new` head, declared function | +1 (overloadsAndTypeArgumentArityErrors), 0 lost | 0/0 | 0 / 0 | 0.9999 / 1.0000 | +0, 0 lost |
+| 18 | agreeing survivors run the walk | +1 (typeArgumentConstraintResolution1), 0 lost | 0/0 | 0 / 0 | 0.9999 / 1.0000 | +1, 0 lost |
+
+The oracle legs ran with 2 workers. With 4, the orb's 7 GiB OOM-killed
+`tsr-actual` workers alongside a concurrent build.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

@@ -4603,7 +4603,8 @@ impl Checker<'_, '_> {
                     // argument is context-sensitive; undecidable sets retain
                     // the return-agreement recovery
                     // (docs/architecture/checker-99-agreeing-overloads.md).
-                    if !has_type_arguments
+                    if (!has_type_arguments
+                        || self.walk_reads_written_type_arguments(arguments, call))
                         && let Some(picked) =
                             self.transcribed_generic_set_walk(candidates, arguments, call)
                     {
