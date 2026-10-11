@@ -830,3 +830,24 @@ Both are built with `related_diagnostic_at` (§34). Measured with oracle
 filters `verload`, `unction` and `lass`: about 22 cases convert
 (`callOverloads1`–`5`, `functionOverloads*`, `classOverloadForFunction`,
 `augmentedTypesFunction`, …), none lost.
+
+## §43 TS2411's property name as written, and its related declaration
+
+`checkIndexConstraintForProperty` (`checker.go`) names the property with
+`symbolToString(prop)`, i.e. `getNameOfSymbolAsWritten`
+(`nodebuilderimpl.go:973`): the first declaration's name as written
+(`DeclarationNameToString`), so `''`-named and `["get1"]` members print as
+`'""'` and `'["get1"]'`. `index_constraint.rs` printed the symbol's bare
+name. printing.rs's `symbol_name_as_written` covers identifier names only;
+`property_name_as_written` (index_constraint.rs) reads any name's source
+text, through `declaration_name_source_text` (§35). For a binary-expression
+declaration, or one named by a computed name, that is reported elsewhere
+(`propDeclaration`, `errorNode != propDeclaration`), the report adds
+`'{0}' is declared here.` at the declaration. Taken as a declaration-check
+cluster (index_constraint.rs has had no lane owner since dispatch).
+Measured with oracle filters `ndex`, `omputedPropertyNames` and
+`ymbolProperty`: +11, none lost. Not here: TS2411's span at a method
+signature (bucket `TS2411 span-only MethodSignature`). `GetErrorRangeForNode`
+gives a method signature its whole node (method signatures are not in its
+name list), and the shared `error_span` gives the name. That is the same
+arm TS7010's 10-case span bucket needs, and it belongs with grant (e).
