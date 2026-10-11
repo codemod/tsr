@@ -649,3 +649,44 @@ block carries `#[allow(dead_code)]` until step 2. Unit test
 reference, shares its `type_reference_targets` entry and printed text; a
 reference's own this-argument is the reference; `None` takes the target's
 this-type; a non-reference is unchanged. Expected corpus delta: zero.
+
+### Step 2 (built, HELD on `box/r7-shared-held`): inherited and receiver signatures take the this-argument
+
+- `signatures.rs::instantiate_signature_for_receiver`: the existing reference
+  mapper (`instantiate_signature_for_reference`, `inference.rs`, unchanged)
+  followed by the target's this-type(s) → the receiver's this-argument (an
+  image's, else the receiver itself), used for a named receiver's
+  call/construct candidates; inherited bases are instantiated through
+  `get_type_with_this_argument(base, derived declaration's this-type)`.
+- This-type identities: a class has one (`this_types`), an interface one per
+  *declaration* (`this_type_nodes`, `declared.rs`), unlike native's one per
+  symbol, so the substitution maps every minted one (unifying them is
+  `declared.rs`', r7-declared).
+- Harvest spec `tests/calls_concrete_receiver.rs` passes with it.
+- Step 2b: `get_type_of_property_of_type` passes an image's this-argument.
+
+**Why held.** Corpus delta zero (batch 19, both steps), but callgrind Ir
+domain-model **+0.57%** (step 2) and +0.08% (2b): every named-type
+candidate set now takes a second instantiation pass whenever the target has
+a minted this-type, and lib interfaces (`Array`'s `this is S[]` predicates)
+do. Native pays this inside one cached member resolution per reference.
+Before re-landing with step 3: fold the this pairs into the reference
+mapper's single pass and skip targets whose this-type the signature cannot
+mention, then re-measure Ir.
+
+## 15. `isReadonlySymbol` of a mapped member in `is_readonly_property_of_type`
+
+Routed from r7-flow (holds its r6-errorsplit3 diff R: +16
+`controlFlowAliasing`, −2 `mappedTypes6` 277/279). `isReadonlySymbol(
+getPropertyOfType(receiver, name))` (checker.go:13849) reads, for a mapped
+member, the transient mapped symbol whose `CheckFlagsReadonly`
+`resolveMappedTypeMembers` (:20894) set from the mapping's `readonly` /
+`-readonly` modifier or the modifiers property. This port's
+`get_property_of_type` answers the modifiers type's own symbol, so the
+non-union tail read `Bar.b`'s `readonly` for `Readwrite<Bar>`'s `b`.
+The tail now asks `readonly_target.rs::constituent_property_is_readonly` —
+the rule that file already applies to a union constituent (homomorphic
+`mapped_identity_optionality` first, then the member image's modifier, then
+the symbol, `property_signature_is_readonly` included as native's
+`isReadonlySymbol` covers a readonly property signature). The only change in
+r7-flow's file is that function's visibility (`pub(crate)`). No cache.

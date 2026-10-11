@@ -2639,8 +2639,14 @@ impl Checker<'_, '_> {
                 readonly.all(&mut is_readonly)
             };
         }
-        self.get_property_of_type(receiver, name)
-            .is_some_and(|property| self.is_readonly_symbol(property))
+        // A mapped member's symbol here is its modifiers type's; native's is
+        // the transient mapped symbol whose CheckFlagsReadonly
+        // resolveMappedTypeMembers set from the mapping's modifier
+        // (`checker.go:20894`), so `Readwrite<Bar>`'s `b` is writable though
+        // `Bar.b` is readonly. The same rule as a union constituent's
+        // (`readonly_target.rs`, r7-shared.md §15).
+        let Some(property) = self.get_property_of_type(receiver, name) else { return false };
+        self.constituent_property_is_readonly(receiver, name, property)
     }
 
     /// `getWriteTypeOfSymbol(getPropertyOfType(receiver, name))`
