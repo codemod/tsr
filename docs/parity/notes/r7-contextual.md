@@ -493,3 +493,22 @@ Result (commit 11): types +18 RIGHT (`superCallParameterContextualTyping1` 6,
 `…3` 6, `…2` 3, `targetTypeBaseCalls` 3), diagnostics +2
 (`targetTypeBaseCalls`, `superCallParameterContextualTyping2`), 0 lost;
 jsTyping unchanged.
+
+## 13. ARG-CONTEXT-RESOLVED-SIG: the overload-failure candidate is re-checked too
+
+When no candidate applies, `getCandidateForOverloadFailure` resolves the
+call to `inferSignatureInstantiationForOverloadFailure`'s candidate. For a
+single generic candidate, that is the instance inferred with
+`SkipContextSensitive`. The writer reads literal arguments against that
+resolved signature, as for an applicable one: in
+`_.all([true, 1, null, 'yes'], _.identity)` (TS2345 on the second argument)
+the literal prints `(string | number | true | null)[]`. §1's fresh check and
+re-check skipped `check_generic_call_worker`'s overload-failure retry. They
+now run there too (the retry's `skip_context_sensitive` still governs
+context-sensitive arguments only).
+
+Result (commit 12), against the `2abb9ccd` freeze: types +1 RIGHT
+(`genericTypeArgumentInference1` 0:16), 0 lost; diagnostics unchanged;
+jsTyping unchanged. `genericArgumentCallSigAssignmentCompat`'s two lines stay
+WRONG: the expression-statement form reaches the error candidate through
+another road. Not yet traced.
