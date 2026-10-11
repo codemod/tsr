@@ -2664,7 +2664,11 @@ impl Checker<'_, '_> {
         // except for a union every member of which has a decided, non-empty
         // construct list: its empty composite is `getUnionSignatures`' own
         // verdict, as for a call.
+        // A function or method's own type carries its declaration's call
+        // signatures, so its list is decided (the call head reads it the
+        // same way, [`Checker::is_function_or_method_type`]).
         if self.could_contain_type_variables_at_head(expression_type, 3)
+            && !self.is_function_or_method_type(apparent)
             && !(call_signatures.is_empty()
                 && self.union_members_have_signatures(apparent, SignatureKind::Construct))
         {

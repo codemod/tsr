@@ -652,6 +652,17 @@ trails, the empty tuple: `foo()` over `(...args: never)`
 decline. Their tuple is `inference.rs`'s `inference_spread_argument_type`,
 private to that file (visibility requested from the integrator).
 
+## 17. The `new` head reads a declared function's call list
+
+`new Callbacks<number, string, boolean>('s')` over a function with three
+call-signature overloads (no construct signature) gets native's TS2558 from
+`resolveNewExpression`'s `resolveCall` over the call signatures
+(`checker.go:8576`). The `new` head declined it through the
+type-variable refusal, because the overloads are generic. A function or
+method's own type carries its declaration's signatures, so its list is
+decided: the call head already exempts it (`is_function_or_method_type`), and
+the `new` head now does too (overloadsAndTypeArgumentArityErrors).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
