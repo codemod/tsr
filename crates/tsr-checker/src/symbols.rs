@@ -5164,6 +5164,18 @@ impl<'a> Checker<'a, '_> {
                     // checks the ARGUMENTS, whose object-literal members
                     // walk back to this call — the cycle the first build hit
                     // as a stack overflow (`arrayToLocaleStringES2015`).
+                    // `getContextualTypeForArgumentAtIndex` (`checker.go:29783`)
+                    // does not resolve a call whose own resolution is running
+                    // (`resolvedSignature == resolvingSignature`). The argument
+                    // then has the contextual type that resolution pushed,
+                    // which is the general road a `None` here falls back to.
+                    // Re-resolving re-checked every nested literal once per
+                    // member (`r7-perf.md` §24).
+                    if self.perf_links.main_resolving_calls.contains(&holder)
+                        && !self.resolved_call_signatures.contains_key(&holder)
+                    {
+                        return None;
+                    }
                     if !self.narrow_value_stack.insert(holder) {
                         return None;
                     }
