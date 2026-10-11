@@ -643,4 +643,14 @@ target's `this: This` against a source without `this` (`flatMap`'s `This`);
 `number` against `IPromise<U>` in a callback's return (ipromise2's first
 `then` overload, after which overload resolution moves on); `1` against `T[]`.
 
-Result (commit 19), against the `a470d2280` freeze: see the commit message.
+Result (commit 19), against the `a470d2280` freeze: types +42 RIGHT
+(`acceptSymbolAsWeakType` 10, `dissallowSymbolAsWeakType` 10, `ipromise4` 7,
+`ipromise2` 5, `declarationEmitOverloadedPrivateInference` 4, `arrayFlatMap` 2,
+`couldNotSelectGenericOverload` 2, two more), diagnostics +1, 0 lost; exact
++5, 0 lost; jsTyping unchanged; Ir 1.00002 / 0.99983.
+
+Commit 20 adds `inferToTemplateLiteralType`'s exit (`inference.go:566`): a
+string literal that a template literal with text does not match infers
+nothing (`"hello"` against `` `*${V}*` ``, `templateLiteralTypes3`). For a
+string-literal source, `match_template_parts` is the direct port, so its
+`None` is a certain non-match.
