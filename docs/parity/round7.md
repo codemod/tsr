@@ -532,3 +532,25 @@ previous freeze: types +0 RIGHT / 0 lost / 0 missing, diagnostics +0 cases / 0 l
 | `checker_types_configured` | 1,820 | 1,820 |
 | `diagnostics` | 4,988 | 4,988 |
 | `diagnostics_configured` | 1,007 | 1,007 |
+
+### Batch 23 — r7-parser `a9390a61`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **9600 / 12797 EXACT (75.02%)**, 3 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +126 RIGHT / 0 lost / 0 missing, diagnostics +5 cases / 0 lost / 0 missing. jsTyping 125 → 125 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0021, domain-model 1.0008. No suite's failure count rose.
+
+| Suite | Before | Batch 23 |
+|---|---|---|
+| `checker_types` | 8,851 | 8,857 |
+| `checker_types_configured` | 1,820 | 1,820 |
+| `diagnostics` | 4,988 | 4,991 |
+| `diagnostics_configured` | 1,007 | 1,009 |
+
+The loop blocked this batch on the all-suite check: printer_round_trip failures
+went 9 → 10. The new failure is conformance/instantiationExpressions, which the
+parser now parses cleanly as native does, so the round trip judges it for the
+first time; it was skipped before, not passing. The tree printer drops an
+instantiation expression's type arguments. That is routed to r7-printer.
+No previously passing case was lost, and the integration owner landed the
+batch by hand. The loop's suite check now counts passes lost beyond the
+judged-population change, not raw failure counts.
