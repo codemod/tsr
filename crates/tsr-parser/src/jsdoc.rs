@@ -122,9 +122,22 @@ impl<'a> Parser<'a> {
     /// Separate from [`Parser::parse_leading_jsdoc`] because the comments are read
     /// before the construct is parsed and the node only exists afterwards. Doing
     /// nothing for an empty slice keeps the side table sparse.
+    ///
+    /// Almost every call has no comments, so only that test is inlined and
+    /// the attach is out of line: when the typedef report grew the body, the
+    /// compiler stopped inlining the whole function and every node paid a
+    /// call, +0.28% of generic-imports' instructions.
+    #[inline]
     pub(crate) fn attach_jsdoc(&mut self, node: Node<'a>, docs: &'a [&'a JSDoc<'a>]) {
-        if docs.is_empty() {
-            return;
+        if !docs.is_empty() {
+            self.attach_present_jsdoc(node, docs);
+        }
+    }
+
+    #[inline(never)]
+    fn attach_present_jsdoc(&mut self, node: Node<'a>, docs: &'a [&'a JSDoc<'a>]) {
+        if !self.missing_typedef_names.is_empty() {
+            self.report_missing_typedef_names(docs);
         }
         if let Some(id) = node.node_id() {
             // §269 note: the JSDoc root deliberately keeps NO parent edge to
@@ -136,6 +149,30 @@ impl<'a> Parser<'a> {
             // checker bridges the one hop it needs with its own doc→host map
             // instead (`Checker::jsdoc_hosts`).
             self.jsdoc.push((id, docs));
+        }
+    }
+
+    /// `reparseTags` (`reparser.go:54`) runs as a JavaScript file's comments
+    /// are attached, and its `JSDocTypedefTag` arm reports a missing name
+    /// through `checkNonIdentifierName` (`reparser.go:41`) on the character
+    /// before it, into the file's diagnostics. This port has no reparser
+    /// pass; the typedef parse records where the name is missing, and the
+    /// report is made here, at the same moment. The tag keeps no name
+    /// rather than native's empty identifier, which the binder would
+    /// declare. docs/parity/notes/r7-parser.md §6.
+    fn report_missing_typedef_names(&mut self, docs: &[&'a JSDoc<'a>]) {
+        for doc in docs {
+            let span = self.span_of(doc.node_id);
+            let mut i = 0;
+            while i < self.missing_typedef_names.len() {
+                let at = self.missing_typedef_names[i];
+                if span.start <= at && at <= span.end {
+                    self.missing_typedef_names.remove(i);
+                    self.error_at(&messages::IDENTIFIER_EXPECTED, Span::new(at - 1, at));
+                } else {
+                    i += 1;
+                }
+            }
         }
     }
 
@@ -797,9 +834,12 @@ impl<'a> Parser<'a> {
     ) -> tsr_ast::JSDocTag<'a> {
         let mut type_expression = self.try_parse_type_expression().map(Node::from);
         self.skip_whitespace_or_asterisk();
+        let name_position = self.pos();
         let name = if self.at_jsdoc_identifier() {
             Some(tsr_ast::JSDocFullName::Identifier(self.parse_jsdoc_identifier_name()))
         } else {
+            // `parseJSDocIdentifierName(Identifier_expected)`.
+            self.error_at_current(&messages::IDENTIFIER_EXPECTED);
             None
         };
         self.skip_whitespace();
@@ -879,6 +919,9 @@ impl<'a> Parser<'a> {
         });
         if comment.is_empty() {
             comment = self.parse_trailing_tag_comments_ending(start, end, margin, indent_text);
+        }
+        if name.is_none() && type_expression.is_some() && self.script_kind.is_javascript() {
+            self.missing_typedef_names.push(name_position);
         }
         tsr_ast::JSDocTag::JSDocTypedefTag(self.finish_node_with_end(
             JSDocTypedefTag::new(tag_name, type_expression, name, comment),

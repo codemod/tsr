@@ -473,6 +473,12 @@ pub struct Parser<'a> {
     /// List facts with the node count when each was recorded; owners are
     /// resolved by [`Self::take_list_facts`].
     pending_list_facts: Vec<(u32, ListFact)>,
+    /// Where a JavaScript file's `@typedef` with a type has no name, until
+    /// the comment is attached to its host: the reparser's
+    /// `checkNonIdentifierName` report (`reparser.go:41`), which lands in the
+    /// file's own diagnostics, not the comment's. See
+    /// [`Self::attach_jsdoc`].
+    pub(crate) missing_typedef_names: Vec<u32>,
 
     /// Guards against runaway recursion on pathological input.
     ///
@@ -598,6 +604,7 @@ impl<'a> Parser<'a> {
             module_indicator: options.module_indicator,
             first_node,
             pending_list_facts: Vec::new(),
+            missing_typedef_names: Vec::new(),
         };
         parser.sync_scanner_diagnostics();
         parser

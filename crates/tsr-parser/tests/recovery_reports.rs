@@ -88,3 +88,19 @@ fn a_report_the_guard_dropped_gets_no_related_report() {
     // `')' expected` there is dropped, so nothing carries TS1007.
     assert!(related("a.ts", "if (").iter().all(Vec::is_empty));
 }
+
+#[test]
+fn a_nameless_typedef_with_a_type_reports_in_the_file_of_a_javascript_file() {
+    // `reparseUnhosted`'s `checkNonIdentifierName`: on the character before
+    // the missing name, in the file's diagnostics; the comment's own
+    // `Identifier expected` stays with the comment's.
+    let arena = Arena::new();
+    let source = "/** @typedef {{a: 1}} */\nvar x;\n";
+    let parsed = tsr_parser::parse_with_options(&arena, source, ParseOptions::for_file("a.js"));
+    let file: Vec<_> =
+        parsed.diagnostics.iter().map(|d| (d.span.start, d.span.end, d.message.code())).collect();
+    assert_eq!(file, [(20, 21, 1003)]);
+    assert_eq!(parsed.jsdoc.diagnostics().len(), 1);
+    let parsed = tsr_parser::parse_with_options(&arena, source, ParseOptions::for_file("a.ts"));
+    assert!(parsed.diagnostics.is_empty());
+}
