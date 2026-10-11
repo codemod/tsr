@@ -594,3 +594,31 @@ unresolved-value walk and is routed. Until it lands,
 `shorthandPropertyAssignmentsInDestructuring` (both variants) and
 `objectLiteralErrors` keep an extra TS18004 beside the now-correct TS1312.
 
+
+## §32 TS18012, `#constructor` (PRIVATE-IDENTIFIER-GRAMMAR split)
+
+`checkPrivateIdentifier` (`binder.go:1323`), the binder's
+`KindPrivateIdentifier` arm (`:612`): a private identifier spelled
+`#constructor` is TS18012 on the identifier, in a file without parse
+diagnostics. It is a binder diagnostic, so it is reported in every
+declaration context, ambient included, and in plain JS (the code is on the
+plain-JS list). `check_contextual_identifier` (`strict_mode.rs`) is this
+port's home for the binder's per-identifier arms and is already called for
+every node. The private arm runs there before the ambient return, which
+gates only the `Identifier` arms (`node.Flags&ast.NodeFlagsAmbient` in
+`checkContextualIdentifier`).
+
+Correction of the record in the same function: its comment said upstream's
+`yield` TS1359 arm needed `YieldContext`, which the parser did not set. That
+arm is unreachable upstream. `yield` is `KindLastFutureReservedWord`
+(`ast/kind_generated.go:401`), so the future-reserved arm reports first.
+
+*Falsifier.* A TS18012 in a file with parse errors, or a missing one in a
+`.d.ts`. Converted: `privateNameConstructorReserved`, `plainJSBinderErrors`.
+
+Other splits of tsr-2zk.1166 and where they live. TS1111 is
+`checkPropertyAccessExpressionOrQualifiedName`'s plain-JS arm, in
+`readonly_target.rs::check_private_identifier_access` (r7-flow's). TS2804
+is `checkObjectTypeForDuplicateDeclarations` (check.rs). The `#x in expr`
+codes (TS2571/2406/18016/1451) are `checkInExpression`'s. TS18046 and TS7022
+are receiver and inference arms. None of these is in this lane's files.
