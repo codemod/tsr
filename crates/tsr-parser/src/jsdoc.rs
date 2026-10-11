@@ -879,9 +879,21 @@ impl<'a> Parser<'a> {
                         if child_type_tag.is_none() {
                             child_type_tag = Some(type_tag);
                         } else {
+                            // `jsdoc.go:1048`: the kept report points back at
+                            // the first tag — at `(0, 0)`, as native builds
+                            // the related range.
+                            let reported = self.diagnostics.len();
                             self.error_at_current(
                                 &messages::A_JSDOC_TYPEDEF_COMMENT_MAY_NOT_CONTAIN_MULTIPLE_TYPE_TAGS,
                             );
+                            if self.diagnostics.len() > reported
+                                && let Some(last) = self.diagnostics.last_mut()
+                            {
+                                last.add_related_information(Some(tsr_diagnostics::Diagnostic::new(
+                                    &messages::THE_TAG_WAS_FIRST_SPECIFIED_HERE,
+                                    Span::at(0),
+                                )));
+                            }
                         }
                     }
                     tsr_ast::JSDocTag::JSDocParameterOrPropertyTag(property) => {
