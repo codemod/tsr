@@ -910,3 +910,26 @@ import-declaration check) now quotes the name of a module whose declaration
 is a source file or a string-named module declaration. TS2305 is unaffected:
 it prints the specifier as written (`quoted_module_name`). Converted:
 `es6ImportDefaultBinding*` (5 cases, the `TS1192 message-text-only` bucket).
+
+## §48 TS2694/TS2724 name the namespace fully qualified
+
+`resolveEntityName`'s qualified arm reports
+`Namespace '{0}' has no exported member '{1}'` (TS2694), or its TS2724
+suggestion form, with `getFullyQualifiedName(namespace)` (`checker.go:14888`).
+That is the resolved namespace's parents joined by `.`, with an external or
+ambient module quoted (`"/.src/file".c`, and `foo.bar.baz` for an alias
+`booz` of it). Both of `check_qualified_type_name_at`'s sites (check.rs)
+printed the left name as written. `fully_qualified_name`
+(meaning_mismatch.rs) walks the binder's parents and quotes module symbols,
+which this binder names with the bare path (as §47).
+
+*A resolution fix in the same arm.* `resolveEntityName` returns
+`symbol.Flags&meaning != 0 ? symbol : resolveAlias(symbol)`, so an import
+alias merged with a namespace (`import * as Lib` beside `namespace Lib`)
+already has the namespace meaning and is not resolved. The port resolved
+every alias. Printing the fully qualified name exposed that:
+`namespaceMergedWithImportAliasNoCrash` named the module and was the one
+loss in the first measurement. The alias is now resolved only without the
+namespace meaning. Measured with oracle filters `lias`, `odule` and
+`amespace`: +8 (`aliasBug`, `aliasErrors`, `internalAlias*`,
+`moduleVisibilityTest3`, …), 0 lost.

@@ -9584,7 +9584,8 @@ impl Checker<'_, '_> {
             {
                 return;
             }
-            let printed = self.printed_entity_name(left).unwrap_or_default();
+            // `getFullyQualifiedName(namespace)`, not the name as written.
+            let printed = self.fully_qualified_name(namespace);
             if let Some(file) = self.source_file_of_for_diagnostics(right) {
                 let span = self.nodes.span(right);
                 self.report(
@@ -9631,13 +9632,17 @@ impl Checker<'_, '_> {
         // `resolveAlias(namespace)` — upstream's own call, and the one §185
         // omitted.
         let namespace = self.binder.merged_symbol(namespace);
-        let namespace = if self.binder.symbols().get(namespace).flags.intersects(SymbolFlags::ALIAS)
-        {
-            let Some(target) = self.resolve_alias(namespace) else { return };
-            self.binder.merged_symbol(target)
-        } else {
-            namespace
-        };
+        // `resolveEntityName`'s tail: `symbol.Flags&meaning != 0 ? symbol :
+        // resolveAlias(symbol)`. An alias merged with a namespace already has
+        // the namespace meaning and is not resolved (r7-grammar §48).
+        let flags = self.binder.symbols().get(namespace).flags;
+        let namespace =
+            if flags.intersects(SymbolFlags::ALIAS) && !flags.intersects(SymbolFlags::NAMESPACE) {
+                let Some(target) = self.resolve_alias(namespace) else { return };
+                self.binder.merged_symbol(target)
+            } else {
+                namespace
+            };
         // A namespace whose exports this port never filled cannot be asked
         // whether a member is missing — the answer would be "all of them".
         // **An empty table can be declined; a partial one cannot** (§186), and
@@ -9722,6 +9727,9 @@ impl Checker<'_, '_> {
         // The distance function is `spelling_suggestion`, already ported from
         // `core.getSpellingSuggestion` — it takes a candidate list, so scoping
         // it to one symbol's exports is the whole of upstream's variant.
+        // `getFullyQualifiedName(namespace)` names the resolved namespace in
+        // both messages (r7-grammar §48).
+        let namespace_name = self.fully_qualified_name(namespace);
         let candidates: Vec<&str> =
             self.binder.symbols().get(namespace).exports.keys().copied().collect();
         if let Some(suggestion) = spelling_suggestion(&member, &candidates) {
@@ -10226,21 +10234,6 @@ impl Checker<'_, '_> {
             return Some(self.binder.merged_symbol(target));
         }
         Some(symbol)
-    }
-
-    /// The printed form of an entity name — `A.B` for a qualified one. §556.
-    fn printed_entity_name(&self, node: NodeId) -> Option<String> {
-        match self.node_map.get(node)? {
-            Node::Identifier(_) => self.identifier_text(node).map(str::to_string),
-            Node::QualifiedName(qualified) => {
-                let left = qualified.left.and_then(|left| left.node_id())?;
-                let right = qualified.right.and_then(|right| right.node_id)?;
-                let left = self.printed_entity_name(left)?;
-                let right = self.identifier_text(right)?;
-                Some(format!("{left}.{right}"))
-            }
-            _ => None,
-        }
     }
 
     /// Did the binder walk a body for this namespace symbol? The test that lets
