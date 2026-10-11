@@ -1377,7 +1377,23 @@ impl Checker<'_, '_> {
         // having **exactly one** type parameter — right for `Array<T>` and
         // `Promise<T>`, and wrong for every interface here, all of which have
         // none. Reusing it would have made this arm silently dead.
-        let Some(&symbol) = self.binder.globals().get(global) else { return id };
+        // `getGlobalType` (`checker.go:1210`): a missing global type is
+        // `emptyObjectType`, so a `bigint` without `lib.es2020.bigint` reads
+        // `{}`'s members (Object's): `valueOf: () => Object`
+        // (`docs/parity/notes/r7-shared.md` §21).
+        //
+        // Only with a global `Object`: a checker bound without any lib (unit
+        // fixtures) cannot relate `{}` structurally (`relater.rs` answers
+        // `Unknown` for the empty object against a `{}` literal there), and the
+        // primitive kept that relation answerable. Every program the corpus or
+        // the CLI builds has `Object`.
+        let Some(&symbol) = self.binder.globals().get(global) else {
+            return if self.binder.globals().get("Object").is_some() {
+                self.intrinsics.empty_object
+            } else {
+                id
+            };
+        };
         let declared = self.get_declared_type_of_symbol(symbol);
         if declared == self.intrinsics.error { id } else { declared }
     }
