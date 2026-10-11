@@ -24,32 +24,37 @@ Rules for keeping it honest, which are the same rules the rest of the project ru
 
 Round 7 (`tsr-2zk.47`), Amp orb boxes, integrating straight onto **main**.
 Ten lanes with whole-file ownership ([round7.md](docs/parity/round7.md));
-six gated batches so far. Pinned native `5b1047d`. Coverage bin, full corpus,
-measured on main `5f2713fe` (batch 6):
+21 gated batches so far. From batch 21 on, the batches are landed by a
+continuous gate loop (`scripts/integration/autoloop.sh`). Pinned native
+`5b1047d`. Coverage bin, full corpus, measured on main `6842ea96` (batch 21):
 
-| Suite | Round-6 close (`83c6f58d`) | Now (`5f2713fe`) | Change |
+| Suite | Round-6 close (`83c6f58d`) | Now (`6842ea96`) | Change |
 |---|---|---|---|
-| `checker_types` | 8,677/9,538 (90.97%) | **8,755/9,538 (91.79%)** | +78 |
-| `checker_types_configured` | 1,752/1,928 (90.87%) | **1,783/1,928 (92.48%)** | +31 |
-| `diagnostics` | 4,786/5,502 (86.99%) | **4,863/5,502 (88.39%)** | +77 |
-| `diagnostics_configured` | 955/1,091 (87.53%) | **972/1,091 (89.09%)** | +17 |
+| `checker_types` | 8,677/9,538 (90.97%) | **8,851/9,538 (92.80%)** | +174 |
+| `checker_types_configured` | 1,752/1,928 (90.87%) | **1,820/1,928 (94.40%)** | +68 |
+| `diagnostics` | 4,786/5,502 (86.99%) | **4,988/5,502 (90.66%)** | +202 |
+| `diagnostics_configured` | 955/1,091 (87.53%) | **1,007/1,091 (92.30%)** | +52 |
 
-Type lines RIGHT 551,176 of 556,357 aligned → 552,595 of 557,127 (+1,419; the parser lanes aligned 770 more lines). Every batch passed:
-- `scripts/parity_gate.sh compare` against the previous batch's freeze, with
-  zero previously RIGHT keys lost or missing;
-- workspace tests and fmt;
-- strict workspace clippy, green on main since batch 4;
-- the 21-sample child-CPU perf check, re-run at 41 samples above 1.03.
+**Exact native oracle** (full output: messages, chains, related information,
+spans, order and type text; `parity_gate.sh exact-candidate`): **9,597 /
+12,797 EXACT (74.99%)** at batch 21, against 9,554 at batch 17 when it became
+a gate leg, and 8,303 at the round-6 owner continuation. This is the strict
+measure of the 99.9% goal.
 
-**Performance target not met.** TSR/tsgo-pinned median wall · CPU, measured by
-r7-perf on `1b466dc8` plus its dist-profile and teardown commits (21 samples):
+Legacy type lines RIGHT: 551,176 of 556,357 aligned → 553,274 of 557,221
+(+2,098). Every batch passed these legs:
+- the legacy compare and (from batch 19) the exact oracle, with zero
+  previously RIGHT/EXACT keys lost or missing;
+- jsTyping against tsgo, with no new false and no lost true line;
+- workspace tests, fmt and strict clippy;
+- callgrind Ir on generic-imports and domain-model (from batch 13);
+- no suite's failure count rising.
 
-| Project | release | dist (ADR-0054) |
-|---|---|---|
-| domain-model | 0.662 · 0.523 | 0.692 · 0.460 |
-| domain-model-large | 0.749 · 0.569 | 0.744 · 0.540 |
-| generic-imports | 0.743 · 0.356 | 0.738 · 0.366 |
-| jsTyping | not equivalent work | 4.159 |
+**Performance target not met.** TSR/tsgo-pinned median wall · CPU, measured
+by r7-perf after mimalloc (`4c765057`, batch 9), 21 samples, `dist`
+profile: domain-model 0.540 · 0.416, domain-model-large 0.716 · 0.479,
+generic-imports 0.598 · 0.303. Batch 17's lazy object-literal member text
+then cut domain-model Ir by another 4%. Fresh ratios are pending from r7-perf.
 
 jsTyping is not equivalent work: TSR reports 429 diagnostics against tsgo's
 86. Round 7 routed the delta to eight lane clusters (`tsr-2zk.1277.2`–`.9`).
@@ -16533,3 +16538,4 @@ that were true of a different population than the one they were quoted about.
 
 | 2026-10-09 | `f55a2585` plus three-source guard rewrite | — | — | **CLI build compatibility restored (`tsr-qwb`).** Original source passes Rust1.96 but fails Rust1.89 with three E0658 match-guard diagnostics; Next.js working directory selects1.89 despite manifest path. Equivalent tuple patterns/ordinary control flow retain evaluation order and surrogate fallbacks. Rust1.89 release CLI build, actual application-directory version launch and225 checker library tests pass. No new semantic coverage or speed claim. [Toolchain selection](docs/conventions.md#select-the-toolchain-when-invoking-cargo-from-another-project). |
 | 2026-10-10 | `5f2713fe` (round 7, batches 1–6 on main) / native `5b1047d` | +78 checker_types, +31 configured, +77 diagnostics, +17 configured cases; +1,419 type lines | 0 previously RIGHT losses (every batch gated against the previous freeze) | **Round 7 dispatched as ten Amp orb lanes, integrating directly onto main.** checker_types 8,755/9,538 (91.79%), diagnostics 4,863/5,502 (88.39%), configured 1,783/1,928 and 972/1,091. Strict workspace clippy made green (batch 4). Lazy JSDoc (ADR-0053) and the fat-LTO dist profile (ADR-0054) landed. The 0.50 wall target is still not met: dm 0.66, dml 0.75, gi 0.74 (release). jsTyping is not equivalent work. Held: `.1266`, the TS2775 port, export= pure alias, diff R. |
+| 2026-10-11 | `6842ea96` (round 7, batches 1–21 on main) / native `5b1047d` | +174 checker_types, +68 configured, +202 diagnostics, +52 configured cases since round-6 close; exact oracle 9,554 → 9,597 since batch 17 | 0 previously RIGHT or EXACT losses | **Round 7 continues; integration is automated.** The exact native oracle is a gate leg (74.99% EXACT), the jsTyping and callgrind legs were added, the gate scripts are committed under scripts/integration/, and a continuous loop lands green batches through session interruptions. The rejected alias/mapper cutover is retired in favour of a harvest. The 0.50 wall target is still not met (dist: dm 0.54, dml 0.72, gi 0.60). |
