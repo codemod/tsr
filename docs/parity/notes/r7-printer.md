@@ -787,3 +787,43 @@ clause's element (`extends Foo`), so the printer writes `<>` for an empty
 list outside a `HeritageClause`. Measured: `printer_round_trip` 11,814 →
 11,815 passes, failures 5 → 4, 0 newly failing; the checker does not depend
 on `tsr-printer`.
+
+## 17. `symbol_chain` asks `needsQualification`'s own walk when `resolveName` disagrees
+
+**Forcing constraint.** `emitClassMergedWithConstNamespaceNotElided` (5
+lines): `export namespace Clone { const enum LOCAL { AUTO, LOCAL, … } }`
+prints `LOCAL`, `LOCAL.LOCAL`, … natively; the port printed
+`Clone.LOCAL`, `Clone.LOCAL.LOCAL`. `moduleSharesNameWithImportDeclarationInsideIt5`
+(2 lines) is the same shape.
+
+**Cause.** `symbol_chain` gated on the conflated `needs_qualification`
+(`resolveName` at the site; documented at its definition). From the enum's
+own name, `resolveName` looks in the enum's exports and finds the member
+`LOCAL` (enum-member meaning is part of Type), so the port qualified.
+Native's `needsQualification` walks `someSymbolTableInScope`, which never
+visits an enum's members: the first table holding `LOCAL` is `Clone`'s, and
+it holds the enum itself.
+
+**The port.** `chain_needs_qualification` (checker.rs, used by
+`symbol_chain`): `resolveName` finding the symbol itself still answers no;
+finding nothing still answers yes (it stands in for "no accessible chain",
+the reason the conflated predicate exists); finding a *different* symbol now
+defers to the honest walk (`shadow_walk`, `is_shadowed_at`'s walk made
+tri-state), and no qualification is owed only when that walk's first hit is
+the symbol itself.
+
+- **First build refused: "found nowhere" read as "no qualification".**
+  Using `is_shadowed_at` directly measured +7 / **−82** types and 8
+  diagnostic cases (`nodeModulesExports*`): an unresolvable import `Thing`
+  made `resolveName` answer it, the honest walk found nothing, and the name
+  printed bare where native's chain is empty and spells the import type.
+- **Prerequisite: an unresolvable alias is `unknownSymbol`.** Then
+  `privacyImportParseErrors` 0:622 (`export namespace m3 { import m3 =
+  require("…") }`) printed `typeof m3`. Native's `needsQualification` resolves
+  the alias to `unknownSymbol`, whose `SymbolFlagsProperty` is a value
+  meaning, so it shadows the namespace. `qualifies_for` now answers
+  `PROPERTY` for an alias that does not resolve, as the resolver's own walk
+  already did.
+
+**Measured** against §16's commit (`8807cfe10`), both dumps unfiltered:
+types **+7 / −0**, diagnostics unchanged.
