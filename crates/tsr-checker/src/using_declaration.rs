@@ -22,10 +22,8 @@ impl Checker<'_, '_> {
     /// at the initializer with the declaration form's head message. A missing
     /// global interface is upstream's `emptyObjectType` and skips the check.
     ///
-    /// `NodeFlagsAwaitUsing` is not recorded by this parser, which consumes
-    /// the `await` before `parseVariableDeclarationList` and flags the list
-    /// `USING` alone; [`Checker::is_await_using_list`] recovers it from the
-    /// token written before the list. Only a definite `NotRelated` on a
+    /// `NodeFlagsAwaitUsing` is the list's `Const | Using`
+    /// ([`Checker::is_await_using_list`]). Only a definite `NotRelated` on a
     /// reportable pair reports, `assignreport.rs`'s rule for the same
     /// `checkTypeAssignableTo`.
     pub(crate) fn check_using_declaration_initializer(&mut self, node: NodeId) {
@@ -92,22 +90,10 @@ impl Checker<'_, '_> {
         (!self.is_gap(declared)).then_some(declared)
     }
 
-    /// Is this `USING` list an `await using` one (`NodeFlagsAwaitUsing`,
-    /// `Const|Using` upstream)? The parser eats the `await` immediately before
-    /// the list (`statement.rs`'s statement and `for` heads), so the token
-    /// written before the list's `using` decides it. A missing source text
-    /// answers `false`, the `using` reading.
+    /// Is this list an `await using` one? `NodeFlagsAwaitUsing` is
+    /// `Const | Using` (`ast/nodeflags.go:51`), which the parser sets on the
+    /// list (`parseVariableDeclarationList`, `parser.go:1563`).
     pub(crate) fn is_await_using_list(&self, list: NodeId) -> bool {
-        let Some(file) = self.source_file_of_for_diagnostics(list) else { return false };
-        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
-        else {
-            return false;
-        };
-        let start = self.nodes.span(list).start as usize;
-        let Some(before) = text.get(..start) else { return false };
-        let before = before.trim_end();
-        before.strip_suffix("await").is_some_and(|rest| {
-            !rest.chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$')
-        })
+        self.nodes.flags(list) & tsr_ast::NodeFlags::BLOCK_SCOPED == tsr_ast::NodeFlags::CONSTANT
     }
 }

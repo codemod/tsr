@@ -242,14 +242,23 @@ function whose recovery differed. Each landed as its own commit:
 | `typeHasArrowFunctionBlockingParseError` (`:4450`) | `(a): => {}` taken as an arrow | parserX_ArrowFunction3, ArrowFunction3 |
 | `parseThisTag` (`jsdoc.go:985`) | `@this` required braces | thisPrototypeMethodCompoundAssignmentJs |
 
+| `ReScanSlashToken` (`scanner.go:1067`) | an unterminated regex ran to the line end | parserRegularExpressionDivideAmbiguity4 |
+| `parseVariableDeclarationList` (`:1563`) | `await using` flagged `Using` alone | awaitUsingDeclarationsInForIn, awaitUsingDeclarationsWithImportHelpers |
+| `checkJSDecoratorSyntax` (`:6657`) | no TS1206/TS8038 decorator placement in `.js` | esDecorators-classDeclaration-exportModifier |
+| `parseFunctionOrConstructorType` (`:2731`) | speculative function type fell back to a parenthesized one | functionTypesLackingReturnTypes, parseErrorIncorrectReturnToken |
+| `parseElementAccessExpressionRest` (`:5436`) | `x[]` reported TS1109, not TS1011 | badArrayIndex, objectLitArrayDeclNoNew |
+| `nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine` (`:6324`) | `for (using of …)` read as a declaration | usingDeclarationsInForOf.2 |
+
+`await using` needed its reader in the same commit: before it,
+`using_declaration.rs::is_await_using_list` recovered the `await` from the
+source text in front of the list's span, which now starts at the `await`.
+The parser half alone added TS2741 to every `await using` case. The reader
+reads the flags now (integrator's grant). `checkJSDecoratorSyntax` lands in
+`check.rs::check_js_syntax`, because this port runs `checkJSSyntax` in the
+checker (grant as well).
+
 Held, with the reason:
 
-- `await using` as `NodeFlagsAwaitUsing` (`Const | Using`, `:1563`): the
-  parser half is three lines, but `using_declaration.rs::is_await_using_list`
-  recovers `await` from the source text before the list's span, and the
-  list's span then starts at the `await`. Alone it adds TS2741 on every
-  `await using` case. It needs that reader to read the flags in the same
-  commit (routed).
 - parserSuperExpression2: the tree matches native's; the extra TS2304 on
   `super<T>` is the checker resolving the type arguments of a super call
   outside a constructor, which native does not.

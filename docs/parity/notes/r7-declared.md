@@ -619,3 +619,46 @@ diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0. The case's
 remaining 16 lines are the call results' literal widening under a
 conditional contextual type (`() => 0` printed `() => number`), which is
 getReturnTypeFromBody's contextual literal test, not this mint.
+
+## 14. A type reference through an alias whose target merges an alias with a value (exportNamespace9 3:2)
+
+**Forcing constraint.** In `/c.ts`, `import { A } from "./b"; const A = 1;
+export { A }` merges an import alias with a const. `/d.ts`'s `import { A }
+from "./c"` therefore resolves (resolveAlias) to that merged symbol and
+stops there: it is no pure alias (`isNonLocalAlias` excludes a symbol with
+a value meaning). resolveName admitted `type _ = A` because getSymbolFlags
+accumulates the chain's flags. getTypeReferenceType then reads
+tryGetDeclaredTypeOfSymbol, whose alias arm is getDeclaredTypeOfAlias
+(`checker.go:14523`): the declared type of the merged symbol's own alias
+target, `a.ts`'s `type A = number`. The alias road (`declared.rs`) followed
+only pure aliases, found no TYPE meaning on the merged symbol, and answered
+`error` (`_ : any` where tsgo prints `number`).
+
+**Port.** After the pure-alias walk, a target with no TYPE meaning that
+still carries ALIAS is followed through its own alias
+(`resolve_alias`), up to the same 8 steps. No state.
+
+**Measured** (unfiltered against `77418645`): types **+1, 0 lost**
+(exportNamespace9:3:2); diagnostics 0 / 0; jsTyping new_false 0 /
+lost_true 0.
+
+## 15. A variadic or rest tuple's Array base members (granted: `members.rs`, the Array-base fallback only)
+
+**Forcing constraint.** getTupleBaseType (`checker.go:19206`) gives every
+tuple target the base `Array<E>` (`ReadonlyArray<E>` when readonly), with
+`E` the union of its element type arguments, a variadic element
+contributing `T[number]`. `get_type_of_property_with_this_argument`'s
+Array-base fallback handled only fixed tuples (`tuple_element_lists`). A rest
+tuple (`variadic_tuple_elements`) never reached `Array<E>`, so `.slice` on
+`[string, ...any[]]` was `error` (mappedTypesGenericTuples2 0:20-27 once
+r7-contextual's Promise.all boundary types the receiver). The integrator
+granted this one fallback.
+
+**Port.** The same fallback with `E = variadic_tuple_index_union(id)`
+(`tuples.rs`, which computes getTupleBaseType's element union for these
+tuples already). `.length` keeps its own arm.
+
+**Measured** (alone, unfiltered against `77418645`): types **+3, 0 lost**
+(variadicTuples2); diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0.
+Probe: `[string, ...any[]]`'s `slice(1)` is `any[]`, and `[string,
+...number[]]`'s is `(string | number)[]`, as in tsgo.
