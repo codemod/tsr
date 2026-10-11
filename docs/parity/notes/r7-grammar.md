@@ -750,3 +750,20 @@ located at its tag. `check_grammar_accessor_declaration` read only a written
 value parameter, exactly as `check_grammar_parameter_list` reads its
 reparsed `?` (ADR-0046), and reports at the tag. Converted:
 `jsDeclarationsReusesExistingTypeAnnotations`.
+
+## §37 Nothing below a `with` body is checked (needs check.rs grant (f))
+
+`checkWithStatement` (`checker.go:4156`) checks the head expression and
+reports TS2410, but never hands the statement to `checkSourceElement`. No
+check of any kind runs on a `with` body upstream: grammar, names, types or
+unused tracking. The references there are never resolved either, so they do
+not count as uses. The check walk (`check_node`, check.rs) descended into the
+body anyway. Several rules carry their own `is_inside_with_statement` guard
+for this (TS1156, `r5-smallcodes2.md` §2.1), and every rule without one
+reported there. `check_node` now skips the `WithStatement`'s statement child.
+The per-rule guards are redundant from here on; they are kept, since they
+still describe the rule's own reading. Measured on the exact oracle (filter
+`ith`): `functionExpressionInWithBlock`, `withStatementErrors`,
+`parserWithStatement2` and `withStatements` convert, none lost.
+*Falsifier.* A native diagnostic inside a `with` body that is not from the
+parser or the binder.

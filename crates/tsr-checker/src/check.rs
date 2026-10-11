@@ -1156,7 +1156,17 @@ impl Checker<'_, '_> {
         let mut children = [const { None }; INLINE_CHILDREN];
         let mut count = 0usize;
         let mut overflow: Vec<NodeId> = Vec::new();
+        // `checkWithStatement` (`checker.go:4156`) checks the expression and
+        // never hands the statement to `checkSourceElement`, so nothing below
+        // a `with` body is checked upstream (r7-grammar §37).
+        let with_body = match typed {
+            Node::WithStatement(with) => with.statement.and_then(|statement| statement.node_id()),
+            _ => None,
+        };
         tsr_ast::for_each_child_id(typed, |child| {
+            if Some(child) == with_body {
+                return;
+            }
             if count < INLINE_CHILDREN {
                 children[count] = Some(child);
             } else {
