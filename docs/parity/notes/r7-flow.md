@@ -822,3 +822,34 @@ each, `intersectionNarrowing` 1), diagnostics unchanged, 0 lost; jsTyping 122
 → 122, new_false 0, lost_true 0; exact oracle 9660 → 9664 (those four cases), 0
 lost; Ir gi 0.9999, dm 0.9999. No cache added; the export arm runs inside
 the existing once-per-root marking walk.
+
+## §27 The key-property map (`getKeyPropertyName`) in discriminant and predicate narrowing
+
+`computeKeyPropertyNameAndMap` (`relater.go:1141`) indexes a union of at
+least ten object/instantiable constituents by its first unit-typed property
+when the keys are literal and mostly unique. `narrowTypeByDiscriminantProperty`
+(`flow.go:702-719`) answers a `===`/`!==` on that property by lookup: the
+matching constituent itself on the equal branch, the union without it on the
+other when its key is a unit type. `getNarrowedTypeWorker` (`flow.go:885-899`)
+compares each candidate part with the constituent its discriminant selects.
+The port had neither ("an optimisation with one behavioural edge", the old
+doc said). The edge is real: the lookup answers the constituent alone where
+the comparability filter keeps every constituent without the property,
+including a nullable one. `narrowingUnionWithBang`'s ten-member optional
+`thing` narrowed by `working.thing!.name !== "Correct"` is native `{ name:
+'Correct'; id: string; }` in the else branch, the port's `… | undefined`
+(its nine-member twin has no key property and keeps `undefined` natively too).
+
+`key_property_map` (flow.rs) computes the name and map per narrowing. Native
+caches both on the union type; here only a union of ten or more object
+constituents pays the walk (one property-name list and one property type per
+constituent), so no cache was added. Property order is
+`get_property_names_of_type`'s, the declaration order native's
+`getPropertiesOfType` yields for the type literals these unions are made of.
+The value's type for the lookup goes through the equality arm's existing
+memo and re-entry guard, now shared as `narrow_value_type`.
+
+Measured on `0a4150b0` unfiltered: types **+2** (`narrowingUnionWithBang`
+0:49/0:51), diagnostics unchanged, 0 lost; exact oracle 9664 → 9665, 0 lost;
+jsTyping 122 → 122, new_false 0,
+lost_true 0; Ir gi 1.0000, dm 1.0000.
