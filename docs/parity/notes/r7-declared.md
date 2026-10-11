@@ -1266,3 +1266,35 @@ in `instantiations` like the other arms.
 parent also has §35, whose ten rows are excluded): types **+3, 0 lost**;
 diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 0.9999, dm
 1.0003 (with §35).
+
+## 37. A reference to an alias declared as a deferred conditional reference is the root's instance
+
+**Forcing constraint.** getConditionalTypeInstantiation (`checker.go:22485`)
+gives a deferred result `alias` when one is passed, else
+`instantiateTypeAlias(root.alias, mapper)`: the alias that owns the
+conditional node. `type ComponentPropsWithoutRef<T> =
+PropsWithoutRef<ComponentProps<T>>` declares the deferred conditional under
+its own name (the declaring alias is newAliasSymbol at the declaration), but a
+reference elsewhere re-instantiates with no new alias, so `props:
+ComponentPropsWithoutRef<T>` at another `T` is `PropsWithoutRef<ComponentProps<T>>`
+(genericCallInferenceInConditionalTypes1), and `type W<T> =
+ComponentPropsWithoutRef<FunctionComponent<T>>` instantiates to
+`PropsWithoutRef<T>`. TSR minted the referenced alias's name.
+
+**Port.** `deferred_conditional_reference_alias`, after
+`evaluate_conditional_alias` declines in `create_type_reference`: a generic
+alias whose body is a reference to an alias chain ending in a conditional
+(`alias_chain_ends_in_conditional`) resolves the reference's arguments under
+its bindings and references the inner alias; only a deferred conditional
+answer is taken. A distributive root over a union or never argument is not:
+mapTypeWithAlias distributes, and the union carries the declared type's own
+alias instantiated (`WithName<T>` over `DiscriminateUnion<BigUnion, "name",
+T>` keeps its name; taking it cost
+conditionalTypeDiscriminatingLargeUnionRegularTypeFetchingSpeedReasonable
+one row in the first cut). No new state.
+
+**Measured** (unfiltered against `6dc72ec9`): types **+7, 0 lost**
+(divideAndConquerIntersections 3, coAndContraVariantInferences3 2,
+genericCallInferenceInConditionalTypes1 1,
+indexedAccessKeyofNestedSimplifiedSubstituteUnwrapped 1); diagnostics 0 / 0;
+jsTyping new_false 0 / lost_true 0; Ir gi 0.9998, dm 1.0002.
