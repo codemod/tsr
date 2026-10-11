@@ -67,6 +67,11 @@ pub(crate) struct PerfLinks {
     /// object literal and contextual union
     /// ([`Checker::discriminated_contextual_type`]).
     pub(crate) discriminated_contextual_types: FxHashMap<(NodeId, TypeId), TypeId>,
+    /// [`Checker::type_only_alias_declaration`]'s answer per alias symbol:
+    /// native `links.typeOnlyDeclaration`. The walk reads only the binder,
+    /// the module host and completed alias targets; published outside alias
+    /// resolution.
+    pub(crate) type_only_alias_declarations: FxHashMap<SymbolId, Option<bool>>,
     /// Reused buffer for [`Checker::memo_frames`]' scope owners.
     owners_scratch: Vec<NodeId>,
     /// Reused `visiting` path for a property walk started from an empty path

@@ -4902,6 +4902,22 @@ impl Checker<'_, '_> {
         &mut self,
         symbol: tsr_binder::SymbolId,
     ) -> Option<bool> {
+        // Native reads `links.typeOnlyDeclaration`, set once per alias
+        // (`getTypeOnlyAliasDeclarationEx`, `checker.go:2144`); the walk below
+        // runs per value identifier. Published only outside alias resolution,
+        // whose in-progress chain answers `None` early (`r7-perf.md` §24).
+        if let Some(&answer) = self.perf_links.type_only_alias_declarations.get(&symbol) {
+            return answer;
+        }
+        let publish = self.alias_resolving == 0;
+        let answer = self.type_only_alias_declaration_walk(symbol);
+        if publish {
+            self.perf_links.type_only_alias_declarations.insert(symbol, answer);
+        }
+        answer
+    }
+
+    fn type_only_alias_declaration_walk(&mut self, symbol: tsr_binder::SymbolId) -> Option<bool> {
         let mut current = self.binder.merged_symbol(symbol);
         for _ in 0..16 {
             let entry = self.binder.symbols().get(current);
