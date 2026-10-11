@@ -1177,3 +1177,53 @@ whose decided property list and index infos are empty.
 **Measured** (diagnostics and types, unfiltered, against batch 28 with
 §22–§28 on top): `tsxStatelessFunctionComponentOverload5` RIGHT, types +11,
 0 lost.
+
+## 30. An array-like JSX children part answers element positions through its number index
+
+**Forcing case.** `checkJsxChildrenProperty4` (38,15)(41,15). The children
+target is `((user: IUser) => Element) & ReactNode`. It distributes into
+array-like parts such as `((user) => Element) & Array<ReactChild | any[] |
+boolean>` and non-array parts such as `((user) => Element) & string`.
+
+**Upstream.** `elaborateIterableOrArrayLikeTargetElementwise` (`jsx.go:419`)
+relates each child to the non-array parts' iteration type (`string`) united
+with `getBestMatchIndexedAccessTypeOrUndefined` over the array-like part at
+the child's position. For an intersection with an array, that is the
+number index signature's element: `boolean | any[] | ReactChild`. The
+child, a function, fails it. `elaborateDidYouMeanToCallOrConstruct` then
+reports at the arrow (column 15), because the function's return
+`Element` does relate.
+
+**Port** (`jsx_component.rs::elaborate_jsx_children_elementwise`).
+`array_or_tuple_element_access` answers only for array and tuple
+references, so the indexed part was dropped. The target was `string`, the
+did-you-mean arm saw `Element → string` fail, and the report fell to the
+`JsxExpression` (column 13). An array-like part that is no tuple reference
+now answers through its applicable number index signature. A tuple's
+out-of-range position still answers nothing, as native's indexed access
+does.
+
+**Measured** (diagnostics and types, unfiltered, the change alone on the
+same tree): `checkJsxChildrenProperty4` RIGHT, 0 lost, types unchanged.
+
+## 31. A missing required member decides a hyphen-sensitive JSX relation
+
+**Forcing case.** `ignoredJsxAttributes` (20,11). `<Yadda bar="hello"
+data-yadda={42}/>` against `Props { foo: string; [dataProp: string]:
+string }` is native TS2741 (`foo` missing).
+- `jsx_attributes_relation` declines any source with a hyphenated member
+  against a target where one of the two hyphen rules could decide the
+  answer: `membersRelatedToIndexInfo` skipping it, or `hasCommonProperties`
+  counting it. This port's relater carries no `ObjectFlagsJsxAttributes`.
+- `propertiesRelatedTo` fails on a required target member the source lacks,
+  and neither rule can turn that around. A hyphenated source member neither
+  supplies a non-hyphenated name nor is consulted for it.
+
+**Port.** Before declining, a target (or an intersection constituent,
+whose required member is the intersection's) with a complete member table
+that declares a required, non-hyphenated member the source lacks decides
+NotRelated. A union target still declines, since its constituent choice is
+the relation's.
+
+**Measured** (diagnostics, the 375 JSX-named cases, the change alone):
+`ignoredJsxAttributes` RIGHT, nothing else moved. The full gate follows.

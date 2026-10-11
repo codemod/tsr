@@ -265,7 +265,23 @@ impl Checker<'_, '_> {
         // `len(b.file.Diagnostics()) == 0` — stated explicitly upstream, so
         // ported rather than measured. §161's third falsifier is the re-measure
         // if the wrong column turns out to concentrate in recovered trees.
-        if self.file_has_parse_errors || ambient {
+        if self.file_has_parse_errors {
+            return;
+        }
+        // `checkPrivateIdentifier` (`binder.go:1323`), the binder's
+        // `KindPrivateIdentifier` arm (`:612`): `#constructor` is TS18012
+        // wherever it is written, ambient or not, in a file without parse
+        // diagnostics (r7-grammar §32).
+        if let Some(Node::PrivateIdentifier(private)) = self.node_map.get(node) {
+            if private.text == "#constructor"
+                && let Some(file) = self.source_file_of_for_diagnostics(node)
+            {
+                let span = self.nodes.span(node);
+                self.report(file, Diagnostic::new(&messages::CONSTRUCTOR_IS_A_RESERVED_WORD, span));
+            }
+            return;
+        }
+        if ambient {
             return;
         }
         let Some(Node::Identifier(identifier)) = self.node_map.get(node) else { return };
@@ -290,8 +306,11 @@ impl Checker<'_, '_> {
         // unreachable here rather than declined: an `await` used as a name at
         // the **top level of an external module** is TS1262, and elsewhere in
         // an `AwaitContext` (which the parser sets as of r7-parser `1321f0aa`)
-        // TS1359. The `yield` TS1359 arm needs `YieldContext`, which this
-        // parser does not set. §1043; r7-grammar §9.
+        // TS1359. Upstream's `yield` TS1359 arm is unreachable: `yield` is
+        // `KindLastFutureReservedWord` (`ast/kind_generated.go:401`), so the
+        // future-reserved arm above takes it first. Correction of the record:
+        // this comment used to say the arm needed `YieldContext`. §1043;
+        // r7-grammar §9, §32.
         if !future_reserved {
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
             let external = matches!(

@@ -298,7 +298,7 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
         let span = self.error_span(declaration);
-        self.report(
+        self.report_skipped_on_no_emit(
             file,
             Diagnostic::with_args(
                 &messages::DUPLICATE_IDENTIFIER_0_COMPILER_RESERVES_NAME_1_WHEN_EMITTING_SUPER_REFERENCES_IN_STATIC_INITIALIZERS,
@@ -539,5 +539,158 @@ impl Checker<'_, '_> {
         let initial = self.get_optional_type(declared, false);
         let flowed = self.flow_type_of_this_property_at(constructor, &spelled, declared, initial);
         !self.contains_undefined_type(flowed)
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `superCallShouldBeRootLevel` (`checker.go:2860`): not
+    /// `emitStandardClassFields`, and the class has an instance property with
+    /// an initializer or any private-named element
+    /// (`isInstancePropertyWithInitializerOrPrivateIdentifierProperty`,
+    /// `:2906`), or the constructor has a parameter with a parameter-property
+    /// modifier (`ModifierFlagsParameterPropertyModifier`: an accessibility
+    /// modifier, `readonly` or `override`). The caller,
+    /// `check_super_call_is_first` (check.rs), reports TS2376 behind it
+    /// (r7-grammar §33).
+    pub(crate) fn super_call_should_be_root_level(
+        &self,
+        members: &[tsr_ast::ClassElement<'_>],
+        constructor: &tsr_ast::ConstructorDeclaration<'_>,
+    ) -> bool {
+        if self.get_emit_standard_class_fields() {
+            return false;
+        }
+        let member_has_state = members.iter().any(|member| {
+            let private_named = match member {
+                tsr_ast::ClassElement::PropertyDeclaration(n) => {
+                    matches!(n.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+                }
+                tsr_ast::ClassElement::MethodDeclaration(n) => {
+                    matches!(n.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+                }
+                tsr_ast::ClassElement::GetAccessorDeclaration(n) => {
+                    matches!(n.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+                }
+                tsr_ast::ClassElement::SetAccessorDeclaration(n) => {
+                    matches!(n.name, tsr_ast::PropertyName::PrivateIdentifier(_))
+                }
+                _ => false,
+            };
+            private_named
+                || matches!(member, tsr_ast::ClassElement::PropertyDeclaration(property)
+                    if property.initializer.is_some()
+                        && !crate::check::has_modifier(property.modifiers, SyntaxKind::StaticKeyword))
+        });
+        member_has_state
+            || constructor.parameters.iter().any(|parameter| {
+                parameter.modifiers.iter().any(|modifier| {
+                    matches!(modifier, tsr_ast::ModifierLike::Token(token) if matches!(
+                        token.kind,
+                        SyntaxKind::PublicKeyword
+                            | SyntaxKind::PrivateKeyword
+                            | SyntaxKind::ProtectedKeyword
+                            | SyntaxKind::ReadonlyKeyword
+                            | SyntaxKind::OverrideKeyword
+                    ))
+                })
+            })
+    }
+
+    /// `superCallIsRootLevelInConstructor` (`checker.go:2910`): the call's
+    /// parent, above any parentheses, is an expression statement directly in
+    /// the constructor body.
+    pub(crate) fn super_call_is_root_level_in_constructor(
+        &self,
+        call: NodeId,
+        body: NodeId,
+    ) -> bool {
+        let mut parent = self.nodes.parent(call);
+        while let Some(at) = parent
+            && self.nodes.kind(at) == SyntaxKind::ParenthesizedExpression
+        {
+            parent = self.nodes.parent(at);
+        }
+        parent.is_some_and(|statement| {
+            self.nodes.kind(statement) == SyntaxKind::ExpressionStatement
+                && self.nodes.parent(statement) == Some(body)
+        })
+    }
+
+    /// `nodeImmediatelyReferencesSuperOrThis` (`checker.go:2915`): `super` or
+    /// `this` anywhere below, not entering an arrow, function declaration or
+    /// expression, or property declaration, nor the body block of a
+    /// constructor, method or accessor (whose name and parameters are still
+    /// visited).
+    pub(crate) fn node_immediately_references_super_or_this(&self, node: NodeId) -> bool {
+        match self.nodes.kind(node) {
+            SyntaxKind::SuperKeyword | SyntaxKind::ThisKeyword => return true,
+            SyntaxKind::ArrowFunction
+            | SyntaxKind::FunctionDeclaration
+            | SyntaxKind::FunctionExpression
+            | SyntaxKind::PropertyDeclaration => return false,
+            SyntaxKind::Block
+                if self.nodes.parent(node).is_some_and(|parent| {
+                    matches!(
+                        self.nodes.kind(parent),
+                        SyntaxKind::Constructor
+                            | SyntaxKind::MethodDeclaration
+                            | SyntaxKind::GetAccessor
+                            | SyntaxKind::SetAccessor
+                    )
+                }) =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+        let mut children = Vec::new();
+        if let Some(typed) = self.node_map.get(node) {
+            tsr_ast::for_each_child_id(typed, |child| children.push(child));
+        }
+        children.into_iter().any(|child| self.node_immediately_references_super_or_this(child))
+    }
+
+    /// `scanner.DeclarationNameToString` (`scanner/utilities.go`) for a
+    /// present name: `GetTextOfNode`, the name's source text from its
+    /// trivia-free start, so `[x = 0]` prints as written. `None` without
+    /// source text or for a missing (zero-width) name, where the caller's
+    /// spelling stands (r7-grammar §35).
+    pub(crate) fn declaration_name_source_text(&self, name: NodeId) -> Option<String> {
+        let span = self.nodes.span(name);
+        if span.start == span.end {
+            return None;
+        }
+        let file = self.source_file_of_for_diagnostics(name)?;
+        let text = self.module_host.and_then(|host| host.source_text(file, self.nodes))?;
+        text.get(span.start as usize..span.end as usize).map(str::to_string)
+    }
+
+    /// `GetErrorRangeForNode`'s `KindConstructor` arm (`scanner.go:2632`):
+    /// from the constructor's first token (modifiers included) to the end of
+    /// the `constructor` keyword, or of a string-literal `"constructor"`
+    /// name. Scans the source on the diagnostic path; without source text,
+    /// the node's span. The shared `error_span` has no such arm (routed);
+    /// this lane's constructor reports use this (r7-grammar §35).
+    pub(crate) fn constructor_error_span(&self, constructor: NodeId) -> tsr_core::Span {
+        let span = self.nodes.span(constructor);
+        let Some(file) = self.source_file_of_for_diagnostics(constructor) else { return span };
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(span.start as usize..span.end as usize))
+        else {
+            return span;
+        };
+        let mut scanner = tsr_scanner::Scanner::new(rest);
+        loop {
+            let token = scanner.scan();
+            match token.kind {
+                SyntaxKind::ConstructorKeyword | SyntaxKind::StringLiteral => {
+                    return tsr_core::Span::new(span.start, span.start + token.span.end);
+                }
+                SyntaxKind::EndOfFile => return span,
+                _ => {}
+            }
+        }
     }
 }

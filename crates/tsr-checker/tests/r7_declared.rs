@@ -252,3 +252,102 @@ fn an_interface_reference_alias_instance_keeps_its_call_signature() {
          const b: MH<number> = (y) => {};\n";
     assert_eq!(type_of_last_initializer(source), "(y: { v: number; }) => void");
 }
+
+/// §26: getLiteralTypeFromProperties lists a string index's keys as the one
+/// stringOrNumberType entry, and getUnionTypeEx answers a one-entry list
+/// with that entry, so no `keyof T1` origin is attached (tsgo: `string |
+/// number`).
+#[test]
+fn keyof_a_string_index_alias_is_string_or_number() {
+    let source = "type T1 = { [key: string]: { a: string } };\n\
+         type K<T> = keyof T;\n\
+         declare const k: K<T1>;\n\
+         const x = k;\n";
+    assert_eq!(type_of_last_initializer(source), "string | number");
+}
+
+/// §27: a generic alias over a homomorphic mapped alias keeps the inner alias
+/// (instantiateMappedType's instantiateConstituent passes no alias; tsgo:
+/// `Partial<{ a: number; }>`).
+#[test]
+fn a_homomorphic_mapped_reference_alias_keeps_the_inner_alias() {
+    let source = "type P<T> = { [K in keyof T]?: T[K] };\n\
+         type Q<T> = P<T>;\n\
+         declare const q: Q<{ a: number }>;\n\
+         const x = q;\n";
+    assert_eq!(type_of_last_initializer(source), "P<{ a: number; }>");
+}
+
+/// §28: a conditional whose check mentions a type parameter but is not
+/// generic (a function type) infers and picks its branch, which carries no
+/// alias (tsgo: `[head: V, b: string]`).
+#[test]
+fn a_definite_generic_infer_conditional_answers_its_branch() {
+    let source = "type P<V> = ((head: V, b: string) => void) extends (...args: infer R) => void ? R : any;\n\
+         function f<V>() {\n\
+             declare const p: P<V>;\n\
+             const x = p;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "[head: V, b: string]");
+}
+
+/// §29: a non-generic alias over a generic alias whose body is an interface
+/// reference names the instance (tsgo: `R1`).
+#[test]
+fn a_new_alias_over_an_interface_reference_alias_names_the_instance() {
+    let source = "interface S<P> { config: P; }\n\
+         type A<T> = S<{ t: T }>;\n\
+         type R1 = A<number>;\n\
+         declare const r: R1;\n\
+         const x = r;\n";
+    assert_eq!(type_of_last_initializer(source), "R1");
+}
+
+/// §31: an optional mapped property includes undefined in its type
+/// (getTypeOfMappedSymbol; tsgo: `{ a?: 1 | undefined; b?: 2 | undefined; }`).
+#[test]
+fn an_optional_mapped_property_includes_undefined() {
+    let source = "type Obj = { a: 1; b: 2 };\n\
+         declare const m: { [K in keyof Obj]?: Obj[K] };\n\
+         const x = m;\n";
+    assert_eq!(type_of_last_initializer(source), "{ a?: 1 | undefined; b?: 2 | undefined; }");
+}
+
+/// §32: a homomorphic mapping over a reference to a mapped alias
+/// enumerates that instance's keys (tsgo: `{ "12": number; 42: string; }`).
+#[test]
+fn a_homomorphic_mapping_over_a_mapped_alias_reference_has_its_keys() {
+    let source = "type M = { foo: boolean; \"12\": number; 42: string };\n\
+         type P<T, K extends keyof T> = { [Q in K]: T[Q] };\n\
+         type O = P<M, \"12\" | 42>;\n\
+         declare const m: { [K in keyof O]: O[K] };\n\
+         const x = m;\n";
+    assert_eq!(type_of_last_initializer(source), "{ \"12\": number; 42: string; }");
+}
+
+/// §33: an intersection of mapped-alias references lists every constituent's
+/// members, optional only where each constituent is (tsgo prints the same
+/// members, `foo?` first).
+#[test]
+fn an_intersection_of_mapped_aliases_lists_its_members() {
+    let source = "type M = { foo: boolean; bar: number };\n\
+         type P<T, K extends keyof T> = { [Q in K]: T[Q] };\n\
+         type O<T> = { [Q in keyof T]?: T[Q] };\n\
+         type I = P<M, \"bar\"> & O<P<M, \"foo\">>;\n\
+         declare const m: { [K in keyof I]: I[K] };\n\
+         const x = m;\n";
+    assert_eq!(type_of_last_initializer(source), "{ bar: number; foo?: boolean | undefined; }");
+}
+
+/// §35: a non-distributive infer conditional infers from the whole union
+/// check (tsgo: `"email" | "text"`).
+#[test]
+fn a_non_distributive_infer_conditional_infers_from_a_union() {
+    let source = "interface A { type: \"text\" }\n\
+         interface B { type: \"email\" }\n\
+         type C = A | B;\n\
+         type T = C extends { type: infer R } ? R : never;\n\
+         declare const t: T;\n\
+         const x = t;\n";
+    assert_eq!(type_of_last_initializer(source), "\"email\" | \"text\"");
+}

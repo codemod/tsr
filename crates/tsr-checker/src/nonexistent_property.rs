@@ -372,6 +372,9 @@ impl Checker<'_, '_> {
             } else {
                 receiver_type
             };
+        // reportNonexistentProperty's union arm (checker.go:11545): the first
+        // constituent without the name explains every message below.
+        let union_miss = self.union_constituent_miss(node, name_id, name_text, containing);
         if self.type_has_static_property(name_text, containing) {
             let class_name = self
                 .owning_symbol_of(containing)
@@ -382,7 +385,8 @@ impl Checker<'_, '_> {
             let printed = self.type_to_string(containing);
             self.report(
                 file,
-                Diagnostic::with_args(
+                Self::chained_miss(
+                    union_miss,
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_TO_ACCESS_THE_STATIC_MEMBER_2_INSTEAD,
                     span,
                     [name_text.to_string(), printed, format!("{class_name}.{name_text}")],
@@ -401,7 +405,8 @@ impl Checker<'_, '_> {
             let printed = self.type_to_string(containing);
             self.report(
                 file,
-                Diagnostic::with_args(
+                Self::chained_miss(
+                    union_miss,
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DO_YOU_NEED_TO_CHANGE_YOUR_TARGET_LIBRARY_TRY_CHANGING_THE_LIB_COMPILER_OPTION_TO_2_OR_LATER,
                     span,
                     [name_text.to_string(), printed, lib.to_string()],
@@ -428,7 +433,8 @@ impl Checker<'_, '_> {
             let printed = self.type_to_string(containing);
             self.report(
                 file,
-                Diagnostic::with_args(
+                Self::chained_miss(
+                    union_miss,
                     &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1_DID_YOU_MEAN_2,
                     span,
                     [name_text.to_string(), printed, suggestion],
@@ -493,7 +499,75 @@ impl Checker<'_, '_> {
         } else {
             &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1
         };
-        self.report(file, Diagnostic::with_args(message, span, [name_text.to_string(), printed]));
+        self.report(
+            file,
+            Self::chained_miss(union_miss, message, span, [name_text.to_string(), printed]),
+        );
+    }
+
+    /// `NewDiagnosticChainForNode(chain, propNode, message, args…)`: the
+    /// message, explained by `chain` when there is one (it is at the same
+    /// node, so the head keeps the span).
+    fn chained_miss<const N: usize>(
+        chain: Option<Diagnostic>,
+        message: &'static tsr_diagnostics::Message,
+        span: tsr_core::Span,
+        args: [String; N],
+    ) -> Diagnostic {
+        match chain {
+            Some(child) => Diagnostic::new_chain(Some(child), message, args),
+            None => Diagnostic::with_args(message, span, args),
+        }
+    }
+
+    /// `reportNonexistentProperty`'s union arm (`checker.go:11545-11552`):
+    /// for a property access whose name is not private and whose containing
+    /// type is a union without primitive flags (`boolean` and an enum's
+    /// union are primitive), the first constituent with neither the property
+    /// (`getPropertyOfType`, which reads the reduced apparent type) nor an
+    /// applicable index signature, as "Property … does not exist on type
+    /// '<constituent>'". Each constituent is read with the miss certificate
+    /// the union's own miss used (`union_property_lacks`); one it cannot
+    /// certify either way declines the chain, and the message is reported
+    /// without it, as before. No cache: run once per reported miss.
+    fn union_constituent_miss(
+        &mut self,
+        node: NodeId,
+        name_id: NodeId,
+        name: &str,
+        containing: TypeId,
+    ) -> Option<Diagnostic> {
+        use crate::flags::TypeFlags;
+        if !matches!(self.node_map.get(node), Some(Node::PropertyAccessExpression(_)))
+            || self.nodes.kind(name_id) == SyntaxKind::PrivateIdentifier
+            || self.store.get(containing).flags.intersects(TypeFlags::PRIMITIVE)
+        {
+            return None;
+        }
+        let crate::types::TypeData::Union { types, .. } = &self.store.get(containing).data else {
+            return None;
+        };
+        for constituent in types.clone() {
+            let flags = self.store.get(constituent).flags;
+            if flags.intersects(TypeFlags::NULLABLE | TypeFlags::ANY | TypeFlags::UNKNOWN)
+                || self.is_object_literal_type(constituent)
+            {
+                return None;
+            }
+            let apparent = self.primitive_apparent_type(constituent);
+            if apparent == self.intrinsics.error {
+                return None;
+            }
+            if self.apparent_type_lacks(apparent, name)? {
+                let printed = self.type_to_string(constituent);
+                return Some(Diagnostic::with_args(
+                    &messages::PROPERTY_0_DOES_NOT_EXIST_ON_TYPE_1,
+                    self.error_span(name_id),
+                    [name.to_string(), printed],
+                ));
+            }
+        }
+        None
     }
 
     /// `getPropertyTypeForIndexType`'s no-index-signature arm

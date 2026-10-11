@@ -319,6 +319,9 @@ impl Checker<'_, '_> {
                 let ambient =
                     ambient || has_modifier(declaration.modifiers, SyntaxKind::DeclareKeyword);
                 self.check_property_initialization(declaration.members, ambient);
+                // `checkConstructorDeclaration` runs for a class expression's
+                // constructor too (r7-grammar §33).
+                self.check_super_call_is_first(node);
                 // §764's sweep: the rule's entry destructures `ClassExpression`
                 // and only `ClassDeclaration` ever reached it.
                 self.check_extends_primitive(node);
@@ -2533,94 +2536,72 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// TS2376 — `A 'super' call must be the first statement in the constructor
-    /// …when a derived class contains initialized properties, parameter
-    /// properties, or private identifiers.`
-    ///
-    /// `checkConstructorDeclaration`'s else-branch (`checker.go:2868`): scan the
-    /// constructor's statements for the first `super()` expression statement,
-    /// stopping early at one that references `super` or `this`. Entirely
-    /// syntactic, gate included. §470.
+    /// TS2401 / TS2376 — `checkConstructorDeclaration`'s super-call arm
+    /// (`checker.go:2850`-`:2881`), for each constructor with a body:
+    /// `findFirstSuperCall(body)`; when `superCallShouldBeRootLevel`
+    /// (`class_fields.rs`), a first super call that is not a root-level
+    /// expression statement of the body is TS2401 at the call, and otherwise
+    /// a body whose statements reach `super`/`this`
+    /// (`nodeImmediatelyReferencesSuperOrThis`) before the super-call
+    /// statement is TS2376 at the constructor. `extends null` does not skip
+    /// the arm (its TS17005 is `check_derived_constructor_calls_super`'s).
+    /// §470; r7-grammar §33.
     fn check_super_call_is_first(&mut self, node: NodeId) {
-        let Some(Node::ClassDeclaration(class)) = self.node_map.get(node) else { return };
-        let Some(extends) = class
-            .heritage_clauses
-            .iter()
-            .find(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword)
-        else {
-            return;
+        let (heritage_clauses, members) = match self.node_map.get(node) {
+            Some(Node::ClassDeclaration(class)) => (class.heritage_clauses, class.members),
+            Some(Node::ClassExpression(class)) => (class.heritage_clauses, class.members),
+            _ => return,
         };
-        if extends.types.iter().any(|base| {
-            base.expression
-                .and_then(|e| e.node_id())
-                .is_some_and(|id| self.nodes.kind(id) == SyntaxKind::NullKeyword)
-        }) {
+        if !heritage_clauses.iter().any(|clause| clause.token.kind == SyntaxKind::ExtendsKeyword) {
             return;
         }
-        // "initialized properties, parameter properties, or private identifiers"
-        let mut has_state = false;
-        let mut constructor = None;
-        for member in class.members {
-            match member {
-                tsr_ast::ClassElement::PropertyDeclaration(property) => {
-                    if property.initializer.is_some()
-                        || matches!(property.name, tsr_ast::PropertyName::PrivateIdentifier(_))
-                    {
-                        has_state = true;
-                    }
+        for member in members {
+            let tsr_ast::ClassElement::ConstructorDeclaration(constructor) = member else {
+                continue;
+            };
+            let Some(body) = constructor.body.and_then(|body| body.node_id()) else { continue };
+            let Some(call) = self.first_super_call(body) else { continue };
+            if !self.super_call_should_be_root_level(members, constructor) {
+                continue;
+            }
+            if !self.super_call_is_root_level_in_constructor(call, body) {
+                let Some(file) = self.source_file_of_for_diagnostics(call) else { continue };
+                let span = self.error_span(call);
+                self.report(
+                    file,
+                    Diagnostic::new(
+                        &messages::A_SUPER_CALL_MUST_BE_A_ROOT_LEVEL_STATEMENT_WITHIN_A_CONSTRUCTOR_OF_A_DERIVED_CLASS_THAT_CONTAINS_INITIALIZED_PROPERTIES_PARAMETER_PROPERTIES_OR_PRIVATE_IDENTIFIERS,
+                        span,
+                    ),
+                );
+                continue;
+            }
+            let Some(Node::Block(block)) = self.node_map.get(body) else { continue };
+            let mut found = false;
+            for statement in block.statements {
+                let Some(id) = statement.node_id() else { continue };
+                if self.statement_is_a_super_call(id) {
+                    found = true;
+                    break;
                 }
-                tsr_ast::ClassElement::ConstructorDeclaration(each) => {
-                    if each.parameters.iter().any(|parameter| {
-                        parameter
-                            .modifiers
-                            .iter()
-                            .any(|modifier| matches!(modifier, tsr_ast::ModifierLike::Token(_)))
-                    }) {
-                        has_state = true;
-                    }
-                    if each.body.is_some() {
-                        constructor = Some(each);
-                    }
+                if self.node_immediately_references_super_or_this(id) {
+                    break;
                 }
-                _ => {}
             }
-        }
-        let (Some(constructor), true) = (constructor, has_state) else { return };
-        let Some(body) = constructor.body.and_then(|body| body.node_id()) else { return };
-        let Some(Node::Block(block)) = self.node_map.get(body) else { return };
-        // **The whole arm is gated on a super call existing.**
-        // `checkConstructorDeclaration` (`checker.go:2847`) computes
-        // `findFirstSuperCall(body)` and enters the root-level check only when
-        // it is non-nil; with no `super()` anywhere the constructor is
-        // TS2377's and this code has nothing to be first. §470 ported the test
-        // and not the gate. §785.
-        if !self.subtree_has_super_call(body) {
-            return;
-        }
-        let mut found = false;
-        for statement in block.statements {
-            let Some(id) = statement.node_id() else { continue };
-            if self.statement_is_a_super_call(id) {
-                found = true;
-                break;
+            if found {
+                continue;
             }
-            if self.subtree_references_super_or_this(id) {
-                break;
-            }
+            let Some(id) = constructor.node_id else { continue };
+            let Some(file) = self.source_file_of_for_diagnostics(id) else { continue };
+            let span = self.constructor_error_span(id);
+            self.report(
+                file,
+                Diagnostic::new(
+                    &messages::A_SUPER_CALL_MUST_BE_THE_FIRST_STATEMENT_IN_THE_CONSTRUCTOR_TO_REFER_TO_SUPER_OR_THIS_WHEN_A_DERIVED_CLASS_CONTAINS_INITIALIZED_PROPERTIES_PARAMETER_PROPERTIES_OR_PRIVATE_IDENTIFIERS,
+                    span,
+                ),
+            );
         }
-        if found {
-            return;
-        }
-        let Some(id) = constructor.node_id else { return };
-        let Some(file) = self.source_file_of_for_diagnostics(id) else { return };
-        let span = self.error_span(id);
-        self.report(
-            file,
-            Diagnostic::new(
-                &messages::A_SUPER_CALL_MUST_BE_THE_FIRST_STATEMENT_IN_THE_CONSTRUCTOR_TO_REFER_TO_SUPER_OR_THIS_WHEN_A_DERIVED_CLASS_CONTAINS_INITIALIZED_PROPERTIES_PARAMETER_PROPERTIES_OR_PRIVATE_IDENTIFIERS,
-                span,
-            ),
-        );
     }
 
     /// TS2377 — `Constructors for derived classes must contain a 'super' call.`
@@ -2745,22 +2726,6 @@ impl Checker<'_, '_> {
         matches!(self.node_map.get(id), Some(Node::CallExpression(call))
             if call.expression.and_then(|e| e.node_id())
                 .is_some_and(|callee| self.nodes.kind(callee) == SyntaxKind::SuperKeyword))
-    }
-
-    /// `nodeImmediatelyReferencesSuperOrThis` — a subtree scan that stops at
-    /// function boundaries, the shape `subtree_has_return_or_throw` uses. §470.
-    fn subtree_references_super_or_this(&self, node: NodeId) -> bool {
-        if matches!(self.nodes.kind(node), SyntaxKind::SuperKeyword | SyntaxKind::ThisKeyword) {
-            return true;
-        }
-        let mut children = Vec::new();
-        if let Some(typed) = self.node_map.get(node) {
-            tsr_ast::for_each_child_id(typed, |child| children.push(child));
-        }
-        children.into_iter().any(|child| {
-            !self.is_function_like_or_static_block(child)
-                && self.subtree_references_super_or_this(child)
-        })
     }
 
     /// TS1114 — `Duplicate label '{0}'.`
@@ -4156,12 +4121,15 @@ impl Checker<'_, '_> {
             let Some(name_id) = property.name.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
             let span = self.error_span(name_id);
+            // `scanner.DeclarationNameToString(propName)`: the name's source
+            // text (r7-grammar §35).
+            let printed = self.declaration_name_source_text(name_id).unwrap_or(name);
             self.report(
                 file,
                 Diagnostic::with_args(
                     &messages::PROPERTY_0_HAS_NO_INITIALIZER_AND_IS_NOT_DEFINITELY_ASSIGNED_IN_THE_CONSTRUCTOR,
                     span,
-                    [name],
+                    [printed],
                 ),
             );
         }

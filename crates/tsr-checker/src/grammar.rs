@@ -727,6 +727,33 @@ impl Checker<'_, '_> {
         true
     }
 
+    /// `createDiagnosticForNode` for a related diagnostic: the message at
+    /// `span` with the **file** of `node` attached (`Diagnostic.SetFile`), as
+    /// every native related diagnostic carries. A head diagnostic gets its
+    /// file from `report`; related information has no such slot, and one
+    /// built without a file prints without a location (r7-grammar §34). The
+    /// file image is built per call. This runs only on error paths that
+    /// already report, so there is no cache.
+    pub(crate) fn related_diagnostic_at(
+        &self,
+        node: NodeId,
+        message: &'static tsr_diagnostics::Message,
+        span: tsr_core::Span,
+        args: Vec<String>,
+    ) -> Diagnostic {
+        let mut diagnostic = Diagnostic::with_args(message, span, args);
+        if let Some(file) = self.source_file_of_for_diagnostics(node)
+            && let Some(host) = self.module_host
+            && let Some(name) = host.file_path(file)
+            && let Some(text) = host.source_text(file, self.nodes)
+        {
+            diagnostic.set_file(std::sync::Arc::new(tsr_diagnostics::format::DiagnosticFile::new(
+                name, text,
+            )));
+        }
+        diagnostic
+    }
+
     /// `Checker.grammarErrorOnNode` with no arguments: the node's error span.
     /// Callers have already checked the file's parse diagnostics.
     pub(crate) fn grammar_error_on_node(
@@ -1706,9 +1733,11 @@ impl Checker<'_, '_> {
                             &messages::DECORATORS_MAY_NOT_APPEAR_AFTER_EXPORT_OR_EXPORT_DEFAULT_IF_THEY_ALSO_APPEAR_BEFORE_EXPORT,
                             self.error_span(decorator),
                         );
-                        diagnostic.add_related_information(Some(Diagnostic::new(
+                        diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                            first,
                             &messages::DECORATOR_USED_BEFORE_EXPORT_HERE,
                             self.error_span(first),
+                            Vec::new(),
                         )));
                         self.report(file, diagnostic);
                         return true;
@@ -2990,9 +3019,11 @@ impl Checker<'_, '_> {
             &messages::EXPRESSION_MUST_BE_ENCLOSED_IN_PARENTHESES_TO_BE_USED_AS_A_DECORATOR,
             self.error_span(at),
         );
-        diagnostic.add_related_information(Some(Diagnostic::new(
+        diagnostic.add_related_information(Some(self.related_diagnostic_at(
+            error_node,
             &messages::INVALID_SYNTAX_IN_DECORATOR,
             self.error_span(error_node),
+            Vec::new(),
         )));
         self.report(file, diagnostic);
         true

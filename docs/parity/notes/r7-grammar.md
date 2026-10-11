@@ -594,3 +594,148 @@ unresolved-value walk and is routed. Until it lands,
 `shorthandPropertyAssignmentsInDestructuring` (both variants) and
 `objectLiteralErrors` keep an extra TS18004 beside the now-correct TS1312.
 
+
+## §32 TS18012, `#constructor` (PRIVATE-IDENTIFIER-GRAMMAR split)
+
+`checkPrivateIdentifier` (`binder.go:1323`), the binder's
+`KindPrivateIdentifier` arm (`:612`): a private identifier spelled
+`#constructor` is TS18012 on the identifier, in a file without parse
+diagnostics. It is a binder diagnostic, so it is reported in every
+declaration context, ambient included, and in plain JS (the code is on the
+plain-JS list). `check_contextual_identifier` (`strict_mode.rs`) is this
+port's home for the binder's per-identifier arms and is already called for
+every node. The private arm runs there before the ambient return, which
+gates only the `Identifier` arms (`node.Flags&ast.NodeFlagsAmbient` in
+`checkContextualIdentifier`).
+
+Correction of the record in the same function: its comment said upstream's
+`yield` TS1359 arm needed `YieldContext`, which the parser did not set. That
+arm is unreachable upstream. `yield` is `KindLastFutureReservedWord`
+(`ast/kind_generated.go:401`), so the future-reserved arm reports first.
+
+*Falsifier.* A TS18012 in a file with parse errors, or a missing one in a
+`.d.ts`. Converted: `privateNameConstructorReserved`, `plainJSBinderErrors`.
+
+Other splits of tsr-2zk.1166 and where they live. TS1111 is
+`checkPropertyAccessExpressionOrQualifiedName`'s plain-JS arm, in
+`readonly_target.rs::check_private_identifier_access` (r7-flow's). TS2804
+is `checkObjectTypeForDuplicateDeclarations` (check.rs). The `#x in expr`
+codes (TS2571/2406/18016/1451) are `checkInExpression`'s. TS18046 and TS7022
+are receiver and inference arms. None of these is in this lane's files.
+
+## §33 The super-call arm of `checkConstructorDeclaration` (TS2401/TS2376; CLASS-PROPERTY-INITIALIZER-CHECKS split)
+
+`checkConstructorDeclaration` (`checker.go:2850`-`:2881`) runs this for each
+constructor of a derived class-like.
+
+* `findFirstSuperCall(body)`. With none, the constructor is TS2377's
+  (`check_derived_constructor_calls_super`).
+* `superCallShouldBeRootLevel` (`:2860`): not `emitStandardClassFields`
+  (`useDefineForClassFields` with target ≥ ES2022), and the class has an
+  instance property with an initializer or any private-named element
+  (`isInstancePropertyWithInitializerOrPrivateIdentifierProperty`), or the
+  constructor has a parameter-property modifier (accessibility, `readonly`,
+  `override`).
+* A first super call that is not a root-level expression statement of the
+  body (`superCallIsRootLevelInConstructor`, through parentheses) is TS2401
+  at the call. Otherwise, a body whose statements reach `super`/`this`
+  (`nodeImmediatelyReferencesSuperOrThis`) before the super-call statement is
+  TS2376 at the constructor.
+
+`check_super_call_is_first` (check.rs) used to be a TS2376-only stand-in with
+five departures from this:
+* it had no `emitStandardClassFields` gate, which gave false TS2376 in
+  `privateNameBadSuperUseDefineForClassFields`;
+* it counted static initialized properties and missed private methods and
+  accessors;
+* it took any modifier token on a parameter as a parameter property;
+* it returned on `extends null`, which upstream does not do (TS17005 is
+  separate);
+* it used a function-boundary scan in place of
+  `nodeImmediatelyReferencesSuperOrThis`. Upstream's scan stops at a property
+  declaration and at a method body, but still visits a method's computed name
+  and parameters.
+
+It also had no TS2401 arm and ran only for class declarations. The predicates
+are in `class_fields.rs`. The check.rs function is the loop, now also called
+from the `ClassExpression` arm.
+
+*Falsifier.* A TS2401 on a super call that is a parenthesized root
+statement, or TS2376 under `useDefineForClassFields` with target ES2022.
+Converted: `privateNameBadSuperUseDefineForClassFields` (es2022, esnext),
+`derivedClassSuperStatementPosition`, `derivedClassSuperProperties`.
+
+## §34 Related information carries its file; TS6203/TS6204 on cross-file duplicates
+
+*The file.* Every native related diagnostic is made by
+`createDiagnosticForNode`, which records the node's source file. TSR's
+`report(file, diagnostic)` attaches the file to the head only, so a related
+diagnostic built with `Diagnostic::new` had no file. The exact oracle prints
+it with an empty path and no position, so no case with checker-made related
+information could be exact. Measured on base `59ceea97`: 30 cases emitted
+file-less related rows (TS1498, TS1007, TS1356, TS1486). The fix:
+`related_diagnostic_at` (grammar.rs) builds the related diagnostic with the
+node's file attached (`Diagnostic::set_file`: the program's file name and
+text, the name the head is printed under). This lane's sites use it: TS1356
+(module_format.rs), TS1498 and TS1487 (grammar.rs). The others are routed:
+check.rs's TS1486 and the parser's TS1007. The file image is built per call,
+on error paths only, with no cache. If related diagnostics ever get hot, a
+per-checker `Arc<DiagnosticFile>` keyed by file node would be the place for
+one.
+
+*TS6203/TS6204.* `reportMergeSymbolError` (`checker.go:14201`) reports
+through `addDuplicateDeclarationErrorsForSymbols` →
+`addDuplicateDeclarationError` (`:14232`). The error goes at each
+declaration's adjusted node, and every declaration of the other symbol not at
+that node is added as related information: `'{0}' was also declared here.`
+first, `and here.` after, at most five, skipping one already present.
+`lookupOrIssueError` finds an earlier error only while that error is still
+identical to a fresh one, because `DiagnosticsCollection.Lookup` compares
+related information too. So a declaration that conflicts in two merges gets
+two errors, and `SortAndDeduplicateDiagnostics`' `compactAndMergeRelatedInfos`
+folds them, sorting and deduplicating the related lists. That is why native
+shows two `was also declared here.` and no `and here.` for `Foo` in
+`duplicateIdentifierRelatedSpans1`. `merge_conflicts.rs` used to report bare
+errors (its comment said `Diagnostic` had no related information, which is no
+longer true). It now builds them in a pass-local `DuplicateDeclarationErrors`
+(issue order, latest error per identity) and reports them at the end of
+`report_merge_conflicts`.
+
+Not here, routed: the same related information on the binder's same-file
+duplicates (`binder.rs`'s `declareSymbolEx` port), on check.rs's TS2300
+sites, and on TS2403's `errorNextVariableOrPropertyDeclarationMustHaveSameType`
+(a 54-case oracle bucket). They can use `related_diagnostic_at`.
+
+*Falsifier.* A cross-file duplicate whose related order or kind
+(6203/6204) differs from native, or a related row without a file.
+Converted (oracle subset `uplicate`): `duplicateIdentifierRelatedSpans1`–`7`,
+`duplicateIdentifierRelatedSpans_moduleAugmentation`,
+`letDeclarations-scopes-duplicates2`–`7`, `duplicateIdentifierEnum`.
+
+## §35 Exact-oracle text, span and metadata fixes in this lane's reports
+
+From `full_oracle_run rank` on `59ceea97`:
+
+* *TS2564 message text* (5 cases, a computed name).
+  `scanner.DeclarationNameToString(propName)` is the name's source text
+  (`GetTextOfNode`), so `[x = 0]` prints as written. The shared
+  `declaration_name_to_string` spells a computed name only through an entity
+  name, giving `[(Missing)]`. `check_property_initialization` now prints
+  `declaration_name_source_text` (class_fields.rs) and keeps that helper's
+  answer only for the flow query's spelling and as the fallback.
+* *TS2376 span* (3 cases). `GetErrorRangeForNode`'s `KindConstructor` arm
+  (`scanner.go:2632`) runs from the constructor's first token to the end of
+  the `constructor` keyword (or a string-literal name). The shared
+  `error_span` has no such arm and gives the whole declaration.
+  `constructor_error_span` (class_fields.rs) is the arm, used for TS2376.
+  Routed: adding it to `error_span` itself would correct every
+  constructor-anchored report (TS2377, TS2392's span-only bucket and others),
+  but that helper is shared.
+* *skippedOnNoEmit* (TS1216's metadata bucket, 2 cases). TS1216
+  (`grammarErrorOnNodeSkippedOnNoEmit`) and TS2441/TS2818
+  (`errorSkippedOnNoEmit`) are marked with the flag that
+  `FilterNoEmitSemanticDiagnostics` (`compiler/program.go:1333`) reads, and
+  they are dropped under `noEmit`. This program has no such filter, so
+  `report_skipped_on_no_emit` (module_format.rs) drops them at the producer.
+  TS2441's producer already returned under `noEmit`; TS1216 and TS2818 did
+  not. Routed: the program-level filter, after which the producer drop goes.

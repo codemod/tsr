@@ -1386,7 +1386,6 @@ impl Checker<'_, '_> {
                     | Expression::TemplateExpression(_)
             );
             if literal
-                && strings.is_none()
                 && !self.is_context_sensitive_argument(argument)
                 && inner.node_id().is_some_and(|id| !self.literal_subtree_has_resolution(id))
             {
@@ -1536,7 +1535,17 @@ impl Checker<'_, '_> {
         let Some(id) = argument.node_id() else { return self.intrinsics.error };
         let saved = if restore { self.literal_subtree_state(id) } else { Vec::new() };
         self.evict_subtree(id);
-        let previous = self.call_inference_signatures.insert(call, candidate.clone());
+        // A tagged template's substitutions read the memo shifted past the
+        // synthetic strings parameter (`contextual_type_for_template_substitution`).
+        let mut memo = candidate.clone();
+        if self.nodes.kind(call) == tsr_ast::SyntaxKind::TaggedTemplateExpression {
+            if memo.parameters.is_empty() {
+                self.restore_literal_subtree_state(saved);
+                return self.intrinsics.error;
+            }
+            memo.parameters.remove(0);
+        }
+        let previous = self.call_inference_signatures.insert(call, memo);
         let checked = self.check_expression(argument);
         match previous {
             Some(previous) => {

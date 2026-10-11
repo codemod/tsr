@@ -4405,6 +4405,58 @@ impl<'a> Checker<'a, '_> {
         Some(named)
     }
 
+    /// getTypeAliasInstantiation (checker.go:23641) over a declared type that
+    /// is a reference to a generic homomorphic mapped alias (`type
+    /// ObjMapReadOnly<T> = Readonly<ObjMap<T>>`, `type Q<T> = Partial<T>`).
+    /// The declared type is the inner alias's mapped type, and
+    /// instantiateMappedType maps the homomorphic variable's non-union image
+    /// through instantiateConstituent with a nil alias, so the instance keeps
+    /// the inner alias: `Q<{ a: number }>` is `Partial<{ a: number; }>`
+    /// ([`Self::alias_instantiation_keeps_declared_alias`] states which declared types
+    /// keep theirs). This port minted a print-only `Named` over the outer
+    /// alias. The body is evaluated under the alias's bindings and the inner
+    /// instance answered as it is. A union image (mapTypeWithAlias hands the
+    /// outer alias to the union) is not the inner alias's instance and keeps
+    /// the existing mint (r7-declared §27).
+    fn instantiate_homomorphic_reference_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if arguments.is_empty()
+            || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || self.local_type_parameters_of(symbol).len() != arguments.len()
+        {
+            return None;
+        }
+        let TypeNode::TypeReferenceNode(reference) =
+            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?
+        else {
+            return None;
+        };
+        let inner = self.alias_reference_target(reference)?;
+        if inner == symbol
+            || !matches!(
+                self.type_alias_body(inner).and_then(Self::skip_type_parentheses),
+                Some(TypeNode::MappedTypeNode(_))
+            )
+            || self.alias_body_receives_new_alias(symbol, 0)
+            || !self.alias_instantiation_keeps_declared_alias(symbol, 0)
+        {
+            return None;
+        }
+        let evaluated = self.evaluate_alias_body(symbol, arguments)?;
+        if self.is_gap(evaluated) || self.alias_of.contains_key(&evaluated) {
+            return None;
+        }
+        let (target, _) = self.type_reference_targets.get(&evaluated).cloned()?;
+        if target != inner {
+            return None;
+        }
+        self.ensure_mapped_type_info(evaluated);
+        self.mapped_types.contains_key(&evaluated).then_some(evaluated)
+    }
+
     /// Whether a generic alias's declared type is a tuple built by
     /// createNormalizedTupleType (a body with a variadic element,
     /// checker.go:24121), directly or through a chain of alias references
@@ -6216,11 +6268,17 @@ impl<'a> Checker<'a, '_> {
     ) -> TypeId {
         if !self.local_type_parameters_of(alias).is_empty()
             || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
-            || self.alias_of.contains_key(&result)
             || self.reference_display_arity.contains_key(&result)
             || self.mapped_identity_sources.contains_key(&result)
         {
             return result;
+        }
+        if let Some(&(owner, _)) = self.alias_of.get(&result) {
+            return if owner == symbol {
+                self.new_alias_reference_instantiation(result, alias)
+            } else {
+                result
+            };
         }
         let Some((target, arguments)) = self.type_reference_targets.get(&result).cloned() else {
             return result;
@@ -6250,6 +6308,48 @@ impl<'a> Checker<'a, '_> {
         {
             self.signature_types.insert(image, signatures);
             self.alias_named_signature_types.insert(image);
+        }
+        self.alias_of.insert(image, (alias, Vec::new()));
+        self.deferred_alias_references.insert((alias, result), image);
+        image
+    }
+
+    /// [`Self::new_alias_instantiation`] over a generic alias whose body is a
+    /// class or interface reference (r7-declared §22's image, `alias_of`
+    /// naming the generic alias): the declared type is a deferred type
+    /// reference carrying the alias, and getObjectTypeInstantiation
+    /// instantiates it with the new alias, so `type GenericSettingsResult1 =
+    /// GenericSettingsAccess<"audio">` over `type GenericSettingsAccess<T> =
+    /// Settings<SettingsTypes[T]>` declares a type printed
+    /// `GenericSettingsResult1` (mappedTypeRelationships). The image is
+    /// re-minted under the new alias with the same member owner, reference
+    /// pair and signatures. Cache: `deferred_alias_references`, as above
+    /// (r7-declared §29).
+    fn new_alias_reference_instantiation(&mut self, result: TypeId, alias: SymbolId) -> TypeId {
+        let Some(pair) = self.type_reference_targets.get(&result).cloned() else {
+            return result;
+        };
+        if !self
+            .binder
+            .symbols()
+            .get(pair.0)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return result;
+        }
+        let crate::types::TypeData::Named { members, .. } = self.store.get(result).data else {
+            return result;
+        };
+        if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
+            return cached;
+        }
+        let flags = self.store.get(result).flags;
+        let name = self.binder.symbols().get(alias).name.to_string();
+        let image = self.store.new_named(flags, name, members);
+        self.type_reference_targets.insert(image, pair);
+        if let Some(signatures) = self.signature_types.get(&result).cloned() {
+            self.signature_types.insert(image, signatures);
         }
         self.alias_of.insert(image, (alias, Vec::new()));
         self.deferred_alias_references.insert((alias, result), image);
@@ -6586,6 +6686,29 @@ impl<'a> Checker<'a, '_> {
                 && (index == self.intrinsics.boolean
                     || !matches!(self.store.get(index).data, crate::types::TypeData::Union { .. }))
         })
+    }
+
+    /// Whether the reference body `body` to conditional alias `target`,
+    /// resolved over the declaring alias's own parameters, instantiates to a
+    /// definite branch: the written arguments resolve, fill the target's
+    /// parameters, and neither the check nor the extends type defers under
+    /// them (`conditional_alias_check_is_deferred`).
+    fn conditional_reference_resolves(&mut self, body: TypeNode<'a>, target: SymbolId) -> bool {
+        let Some(TypeNode::TypeReferenceNode(reference)) = Self::skip_type_parentheses(body) else {
+            return false;
+        };
+        if reference.type_arguments.len() != self.local_type_parameters_of(target).len() {
+            return false;
+        }
+        let arguments: Vec<TypeId> = reference
+            .type_arguments
+            .iter()
+            .map(|&node| self.get_type_from_type_node(node))
+            .collect();
+        if arguments.iter().any(|&argument| self.is_gap(argument)) {
+            return false;
+        }
+        !self.conditional_alias_check_is_deferred(target, &arguments)
     }
 
     /// Whether generic alias `symbol`'s written indexed-access body, resolved
@@ -8217,6 +8340,10 @@ impl<'a> Checker<'a, '_> {
             self.instantiations.insert((symbol, arguments), mapped);
             return mapped;
         }
+        if let Some(reference) = self.instantiate_homomorphic_reference_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), reference);
+            return reference;
+        }
         if let Some(reference) =
             self.instantiate_interface_reference_alias(symbol, &arguments, shown)
         {
@@ -9246,11 +9373,17 @@ impl<'a> Checker<'a, '_> {
                             })
                         } else if self.alias_body_is_indexed_access(target, 0) {
                             Some(DeclaredBody::Indexed(target))
+                        } else if matches!(
+                            self.type_alias_body(target).and_then(Self::skip_type_parentheses),
+                            Some(TypeNode::ConditionalTypeNode(_))
+                        ) {
+                            Some(DeclaredBody::ConditionalReference(target))
                         } else {
                             None
                         }
                     }),
                 Some(TypeNode::IndexedAccessTypeNode(_)) => Some(DeclaredBody::OwnIndexed),
+                Some(TypeNode::ConditionalTypeNode(_)) => Some(DeclaredBody::Conditional),
                 _ => None,
             };
             if let Some(body) = self.type_alias_body(symbol) {
@@ -9291,6 +9424,44 @@ impl<'a> Checker<'a, '_> {
                         }
                         Some(DeclaredBody::OwnIndexed) => {
                             self.own_indexed_access_resolves(symbol, body, resolved)
+                        }
+                        // getConditionalType (checker.go:24377) attaches the
+                        // alias only to a deferred result; a definitely true
+                        // or false check answers its branch instantiated,
+                        // with no alias (`type Prepend<V, T extends any[]> =
+                        // ((head: V, ...args: T) => void) extends (...args:
+                        // infer R) => void ? R : any` declares `[head: V,
+                        // ...args: T]`). The evaluator answered the branch
+                        // (not the written mint, which keeps its node) and
+                        // neither operand defers (r7-declared §28).
+                        Some(DeclaredBody::Conditional) => {
+                            !self.is_error(resolved)
+                                && !self.is_gap(resolved)
+                                && !self.conditional_inference_nodes.contains_key(&resolved)
+                                && !self.mapped_conditionals.contains_key(&resolved)
+                                && self.own_type_parameter_types(symbol).is_some_and(|own| {
+                                    !self.conditional_alias_check_is_deferred(symbol, &own)
+                                })
+                        }
+                        // The same over a reference to a conditional alias
+                        // (getTypeFromTypeAliasReference hands the declaring
+                        // alias to getConditionalTypeInstantiation, which
+                        // attaches it only to a deferred result): `type P3<V>
+                        // = Params<(head: V, b: string) => void>` declares
+                        // `[head: V, b: string]`. A deferred instantiation is
+                        // the target's reference (or its written mint) and
+                        // keeps the declaring alias's name.
+                        Some(DeclaredBody::ConditionalReference(target)) => {
+                            self.conditional_reference_resolves(body, target)
+                                && !self.is_error(resolved)
+                                && !self.is_gap(resolved)
+                                && !self.store.get(resolved).flags.contains(TypeFlags::CONDITIONAL)
+                                && !self.conditional_inference_nodes.contains_key(&resolved)
+                                && !self.mapped_conditionals.contains_key(&resolved)
+                                && self
+                                    .type_reference_targets
+                                    .get(&resolved)
+                                    .is_none_or(|(owner, _)| *owner != target)
                         }
                         None => false,
                     };
@@ -11280,9 +11451,24 @@ impl<'a> Checker<'a, '_> {
         check: TypeId,
     ) -> Option<TypeId> {
         use crate::relater::{Relation, Ternary};
-        if self.store.get(check).flags.intersects(TypeFlags::UNION | TypeFlags::NEVER)
-            || self.mentions_any_type_parameter(check, 2)
+        // A distributive conditional's union or never check was distributed
+        // by the caller; a non-distributive one (`Channel extends { type:
+        // infer R } ? R : never`) infers from the whole union, as
+        // getConditionalType does (r7-declared §35).
+        let distributive = conditional
+            .check_type
+            .is_some_and(|node| self.distributive_conditional_parameter(node).is_some());
+        if self.store.get(check).flags.contains(TypeFlags::NEVER)
+            || (distributive && self.store.get(check).flags.contains(TypeFlags::UNION))
         {
+            return None;
+        }
+        // The caller deferred a generic check (isDeferredType); one that
+        // only mentions a type parameter (`(head: V) => void`) infers like
+        // any other and relates its permissive and restrictive
+        // instantiations below (r7-declared §28).
+        let check_mentions = self.mentions_any_type_parameter(check, 2);
+        if check_mentions && self.store.get(check).flags.contains(TypeFlags::ANY) {
             return None;
         }
         let symbols: Vec<_> = self
@@ -11379,10 +11565,27 @@ impl<'a> Checker<'a, '_> {
             }
             return Some(self.get_union_type(&[true_type, false_type]));
         }
-        let branch = match self.relate_ternary(check, target, Relation::Assignable) {
-            Ternary::Related => conditional.true_type?,
-            Ternary::NotRelated => conditional.false_type?,
-            Ternary::Unknown => return None,
+        let branch = if check_mentions || self.mentions_any_type_parameter(target, 2) {
+            // getConditionalType (checker.go:24377, :24415): a deferred
+            // inferred extends type defers; otherwise false when the
+            // permissive instantiations do not relate and true when the
+            // restrictive ones do, deferred between.
+            if self.is_deferred_type(target, Self::conditional_check_tuples(conditional))
+                || self.signature_rest_relation_undecided(check, target)
+            {
+                return None;
+            }
+            if self.definite_conditional_outcome(check, target)? {
+                conditional.true_type?
+            } else {
+                conditional.false_type?
+            }
+        } else {
+            match self.relate_ternary(check, target, Relation::Assignable) {
+                Ternary::Related => conditional.true_type?,
+                Ternary::NotRelated => conditional.false_type?,
+                Ternary::Unknown => return None,
+            }
         };
         let frame =
             symbols.into_iter().zip(map.into_iter().map(|(_, inferred)| inferred)).collect();
@@ -11390,6 +11593,28 @@ impl<'a> Checker<'a, '_> {
         let result = self.get_type_from_type_node(branch);
         self.alias_evaluation_bindings.pop();
         (result != self.intrinsics.error).then_some(result)
+    }
+
+    /// compareSignaturesRelated (relater.go) compares a non-array rest type
+    /// (getNonArrayRestType: a type parameter rest, `(...t: T) => any`)
+    /// against the other signature's rest at the shorter parameter count, so
+    /// `T` meets `[_: any, ...tail: T[number][]]` and the restrictive check of
+    /// `Tail<T>` fails, leaving it deferred. The relater here pairs the
+    /// positions instead and relates them; until it has that arm, a check or
+    /// inferred extends signature with a non-array rest over a different
+    /// parameter count is not decided (r7-declared §28).
+    fn signature_rest_relation_undecided(&mut self, check: TypeId, target: TypeId) -> bool {
+        let (Some(sources), Some(targets)) =
+            (self.call_signatures_of_type(check), self.call_signatures_of_type(target))
+        else {
+            return false;
+        };
+        let (Some(source), Some(target)) = (sources.first(), targets.first()) else {
+            return false;
+        };
+        (self.signature_non_array_rest_type(source).is_some()
+            || self.signature_non_array_rest_type(target).is_some())
+            && self.signature_parameter_count(source) != self.signature_parameter_count(target)
     }
 
     /// §92: evaluate ANY generic alias body under bindings — the
@@ -11786,6 +12011,9 @@ impl<'a> Checker<'a, '_> {
         let enum_object = matches!(self.store.get(apparent).data,
             crate::types::TypeData::Anonymous { symbol, .. }
             if self.binder.symbols().get(symbol).flags.intersects(SymbolFlags::REGULAR_ENUM));
+        // getLiteralTypeFromProperties' list: a string index contributes the
+        // one stringOrNumberType entry, so it is counted once.
+        let mut listed = keys.len();
         for info in self.get_index_infos_of_type(apparent)? {
             // The synthetic reverse-mapping index is enumNumberIndexInfo,
             // which getLiteralTypeFromProperties excludes from keyof.
@@ -11793,11 +12021,19 @@ impl<'a> Checker<'a, '_> {
                 continue;
             }
             keys.push(info.key);
+            listed += 1;
             if info.key == self.intrinsics.string {
                 keys.push(self.intrinsics.number);
             }
         }
         let union = self.get_union_type(&keys);
+        // getUnionTypeEx (checker.go:25632) answers a one-entry list with
+        // that entry and never reads the origin: `keyof T1` over `type T1 =
+        // { [key: string]: X }` is stringOrNumberType itself, printed
+        // `string | number` (r7-declared §26).
+        if listed == 1 {
+            return Some(union);
+        }
         let aliased_object = self.store.get(target).flags.contains(TypeFlags::OBJECT)
             && !self.mapped_types.contains_key(&target)
             && !self.mapped_identity_sources.contains_key(&target)
@@ -13320,4 +13556,6 @@ enum DeclaredBody {
     Keeps { parameter_image: bool },
     Indexed(SymbolId),
     OwnIndexed,
+    Conditional,
+    ConditionalReference(SymbolId),
 }

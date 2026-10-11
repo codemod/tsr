@@ -106,6 +106,14 @@ impl TruncationBudget {
     }
 }
 
+/// [`Checker::intersection_modifier_member`]'s answer: the composite
+/// property's modifiers and its key.
+struct IntersectionModifierMember {
+    optional: bool,
+    readonly: bool,
+    key: TypeId,
+}
+
 impl<'a> Checker<'a, '_> {
     /// getTypeFromMappedTypeNode and createMappedTypeNodeFromType (checker.go,
     /// nodebuilderimpl.go). Build a deferred mapped type from semantic parts
@@ -740,12 +748,102 @@ impl<'a> Checker<'a, '_> {
         self.mapped_members_in_progress.remove(&id);
     }
 
+    /// getModifiersTypeFromMappedType (checker.go): for a `keyof X`
+    /// constraint the modifiers type is `X`, and an alias reference `X` IS its
+    /// instantiated body natively (`type O = Omit<Mappings, "foo">` is Pick's
+    /// mapped instance). This port's alias reference is a `Named` over the
+    /// alias symbol with no member table of its own, so the homomorphic
+    /// mapping enumerated no key (`{ [K in keyof O]: O[K] }` was `{}`). A
+    /// reference to a mapped alias answers its own mapped capture
+    /// (`ensure_mapped_type_info`); a reference whose evaluated body is a
+    /// mapped instance (`Omit` over `Pick`) answers that instance. Anything
+    /// else stays as it is (r7-declared §32).
+    fn mapped_modifiers_instance(&mut self, source: TypeId) -> TypeId {
+        if self.mapped_types.contains_key(&source) {
+            return source;
+        }
+        let Some((target, arguments)) = self.type_reference_targets.get(&source).cloned() else {
+            return source;
+        };
+        if !self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS) {
+            return source;
+        }
+        self.ensure_mapped_type_info(source);
+        if self.mapped_types.contains_key(&source) {
+            return source;
+        }
+        match self.evaluate_alias_body(target, &arguments) {
+            Some(body) if body != source && !self.is_gap(body) => {
+                self.ensure_mapped_type_info(body);
+                if self.mapped_types.contains_key(&body) { body } else { source }
+            }
+            _ => source,
+        }
+    }
+
+    /// createUnionOrIntersectionProperty (checker.go:21452) over an
+    /// intersection modifiers type with a mapped constituent
+    /// ([`Self::mapped_modifiers_instance`]): the property is optional and
+    /// readonly only when every constituent that has it is, and its key
+    /// keeps the providing constituent's provenance (getLiteralTypeFromProperty:
+    /// the numeric `42` of a mapped `Pick`). `None` for any other source,
+    /// whose symbol road already answers (r7-declared §33).
+    fn intersection_modifier_member(
+        &mut self,
+        source: TypeId,
+        name: &str,
+    ) -> Option<IntersectionModifierMember> {
+        let crate::types::TypeData::Intersection { types, .. } =
+            self.store.get(source).data.clone()
+        else {
+            return None;
+        };
+        let parts: Vec<TypeId> = types
+            .into_iter()
+            .map(|part| {
+                let apparent = self.apparent_type(part);
+                self.mapped_modifiers_instance(apparent)
+            })
+            .collect();
+        if !parts.iter().any(|part| self.mapped_types.contains_key(part)) {
+            return None;
+        }
+        let mut member: Option<IntersectionModifierMember> = None;
+        for part in parts {
+            let (optional, readonly) = if self.mapped_types.contains_key(&part) {
+                self.resolve_mapped_type_members(part);
+                let Some(property) = self
+                    .anonymous_properties
+                    .get(&part)
+                    .and_then(|(properties, _)| properties.iter().find(|p| p.name == name))
+                else {
+                    continue;
+                };
+                (property.optional, property.readonly)
+            } else {
+                let Some(property) = self.get_property_of_type(part, name) else { continue };
+                (self.property_is_optional(property), self.is_readonly_property(property))
+            };
+            if let Some(member) = member.as_mut() {
+                member.optional &= optional;
+                member.readonly &= readonly;
+            } else {
+                let key = self.literal_type_of_property(part, name);
+                member = Some(IntersectionModifierMember { optional, readonly, key });
+            }
+        }
+        member
+    }
+
     /// getIndexTypeForMappedType (checker.go:26871). Unremapped keys are
     /// exactly the constraint; remapped keys follow the same per-property mapper.
     pub(crate) fn mapped_index_type(&mut self, id: TypeId) -> Option<TypeId> {
         let info = self.mapped_types.get(&id)?.clone();
         let Some(name_type) = info.name_type else { return Some(info.constraint) };
-        let modifiers = info.modifiers_source.map(|source| self.apparent_type(source));
+        let modifiers = info.modifiers_source.map(|source| {
+            let apparent = self.apparent_type(source);
+            self.mapped_modifiers_instance(apparent)
+        });
         let keys = self.mapped_member_keys(&info, modifiers)?;
         let mut names = Vec::new();
         for key in keys {
@@ -871,7 +969,10 @@ impl<'a> Checker<'a, '_> {
                 // numeric versus quoted names from the source member's origin.
                 // Reuse the Checker-owned provenance read, not a printed name;
                 // this walk publishes no key or member image of its own.
-                let key = self.literal_type_of_property(source, &name);
+                let key = match self.intersection_modifier_member(source, &name) {
+                    Some(member) => member.key,
+                    None => self.literal_type_of_property(source, &name),
+                };
                 if key == self.intrinsics.error {
                     return None;
                 }
@@ -964,9 +1065,16 @@ impl<'a> Checker<'a, '_> {
         let mut checked = rustc_hash::FxHashSet::default();
         let mut names = Vec::new();
         for part in types {
+            // An intersection's property list is every constituent's
+            // (createUnionOrIntersectionProperty); a mapped constituent's
+            // members are type slots with no property symbol for the
+            // composite lookup below, so they are taken as listed
+            // (r7-declared §33).
+            let part = if is_union { part } else { self.mapped_modifiers_instance(part) };
+            let mapped_part = !is_union && self.mapped_types.contains_key(&part);
             for name in self.property_names_of(part) {
                 if checked.insert(name.clone())
-                    && self.get_property_of_type(source, &name).is_some()
+                    && (mapped_part || self.get_property_of_type(source, &name).is_some())
                 {
                     names.push(name);
                 }
@@ -1019,7 +1127,10 @@ impl<'a> Checker<'a, '_> {
             self.object_literal_index_infos.insert(id, indexes);
             return;
         }
-        let modifiers = info.modifiers_source.map(|source| self.apparent_type(source));
+        let modifiers = info.modifiers_source.map(|source| {
+            let apparent = self.apparent_type(source);
+            self.mapped_modifiers_instance(apparent)
+        });
         let Some(keys) = self.mapped_member_keys(&info, modifiers) else { return };
         // resolveMappedTypeMembers combines source keys before substituting
         // the template, so colliding names see the entire key union.
@@ -1122,6 +1233,9 @@ impl<'a> Checker<'a, '_> {
             let source_property = modifiers
                 .zip(source_name.as_deref())
                 .and_then(|(source, name)| self.get_property_of_type(source, name));
+            let composite = modifiers
+                .zip(source_name.as_deref())
+                .and_then(|(source, name)| self.intersection_modifier_member(source, name));
             let captured = modifiers
                 .and_then(|source| self.anonymous_properties.get(&source))
                 .and_then(|(properties, _)| {
@@ -1129,13 +1243,29 @@ impl<'a> Checker<'a, '_> {
                         .iter()
                         .find(|property| Some(property.name.as_str()) == source_name.as_deref())
                 });
-            let was_optional = captured.map_or_else(
-                || source_property.is_some_and(|property| self.property_is_optional(property)),
-                |property| property.optional,
+            let was_optional = composite.as_ref().map_or_else(
+                || {
+                    captured.map_or_else(
+                        || {
+                            source_property
+                                .is_some_and(|property| self.property_is_optional(property))
+                        },
+                        |property| property.optional,
+                    )
+                },
+                |member| member.optional,
             );
-            let was_readonly = captured.map_or_else(
-                || source_property.is_some_and(|property| self.is_readonly_property(property)),
-                |property| property.readonly,
+            let was_readonly = composite.as_ref().map_or_else(
+                || {
+                    captured.map_or_else(
+                        || {
+                            source_property
+                                .is_some_and(|property| self.is_readonly_property(property))
+                        },
+                        |property| property.readonly,
+                    )
+                },
+                |member| member.readonly,
             );
             let inherited =
                 modifiers.and_then(|source| self.mapped_identity_optionality.get(&source));
@@ -1156,7 +1286,21 @@ impl<'a> Checker<'a, '_> {
                     crate::printing::quote(&name)
                 }
             } else {
-                captured.map_or_else(|| name.clone(), |property| property.printed_name.clone())
+                // createPropertyNameNodeForIdentifierOrLiteral: a string-named
+                // key that is not an identifier prints quoted (`"12"`), a
+                // numeric one bare (`42`).
+                captured.map_or_else(
+                    || {
+                        if crate::objects::is_identifier_text(&name)
+                            || !matches!(self.store.get(name_type).data, TypeData::StringLiteral(_))
+                        {
+                            name.clone()
+                        } else {
+                            crate::printing::quote(&name)
+                        }
+                    },
+                    |property| property.printed_name.clone(),
+                )
             };
             let origin = link_declarations
                 .then(|| captured.and_then(|property| property.origin).or(source_property))
@@ -1210,9 +1354,26 @@ impl<'a> Checker<'a, '_> {
         self.publish_mapped_symbol_type(owner, index, self.intrinsics.error);
         let mut value =
             self.instantiate_type(info.template, &[(info.parameter, key)], &[info.parameter], &[]);
-        // getTypeOfMappedSymbol (checker.go:20993). Excluding optionality
-        // strips missing in exact mode, otherwise undefined.
-        if strip_optional {
+        // getTypeOfMappedSymbol (checker.go:20993): an optional property
+        // includes undefined (getOptionalType, isProperty) unless the
+        // template already admits undefined or void, so `{ [K in keyof
+        // Obj]?: Obj[K] }` declares `a?: 1 | undefined` and prints it
+        // (r7-declared §31). Excluding optionality strips missing in exact
+        // mode, otherwise undefined.
+        let optional = self
+            .anonymous_properties
+            .get(&owner)
+            .and_then(|(properties, _)| properties.get(index as usize))
+            .is_some_and(|property| property.optional);
+        if self.strict_null_checks
+            && optional
+            && !self.maybe_type_of_kind(
+                value,
+                crate::flags::TypeFlags::UNDEFINED | crate::flags::TypeFlags::VOID,
+            )
+        {
+            value = self.get_optional_type(value, true);
+        } else if strip_optional {
             value = self.remove_missing_or_undefined_type(value);
         }
         self.publish_mapped_symbol_type(owner, index, value);
@@ -2190,28 +2351,38 @@ function read<T extends Shape>(req: Req<T>, part: Part<T>, read: Read<T>, mutabl
                     assert_eq!((properties[1].optional, properties[1].readonly), flags[1]);
                     assert_eq!(properties[0].origin, Some(a));
                     assert_eq!(properties[1].origin, Some(b));
-                    assert!(properties.iter().all(|property| {
+                    // getTypeOfMappedSymbol: the deferred T[P], with
+                    // undefined added to an optional slot (r7-declared §31).
+                    let deferred = |checker: &mut Checker, property| {
                         let ty = checker.property_type(property);
-                        checker.type_of(ty).flags.contains(TypeFlags::INDEXED_ACCESS)
-                    }));
+                        if checker.type_of(ty).flags.contains(TypeFlags::INDEXED_ACCESS) {
+                            return Some((ty, false));
+                        }
+                        let TypeData::Union { types, .. } = checker.type_of(ty).data.clone() else {
+                            return None;
+                        };
+                        let indexed = types.iter().copied().find(|&part| {
+                            checker.type_of(part).flags.contains(TypeFlags::INDEXED_ACCESS)
+                        })?;
+                        types
+                            .iter()
+                            .any(|&part| checker.type_of(part).flags.contains(TypeFlags::UNDEFINED))
+                            .then_some((indexed, true))
+                    };
+                    for property in &properties {
+                        let (_, with_undefined) =
+                            deferred(&mut checker, property).expect("a deferred T[P] slot");
+                        assert_eq!(with_undefined, property.optional);
+                    }
                     let b_value = checker.property_type(&properties[1]);
                     assert_eq!(checker.peek_property_type(&properties[1]), Some(b_value));
+                    let (b_indexed, _) = deferred(&mut checker, &properties[1]).unwrap();
                     assert_eq!(
-                        checker.base_constraint_of_type(b_value),
+                        checker.base_constraint_of_type(b_indexed),
                         Some(checker.intrinsics.number)
                     );
                     let b_read = checker.get_type_of_property_of_type(mapped, "b").unwrap();
-                    if flags[1].0 {
-                        let TypeData::Union { types, .. } = &checker.type_of(b_read).data else {
-                            panic!("optional read must include undefined");
-                        };
-                        assert!(types.contains(&b_value));
-                        assert!(types.iter().any(|&ty| {
-                            checker.type_of(ty).flags.contains(TypeFlags::UNDEFINED)
-                        }));
-                    } else {
-                        assert_eq!(b_read, b_value);
-                    }
+                    assert_eq!(b_read, b_value);
                     assert_eq!(checker.get_property_of_type(mapped, "a"), Some(a));
                     assert_eq!(checker.get_property_of_type(mapped, "b"), Some(b));
                     assert_eq!(checker.get_property_of_type(mapped, "absent"), None);

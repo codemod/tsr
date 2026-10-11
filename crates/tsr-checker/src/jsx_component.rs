@@ -533,6 +533,13 @@ impl Checker<'_, '_> {
             None => Vec::new(),
         };
         if !hyphenated.is_empty() && self.jsx_hyphen_sensitive_target(target, &hyphenated) {
+            // `propertiesRelatedTo` fails on a required target member the
+            // source lacks before either hyphen rule could matter
+            // (`ignoredJsxAttributes` (20,11): `foo` beside an index
+            // signature; r7-reports §31).
+            if self.jsx_lacks_required_member(source, target) {
+                return Some((Ternary::NotRelated, JsxExcess::None));
+            }
             return None;
         }
         if self.is_gap(source) || self.is_gap(target) {
@@ -891,7 +898,20 @@ impl Checker<'_, '_> {
                         crate::types::TypeData::NumberLiteral(position.to_string()),
                         false,
                     );
-                    self.array_or_tuple_element_access(array, key, false)
+                    // getIndexedAccessTypeOrUndefined: an array-like part that
+                    // is no tuple reference (`((user: IUser) => Element) &
+                    // Array<…>`, `checkJsxChildrenProperty4`) answers through
+                    // its applicable number index signature; a tuple's
+                    // out-of-range position has none (r7-reports §30).
+                    self.array_or_tuple_element_access(array, key, false).or_else(|| {
+                        let tuple = self.tuple_element_lists.contains_key(&array)
+                            || self.variadic_tuple_elements.contains_key(&array);
+                        (!tuple)
+                            .then(|| {
+                                self.get_applicable_index_info(array, key).map(|info| info.value)
+                            })
+                            .flatten()
+                    })
                 }
                 None => None,
             };
@@ -1034,6 +1054,27 @@ impl Checker<'_, '_> {
     fn jsx_hyphen_sensitive_target(&mut self, target: TypeId, hyphenated: &[String]) -> bool {
         self.jsx_hyphen_index_sensitive(target)
             || self.jsx_hyphen_weak_sensitive(target, hyphenated)
+    }
+
+    /// Does an object target (or an intersection constituent) declare a
+    /// required, non-hyphenated member that `source` lacks? A member required
+    /// by any constituent is required by the intersection.
+    fn jsx_lacks_required_member(&mut self, source: TypeId, target: TypeId) -> bool {
+        let parts = match self.store.get(target).data.clone() {
+            crate::types::TypeData::Intersection { types, .. } => types,
+            crate::types::TypeData::Union { .. } => return false,
+            _ => vec![target],
+        };
+        parts.into_iter().any(|part| {
+            self.store.get(part).flags.intersects(TypeFlags::OBJECT)
+                && self.relation_property_table(part).is_some_and(|table| {
+                    table.iter().any(|(name, optional)| {
+                        !optional
+                            && !name.contains('-')
+                            && self.get_type_of_property_of_type(source, name).is_none()
+                    })
+                })
+        })
     }
 
     /// `membersRelatedToIndexInfo` skips a hyphenated member: sensitive when
