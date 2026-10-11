@@ -951,6 +951,25 @@ impl Checker<'_, '_> {
     /// Declines a union that already prints as a symbol's name, and anything
     /// that is not a union at all (a one-key `keyof` is its single literal
     /// upstream too, because a one-element union collapses and takes no origin).
+    /// [`Checker::union_with_origin_text`] for the `keyof` origin
+    /// (`origin = newIndexType(t)`, getLiteralTypeFromProperties), recording
+    /// the origin's operand `t` beside its baked text so a print-time arm can
+    /// print `keyof` + the operand at its site (`nodebuilderimpl.go:3472`'s
+    /// Index arm prints the operand's own node, qualified where the site
+    /// needs it: `keyof Intl.NumberFormatOptionsStyleRegistry`). Key: the
+    /// origin-carrying union (a distinct type from the bare union, minted
+    /// here); owner: `instantiation_expressions.keyof_origin_operands`;
+    /// written once when the union is minted, never invalidated
+    /// (r7-declared §16).
+    pub(crate) fn union_with_keyof_origin(&mut self, union: TypeId, operand: TypeId) -> TypeId {
+        let text = format!("keyof {}", self.type_to_string(operand));
+        let built = self.union_with_origin_text(union, text);
+        if built != union {
+            self.instantiation_expressions.keyof_origin_operands.entry(built).or_insert(operand);
+        }
+        built
+    }
+
     pub(crate) fn union_with_origin_text(&mut self, union: TypeId, origin_text: String) -> TypeId {
         let TypeData::Union { types, symbol, .. } = &self.store.get(union).data else {
             return union;

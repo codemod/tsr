@@ -108,6 +108,11 @@ pub(crate) struct InstantiationExpressionLinks {
     /// the stack: inserted before the body is evaluated, removed after. A
     /// re-entrant reference keeps the named mint (`r7-declared.md` §10).
     pub(crate) union_alias_in_progress: rustc_hash::FxHashSet<tsr_binder::SymbolId>,
+    /// The operand `t` of a resolved key union's `keyof t` origin
+    /// (`Checker::union_with_keyof_origin`, unions.rs): origin-carrying union
+    /// -> operand. Written once when the union is minted, never invalidated;
+    /// read by the printer's site arm (`r7-declared.md` §16).
+    pub(crate) keyof_origin_operands: rustc_hash::FxHashMap<TypeId, TypeId>,
     /// The merged symbols of the global `Iterable`, `IterableIterator`,
     /// `AsyncIterable` and `AsyncIterableIterator` at arity 3, whose printed
     /// references elide default-identical trailing arguments
