@@ -290,3 +290,15 @@ fn a_definite_generic_infer_conditional_answers_its_branch() {
          }\n";
     assert_eq!(type_of_last_initializer(source), "[head: V, b: string]");
 }
+
+/// §29: a non-generic alias over a generic alias whose body is an interface
+/// reference names the instance (tsgo: `R1`).
+#[test]
+fn a_new_alias_over_an_interface_reference_alias_names_the_instance() {
+    let source = "interface S<P> { config: P; }\n\
+         type A<T> = S<{ t: T }>;\n\
+         type R1 = A<number>;\n\
+         declare const r: R1;\n\
+         const x = r;\n";
+    assert_eq!(type_of_last_initializer(source), "R1");
+}

@@ -6268,11 +6268,17 @@ impl<'a> Checker<'a, '_> {
     ) -> TypeId {
         if !self.local_type_parameters_of(alias).is_empty()
             || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
-            || self.alias_of.contains_key(&result)
             || self.reference_display_arity.contains_key(&result)
             || self.mapped_identity_sources.contains_key(&result)
         {
             return result;
+        }
+        if let Some(&(owner, _)) = self.alias_of.get(&result) {
+            return if owner == symbol {
+                self.new_alias_reference_instantiation(result, alias)
+            } else {
+                result
+            };
         }
         let Some((target, arguments)) = self.type_reference_targets.get(&result).cloned() else {
             return result;
@@ -6302,6 +6308,48 @@ impl<'a> Checker<'a, '_> {
         {
             self.signature_types.insert(image, signatures);
             self.alias_named_signature_types.insert(image);
+        }
+        self.alias_of.insert(image, (alias, Vec::new()));
+        self.deferred_alias_references.insert((alias, result), image);
+        image
+    }
+
+    /// [`Self::new_alias_instantiation`] over a generic alias whose body is a
+    /// class or interface reference (r7-declared §22's image, `alias_of`
+    /// naming the generic alias): the declared type is a deferred type
+    /// reference carrying the alias, and getObjectTypeInstantiation
+    /// instantiates it with the new alias, so `type GenericSettingsResult1 =
+    /// GenericSettingsAccess<"audio">` over `type GenericSettingsAccess<T> =
+    /// Settings<SettingsTypes[T]>` declares a type printed
+    /// `GenericSettingsResult1` (mappedTypeRelationships). The image is
+    /// re-minted under the new alias with the same member owner, reference
+    /// pair and signatures. Cache: `deferred_alias_references`, as above
+    /// (r7-declared §29).
+    fn new_alias_reference_instantiation(&mut self, result: TypeId, alias: SymbolId) -> TypeId {
+        let Some(pair) = self.type_reference_targets.get(&result).cloned() else {
+            return result;
+        };
+        if !self
+            .binder
+            .symbols()
+            .get(pair.0)
+            .flags
+            .intersects(SymbolFlags::CLASS | SymbolFlags::INTERFACE)
+        {
+            return result;
+        }
+        let crate::types::TypeData::Named { members, .. } = self.store.get(result).data else {
+            return result;
+        };
+        if let Some(&cached) = self.deferred_alias_references.get(&(alias, result)) {
+            return cached;
+        }
+        let flags = self.store.get(result).flags;
+        let name = self.binder.symbols().get(alias).name.to_string();
+        let image = self.store.new_named(flags, name, members);
+        self.type_reference_targets.insert(image, pair);
+        if let Some(signatures) = self.signature_types.get(&result).cloned() {
+            self.signature_types.insert(image, signatures);
         }
         self.alias_of.insert(image, (alias, Vec::new()));
         self.deferred_alias_references.insert((alias, result), image);

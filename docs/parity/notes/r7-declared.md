@@ -1038,3 +1038,48 @@ lost_true 0; Ir gi 1.0000, dm 1.0000.
 `Prepend<V, T>` (native `[head: V, ...args: T]`): the containment above
 declines it (2 parameters against 1), and inferring `R` from a generic rest
 is `inference.rs`'s.
+
+## 29. A non-generic alias over a generic class/interface-reference alias carries its own name
+
+**Forcing constraint.** `type GenericSettingsResult1 =
+GenericSettingsAccess<"audio">` over `type GenericSettingsAccess<T extends
+keyof SettingsTypes> = Settings<SettingsTypes[T]>` records
+`>GenericSettingsResult1 : GenericSettingsResult1` (mappedTypeRelationships
+0:426/427). GenericSettingsAccess's declared type is a deferred type
+reference carrying its alias (§22), and getTypeFromTypeAliasReference
+instantiates it with the new alias, which getObjectTypeInstantiation attaches.
+`new_alias_instantiation` declined any result that already carried
+`alias_of`, so §22's image kept the inner alias's name
+(`GenericSettingsAccess<"audio">`).
+
+**Port.** `new_alias_reference_instantiation`: a result whose `alias_of`
+names the referenced generic alias and whose reference pair targets a class
+or interface (§22's image) is re-minted under the new alias, keeping the
+member owner, reference pair and signatures, with `alias_of` recording the
+new alias. Cache: the existing `deferred_alias_references[(alias, result)]`.
+
+**Measured** (unfiltered against `fb7388a3`): types **+2, 0 lost**
+(mappedTypeRelationships 0:426, 0:427); diagnostics 0 / 0; jsTyping
+new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## 30. Refused: a union-bodied alias instance that reduces to one type
+
+getUnionTypeEx answers a set that reduced to one type with that type, before
+the alias is considered, so `type Narrow<A> = (A extends Narrowable ? A :
+never) | { [K in keyof A]: Narrow<A[K]> }` at `{ value: "1" }` is `{ value:
+"1"; }` and `type U<A> = (A extends string ? A : never) | { k: A }` at
+`number` is `{ k: number; }`. TSR prints `Narrow<{ value: "1"; }>` and
+`U<number>`: `is_union_alias_body` admits only keyword, literal, function and
+constructor constituents (§10).
+
+A `reduced_union_alias_instance` arm evaluated any other union body and took
+a single, non-gap answer, guarded by an `(alias, arguments)` stack (the
+per-alias guard of §10 kept the nested `Narrow<"1">` on the mint; the keyed
+stack lets it resolve, bounded at eight nestings). Measured with §29 against
+`fb7388a3`: types +2 (§29's two), **diagnostics −1**
+(typePredicateFreshLiteralWidening gains TS2322 at 20:35, where TSR's
+inference answers `TNarrow = { value: string }` and the reduced `Narrow<…>`
+now relates structurally), Ir dm **1.0018**. No type row gained: the
+corpus's `Narrow` rows also need the inference (`satisfies<Item>()({ value:
+"1" })` infers `{ value: "1" }` natively, an `inference.rs` question), so
+the arm was not taken.
