@@ -288,9 +288,10 @@ impl Checker<'_, '_> {
         // **`await` is its own keyword, outside the future-reserved range**, so
         // the second arm of upstream's four-way branch (`binder.go:1311`) was
         // unreachable here rather than declined: an `await` used as a name at
-        // the **top level of an external module** is TS1262. The two TS1359
-        // arms need `AwaitContext`/`YieldContext` flags this parser does not
-        // set. §1043.
+        // the **top level of an external module** is TS1262, and elsewhere in
+        // an `AwaitContext` (which the parser sets as of r7-parser `1321f0aa`)
+        // TS1359. The `yield` TS1359 arm needs `YieldContext`, which this
+        // parser does not set. §1043; r7-grammar §9.
         if !future_reserved {
             let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
             let external = matches!(
@@ -302,17 +303,17 @@ impl Checker<'_, '_> {
             // here"*, for which an arrow is transparent — and reusing it put a
             // TS1262 on the `await` inside `async(() => await(…))`. Same
             // question shape, different container rule; §1030's lesson. §1044.
-            if !external || !self.is_identifier_in_top_level_context(node) {
+            let message = if external && self.is_identifier_in_top_level_context(node) {
+                &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_AT_THE_TOP_LEVEL_OF_A_MODULE
+            } else if self.nodes.flags(node).contains(tsr_ast::NodeFlags::AWAIT_CONTEXT) {
+                &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_THAT_CANNOT_BE_USED_HERE
+            } else {
                 return;
-            }
+            };
             let span = self.nodes.span(node);
             self.report(
                 file,
-                Diagnostic::with_args(
-                    &messages::IDENTIFIER_EXPECTED_0_IS_A_RESERVED_WORD_AT_THE_TOP_LEVEL_OF_A_MODULE,
-                    span,
-                    [identifier.text.to_string()],
-                ),
+                Diagnostic::with_args(message, span, [identifier.text.to_string()]),
             );
             return;
         }
