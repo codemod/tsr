@@ -42,7 +42,7 @@ Amp-Thread-ID: https://ampcode.com/threads/T-01a12477-cad4-767b-9d14-9bb9aa372e7
   if [ -n "$fail" ]; then echo "$name:$fail" > /tmp/integ/AUTOLOOP_BLOCKED; note "BLOCKED $name:$fail"; continue; fi
   git fetch -q origin && git merge -q --no-edit origin/main || { echo "$name: main merge" > /tmp/integ/AUTOLOOP_BLOCKED; continue; }
   cargo run -q --release -p tsr-conformance --bin coverage > /tmp/integ/$name/coverage.txt 2>&1
-  flags=$(/tmp/integ/covdiff.sh $cov /tmp/integ/$name/coverage.txt | grep -v '^COVDIFF' | grep -v 'fail \([0-9]*\)->\1$' )
+  flags=$(/tmp/integ/covdiff.sh $cov /tmp/integ/$name/coverage.txt | grep -v '^COVDIFF')
   if [ -n "$flags" ]; then echo "$name: covdiff $flags" > /tmp/integ/AUTOLOOP_BLOCKED; note "BLOCKED $name covdiff"; continue; fi
   python3 /tmp/integ/record.py $m $cov /tmp/integ/$name >> docs/parity/round7.md
   git add -A crates/tsr-conformance/snapshots docs/parity/round7.md
