@@ -803,3 +803,27 @@ drifts by more than the 3% gate. Two things would separate the series
 from noise: callgrind Ir as the hot-path guard on the bench projects, and
 p10 rather than median CPU when two binaries' Ir agree. Nothing to fix or
 route.
+
+## §17 Refused: keeping the eager render for instantiable literal members
+
+The follow-up to `804c649f` that §15.1's first rebase called for:
+`holds_anonymous_object` also answering true for a
+`TypeFlags::INSTANTIABLE` member, so that such a member keeps the mint-time
+site render. It was held on `box/r7-perf-held` (`42a83a49`). It was measured
+on main `9acf69d7` and refused, because the jsTyping leg reported
+**new_false = 1**: `checker.ts(51501,41)` TS2345 `Argument of type
+'IndexSignatureDeclaration' is not assignable to parameter of type
+'never'`. tsgo does not report that line, and main does not either. It was
+one of §4's original false positives, gone since the deferral.
+
+That is the other direction of the same sensitivity. On batch-15 main,
+*deferring* `Debug[name]`'s render added a false TS2322 at
+`debug.ts(189,13)`. On batch-17 main, after r7-flow's
+`52706f75`/`02fb65bb`, *rendering* instantiable members eagerly adds a
+false TS2345. A mint-time render resolves constraints and lazy types in an
+order native never uses, because native renders nothing at the mint. So the
+anonymous-only rule on main (`804c649f`) stays as landed, and the remaining
+order dependence belongs to the lanes whose lazy evaluations answer
+differently by order (lazy returns, indexed-access constraints). Its other
+gates passed: CLI-message audit 0 of 36,308, and the corpus compare was
+not reached.
