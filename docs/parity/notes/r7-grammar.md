@@ -515,3 +515,39 @@ source-text test) — are gone: `await_using_list_await_start`
 `checkGrammarModifiers`' block-scope kind and the case-clause arm read the
 flags directly. Correction of the record: those sections' "this parser eats
 the `await`" no longer holds as of `054b714f`.
+
+## §29 TS2564's constructor arm on the flow query (CLASS-PROPERTY-INITIALIZER)
+
+`checkPropertyInitialization` (`checker.go:4933`) reports TS2564 when
+`constructor == nil || !isPropertyInitializedInConstructor(...)`. The second
+disjunct (`:4977`) builds a `this.<name>` (or `this[<expr>]`), parents it to
+the constructor, gives it the constructor's `ReturnFlowNode`, and asks
+`getFlowTypeOfReferenceEx(reference, propType, getOptionalType(propType))`.
+The property is initialized when `undefined` does not survive.
+`check_property_initialization` (check.rs, granted) used to approximate this:
+it declined every constructor whose body names `this.<name>` anywhere
+(`checker-notes-diag2.md` §87), so a property assigned on only some paths, or
+read before it is assigned, was silent.
+
+r7-flow §15 built the query, `flow_type_of_this_property_at(constructor,
+name, declared, initial)`, on its synthetic-access machinery.
+`is_property_initialized_in_constructor` calls it with `propType` and
+`get_optional_type(propType, false)` and tests `contains_undefined_type`, as
+upstream does.
+
+*Names.* Identifier and private names are passed as written. A computed name
+is spelled when its expression is a string, numeric or no-substitution
+template literal, which is the name upstream's `this[<expr>]` matches.
+Upstream also handles other computed names (`this[sym]`); the query cannot
+spell those, so they keep §87's decidable part (a body that never names it
+cannot assign it). That is the one remaining approximation, and it only ever
+declines.
+
+*Cost.* One flow walk per uninitialized, non-optional property of a class
+with a constructor, as upstream. No cache.
+
+*Falsifier.* A TS2564 on a property every constructor path assigns (the
+synthetic matcher missing an assignment form), or none on one a path leaves
+unassigned. Converted: `detachedCommentAtStartOfConstructor2` (r7-flow's
+prototype measured the same +1, 0 lost); the exact oracle also gains
+`strictPropertyInitialization`.

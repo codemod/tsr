@@ -4049,23 +4049,19 @@ impl Checker<'_, '_> {
     /// node is the **member's name**, so the reported column is the property
     /// name rather than the declaration or its type.
     ///
-    /// # The bound: no constructor with a body, or nothing is said
+    /// # The constructor arm
     ///
     /// Upstream's condition is `constructor == nil ||
     /// !isPropertyInitializedInConstructor(...)` (`checker.go:4947`). The second
     /// disjunct synthesises a `this.x` property access, hangs it off the
     /// constructor's `ReturnFlowNode` and asks `getFlowTypeOfReference` whether
-    /// `undefined` survives (`checker.go:4960` shows the sibling doing it for
-    /// static blocks). **This port cannot synthesise that node**: the tree is
-    /// arena-allocated and immutable after parsing
-    /// ([ADR-0012](../../../docs/adr/0012-ast-is-sync.md)), and a flow query
-    /// needs a *registered* node with a parent and a flow node.
-    ///
-    /// So only the first disjunct is ported, and a class that **has** a
-    /// constructor with a body is declined outright. That is silence, never a
-    /// wrong answer: upstream reports there only when the constructor fails to
-    /// assign, and this port cannot tell those apart. The cost is measured
-    /// rather than assumed — see `docs/architecture/checker-notes-diag2.md` §6.
+    /// `undefined` survives. The tree cannot take a synthesised node
+    /// ([ADR-0012](../../../docs/adr/0012-ast-is-sync.md)), so r7-flow's
+    /// `flow_type_of_this_property_at` runs the same walk with the access
+    /// described rather than built; see
+    /// [`Checker::is_property_initialized_in_constructor`]. This superseded
+    /// the decline of every constructor that names the property
+    /// (`checker-notes-diag2.md` §6, §87).
     ///
     /// # `strictPropertyInitialization` is `strictNullChecks` here
     ///
@@ -4149,16 +4145,13 @@ impl Checker<'_, '_> {
             {
                 continue;
             }
-            // `!isPropertyInitializedInConstructor(...)` (`checker.go:4947`),
-            // as much of it as is decidable without synthesising a node. See
-            // `checker-notes-diag2.md` §87: a constructor body that never
-            // mentions `this.<name>` cannot assign it on any path, so the flow
-            // query upstream runs would answer "declared type survives" and
-            // report. Any other constructor declines.
-            if let Some(body) = constructor_body {
-                if self.subtree_accesses_this_member(body, &name, 0) {
-                    continue;
-                }
+            // `constructor == nil || !isPropertyInitializedInConstructor(...)`
+            // (`checker.go:4947`): the flow query on the synthetic
+            // `this.<name>` (r7-grammar §29).
+            if let Some(body) = constructor_body
+                && self.is_property_initialized_in_constructor(body, property.name, &name, declared)
+            {
+                continue;
             }
             let Some(name_id) = property.name.node_id() else { continue };
             let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
