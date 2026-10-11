@@ -489,7 +489,10 @@ impl<'a> Parser<'a> {
             "template" => self.parse_template_tag(start, tag_name, margin, indent_text),
             "type" => self.parse_type_tag(start, tag_name, Some((margin, indent_text))),
             "satisfies" => {
-                let type_expression = self.try_parse_type_expression();
+                // `parseSatisfiesTag` (`jsdoc.go:928`): the braces are
+                // expected, not optional — `@satisfies T` reports `'{'
+                // expected.` and still takes `T`.
+                let type_expression = Some(self.parse_jsdoc_type_expression(false));
                 let comment = self.parse_trailing_tag_comments(start, margin, indent_text);
                 tsr_ast::JSDocTag::JSDocSatisfiesTag(self.finish_jsdoc_node(
                     JSDocSatisfiesTag::new(tag_name, type_expression, comment),

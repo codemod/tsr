@@ -104,3 +104,18 @@ fn a_nameless_typedef_with_a_type_reports_in_the_file_of_a_javascript_file() {
     let parsed = tsr_parser::parse_with_options(&arena, source, ParseOptions::for_file("a.ts"));
     assert!(parsed.diagnostics.is_empty());
 }
+
+#[test]
+fn a_satisfies_tag_expects_braces() {
+    // `parseSatisfiesTag`: `parseJSDocTypeExpression(false)`.
+    let arena = Arena::new();
+    let source = "/** @satisfies T1 */\nconst t = {};\n";
+    let parsed = tsr_parser::parse_with_options(&arena, source, ParseOptions::for_file("a.js"));
+    let comment: Vec<_> = parsed
+        .jsdoc
+        .diagnostics()
+        .iter()
+        .map(|d| (d.span.start, d.span.end, d.message.code()))
+        .collect();
+    assert_eq!(comment, [(15, 17, 1005)]);
+}
