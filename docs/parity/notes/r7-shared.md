@@ -512,3 +512,17 @@ was a block-scoped variable typed by destructuring.
   lines (`commonJSImportClassTypeReference` 0:4/0:5/0:8).
 
 No cache.
+
+## 11. Implied binding-pattern types for type-position parameters (BINDING-PATTERN-IMPLIED-TYPE)
+
+`getTypeForVariableLikeDeclaration`'s binding-pattern arm
+(`getTypeFromBindingPattern`, checker.go:17904) types an unannotated pattern
+parameter by its pattern wherever no contextual type applies.
+`get_widened_type_for_variable_like_declaration`'s §429 gate admitted
+function and method declarations, and arrows/function expressions only where
+`has_no_contextual_type` shows there is none; a function type's or
+signature member's parameter fell through to the gap. Those parameters sit
+in a type node, which `getContextualType` cannot reach, so they are
+admitted unconditionally — the list `signatures.rs::parameter_of`'s §875
+already uses: `FunctionType`, `ConstructorType`, `CallSignature`,
+`ConstructSignature`, `MethodSignature`, `IndexSignature`. No cache.

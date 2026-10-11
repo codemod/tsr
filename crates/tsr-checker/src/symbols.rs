@@ -5839,7 +5839,21 @@ impl<'a> Checker<'a, '_> {
                     // contextually typed upstream and the implied `any`
                     // there was 78 G->W (`coAndContraVariantInferences3`).
                     && self.nodes.parent(declaration).is_some_and(|f| match self.nodes.kind(f) {
-                        SyntaxKind::FunctionDeclaration | SyntaxKind::MethodDeclaration => true,
+                        // §875 (`signatures.rs::parameter_of`): a function TYPE's
+                        // and a signature member's parameters live in a type
+                        // node, which `getContextualType` cannot reach, so they
+                        // are uncontextual unconditionally, like a declaration's:
+                        // `type F = ([a, b, c]) => string` is `([a, b, c]: [any,
+                        // any, any]) => string` (`docs/parity/notes/r7-shared.md`
+                        // §11).
+                        SyntaxKind::FunctionDeclaration
+                        | SyntaxKind::MethodDeclaration
+                        | SyntaxKind::FunctionType
+                        | SyntaxKind::ConstructorType
+                        | SyntaxKind::CallSignature
+                        | SyntaxKind::ConstructSignature
+                        | SyntaxKind::MethodSignature
+                        | SyntaxKind::IndexSignature => true,
                         // §561: an ARROW or FUNCTION EXPRESSION too, but ONLY
                         // where §94's predicate can SHOW there is no contextual
                         // type at its position. §429 excluded them wholesale and
