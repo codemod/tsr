@@ -853,3 +853,23 @@ types **+13 / −0** (`exportAssignedNamespaceIsVisibleInDeclarationEmit` 4,
 `reactImportDropped` 4, `reactTransitiveImportHasValidDeclaration` 4,
 `declarationEmitObjectAssignedDefaultExport` 1), diagnostics **+1 / −0**
 (`declarationEmitObjectAssignedDefaultExport`).
+
+## 19. A value reference qualifies its containers with value meaning
+
+**Forcing constraint.** `nameCollision` (2 lines) and
+`mergedModuleDeclarationCodeGen5` (1): inside `namespace X { var X = 13;
+export namespace Y { … } }`, `Y`'s value prints `typeof globalThis.X.Y`
+natively, `typeof X.Y` in the port.
+
+**Cause.** `getSymbolChain` recurses on a container with
+`getQualifiedLeftMeaning(meaning)` (`symbolaccessibility.go:108`), which
+keeps `Value` for a value reference. With value meaning the local `var X`
+shadows the namespace `X`, so `X` qualifies through the globals arm. The
+port's namespace-parent step always recursed with `Namespace`, which a `var`
+does not shadow.
+
+**The port.** `symbol_chain` recurses with the qualified-left meaning. No
+cache or table.
+
+**Measured** against §18's commit (`f76c6eff0`), both dumps unfiltered:
+types **+3 / −0**, diagnostics unchanged.
