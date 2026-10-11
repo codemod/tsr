@@ -1240,8 +1240,18 @@ impl Checker<'_, '_> {
     ///   depend on that order (the jsTyping gate leg). Deferring it is a
     ///   resolution-order change, not a display change, so it stays out of
     ///   this cut.
+    ///
+    /// An instantiable member (a type parameter, indexed access, conditional
+    /// or substitution type) keeps it for the second reason too: its render
+    /// asks for constraints and reductions, and on jsTyping the deferred
+    /// render of `assertion: Debug[name]` in `debug.ts(189)` changed a TS2322
+    /// verdict.
     fn holds_anonymous_object(&self, id: TypeId) -> bool {
-        match &self.store.get(id).data {
+        let ty = self.store.get(id);
+        if ty.flags.intersects(crate::flags::TypeFlags::INSTANTIABLE) {
+            return true;
+        }
+        match &ty.data {
             TypeData::Anonymous { .. } => true,
             TypeData::Union { types, .. } | TypeData::Intersection { types, .. } => {
                 types.iter().any(|&member| self.holds_anonymous_object(member))

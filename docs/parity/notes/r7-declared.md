@@ -662,3 +662,53 @@ tuples already). `.length` keeps its own arm.
 (variadicTuples2); diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0.
 Probe: `[string, ...any[]]`'s `slice(1)` is `any[]`, and `[string,
 ...number[]]`'s is `(string | number)[]`, as in tsgo.
+
+## 16. The `keyof X` origin keeps its operand (for r7-printer's site arm)
+
+**Forcing constraint.** getLiteralTypeFromProperties attaches `origin =
+newIndexType(t)` to a resolved key union. The node builder prints that
+origin's Index arm (`nodebuilderimpl.go:3472`) from the operand's own node at
+the print site, so the operand is qualified where the site needs it (`keyof
+Intl.NumberFormatOptionsStyleRegistry`). This port baked only the text
+`keyof <operand printed at creation>` (`union_with_origin_text`), so a site
+arm had nothing to print from (intlNumberFormatES2020/ES2023,
+es2018IntlAPIs, formatToPartsFractionalSecond: 10 lines, r7-printer's
+naming re-triage).
+
+**Port.** `union_with_keyof_origin` (`unions.rs`) builds the same text and
+records the operand beside it. Checker port convention: key the
+origin-carrying union (a distinct type from the bare union, minted there);
+owner `instantiation_expressions.keyof_origin_operands`; written once at
+mint, never invalidated; no receiver or alias context; no extra work. The
+three `keyof` origin sites in `declared.rs` (the deferred-keyof
+evaluation, the tuple key union, the index-key union) call it. The print-time
+arm is r7-printer's.
+
+**Measured** (unfiltered against the rebased `5e8714ed`): types 0 / 0,
+diagnostics 0 / 0, jsTyping new_false 0 / lost_true 0, callgrind Ir gi
+0.9999, dm 1.0000.
+
+## 17. An alias-rooted qualified reference into an augmented module resolves (umd-augmentation-1)
+
+**Forcing constraint.** `alias_rooted_reference_declines` (`declared.rs`)
+had a module-augmentation arm. Any alias-rooted qualified type reference
+(`Math2d.Point` through `import * as Math2d from 'math2d'`) whose own file
+augments the alias's module was kept as the unresolved written-text mint,
+because the binder did not run mergeModuleAugmentation (`checker.go:1407`)
+and the augmented export table was incomplete. Its doc said to delete the
+arm when that landed, and named the falsifier. The binder now has
+`merge_module_augmentations` (tsr-binder). So the arm only produced the
+mint: in umd-augmentation-1, `reverse(): Math2d.Point` inside `declare
+module 'math2d' { interface Vector { … } }` was `Named { "Math2d.Point",
+members: None }`, and `v.reverse()` printed `Math2d.Point` where tsgo prints
+`m.Point` (r7-printer's naming re-triage).
+
+**Port.** The arm is removed; the generic-heritage arm stays.
+
+**Measured** (unfiltered against `cd49eafb`): types **+28, 0 lost**; diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0002, dm 1.0000. A side measurement
+on `5e8714ed` the removal alone gave types +28 / 0 lost:
+moduleAugmentationDoesInterfaceMergeOfReexport 12 and
+moduleAugmentationDoesNamespaceMergeOfReexport 12 (the arm's own named
+falsifiers), umd-augmentation-1 2, and
+moduleAugmentationDoesNamespaceEnumMergeOfReexport 2. Diagnostics 0 / 0;
+jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0000.

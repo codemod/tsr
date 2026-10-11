@@ -657,15 +657,22 @@ impl Checker<'_, '_> {
         let Some(parent) = self.nodes.parent(list) else { return false };
         if self.nodes.kind(parent) == SyntaxKind::ForInStatement {
             // `for (await using x in …)` and `for (using x in …)` parse to the
-            // same tree here, and the two messages differ; decline the
-            // ambiguous one rather than guess.
-            if block_scope != NodeFlags::CONSTANT {
-                return false;
-            }
-            self.grammar_error_on_node(
-                list,
-                &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_AN_AWAIT_USING_DECLARATION,
-            );
+            // same tree here; the eaten `await` is recovered from the source
+            // (`await_using_list_await_start`), and upstream's list — and so
+            // the report — starts at it.
+            let Some(file) = self.source_file_of_for_diagnostics(list) else { return true };
+            let list_span = self.nodes.span(list);
+            let (message, span) = match self.await_using_list_await_start(list, parent) {
+                Some(start) => (
+                    &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_AN_AWAIT_USING_DECLARATION,
+                    tsr_core::Span::new(start, list_span.end),
+                ),
+                None => (
+                    &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_A_USING_DECLARATION,
+                    list_span,
+                ),
+            };
+            self.report(file, Diagnostic::new(message, span));
             return true;
         }
         let Some(Node::VariableStatement(statement)) = self.node_map.get(parent) else {
@@ -3142,5 +3149,34 @@ impl Checker<'_, '_> {
             crate::types::TypeData::Union { types, .. } => types.clone(),
             _ => vec![t],
         }
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `Checker.checkGrammarTaggedTemplateChain` (`grammarchecks.go:859`),
+    /// from `checkTaggedTemplateExpression` (`checker.go:10035`): a tagged
+    /// template written after `?.`, or inside an optional chain, is TS1358 on
+    /// the template. The parser builds that shape as of r7-parser
+    /// `6b560647`. Its `checkGrammarTypeArguments` sibling is not ported.
+    pub(crate) fn check_grammar_tagged_template_chain(&mut self, node: NodeId) -> bool {
+        if self.file_has_parse_errors {
+            return false;
+        }
+        let Some(Node::TaggedTemplateExpression(tagged)) = self.node_map.get(node) else {
+            return false;
+        };
+        if tagged.question_dot_token.is_none()
+            && !self.nodes.flags(node).contains(NodeFlags::OPTIONAL_CHAIN)
+        {
+            return false;
+        }
+        let Some(template) = tagged.template.and_then(|t| Node::from(t).node_id()) else {
+            return false;
+        };
+        self.grammar_error_on_node(
+            template,
+            &messages::TAGGED_TEMPLATE_EXPRESSIONS_ARE_NOT_PERMITTED_IN_AN_OPTIONAL_CHAIN,
+        );
+        true
     }
 }

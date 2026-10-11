@@ -663,3 +663,44 @@ native's one step, and those seven call sites ask it.
 **+11 / −0** (`noCrashOnImportShadowing` 4, `exportTypeMergedWithExportStarAsNamespace` 5,
 `typeAndNamespaceExportMerge` 2),
 diagnostics unchanged.
+
+## 13. A signature's own type parameters shadow at the print site
+
+**Forcing constraint.** `declarationEmitTypeParameterNameInOuterScope`:
+`var a3 = <A,>(x: A) => new A();` with a class `A` at the top of a script
+prints `a3 : <A>(x: A) => globalThis.A` natively; the port printed `A`.
+
+**Cause.** `enterNewScope` (`nodebuilderscopes.go:59`) pushes a fake scope
+holding the signature's type parameters ahead of the enclosing
+declaration, so while the signature prints, `A` resolves to the type
+parameter: the class needs qualification, and with no container it takes
+`trySymbolTable`'s globals arm, `globalThis.A`. The port's
+`needs_qualification` already reads that scope
+(`resolve_name_at_print_site` over `render_type_parameter_scope`), but
+`global_this_chain` gates on `is_shadowed_at`, which walked only the
+lexical tables.
+
+**The port.** `is_shadowed_at` (checker.rs) first asks the render scope, the
+fake scope's table here, with `needsQualification`'s per-table callback
+(`qualifies_for`). No cache or table.
+
+**Measured** against §12's commit (`c228f3a72`), both dumps unfiltered:
+types **+1 / −0** (`declarationEmitTypeParameterNameInOuterScope` 0:8),
+diagnostics unchanged; Ir −0.001% (dm) / +0.004% (gi); jsTyping unchanged.
+`unusedTypeParameters*`' `globalThis.T<T>` (`type T<T> = {}` at its own
+name) stays: there the shadow is lexical, but the port's `best_name` takes
+an outer direct hit without `isAccessible`'s `canQualifySymbol`; adding that
+test measured +0 (the globals gate of `global_this_chain` still declines
+in a one-file program), so it was not kept.
+
+**Not built: r7-calls' `S_1` rename** (`chainedCallsWithTypeParameterConstrainedToOtherTypeParameter2`,
+16 lines). Native names an instantiated signature's own type parameters
+first (`enterNewScope` → `typeParameterToName`, cached by type id, with a
+shared by-text set), so its own `S` (a clone with the original's symbol)
+keeps `S` and the enclosing method's `S` becomes `S_1`.
+`allocate_type_parameter_name` (printing.rs) finds a render-scope entry by
+*declaration symbol*, and both `S`s share `then`'s declaration, so the
+outer one takes the scope's name. Retiring that shortcut needs the scope to
+record its own type parameters' ids: `push_render_type_parameter_scope`
+(inference.rs) and its call in `signature_to_string_at` (signatures.rs),
+neither this lane's. Routed.

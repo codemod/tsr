@@ -648,3 +648,67 @@ None (undecided), so the intersection was never weak.
 `nestedExcessPropertyChecking` (30,22) stays: the elaboration's target for
 the nested `overrides` property comes from an intersection with a
 `Partial` instance, which `elaborate_object_literal_members` does not read.
+
+## 15. TS7034 / TS7005 for an auto-typed variable read where its type cannot be determined
+
+**Forcing fact.** `controlFlowNoImplicitAny`,
+`implicitAnyDeclareVariablesWithoutTypeAndInit`, `narrowingPastLastAssignment`,
+`tsxEmit1` and `tsxReactEmit1` miss `Variable 'x' implicitly has type 'any' in
+some locations where its type cannot be determined.` at the declaration, and
+`Variable 'x' implicitly has an 'any' type.` at a read. A typical read is a
+captured `let x;` inside a nested function, before any assignment it can
+see.
+
+**Upstream.** `checkIdentifier`'s auto arm (`checker.go:11182`): for an
+auto-typed variable (`autoType`, from `getTypeForVariableLikeDeclaration`'s
+auto arm), a read whose control-flow type is still `autoType` reports both
+diagnostics under `noImplicitAny` and answers `convertAutoToAny`.
+
+**Port.** r7-flow ported the flow test as
+`identifier_flow_type_is_auto` (`flow.rs`, `docs/parity/notes/r7-flow.md`
+§8). The reporter is `check_implicit_any_auto_reference` (`implicit_any.rs`),
+dispatched from the identifier arm of the check walk beside
+`check_used_before_assigned` (`check.rs`, granted). The walk is the site
+because the expression cache would skip a re-check. It asks for a value
+reference that is not a definite assignment target, which `checkIdentifier`
+returns early for, and not an export assignment's expression, as the
+prototype did. It also asks for a declaration with no JSDoc `@type`: in JS
+the reparsed tag is the annotation, which the auto arm never reaches. The
+flow query does not see it, and the first unfiltered run reported on
+`typeFromJSInitializer4`'s `/** @type {number | undefined} */ var n;` (one
+RIGHT case lost, fixed by this guard). Native's diagnostic collection drops
+the identical TS7034 a second read would add; the reporter does too.
+
+**Measured** (unfiltered, against batch-13 main `f960020e` plus §11–§14):
+WRONG → RIGHT the five cases above; no other row changed; type lines
+identical. Not covered: the auto-array track (`autoArrayType`,
+`controlFlowArrayErrors`, `evolvingArrayResolvedAssert`), which the flow
+query does not answer.
+
+## 16. TS2719: `reportRelationError`'s same-name arm
+
+**Forcing fact.** `incompatibleAssignmentOfIdenticallyNamedTypes`: `this.x
+= a` with `a: T` (an interface) and `x: T` (the class's type parameter) is
+TS2719, `Type 'T' is not assignable to type 'T'. Two different types with
+this name exist, but they are unrelated.`. TSR printed TS2322. §4 left the
+arm unported because the printer had no fully-qualified mode.
+
+**Upstream.** `reportRelationError` (`relater.go:4751`) takes its names from
+`getTypeNamesForErrorDisplay` (`relater.go:1277`): when the plain prints
+collide, both sides are re-printed with `getTypeNameForErrorDisplay`
+(`TypeFormatFlagsUseFullyQualifiedType`). Then, with no head message,
+`sourceType == targetType` selects TS2719 ahead of the exact-optional and
+default arms. The re-printed names are also what any other head prints.
+
+**Port** (`assignreport.rs`, `report_relation_head`). r7-printer's
+`type_name_for_error_display` (`checker.rs`, `deda2594`) is the qualified
+print; its `allow(dead_code)` is removed (granted). When the plain prints
+collide, both sides take the qualified print, and equal qualified prints
+select TS2719. That comes after a caller's head and TSR's TS2412 head arm
+(native's `checkAssignmentOperator` head), and before the exact-optional
+arm, in upstream's order. A literal source keeps its generalized display
+text, as upstream's `generalizedSourceType` does.
+
+**Measured** (unfiltered, against `f960020e` plus §11–§15): WRONG → RIGHT
+`incompatibleAssignmentOfIdenticallyNamedTypes`; no other row changed; type
+lines identical.
