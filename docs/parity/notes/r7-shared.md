@@ -540,13 +540,15 @@ non-conflicting merge; `BindResult::umd_alias_conflicts` is the other half —
 the slot takes the source and the pair stays in `alias_merges`, so the two
 TS2451 reports are unchanged. No cache.
 
-## 13. A whole-type `getTypeWithThisArgument` (step 1 built; steps 2–3 planned)
+## 13. A whole-type `getTypeWithThisArgument` (steps 1–2 built; step 3's heritage consumer in §24)
 
 Routed from r7-grammar: TS2415/TS2430 false positives (`contextualThisType`,
 `thisTypeInFunctions3`, `genericDefaults`, `indexSignatureInOtherFile/1`)
 because `relate_ternary` compares declared types whose `this` differ. Also
 the harvest spec `calls_concrete_receiver.rs` (inherited `(value: T): this`
-called through `Derived` returns `Derived`). Nothing below exists yet.
+called through `Derived` returns `Derived`). The plan below was written before
+any of it existed. Steps 1 and 2 are built (their subsections). Of step 3,
+the heritage consumer is built in §24, and no relater change was needed.
 
 **Native operation.** `getTypeWithThisArgument(t, thisArgument)`
 (`checker.go:19573`): a class/interface reference `C<A…>` becomes
@@ -643,8 +645,8 @@ Approved by the integrator in outline (keep `type_reference_targets`' key;
 interned `(reference, this) → image` and its inverse; the image shares the
 reference's target and arguments). `Checker::get_type_with_this_argument`
 (`members.rs`) and the two tables (`checker.rs`) exist, with the
-conventions entry on the function. No caller reads an image yet, so the
-block carries `#[allow(dead_code)]` until step 2. Unit test
+conventions entry on the function. No caller read an image yet, so the
+block carried `#[allow(dead_code)]` until step 2, which removed it. Unit test
 `this_argument_tests`: an image is interned once, differs from its
 reference, shares its `type_reference_targets` entry and printed text; a
 reference's own this-argument is the reference; `None` takes the target's
@@ -676,6 +678,32 @@ later member read of that interface onto the this-substitution road. The
 derived this-type is now minted only for an inherited signature that can
 mention `this`: domain-model 1.0004, generic-imports 1.0000 against the same
 build directory.
+
+### Step 3: the probe that found §24
+
+An uncommitted probe (2026-10-11, on main a9e63316 plus step 2) wrapped the
+heritage target in `get_type_with_this_argument(base, Some(derived))` in
+`heritage_conformance.rs`'s class and interface arms. It fixes none of the
+four routed TS2415/TS2430 false positives, and it **adds** one: `interface P
+{ a: () => this } interface Q extends P {}` reports TS2430 with the probe and
+not without it. The probe was reverted. The real fault is below the heritage
+check, in the relation itself, and shows without any heritage consumer:
+
+| witness (`--target es2015`, strict) | TSR | native |
+|---|---|---|
+| `interface X { a: (p: this) => number } interface Y extends X {}` | TS2430 at `Y` | silent |
+| same `X`/`Y`, `const f: (p: X) => X = y.a` (`a: (p: this) => this`) | TS2322 | silent |
+| `P`/`Q` above, `const qq: Q = p` (`p: P`) | TS2322 | silent |
+
+Member reads through a property access are right (`q.a` is `() => Q`,
+`y.a` is `(p: Y) => Y`, as natively). What fails is relating two references
+to interfaces whose members mention `this`, in either direction. The relater
+reads members through `members.rs::get_type_of_property_of_type` (this lane),
+not the property-access road, and that road did not answer the same: it
+read `() => this` for `Q`'s inherited `a`. The fault was in this lane's
+member read, not in `relater.rs` (§24). With that read fixed, the heritage
+consumer is measurable, and §24 builds it, because the read alone loses
+`inferenceErasedSignatures` without it.
 
 ## 15. `isReadonlySymbol` of a mapped member in `is_readonly_property_of_type`
 
@@ -864,6 +892,98 @@ present and a function-like location) in front of an out-of-line remainder
 that tests `Block`/`Parameter`/the JSDoc kind range before any table read
 brings it to domain-model 1.0011, generic-imports 1.0000.
 
+The missing TS2304 for `T` is not this resolver's: the binder already hides
+the member's type parameter from its computed name
+(`local_type_hidden_outside_body`, `nameresolver.go:64`), and `resolve_name`
+answers `None`. The checker's type-position TS2304 rule then declines because
+`check.rs::an_enclosing_declaration_has_type_parameter` sees a `T` declared
+on an ancestor, without asking whether that declaration's type parameters
+are visible from the arrival. Same for `[foo<T>(1)]<T>(): void` in an
+interface, a class overload and a type literal (native TS2304 on each).
+Routed: the decline should apply the same visibility rule (a function-like
+ancestor's type parameters are visible from its parameters, return type and
+type-parameter list only).
+
+## 24. An inherited member reads its owner's `this` as the receiver (§13 step 3's prerequisite)
+
+**Forcing case.** `interface P { a: () => this } interface Q extends P {}`
+with `const { a } = q` read `a` as `() => this`; natively it is `() => Q`.
+`q.a` was already right, but only because the property-access road
+(`access_member_lookup`'s §164/§165 block) post-substitutes the first minted
+this-type it finds. The relater, destructuring and every other caller read
+through `get_type_of_property_of_type`, which mapped only the receiver
+target's *own* this-type, and an inherited member's type mentions its
+declaring owner's. So `Q` was not assignable to `P` (or the reverse) for any
+inherited member that mentions `this`. That is the TS2415/TS2430 family
+routed under §13 (`thisTypeInFunctions3`, `contextualThisType`), and the
+probe in §13 step 3 found it.
+
+**Native operation.** `resolveObjectTypeMembers` (pinned 5b1047d,
+`checker.go`) instantiates each base type with
+`getTypeWithThisArgument(baseType, thisArgument)` before it adds the base's
+members. Then `resolveTypeReferenceMembers` maps the target's own this-type
+to the reference. Composed, an inherited member's owner this-type reaches
+the receiver's this-argument.
+
+**Port.** `members.rs::instantiate_inherited_this`, after the reference
+mapper on the symbol road of `get_type_of_property_with_this_argument`. When
+the property's parent (merged) is a class or interface other than the
+receiver's target and has a minted this-type that the member type mentions,
+each minted this-type of the owner (`this_types_of_target`: the class's one,
+or each interface declaration's) is mapped to `this_argument`.
+
+**Two consequences the corpus measured, and the two changes that answer them.**
+The first chain run of the read alone lost two cases (batch 35 base):
+
+- `interfaceClassMerging2` (RIGHT→WRONG, a false TS2322 for `foo = bar`).
+  `Foo` is a class merged with an interface, so it has two minted this-types
+  (the class's and the interface declaration's). The reference mapper mapped
+  only `polymorphic_this_of`, the first one, so `Foo`'s own interface members
+  kept a raw `this`, while the same members read through `Bar` now mapped to
+  `Bar`. Native has one this-type per symbol, so
+  `instantiate_for_reference_with_this_worker` now maps **every** minted
+  this-type of the target (`this_types_of_target`). The worker is memoised in
+  `reference_member_types`, so the extra entries cost nothing per read.
+- `inferenceErasedSignatures` (EMPTY_RIGHT→EMPTY_WRONG plus 3 type lines, a
+  false TS2415). The heritage check related `SomeClass` to the *plain* base
+  reference, so the inherited `set<K extends keyof this>` read `this` as
+  `SomeClass` on the source side and as `SomeAbstractClass<number, string,
+  boolean>` on the target side. Before this section both sides kept the raw
+  base `this`, so they agreed by accident. Native relates the base with the
+  derived this-argument (`checkClassLikeDeclaration` /
+  `checkInterfaceDeclaration`: `getTypeWithThisArgument(baseType,
+  t.thisType)`). `heritage_conformance.rs` now does the same: the target is
+  `get_type_with_this_argument(base, Some(source))`. The source side is
+  the declared type, whose member reads take itself as this-argument, the
+  port's form of native's `t.thisType`. This is §13 step 3's heritage
+  consumer. The file is r7-grammar's; the integrator was asked for a grant
+  before landing (§13's condition).
+
+**Alternatives rejected.**
+- Copying the access road's "first minted this-type anywhere" scan: it is a
+  table-wide search with no owner, and it picks an arbitrary this-type when
+  two are mentioned.
+- Instantiating each base's member table with the derived this-type (native's
+  shape): this port has no instantiated member tables. `base_symbols_of`
+  hands back the base's own symbols (§202), so the substitution must happen
+  at the read.
+
+**Boundaries.** No new cache. The pre-checks are a parent read, a merged
+lookup and `polymorphic_this_of`; the instantiation runs only for an
+inherited member that mentions an owner this-type. Generic bases are not on
+this road, because `generic_heritage_member` reads them through the
+instantiated base.
+
+**Known remainder.** `contextual.rs`'s object-literal member arm reads
+`get_type_of_symbol(property)` and then `instantiate_for_reference`, so a
+literal contextually typed by `Q` still gets `(p: this) => this` for an
+inherited `a` (`contextualThisType`: the false TS2430 becomes a false TS2322
+on the literal). That file is r7-contextual's. Routed: call
+`instantiate_inherited_this` there too (it is `pub(crate)`).
+
+**Falsifier.** A corpus case where native reads an inherited member's `this`
+as the base rather than the receiver. Native's `getTypeWithThisArgument` at
+base resolution rules that out for class and interface bases.
 ## 25. An anonymous class's static side asks `getBaseTypeVariableOfClass` (CLASS-TYPE-BASE-TYPE-VARIABLE-INTERSECTION, partial)
 
 `getTypeOfFuncClassEnumModuleWorker` (checker.go:16923) intersects a

@@ -1807,6 +1807,8 @@ impl Checker<'_, '_> {
             let declared = self.get_type_of_symbol(property);
             let instantiated =
                 self.instantiate_for_reference_with_this(id, declared, this_argument);
+            let instantiated =
+                self.instantiate_inherited_this(id, property, instantiated, this_argument);
             // §92: a property the symbol road FINDS but cannot type may
             // still answer through the shape road (chain1's low reads — the
             // alias symbol's table hands back a symbol whose declared type
@@ -2419,6 +2421,56 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `resolveObjectTypeMembers` (pinned 5b1047d, `checker.go`) instantiates
+    /// each base type with the derived type's this-type
+    /// (`getTypeWithThisArgument(baseType, thisArgument)`), so a member
+    /// inherited from a class or interface reads its declaring owner's `this`
+    /// as the receiver's this-argument: `interface P { a: () => this }
+    /// interface Q extends P {}` gives `Q`'s `a` the type `() => Q`. The
+    /// reference mapper above maps only the receiver target's own this-type,
+    /// and an inherited member's type mentions its owner's instead, so that
+    /// type is mapped here: every minted this-type of the owner (one per
+    /// class, one per interface declaration, `this_types_of_target`) goes to
+    /// `this_argument`, which composes native's base-then-reference mappers.
+    /// A member of the target itself, an owner with no minted this-type, and
+    /// a type that does not mention one are returned unchanged.
+    /// No cache: the work is a parent read and two table probes per member
+    /// read, plus one instantiation per inherited member that mentions
+    /// `this` (`r7-shared.md` §24).
+    pub(crate) fn instantiate_inherited_this(
+        &mut self,
+        receiver: TypeId,
+        property: SymbolId,
+        instantiated: TypeId,
+        this_argument: TypeId,
+    ) -> TypeId {
+        let Some(owner) = self.binder.symbols().get(property).parent else {
+            return instantiated;
+        };
+        let owner = self.binder.merged_symbol(owner);
+        if self.polymorphic_this_of(owner).is_none()
+            || self
+                .reference_target_symbol(receiver)
+                .map(|target| self.binder.merged_symbol(target))
+                == Some(owner)
+        {
+            return instantiated;
+        }
+        let this_types: Vec<TypeId> = self
+            .this_types_of_target(owner)
+            .into_iter()
+            .filter(|&this_type| this_type != this_argument)
+            .collect();
+        if this_types.is_empty() || !self.mentions_type_parameter(instantiated, &this_types, &[]) {
+            return instantiated;
+        }
+        let map: Vec<(TypeId, TypeId)> =
+            this_types.iter().map(|&this_type| (this_type, this_argument)).collect();
+        let names = vec!["this"; this_types.len()];
+        let image = self.instantiate_type(instantiated, &map, &this_types, &names);
+        if image == self.intrinsics.error { instantiated } else { image }
+    }
+
     /// The class or interface whose members `receiver` reads: a reference's
     /// target, or a non-generic class/interface kept as a Named type
     /// (`resolveTypeReferenceMembers` supplies a this argument for those too).
@@ -2545,11 +2597,17 @@ impl Checker<'_, '_> {
         }
         // resolveTypeReferenceMembers pads the type arguments with the
         // reference itself for the target's polymorphic this parameter.
-        if let Some(this_type) = self.polymorphic_this_of(symbol)
-            && this_type != this_argument
-        {
-            types.push(this_type);
-            map.push((this_type, this_argument));
+        // Native has one per symbol; this port mints one per class and one
+        // per interface declaration (§166), so a class merged with an
+        // interface, or an interface declared twice, can carry several, and
+        // each is that one parameter (`r7-shared.md` §24).
+        if self.polymorphic_this_of(symbol).is_some() {
+            for this_type in self.this_types_of_target(symbol) {
+                if this_type != this_argument && !types.contains(&this_type) {
+                    types.push(this_type);
+                    map.push((this_type, this_argument));
+                }
+            }
         }
         // A reference without type parameters or a polymorphic this needs no map.
         if map.is_empty() {
@@ -5705,5 +5763,33 @@ mod this_argument_tests {
         // A non-reference is unchanged.
         let number = checker.intrinsics().number;
         assert_eq!(checker.get_type_with_this_argument(number, Some(derived), false), number);
+    }
+
+    /// `r7-shared.md` §24: an inherited member reads its declaring owner's
+    /// `this` as the receiver, on the road the relater and contextual typing
+    /// take (`get_type_of_property_of_type`), not only on property access.
+    #[test]
+    fn inherited_members_read_the_owner_this_as_the_receiver() {
+        let source = "interface P { a: () => this; b: (p: this) => number; }\ninterface Q extends P {}\ninterface R extends Q {}\nclass B { m(): this { return this; } }\nclass D extends B {}\ndeclare const p: P;\ndeclare const q: Q;\ndeclare const r: R;\ndeclare const d: D;";
+        let arena = Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "this.ts", text: source },
+        );
+        let root = parsed.source_file.node_id().unwrap();
+        let mut checker = Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        let mut read = |name: &str, member: &str| {
+            let receiver = checker.get_type_of_symbol(bound.lookup_local(root, name).unwrap());
+            let member = checker.get_type_of_property_of_type(receiver, member).unwrap();
+            checker.type_to_string(member)
+        };
+        assert_eq!(read("p", "a"), "() => P");
+        assert_eq!(read("q", "a"), "() => Q");
+        assert_eq!(read("q", "b"), "(p: Q) => number");
+        assert_eq!(read("r", "a"), "() => R");
+        assert_eq!(read("d", "m"), "() => D");
     }
 }

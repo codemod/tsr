@@ -197,6 +197,11 @@ impl Checker<'_, '_> {
         if self.is_error(target) || !self.pair_is_reportable(source, target) {
             return;
         }
+        // `baseWithThis := c.getTypeWithThisArgument(baseType,
+        // classTypeData.thisType, false)` (`checker.go:4332`): the base is
+        // related with the derived this-argument; the declared source reads
+        // its members with itself as that argument (`r7-shared.md` §24).
+        let target = self.get_type_with_this_argument(target, Some(source), false);
         if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated {
             return;
         }
@@ -683,6 +688,9 @@ impl Checker<'_, '_> {
                 if !self.pair_is_reportable(source, target) {
                     continue;
                 }
+                // `c.getTypeWithThisArgument(baseType, t.AsInterfaceType().thisType,
+                // false)` (`checker.go:5011`), as for a class base (§24).
+                let target = self.get_type_with_this_argument(target, Some(source), false);
                 if self.relate_ternary(source, target, Relation::Assignable) != Ternary::NotRelated
                 {
                     continue;
