@@ -1450,7 +1450,10 @@ impl Checker<'_, '_> {
     /// (`crate::relater`'s `properties_related_to`) meaning what it did.
     #[must_use]
     pub fn get_type_of_property_of_type(&mut self, id: TypeId, name: &str) -> Option<TypeId> {
-        self.get_type_of_property_with_this_argument(id, name, id, false)
+        // A `getTypeWithThisArgument` image reads its members with its own
+        // this-argument; any other type is its own (r7-shared.md §13).
+        let this_argument = self.this_argument_of(id);
+        self.get_type_of_property_with_this_argument(id, name, this_argument, false)
     }
 
     /// Source optionality follows the ordinary supplier, not the reused symbol's flags.
