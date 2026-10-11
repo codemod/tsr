@@ -6274,6 +6274,25 @@ impl Checker<'_, '_> {
     }
 
     fn check_used_before_its_declaration(&mut self, node: NodeId, text: &str) {
+        // Both arms below report only a value reference or an `extends`
+        // operand (the class arm's `is_value_reference`, and
+        // `use_is_not_deferred`'s). Native runs `checkResolvedBlockScopedVariable`
+        // inside `resolveName`, which a declaration name or a type reference
+        // never reaches with a value meaning, so such an identifier is
+        // answered before its resolution. A property access's name keeps the
+        // walk: its namespace fallback resolves aliases (`r7-perf.md` §23).
+        if !self.is_value_reference(node)
+            && !self.is_in_extends_clause(node)
+            && !self.nodes.parent(node).is_some_and(|parent| {
+                matches!(
+                    self.node_map.get(parent),
+                    Some(Node::PropertyAccessExpression(access))
+                        if access.name.and_then(|name| name.node_id()) == Some(node)
+                )
+            })
+        {
+            return;
+        }
         let Some(symbol) = self
             // `getResolvedSymbol`'s meaning, per §251 — `EXPORT_VALUE` included.
             .resolve_identifier_memo(node, text, SymbolFlags::VALUE | SymbolFlags::EXPORT_VALUE)
