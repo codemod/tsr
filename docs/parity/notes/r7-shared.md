@@ -789,3 +789,40 @@ constraint naming a value (`var j: <T extends typeof j>(x: T) => T`) never
 forms a cycle while `j`'s annotation is built; asking about it eagerly
 reported a TSR-only TS2313/TS2502 pair (`recursiveTypesWithTypeof`, refused
 by the compare until the guard).
+
+## 21. A missing global apparent type is `{}` (GLOBAL-TYPE-MISSING-LIB-FALLBACK)
+
+`getGlobalType` (checker.go:1210) answers `emptyObjectType` for a missing
+global, and `getApparentType` reads a primitive's members through it
+(`globalBigIntType`, checker.go:21729), so a `bigint` without
+`lib.es2020.bigint` has `{}`'s members — Object's, through
+`getPropertyOfType`'s augment (`bigintVal.valueOf : () => Object`).
+`members.rs::apparent_type` returned the primitive itself, which has no
+members. It now returns the canonical empty object (`intrinsics.empty_object`,
+the identity its `object`/non-strict `unknown` arm already uses) — when a
+global `Object` exists: a checker bound with no lib at all (unit fixtures)
+cannot relate the empty object to a `{}` literal (`relater.rs` answers
+`Unknown`, routed), and the old primitive answer kept those fixtures
+decidable (`mapped.rs`' `concrete_mapped_index_keys_…` test). Not here:
+an array literal without a global `Array` (`createArrayType` over
+`emptyGenericType`, `[1, 2, 3] : {}`; `noCrashOnNoLib`,
+`arrayIterationLibES5TargetDifferent(nolib)`) is the array-literal road
+(r7-contextual).
+
+## 22. A static `prototype` property is the class's prototype (BIND-CLASS-PROTOTYPE-SYMBOL, partial)
+
+`bindClassLikeDeclaration` (binder.go:962) gives every class a
+`Property|Prototype` `prototype` export before its body binds. A written
+`static prototype` *property* merges into it (property excludes are
+empty), so `getTypeOfVariableOrParameterOrPropertyWorker`'s
+`SymbolFlagsPrototype` arm (checker.go:16580) types the declaration
+`getTypeOfPrototypeProperty` (the instance type, `any` per type parameter):
+`static prototype;` is `C2`. A static method or accessor conflicts (TS2300)
+and keeps its own symbol. This binder mints no prototype symbol; the
+variable/property worker recognises the merge (a static `PropertyDeclaration`
+named `prototype` whose parent node is a class) and answers
+`members.rs::prototype_type_of_class`, the helper the static side's
+`C.prototype` read (§117) now shares. Not ported: the binder-level symbol
+itself, and computed names that late-bind to `prototype`
+(`[FunctionPropertyNames.prototype]`, `staticPropertyNameConflicts` 65/195/330),
+which `lateBindMember` resolves against the early prototype symbol.

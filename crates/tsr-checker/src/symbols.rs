@@ -5303,6 +5303,38 @@ impl<'a> Checker<'a, '_> {
 
     /// Ported from `Checker.getTypeOfVariableOrParameterOrPropertyWorker`
     /// (`checker.go:16578`).
+    /// The class whose `prototype` export a static property declaration
+    /// named `prototype` merges into, natively; `None` for anything else (a
+    /// static method or accessor conflicts and keeps its own symbol).
+    fn static_prototype_property_class(
+        &self,
+        symbol: SymbolId,
+        declaration: NodeId,
+    ) -> Option<SymbolId> {
+        let entry = self.binder.symbols().get(symbol);
+        if entry.name != "prototype" || !entry.flags.contains(SymbolFlags::PROPERTY) {
+            return None;
+        }
+        let Some(Node::PropertyDeclaration(property)) = self.node_map.get(declaration) else {
+            return None;
+        };
+        if !tsr_ast::has_syntactic_modifier(property.modifiers, SyntaxKind::StaticKeyword) {
+            return None;
+        }
+        // The class declaration's own symbol: an exported class's member is
+        // parented to its export-side symbol, so the declaration's parent node
+        // is the reliable owner.
+        let owner = self.nodes.parent(declaration)?;
+        if !matches!(
+            self.nodes.kind(owner),
+            SyntaxKind::ClassDeclaration | SyntaxKind::ClassExpression
+        ) {
+            return None;
+        }
+        let class = self.binder.merged_symbol(self.binder.symbol_of(owner)?);
+        self.binder.symbols().get(class).flags.contains(SymbolFlags::CLASS).then_some(class)
+    }
+
     fn get_type_of_variable_or_parameter_or_property_worker(&mut self, symbol: SymbolId) -> TypeId {
         #[cfg(feature = "work-trace")]
         let _work =
@@ -5310,6 +5342,17 @@ impl<'a> Checker<'a, '_> {
         let Some(declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return self.intrinsics.error;
         };
+        // `symbol.Flags&SymbolFlagsPrototype` (`checker.go:16580`): every class
+        // has a `Property|Prototype` `prototype` export (`bindClassLikeDeclaration`,
+        // binder.go:962), and a written `static prototype` property merges into
+        // it (property excludes are empty), so its type is
+        // `getTypeOfPrototypeProperty`'s. This binder mints no prototype symbol;
+        // the merge is read here (`docs/parity/notes/r7-shared.md` §22).
+        if let Some(class) = self.static_prototype_property_class(symbol, declaration)
+            && let Some(prototype) = self.prototype_type_of_class(class)
+        {
+            return prototype;
+        }
         // Native 5b1047d1 getTypeOfVariableOrParameterOrPropertyWorker:
         // CommonJS `exports` denotes the source file's resolved export value;
         // `module` is an anonymous object whose own members contain `exports`.
