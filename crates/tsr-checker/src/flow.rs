@@ -2137,6 +2137,67 @@ impl Checker<'_, '_> {
         false
     }
 
+    /// `getInstanceType` (`flow.go:964-976`) for one `instanceof` callee
+    /// that is not a class constructor (the class road answers those), behind
+    /// `narrowTypeByInstanceof`'s `isTypeDerivedFrom(rightType,
+    /// globalFunctionType)` gate: the `prototype` property's type unless it
+    /// is `any`, else the union of the construct signatures' erased returns,
+    /// else `emptyObjectType`. `None` declines the narrowing (an undecidable
+    /// signature list, an erased return this port cannot instantiate, or a
+    /// callee that is not Function-derived, which leaves the type alone).
+    fn instance_type_of_callee(&mut self, callee_type: TypeId) -> Option<TypeId> {
+        // Native 5b1047d narrowTypeByInstanceof admits a Function-derived
+        // callee, not only a constructor. isFunctionObjectType reads
+        // completed call OR construct signatures, or bind plus a Function
+        // subtype proof. A plain prototype-bearing object cannot pass this
+        // gate. Use the existing declaration/receiver-owned signature lookup;
+        // publish no new member or flow cache.
+        let has_signature =
+            [crate::signatures::SignatureKind::Call, crate::signatures::SignatureKind::Construct]
+                .into_iter()
+                .any(|kind| {
+                    self.signatures_of_type_kind(callee_type, kind)
+                        .is_some_and(|candidates| !candidates.is_empty())
+                });
+        if !has_signature && !self.is_bind_bearing_function_subtype(callee_type) {
+            return None;
+        }
+        if let Some(instance) = self
+            .get_property_of_type(callee_type, "prototype")
+            .map(|p| self.get_type_of_symbol(p))
+            .filter(|&i| i != self.intrinsics.error && i != self.intrinsics.any)
+        {
+            return Some(instance);
+        }
+        // getInstanceType's second leg (flow.go:971-975): the UNION over
+        // construct signatures of the ERASED return (type parameters
+        // instantiated to any).
+        let candidates =
+            self.signatures_of_type_kind(callee_type, crate::signatures::SignatureKind::Construct)?;
+        let mut returns = Vec::with_capacity(candidates.len());
+        for candidate in &candidates {
+            if candidate.type_parameters.is_empty() {
+                returns.push(candidate.r#type);
+                continue;
+            }
+            let parameters = self.type_parameter_types(candidate)?;
+            let names: Vec<&str> =
+                candidate.type_parameters.iter().map(|p| p.name.as_str()).collect();
+            let any = self.intrinsics.any;
+            let map: Vec<(TypeId, TypeId)> = parameters.iter().map(|&t| (t, any)).collect();
+            let erased = self.instantiate_type(candidate.r#type, &map, &parameters, &names);
+            if erased == self.intrinsics.error {
+                return None;
+            }
+            returns.push(erased);
+        }
+        Some(if returns.is_empty() {
+            self.intrinsics.empty_object
+        } else {
+            self.get_union_type(&returns)
+        })
+    }
+
     /// §126's gate: whether an identifier reference resolves to a variable
     /// declared at a source file's top level. The instanceof FALSE branch
     /// does not narrow those in the baselines (typeGuardOfFormInstanceOf)
@@ -2302,17 +2363,12 @@ impl Checker<'_, '_> {
         self.combined_node_flags(declaration).intersects(tsr_ast::NodeFlags::CONSTANT)
     }
 
-    /// `isMutableLocalVariableDeclaration` (`utilities.go:1053`), faithfully:
-    /// a `let` declaration that is neither exported nor declared at the top
-    /// level of a **global** source file.
-    ///
-    /// Deliberately *not* shared with
-    /// [`Checker::is_parameter_or_mutable_local_variable`] above, which
-    /// approximates `IsGlobalSourceFile` by refusing every file-level `let`.
-    /// That approximation is the `.types` workstream's §13 reader and moving it
-    /// moves `checker_types`; a top-level `let` in a **module** file is a
-    /// mutable local upstream and this predicate says so.
-    /// `checker-notes-diag2.md` §42 records the divergence.
+    /// `isMutableLocalVariableDeclaration` (`utilities.go:1053`): a `let`
+    /// declaration that is neither exported nor declared at the top level of
+    /// a **global** source file; a top-level `let` in a **module** file is a
+    /// mutable local. (`checker-notes-diag2.md` §42 recorded the old
+    /// file-level approximation of the position reader; `r7-flow.md` §25
+    /// retired it.)
     pub(crate) fn is_mutable_local_variable_declaration(&self, declaration: NodeId) -> bool {
         let Some(list) = self.nodes.parent(declaration) else { return false };
         if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::LET) {
@@ -2343,64 +2399,12 @@ impl Checker<'_, '_> {
     }
 
     /// `isParameterOrMutableLocalVariable` (`utilities.go:1044`): a
-    /// parameter, catch-clause variable, or `let` local. Upstream's
-    /// exported/global exclusions are approximated by refusing file-level
-    /// `let`s outright — conservative: the §13 extension stops earlier.
+    /// parameter, a catch-clause variable, or a mutable local
+    /// ([`Checker::is_mutable_local_variable_declaration`]: a `let` neither
+    /// exported nor at the top level of a global script, so a module-level
+    /// `let` is one). It used to refuse every file-level `let`, an
+    /// approximation `r7-flow.md` §25 retires.
     fn is_parameter_or_mutable_local_variable(&self, symbol: SymbolId) -> bool {
-        let Some(mut declaration) = self.binder.symbols().get(symbol).value_declaration else {
-            return false;
-        };
-        // `GetRootDeclaration`: climb out of binding patterns.
-        while let Some(parent) = self.nodes.parent(declaration) {
-            if matches!(
-                self.nodes.kind(parent),
-                tsr_ast::SyntaxKind::BindingElement
-                    | tsr_ast::SyntaxKind::ObjectBindingPattern
-                    | tsr_ast::SyntaxKind::ArrayBindingPattern
-                    | tsr_ast::SyntaxKind::Parameter
-            ) {
-                declaration = parent;
-            } else {
-                break;
-            }
-        }
-        match self.nodes.kind(declaration) {
-            tsr_ast::SyntaxKind::Parameter => true,
-            tsr_ast::SyntaxKind::VariableDeclaration => {
-                let Some(list) = self.nodes.parent(declaration) else { return false };
-                if self.nodes.kind(list) == tsr_ast::SyntaxKind::CatchClause {
-                    return true;
-                }
-                if !self.nodes.flags(list).intersects(tsr_ast::NodeFlags::LET) {
-                    return false;
-                }
-                // Upstream's exclusions: exported (`export let x` in a
-                // namespace stays wide — `narrowingPastLastAssignment`'s
-                // namespace block, the §13 measurement's last line) and
-                // global (file-level).
-                let Some(statement) = self.nodes.parent(list) else { return false };
-                if let Some(Node::VariableStatement(variable)) = self.node_map.get(statement)
-                    && variable.modifiers.iter().any(|modifier| {
-                        tsr_ast::Node::from(*modifier).node_id().is_some_and(|id| {
-                            self.nodes.kind(id) == tsr_ast::SyntaxKind::ExportKeyword
-                        })
-                    })
-                {
-                    return false;
-                }
-                self.nodes
-                    .parent(statement)
-                    .is_some_and(|scope| self.nodes.kind(scope) != tsr_ast::SyntaxKind::SourceFile)
-            }
-            _ => false,
-        }
-    }
-
-    /// `isParameterOrMutableLocalVariable` (`utilities.go:1044`) as written:
-    /// unlike [`Checker::is_parameter_or_mutable_local_variable`], a
-    /// module-level `let` is a mutable local. Gates `isSymbolAssignedDefinitely`'s
-    /// record only.
-    fn is_parameter_or_mutable_local_variable_faithful(&self, symbol: SymbolId) -> bool {
         let Some(mut declaration) = self.binder.symbols().get(symbol).value_declaration else {
             return false;
         };
@@ -2532,16 +2536,22 @@ impl Checker<'_, '_> {
 
     /// `markNodeAssignments` (`flow.go:2698`): record the last assignment
     /// position for every parameter/mutable-local assigned under `root` —
-    /// `i64::MAX` when the assignment sits in a nested function. The export-
-    /// specifier arm is unported (value re-exports of mutable locals), which
-    /// under-reports `MAX` — conservative for §13's *reader*, which then
-    /// extends when upstream would not; the bar's falsifier (a) watches the
-    /// population where that could bite.
+    /// `i64::MAX` when the assignment sits in a nested function or the local
+    /// is value-re-exported (`export { x }`, the export-specifier arm).
     fn mark_node_assignments(&mut self, root: NodeId) {
         let Some(root_node) = self.node_map.get(root) else { return };
         let mut stack = vec![root_node];
         let mut children = Vec::new();
         while let Some(node) = stack.pop() {
+            // `markNodeAssignmentsWorker`'s export-specifier arm
+            // (`flow.go:2726-2735`): a value re-export of a mutable local
+            // (`export { x }`, no module specifier, not type-only, not a
+            // string name) marks it assigned at `MaxInt32`, so a read is
+            // never past its last assignment.
+            if let Node::ExportSpecifier(specifier) = node {
+                self.mark_exported_local(specifier);
+                continue;
+            }
             if let Node::Identifier(identifier) = node
                 && let Some(id) = identifier.node_id
                 && let kind = self.assignment_target_kind(id)
@@ -2554,11 +2564,8 @@ impl Checker<'_, '_> {
                     SymbolFlags::VALUE,
                 )
             {
-                // The definite flag is gated by upstream's predicate as written
-                // (a module-level `let` is a mutable local); the position below
-                // keeps the `.types` reader's file-level refusal (§42).
                 if kind == crate::expressions::AssignmentTargetKind::Definite
-                    && self.is_parameter_or_mutable_local_variable_faithful(symbol)
+                    && self.is_parameter_or_mutable_local_variable(symbol)
                 {
                     self.definitely_assigned.insert(symbol);
                 }
@@ -2578,6 +2585,35 @@ impl Checker<'_, '_> {
             children.clear();
             tsr_ast::push_children(node, &mut children);
             stack.extend(children.iter().copied());
+        }
+    }
+
+    /// [`Checker::mark_node_assignments`]'s export-specifier arm.
+    fn mark_exported_local(&mut self, specifier: &tsr_ast::ExportSpecifier<'_>) {
+        let Some(specifier_id) = specifier.node_id else { return };
+        let Some(declaration) =
+            self.nodes.parent(specifier_id).and_then(|exports| self.nodes.parent(exports))
+        else {
+            return;
+        };
+        let Some(Node::ExportDeclaration(export)) = self.node_map.get(declaration) else { return };
+        if specifier.is_type_only || export.is_type_only || export.module_specifier.is_some() {
+            return;
+        }
+        let name = specifier.property_name.or(specifier.name);
+        let Some(tsr_ast::ModuleExportName::Identifier(name)) = name else { return };
+        let Some(name_id) = name.node_id else { return };
+        let Some(symbol) = self.binder.resolve_name(
+            self.nodes,
+            self.node_map,
+            name_id,
+            name.text,
+            SymbolFlags::VALUE,
+        ) else {
+            return;
+        };
+        if self.is_parameter_or_mutable_local_variable(symbol) {
+            self.last_assignment_pos.insert(symbol, i64::MAX);
         }
     }
 
@@ -4443,7 +4479,9 @@ impl Checker<'_, '_> {
             }
         } else {
             // §58 (`checker-notes-narrow.md`): a join re-forming a NAMED
-            // union's exact member set answers the named type.
+            // union's exact member set answers the named type. Not native
+            // (`r7-flow.md` §24): held until the jsTyping inference it
+            // exposes is fixed.
             // SS203: a flow join is upstream's `UnionReductionSubtype` site
             // (`getUnionType(antecedentTypes, UnionReductionSubtype)`), unlike
             // a WRITTEN union which reduces only literals. The general
@@ -5952,6 +5990,32 @@ impl Checker<'_, '_> {
     /// The default-clause filter of `narrowTypeBySwitchOnDiscriminant`
     /// (`flow.go:1139`): keep constituents that are not unit types some
     /// other clause already handles. `None` declines (an undecidable pair).
+    /// `isUnitLikeType` (`checker.go:25414`): a unit type, or an
+    /// intersection with a unit member (a tagged literal, `T & 1`), read
+    /// through the base constraint, so an intersection whose constraint has
+    /// reduced to `never` is not one.
+    fn is_unit_like_type(&mut self, t: TypeId) -> bool {
+        let constrained = self.base_constraint_or_type(t);
+        match &self.store.get(constrained).data {
+            TypeData::Intersection { types, .. } => {
+                types.iter().any(|&part| self.store.get(part).flags.intersects(TypeFlags::UNIT))
+            }
+            _ => self.store.get(constrained).flags.intersects(TypeFlags::UNIT),
+        }
+    }
+
+    /// `extractUnitType` (`checker.go:25424`): an intersection's first unit
+    /// member, else the type itself.
+    fn extract_unit_type(&self, t: TypeId) -> TypeId {
+        if let TypeData::Intersection { types, .. } = &self.store.get(t).data
+            && let Some(&unit) =
+                types.iter().find(|&&part| self.store.get(part).flags.intersects(TypeFlags::UNIT))
+        {
+            return unit;
+        }
+        t
+    }
+
     fn filter_switch_default(&mut self, t: TypeId, switch_types: &[TypeId]) -> Option<TypeId> {
         let constituents: Vec<TypeId> = match &self.store.get(t).data {
             TypeData::Union { types, .. } => types.clone(),
@@ -5960,14 +6024,15 @@ impl Checker<'_, '_> {
         let mut kept = Vec::new();
         for constituent in constituents {
             let flags = self.store.get(constituent).flags;
-            if !flags.intersects(TypeFlags::UNIT) {
+            if !self.is_unit_like_type(constituent) {
                 kept.push(constituent);
                 continue;
             }
             let unit = if flags.intersects(TypeFlags::UNDEFINED) {
                 self.intrinsics.undefined
             } else {
-                self.get_regular_type_of_literal_type(constituent)
+                let unit = self.extract_unit_type(constituent);
+                self.get_regular_type_of_literal_type(unit)
             };
             let mut handled = false;
             for &switch_type in switch_types {
@@ -6592,79 +6657,25 @@ impl Checker<'_, '_> {
                         _ => None,
                     };
                     let Some(class_symbol) = class_symbol else {
-                        // Native 5b1047d narrowTypeByInstanceof admits a
-                        // Function-derived callee, not only a constructor.
-                        // isFunctionObjectType reads completed call OR construct
-                        // signatures, or bind plus a Function subtype proof.
-                        // A plain prototype-bearing object cannot pass this
-                        // gate. Use the existing declaration/receiver-owned
-                        // signature lookup; publish no new member or flow cache.
-                        let has_signature = [
-                            crate::signatures::SignatureKind::Call,
-                            crate::signatures::SignatureKind::Construct,
-                        ]
-                        .into_iter()
-                        .any(|kind| {
-                            self.signatures_of_type_kind(callee_type, kind)
-                                .is_some_and(|candidates| !candidates.is_empty())
-                        });
-                        if !has_signature && !self.is_bind_bearing_function_subtype(callee_type) {
-                            return t;
+                        // `mapType(rightType, c.getInstanceType)` (`flow.go:836`):
+                        // a union callee maps each constituent, and passes
+                        // `isTypeDerivedFrom(rightType, globalFunctionType)`
+                        // only when every constituent does (`relater.go`'s
+                        // union-source arm).
+                        let callees = match &self.store.get(callee_type).data {
+                            TypeData::Union { types, .. } => types.clone(),
+                            _ => vec![callee_type],
+                        };
+                        let mut instances = Vec::with_capacity(callees.len());
+                        for callee in callees {
+                            let Some(instance) = self.instance_type_of_callee(callee) else {
+                                return t;
+                            };
+                            instances.push(instance);
                         }
-                        let prototype_instance = self
-                            .get_property_of_type(callee_type, "prototype")
-                            .map(|p| self.get_type_of_symbol(p))
-                            .filter(|&i| i != self.intrinsics.error && i != self.intrinsics.any);
-                        let instance = if let Some(instance) = prototype_instance {
-                            instance
-                        } else {
-                            {
-                                // getInstanceType's second leg
-                                // (flow.go:971-975): the UNION over construct
-                                // signatures of the ERASED return (type
-                                // parameters instantiated to any). The
-                                // emptyObject third leg declines.
-                                let Some(candidates) = self.signatures_of_type_kind(
-                                    callee_type,
-                                    crate::signatures::SignatureKind::Construct,
-                                ) else {
-                                    return t;
-                                };
-                                let mut returns = Vec::with_capacity(candidates.len());
-                                for candidate in &candidates {
-                                    if candidate.type_parameters.is_empty() {
-                                        returns.push(candidate.r#type);
-                                        continue;
-                                    }
-                                    let Some(parameters) = self.type_parameter_types(candidate)
-                                    else {
-                                        return t;
-                                    };
-                                    let names: Vec<&str> = candidate
-                                        .type_parameters
-                                        .iter()
-                                        .map(|p| p.name.as_str())
-                                        .collect();
-                                    let any = self.intrinsics.any;
-                                    let map: Vec<(TypeId, TypeId)> =
-                                        parameters.iter().map(|&t| (t, any)).collect();
-                                    let erased = self.instantiate_type(
-                                        candidate.r#type,
-                                        &map,
-                                        &parameters,
-                                        &names,
-                                    );
-                                    if erased == self.intrinsics.error {
-                                        return t;
-                                    }
-                                    returns.push(erased);
-                                }
-                                if returns.is_empty() {
-                                    self.intrinsics.empty_object
-                                } else {
-                                    self.get_union_type(&returns)
-                                }
-                            }
+                        let instance = match instances.as_slice() {
+                            [single] => *single,
+                            _ => self.get_union_type(&instances),
                         };
                         if instance == self.intrinsics.error || instance == self.intrinsics.any {
                             return t;
@@ -8765,17 +8776,7 @@ impl Checker<'_, '_> {
                     return t;
                 }
                 for constituent in constituents {
-                    // isUnitLikeType (pinned checker.go:25414) includes
-                    // constrained and branded literals, but not an intersection
-                    // whose base constraint has reduced to never.
-                    let constrained = self.base_constraint_or_type(constituent);
-                    let unit_like = match &self.store.get(constrained).data {
-                        TypeData::Intersection { types, .. } => types
-                            .iter()
-                            .any(|&part| self.store.get(part).flags.intersects(TypeFlags::UNIT)),
-                        _ => self.store.get(constrained).flags.intersects(TypeFlags::UNIT),
-                    };
-                    if !unit_like {
+                    if !self.is_unit_like_type(constituent) {
                         kept.push(constituent);
                         continue;
                     }
