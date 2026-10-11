@@ -588,6 +588,25 @@ impl<'a> Parser<'a> {
         self.parse_call_or_member_rest(start, expression)
     }
 
+    /// `parseElementAccessExpressionRest`'s argument (`parser.go:5436`): `]`
+    /// right after `[` is TS1011 at the `]`'s full start over a missing
+    /// identifier, not a missing expression (TS1109); otherwise
+    /// `parseExpressionAllowIn`, so `in` is an operator inside the brackets
+    /// even in a `for` head.
+    fn parse_element_access_argument(&mut self) -> Expression<'a> {
+        if self.at(SyntaxKind::CloseBracketToken) {
+            self.error_at(
+                &messages::AN_ELEMENT_ACCESS_EXPRESSION_SHOULD_TAKE_AN_ARGUMENT,
+                Span::at(self.node_end()),
+            );
+            return Expression::Identifier(self.missing_identifier());
+        }
+        let saved_no_in = std::mem::take(&mut self.no_in);
+        let argument = self.parse_expression();
+        self.no_in = saved_no_in;
+        argument
+    }
+
     /// `parseCallExpressionRest` over `parseMemberExpressionRest`
     /// (`parser.go:5342`, `:5524`): the chain of accesses, calls, tagged
     /// templates and non-null assertions after `expression`.
@@ -660,7 +679,7 @@ impl<'a> Parser<'a> {
                         expression = Expression::CallExpression(node);
                     } else if self.at(SyntaxKind::OpenBracketToken) {
                         self.next_token();
-                        let argument = self.parse_expression();
+                        let argument = self.parse_element_access_argument();
                         self.expect(SyntaxKind::CloseBracketToken);
                         let node = self.finish_node(
                             ElementAccessExpression::new(
@@ -716,7 +735,7 @@ impl<'a> Parser<'a> {
                 // (`parser.go:5357`).
                 SyntaxKind::OpenBracketToken if !self.in_decorator_context => {
                     self.next_token();
-                    let argument = self.parse_expression();
+                    let argument = self.parse_element_access_argument();
                     self.expect(SyntaxKind::CloseBracketToken);
                     let is_chain = self.try_reparse_optional_chain(expression);
                     let node = self.finish_node(
