@@ -974,3 +974,67 @@ relater's), and compiler/contextuallyTypedJsxAttribute2 turns its `onClick`
 gap into `(e: any) => void` and reports TS7006 (the JSX attributes'
 contextual type through `Omit<ComponentPropsWithRef<…>, "as">`). Not owned
 here; offered to the integration owner with both causes.
+
+## 28. A definite generic conditional alias declares its branch; the infer arm defers on isDeferredType
+
+**Forcing constraint.** getConditionalType (`checker.go:24377`, `:24415`)
+attaches the alias only to a deferred result: a definitely false or true
+check answers `instantiateType(branch, mapper)` with no alias. So a generic
+alias whose conditional body is not deferred declares its branch:
+`type P<V> = ((h: V, b: string) => void) extends (...a: infer R) => void ?
+R : any` is `[h: V, b: string]`, and `type T07<T extends any[]> =
+Parameters<(...args: T) => void>` is `T` (genericRestParameters1), because
+getTypeFromTypeAliasReference hands the declaring alias to
+getConditionalTypeInstantiation and the same rule drops it. TSR minted the
+alias name for every generic conditional alias, and its infer arm declined
+any check that mentioned a type parameter (`(h: V) => void`), which native
+does not defer (the check is not generic, isDeferredType).
+
+**Port.**
+- `evaluate_conditional_inference` no longer declines a check that merely
+  mentions a type parameter: the caller already deferred a generic one. When
+  the check or the inferred extends type mentions a parameter, a deferred
+  inferred extends type defers, and the branch is chosen by
+  `definite_conditional_outcome` (permissive instantiations not related:
+  false; restrictive related: true; otherwise deferred), the §3 relation.
+  Without a mention the plain relation stands, which is the same three
+  outcomes.
+- `get_declared_type_of_type_alias`: a conditional body
+  (`DeclaredBody::Conditional`) publishes its evaluated branch when neither
+  operand defers (`conditional_alias_check_is_deferred`) and the answer is
+  not the written deferred mint; a body that references a conditional alias
+  (`DeclaredBody::ConditionalReference`) publishes the reference's answer
+  when that is not the target's deferred reference or mint.
+
+No new state.
+- Containment: `signature_rest_relation_undecided`. compareSignaturesRelated
+  compares a non-array rest type (getNonArrayRestType: `(...t: T) => any`)
+  against the other signature's rest at the shorter count, so `Tail<T> =
+  ((...t: T) => any) extends ((_: any, ...tail: infer TT) => any) ? TT : []`
+  relates `T` to `[_: any, ...tail: T[number][]]`, fails restrictively, and
+  stays deferred (ramdaToolsNoInfinite `>Tail : Tail<T>`). The relater here
+  pairs the positions and relates them, so such a check over a different
+  parameter count is not decided here. Without this, `Last<Tail<T>>` turned
+  into a gap and TS2502 at Last (ramdaToolsNoInfinite: 1 type lost, 1
+  diagnostic case lost). Routed: the relater's non-array-rest arm.
+- A first cut published a conditional-reference body when the reference's
+  answer was not the target's deferred mint: −3 (ramdaToolsNoInfinite2
+  `_Reverse`, `GapsOf`, `_ListOf`), where the reference's check
+  (`__Reverse<…>`, a generic indexed-access alias) defers natively and this
+  port answered an unresolved `Cast`. The arm now asks
+  `conditional_reference_resolves` (the written arguments, then
+  `conditional_alias_check_is_deferred`) and declines on any error answer.
+
+**Measured** (unfiltered against `488e514e`): types **+20, 0 lost**
+(inferenceContextualReturnTypeUnion2 6, genericRestParameters1 4,
+strictBindCallApply1 3, arrayFlatNoCrashInference 2,
+arrayFlatNoCrashInferenceDeclarations 2, conditionalTypeGenericInSignatureTypeParameterConstraint
+1, deferredConditionalTypes 1, ramdaToolsNoInfinite2 1); diagnostics **+1
+case, 0 lost** (tsxNotUsingApparentTypeOfSFC); jsTyping new_false 0 /
+lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+**Not reached:** `type Prepend<V, T extends any[]> = ((head: V, ...args: T)
+=> void) extends (...args: infer R) => void ? R : any` still declares
+`Prepend<V, T>` (native `[head: V, ...args: T]`): the containment above
+declines it (2 parameters against 1), and inferring `R` from a generic rest
+is `inference.rs`'s.

@@ -277,3 +277,16 @@ fn a_homomorphic_mapped_reference_alias_keeps_the_inner_alias() {
          const x = q;\n";
     assert_eq!(type_of_last_initializer(source), "P<{ a: number; }>");
 }
+
+/// §28: a conditional whose check mentions a type parameter but is not
+/// generic (a function type) infers and picks its branch, which carries no
+/// alias (tsgo: `[head: V, b: string]`).
+#[test]
+fn a_definite_generic_infer_conditional_answers_its_branch() {
+    let source = "type P<V> = ((head: V, b: string) => void) extends (...args: infer R) => void ? R : any;\n\
+         function f<V>() {\n\
+             declare const p: P<V>;\n\
+             const x = p;\n\
+         }\n";
+    assert_eq!(type_of_last_initializer(source), "[head: V, b: string]");
+}
