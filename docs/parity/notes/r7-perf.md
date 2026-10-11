@@ -918,3 +918,29 @@ worker beside the others is an OOM kill of the whole service
 (`memory.oom.group`). This lane's exact-candidate run therefore used
 `--deadline 20 --workers 3` for both base and candidate. The outcome set is
 unchanged (TSR_TIMEOUT 2, TSR_FAILED 1, exact 9,582).
+
+## §20 domain-model-large after the literal print: what checker 0 still pays
+
+Pool probe (temporary timer, not committed; two runs, release, main
+`41f3c70b` plus this branch). On domain-model-large, checker 0 finishes in
+292–381 ms and checkers 1–3 in 195–308 ms: `src/main.ts` still makes
+checker 0 the critical path, at about 1.45× the others, where §14 measured
+about 2×. domain-model's four checkers are within 41–65 ms of each other.
+
+Per `main.ts` block (perf with dwarf call graphs, inclusive sample delta
+K = 200 − K = 25 blocks, single-threaded): the object-literal print is gone.
+What remains:
+
+- flow narrowing: `get_type_at_flow_condition` 171,
+  `get_type_at_flow_branch_label` 155, `narrow_type` 64. These narrow
+  `createdNNN.ok` / `createdNNN.value` and walk the long `run()` body's
+  flow graph.
+- `get_effects_signature` 62 and `get_type_at_flow_call` 59: each flow
+  call node a walk crosses asks for the call's effects signature again.
+  Native reads the call's `links.resolvedSignature` (`getEffectsSignature`
+  → `getResolvedSignature`).
+- `report_signature_applicability` 93, mostly the arguments' first check.
+- hashbrown probing (`_mm_movemask_epi8` 44 self) from side-table reads.
+
+All of these are r7-flow's (`flow.rs`) and r7-calls' (`calls.rs`,
+`call_reports.rs`) files. They are routed through the integrator.
