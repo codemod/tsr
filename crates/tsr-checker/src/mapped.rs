@@ -1210,9 +1210,26 @@ impl<'a> Checker<'a, '_> {
         self.publish_mapped_symbol_type(owner, index, self.intrinsics.error);
         let mut value =
             self.instantiate_type(info.template, &[(info.parameter, key)], &[info.parameter], &[]);
-        // getTypeOfMappedSymbol (checker.go:20993). Excluding optionality
-        // strips missing in exact mode, otherwise undefined.
-        if strip_optional {
+        // getTypeOfMappedSymbol (checker.go:20993): an optional property
+        // includes undefined (getOptionalType, isProperty) unless the
+        // template already admits undefined or void, so `{ [K in keyof
+        // Obj]?: Obj[K] }` declares `a?: 1 | undefined` and prints it
+        // (r7-declared §31). Excluding optionality strips missing in exact
+        // mode, otherwise undefined.
+        let optional = self
+            .anonymous_properties
+            .get(&owner)
+            .and_then(|(properties, _)| properties.get(index as usize))
+            .is_some_and(|property| property.optional);
+        if self.strict_null_checks
+            && optional
+            && !self.maybe_type_of_kind(
+                value,
+                crate::flags::TypeFlags::UNDEFINED | crate::flags::TypeFlags::VOID,
+            )
+        {
+            value = self.get_optional_type(value, true);
+        } else if strip_optional {
             value = self.remove_missing_or_undefined_type(value);
         }
         self.publish_mapped_symbol_type(owner, index, value);
@@ -2190,28 +2207,38 @@ function read<T extends Shape>(req: Req<T>, part: Part<T>, read: Read<T>, mutabl
                     assert_eq!((properties[1].optional, properties[1].readonly), flags[1]);
                     assert_eq!(properties[0].origin, Some(a));
                     assert_eq!(properties[1].origin, Some(b));
-                    assert!(properties.iter().all(|property| {
+                    // getTypeOfMappedSymbol: the deferred T[P], with
+                    // undefined added to an optional slot (r7-declared §31).
+                    let deferred = |checker: &mut Checker, property| {
                         let ty = checker.property_type(property);
-                        checker.type_of(ty).flags.contains(TypeFlags::INDEXED_ACCESS)
-                    }));
+                        if checker.type_of(ty).flags.contains(TypeFlags::INDEXED_ACCESS) {
+                            return Some((ty, false));
+                        }
+                        let TypeData::Union { types, .. } = checker.type_of(ty).data.clone() else {
+                            return None;
+                        };
+                        let indexed = types.iter().copied().find(|&part| {
+                            checker.type_of(part).flags.contains(TypeFlags::INDEXED_ACCESS)
+                        })?;
+                        types
+                            .iter()
+                            .any(|&part| checker.type_of(part).flags.contains(TypeFlags::UNDEFINED))
+                            .then_some((indexed, true))
+                    };
+                    for property in &properties {
+                        let (_, with_undefined) =
+                            deferred(&mut checker, property).expect("a deferred T[P] slot");
+                        assert_eq!(with_undefined, property.optional);
+                    }
                     let b_value = checker.property_type(&properties[1]);
                     assert_eq!(checker.peek_property_type(&properties[1]), Some(b_value));
+                    let (b_indexed, _) = deferred(&mut checker, &properties[1]).unwrap();
                     assert_eq!(
-                        checker.base_constraint_of_type(b_value),
+                        checker.base_constraint_of_type(b_indexed),
                         Some(checker.intrinsics.number)
                     );
                     let b_read = checker.get_type_of_property_of_type(mapped, "b").unwrap();
-                    if flags[1].0 {
-                        let TypeData::Union { types, .. } = &checker.type_of(b_read).data else {
-                            panic!("optional read must include undefined");
-                        };
-                        assert!(types.contains(&b_value));
-                        assert!(types.iter().any(|&ty| {
-                            checker.type_of(ty).flags.contains(TypeFlags::UNDEFINED)
-                        }));
-                    } else {
-                        assert_eq!(b_read, b_value);
-                    }
+                    assert_eq!(b_read, b_value);
                     assert_eq!(checker.get_property_of_type(mapped, "a"), Some(a));
                     assert_eq!(checker.get_property_of_type(mapped, "b"), Some(b));
                     assert_eq!(checker.get_property_of_type(mapped, "absent"), None);

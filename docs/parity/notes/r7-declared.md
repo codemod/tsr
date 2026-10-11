@@ -1083,3 +1083,34 @@ now relates structurally), Ir dm **1.0018**. No type row gained: the
 corpus's `Narrow` rows also need the inference (`satisfies<Item>()({ value:
 "1" })` infers `{ value: "1" }` natively, an `inference.rs` question), so
 the arm was not taken.
+
+## 31. A mapped property's type includes undefined when the property is optional
+
+**Forcing constraint.** getTypeOfMappedSymbol (`checker.go:20984`) adds
+undefined to an optional property's instantiated template under
+strictNullChecks (getOptionalType, isProperty) unless the template already
+admits undefined or void. So `{ [K in keyof Obj]?: Obj[K] }` over `{ a: 1 }`
+declares `a?: 1 | undefined` and prints it, and `{ [K in keyof
+Partial<Obj>]: Obj[K] }` (optional through its modifiers type) does too
+(mappedTypeIndexedAccessConstraint `mapped`). TSR stored the bare template
+and added undefined only on reads, so reads were right and the structural
+print was `{ a?: 1; }`.
+
+**Port.** `get_type_of_mapped_symbol` adds the optional type when the slot is
+optional and the instantiated template may not be undefined or void, as
+native's first arm; the strip arm is native's second. Reads through
+`get_type_of_property` already unioned undefined, so they are unchanged (the
+union dedupes). No state.
+
+**Measured** (unfiltered against `fb7388a3`): types **+14, 0 lost**
+(mappedTypeGenericIndexedAccess 11, mappedTypeIndexedAccessConstraint 3);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0001, dm
+1.0002.
+
+**Not this port:** a homomorphic mapping whose modifiers type is an alias of
+a mapped type (`{ [K in keyof O]: O[K] }` with `type O = Omit<Mappings,
+"foo">`) still enumerates no key (`{}`; native `{ "12": number; 42: string;
+}`), and an optional property linked to a source declaration prints the
+declaration's annotation (`b?: 2`, node reuse of `b?: 2` whose declared type
+equals the property type) where TSR prints `b?: 2 | undefined`, which is the
+printer's reuse arm.

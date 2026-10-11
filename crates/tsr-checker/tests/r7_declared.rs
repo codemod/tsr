@@ -302,3 +302,13 @@ fn a_new_alias_over_an_interface_reference_alias_names_the_instance() {
          const x = r;\n";
     assert_eq!(type_of_last_initializer(source), "R1");
 }
+
+/// §31: an optional mapped property includes undefined in its type
+/// (getTypeOfMappedSymbol; tsgo: `{ a?: 1 | undefined; b?: 2 | undefined; }`).
+#[test]
+fn an_optional_mapped_property_includes_undefined() {
+    let source = "type Obj = { a: 1; b: 2 };\n\
+         declare const m: { [K in keyof Obj]?: Obj[K] };\n\
+         const x = m;\n";
+    assert_eq!(type_of_last_initializer(source), "{ a?: 1 | undefined; b?: 2 | undefined; }");
+}
