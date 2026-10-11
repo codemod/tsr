@@ -699,11 +699,20 @@ impl Checker<'_, '_> {
                 let interface_text = self.type_to_string(source);
                 let first_text = self.type_to_string(existing_base);
                 let second_text = self.type_to_string(base);
+                // `NewDiagnosticChain(Named_property_0_of_types_1_and_2_are_not_identical
+                // at typeNode, Interface_0_cannot_simultaneously_extend_types_1_and_2)`
+                // (`checker.go:5059`), r7-grammar §40.
+                let child = self.related_diagnostic_at(
+                    name,
+                    &messages::NAMED_PROPERTY_0_OF_TYPES_1_AND_2_ARE_NOT_IDENTICAL,
+                    span,
+                    vec![property_name.clone(), first_text.clone(), second_text.clone()],
+                );
                 self.report(
                     file,
-                    Diagnostic::with_args(
+                    Diagnostic::new_chain(
+                        Some(child),
                         &messages::INTERFACE_0_CANNOT_SIMULTANEOUSLY_EXTEND_TYPES_1_AND_2,
-                        span,
                         [interface_text, first_text, second_text],
                     ),
                 );

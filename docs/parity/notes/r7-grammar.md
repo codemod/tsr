@@ -764,3 +764,16 @@ from the integrator's re-triage instruction; this was the 54-case
 `TS6203 in TS2403` bucket of `full_oracle_run rank` on `bdd9ce10`.
 *Falsifier.* A TS2403/TS2717 whose related row names a declaration other than
 the symbol's first.
+
+## §40 TS2320's TS2319 chain
+
+`checkInheritedPropertiesAreIdentical` (`checker.go:5040`) reports TS2320 as
+`NewDiagnosticChain` over a TS2319 child (`Named property '{0}' of types
+'{1}' and '{2}' are not identical.`) built at the interface name. The head
+takes the child's location. `check_inherited_properties_are_identical`
+(heritage_conformance.rs) reported the bare head. It now builds the child
+with `related_diagnostic_at` (so it carries its file, §34) and wraps it with
+`Diagnostic::new_chain`. Converted (oracle):
+`mergedInterfacesWithConflictingPropertyNames`, `baseTypePrivateMemberClash`,
+`conflictingMemberTypesInBases`, `genericAndNonGenericInheritedSignature1`
+(bucket `TS2319 in TS2320`, 14 cases).
