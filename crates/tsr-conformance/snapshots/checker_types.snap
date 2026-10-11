@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8825/9538 (92.52%)
-Assertion lines: 475209/478853 (99.24%)  — a gradient, not a pass rate
-Failed         : 713
+Passed         : 8831/9538 (92.59%)
+Assertion lines: 475248/478853 (99.25%)  — a gradient, not a pass rate
+Failed         : 707
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 713 failures:
+First 100 of 707 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/acceptSymbolAsWeakType
@@ -119,10 +119,6 @@ compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound
   complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts: >ChannelType : Channel extends { type: infer R; } ? R : never — expected >ChannelType : "email" | "text"
 compiler/complicatedIndexesOfIntersectionsAreInferencable
   complicatedIndexesOfIntersectionsAreInferencable.ts: >{    initialValues: {        foo: ""    },    validate: props => {        props.foo;    }} : error — expected >{    initialValues: {        foo: ""    },    validate: props => {        props.foo;    }} : { initialValues: { foo: string; }; validate: (props: { foo: string; }) => void; }
-compiler/computedPropertiesInDestructuring1
-  computedPropertiesInDestructuring1.ts: >{[foo]: bar} : any — expected >{[foo]: bar} : { [foo]: any; }
-compiler/computedPropertiesInDestructuring1_ES6
-  computedPropertiesInDestructuring1_ES6.ts: >{[foo]: bar} : any — expected >{[foo]: bar} : { [foo]: any; }
 compiler/computedPropertiesWithSetterAssignment
   /a.ts: >foo[k] : Set<string> — expected >foo[k] : Iterable<string>
 compiler/computedTypesKeyofNoIndexSignatureType
@@ -213,3 +209,7 @@ compiler/cyclicGenericTypeInstantiation
   cyclicGenericTypeInstantiation.ts: >foo : <T>() => { y2: { y2: typeof z; }; } — expected >foo : <T>() => { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: any; }; }; }; }; }; }; }; }; }; }; }
 compiler/cyclicGenericTypeInstantiationInference
   cyclicGenericTypeInstantiationInference.ts: >foo : <T>() => { y2: { y2: typeof z; }; } — expected >foo : <T>() => { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: { y2: any; }; }; }; }; }; }; }; }; }; }; }
+compiler/cyclicTypeInstantiation
+  cyclicTypeInstantiation.ts: >foo : <T>() => { a: T; b: { a: T; b: typeof x; }; } — expected >foo : <T>() => { a: T; b: any; }
+compiler/declFileRestParametersOfFunctionAndFunctionType
+  declFileRestParametersOfFunctionAndFunctionType.ts: >f5 : <T extends { (...args: any[]): void; }>() => void — expected >f5 : <T extends { (...args: any): void; }>() => void
