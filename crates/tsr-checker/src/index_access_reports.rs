@@ -693,6 +693,19 @@ impl Checker<'_, '_> {
         if self.is_type_any(parent_type) {
             return;
         }
+        // An unannotated parameter's `unknown` is this port's contextual
+        // parameter type, which can differ from native's where inference
+        // fixes the context from the pattern (`inferredRestTypeFixedOnce`:
+        // native `{ cancelable: any; }`, here `unknown`). `unknown` misses
+        // every name, so only a written or catch-clause `unknown` is
+        // certified; the contextual road waits on the implied pattern type
+        // (BINDING-PATTERN-IMPLIED-TYPE, r7-contextual).
+        if annotation.is_none()
+            && self.nodes.kind(root) == SyntaxKind::Parameter
+            && self.store.get(parent_type).flags.contains(TypeFlags::UNKNOWN)
+        {
+            return;
+        }
         // The strict-mode parent adjustments (`checker.go:17713`-`:17718`).
         let parent_type = if self.strict_null_checks {
             self.destructuring_parent_adjusted(node, holder, parent_type)
