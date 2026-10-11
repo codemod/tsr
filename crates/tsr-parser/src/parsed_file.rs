@@ -62,6 +62,8 @@ pub struct ParsedFile {
     diagnostics: Arc<[Diagnostic]>,
     /// Kind, span, and parent for every node.
     nodes: Arc<NodeTable>,
+    /// Empty `<>` lists and trailing commas, by owner ([`crate::ListFact`]).
+    list_facts: Arc<[(tsr_ast::NodeId, crate::ListFact)]>,
 }
 
 // SAFETY: the cell owns the arena together with the AST that borrows from it, and
@@ -107,6 +109,7 @@ impl ParsedFile {
     pub fn parse_with_options(source: String, options: crate::ParseOptions) -> Self {
         let mut diagnostics = Vec::new();
         let mut nodes = NodeTable::new();
+        let mut list_facts = Vec::new();
 
         let cell = Cell::new(Owner { arena: Arena::new(), source }, |owner| {
             // `source` is borrowed from the owner, so the AST's `&'a str`s point
@@ -119,6 +122,7 @@ impl ParsedFile {
             } else {
                 parser.parse_source_file()
             };
+            list_facts = parser.take_list_facts();
             let (parsed_diagnostics, parsed_nodes, jsdoc, node_map) = parser.finish();
             diagnostics = parsed_diagnostics;
             // `processPragmasIntoFields`' reports (`crate::pragma_diagnostics`).
@@ -130,7 +134,12 @@ impl ParsedFile {
             Ast { source_file, jsdoc, node_map }
         });
 
-        Self { cell, diagnostics: diagnostics.into(), nodes: Arc::new(nodes) }
+        Self {
+            cell,
+            diagnostics: diagnostics.into(),
+            nodes: Arc::new(nodes),
+            list_facts: list_facts.into(),
+        }
     }
 
     /// Publish into the caller's arena and ordered program tables. The private
@@ -157,6 +166,14 @@ impl ParsedFile {
                 diagnostics: self.diagnostics.to_vec(),
                 jsdoc,
                 file_references: crate::pragma::parse_file_references(source),
+                // Owner ids move with the nodes: the private table starts at 0.
+                list_facts: self
+                    .list_facts
+                    .iter()
+                    .map(|&(owner, fact)| {
+                        (tsr_ast::NodeId::new(owner.as_u32() + node_range.start), fact)
+                    })
+                    .collect(),
                 node_range,
             }
         })

@@ -246,6 +246,94 @@ impl ParseOptions {
     }
 }
 
+/// Which written list a [`ListFact`] describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListKind {
+    /// `<T, U>` on a declaration or signature.
+    TypeParameters,
+    /// `<A, B>` on a call, `new`, tagged template, instantiation, type
+    /// reference, `import(…)` type, type query or JSX tag.
+    TypeArguments,
+    /// `(a, b)` of a function-like declaration, signature or index signature.
+    Parameters,
+}
+
+/// What native's `NodeList` knows about a written list and this AST's slices
+/// cannot: that an empty `<>` was written (an empty slice also means "no
+/// list"), and where a trailing comma is (`NodeList.HasTrailingComma`, read
+/// at `list.End() - 1`). Recorded only for those two shapes, so the table is
+/// sparse. docs/parity/notes/r7-parser.md §10.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListFact {
+    /// Which list of its owner.
+    pub kind: ListKind,
+    /// Start of the opening `<` or `(`.
+    pub open: u32,
+    /// Start of the token that closes the list (or stands where it was
+    /// expected): native's `SkipTrivia(list.End())`.
+    pub close: u32,
+    /// The list has no elements.
+    pub empty: bool,
+    /// Start of the trailing comma, when there is one.
+    pub trailing_comma: Option<u32>,
+}
+
+impl ListKind {
+    /// Whether a node of `kind` owns lists of this kind.
+    fn is_owner(self, kind: SyntaxKind) -> bool {
+        use SyntaxKind as K;
+        match self {
+            Self::TypeParameters => matches!(
+                kind,
+                K::FunctionDeclaration
+                    | K::FunctionExpression
+                    | K::ArrowFunction
+                    | K::MethodDeclaration
+                    | K::Constructor
+                    | K::GetAccessor
+                    | K::SetAccessor
+                    | K::ClassDeclaration
+                    | K::ClassExpression
+                    | K::InterfaceDeclaration
+                    | K::TypeAliasDeclaration
+                    | K::CallSignature
+                    | K::ConstructSignature
+                    | K::MethodSignature
+                    | K::FunctionType
+                    | K::ConstructorType
+            ),
+            Self::TypeArguments => matches!(
+                kind,
+                K::CallExpression
+                    | K::NewExpression
+                    | K::TaggedTemplateExpression
+                    | K::ExpressionWithTypeArguments
+                    | K::TypeReference
+                    | K::ImportType
+                    | K::TypeQuery
+                    | K::JsxOpeningElement
+                    | K::JsxSelfClosingElement
+            ),
+            Self::Parameters => matches!(
+                kind,
+                K::FunctionDeclaration
+                    | K::FunctionExpression
+                    | K::ArrowFunction
+                    | K::MethodDeclaration
+                    | K::Constructor
+                    | K::GetAccessor
+                    | K::SetAccessor
+                    | K::CallSignature
+                    | K::ConstructSignature
+                    | K::MethodSignature
+                    | K::IndexSignature
+                    | K::FunctionType
+                    | K::ConstructorType
+            ),
+        }
+    }
+}
+
 /// What decides whether a file is an external module, for the parser's own
 /// use of that decision: `reparseTopLevelAwait` runs only in a module that is
 /// not a declaration file (`parseSourceFileWorker`, `parser.go:449`).
@@ -382,6 +470,9 @@ pub struct Parser<'a> {
     /// The node table's length when this parser started: the first id of this
     /// file, to which the reparse truncates.
     first_node: usize,
+    /// List facts with the node count when each was recorded; owners are
+    /// resolved by [`Self::take_list_facts`].
+    pending_list_facts: Vec<(u32, ListFact)>,
 
     /// Guards against runaway recursion on pathological input.
     ///
@@ -506,6 +597,7 @@ impl<'a> Parser<'a> {
             carried_scanner_diagnostics: Vec::new(),
             module_indicator: options.module_indicator,
             first_node,
+            pending_list_facts: Vec::new(),
         };
         parser.sync_scanner_diagnostics();
         parser
@@ -805,6 +897,7 @@ impl<'a> Parser<'a> {
             diagnostics: self.diagnostics.len(),
             nodes: self.nodes.len(),
             statement_has_await_identifier: self.statement_has_await_identifier,
+            pending_list_facts: self.pending_list_facts.len(),
         }
     }
 
@@ -813,6 +906,10 @@ impl<'a> Parser<'a> {
         self.token = saved.token;
         self.token_value = saved.token_value;
         self.statement_has_await_identifier = saved.statement_has_await_identifier;
+        // Guarded like the diagnostics: almost every rewind recorded no fact.
+        if saved.pending_list_facts < self.pending_list_facts.len() {
+            self.pending_list_facts.truncate(saved.pending_list_facts);
+        }
         // Guarded like `Scanner::restore`'s truncate (r5-binperf.md §5).
         if saved.diagnostics < self.diagnostics.len() {
             self.diagnostics.truncate(saved.diagnostics);
@@ -990,6 +1087,39 @@ impl<'a> Parser<'a> {
             self.record_parent_of_children(node, id);
         }
         allocated
+    }
+
+    /// Record a list fact; its owner is resolved when the parse is done
+    /// ([`Self::take_list_facts`]).
+    pub(crate) fn note_list_fact(&mut self, fact: ListFact) {
+        let after = u32::try_from(self.nodes.len()).expect("node count exceeds u32");
+        self.pending_list_facts.push((after, fact));
+    }
+
+    /// The list facts of the parse, by owner id ([`ListFact`]).
+    ///
+    /// A list's owner is the first node finished after the list that owns
+    /// lists of its kind and starts at or before its `<`/`(`: nodes inside the
+    /// list (a nested function type's parameters) finish before the list is
+    /// recorded, and nodes after it (a body, the call's arguments) start
+    /// after its opening token. Resolved here, once, rather than tested on
+    /// every finished node: the facts are rare and the node finish is the
+    /// parser's hottest path.
+    pub fn take_list_facts(&mut self) -> Vec<(tsr_ast::NodeId, ListFact)> {
+        let mut facts = Vec::with_capacity(self.pending_list_facts.len());
+        for (after, fact) in std::mem::take(&mut self.pending_list_facts) {
+            let owner = (after as usize..self.nodes.len())
+                .map(|index| tsr_ast::NodeId::new(u32::try_from(index).unwrap_or(u32::MAX)))
+                .find(|&id| {
+                    fact.kind.is_owner(self.nodes.kind(id))
+                        && self.nodes.span(id).start <= fact.open
+                });
+            if let Some(owner) = owner {
+                facts.push((owner, fact));
+            }
+        }
+        facts.sort_by_key(|(owner, _)| *owner);
+        facts
     }
 
     /// Where the most recently consumed token ended.
@@ -1271,6 +1401,7 @@ impl<'a> Parser<'a> {
         self.parsing_contexts = 0;
         self.depth = 0;
         self.statement_has_await_identifier = false;
+        self.pending_list_facts.clear();
     }
 }
 
@@ -1286,6 +1417,7 @@ struct ParserState {
     nodes: usize,
     /// Part of native's `ParserState` (`parser.go:345`).
     statement_has_await_identifier: bool,
+    pending_list_facts: usize,
 }
 
 /// Capture the scanner's decoded value, if it differs from the raw text.

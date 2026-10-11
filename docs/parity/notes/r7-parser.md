@@ -309,3 +309,58 @@ numbers; §9 below keeps the running table.
 | `2d64b1ee` | §4 JavaScript JSX variant | +4 / −0 | +29 / −0 | 1.000 / 0.967 |
 | `696d4c4f` | §5 missing function body | +8 / −0 | +18 / −0 | 1.009 / 1.002 |
 | (this) | §5a type contexts | 0 | 0 | — |
+
+## 10. List facts: what native's `NodeList` knows and this AST does not
+
+### The forcing constraint
+
+Native keeps every written list as a `NodeList` with its own position. The
+checker reads two things from it that this port's `&[T]` slices cannot hold:
+
+- an empty list that was written: `f<>()`, `new C<>()`, `class C<> {}`,
+  `constructor<>()`. `checkGrammarForAtLeastOneTypeArgument` (TS1099) and
+  `checkGrammarTypeParameterList` (TS1098) report from `list.Pos() - 1` to
+  `SkipTrivia(list.End()) + 1`. An empty slice also means "no list".
+- `HasTrailingComma`, read at `list.End() - 1`:
+  `checkGrammarForDisallowedTrailingComma` (TS1009, TS1013 after a rest
+  parameter) and the index signature's TS1025.
+
+### The decision
+
+The parser records a sparse side table, owner `NodeId` → `ListFact { kind,
+open, close, empty, trailing_comma }`. Facts are recorded only for those two
+shapes, which ADR-0003 calls the tree-plus-side-tables shape. A list parser
+queues a fact with the node count at that moment. When the parse ends,
+`take_list_facts` resolves each fact's owner: the first node finished after the
+list that owns lists of that kind and starts at or before the list's `<`/`(`.
+Nodes inside the list, such as a nested function type, finish before the list
+is recorded, so a nested function type's comma stays its own. The first draft
+claimed owners inside `finish_node_with_flags`. That cost +1.6% Ir on
+generic-imports, because the function stopped being inlined. Resolving at the
+end costs +0.22% Ir on gi and +0.06% on dm, measured; most of it is the extra
+`ParserState` field in `restore_state`. The queue
+is part of `save_state`, so a refused speculative list (`a < b > c`) leaves
+nothing behind. The table is published with the nodes:
+`ParsedInto::list_facts` and `ParsedSourceFile::list_facts`, and
+`ParsedFile::publish` relocates the owner ids along with the nodes.
+
+The alternative was a `NodeFlags` bit on the owner, as
+`HAS_TRAILING_COMMA` already is on binding patterns and heritage clauses.
+I rejected it for three reasons:
+1. An owner can have several lists. A function has type parameters and
+   parameters, so one bit cannot say which list.
+2. The checker needs a position, not just a boolean. For an empty `<>` that
+   means `<` and `>`, which a flag would make the checker recover by
+   re-scanning the source text.
+3. The few free `NodeFlags` bits are shared with every other crate.
+
+The bit would win if the checker only needed yes/no for a single-list owner.
+For binding patterns and heritage clauses that holds, and the bit stays.
+
+Consumers do not exist yet. The compiler has to keep the table per file next
+to its JSDoc table (`tsr-compiler` `file.rs`, r7-perf), and the checker's
+grammar checks (TS1098, TS1099, TS1009/TS1013, TS1025, r7-grammar) have to
+read it through the host. Routed. The cases waiting on them are
+emptyTypeArgumentList(WithNew), parserConstructorDeclaration11/12,
+indexSignatureWithTrailingComma, trailingCommasInFunctionParametersAndArguments,
+and the importCallExpressionWithTypeArgument `<>` arm.

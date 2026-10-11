@@ -3110,6 +3110,7 @@ impl<'a> Parser<'a> {
         //
         // The `expect` here already returned the answer; only the `if` was
         // missing.
+        let open = self.pos();
         if !self.expect(SyntaxKind::OpenParenToken) {
             return Vec::new();
         }
@@ -3122,9 +3123,14 @@ impl<'a> Parser<'a> {
         // `with_function_context`; the await context it replaced is the one the
         // parameters' decorators are parsed in (`parser.go:3296`).
         let outer_await = self.outer_await_context;
-        let (parameters, _) = self.parse_delimited_list(ParsingContext::Parameters, |parser| {
-            parser.parse_parameter_ex(outer_await)
-        });
+        let (parameters, trailing_comma) = self
+            .parse_delimited_list(ParsingContext::Parameters, |parser| {
+                parser.parse_parameter_ex(outer_await)
+            });
+        // Only a trailing comma is a fact here: an empty `()` is the list.
+        if trailing_comma {
+            self.note_bracketed_list(crate::parser::ListKind::Parameters, open, false, true);
+        }
         self.expect(SyntaxKind::CloseParenToken);
         parameters
     }

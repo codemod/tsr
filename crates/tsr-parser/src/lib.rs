@@ -48,7 +48,8 @@ mod types;
 
 pub use parsed_file::ParsedFile;
 pub use parser::{
-    JSDocTable, ModuleIndicatorOptions, ParseOptions, ParseResult, Parser, ScriptKind,
+    JSDocTable, ListFact, ListKind, ModuleIndicatorOptions, ParseOptions, ParseResult, Parser,
+    ScriptKind,
 };
 pub use pragma::{
     CheckJsDirective, FileReference, FileReferences, ResolutionMode, parse_file_references,
@@ -119,6 +120,7 @@ pub fn parse_with_options<'a>(
         node_map,
         jsdoc: parsed.jsdoc,
         file_references: parsed.file_references,
+        list_facts: parsed.list_facts,
     }
 }
 
@@ -164,6 +166,7 @@ pub fn parse_into<'a>(
     } else {
         parser.parse_source_file()
     };
+    let list_facts = parser.take_list_facts();
     let (mut diagnostics, node_table, jsdoc, map) = parser.finish();
     *nodes = node_table;
     *node_map = map;
@@ -177,6 +180,7 @@ pub fn parse_into<'a>(
         jsdoc,
         file_references,
         node_range: first_node..end_node,
+        list_facts,
     }
 }
 
@@ -270,6 +274,9 @@ pub struct ParsedInto<'a> {
     ///
     /// Empty when the file produced no nodes at all.
     pub node_range: std::ops::Range<u32>,
+    /// Empty `<>` lists and trailing commas, by owner ([`ListFact`]): what
+    /// native's `NodeList` carries that this AST's slices cannot.
+    pub list_facts: Vec<(tsr_ast::NodeId, ListFact)>,
 }
 
 /// The result of parsing one file.
@@ -292,6 +299,8 @@ pub struct ParsedSourceFile<'a> {
     /// These add files to the *program*, so the file loader reads them the same
     /// way it reads an `import`. See [`pragma`].
     pub file_references: FileReferences,
+    /// Empty `<>` lists and trailing commas, by owner ([`ListFact`]).
+    pub list_facts: Vec<(tsr_ast::NodeId, ListFact)>,
 }
 
 #[cfg(test)]

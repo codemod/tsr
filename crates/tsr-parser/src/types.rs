@@ -8,7 +8,7 @@ use tsr_ast::*;
 use tsr_diagnostics::messages;
 
 use crate::list::ParsingContext;
-use crate::parser::Parser;
+use crate::parser::{ListFact, ListKind, Parser};
 
 impl<'a> Parser<'a> {
     /// Parse `: T`, if present.
@@ -1376,6 +1376,7 @@ impl<'a> Parser<'a> {
         if self.at(SyntaxKind::LessThanLessThanToken) {
             self.rescan_less_than();
         }
+        let open = self.pos();
         if !self.eat(SyntaxKind::LessThanToken) {
             return None;
         }
@@ -1383,7 +1384,7 @@ impl<'a> Parser<'a> {
         // machinery's recovery, so `<a,,b>` keeps its TS1110 at the second
         // comma and `<>` is an empty list. Its diagnostics stand when the list
         // is accepted; the caller's `try_parse` drops them when it is not.
-        let (arguments, _) =
+        let (arguments, trailing_comma) =
             self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
         // "If it doesn't have the closing `>` then it's definitely not an type
         // argument list." Native's scanner returns a lone `>` and
@@ -1394,8 +1395,33 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::GreaterThanToken) {
             return None;
         }
+        self.note_bracketed_list(
+            ListKind::TypeArguments,
+            open,
+            arguments.is_empty(),
+            trailing_comma,
+        );
         self.next_token();
         Some(arguments)
+    }
+
+    /// Record an empty or comma-terminated bracketed list for its owner
+    /// ([`crate::parser::ListFact`]), with the cursor on the closing token
+    /// (or where it was expected).
+    pub(crate) fn note_bracketed_list(
+        &mut self,
+        kind: ListKind,
+        open: u32,
+        empty: bool,
+        trailing_comma: bool,
+    ) {
+        if !empty && !trailing_comma {
+            return;
+        }
+        // The comma is the last token consumed: it ends where the cursor's
+        // trivia begins.
+        let trailing_comma = trailing_comma.then(|| self.node_end() - 1);
+        self.note_list_fact(ListFact { kind, open, close: self.pos(), empty, trailing_comma });
     }
 
     /// `<A, B>` after a type reference, if present.
@@ -1411,14 +1437,21 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }
+        let open = self.pos();
         self.next_token();
         // `parseBracketedList(PCTypeArguments, parseType, <, >)` (`parser.go:3014`).
-        let (arguments, _) =
+        let (arguments, trailing_comma) =
             self.parse_delimited_list(ParsingContext::TypeArguments, Self::parse_type);
         // `List<List<T>>` lexes the close as `>>`; split it.
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
         }
+        self.note_bracketed_list(
+            ListKind::TypeArguments,
+            open,
+            arguments.is_empty(),
+            trailing_comma,
+        );
         self.expect(SyntaxKind::GreaterThanToken);
         arguments
     }
@@ -1435,12 +1468,19 @@ impl<'a> Parser<'a> {
         if !self.at(SyntaxKind::LessThanToken) {
             return Vec::new();
         }
+        let open = self.pos();
         self.next_token();
-        let (parameters, _) =
+        let (parameters, trailing_comma) =
             self.parse_delimited_list(ParsingContext::TypeParameters, Self::parse_type_parameter);
         if !self.at(SyntaxKind::GreaterThanToken) {
             self.rescan_greater_than();
         }
+        self.note_bracketed_list(
+            ListKind::TypeParameters,
+            open,
+            parameters.is_empty(),
+            trailing_comma,
+        );
         self.expect(SyntaxKind::GreaterThanToken);
         parameters
     }

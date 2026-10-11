@@ -393,9 +393,13 @@ impl<'a> Parser<'a> {
         // `parseBracketedList(PCParameters, parseParameter, [, ])`. §209/§210:
         // a list of zero or more ordinary parameters, each able to carry
         // modifiers and an initializer.
+        let open = self.pos();
         let parsed = if self.expect(SyntaxKind::OpenBracketToken) {
-            let (parsed, _) =
+            let (parsed, trailing_comma) =
                 self.parse_delimited_list(ParsingContext::Parameters, Self::parse_parameter);
+            if trailing_comma {
+                self.note_bracketed_list(crate::parser::ListKind::Parameters, open, false, true);
+            }
             self.expect(SyntaxKind::CloseBracketToken);
             parsed
         } else {
