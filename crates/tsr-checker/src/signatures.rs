@@ -1167,8 +1167,83 @@ impl<'a> Checker<'a, '_> {
             self.signature_candidates_of_interface_symbol(symbol, kind, &mut Vec::new())?;
         signatures
             .into_iter()
-            .map(|signature| self.instantiate_signature_for_reference(callee, signature))
+            .map(|signature| self.instantiate_signature_for_receiver(callee, signature))
             .collect()
+    }
+
+    /// `instantiateSignature` through a receiver's mapper as
+    /// `resolveTypeReferenceMembers` builds it: the target's type parameters
+    /// to the receiver's arguments (`instantiate_signature_for_reference`),
+    /// and the target's this-type to the receiver's this-argument — the
+    /// `getTypeWithThisArgument` image's, else the receiver itself
+    /// (`typeArguments := append(typeArguments, type)`). A receiver that is not
+    /// a class or interface reference takes the reference mapper alone.
+    /// `docs/parity/notes/r7-shared.md` §13 step 2.
+    pub(crate) fn instantiate_signature_for_receiver(
+        &mut self,
+        receiver: TypeId,
+        signature: Signature,
+    ) -> Option<Signature> {
+        let Some(target) = self.this_argument_target(receiver) else {
+            return self.instantiate_signature_for_reference(receiver, signature);
+        };
+        let this_argument = self.this_argument_of(receiver);
+        let this_types: Vec<TypeId> = self
+            .this_types_of_target(target)
+            .into_iter()
+            .filter(|&this_type| this_type != this_argument)
+            .collect();
+        if this_types.is_empty() || !self.declaration_mentions_this(signature.declaration) {
+            return self.instantiate_signature_for_reference(receiver, signature);
+        }
+        // One pass, as native's single mapper: the reference's parameters to
+        // its arguments and the target's this-type(s) to the this-argument.
+        let reference = self.reference_this_arguments.get(&receiver).map_or(receiver, |&(r, _)| r);
+        let arguments = self
+            .type_reference_targets
+            .get(&reference)
+            .map(|(_, arguments)| arguments.clone())
+            .unwrap_or_default();
+        let parameters = self.local_type_parameter_types_of(target)?;
+        if parameters.len() != arguments.len() {
+            return None;
+        }
+        let mut map: Vec<(TypeId, TypeId)> =
+            parameters.iter().zip(arguments).map(|((id, _), argument)| (*id, argument)).collect();
+        let mut ids: Vec<TypeId> = parameters.iter().map(|(id, _)| *id).collect();
+        let mut names: Vec<&str> = parameters.iter().map(|(_, name)| name.as_str()).collect();
+        for &this_type in &this_types {
+            map.push((this_type, this_argument));
+            ids.push(this_type);
+            names.push("this");
+        }
+        self.instantiate_signature_with_fresh_parameters(signature, &map, &ids, &names)
+    }
+
+    /// Whether a signature declaration can mention its owner's this-type: a
+    /// written `this` type anywhere in it, or a body (whose inferred types can).
+    /// Syntax only, memoised in `declarations_mentioning_this`.
+    fn declaration_mentions_this(&mut self, declaration: NodeId) -> bool {
+        if let Some(&known) = self.declarations_mentioning_this.get(&declaration) {
+            return known;
+        }
+        let mut found = false;
+        let mut stack = vec![declaration];
+        while let Some(id) = stack.pop() {
+            if found {
+                break;
+            }
+            let kind = self.nodes.kind(id);
+            if kind == SyntaxKind::ThisType || kind == SyntaxKind::Block {
+                found = true;
+                break;
+            }
+            if let Some(node) = self.node_map.get(id) {
+                tsr_ast::for_each_child_id(node, |child| stack.push(child));
+            }
+        }
+        self.declarations_mentioning_this.insert(declaration, found);
+        found
     }
 
     /// resolveObjectTypeMembers: declared signatures precede inherited ones.
@@ -1274,13 +1349,34 @@ impl<'a> Checker<'a, '_> {
                     let base = self.base_symbol_of_heritage_entry(entry, false)?;
                     let base_type =
                         self.instantiated_heritage_base(base, entry.type_arguments, entry.node_id)?;
-                    // resolveObjectTypeMembers reads each instantiated base's
-                    // signatures before the derived receiver mapper is applied.
+                    // resolveObjectTypeMembers instantiates each base with the
+                    // derived type's this-type
+                    // (`getTypeWithThisArgument(instantiatedBaseType,
+                    // thisArgument)`) before reading its signatures, so an
+                    // inherited `(value: T): this` returns the derived receiver
+                    // once the receiver mapper applies (r7-shared.md §13).
+                    // The derived this-type is minted only for a signature
+                    // that can mention `this`: a minted this-type moves every
+                    // later member read of the interface onto the
+                    // this-substitution road (measured: +0.68% Ir on
+                    // domain-model when minted for every heritage clause).
                     for signature in
                         self.signature_candidates_of_interface_symbol(base, kind, visiting)?
                     {
-                        inherited
-                            .push(self.instantiate_signature_for_reference(base_type, signature)?);
+                        if self.declaration_mentions_this(signature.declaration) {
+                            let derived_this = self.interface_declaration_this_type(declaration);
+                            let image = self.get_type_with_this_argument(
+                                base_type,
+                                Some(derived_this),
+                                false,
+                            );
+                            inherited
+                                .push(self.instantiate_signature_for_receiver(image, signature)?);
+                        } else {
+                            inherited.push(
+                                self.instantiate_signature_for_reference(base_type, signature)?,
+                            );
+                        }
                     }
                 }
             }
