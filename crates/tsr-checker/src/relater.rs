@@ -1638,6 +1638,33 @@ impl Relater<'_, '_, '_> {
         if self.checker.any_function_type == Some(source) && self.is_pure_signature_type(target) {
             return RelationResult::Related;
         }
+        // The same wildcard against any object target whose decided member
+        // list has no property and no index signature: `signaturesRelatedTo`
+        // answers True for an `anyFunctionType` source whatever the target's
+        // signatures, and there is nothing else to relate. An
+        // alias-reference image of a function type (`React.MouseEventHandler<any>`)
+        // is such a target although its signature list is not one
+        // `is_pure_signature_type` reads (r7-reports §29).
+        if self.checker.any_function_type == Some(source)
+            && self.checker.type_of(target).flags.contains(TypeFlags::OBJECT)
+            && !self
+                .checker
+                .type_of(target)
+                .flags
+                .intersects(TypeFlags::UNION | TypeFlags::INTERSECTION)
+            && self.checker.get_property_names_of_type_shared(target).is_some_and(|n| n.is_empty())
+            && self.checker.get_index_infos_of_type(target).is_some_and(|infos| infos.is_empty())
+            // An alias image's member list can be the alias symbol's own,
+            // empty whatever the body holds (§25); a signature-bearing one
+            // names a function type, whose literal declares no property.
+            && (!self.checker.type_reference_targets.contains_key(&target)
+                || self
+                    .checker
+                    .signatures_of_type_kind(target, crate::signatures::SignatureKind::Call)
+                    .is_some_and(|signatures| !signatures.is_empty()))
+        {
+            return RelationResult::Related;
+        }
         if self.checker.any_function_type == Some(target) && self.is_pure_signature_type(source) {
             return RelationResult::NotRelated;
         }
