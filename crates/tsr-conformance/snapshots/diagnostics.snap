@@ -147,7 +147,7 @@ compiler/declarationEmitPrivatePromiseLikeInterface
 compiler/declarationEmitRelativeModuleError
   1 missing (first TS2436 at declarationEmitRelativeModuleError.ts(5,16))
 compiler/declarationEmitUsingTypeAlias1
-  2 missing (first TS2883 at src/index.ts(3,14))
+  1 missing (first TS2883 at src/index.ts(7,14))
 compiler/destructuringControlFlowNoCrash
   2 missing (first TS2339 at destructuringControlFlowNoCrash.ts(3,3))
 compiler/destructuringFromUnionSpread
