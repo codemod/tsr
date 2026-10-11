@@ -2623,14 +2623,13 @@ impl Relater<'_, '_, '_> {
     ///
     /// Ported with it, because they feed that arm: the object is simplified
     /// first (a nested `{ [P in T]: { [Q in U]: X } }[T][U]`), a union index
-    /// distributes over a mapped object (`distributeObjectOverIndexType`:
-    /// a union when reading, an intersection when writing), the substituted
+    /// distributes over any object (`distributeObjectOverIndexType`: a union
+    /// when reading, an intersection when writing; r7-reports §19), the substituted
     /// result's indexed-access constituents are simplified in turn (`mapType`),
     /// and the input is removed from a union result (`removeType`).
     ///
     /// Stated divergences, each leaving the indexed access as written:
-    /// - the other arms are not ported: a union index over a non-mapped
-    ///   object and a generic tuple read by a number. Native's
+    /// - the generic-tuple-read-by-a-number arm is not ported. Native's
     ///   simplification there changes what the pair relates through, not
     ///   whether this arm applies. `(T | U)[K]`/`(T & U)[K]` is
     ///   ([`Self::distributed_index_over_object`]).
@@ -2670,6 +2669,22 @@ impl Relater<'_, '_, '_> {
             return None;
         }
         let object = self.simplified_indexed_access_worker(object, writing, depth + 1)?;
+        // distributeObjectOverIndexType (checker.go:27975), first: `T[A | B]`
+        // is `T[A] | T[B]` (reading) or `T[A] & T[B]` (writing), each access
+        // simplified in turn, whatever the object is.
+        let simplified_index = self.simplified_indexed_access_worker(index, writing, depth + 1)?;
+        if let Some(parts) = self.union_constituents(simplified_index) {
+            let mut types = Vec::with_capacity(parts.len());
+            for part in parts {
+                let access = self.checker.resolved_indexed_access_type(object, part, false)?;
+                types.push(self.simplified_indexed_access_worker(access, writing, depth + 1)?);
+            }
+            return Some(if writing {
+                self.checker.get_intersection_type(&types, None)
+            } else {
+                self.checker.get_union_type(&types)
+            });
+        }
         // distributeIndexOverObjectType (checker.go:27990), taken only when
         // the index can no longer be instantiated to distribute again
         // (checker.go:27942): `(T | U)[K]` is `T[K] | U[K]` (reading) or
@@ -2696,26 +2711,7 @@ impl Relater<'_, '_, '_> {
             Some(false) => return Some(id),
             None => return None,
         }
-        let simplified_index = self.simplified_indexed_access_worker(index, writing, depth + 1)?;
-        let result = match self.union_constituents(simplified_index) {
-            Some(parts) => {
-                let mut types = Vec::with_capacity(parts.len());
-                for part in parts {
-                    types.push(self.substitute_indexed_mapped_type(
-                        &info,
-                        part,
-                        writing,
-                        depth + 1,
-                    )?);
-                }
-                if writing {
-                    self.checker.get_intersection_type(&types, None)
-                } else {
-                    self.checker.get_union_type(&types)
-                }
-            }
-            None => self.substitute_indexed_mapped_type(&info, index, writing, depth + 1)?,
-        };
+        let result = self.substitute_indexed_mapped_type(&info, index, writing, depth + 1)?;
         // removeType(result, t).
         if result == id {
             return Some(id);

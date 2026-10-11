@@ -856,3 +856,34 @@ and then re-typed under a real context after an eviction that is never
 recomputed. The reader recomputes first, so the record would have to come
 from a computation that native does not repeat. A new TS7006 extra would
 show it.
+
+## 19. `distributeObjectOverIndexType` for every object, not only a mapped one
+
+**Forcing case.** `deepComparisons` (4,9). `T[K1][K2] → Extract<T[K1][K2],
+string>` (with `K2 extends keyof T[K1]`) is false natively. Its chain runs
+through `T[K1][keyof T[K1]]` and `T[K1][string] | T[K1][number] |
+T[K1][symbol]` down to `T[string][string]`, which has no constraint. This
+port kept `T[K1][string | number | symbol]` whole. Its next constraint,
+`T[string | number | symbol][string | number | symbol]`, answered Unknown,
+so the line was missing.
+
+**Upstream.** `getSimplifiedIndexedAccessTypeWorker` (`checker.go:27930`)
+asks `distributeObjectOverIndexType` (`:27975`) first, for any object: a
+union index gives `T[A] | T[B]` when reading and `T[A] & T[B]` when writing,
+each access simplified in turn. Only after that come the object
+distribution, the generic tuple and the mapped substitution.
+
+**Port** (`relater.rs::simplified_indexed_access_worker`). The union-index
+distribution moves out of the mapped-object arm and comes first, as native's
+does. The mapped arm now sees only a non-union index, and its union branch
+is gone. Over a mapped object the two orders give the same types: each
+`{…}[A]` is substituted when it is simplified. The generic-tuple arm is
+still not ported (stated in the rustdoc).
+
+**Measured** (diagnostics and types, unfiltered, against batch 19 with
+§17 and §18 on top): `deepComparisons` RIGHT, no case or type line lost,
+types unchanged.
+
+**Falsifier.** A pair whose union index distributes into a constituent this
+port then answers differently from the whole access, so a RIGHT relation
+turns. None was measured.
