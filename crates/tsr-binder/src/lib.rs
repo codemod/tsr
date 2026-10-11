@@ -576,6 +576,19 @@ impl<'a> BindResult<'a> {
         // `initializeChecker` merges the global augmentations before the
         // module ones (`checker.go:1335-1349`), so a global augmentation of a
         // UMD alias lands in the module first.
+        // `mergeSymbol`'s conflict arm returns `source` after
+        // `reportMergeSymbolError` (`checker.go:14160-14163`), and
+        // `mergeSymbolTable` stores it (`:14117`): a `declare global { const
+        // THREE }` whose excludes hit the module a UMD global `THREE` resolves
+        // to replaces that alias in the globals table. The pair stays in
+        // `alias_merges` for `Checker::report_merge_conflicts`
+        // (`docs/parity/notes/r7-shared.md` §12).
+        for (alias, source) in self.umd_alias_conflicts(nodes, node_map) {
+            let name = self.symbols.get(alias).name;
+            if self.globals.get(name) == Some(&alias) {
+                self.globals.insert(name, source);
+            }
+        }
         let umd_merges = self.umd_alias_merges(nodes, node_map);
         if !umd_merges.is_empty() {
             self.alias_merges.retain(|&(alias, source)| {
@@ -897,6 +910,30 @@ impl<'a> BindResult<'a> {
                         || !source_flags.excludes().intersects(module_flags)))
                 .then_some((alias, module, source))
             })
+            .collect()
+    }
+
+    /// The declined `(alias, source)` merges whose alias is a UMD global and
+    /// whose source's excludes hit the module the alias names: native's
+    /// `reportMergeSymbolError` arm, which returns the source.
+    fn umd_alias_conflicts(
+        &self,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+    ) -> Vec<(SymbolId, SymbolId)> {
+        self.alias_merges
+            .iter()
+            .filter(|&&(alias, source)| {
+                let Some(module) = self.umd_alias_module(nodes, node_map, alias) else {
+                    return false;
+                };
+                let source_flags = self.symbols.get(source).flags;
+                let module_flags = self.symbols.get(module).flags;
+                !module_flags.intersects(SymbolFlags::ALIAS)
+                    && !(source_flags | module_flags).intersects(SymbolFlags::ASSIGNMENT)
+                    && source_flags.excludes().intersects(module_flags)
+            })
+            .copied()
             .collect()
     }
 

@@ -526,3 +526,16 @@ in a type node, which `getContextualType` cannot reach, so they are
 admitted unconditionally — the list `signatures.rs::parameter_of`'s §875
 already uses: `FunctionType`, `ConstructorType`, `CallSignature`,
 `ConstructSignature`, `MethodSignature`, `IndexSignature`. No cache.
+
+## 12. A conflicting global merge over a UMD alias stores the source (checkMergedGlobalUMDSymbol)
+
+`initializeChecker` puts `export as namespace THREE`'s alias in the globals
+first-in-wins, then merges `declare global { export const THREE }` into it.
+`mergeSymbol` resolves the alias (to the `./global` module, a value module),
+the const's excludes hit it, and the conflict arm reports
+`reportMergeSymbolError` and returns `source`, which `mergeSymbolTable`
+stores: `globals["THREE"]` is the const, so `const m = THREE` in another
+file is `typeof import("./three")`. The binder's UMD arm handled only the
+non-conflicting merge; `BindResult::umd_alias_conflicts` is the other half —
+the slot takes the source and the pair stays in `alias_merges`, so the two
+TS2451 reports are unchanged. No cache.
