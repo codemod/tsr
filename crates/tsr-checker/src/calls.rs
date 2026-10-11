@@ -1227,11 +1227,14 @@ impl Checker<'_, '_> {
         if applicable {
             // `isSingleNonGenericCandidate`: the sole candidate is checked
             // against the arguments as is, no inference or type arguments.
+            // Spread arguments included: `getEffectiveCallArguments` expands
+            // a tuple spread into synthetic arguments and keeps any other
+            // spread as one argument typed by its iterated element
+            // (`checkSpreadExpression`), both of which the report pass reads
+            // (`report_call_arguments`).
             if let [candidate] = candidates.as_slice()
                 && candidate.type_parameters.is_empty()
                 && type_arguments.is_empty()
-                && !effective.iter().any(|argument| argument.spread)
-                && effective.len() == arguments.len() + usize::from(tagged)
             {
                 return CallArity::Applicable(Some(Box::new(candidate.clone())));
             }
@@ -1292,10 +1295,10 @@ impl Checker<'_, '_> {
     ///
     /// The list is put in `reorderCandidates` order
     /// ([`Checker::reorder_candidates`]; declaration groups of a union's
-    /// composite signatures stay in constituent order). A candidate with a
-    /// literal or `null` parameter type is declined, as is a spread
-    /// argument: the argument walk reads each argument's checked type, which
-    /// for such a parameter is not the one checked under it as context.
+    /// composite signatures stay in constituent order). A spread argument is
+    /// declined. A literal or `null` parameter type is not: the argument
+    /// walk re-checks an argument whose type follows its contextual type
+    /// under each candidate ([`Checker::check_overload_candidates_arguments`]).
     fn non_generic_overload_candidates(
         &mut self,
         candidates: &[Signature],
@@ -1309,18 +1312,8 @@ impl Checker<'_, '_> {
         {
             return None;
         }
-        for candidate in candidates {
-            if !candidate.type_parameters.is_empty()
-                || candidate.parameters.iter().any(|parameter| {
-                    let parameter_type = self.parameter_type(parameter);
-                    self.store
-                        .get(parameter_type)
-                        .flags
-                        .intersects(TypeFlags::LITERAL | TypeFlags::NULL)
-                })
-            {
-                return None;
-            }
+        if candidates.iter().any(|candidate| !candidate.type_parameters.is_empty()) {
+            return None;
         }
         let mut matched = Vec::new();
         for candidate in self.reorder_candidates(candidates.to_vec()) {
@@ -1382,9 +1375,14 @@ impl Checker<'_, '_> {
                 let Some(expression) = parenthesized.expression else { return false };
                 inner = expression;
             }
+            // A template expression keeps a literal or template literal
+            // type only under a contextual type that admits one, so it is
+            // re-checked like an object or array literal.
             let literal = matches!(
                 inner,
-                Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
+                Expression::ObjectLiteralExpression(_)
+                    | Expression::ArrayLiteralExpression(_)
+                    | Expression::TemplateExpression(_)
             );
             if literal
                 && strings.is_none()
@@ -1486,25 +1484,33 @@ impl Checker<'_, '_> {
         );
         self.restore_literal_subtree_state(saved);
         if candidates.len() > 1 {
-            for (_, diagnostic) in &mut self.diagnostics[before..] {
-                let span = diagnostic.span;
-                let child = std::mem::replace(
-                    diagnostic,
-                    Diagnostic::new(&messages::NO_OVERLOAD_MATCHES_THIS_CALL, span),
-                );
-                let chained = Diagnostic::new_chain(
-                    Some(child),
-                    &messages::THE_LAST_OVERLOAD_GAVE_THE_FOLLOWING_ERROR,
-                    [],
-                );
-                *diagnostic = Diagnostic::new_chain(
-                    Some(chained),
-                    &messages::NO_OVERLOAD_MATCHES_THIS_CALL,
-                    [],
-                );
-            }
+            self.chain_overload_failure(before);
         }
         true
+    }
+
+    /// `reportCallResolutionErrors`' chain over several candidates
+    /// (`checker.go:9656`): every report made since `before` becomes the child
+    /// of `The_last_overload_gave_the_following_error`, under
+    /// `No_overload_matches_this_call` (TS2769). The related information
+    /// (`The_last_overload_is_declared_here`, which may sit in another file,
+    /// and `addImplementationSuccessElaboration`) is not attached: this
+    /// port's checker diagnostics carry no cross-file related location.
+    fn chain_overload_failure(&mut self, before: usize) {
+        for (_, diagnostic) in &mut self.diagnostics[before..] {
+            let span = diagnostic.span;
+            let child = std::mem::replace(
+                diagnostic,
+                Diagnostic::new(&messages::NO_OVERLOAD_MATCHES_THIS_CALL, span),
+            );
+            let chained = Diagnostic::new_chain(
+                Some(child),
+                &messages::THE_LAST_OVERLOAD_GAVE_THE_FOLLOWING_ERROR,
+                [],
+            );
+            *diagnostic =
+                Diagnostic::new_chain(Some(chained), &messages::NO_OVERLOAD_MATCHES_THIS_CALL, []);
+        }
     }
 
     /// `checkExpressionWithContextualType(arg, paramType)` for an object or
@@ -1642,13 +1648,32 @@ impl Checker<'_, '_> {
             Ternary::NotRelated => &[],
             Ternary::Unknown => return true,
         };
+        // `isSignatureApplicable` with `reportErrors` checks every argument
+        // under the last candidate's (instantiated) parameter. An object or
+        // array literal the walk did not check under it, with no nested
+        // resolution, is re-checked so (as
+        // [`Checker::check_overload_candidates_arguments`] does); its
+        // published state is put back after the report.
+        let mut saved = Vec::new();
         for (position, argument) in arguments.iter().enumerate() {
             let Some(argument_id) = argument.node_id() else { break };
             let Some(target) = self.signature_type_at_position(&last, position) else { break };
             if self.is_gap(target) {
                 break;
             }
-            let checked = failure.checked.get(position).copied().flatten();
+            let mut checked = failure.checked.get(position).copied().flatten();
+            if checked.is_none()
+                && matches!(
+                    Self::effective_check_expression(*argument),
+                    Expression::ObjectLiteralExpression(_) | Expression::ArrayLiteralExpression(_)
+                )
+                && !self.is_context_sensitive_argument(argument)
+                && !self.literal_subtree_has_resolution(argument_id)
+            {
+                saved.extend(self.literal_subtree_state(argument_id));
+                checked =
+                    Some(self.check_literal_argument_in_candidate(node, &last, *argument, false));
+            }
             if checked.is_none() && self.report_argument_type_is_not_upstreams(*argument) {
                 break;
             }
@@ -1706,11 +1731,9 @@ impl Checker<'_, '_> {
             }
             break;
         }
+        self.restore_literal_subtree_state(saved);
         if failure.count > 1 {
-            for (_, diagnostic) in &mut self.diagnostics[before..] {
-                diagnostic.message = &messages::NO_OVERLOAD_MATCHES_THIS_CALL;
-                diagnostic.args.clear();
-            }
+            self.chain_overload_failure(before);
         }
         true
     }
@@ -2641,7 +2664,11 @@ impl Checker<'_, '_> {
         // except for a union every member of which has a decided, non-empty
         // construct list: its empty composite is `getUnionSignatures`' own
         // verdict, as for a call.
+        // A function or method's own type carries its declaration's call
+        // signatures, so its list is decided (the call head reads it the
+        // same way, [`Checker::is_function_or_method_type`]).
         if self.could_contain_type_variables_at_head(expression_type, 3)
+            && !self.is_function_or_method_type(apparent)
             && !(call_signatures.is_empty()
                 && self.union_members_have_signatures(apparent, SignatureKind::Construct))
         {
@@ -4576,7 +4603,8 @@ impl Checker<'_, '_> {
                     // argument is context-sensitive; undecidable sets retain
                     // the return-agreement recovery
                     // (docs/architecture/checker-99-agreeing-overloads.md).
-                    if !has_type_arguments
+                    if (!has_type_arguments
+                        || self.walk_reads_written_type_arguments(arguments, call))
                         && let Some(picked) =
                             self.transcribed_generic_set_walk(candidates, arguments, call)
                     {

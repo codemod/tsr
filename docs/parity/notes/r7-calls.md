@@ -572,6 +572,126 @@ memo `contextual_type_for_argument` reads is shared by `new`).
 lost; types 0/0; jsTyping new_false 0, lost_true 0; callgrind Ir
 generic-imports 0.9999, domain-model 0.9999.
 
+## 13. A single non-generic candidate reports over spread arguments (CALL-SPREAD-ARGUMENT-APPLICABILITY)
+
+**Native.** `isSingleNonGenericCandidate` (`checker.go:9030`) does not look
+at spreads. `getEffectiveCallArguments` (`checker.go:30042`) expands a tuple
+spread into synthetic arguments (a rest or variadic element spread-flagged)
+and keeps any other spread as one argument. `isSignatureApplicable` checks a
+spread argument with `checkSpreadExpression` (its iterated element type) and
+a spread synthetic with `checkSyntheticExpression` (the element type), each
+against `getTypeAtPosition`.
+
+**Before.** `check_candidates_arity` returned `Applicable(None)` for any
+call with a spread, so a single non-generic candidate never reached the
+report pass.
+
+**Change.** The spread and count conditions are dropped from the
+single-non-generic arm. The report pass already builds the effective
+argument list (`report_call_arguments`, `tuple_spread_elements`); a written
+spread is typed by `check_expression`'s spread arm (its element type) and a
+spread synthetic by its element type (§7). A non-array rest
+(`getSpreadArgumentType`) still declines. Generic and overloaded candidates
+keep their spread declines.
+
+**Measured** against `d0a068a2` on `41f3c70b`: diagnostics +4, 0 lost; types
+0/0. Converted: callWithSpread2, callWithSpread3, callWithSpread5,
+iteratorSpreadInCall6. jsTyping new_false 0, lost_true 0. Callgrind Ir:
+generic-imports 0.9999, domain-model 1.0003. Exact oracle 9,582 → 9,584,
+exact_lost 0.
+
+It was held (`box/r7-calls-held`) while the jsTyping leg refused it: it
+exposed three false TS2345s from type-road defects elsewhere. Two came from
+the written-type-argument overload walk (§9); the third, `checker.ts:51482`,
+from the evolving-array receiver after `result ||= []` (r7-flow, `3d2d17f8`).
+
+## 14. The overload walk's failure report re-checks literal arguments under the last candidate
+
+**Native.** `reportCallResolutionErrors` (`checker.go:9649`) re-runs
+`isSignatureApplicable` with `reportErrors` over the last entry of
+`candidatesForArgumentError`, the instantiated candidate for a generic set.
+Every argument is checked with `checkExpressionWithContextualType` under
+that candidate's parameter.
+
+**Before.** `report_overload_argument_failure` read the walk's recorded
+`checked` types and declined an object or array literal the walk had not
+checked under the failing candidate. `new Map([["", true], ["", 0]])` (two
+generic construct overloads, the literal's parameter an array, not a tuple)
+was silent.
+
+**Change.** Such a literal, with no nested resolution, is re-checked under the
+last candidate (`check_literal_argument_in_candidate`, §8). The report is
+made while it holds those types, and the published state is restored
+afterwards. The TS2769 head is chained (`chain_overload_failure`, shared with
+§8's site) instead of relabelling the argument's diagnostic. The related
+information (`The_last_overload_is_declared_here`, possibly in another file,
+and `addImplementationSuccessElaboration`) is not attached; this checker's
+diagnostics carry no cross-file related location.
+
+## 15. Non-generic overload sets with literal parameter types reach the walk
+
+`non_generic_overload_candidates` declined a set in which a candidate had a
+literal or `null` parameter type, because the walk read published argument
+types. Since §8 the walk re-checks an argument whose type follows its
+contextual type under each candidate, so the decline goes. Template
+expressions join the re-checked shapes: their literal or template-literal
+type follows the contextual type. `foo("um", [])` over `foo(x: "hi", …)` /
+`foo(x: "bye", …)` reports native's chained TS2769 (overloadingOnConstants2).
+
+## 16. A non-array rest parameter with no trailing argument
+
+`isSignatureApplicable` (`checker.go:9256`) relates the arguments before a
+non-array rest parameter (`getNonArrayRestType`) one by one
+(`argCount = min(getParameterCount - 1, len(args))`), then the remainder as
+one `getSpreadArgumentType` tuple, reported at the call when there is no
+remainder (`restArgCount == 0`). `report_signature_applicability` declined
+every such signature. It now relates the leading arguments and, when nothing
+trails, the empty tuple: `foo()` over `(...args: never)`
+(topFunctionTypeNotCallable) and `f1()` over `...args: [...F[], G]`
+(contextualTypeTupleEnd) report TS2345 at the call. Trailing arguments still
+decline. Their tuple is `inference.rs`'s `inference_spread_argument_type`,
+private to that file (visibility requested from the integrator).
+
+## 17. The `new` head reads a declared function's call list
+
+`new Callbacks<number, string, boolean>('s')` over a function with three
+call-signature overloads (no construct signature) gets native's TS2558 from
+`resolveNewExpression`'s `resolveCall` over the call signatures
+(`checker.go:8576`). The `new` head declined it through the
+type-variable refusal, because the overloads are generic. A function or
+method's own type carries its declaration's signatures, so its list is
+decided: the call head already exempts it (`is_function_or_method_type`), and
+the `new` head now does too (overloadsAndTypeArgumentArityErrors).
+
+## 18. Agreeing generic survivors run the walk with written type arguments
+
+§463's arm of `choose_ordered_overload` returns the first of several generic
+arity survivors whose return types print the same. It ran the transcribed
+walk first only without written type arguments, so `foo1<Date>("")` over
+`foo1<T extends Date>(test: T)` / `foo1<T extends Number>(test: string)`
+(both returning `any`) took the first survivor unchecked. Native's walk
+(`chooseOverload`) rejects the first on its argument and the second on
+`checkTypeArguments` (`Date` does not satisfy `Number`), and reports the
+first's TS2345. §9's walk reads written type arguments, so this arm now runs
+it too when it can (`walk_reads_written_type_arguments`)
+(typeArgumentConstraintResolution1).
+
+**Measured** for §14–§18, each against its parent (base `53dcad98` on
+`41f3c70b`), with both dumps unfiltered, the jsTyping leg, callgrind Ir
+(single-threaded) and the exact native oracle (`exact-candidate`, 2
+workers):
+
+| § | commit | diagnostics | types | jsTyping new_false / lost_true | Ir gi / dm | exact |
+|---|---|---|---|---|---|---|
+| 14 | literal re-check in the walk report | +2 (for-of39, iterableArrayPattern28), 0 lost | 0/0 | 0 / 0 | 0.9999 / 0.9997 | +0, 0 lost |
+| 15 | literal-typed overload parameters | +1 (overloadingOnConstants2), 0 lost | 0/0 | 0 / 0 | 0.9999 / 1.0000 | +0, 0 lost |
+| 16 | non-array rest, no trailing argument | +2 (topFunctionTypeNotCallable, contextualTypeTupleEnd), 0 lost | 0/0 | 0 / 0 | 0.9998 / 1.0000 | +1, 0 lost |
+| 17 | `new` head, declared function | +1 (overloadsAndTypeArgumentArityErrors), 0 lost | 0/0 | 0 / 0 | 0.9999 / 1.0000 | +0, 0 lost |
+| 18 | agreeing survivors run the walk | +1 (typeArgumentConstraintResolution1), 0 lost | 0/0 | 0 / 0 | 0.9999 / 1.0000 | +1, 0 lost |
+
+The oracle legs ran with 2 workers. With 4, the orb's 7 GiB OOM-killed
+`tsr-actual` workers alongside a concurrent build.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s
