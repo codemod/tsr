@@ -1026,3 +1026,27 @@ outside the known table is the excess report, as before.
 
 **Measured** (diagnostics, unfiltered, against batch 22 with §17–§22 on
 top): `objectLiteralFunctionArgContextualTyping2` RIGHT, 0 lost.
+
+## 24. The excess check reads index signatures instead of declining them
+
+**Forcing case.** `objectLitIndexerContextualType` (18,5). `y = { s: t => t
+* t }` with `J { [s: number]: … }` is native TS2353: `isKnownProperty`
+(`relater.go:719`) knows a declared property or a name that an applicable
+index signature admits (`getApplicableIndexInfoForName`). A number index
+signature does not admit `s`.
+
+**Port** (`assignreport.rs::check_excess_properties`).
+- This check declined every target with an index signature, through
+  `relation_members_are_complete`, on the ground that "an index signature
+  makes every name known". That holds only for a string index signature.
+- It now reads the target's index infos when `relation_property_table`
+  answers (the declared table is complete apart from index signatures). A
+  name is known when it is declared or an index signature applies to it.
+- The elaboration pass (§23) relates a member admitted only by an index
+  signature to that signature's value, as `getIndexedAccessTypeOrUndefined`
+  does.
+- An index-signature-only target is not the empty target the TS2322 rule
+  exempts.
+
+**Measured** (diagnostics, unfiltered, against batch 23 with §17–§23 on
+top): `objectLitIndexerContextualType` RIGHT, 0 lost.
