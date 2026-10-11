@@ -3853,6 +3853,18 @@ impl<'a, 'n> Checker<'a, 'n> {
                 return Some(out);
             }
         }
+        // A print baked with the symbol's own name (`typeof default`, the
+        // constructor side of an `export default class C`) is spelled as
+        // written too (r7-printer §27).
+        if written != "default"
+            && let Some(suffix_at) = Self::split_around_name(printed, "default")
+        {
+            let mut out = String::with_capacity(printed.len() + written.len());
+            out.push_str(&printed[..suffix_at - "default".len()]);
+            out.push_str(written);
+            out.push_str(&printed[suffix_at..]);
+            return Some(out);
+        }
         None
     }
 

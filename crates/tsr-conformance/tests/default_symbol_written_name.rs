@@ -27,3 +27,34 @@ export default class Foo {}
         assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
     }
 }
+
+/// The constructor side of an `export default class C` is baked with the
+/// symbol's own name (`typeof default`); in its binding context
+/// `getNameOfSymbolAsWritten` writes the declaration's name
+/// (`es5ExportDefaultClassDeclaration4`'s native baseline; r7-printer §27).
+#[test]
+fn a_default_class_constructor_is_written_by_its_declaration_name() {
+    let source = r#"// @target: es2015
+// @module: commonjs
+declare module "foo" {
+    export default class C {
+        method(): C;
+    }
+    export var t: typeof C;
+}
+"#;
+    let case = TestCase::parse("probe/default_class_constructor_name", "a.ts", source);
+    let expected: Vec<_> = case
+        .files
+        .iter()
+        .map(|unit| FileTypes { file: unit.name.clone(), assertions: Vec::new() })
+        .collect();
+    let lines: Vec<String> = types_producer::assertions_for_case(&case, &expected, false)
+        .iter()
+        .flatten()
+        .map(types_producer::Assertion::line)
+        .collect();
+    for wanted in ["t : typeof C", "C : typeof C", "method : () => C"] {
+        assert!(lines.iter().any(|line| line == wanted), "missing {wanted}: {lines:?}");
+    }
+}

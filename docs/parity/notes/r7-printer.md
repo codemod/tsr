@@ -1124,3 +1124,32 @@ UMD alias is in scope.
 `import("../../../react.js")` at the import declaration and
 `import("../../../react")` at the JSX element of the same file. That is a
 per-site specifier-ending choice, not ported here.
+
+## 27. A default class's constructor is written by its declaration's name
+
+**Forcing constraint.** `es5ExportDefaultClassDeclaration4` (2 lines),
+`decoratorOnClass3.es6` (1) and `decoratorOnClass7.es6` (2). Inside
+`declare module "foo" { export default class C {…} export var t: typeof C; }`
+native prints `t : typeof C`. The port printed nothing: the site printer
+returned `None`, which renders as a gap.
+
+**Cause.** The class's constructor type is baked as `typeof default`,
+spelled with the symbol's own name. `getNameOfSymbolAsWritten`
+(`nodebuilderimpl.go:973`) never writes `default` inside the declaration's
+binding context (`isDefaultBindingContext`, a source file or an ambient
+module). It writes the declaration's name. §4's
+`default_symbol_text_as_written` rewrote only a baked *declaration* name
+(`foo` over `Foo`), so `typeof default` reached the refusal of a bare `default`
+(`checker-notes-modobj.md` §10.11).
+
+**The port.** `default_symbol_text_as_written` also rewrites a print baked
+with the literal `default` to the written name. Outside the binding
+context the written name is §20's in-scope alias, and with none the
+function still answers `None` before this point, so that refusal of
+`typeof default` stands where native would not write the declaration name
+either. No cache or table.
+
+How these were found: marking the producer's printer-`None` as a distinct
+string (locally, uncommitted) over the 148 gap cases showed only these 5
+lines are the printer declining. Every other gap line is a checker-side
+error type.
