@@ -490,3 +490,11 @@ the `=` is found by skipping back over it in the source). Not ported: the
 trailing-comma arm (TS1013), which needs the parser to record a binding
 pattern's trailing comma. Converted: `restElementWithInitializer1`,
 `objectBindingPattern_restElementWithPropertyName`.
+
+## §23 `using` declarations in an ambient context (TS1545/TS1546)
+
+`checkGrammarVariableDeclarationList`'s ambient arm (`grammarchecks.go:1662`):
+a `using` / `await using` list with `NodeFlagsAmbient` is TS1545 / TS1546 on
+the list (from the `await` for the latter). Read through `has_ambient_flag`
+(§1). The arm returns, so the `await using` tail (§9) no longer adds TS2852
+there. Converted: `usingDeclarations.16`, `awaitUsingDeclarations.16`.

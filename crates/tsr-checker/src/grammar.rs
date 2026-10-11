@@ -611,8 +611,8 @@ impl Checker<'_, '_> {
         );
     }
 
-    /// `Checker.checkGrammarVariableDeclarationList` (`grammarchecks.go:1646`)
-    /// without its ambient arm (the parser does not set `NodeFlags::AMBIENT`).
+    /// `Checker.checkGrammarVariableDeclarationList` (`grammarchecks.go:1646`),
+    /// its ambient arm read through `has_ambient_flag`.
     /// Its last step, `checkGrammarAwaitOrAwaitUsing` for an `await using`
     /// list, runs when no earlier arm reported (`module_format.rs`). Returns
     /// whether it reported.
@@ -671,6 +671,23 @@ impl Checker<'_, '_> {
                     &messages::THE_LEFT_HAND_SIDE_OF_A_FOR_IN_STATEMENT_CANNOT_BE_A_USING_DECLARATION,
                     list_span,
                 ),
+            };
+            self.report(file, Diagnostic::new(message, span));
+            return true;
+        }
+        // `declarationList.Flags&ast.NodeFlagsAmbient != 0`: TS1545 / TS1546
+        // on the list.
+        if self.has_ambient_flag(list) {
+            let Some(file) = self.source_file_of_for_diagnostics(list) else { return true };
+            let list_span = self.nodes.span(list);
+            let (message, span) = match self.await_using_list_await_start(list, parent) {
+                Some(start) => (
+                    &messages::AWAIT_USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS,
+                    tsr_core::Span::new(start, list_span.end),
+                ),
+                None => {
+                    (&messages::USING_DECLARATIONS_ARE_NOT_ALLOWED_IN_AMBIENT_CONTEXTS, list_span)
+                }
             };
             self.report(file, Diagnostic::new(message, span));
             return true;
