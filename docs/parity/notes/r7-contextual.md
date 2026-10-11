@@ -695,3 +695,32 @@ symbol's type are untouched (only the body's `node_types` are evicted), so
 the function's type stays its first check's, as natively. Block bodies'
 `return` expressions would need `signatures.rs`' private
 `return_expressions_of` and are not covered.
+
+## 21. The end-of-inference re-check admits literals holding functions
+
+`withKeyedObj({ b: { data: true, onSuccess: (dataArg) => {…} } })` against
+`Results<T> & Errors<E>`: the argument is context-sensitive, so §1 skipped
+it. Natively the writer still re-reads `data: true` under the resolved
+`T["b"] = boolean` and keeps `true`. §8 refused literals holding functions
+because evicting a function re-derived its type (and its return widening)
+in the new context, while native keeps a function's first-check type.
+`evict_literal_subtree` now stops at arrows and function expressions, so
+their `node_types` and their symbols' types survive and only the literal's
+own nodes are re-read. With that, the end-of-inference re-check (not the
+inference-pass fresh check) admits array/object literal arguments,
+context-sensitive or not, whose subtree holds functions but no call, `new`,
+tagged template, class, method or accessor
+(`resolved_literal_argument_late_recheck`), provided the literal is
+context-sensitive. The deferred pass re-checks such a literal under the
+inference context before inferring from it, so no later inference reads the
+re-check. Two variants were measured and refused:
+- admitting non-context-sensitive literals that hold functions: a later
+  worker run read the re-checked type from the cache, an exact-oracle loss
+  in `computedPropertyNamesContextualType6_ES5/ES6` (T `… | true | …`
+  instead of native's `boolean`);
+- also fresh-checking those literals in the inference pass: the arrow's first
+  check then happened under the inferential context and widened its return
+  (`reverseMappedContravariantInference` 0:7-9, 3 lines lost).
+Methods and accessors stay out:
+`objects.rs` builds their member types through
+`get_signature_from_declaration`, not from `node_types`.
