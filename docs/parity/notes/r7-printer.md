@@ -827,3 +827,29 @@ the symbol itself.
 
 **Measured** against §16's commit (`8807cfe10`), both dumps unfiltered:
 types **+7 / −0**, diagnostics unchanged.
+
+## 18. The namespace segment also covers a module-level local and the `export =` shortcut
+
+**Forcing constraint.** `exportAssignedNamespaceIsVisibleInDeclarationEmit`:
+`thing.d.ts` writes `declare namespace Foo { export interface Bar {} … }`
+and `export = Foo`; `index.ts` prints `import("./thing").Bar` natively, the
+port `Foo.Bar`.
+
+**Cause.** `Foo` is a local of the module, so it has no parent;
+`getContainersOfSymbol`'s fallback (`symbolaccessibility.go:288`) offers the
+module, whose `export =` names `Foo`, and `getSymbolChain`'s `export =`
+shortcut (`nodebuilderimpl.go:1124`) makes `Foo`'s chain the module alone,
+so the segment is `import("./thing")`. §14's arm required the namespace's
+*parent* to be a file module and a two-element chain.
+
+**The port.** The namespace-parent step asks the resolver for any namespace
+declared in a file module (`declared_in_file_module`: its container is one,
+or a declaration sits at its top level) that no in-scope name reaches, and
+spells a one-element module chain as `import(<specifier>).` and a module
+plus one member as before (`module_rooted_segment_at`).
+
+**Measured** against §17's commit (`e17ee095a`), both dumps unfiltered:
+types **+13 / −0** (`exportAssignedNamespaceIsVisibleInDeclarationEmit` 4,
+`reactImportDropped` 4, `reactTransitiveImportHasValidDeclaration` 4,
+`declarationEmitObjectAssignedDefaultExport` 1), diagnostics **+1 / −0**
+(`declarationEmitObjectAssignedDefaultExport`).

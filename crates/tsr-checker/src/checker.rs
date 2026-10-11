@@ -3561,28 +3561,28 @@ impl<'a, 'n> Checker<'a, 'n> {
         if !self.binder.symbols().get(parent).flags.intersects(SymbolFlags::MODULE) {
             return None;
         }
-        // r7-printer §14: a namespace segment whose own container is a file
-        // module takes the resolver's `getSymbolChain` whole, so a route
-        // through a module that re-exports it under another name
-        // (`export { EmotionJSX as JSX }`) spells the alias's name,
-        // `createAccessFromSymbolChain`'s `getNameOfSymbolAsWritten` of the
-        // chain's member, not the namespace's own.
+        // r7-printer §14, §18: a namespace segment declared in a file module
+        // (as its parent, or as a top-level local that `getContainersOfSymbol`'s
+        // fallback offers, `symbolaccessibility.go:288`) takes the resolver's
+        // `getSymbolChain` whole: through a module that re-exports it under
+        // another name (`export { EmotionJSX as JSX }`) the segment is the
+        // alias's name, and a namespace its module's `export =` names is the
+        // module itself (`getSymbolChain`'s `export =` shortcut,
+        // `nodebuilderimpl.go:1124`), `import("./thing")`.
         if self.module_host.is_some()
-            && self
-                .binder
-                .symbols()
-                .get(parent)
-                .parent
-                .is_some_and(|grand| self.is_module_symbol(self.binder.merged_symbol(grand)))
+            && self.declared_in_file_module(parent)
             && self.best_name(parent, reference).is_none()
-            && let Some((root, leaf)) =
-                self.module_rooted_chain_at(parent, reference, SymbolFlags::NAMESPACE)
-            && crate::objects::is_identifier_text(self.binder.symbols().get(leaf).name)
+            && let Some(segment) = self.module_rooted_segment_at(parent, reference)
         {
+            let root = segment.0;
             let specifier = self.module_specifier_for_symbol(root, reference)?;
             self.track_unsafe_import(&specifier, parent, root);
-            let leaf_name = self.binder.symbols().get(leaf).name;
-            return Some(format!("import({specifier}).{leaf_name}."));
+            return Some(match segment.1 {
+                Some(leaf) => {
+                    format!("import({specifier}).{}.", self.binder.symbols().get(leaf).name)
+                }
+                None => format!("import({specifier})."),
+            });
         }
         // The RENAME applies to chain *segments* too (`§10.9`'s 67-line
         // residue): a chain rooted at `__React` prints under the innermost
@@ -3718,6 +3718,49 @@ impl<'a, 'n> Checker<'a, 'n> {
             text.push_str(self.binder.symbols().get(part).name);
         }
         Some(text)
+    }
+
+    /// Whether `symbol`'s container is a file module, or one of its
+    /// declarations sits at the top level of one (a local `getContainersOfSymbol`'s
+    /// fallback offers the module for).
+    fn declared_in_file_module(&self, symbol: SymbolId) -> bool {
+        let entry = self.binder.symbols().get(symbol);
+        entry.parent.is_some_and(|parent| self.is_module_symbol(self.binder.merged_symbol(parent)))
+            || entry.declarations.iter().any(|&declaration| {
+                self.nodes.parent(declaration).is_some_and(|parent| {
+                    self.nodes.kind(parent) == SyntaxKind::SourceFile
+                        && self.is_external_or_common_js_module(parent)
+                })
+            })
+    }
+
+    /// The resolver's `getSymbolChain` for a namespace segment when it is
+    /// rooted at a file module: `(module, None)` for the one-element chain
+    /// the `export =` shortcut gives, `(module, Some(leaf))` for a module and
+    /// one member (whose name must be an identifier). `None` otherwise.
+    fn module_rooted_segment_at(
+        &mut self,
+        namespace: SymbolId,
+        reference: NodeId,
+    ) -> Option<(SymbolId, Option<SymbolId>)> {
+        let chain = crate::symbol_access::DeclarationEmitResolver::new(self).symbol_chain_at(
+            namespace,
+            reference,
+            SymbolFlags::NAMESPACE,
+            true,
+            true,
+            0,
+        );
+        match *chain.as_slice() {
+            [root] if self.is_module_symbol(root) => Some((root, None)),
+            [root, leaf]
+                if self.is_module_symbol(root)
+                    && crate::objects::is_identifier_text(self.binder.symbols().get(leaf).name) =>
+            {
+                Some((root, Some(leaf)))
+            }
+            _ => None,
+        }
     }
 
     /// `getSymbolChain(symbol, meaning, endOfChain = true, yieldModuleSymbol =
