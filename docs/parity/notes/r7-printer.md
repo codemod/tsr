@@ -978,3 +978,199 @@ qualified name with no same-print retry behind it (TS2719 and
 `getTypeNamesForErrorDisplay` are the retries) would mean a native message
 passes an enclosing declaration that this road drops. That site would then
 call `type_to_string_at` instead.
+
+## 23. A reused type query's JSDoc arguments print as written
+
+**Forcing constraint.** `expressionWithJSDocTypeArguments`, 4 lines:
+native prints `type TComeOnFoo = typeof foo<?string?>` as
+`typeof foo<(string | null) | null>` and `typeof foo<?>` as
+`typeof foo<any | null>`. The port printed `typeof foo<string | null>` and
+`typeof foo<any>`.
+
+**Cause.** `createAnonymousTypeNodeEx` (`nodebuilderimpl.go:2816`) reuses
+the instantiation expression's whole `typeof` node, so its arguments go
+through `visitExistingNodeTreeSymbols`. That visitor's JSDoc arms
+(`nodecopy.go:475-503`) rewrite `?T` and `T?` into the union node
+`T | null`, without reducing it. `written_type_query_text`
+(`instantiation_type_query_reuse.rs`, r6-typesroots §4) printed each
+argument from its type, which the checker had reduced (`any | null` is
+`any`, a doubled `| null` is one). Separately, node_reuse's emitter decided
+parentheses from the *source* node's precedence. The printer reads the
+*emitted* node, here a union inside a union, which it parenthesises.
+
+**The port.**
+- Each argument goes through `reused_annotation_text` (the existing-node
+  visitor) and falls back to its type print when the visitor refuses it.
+  That is `nodecopy.go:56`'s per-node fallback.
+- `emitted_precedence` (node_reuse.rs) maps a JSDoc node to the kind the
+  visitor emits for it: nullable or optional to a union, variadic to an
+  array, and non-nullable or a type expression to its inner node. The
+  emitter's parenthesis test uses it. `node_precedence` stays
+  `GetTypeNodePrecedence`.
+
+No cache or table.
+
+**Alternative rejected.** Printing the argument's type with a
+JSDoc-specific suffix would need the node anyway, and the visitor already
+has the rewrites.
+
+## 24. A top-level declaration a module exports through an alias is spelled through that module
+
+**Forcing constraint.** `exportsAndImports1` and `exportsAndImports1-es6`,
+8 lines. `t1.ts` declares `class C {}` (also an enum, a const enum and a
+namespace) and then writes `export { C }`; `t2.ts` re-exports them with
+`export { C } from "./t1"`. Native prints `typeof import("./t1").C`; the
+port printed `typeof C`.
+
+**Cause.** `C` has no parent: it is a local of `t1`, which exports an
+alias of it. `symbol_chain` stopped at a symbol with no parent.
+`getContainersOfSymbol`'s fallback (`symbolaccessibility.go:288`) offers the
+module of a declaration that is a direct child of it when that module
+exports an alias of the symbol, so native's chain is `[t1, C]`.
+
+**The port.** The no-parent arm of `symbol_chain` asks the resolver
+(`module_rooted_chain_at`, which ports that fallback) when all of these
+hold:
+- the symbol is declared at the top level of an external or CommonJS
+  module;
+- no in-scope name reaches it (`best_name`);
+- the resolver's chain is that module and the symbol.
+
+It spells `import(spec).` as §1's file-module arm does. No cache or table
+beyond the resolver's.
+
+**History.** This arm was built in round 7 and held on
+`box/r7-printer-held` (`9b6848dd8`) at +8 / −1. The loss was
+`commonJSImportClassTypeReference`: `const { K } = require("./mod1")` is an
+alias in native's binder, and the port bound it as a block-scoped variable,
+so the arm spelled `typeof import("./mod1").K` over native's `typeof K`.
+Teaching the resolver to see that binding as an alias would have re-derived
+the binder's decision outside the binder, so the arm waited. r7-shared's
+`7c17ce541` ("bind a JS require binding element as an alias") made the
+binding an alias, and the case is now RIGHT with the arm.
+
+## 25. An alias whose exports reach the symbol roots its chain
+
+**Forcing constraint.** `nodeColonModuleResolution`, 2 lines. Ambient
+`'ph'` declares `namespace constants`, ambient `'node:ph'` writes
+`export * from 'ph'`, and `main.ts` imports `* as ph from 'node:ph'`.
+Native prints `ph.constants : typeof ph.constants`; the port printed
+`typeof import("ph").constants`.
+
+**Cause.** `trySymbolTable`'s alias loop (`symbolaccessibility.go:575`)
+resolves each in-scope alias and searches its target's *exports*
+(`getExportsOfSymbol`, which carries `export *`) for the symbol, so the
+chain is `[ph, constants]`. The module-parent arm of `symbol_chain` asked
+only `module_alias_at`, which finds an alias whose target *is* the
+container (`'ph'`). `ph` names `'node:ph'`, so the arm fell through to the
+ambient specifier.
+
+**The port.** After `module_alias_at`, the arm asks the resolver's
+`getSymbolChain` (`DeclarationEmitResolver::symbol_chain_at`, which ports
+the alias loop over the memoized exports). A two-element chain rooted at an
+in-scope alias with an identifier name spells `{alias}.`
+(`alias_rooted_chain_at`). It runs only with a module host, before both
+the ambient and the file-module `import("…")` spellings. No cache or table
+beyond the resolver's.
+
+**Alternative rejected.** Widening `module_alias_at` to search exports
+would duplicate the resolver's alias loop in a second place, along with
+its candidate order (`sortByBestName`), which only the resolver has.
+
+## 26. A UMD namespace inside an external module is spelled through its module (TRYSYMBOLTABLE-UMD-ALIAS-EXCLUSION)
+
+**Forcing constraint.** `reactImportDropped` 1:2. `react.d.ts` writes
+`export = React; export as namespace React; declare namespace React {…}`,
+and `src/components/TabBar.js`, an external module (`export default`),
+writes `React.createClass(…)`. Native prints
+`React : typeof import("../../react")`; the port printed `typeof React`.
+
+**Cause.** `trySymbolTable` skips a UMD alias when the enclosing file is an
+external module (`symbolaccessibility.go:568`). No other name in scope
+reaches the namespace, so `getSymbolChain` falls back to its containers.
+The namespace is its module's `export =`, so the shortcut at
+`nodebuilderimpl.go:1124` makes the whole chain that module. The port
+failed in two places:
+- `export_equals_alias_name_at` (§501's namespace-object road) had no UMD
+  exclusion, unlike `best_name` and `module_alias_at`, so it named the
+  namespace by the global alias;
+- no road spelled a namespace object whose chain is its module alone. The
+  baked `typeof React` stood. `symbol_chain` answers only a prefix, and a
+  one-element module chain has none.
+
+**The port.**
+- `is_umd_alias_excluded_at` carries the exclusion into
+  `export_equals_alias_name_at`.
+- After that road, a value-module or enum object declared in a file module,
+  with no in-scope name (`best_name`), whose resolver chain is a module
+  alone (`module_rooted_segment_at`, §18/§21's `(module, None)`), prints
+  `typeof import(spec)`.
+
+**The value-module gate.** The first measurement of this arm accepted any
+namespace flag and lost `esModuleInteropImportCall` 1:7 and 1:9 (types
++4 / −2). There, `foo` is a function merged with an uninstantiated
+`declare namespace foo {}`, and native prints `f.default : () => void`.
+`createAnonymousTypeNode` writes `typeof` only for a class, under its own
+conditions, or for an enum or value module (`nodebuilderimpl.go:2805`); a
+function with a type-only namespace prints structurally. The arm now
+requires `VALUE_MODULE | ENUM`.
+
+No cache or table beyond the resolver's.
+
+A script (`script.js` in the test) still prints `typeof React`: there the
+UMD alias is in scope.
+
+`reactImportDropped` 2:0 still differs. Native writes
+`import("../../../react.js")` at the import declaration and
+`import("../../../react")` at the JSX element of the same file. That is a
+per-site specifier-ending choice, not ported here.
+
+## 27. A default class's constructor is written by its declaration's name
+
+**Forcing constraint.** `es5ExportDefaultClassDeclaration4` (2 lines),
+`decoratorOnClass3.es6` (1) and `decoratorOnClass7.es6` (2). Inside
+`declare module "foo" { export default class C {…} export var t: typeof C; }`
+native prints `t : typeof C`. The port printed nothing: the site printer
+returned `None`, which renders as a gap.
+
+**Cause.** The class's constructor type is baked as `typeof default`,
+spelled with the symbol's own name. `getNameOfSymbolAsWritten`
+(`nodebuilderimpl.go:973`) never writes `default` inside the declaration's
+binding context (`isDefaultBindingContext`, a source file or an ambient
+module). It writes the declaration's name. §4's
+`default_symbol_text_as_written` rewrote only a baked *declaration* name
+(`foo` over `Foo`), so `typeof default` reached the refusal of a bare `default`
+(`checker-notes-modobj.md` §10.11).
+
+**The port.** `default_symbol_text_as_written` also rewrites a print baked
+with the literal `default` to the written name. Outside the binding
+context the written name is §20's in-scope alias, and with none the
+function still answers `None` before this point, so that refusal of
+`typeof default` stands where native would not write the declaration name
+either. No cache or table.
+
+How these were found: marking the producer's printer-`None` as a distinct
+string (locally, uncommitted) over the 148 gap cases showed only these 5
+lines are the printer declining. Every other gap line is a checker-side
+error type.
+
+## 28. An import type re-spelled from the chain is tracked for portability
+
+**Forcing constraint.** `declarationEmitUsingTypeAlias1`: native reports
+TS2883 on `foo`, "The inferred type of 'foo' cannot be named without a
+reference to 'SomeType' from '../node_modules/some-dep/dist/inner'". The
+port printed the same inferred type,
+`(thing: SomeType) => import("../node_modules/some-dep/dist/inner").SomeType`,
+and reported nothing.
+
+**Cause.** `symbolToTypeNode`'s import arm reports a likely-unsafe import
+after every import-type spelling (`nodebuilderimpl.go:681`). The port
+reports through `track_unsafe_import` from each road that spells
+`import(…)`. The §5/§10 re-spell of a print baked with a written import
+root (`symbol_chain_text_at`, here `import('./inner').SomeType` as written
+in the package's index) spelled the specifier without reporting it.
+
+**The port.** `symbol_chain_text_at` calls `track_unsafe_import` once its
+module-rooted text is complete; outside a tracker that is a no-op. `bar`'s
+TS2883 still waits on the checker: the port types `thing.arg` as `any`
+where native has `Other`, so there is no import to report.

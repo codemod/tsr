@@ -240,3 +240,114 @@ export const b = (null as any as import("pkg", { with: {"resolution-mode": "impo
         ],
     );
 }
+
+/// `getContainersOfSymbol`'s fallback (`symbolaccessibility.go:288`): a
+/// top-level `class C {}` that its module exports through `export { C }` has
+/// no parent, and its chain is that module, so a re-export elsewhere prints
+/// through it (`exportsAndImports1`). A destructured `require` binding is an
+/// alias in scope, so it names its class bare
+/// (`commonJSImportClassTypeReference`; r7-printer §24).
+#[test]
+fn a_top_level_declaration_exported_by_alias_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/module_rooted_alias_exported_local",
+        r#"// @target: es2015
+// @module: commonjs
+// @filename: t1.ts
+class C {
+}
+enum E {
+    A, B
+}
+export { C, E };
+// @filename: t2.ts
+export { C, E } from "./t1";
+"#,
+    );
+    assert_has(&lines, &["C : typeof import(\"./t1\").C", "E : typeof import(\"./t1\").E"]);
+    let lines = assertions(
+        "probe/module_rooted_require_binding",
+        r#"// @target: es2015
+// @allowJs: true
+// @checkJs: true
+// @strict: true
+// @outDir: out
+// @filename: main.js
+const { K } = require("./mod1");
+// @filename: mod1.js
+class K {
+}
+exports.K = K;
+"#,
+    );
+    assert_has(&lines, &["K : typeof K"]);
+}
+
+/// `trySymbolTable`'s alias loop (`symbolaccessibility.go:575`) searches an
+/// in-scope alias's resolved exports: a namespace import of `node:ph`, which
+/// re-exports `ph` with `export *`, reaches `ph`'s `constants`, so the chain
+/// is `[ph, constants]` rather than `import("ph")`
+/// (`nodeColonModuleResolution`'s native baseline; r7-printer §25).
+#[test]
+fn an_alias_whose_exports_reach_the_symbol_roots_its_chain() {
+    let lines = assertions(
+        "probe/module_rooted_alias_exports",
+        r"// @target: es2015
+// @moduleResolution: bundler
+// @filename: /a/b/node_modules/@types/node/ph.d.ts
+declare module 'ph' {
+    namespace constants {
+        const NODE_PERFORMANCE_GC_MAJOR: number;
+    }
+}
+declare module 'node:ph' {
+    export * from 'ph';
+}
+// @filename: /a/b/main.ts
+import * as ph from 'node:ph'
+ph.constants.NODE_PERFORMANCE_GC_MAJOR;
+",
+    );
+    assert_has(&lines, &["ph.constants : typeof ph.constants", "constants : typeof ph.constants"]);
+}
+
+/// `trySymbolTable` excludes a UMD alias (`export as namespace React`) in an
+/// external module file (`symbolaccessibility.go:568`), so no name in scope
+/// reaches the namespace and `getSymbolChain`'s `export =` shortcut roots it
+/// at its module: `typeof import("./react")`. A script still names it through
+/// the UMD global (`reactImportDropped`'s native baseline; r7-printer §26).
+#[test]
+fn a_umd_namespace_inside_an_external_module_is_spelled_through_its_module() {
+    let lines = assertions(
+        "probe/module_rooted_umd_namespace",
+        r"// @module: es6
+// @moduleResolution: bundler
+// @target: es6
+// @allowJs: true
+// @outDir: build
+// @filename: react.d.ts
+export = React;
+export as namespace React;
+declare namespace React {
+    function createClass(spec: any): number;
+}
+// @filename: tab.js
+export default React.createClass({});
+// @filename: script.js
+React.createClass({});
+",
+    );
+    // `react.d.ts`'s three, then `tab.js`, then `script.js`.
+    let react: Vec<_> = lines.iter().filter(|line| line.starts_with("React : ")).collect();
+    assert_eq!(
+        react,
+        [
+            "React : typeof React",
+            "React : typeof React",
+            "React : typeof React",
+            "React : typeof import(\"./react\")",
+            "React : typeof React",
+        ],
+        "{lines:?}"
+    );
+}
