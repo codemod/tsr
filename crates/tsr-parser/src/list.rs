@@ -77,12 +77,17 @@ pub(crate) enum ParsingContext {
     ImportOrExportSpecifiers = 23,
     /// `PCImportAttributes`: the entries of a `with { … }` clause.
     ImportAttributes = 24,
+    /// `PCJSDocComment`: set while a JSDoc comment is parsed
+    /// (`parseJSDocComment`, `jsdoc.go:168`). It owns no list loop; every
+    /// token is its element, so a list nested in a comment's type
+    /// expression aborts at a token it cannot use instead of skipping it.
+    JSDocComment = 25,
 }
 
 impl ParsingContext {
     /// Every context, in upstream's order — `isInSomeParsingContext` walks
     /// them lowest bit first.
-    const ALL: [Self; 23] = [
+    const ALL: [Self; 24] = [
         Self::SourceElements,
         Self::BlockStatements,
         Self::SwitchClauses,
@@ -106,6 +111,7 @@ impl ParsingContext {
         Self::HeritageClauses,
         Self::ImportOrExportSpecifiers,
         Self::ImportAttributes,
+        Self::JSDocComment,
     ];
 
     pub(crate) const fn bit(self) -> u32 {
@@ -319,7 +325,7 @@ impl Parser<'_> {
                 token_is_identifier_or_keyword(self.token.kind)
                     || self.at(SyntaxKind::OpenBraceToken)
             }
-            ParsingContext::JsxChildren => true,
+            ParsingContext::JsxChildren | ParsingContext::JSDocComment => true,
         }
     }
 
@@ -439,7 +445,7 @@ impl Parser<'_> {
             return true;
         }
         match kind {
-            ParsingContext::SourceElements => false,
+            ParsingContext::SourceElements | ParsingContext::JSDocComment => false,
             ParsingContext::BlockStatements
             | ParsingContext::SwitchClauses
             | ParsingContext::TypeMembers
@@ -628,7 +634,8 @@ impl Parser<'_> {
             }
             ParsingContext::ImportOrExportSpecifiers
             | ParsingContext::JsxAttributes
-            | ParsingContext::JsxChildren => {
+            | ParsingContext::JsxChildren
+            | ParsingContext::JSDocComment => {
                 self.error_at_current(&messages::IDENTIFIER_EXPECTED);
             }
             ParsingContext::ImportAttributes => {
