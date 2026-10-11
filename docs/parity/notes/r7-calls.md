@@ -800,6 +800,21 @@ reports native's chained TS2769 (taggedTemplateStringsWithOverloadResolution3
 new_false 0, lost_true 0; Ir generic-imports 0.9999 / 0.9998,
 domain-model 0.9999 / 1.0000; exact 0 gained, 0 lost for both.
 
+## 26. A tagged template's overload walk publishes and reports its failure
+
+`check_tagged_template_expression` chose among an overloaded tag's
+candidates by passing them, shifted past the strings parameter, to
+`choose_overload` with no call node. The transcribed walk could not read
+the substitutions' contextual types through the call memo, and could not
+publish `overload_argument_failures`, so a failing generic overload set was
+silent. The walk now receives the tagged template's node; the shifted
+candidates match `contextual_type_for_template_substitution`'s shifted memo.
+`check_tagged_template_resolution` reports `CallArity::Applicable(None)`
+through `report_overload_argument_failure`, which reads a tagged template's
+substitutions as the arguments (positions are the shifted candidate's).
+``fn4 `${ null }${ null }` `` reports native's TS2769
+(taggedTemplateStringsWithOverloadResolution3 64:9, 65:18).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

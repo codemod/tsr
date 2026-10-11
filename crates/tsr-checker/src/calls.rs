@@ -1639,6 +1639,9 @@ impl Checker<'_, '_> {
             Some(tsr_ast::Node::NewExpression(new)) => {
                 self.check_expression(Expression::NewExpression(new));
             }
+            Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) => {
+                self.check_expression(Expression::TaggedTemplateExpression(tagged));
+            }
             _ => return false,
         }
         let Some(failure) = self.overload_argument_failures.get(&node).cloned() else {
@@ -1655,9 +1658,25 @@ impl Checker<'_, '_> {
             return true;
         }
         let Some(last) = failure.last else { return true };
-        let arguments = match self.node_map.get(node) {
+        // A tagged template's walk ran over its substitutions against the
+        // candidates shifted past the strings parameter
+        // (`check_tagged_template_expression`), so `last` and its positions
+        // are the substitutions'.
+        let substitutions: Vec<Expression<'_>>;
+        let arguments: &[Expression<'_>] = match self.node_map.get(node) {
             Some(tsr_ast::Node::CallExpression(call)) => call.arguments,
             Some(tsr_ast::Node::NewExpression(new)) => new.arguments,
+            Some(tsr_ast::Node::TaggedTemplateExpression(tagged)) => {
+                substitutions = match tagged.template {
+                    Some(tsr_ast::TemplateLiteral::TemplateExpression(expression)) => expression
+                        .template_spans
+                        .iter()
+                        .filter_map(|span| span.expression)
+                        .collect(),
+                    _ => return true,
+                };
+                &substitutions
+            }
             _ => return true,
         };
         let before = self.diagnostics.len();
@@ -2635,7 +2654,13 @@ impl Checker<'_, '_> {
             CallArity::ApplicableGeneric(candidate) => {
                 self.check_single_generic_tag_arguments(node, &candidate);
             }
-            CallArity::Reported | CallArity::Applicable(None) | CallArity::Undecided => {}
+            // An overload set the type road walked (generic or not
+            // decidable as a plain overload list) reports the walk's last
+            // failing candidate, as for a call.
+            CallArity::Applicable(None) => {
+                self.report_overload_argument_failure(node);
+            }
+            CallArity::Reported | CallArity::Undecided => {}
         }
     }
 
@@ -4076,12 +4101,14 @@ impl Checker<'_, '_> {
                     })
                     .collect();
                 if shifted.len() == candidates.len() {
-                    self.choose_overload(&shifted, &substitutions, false, None).and_then(|picked| {
-                        candidates
-                            .iter()
-                            .find(|candidate| candidate.declaration == picked.declaration)
-                            .cloned()
-                    })
+                    self.choose_overload(&shifted, &substitutions, false, node.node_id).and_then(
+                        |picked| {
+                            candidates
+                                .iter()
+                                .find(|candidate| candidate.declaration == picked.declaration)
+                                .cloned()
+                        },
+                    )
                 } else {
                     None
                 }
