@@ -1149,3 +1149,31 @@ constituent without one of the names is skipped, as native's
 
 **Measured** (diagnostics and types, unfiltered, against batch 28 with
 §22–§27 on top): `jsxChildrenWrongType` RIGHT, 0 lost, types unchanged.
+
+## 29. `anyFunctionType` against any member-less object target
+
+**Forcing case.** `tsxStatelessFunctionComponentOverload5` (50,24). In the
+`SkipContextSensitive` pass, `onClick={(e)=>{}}` is `anyFunctionType`
+against `ButtonProps.onClick: React.MouseEventHandler<any>`. The pass's
+relation was Unknown, so overload resolution declined and TS2769 was
+missing.
+
+**Upstream.** `signaturesRelatedTo` answers True outright when the source is
+`anyFunctionType`. That type has no property and no index signature, so
+against an object target with neither, nothing else remains to relate.
+
+**Port** (`relater.rs`). The wildcard read only targets that
+`is_pure_signature_type` accepts: a signature list from a function-like
+declaration. `MouseEventHandler<T> = EventHandler<MouseEvent<T>>` is an
+alias-reference image whose body does not evaluate here (r7-declared's
+alias-image item), but its member list is decided-empty and it carries one
+call signature. The wildcard now covers any non-composite object target
+whose decided property list and index infos are empty.
+- An alias image must also carry a call signature. An image's member list
+  can be the alias symbol's own, empty whatever its body holds (§25); a
+  signature-bearing image names a function type, whose literal declares no
+  property.
+
+**Measured** (diagnostics and types, unfiltered, against batch 28 with
+§22–§28 on top): `tsxStatelessFunctionComponentOverload5` RIGHT, types +11,
+0 lost.
