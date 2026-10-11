@@ -219,6 +219,25 @@ EMPTY_RIGHT → EMPTY_WRONG). The remaining false TS2775 is the JS
 make an alias (`resolveSymbol` follows it to the declared function natively);
 routed to r7-shared. The diff stays held while it costs a RIGHT case.
 
+**Landed** on `432b94e3` (batch 40 base) after r7-shared's `7c17ce54` (a JS
+require binding element is an alias). The port is applied as recorded,
+with one change from the held diff. The jsTyping leg showed a false TS2775
+at `debug.ts(269,9)`: an overloaded generic `asserts` callee, which
+`get_effects_signature` fails to resolve because it resolves without the
+call node. For a call statement whose resolved signature has a predicate,
+native's `getEffectsSignature` is nil exactly when `getTypeOfDottedName`
+is, so the test reads `get_type_of_dotted_name` (made `pub(crate)`, the
+visibility the integrator granted) instead. `get_effects_signature` stays
+private. `r7-calls-assertion-target.diff` stays as the record of the held
+state.
+
+**Measured** against `432b94e3` on `368b23ce`: diagnostics +2
+(assertionTypePredicates1, assertionTypePredicates2), 0 lost; types 0/0;
+jsTyping new_false 0, lost_true 0 (the `debug.ts` line is gone); Ir
+generic-imports 1.0001, domain-model 1.0008 (the rule reads the callee's
+call signatures for every call statement before it can answer); exact 0
+gained, 0 lost (TS2782's related information is missing).
+
 ## 5. The overload walk checks a nested call argument under its first candidate
 
 Routed by the integrator from r7-perf's jsTyping delta (cluster 5):
