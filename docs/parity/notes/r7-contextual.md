@@ -616,3 +616,31 @@ base it lost `classVarianceResolveCircularity2` (`new Foo(this)` reads
 `Foo<any>`: the apparent type of a class's `this` re-enters the class) and,
 as measured in §4, `voidReturnIndexUnionInference` (the mapped receiver's
 apparent property is another lane's).
+
+## 18. INFER-NO-CANDIDATE-GUARD: a recursive certifier for "this source supplies no candidate"
+
+The INFER-NO-CANDIDATE decline (`structural_source_supplied`) refuses a call
+when a parameter with no candidates sits where an argument could have
+supplied one, because this collector's misses are not native's. §4, §7 and
+§17 each certified one source kind with no native candidate.
+`source_could_supply_candidate` (inference.rs) gathers them and adds the
+signature arm. It follows `inferFromTypes`' and `inferFromSignatures`' own
+exits:
+- a target that does not mention the parameter supplies nothing;
+- so does a null/undefined, `any` or `unknown` source (§4);
+- so does a pair that is `typesDefinitelyUnrelated`: tuple arities (§7), or
+  objects (§17), with a primitive source read through its apparent type;
+- two single non-generic signatures with no rest parameters are visited as
+  `applyToParameterTypes` does: parameter pairs below the shorter arity,
+  the `this` pair only when the source declares a `this` parameter, then the
+  return pair. Each pair is certified recursively (depth 4; deeper is
+  "could").
+
+Everything else stays "could supply", which keeps the decline. Newly
+certified: a callback written with fewer parameters than the target's
+mentioning position (`(options?: T) => U` against `() => string`); the
+target's `this: This` against a source without `this` (`flatMap`'s `This`);
+`number` against `IPromise<U>` in a callback's return (ipromise2's first
+`then` overload, after which overload resolution moves on); `1` against `T[]`.
+
+Result (commit 19), against the `a470d2280` freeze: see the commit message.
