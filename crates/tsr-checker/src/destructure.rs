@@ -354,10 +354,7 @@ impl Checker<'_, '_> {
         // under the standing strict-throughout assumption: a default of a
         // non-`undefined` type removes `undefined` from the element. The
         // facts test is upstream's `hasTypeFacts(.., TypeFactsIsUndefined)`;
-        // the strip is `getNonUndefinedType` minus its generic-constraint
-        // mapping (§6 of the notes page — an instantiable constituent passes
-        // through `get_type_with_facts` untouched where upstream may consult
-        // its constraint, stated rather than verified).
+        // the strip is `getNonUndefinedType` ([`Checker::get_non_undefined_type`]).
         let element_type = if let Some(default_expression) = element.initializer {
             let default_type = if let Some(tsr_ast::BindingName::BindingPattern(pattern)) =
                 element.name
@@ -375,7 +372,7 @@ impl Checker<'_, '_> {
                 if self.get_type_facts(default_type).contains(TypeFacts::IS_UNDEFINED) {
                     element_type
                 } else {
-                    self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED)
+                    self.get_non_undefined_type(element_type)
                 }
             } else {
                 // §315: the annotation-less leg (`checker.go:17789`) —
@@ -396,7 +393,7 @@ impl Checker<'_, '_> {
                 // `checker.go:17789`; this function's tail is that wrap) —
                 // the first draft widened the default BEFORE the union and
                 // flattened those elements to `number`/`string` (7 G→W).
-                let stripped = self.get_type_with_facts(element_type, TypeFacts::NE_UNDEFINED);
+                let stripped = self.get_non_undefined_type(element_type);
                 let Some(reduced) = self.union_with_subtype_reduction(&[stripped, default_type])
                 else {
                     return error;
@@ -1306,6 +1303,40 @@ impl Checker<'_, '_> {
         (self.anonymous_properties.contains_key(&object)
             || self.declared_members_are_complete(object))
             && self.get_index_infos_of_type(object).is_some_and(|infos| infos.is_empty())
+    }
+
+    /// `getNonUndefinedType` (`checker.go:31548`): when some constituent is a
+    /// generic type whose base constraint may be `undefined`
+    /// (`isGenericTypeWithUndefinedConstraint`, `:31561`), each instantiable
+    /// constituent is replaced by its base constraint before `undefined` is
+    /// removed, so `T extends string | undefined` strips to `string`.
+    pub(crate) fn get_non_undefined_type(&mut self, t: TypeId) -> TypeId {
+        let constituents = match &self.store.get(t).data {
+            TypeData::Union { types, .. } => types.clone(),
+            _ => vec![t],
+        };
+        let generic_with_undefined = constituents.iter().any(|&c| {
+            self.store.get(c).flags.intersects(TypeFlags::INSTANTIABLE)
+                && self.base_constraint_of_type(c).is_some_and(|constraint| {
+                    self.maybe_type_of_kind(constraint, TypeFlags::UNDEFINED)
+                })
+        });
+        let type_or_constraint = if generic_with_undefined {
+            let mapped: Vec<_> = constituents
+                .iter()
+                .map(|&c| {
+                    if self.store.get(c).flags.intersects(TypeFlags::INSTANTIABLE) {
+                        self.base_constraint_or_type(c)
+                    } else {
+                        c
+                    }
+                })
+                .collect();
+            self.get_union_type(&mapped)
+        } else {
+            t
+        };
+        self.get_type_with_facts(type_or_constraint, TypeFacts::NE_UNDEFINED)
     }
 
     pub(crate) fn destructuring_index_info(
