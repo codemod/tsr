@@ -49,6 +49,8 @@ impl Checker<'_, '_> {
     /// `crate::type_argument_arity`, which declined for the same borrowed
     /// reason, is worth 3 cases.
     pub(crate) fn check_nonexistent_property(&mut self, node: NodeId, ambient: bool) {
+        // The same native function's flow arm (`getFlowTypeOfAccessExpression`).
+        self.check_property_used_before_assigned(node);
         // Pinned `checkPropertyAccessExpressionOrQualifiedName` reports this
         // semantic error even with parse diagnostics. Existing receiver-image
         // completeness and unsupported-access declines still own the work.

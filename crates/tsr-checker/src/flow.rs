@@ -741,6 +741,98 @@ impl Checker<'_, '_> {
             || self.declaration_is_file_level(symbol)
     }
 
+    /// TS2565 — `Property '{0}' is used before being assigned.`
+    ///
+    /// `getFlowTypeOfAccessExpression`'s `assumeUninitialized` arm
+    /// (`checker.go:11411-11431`): under `strictNullChecks` and
+    /// `strictPropertyInitialization`, a read of `this.x` (or `this["x"]`)
+    /// whose property is a non-static `PropertyDeclaration` without an
+    /// initializer or `!` (`isPropertyWithoutInitializer`, `:4956`), inside a
+    /// constructor of the declaring class, walks its flow from
+    /// `getOptionalType(propType)`; when `undefined` survives to the read and
+    /// `propType` does not contain it, native reports at the name (the index
+    /// for an element access). The query road keeps its answer (native
+    /// returns the declared type here, which the port's road already gives).
+    ///
+    /// Not ported: the expando-assignment disjunct (`:11420`, a property
+    /// declared by `this.x = …` in the same container).
+    pub(crate) fn check_property_used_before_assigned(&mut self, node: NodeId) {
+        if !self.strict_null_checks || !self.strict_property_initialization {
+            return;
+        }
+        let (receiver, name, error_node) = match self.node_map.get(node) {
+            Some(Node::PropertyAccessExpression(access)) => {
+                let Some(member) = access.name else { return };
+                let (text, id) = match member {
+                    tsr_ast::MemberName::Identifier(name) => (name.text, name.node_id),
+                    tsr_ast::MemberName::PrivateIdentifier(name) => (name.text, name.node_id),
+                };
+                (access.expression, text.to_string(), id)
+            }
+            Some(Node::ElementAccessExpression(access)) => {
+                let Some(argument) = access.argument_expression.and_then(|a| a.node_id()) else {
+                    return;
+                };
+                let Some(Node::StringLiteral(literal)) = self.node_map.get(argument) else {
+                    return;
+                };
+                (access.expression, literal.text.to_string(), Some(argument))
+            }
+            _ => return,
+        };
+        let Some(receiver_expression) = receiver else { return };
+        let Some(receiver) = receiver_expression.node_id() else { return };
+        let Some(error_node) = error_node else { return };
+        if self.nodes.kind(receiver) != SyntaxKind::ThisKeyword
+            || self.assignment_target_kind(node)
+                == crate::expressions::AssignmentTargetKind::Definite
+        {
+            return;
+        }
+        let Some(container) = self.control_flow_container(node) else { return };
+        if self.nodes.kind(container) != SyntaxKind::Constructor {
+            return;
+        }
+        let receiver_type = self.check_expression(receiver_expression);
+        let Some(property) = self.get_property_of_type(receiver_type, &name) else { return };
+        let Some(declaration) = self.binder.symbols().get(property).value_declaration else {
+            return;
+        };
+        let Some(Node::PropertyDeclaration(declared_node)) = self.node_map.get(declaration) else {
+            return;
+        };
+        if declared_node.initializer.is_some()
+            || declared_node.postfix_token.is_some_and(|t| t.kind == SyntaxKind::ExclamationToken)
+            || tsr_ast::has_syntactic_modifier(declared_node.modifiers, SyntaxKind::AbstractKeyword)
+            || tsr_ast::has_syntactic_modifier(declared_node.modifiers, SyntaxKind::StaticKeyword)
+            || tsr_ast::has_syntactic_modifier(declared_node.modifiers, SyntaxKind::DeclareKeyword)
+            || self.nodes.flags(declaration).contains(NodeFlags::AMBIENT)
+            || self.nodes.parent(container) != self.nodes.parent(declaration)
+        {
+            return;
+        }
+        let declared = self.get_type_of_symbol(property);
+        if self.is_error(declared) || self.contains_undefined_type(declared) {
+            return;
+        }
+        let declared = self.narrowable_type_for_reference(declared, node);
+        let initial = self.get_optional_type(declared, false);
+        let flowed = self.get_flow_type_of_reference_ex(node, None, declared, Some(initial));
+        if !self.contains_undefined_type(flowed) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(error_node) else { return };
+        let span = self.error_span(error_node);
+        self.report(
+            file,
+            tsr_diagnostics::Diagnostic::with_args(
+                &messages_flow::PROPERTY_0_IS_USED_BEFORE_BEING_ASSIGNED,
+                span,
+                [name],
+            ),
+        );
+    }
+
     /// `checkIdentifier`'s implicit-any test (`checker.go:11182`): whether the
     /// flow type of `reference`, an identifier read of the auto-typed
     /// `symbol`, is `autoType` itself — every path reaching the top of the

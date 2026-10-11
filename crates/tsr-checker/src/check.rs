@@ -4181,7 +4181,7 @@ impl Checker<'_, '_> {
     /// cannot compute, and a property whose type it cannot compute must not
     /// produce a diagnostic that depends on what that type is — which is why the
     /// caller tests `error` beside this.
-    fn contains_undefined_type(&self, ty: crate::types::TypeId) -> bool {
+    pub(crate) fn contains_undefined_type(&self, ty: crate::types::TypeId) -> bool {
         if ty == self.intrinsics.undefined {
             return true;
         }
