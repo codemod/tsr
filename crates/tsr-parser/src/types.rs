@@ -162,6 +162,30 @@ impl<'a> Parser<'a> {
         TypeNode::ConditionalTypeNode(node)
     }
 
+    /// `parseImportType` (`parser.go:3026`), from the `import` keyword, with
+    /// any `typeof` already consumed. One node for both forms: an earlier
+    /// version parsed `import(…)` as its own node and then built a second
+    /// one around its parts for `typeof`, which left the first in the table
+    /// with no parent.
+    fn parse_import_type(&mut self, start: u32, is_type_of: bool) -> TypeNode<'a> {
+        self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT;
+        self.next_token();
+        self.expect(SyntaxKind::OpenParenToken);
+        let argument = self.parse_type();
+        let attributes = self.parse_import_type_attributes();
+        self.expect(SyntaxKind::CloseParenToken);
+        let qualifier =
+            if self.eat(SyntaxKind::DotToken) { Some(self.parse_entity_name()) } else { None };
+        let type_arguments = self.parse_type_arguments_of_type_reference();
+        let type_arguments = self.arena.alloc_slice(&type_arguments);
+        let node = self.finish_node(
+            ImportTypeNode::new(is_type_of, Some(argument), attributes, qualifier, type_arguments),
+            SyntaxKind::ImportType,
+            start,
+        );
+        TypeNode::ImportTypeNode(node)
+    }
+
     /// A synthesised type standing in for one the source omitted.
     fn missing_type(&mut self) -> TypeNode<'a> {
         let start = self.pos();
@@ -366,34 +390,7 @@ impl<'a> Parser<'a> {
                 }
             }
             // `import("m").T` and `typeof import("m")`.
-            SyntaxKind::ImportKeyword => {
-                // `parseImportType` (`parser.go:3027`).
-                self.source_flags |= tsr_ast::NodeFlags::POSSIBLY_CONTAINS_DYNAMIC_IMPORT;
-                self.next_token();
-                self.expect(SyntaxKind::OpenParenToken);
-                let argument = self.parse_type();
-                let attributes = self.parse_import_type_attributes();
-                self.expect(SyntaxKind::CloseParenToken);
-                let qualifier = if self.eat(SyntaxKind::DotToken) {
-                    Some(self.parse_entity_name())
-                } else {
-                    None
-                };
-                let type_arguments = self.parse_type_arguments_of_type_reference();
-                let type_arguments = self.arena.alloc_slice(&type_arguments);
-                let node = self.finish_node(
-                    ImportTypeNode::new(
-                        false,
-                        Some(argument),
-                        attributes,
-                        qualifier,
-                        type_arguments,
-                    ),
-                    SyntaxKind::ImportType,
-                    start,
-                );
-                TypeNode::ImportTypeNode(node)
-            }
+            SyntaxKind::ImportKeyword => self.parse_import_type(start, false),
             // `parseNonArrayType`'s `this` arm: `this is T` is a predicate in
             // any type position (`parseThisTypePredicate`); the checker
             // rejects it where a predicate is not allowed (TS1228).
@@ -432,23 +429,10 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::TypeOfKeyword => {
                 self.next_token();
-                // `typeof import("m").A` — a type query over an import type.
+                // `typeof import("m").A` — a type query over an import type
+                // (`nextIsStartOfTypeOfImportType`).
                 if self.at(SyntaxKind::ImportKeyword) {
-                    let TypeNode::ImportTypeNode(import) = self.parse_primary_type() else {
-                        return self.missing_type();
-                    };
-                    let node = self.finish_node(
-                        ImportTypeNode::new(
-                            true,
-                            import.argument,
-                            import.attributes,
-                            import.qualifier,
-                            import.type_arguments,
-                        ),
-                        SyntaxKind::ImportType,
-                        start,
-                    );
-                    return TypeNode::ImportTypeNode(node);
+                    return self.parse_import_type(start, true);
                 }
                 let name = self.parse_entity_name();
                 // `typeof foo<T>` — an instantiation expression in type position.

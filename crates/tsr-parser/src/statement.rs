@@ -614,8 +614,9 @@ impl<'a> Parser<'a> {
             }
             SyntaxKind::ImportKeyword => return self.parse_import_declaration(start, modifiers),
             SyntaxKind::ExportKeyword => {
-                let export_token = self.take_token();
-                return self.parse_export(start, export_token, modifiers);
+                let export_span = self.token.span;
+                self.next_token();
+                return self.parse_export(start, export_span, modifiers);
             }
             _ => {}
         }

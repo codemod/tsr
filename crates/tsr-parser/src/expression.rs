@@ -1313,7 +1313,7 @@ impl<'a> Parser<'a> {
                 let modifier = self.take_token();
                 self.parse_function_expression(Some(modifier), Some(modifier_start), jsdoc)
             }
-            SyntaxKind::ClassKeyword => self.parse_class_expression(),
+            SyntaxKind::ClassKeyword => self.parse_class_expression(start, &[]),
             // `parseDecoratedExpression` (`parser.go:5723`): `(@dec class C {})`
             // is a decorated class expression; decorators before anything
             // else are `Expression expected` at the next token's full start.
@@ -1330,21 +1330,7 @@ impl<'a> Parser<'a> {
                     // declaration. docs/parity/notes/r7-parser.md §1.
                     return Expression::Identifier(self.missing_identifier());
                 }
-                let modifiers = self.arena.alloc_slice(&modifiers);
-                let Expression::ClassExpression(class) = self.parse_class_expression() else {
-                    unreachable!("parse_class_expression yields a class")
-                };
-                Expression::ClassExpression(self.finish_node(
-                    ClassExpression::new(
-                        modifiers,
-                        class.name,
-                        class.type_parameters,
-                        class.heritage_clauses,
-                        class.members,
-                    ),
-                    SyntaxKind::ClassExpression,
-                    start,
-                ))
+                self.parse_class_expression(start, &modifiers)
             }
             SyntaxKind::OpenParenToken => {
                 // §275: a `/** @type {T} */ (expr)` JSDoc CAST hangs its doc
@@ -2550,27 +2536,18 @@ impl<'a> Parser<'a> {
         Expression::FunctionExpression(node)
     }
 
-    /// `class [name] { … }` in expression position.
-    pub(crate) fn parse_class_expression(&mut self) -> Expression<'a> {
-        let start = self.pos();
-        // Reuse the declaration parser and re-wrap: the grammars are identical
-        // apart from the name being optional, which it already handles.
-        let Statement::ClassDeclaration(declaration) = self.parse_class_declaration(start, &[])
-        else {
-            unreachable!("parse_class_declaration always yields a class")
-        };
-        let node = self.finish_node(
-            ClassExpression::new(
-                declaration.modifiers,
-                declaration.name,
-                declaration.type_parameters,
-                declaration.heritage_clauses,
-                declaration.members,
-            ),
-            SyntaxKind::ClassExpression,
-            start,
-        );
-        Expression::ClassExpression(node)
+    /// `class [name] { … }` in expression position, after any decorators —
+    /// `parseClassExpression` (`parser.go:1744`) and `parseDecoratedExpression`
+    /// (`:5723`).
+    pub(crate) fn parse_class_expression(
+        &mut self,
+        start: u32,
+        modifiers: &[ModifierLike<'a>],
+    ) -> Expression<'a> {
+        match self.parse_class_declaration_or_expression(start, modifiers, true) {
+            tsr_ast::Node::ClassExpression(node) => Expression::ClassExpression(node),
+            _ => unreachable!("a class expression was asked for"),
+        }
     }
 
     /// Consume a literal token, returning its decoded text and how it was written.

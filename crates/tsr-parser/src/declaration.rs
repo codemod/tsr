@@ -42,6 +42,22 @@ impl<'a> Parser<'a> {
         start: u32,
         modifiers: &[ModifierLike<'a>],
     ) -> Statement<'a> {
+        match self.parse_class_declaration_or_expression(start, modifiers, false) {
+            tsr_ast::Node::ClassDeclaration(node) => Statement::ClassDeclaration(node),
+            _ => unreachable!("a class declaration was asked for"),
+        }
+    }
+
+    /// `parseClassDeclarationOrExpression` (`parser.go:1751`): one parse for
+    /// both kinds, building the node `expression` asks for. The expression
+    /// form used to parse a declaration and copy its parts into a new node,
+    /// which left the declaration in the node table with no parent.
+    pub(crate) fn parse_class_declaration_or_expression(
+        &mut self,
+        start: u32,
+        modifiers: &[ModifierLike<'a>],
+        expression: bool,
+    ) -> tsr_ast::Node<'a> {
         let saved_await_identifier = self.statement_has_await_identifier;
         self.expect(SyntaxKind::ClassKeyword);
         // `export default class {}` has no name; `class require {}` has one that
@@ -83,12 +99,18 @@ impl<'a> Parser<'a> {
         let type_parameters = self.arena.alloc_slice(&type_parameters);
         let heritage = self.arena.alloc_slice(&heritage);
         let members = self.arena.alloc_slice(&members);
-        let node = self.finish_node(
+        if expression {
+            return tsr_ast::Node::ClassExpression(self.finish_node(
+                tsr_ast::ClassExpression::new(modifiers, name, type_parameters, heritage, members),
+                SyntaxKind::ClassExpression,
+                start,
+            ));
+        }
+        tsr_ast::Node::ClassDeclaration(self.finish_node(
             ClassDeclaration::new(modifiers, name, type_parameters, heritage, members),
             SyntaxKind::ClassDeclaration,
             start,
-        );
-        Statement::ClassDeclaration(node)
+        ))
     }
 
     /// `extends B` and `implements I, J` — typescript-go's
