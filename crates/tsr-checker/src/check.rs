@@ -1028,7 +1028,7 @@ impl Checker<'_, '_> {
             self.check_builtin_global_redeclaration(node);
         }
         if matches!(typed, Node::InterfaceDeclaration(_) | Node::ClassDeclaration(_)) {
-            self.check_recursive_base_type(node, typed);
+            self.check_base_types_resolved(node);
         }
         if matches!(typed, Node::LabeledStatement(_)) {
             self.check_duplicate_label(node, ambient);
@@ -10213,121 +10213,6 @@ impl Checker<'_, '_> {
                 Some(Node::ModuleDeclaration(module)) if module.body.is_some()
             )
         })
-    }
-
-    /// TS2310 — `Type '{0}' recursively references itself as a base type.`
-    ///
-    /// `resolveBaseTypesOfInterface` (`checker.go:19260`), whose test is
-    /// `t == reducedBaseType || hasBaseType(reducedBaseType, t)`. Upstream
-    /// decides it on resolved types; for interfaces and classes the base-type
-    /// graph **is** the heritage-clause graph, so this is a reachability query
-    /// over `extends` names and symbols with no types involved.
-    ///
-    /// Reported once per symbol, at its first declaration — interfaces merge,
-    /// and the suite compares multisets.
-    ///
-    /// `docs/architecture/checker-notes-diag2.md` §563.
-    fn check_recursive_base_type(&mut self, node: NodeId, typed: Node<'_>) {
-        let Some(symbol) = self.binder.symbol_of(node) else { return };
-        let symbol = self.binder.merged_symbol(symbol);
-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
-        if declarations.first() != Some(&node) {
-            return;
-        }
-        // **A class cycle is TS2506's, not this code's.**
-        // `resolveBaseTypesOfClass` checks the cycle first
-        // (`checker.go:16977`) and reaches the recursive-base check
-        // (`:19260`) only after it returns. §563 ported the second without the
-        // first, and the doubling was invisible until §745 built the first —
-        // the case failed for a missing TS2506 either way. §777.
-        if matches!(typed, Node::ClassDeclaration(_)) {
-            let mut at = self.base_class_declaration_of(node);
-            for _ in 0..MAX_ALIAS_HOPS {
-                let Some(base) = at else { break };
-                if base == node {
-                    return;
-                }
-                at = self.base_class_declaration_of(base);
-            }
-        }
-        let mut seen = vec![symbol];
-        let mut frontier = self.base_type_symbols(symbol);
-        while let Some(next) = frontier.pop() {
-            if next == symbol {
-                let name = match typed {
-                    Node::InterfaceDeclaration(n) => n.name.and_then(|n| n.node_id),
-                    Node::ClassDeclaration(n) => n.name.and_then(|n| n.node_id),
-                    _ => None,
-                };
-                let at = name.unwrap_or(node);
-                let text = self.identifier_text(at).unwrap_or_default().to_string();
-                let Some(file) = self.source_file_of_for_diagnostics(at) else { return };
-                let span = self.nodes.span(at);
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::TYPE_0_RECURSIVELY_REFERENCES_ITSELF_AS_A_BASE_TYPE,
-                        span,
-                        [text],
-                    ),
-                );
-                return;
-            }
-            if seen.contains(&next) {
-                continue;
-            }
-            seen.push(next);
-            frontier.extend(self.base_type_symbols(next));
-        }
-    }
-
-    /// The symbols named by a type's `extends` clauses, across all of its
-    /// declarations. `implements` contributes no base type. §563.
-    fn base_type_symbols(&mut self, symbol: tsr_binder::SymbolId) -> Vec<tsr_binder::SymbolId> {
-        let declarations = self.binder.symbols().get(symbol).declarations.clone();
-        let mut out = Vec::new();
-        for declaration in declarations {
-            let clauses: &[&tsr_ast::HeritageClause<'_>] = match self.node_map.get(declaration) {
-                Some(Node::InterfaceDeclaration(n)) => n.heritage_clauses,
-                Some(Node::ClassDeclaration(n)) => n.heritage_clauses,
-                _ => continue,
-            };
-            // **A class has exactly one base type** — `getEffectiveBaseTypeNode`
-            // returns a single node, so only the first `extends` clause counts.
-            // `class C extends A implements B extends C` is a recovery fixture
-            // this parser accepts and upstream rejects, and reading its second
-            // `extends` made `C` its own base. §564.
-            let is_class =
-                matches!(self.node_map.get(declaration), Some(Node::ClassDeclaration(_)));
-            let mut taken = false;
-            for clause in clauses {
-                if clause.token.kind != SyntaxKind::ExtendsKeyword {
-                    continue;
-                }
-                if is_class && taken {
-                    break;
-                }
-                taken = true;
-                for expression in clause.types {
-                    let Some(head) = expression.expression.and_then(|e| e.node_id()) else {
-                        continue;
-                    };
-                    let Some(text) = self.identifier_text(head).map(str::to_string) else {
-                        continue;
-                    };
-                    if let Some(base) = self.binder.resolve_name(
-                        self.nodes,
-                        self.node_map,
-                        head,
-                        &text,
-                        SymbolFlags::TYPE,
-                    ) {
-                        out.push(self.binder.merged_symbol(base));
-                    }
-                }
-            }
-        }
-        out
     }
 
     /// The `.js`-file grammar checks — TS8002, TS8004, TS8006, TS8009, TS8010

@@ -33,9 +33,12 @@
 //! - **Expensive work.** `check_expression` of the `extends` expression and the
 //!   construct-signature instantiation, each once per class symbol.
 //!
-//! Diagnostics are not reported here. TS2506/TS2507/TS2508/TS2509/TS2310 keep
-//! their existing check-pass owners in `check.rs`; this module only computes.
-use rustc_hash::FxHashMap;
+//! Diagnostics reported here are the ones upstream reports from these
+//! resolutions: TS2312 (`resolveBaseTypesOfInterface`) and TS2310
+//! (`reportCircularBaseType` and `resolveBaseTypesOfClass`'s circular arm),
+//! each once per declaration per checker (`circular_reported`). TS2506/
+//! TS2507/TS2508/TS2509 keep their check-pass owners in `check.rs`.
+use rustc_hash::{FxHashMap, FxHashSet};
 use tsr_ast::{Node, NodeId, SyntaxKind};
 use tsr_binder::{SymbolFlags, SymbolId};
 
@@ -53,6 +56,13 @@ use crate::{
 pub(crate) struct BaseTypeLinks {
     constructor_types: FxHashMap<SymbolId, TypeId>,
     base_types: FxHashMap<SymbolId, BaseTypes>,
+    /// Declarations TS2310 has been reported at. Upstream can report the same
+    /// declaration from two arms (a mutual interface cycle closes both
+    /// `resolveBaseTypesOfInterface`'s test and `getBaseTypes`' failed pop)
+    /// and `SortAndDeduplicateDiagnostics` folds the pair; this collection
+    /// does not dedupe, so the second report is skipped here. Key: the
+    /// declaration node; owner: this checker; published once, never cleared.
+    circular_reported: FxHashSet<NodeId>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -240,7 +250,21 @@ impl<'a> Checker<'a, '_> {
         if flags.contains(SymbolFlags::INTERFACE) {
             self.resolve_base_types_of_interface(symbol);
         }
-        let _ = self.resolutions.pop();
+        // `if !c.popTypeResolution() …` (`checker.go:19189`): a resolution
+        // that closed a cycle (a base type's type arguments or defaults
+        // needing this type's members, #16861) reports at every class or
+        // interface declaration of the symbol.
+        if !self.resolutions.pop() {
+            let declarations = self.binder.symbols().get(symbol).declarations.clone();
+            for declaration in declarations {
+                if matches!(
+                    self.nodes.kind(declaration),
+                    SyntaxKind::ClassDeclaration | SyntaxKind::InterfaceDeclaration
+                ) {
+                    self.report_circular_base_type(declaration, symbol);
+                }
+            }
+        }
         let entry = self.base_type_links.base_types.entry(symbol).or_default();
         entry.resolved = true;
         entry.types.clone()
@@ -286,9 +310,46 @@ impl<'a> Checker<'a, '_> {
         if self.class_or_interface_target(reduced) == Some(class)
             || self.has_base_type(reduced, class)
         {
+            // `c.error(t.symbol.ValueDeclaration, …, c.TypeToString(t))`
+            // (`checker.go:19261`).
+            if let Some(declaration) = self.binder.symbols().get(class).value_declaration {
+                self.report_circular_base_type(declaration, class);
+            }
             return None;
         }
         Some(reduced)
+    }
+
+    /// The check walk's `getBaseTypes(getDeclaredTypeOfSymbol(symbol))` for a
+    /// class or interface declaration: `checkClassLikeDeclaration`
+    /// (`checker.go:4315`) and `checkInterfaceDeclaration` (`:4431`) both
+    /// resolve the base types, which is where TS2310 is reported. Memoized
+    /// by `get_base_types`; this only forces it.
+    pub(crate) fn check_base_types_resolved(&mut self, node: NodeId) {
+        let Some(own) = self.binder.symbol_of(node) else { return };
+        let _ = self.get_base_types(own);
+    }
+
+    /// `reportCircularBaseType` (`checker.go:19532`): TS2310 at the
+    /// declaration (its name, `error`'s span), naming the declared type.
+    /// `TypeFormatFlagsWriteArrayAsGenericType` only changes how the global
+    /// `Array` prints, whose declarations cannot form a base cycle here.
+    fn report_circular_base_type(&mut self, declaration: NodeId, symbol: SymbolId) {
+        if !self.base_type_links.circular_reported.insert(declaration) {
+            return;
+        }
+        let Some(file) = self.source_file_of_for_diagnostics(declaration) else { return };
+        let declared = self.get_declared_type_of_class_or_interface(symbol);
+        let text = self.type_to_string(declared);
+        let span = self.error_span(declaration);
+        self.report(
+            file,
+            tsr_diagnostics::Diagnostic::with_args(
+                &tsr_diagnostics::messages::TYPE_0_RECURSIVELY_REFERENCES_ITSELF_AS_A_BASE_TYPE,
+                span,
+                [text],
+            ),
+        );
     }
 
     /// `!areAllOuterTypeParametersApplied(getDeclaredTypeOfSymbol(symbol))`
@@ -476,8 +537,8 @@ impl<'a> Checker<'a, '_> {
     /// element of every interface declaration, appended in order. An element
     /// that is not a valid base type is TS2312 at the element, reported here
     /// as upstream does: the resolution runs once per symbol per checker
-    /// (`base_type_links`). The circular arm's `reportCircularBaseType` stays
-    /// `check.rs`'s `check_recursive_base_type`.
+    /// (`base_type_links`). The circular arm reports TS2310 at the
+    /// declaration (`reportCircularBaseType`).
     fn resolve_base_types_of_interface(&mut self, symbol: SymbolId) {
         let declarations = self.binder.symbols().get(symbol).declarations.clone();
         for declaration in declarations {
@@ -515,9 +576,12 @@ impl<'a> Checker<'a, '_> {
                 }
                 if self.class_or_interface_target(base) != Some(symbol)
                     && !self.has_base_type(base, symbol)
-                    && let Some(entry) = self.base_type_links.base_types.get_mut(&symbol)
                 {
-                    entry.types.push(base);
+                    if let Some(entry) = self.base_type_links.base_types.get_mut(&symbol) {
+                        entry.types.push(base);
+                    }
+                } else {
+                    self.report_circular_base_type(declaration, symbol);
                 }
             }
         }

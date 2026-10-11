@@ -664,6 +664,51 @@ declaration in the unused pass.
 references, or on a function that has a written `<T>` list.
 Converted: `unusedTypeParameters_templateTag`.
 
+## §28 TS2310 from the base-type resolutions
+
+TS2310 (`Type '{0}' recursively references itself as a base type.`) now comes
+from the three places upstream reports it, all in `base_types.rs`:
+
+* `getBaseTypes`' failed `popTypeResolution` (`checker.go:19189`) reports at
+  every class or interface declaration of the symbol. This is the arm a
+  type-level cycle reaches: `class Foo extends NextType<Foo>`, where
+  `NextType`'s default `T = C['someProp']` needs `Foo`'s members while `Foo`'s
+  base types are being resolved (TypeScript#16861,
+  `circularConstraintYieldsAppropriateError`). `Resolutions::pop` already
+  answered whether the frame stayed cycle-free; `get_base_types` discarded it.
+* `resolveBaseTypesOfInterface`'s `t == baseType || hasBaseType(baseType, t)`
+  arm (`:19508`) reports at the interface declaration.
+* `resolveBaseTypesOfClass`'s same test (`:19260`) reports at the class's
+  value declaration.
+
+It replaces check.rs's `check_recursive_base_type`, a reachability walk over
+`extends` names that reported once per symbol at its first declaration. That
+walk could not see type-level cycles. Its dispatch line now forces
+`get_base_types` for each class and interface declaration
+(`check_base_types_resolved`), as `checkClassLikeDeclaration` and
+`checkInterfaceDeclaration` do.
+
+*Dedupe.* A mutual interface cycle closes both the interface arm and the
+failed pop for the same declaration. Upstream reports twice and
+`SortAndDeduplicateDiagnostics` folds the pair. This collection does not
+dedupe, so `BaseTypeLinks::circular_reported` (key: declaration; owner: this
+checker; published once) skips the second report.
+
+*Not ported.* `t.objectFlags &^= ObjectFlagsMembersResolved` after a cycle:
+this checker's member tables are not published through that flag.
+
+*Measured.* Syntactic cycles match tsgo line for line, including a merged
+interface that reports at both declarations (the walk reported once).
+`circularConstraintYieldsAppropriateError` still lacks its TS2310: this
+checker does not force `Foo`'s members while instantiating `NextType`'s
+default `C['someProp']`, so the failed-pop arm is not reached. That cycle is
+the instantiation lane's to produce, and this arm reports it once it does.
+
+*Falsifier.* A TS2310 count that differs from upstream on merged interface
+declarations (one report per offending declaration), or a TS2310 on a class
+cycle (that is TS2506's, from the base constructor type, before this
+resolution runs).
+
 ## §29 TS2564's constructor arm on the flow query (CLASS-PROPERTY-INITIALIZER)
 
 `checkPropertyInitialization` (`checker.go:4933`) reports TS2564 when
