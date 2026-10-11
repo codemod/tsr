@@ -727,6 +727,46 @@ impl<'a> Parser<'a> {
 
     /// Consume `kind`, or report that it was expected.
     ///
+    /// `parseExpectedMatchingBrackets` (`parser.go:971`): expect the `close`
+    /// of a bracket pair whose `open` was expected at `open_position`. A
+    /// report that the same-position guard kept, after an `open` that was
+    /// present, points back at it: TS1007, zero-width at the `open`.
+    pub(crate) fn expect_matching_bracket(
+        &mut self,
+        open: SyntaxKind,
+        close: SyntaxKind,
+        open_parsed: bool,
+        open_position: u32,
+    ) {
+        if self.eat(close) {
+            return;
+        }
+        let reported = self.diagnostics.len();
+        self.error_at_current_with(&messages::_0_EXPECTED, &[&token_to_text(close)]);
+        if open_parsed && self.diagnostics.len() > reported {
+            self.relate_bracket_to_last_error(open, close, open_position);
+        }
+    }
+
+    /// Attach TS1007 for the bracket pair to the last diagnostic, as
+    /// `parseExpectedMatchingBrackets` attaches it to the report it made and
+    /// `parseImportAttributes` (`parser.go:3097`) to whatever report is last.
+    pub(crate) fn relate_bracket_to_last_error(
+        &mut self,
+        open: SyntaxKind,
+        close: SyntaxKind,
+        open_position: u32,
+    ) {
+        let related = Diagnostic::with_args(
+            &messages::THE_PARSER_EXPECTED_TO_FIND_A_1_TO_MATCH_THE_0_TOKEN_HERE,
+            Span::at(open_position),
+            [token_to_text(open).into_owned(), token_to_text(close).into_owned()],
+        );
+        if let Some(last) = self.diagnostics.last_mut() {
+            last.add_related_information(Some(related));
+        }
+    }
+
     /// Does **not** skip the offending token: the caller's recovery loop decides
     /// what to discard, and consuming here would swallow a token that closes an
     /// enclosing construct.

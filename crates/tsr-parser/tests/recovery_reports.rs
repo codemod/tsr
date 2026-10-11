@@ -55,3 +55,36 @@ fn an_unterminated_template_is_reported_once() {
     // Only a template whose first scan found an invalid escape is re-scanned.
     assert_eq!(reports("a.ts", "f(`abc"), vec![(6, 6, 1160, vec![])]);
 }
+
+/// `(code, start, args)` of each related report on each parse diagnostic.
+fn related(path: &str, source: &str) -> Vec<Vec<(u32, u32, Vec<String>)>> {
+    let arena = Arena::new();
+    let parsed = tsr_parser::parse_with_options(&arena, source, ParseOptions::for_file(path));
+    parsed
+        .diagnostics
+        .iter()
+        .map(|d| {
+            d.related_information()
+                .iter()
+                .map(|r| (r.message.code(), r.span.start, r.args.clone()))
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn a_missing_closing_bracket_points_back_at_its_opening_one() {
+    // `parseExpectedMatchingBrackets`: TS1007 at the `{`, `(` or `[`.
+    let pair = |open: &str, close: &str| vec![open.to_string(), close.to_string()];
+    assert_eq!(related("a.ts", "function f() {\n  x;\n"), vec![vec![(1007, 13, pair("{", "}"))]]);
+    assert_eq!(related("a.ts", "if (a b;"), vec![vec![(1007, 3, pair("(", ")"))]]);
+    assert_eq!(related("a.ts", "x = [1, 2"), vec![vec![(1007, 4, pair("[", "]"))]]);
+    assert_eq!(related("a.ts", "x = { a: 1"), vec![vec![(1007, 4, pair("{", "}"))]]);
+}
+
+#[test]
+fn a_report_the_guard_dropped_gets_no_related_report() {
+    // `if (` at end of file: `Expression expected` takes the position, and
+    // `')' expected` there is dropped, so nothing carries TS1007.
+    assert!(related("a.ts", "if (").iter().all(Vec::is_empty));
+}
