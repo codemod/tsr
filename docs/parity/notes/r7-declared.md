@@ -1244,3 +1244,25 @@ here do not decline an index signature for a write to a generic object
 parent adds §35, which touches only the conditional evaluator): types **+16,
 0 lost** (mappedTypeConstraints); diagnostics 0 / 0; jsTyping new_false 0 /
 lost_true 0; Ir gi 0.9998, dm 1.0001.
+
+## 36. A reference to an instantiation-expression alias is the instantiated body
+
+**Forcing constraint.** getTypeFromTypeQueryNode's result takes no alias, so
+an alias whose body is an instantiation expression (`type ErrAlias<U> =
+typeof Err<U>`) declares an alias-free type, and getTypeAliasInstantiation's
+instantiateTypeWithAlias finds no alias to carry (no new alias at a plain
+reference, and the declared type's own is nil): `ErrAlias<number>` is `{
+new (): ErrImpl<number>; prototype: ErrImpl<any>; } & (() => number)`
+(aliasInstantiationExpressionGenericIntersectionNoCrash1). The declared type
+already answered the body (`alias_free_generic_alias_body`); a reference
+minted the alias name.
+
+**Port.** `instantiate_type_query_alias`, beside the template-literal arm of
+`create_type_reference`: a body that is a type query with type arguments is
+evaluated under the alias's bindings and answered when it is not a gap. Cached
+in `instantiations` like the other arms.
+
+**Measured** (unfiltered against the `89f0f0df`+§34 freeze; this commit's
+parent also has §35, whose ten rows are excluded): types **+3, 0 lost**;
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 0.9999, dm
+1.0003 (with §35).

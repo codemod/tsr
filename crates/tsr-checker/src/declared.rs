@@ -4457,6 +4457,39 @@ impl<'a> Checker<'a, '_> {
         self.mapped_types.contains_key(&evaluated).then_some(evaluated)
     }
 
+    /// getTypeAliasInstantiation (checker.go:23641) over a declared type that
+    /// is an instantiation expression's type (`type ErrAlias<U> = typeof
+    /// Err<U>`): getTypeFromTypeQueryNode's result takes no alias, so
+    /// instantiateTypeWithAlias finds none to carry (`newAlias` is the
+    /// declared type's own, nil) and the instance prints its structure:
+    /// `ErrAlias<number>` is `{ new (): ErrImpl<number>; prototype:
+    /// ErrImpl<any>; } & (() => number)`. The declared type already answers
+    /// the body (`alias_free_generic_alias_body`); the reference evaluates the
+    /// same body under the alias's bindings instead of minting the alias
+    /// name (r7-declared §36).
+    fn instantiate_type_query_alias(
+        &mut self,
+        symbol: SymbolId,
+        arguments: &[TypeId],
+    ) -> Option<TypeId> {
+        if arguments.is_empty()
+            || !self.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || self.local_type_parameters_of(symbol).len() != arguments.len()
+        {
+            return None;
+        }
+        let TypeNode::TypeQueryNode(query) =
+            self.type_alias_body(symbol).and_then(Self::skip_type_parentheses)?
+        else {
+            return None;
+        };
+        if query.type_arguments.is_empty() {
+            return None;
+        }
+        let evaluated = self.evaluate_alias_body(symbol, arguments)?;
+        (!self.is_gap(evaluated) && !self.is_error(evaluated)).then_some(evaluated)
+    }
+
     /// Whether a generic alias's declared type is a tuple built by
     /// createNormalizedTupleType (a body with a variadic element,
     /// checker.go:24121), directly or through a chain of alias references
@@ -8335,6 +8368,10 @@ impl<'a> Checker<'a, '_> {
         if let Some(template) = self.instantiate_template_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), template);
             return template;
+        }
+        if let Some(query) = self.instantiate_type_query_alias(symbol, &arguments) {
+            self.instantiations.insert((symbol, arguments), query);
+            return query;
         }
         if let Some(mapped) = self.instantiate_normalized_mapped_alias(symbol, &arguments) {
             self.instantiations.insert((symbol, arguments), mapped);
