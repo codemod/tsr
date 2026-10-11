@@ -1050,3 +1050,32 @@ signature does not admit `s`.
 
 **Measured** (diagnostics, unfiltered, against batch 23 with §17–§23 on
 top): `objectLitIndexerContextualType` RIGHT, 0 lost.
+
+## 25. Refused: relating a union-bodied alias image as its body
+
+**Finding.** In `typeAssignabilityErrorMessage` (40,5), `Foo<string> →
+Bar<number>` with `Bar<T> = { foo: { what: T } } | boolean` is Related here
+and false natively. The target is an alias-reference image. Its body has
+object constituents, so `non_object_alias_image_body` keeps the image (the
+r5-relater4 §1 memory blow-up). The image's member table is the alias
+symbol's, which lists none of the constituents' members, and the
+structural walk relates vacuously. The same vacuity is behind §17's
+`Schema1<…>` image, there with an intersection body.
+
+**Tried.** Relate an image whose body is a union as that body, unless the
+other side is an image of the same alias (which keeps the variance road).
+- Unrestricted, it lost `assignmentTypeNarrowing` (33,7) and
+  `recursiveReverseMappedType` (8,5). A literal source's own type was
+  computed with the image as contextual type, which this port does not read
+  as the union: `[{ x: "ok" }]` widens to `{ x: string }[]`, and `['marker',
+  ...l]` is no tuple.
+- With object-literal, array and tuple sources keeping the image, it gained
+  `typeAssignabilityErrorMessage` and `jsxElementTypeLiteralWithGeneric`
+  with no case lost. It still lost the type line
+  `styledComponentsInstantiaionLimitNotReached` (0:82): `children` printed
+  `React.ReactNode` expanded. Its run time also went from 50 to 75 ms.
+
+**Refused** on that type line (gate: 0 lost). **What would change it:** an alias-reference producer whose image exposes the union body
+to both the relater and the contextual machinery (declared.rs; routed). With
+that, the vacuous structural walk goes away at its source, and the
+literal-source restriction is no longer needed.
