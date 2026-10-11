@@ -2623,14 +2623,13 @@ impl Relater<'_, '_, '_> {
     ///
     /// Ported with it, because they feed that arm: the object is simplified
     /// first (a nested `{ [P in T]: { [Q in U]: X } }[T][U]`), a union index
-    /// distributes over a mapped object (`distributeObjectOverIndexType`:
-    /// a union when reading, an intersection when writing), the substituted
+    /// distributes over any object (`distributeObjectOverIndexType`: a union
+    /// when reading, an intersection when writing; r7-reports §19), the substituted
     /// result's indexed-access constituents are simplified in turn (`mapType`),
     /// and the input is removed from a union result (`removeType`).
     ///
     /// Stated divergences, each leaving the indexed access as written:
-    /// - the other arms are not ported: a union index over a non-mapped
-    ///   object and a generic tuple read by a number. Native's
+    /// - the generic-tuple-read-by-a-number arm is not ported. Native's
     ///   simplification there changes what the pair relates through, not
     ///   whether this arm applies. `(T | U)[K]`/`(T & U)[K]` is
     ///   ([`Self::distributed_index_over_object`]).
@@ -2670,6 +2669,22 @@ impl Relater<'_, '_, '_> {
             return None;
         }
         let object = self.simplified_indexed_access_worker(object, writing, depth + 1)?;
+        // distributeObjectOverIndexType (checker.go:27975), first: `T[A | B]`
+        // is `T[A] | T[B]` (reading) or `T[A] & T[B]` (writing), each access
+        // simplified in turn, whatever the object is.
+        let simplified_index = self.simplified_indexed_access_worker(index, writing, depth + 1)?;
+        if let Some(parts) = self.union_constituents(simplified_index) {
+            let mut types = Vec::with_capacity(parts.len());
+            for part in parts {
+                let access = self.checker.resolved_indexed_access_type(object, part, false)?;
+                types.push(self.simplified_indexed_access_worker(access, writing, depth + 1)?);
+            }
+            return Some(if writing {
+                self.checker.get_intersection_type(&types, None)
+            } else {
+                self.checker.get_union_type(&types)
+            });
+        }
         // distributeIndexOverObjectType (checker.go:27990), taken only when
         // the index can no longer be instantiated to distribute again
         // (checker.go:27942): `(T | U)[K]` is `T[K] | U[K]` (reading) or
@@ -2696,26 +2711,7 @@ impl Relater<'_, '_, '_> {
             Some(false) => return Some(id),
             None => return None,
         }
-        let simplified_index = self.simplified_indexed_access_worker(index, writing, depth + 1)?;
-        let result = match self.union_constituents(simplified_index) {
-            Some(parts) => {
-                let mut types = Vec::with_capacity(parts.len());
-                for part in parts {
-                    types.push(self.substitute_indexed_mapped_type(
-                        &info,
-                        part,
-                        writing,
-                        depth + 1,
-                    )?);
-                }
-                if writing {
-                    self.checker.get_intersection_type(&types, None)
-                } else {
-                    self.checker.get_union_type(&types)
-                }
-            }
-            None => self.substitute_indexed_mapped_type(&info, index, writing, depth + 1)?,
-        };
+        let result = self.substitute_indexed_mapped_type(&info, index, writing, depth + 1)?;
         // removeType(result, t).
         if result == id {
             return Some(id);
@@ -4768,6 +4764,18 @@ impl Relater<'_, '_, '_> {
                     self.is_related_to_with_flags(constraint, target, RecursionFlags::SOURCE),
                 ]);
             }
+            // getConstraintOfType of a conditional constituent is
+            // getConstraintOfConditionalType, which `constraint_of_type`
+            // leaves undecided; with no base constraint either, the combined
+            // constraint above came back empty where native has one
+            // (`NonNullable<Extract<T, string | undefined>>` retries as
+            // `T & string`). A failure the retry could have overturned is
+            // not a decision (r7-reports §17).
+            if result == RelationResult::NotRelated
+                && self.intersection_retry_has_undecided_conditional(&types, target_is_union)
+            {
+                return RelationResult::Unknown;
+            }
         }
         // The intersection property-check pass (relater.go:3232): a target
         // intersection's combined property types meet the source's members
@@ -4933,15 +4941,19 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, constraint]);
             }
-            // The same fallthrough for a type parameter: `S extends "a" |
-            // "b"` relates to `"a" | "b"` through its constraint
-            // (relater.go:3652), not through either constituent. Stated
-            // divergence: an indexed-access source keeps the walk's answer
-            // until flow.rs stops reading an undecided narrowing relation
-            // as a decision (`docs/parity/notes/r5-relater5.md` §3; that
-            // case loses 6 `quickinfoTypeAtReturnPositionsInaccurate` lines).
+            // The same fallthrough for a type variable: `S extends "a" | "b"`
+            // relates to `"a" | "b"` through its constraint, and `T["kind"]`
+            // with `T extends { kind: SK }` to `SK` (relater.go:3652), not
+            // through either constituent. r5-relater5 §3 held the
+            // indexed-access half for 6 `quickinfoTypeAtReturnPositionsInaccurate`
+            // lines; they were a conditional-source Unknown, decided now
+            // (r7-reports §17).
             if !result.is_success()
-                && self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+                && self
+                    .checker
+                    .type_of(source)
+                    .flags
+                    .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
                 && let Some(variable) = self.type_variable_source_related_to(source, target)
             {
                 return RelationResult::any([result, variable]);
@@ -4985,15 +4997,19 @@ impl Relater<'_, '_, '_> {
             {
                 return RelationResult::any([result, constraint]);
             }
-            // The same fallthrough for a type parameter: `S extends "a" |
-            // "b"` relates to `"a" | "b"` through its constraint
-            // (relater.go:3652), not through either constituent. Stated
-            // divergence: an indexed-access source keeps the walk's answer
-            // until flow.rs stops reading an undecided narrowing relation
-            // as a decision (`docs/parity/notes/r5-relater5.md` §3; that
-            // case loses 6 `quickinfoTypeAtReturnPositionsInaccurate` lines).
+            // The same fallthrough for a type variable: `S extends "a" | "b"`
+            // relates to `"a" | "b"` through its constraint, and `T["kind"]`
+            // with `T extends { kind: SK }` to `SK` (relater.go:3652), not
+            // through either constituent. r5-relater5 §3 held the
+            // indexed-access half for 6 `quickinfoTypeAtReturnPositionsInaccurate`
+            // lines; they were a conditional-source Unknown, decided now
+            // (r7-reports §17).
             if !result.is_success()
-                && self.checker.type_of(source).flags.contains(TypeFlags::TYPE_PARAMETER)
+                && self
+                    .checker
+                    .type_of(source)
+                    .flags
+                    .intersects(TypeFlags::TYPE_PARAMETER | TypeFlags::INDEXED_ACCESS)
                 && let Some(variable) = self.type_variable_source_related_to(source, target)
             {
                 return RelationResult::any([result, variable]);
@@ -6192,9 +6208,55 @@ impl Relater<'_, '_, '_> {
         }
         match self.restrictive_assignable(check, extends)? {
             true => Some(check),
-            false if type_variable => None,
+            // `getConditionalFlowTypeOfType` gives a type-variable check
+            // reference in the true branch a substitution type, which a
+            // relation source reads as `getSubstitutionIntersection`, the
+            // implied constraint intersected with the check. Native
+            // intersects the implied constraints of EVERY enclosing
+            // conditional whose true branch holds the reference; only this
+            // conditional's is known here, so a root nested in another's true
+            // branch stays undecided (r7-reports §17).
+            false if type_variable && self.nested_in_conditional_true_branch(root) => None,
             false => Some(self.checker.get_intersection_type(&[extends, check], None)),
         }
+    }
+
+    /// Would getEffectiveConstraintOfIntersection over `types` retry with a
+    /// conditional constituent's constraint this port leaves undecided?
+    fn intersection_retry_has_undecided_conditional(
+        &mut self,
+        types: &[TypeId],
+        target_is_union: bool,
+    ) -> bool {
+        let has_domain = types.iter().any(|&ty| {
+            self.checker.type_of(ty).flags.intersects(TypeFlags::DISJOINT_DOMAINS)
+                || self.checker.is_empty_anonymous_object_type(ty)
+        });
+        (target_is_union || has_domain)
+            && types.iter().any(|&ty| {
+                self.checker.type_of(ty).flags.contains(TypeFlags::CONDITIONAL)
+                    && matches!(
+                        self.checker.constraint_of_type(ty),
+                        crate::constraints::ConstraintOfType::Undecided
+                    )
+                    && self.checker.base_constraint_of_type(ty).is_none()
+            })
+    }
+
+    /// Does the conditional type node `root` sit inside the true branch of an
+    /// enclosing conditional type node?
+    fn nested_in_conditional_true_branch(&self, root: tsr_ast::NodeId) -> bool {
+        let mut child = root;
+        for ancestor in self.checker.nodes.ancestors(root) {
+            if let Some(tsr_ast::Node::ConditionalTypeNode(node)) =
+                self.checker.node_map.get(ancestor)
+                && node.true_type.and_then(|t| t.node_id()) == Some(child)
+            {
+                return true;
+            }
+            child = ancestor;
+        }
+        false
     }
 
     /// Whether `id` is an indexed access whose object and index are each a
@@ -7227,6 +7289,18 @@ impl Relater<'_, '_, '_> {
             } else {
                 self.checker.get_property_of_type(source, name).into_iter().collect()
             };
+            // A mapped type's members are `getPropertiesOfType(modifiersType)`
+            // filtered through `getLiteralTypeFromProperty`, which drops a
+            // non-public member (`NonPublicAccessibility`): `{ [P in keyof
+            // T]: T[P] }` over `T extends C` has no `C`'s private `a`. This
+            // port's mapped member list can still carry one, so a source
+            // member that only a mapped part supplies from a private or
+            // protected origin is not a native property and the walk
+            // declines (r7-reports §17).
+            if self.non_public_member_of_mapped_part(source, source_parts.as_deref(), name) {
+                parts.push(RelationResult::Unknown);
+                continue;
+            }
             // A private identifier's symbol is named per declaring class
             // (`GetSymbolNameForPrivateIdentifier`, binder.go:369:
             // `__#<class symbol id>@#foo`). This port keys members by their
@@ -7344,6 +7418,34 @@ impl Relater<'_, '_, '_> {
             });
         }
         RelationResult::all(parts)
+    }
+
+    /// Does a mapped part of `source` (itself, or an intersection
+    /// constituent) list `name` from a private or protected origin?
+    fn non_public_member_of_mapped_part(
+        &self,
+        source: TypeId,
+        parts: Option<&[TypeId]>,
+        name: &str,
+    ) -> bool {
+        let single = [source];
+        parts.unwrap_or(&single).iter().any(|part| {
+            self.checker.mapped_types.contains_key(part)
+                && self.checker.anonymous_properties.get(part).is_some_and(|(properties, _)| {
+                    properties.iter().any(|property| {
+                        property.name == name
+                            && property.origin.is_some_and(|origin| {
+                                self.checker.property_has_modifier(
+                                    origin,
+                                    tsr_ast::SyntaxKind::PrivateKeyword,
+                                ) || self.checker.property_has_modifier(
+                                    origin,
+                                    tsr_ast::SyntaxKind::ProtectedKeyword,
+                                )
+                            })
+                    })
+                })
+        })
     }
 
     /// The privacy arms of propertyRelatedTo's first switch
@@ -7553,6 +7655,21 @@ impl Relater<'_, '_, '_> {
             let properties = self.properties_related_to_excluding(source, t, false, &excluded);
             if properties == RelationResult::NotRelated {
                 return properties;
+            }
+            // An intersection whose combined member list this port cannot
+            // enumerate: each of its properties is the intersection of its
+            // constituents' (`getPropertiesOfType`), so a member a
+            // constituent requires and the source lacks or mistypes fails
+            // the whole. A constituent's failure is the intersection's
+            // (r7-reports §21).
+            if properties == RelationResult::Unknown
+                && let Some(constituents) = self.intersection_constituents(t)
+                && constituents.into_iter().any(|part| {
+                    self.properties_related_to_excluding(source, part, false, &excluded)
+                        == RelationResult::NotRelated
+                })
+            {
+                return RelationResult::NotRelated;
             }
             let signatures = if self.call_or_construct_bearing(t) {
                 self.related_signatures(source, t).unwrap_or(RelationResult::Unknown)

@@ -471,6 +471,10 @@ pub struct Checker<'a, 'n> {
     /// corresponding to assignParameterType's symbol links (checker.go).
     /// An absent slot is resolved absence, distinct from an unchecked method.
     pub(crate) contextual_this_parameters: FxHashMap<NodeId, Option<TypeId>>,
+    /// Parameters whose type was last computed while
+    /// `getContextuallyTypedParameterType` answered nil: the moment upstream
+    /// reports TS7006 (`implicit_any.rs`, r7-reports §18).
+    pub(crate) parameters_assigned_without_context: rustc_hash::FxHashSet<NodeId>,
     /// §469's stack budget: how many contextual-return consults are nested
     /// RIGHT NOW, cycles aside. The two parks above break true cycles; this
     /// bounds genuine nesting, because each consult's subtree re-runs call
@@ -1547,6 +1551,7 @@ impl<'a, 'n> Checker<'a, 'n> {
             late_bound_member_names: rustc_hash::FxHashMap::default(),
             contextual_return_in_flight: rustc_hash::FxHashSet::default(),
             contextual_this_parameters: FxHashMap::default(),
+            parameters_assigned_without_context: rustc_hash::FxHashSet::default(),
             contextual_return_depth: 0,
             intra_expression_member_maps: rustc_hash::FxHashMap::default(),
             contextual_signature_mappers: FxHashMap::default(),

@@ -52,6 +52,9 @@ lacks would show a declaration-file arm upstream that this reading missed.
 
 ## 2. The retained `return`-position arm stays (routed)
 
+*Superseded by §18:* the arm is deleted, and the premise below (a producer
+defect) was wrong.
+
 `retained_return_position_report` (implicit-any-widening.md §3) keeps TS7006
 extra in four cases: `asyncFunctionContextuallyTypedReturns` (19,10)(28,10),
 `contextualTypeOnYield2` (3,13),
@@ -712,3 +715,248 @@ text, as upstream's `generalizedSourceType` does.
 **Measured** (unfiltered, against `f960020e` plus §11–§15): WRONG → RIGHT
 `incompatibleAssignmentOfIdenticallyNamedTypes`; no other row changed; type
 lines identical.
+
+## 17. Indexed-access sources meet union and intersection targets through their constraint
+
+Routed from r7-calls: `relate_ternary(T["kind"], SK)` with `T extends { kind:
+SK }` answered NotRelated, which gave `h(k)` a false TS2345 and held r7-calls'
+`createToken` fix.
+
+**Upstream.** `structuredTypeRelatedToWorker` (`relater.go:3380`): after the
+ordered union/intersection decomposition fails, an *instantiable* source
+(type parameter, indexed access, conditional, …) falls through to its own
+arms. The type-variable arm relates `getConstraintOfType(source)`
+(`relater.go:3652`): for `T["kind"]` that is `Node0["kind"]` = `SK`.
+
+**Port** (`relater.rs`). The union- and intersection-target arms already
+fell through for a type parameter and a deferred conditional. They now do so
+for an indexed-access source as well. r5-relater5 §3 held this half because
+it lost 6 type lines in `quickinfoTypeAtReturnPositionsInaccurate`. Re-measured
+on today's main, the same 6 lines are lost, and their cause is in this file
+too:
+
+- The call `isNumClass(entry)` now checks, so `entry` narrows by the
+  predicate `Extract<Entries[EntryId], NumClass<any>>`.
+- `getNarrowedType` keeps the candidate for the `NumClass` constituent of
+  the receiver's constraint, and needs `Extract<…> → StrClass<string>` to be
+  *false* to drop the other.
+- That relation was Unknown. The conditional source's default constraint
+  takes the true type through `getConditionalFlowTypeOfType`, a substitution
+  type `E[I]` with implied constraint `NumClass<any>`, which a relation source
+  reads as `getSubstitutionIntersection` = `NumClass<any> & E[I]`.
+  `inferred_true_type_of_check_reference` answered None (undecided) for any
+  type-variable check that is not restrictively assignable.
+- It now answers the intersection, except for a root nested in another
+  conditional's true branch. There native intersects every enclosing
+  conditional's implied constraint, and only this one's is known here.
+  `Extract2<T, Foo, Bar>`'s nested root made `conditionalTypes2` (69,12) a
+  false TS2345 before this limit.
+
+**Decline: a non-public member listed by a mapped part.** The unit test
+`unsupported_mapped_source_intersection_shapes_retain_unknown` (`Req<T> & {
+extra: number } → PrivateState`, `T extends PrivateState`) flipped from
+Unknown to *Related*, while tsgo reports TS2741. Its `T["d"] → boolean` now
+relates through the constraint (correctly), which unmasked a member-list
+defect. Native's mapped members drop non-public keys
+(`getLiteralTypeFromProperty`, `NonPublicAccessibility`), so `Req<T>` has
+no `a`. This port's list carries the private `a`. The property walk now
+declines (Unknown) a source member that only a mapped part supplies from a
+private or protected origin. The producer fix is `mapped.rs`'s (proposed in
+the report).
+
+**Decline: an intersection whose combined-constraint retry reads a
+conditional's constraint.** *Corrected:* the first draft of this section
+recorded `controlFlowGenericTypes` (22,9) as a known exposed gap and said the
+relation `NonNullable<Extract<T, string | undefined>> → string` "is now
+false, as native's is". That was wrong. Checked against pinned tsgo
+(`function h<T>(y: NonNullable<Extract<T, string | undefined>>): string {
+return y }` has no error; `y`'s base constraint is not a union, so
+`getNarrowableTypeForReference` does not substitute it and the relation
+itself is decided true).
+
+- Native's route is `structuredTypeRelatedTo`'s combined-constraint retry
+  (`relater.go:3216`). `getEffectiveConstraintOfIntersection` takes the
+  conditional's `getConstraintOfConditionalType`. That is the default
+  constraint, the substitution `T` with implied constraint `string |
+  undefined`. With the `{}` constituent, `getNormalizedType` gives `T &
+  string`, which relates.
+- This port's `constraint_of_type` leaves a conditional undecided, and
+  `effective_constraint_of_intersection` then falls back to its base
+  constraint. That is None here, so the retry was skipped as though native
+  had no constraint either.
+- The newly decided `Extract<…> → string` = false (correct for the
+  conditional alone) thereby became a decided false for the intersection.
+- The retry site now answers Unknown when the walk failed, the retry would
+  run (union target or a disjoint-domain / empty-object constituent), and a
+  conditional constituent has neither a decided constraint nor a base
+  constraint. The producer fix is `getConstraintOfConditionalType` in
+  `constraints.rs`, which can reuse this file's default-constraint arm.
+  It is proposed in the report.
+
+## 18. TS7006 is decided at the parameter's assignment, not re-read afterwards
+
+Closes §2. The retained `return`-position arm is deleted.
+
+**Upstream.** TS7006 for a context-sensitive function's parameter comes
+from `assignParameterType` (via `assignContextualParameterTypes` or
+`assignNonContextualParameterTypes`). With a nil contextual type it widens
+with `reportErrors`, once, under the contextual signature the function has
+*at that moment*.
+
+r7-contextual traced `subtypeReductionWithAnyFunctionType` with an
+instrumented pinned tsgo (`return x => x.length > 0` inside
+`useMemo<T>(func: () => T)`'s argument):
+
+- `x` is assigned in inference pass 2 under `() => boolean` (`T` from the
+  sibling `return () => true`).
+- `isAritySmaller` rejects that signature, so `x` is implicitly `any` and
+  TS7006 fires.
+- Later, `T` is inferred as `(x: any) => boolean` from `x`'s own `any`. A
+  rule that re-reads the contextual signature after resolution sees a
+  usable signature and stays silent.
+
+§2's routing premise, that the producer's `(x: any)` was wrong, does not
+hold. The types already match native. Only the moment of the decision
+differed.
+
+**Port** (`implicit_any.rs`; the assignment hook in `symbols.rs` and the
+side table in `checker.rs` are a grant request).
+
+- *The record.* `getTypeForVariableLikeDeclaration`'s contextual-parameter
+  arm records whether `get_contextually_typed_parameter_type` answered nil
+  as the parameter's type was computed. The last computation wins: an
+  eviction followed by a recomputation rewrites the record, and the reader
+  computes the type first.
+- *What is recorded.* Only a nil this port can attribute to native's
+  sources 2 and 3 is kept: an `Absent` contextual signature, or one too short
+  for the parameter. A nil that is the contextual machinery declining is not
+  kept. Recording every nil lost `contextuallyTypedByDiscriminableUnion2` and
+  `checkJsdocSatisfiesTag2`, whose parameters were first typed before their
+  generic-call or `@satisfies` context was available.
+- *Too short within a generic call.* `within_generic_call_argument`'s
+  decline (the inference mapper is only partly applied) now yields when the
+  instantiated contextual type is a single callable type that
+  `isAritySmaller` rejects for every signature. That answer reads only
+  signature lengths. The decline exists for a union of both conditional
+  branches, which is a different shape. useMemo's pass-2 `() => boolean` is
+  this shape.
+- *The reader.* `contextual_parameter_type_is_absent`, after the IIFE and
+  no-contextual-type arms, reports a parameter whose record says nil while
+  the context now answers a type.
+
+**Measured** (diagnostics, unfiltered, against batch 17 with §17 on top):
++12 cases, 0 lost. Every target is RIGHT:
+`asyncFunctionContextuallyTypedReturns`, `contextualTypeOnYield2`,
+`inferPropertyWithContextSensitiveReturnStatement` and
+`invalidThisEmitInContextualObjectLiteral`.
+`subtypeReductionWithAnyFunctionType` stays RIGHT.
+
+**Falsifier.** A case where a parameter is first typed under a decided nil
+and then re-typed under a real context after an eviction that is never
+recomputed. The reader recomputes first, so the record would have to come
+from a computation that native does not repeat. A new TS7006 extra would
+show it.
+
+## 19. `distributeObjectOverIndexType` for every object, not only a mapped one
+
+**Forcing case.** `deepComparisons` (4,9). `T[K1][K2] → Extract<T[K1][K2],
+string>` (with `K2 extends keyof T[K1]`) is false natively. Its chain runs
+through `T[K1][keyof T[K1]]` and `T[K1][string] | T[K1][number] |
+T[K1][symbol]` down to `T[string][string]`, which has no constraint. This
+port kept `T[K1][string | number | symbol]` whole. Its next constraint,
+`T[string | number | symbol][string | number | symbol]`, answered Unknown,
+so the line was missing.
+
+**Upstream.** `getSimplifiedIndexedAccessTypeWorker` (`checker.go:27930`)
+asks `distributeObjectOverIndexType` (`:27975`) first, for any object: a
+union index gives `T[A] | T[B]` when reading and `T[A] & T[B]` when writing,
+each access simplified in turn. Only after that come the object
+distribution, the generic tuple and the mapped substitution.
+
+**Port** (`relater.rs::simplified_indexed_access_worker`). The union-index
+distribution moves out of the mapped-object arm and comes first, as native's
+does. The mapped arm now sees only a non-union index, and its union branch
+is gone. Over a mapped object the two orders give the same types: each
+`{…}[A]` is substituted when it is simplified. The generic-tuple arm is
+still not ported (stated in the rustdoc).
+
+**Measured** (diagnostics and types, unfiltered, against batch 19 with
+§17 and §18 on top): `deepComparisons` RIGHT, no case or type line lost,
+types unchanged.
+
+**Falsifier.** A pair whose union index distributes into a constituent this
+port then answers differently from the whole access, so a RIGHT relation
+turns. None was measured.
+
+## 20. Three nil contexts the TS7013 / TS7006 rules missed
+
+Three missing lines, each a nil that native reports on and this port either
+skipped or could not prove.
+
+- **`noImplicitAnyModule` (4,9), TS7013.** `checkSignatureDeclaration`
+  (`checker.go:2749`) reports a construct or call signature with no return
+  annotation under `noImplicitAny`, and nothing more. There is no ambient
+  condition. `check_implicit_any_signature_return` returned early on the
+  walk's `ambient` flag, which silenced `new ();` in an interface inside a
+  `declare namespace`. The flag is no longer read. `check.rs` still passes
+  it; the parameter is `_ambient` so the call site stays untouched.
+- **`tsxInArrowFunction` (15,7), TS7006.** `getContextualTypeForChildJsxExpression`
+  (`jsx.go:241`) is nil when `getJsxElementChildrenPropertyName` answers
+  `Missing` or `""`, whatever the attributes type. Under the classic
+  runtime that answer is decided: there is no `ElementChildrenAttribute`
+  (or no JSX namespace), or a container whose complete member table does not
+  hold exactly one name. The automatic runtime reads the import source's
+  namespace, which `jsx_children_name` does not, so it is not decided.
+- **`tsxAttributeResolution2` (13,18), TS7006.** `getContextualTypeForJsxAttribute`
+  (`jsx.go:214`) is nil when `getTypeOfPropertyOfContextualType` finds
+  neither a member nor an applicable index signature (`data-c1` on an
+  intrinsic element whose props lack it). This is decided only for an
+  intrinsic element whose props type is computed, not `any`, not a union,
+  not instantiable and not mapped, with a complete member table.
+  - The first draft also decided this for value tags. It lost
+    `tsxInferenceShouldNotYieldAnyOnUnions` (26,53)(27,51): a generic
+    component's attributes type is the candidate's mid-inference
+    instantiation, not the declared props. That draft was refused.
+
+The two JSX proofs are `jsx_intrinsic.rs::jsx_children_name_is_absent` and
+`jsx_attribute_context_is_absent`. The implicit-any rule reaches them
+through `jsx_context_is_absent`, after the no-contextual-type arms. It looks
+through parentheses and refuses a spread child.
+
+**Measured** (diagnostics, unfiltered, against batch 19 with §17–§19 on
+top): +3 cases, 0 lost.
+
+## 21. A union JSX attributes target's excess check, and discriminated intersections
+
+**Forcing case.** `tsxSpreadAttributesResolution6` (15,10). `<TextComponent
+editable={true} />` against `IntrinsicAttributes & IntrinsicClassAttributes<…>
+& TextProps & { children?: ReactNode }` is false natively, with
+`TextProps = { editable: false } | { editable: true, onEdit: … }`. Two
+undecided steps hid the line.
+
+1. **`jsx_excess_attribute` declined every union target.** `hasExcessProperties`
+   (`relater.go:2714`) reduces a union target by `findMatchingDiscriminantType`,
+   else by `filterPrimitivesIfContainsNonPrimitive`. Each written attribute
+   must then be `isKnownProperty` in the reduced target, and its type must
+   relate to `getTypeOfPropertyInTypes` over the reduced constituents
+   (`checkTypes`). The JSX check now runs that arm. It reuses
+   `assignreport.rs`'s `find_matching_discriminant_type`,
+   `filter_primitives_if_contains_non_primitive` and
+   `type_of_property_in_types`, which are now `pub(crate)`.
+   - An unknown attribute is reported against the reduced target, as
+     native's error target is.
+   - A failed property relation is `JsxExcess::Incompatible`, and the
+     relation fails with it (native's `hasExcessProperties` returning true).
+2. **`type_related_to_discriminated_type` answered Unknown for an
+   intersection match.** The combination `editable: true` matches the
+   second constituent. Native then relates the remaining members of that
+   intersection (`propertiesRelatedTo(source, type, excluded)`), and the
+   missing `onEdit` fails it. This port could not enumerate the
+   intersection's combined member list (`IntrinsicClassAttributes<T>`).
+   Each property of an intersection is the intersection of its
+   constituents' properties, so a constituent whose remaining members fail
+   (a required member the source lacks, or one it mistypes) fails the
+   whole. The arm now asks each constituent when the whole is undecided.
+
+**Measured** (diagnostics and types, unfiltered, against batch 19 with
+§17–§20 on top): +1 case, 0 lost, types unchanged.

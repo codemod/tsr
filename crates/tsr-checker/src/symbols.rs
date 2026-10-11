@@ -6727,10 +6727,13 @@ impl<'a> Checker<'a, '_> {
         // from the context even when it has a default. See [`crate::contextual`]
         // for which contexts this port can answer; `None` from it leaves the
         // behaviour exactly as it was, ending in the implicit `any`.
-        if self.nodes.kind(declaration) == SyntaxKind::Parameter
-            && let Some(contextual) = self.get_contextually_typed_parameter_type(declaration)
-        {
-            return Some(self.add_optionality_for_declaration(contextual, declaration));
+        if self.nodes.kind(declaration) == SyntaxKind::Parameter {
+            let contextual = self.get_contextually_typed_parameter_type(declaration);
+            // The assignment-time record TS7006 reads (r7-reports §18).
+            self.record_parameter_context_at_assignment(declaration, contextual.is_none());
+            if let Some(contextual) = contextual {
+                return Some(self.add_optionality_for_declaration(contextual, declaration));
+            }
         }
         let initializer = self.initializer_of(declaration)?;
 

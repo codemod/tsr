@@ -1931,3 +1931,57 @@ fn inherited_call_and_construct_signatures_are_target_requirements() {
         assert!(!checker.is_type_assignable_to(plain, constructable));
     });
 }
+
+/// `T["kind"]` with `T extends { kind: SK }` relates to `SK` through its
+/// constraint after the union-target walk fails (relater.go:3652), and a
+/// deferred `Extract<E[I], N>` is not a `StrClass` (its default constraint,
+/// the check intersected with its implied constraint, is not; r7-reports §17).
+#[test]
+fn indexed_access_sources_meet_union_targets_through_their_constraint() {
+    use tsr_checker::relater::{Relation, Ternary};
+    with_checker(
+        "type SK = 'a' | 'b'; interface Node0 { kind: SK; x: number } function f<T extends Node0>(k: T['kind'], y: SK) {}",
+        |checker, statements| {
+            let Statement::FunctionDeclaration(function) = statements[2] else {
+                panic!("function")
+            };
+            let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+            let target = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+            for relation in [Relation::Assignable, Relation::Subtype] {
+                assert_eq!(checker.relate_ternary(source, target, relation), Ternary::Related);
+            }
+        },
+    );
+    with_checker(
+        "class NumClass<T extends number> { private value!: T; public numExclusive() { } } class StrClass<T extends string> { private value!: T; public strExclusive() { } } type Extract<T, U> = T extends U ? T : never; function f<Entries extends { [index: string]: NumClass<number> | StrClass<string> }, EntryId extends keyof Entries>(b: Extract<Entries[EntryId], NumClass<any>>, t: StrClass<string>) {}",
+        |checker, statements| {
+            let Statement::FunctionDeclaration(function) = statements[3] else {
+                panic!("function")
+            };
+            let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+            let target = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+            assert_eq!(
+                checker.relate_ternary(source, target, Relation::Assignable),
+                Ternary::NotRelated
+            );
+        },
+    );
+    // `Extract<T, string | undefined> & {}` relates to `string` through its
+    // combined constraint `T & string` (getEffectiveConstraintOfIntersection);
+    // that retry reads the conditional's constraint, which this port leaves
+    // undecided, so the failed constituent walk is not a decision.
+    with_checker(
+        "type Extract<T, U> = T extends U ? T : never; function f<T>(x: Extract<T, string | undefined> & {}, s: string) {}",
+        |checker, statements| {
+            let Statement::FunctionDeclaration(function) = statements[1] else {
+                panic!("function")
+            };
+            let source = checker.get_type_from_type_node(function.parameters[0].r#type.unwrap());
+            let target = checker.get_type_from_type_node(function.parameters[1].r#type.unwrap());
+            assert_ne!(
+                checker.relate_ternary(source, target, Relation::Assignable),
+                Ternary::NotRelated
+            );
+        },
+    );
+}
