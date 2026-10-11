@@ -1456,6 +1456,120 @@ impl<'a> BindResult<'a> {
         Some(resolved)
     }
 
+    /// `useResult`'s variable arm (`binder/nameresolver.go:70-80`):
+    /// *"parameters are only in the scope of function body"*. A
+    /// function-scoped variable found in a function-like node's `locals` while
+    /// the walk arrives from anywhere but the body is the answer only from a
+    /// parameter, or from the return type when it is itself declared in a
+    /// parameter: `function bar(): typeof b { var b }` and a member's computed
+    /// name `[foo<T>(a)]<T>(a: T)` do not see `b` / `a`. A reparsed JSDoc
+    /// arrival is native's synthesized `lastLocation`, which sees them; this
+    /// port's JSDoc nodes are real, so any JSDoc kind counts as that. The
+    /// `useOuterVariableScopeInParameter` half is the caller's
+    /// (`docs/parity/notes/r7-shared.md` §23).
+    #[allow(
+        clippy::inline_always,
+        reason = "runs on every local hit of a check-time lookup; outlined it cost +0.14% Ir on domain-model (r7-shared.md §23)"
+    )]
+    #[inline(always)]
+    fn function_scoped_variable_hidden_outside_body(
+        &self,
+        symbol: SymbolId,
+        location: NodeId,
+        last: Option<NodeId>,
+        meaning: SymbolFlags,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+    ) -> bool {
+        // Most hits are in a non-function scope or without an arrival node;
+        // only those reaching a function-like node take the out-of-line rest.
+        match last {
+            Some(last) if crate::container::is_function_like_kind(nodes.kind(location)) => self
+                .function_scoped_variable_hidden_from(
+                    symbol, location, last, meaning, nodes, node_map,
+                ),
+            _ => false,
+        }
+    }
+
+    /// [`Self::function_scoped_variable_hidden_outside_body`] past its
+    /// function-like test.
+    #[inline(never)]
+    fn function_scoped_variable_hidden_from(
+        &self,
+        symbol: SymbolId,
+        location: NodeId,
+        last: NodeId,
+        meaning: SymbolFlags,
+        nodes: &NodeTable,
+        node_map: &NodeMap<'a>,
+    ) -> bool {
+        // A function-like's only `Block` child is its body; a parameter
+        // arrival sees the parameters; JSDoc node kinds are one contiguous
+        // range.
+        let last_kind = nodes.kind(last);
+        if matches!(last_kind, SyntaxKind::Block | SyntaxKind::Parameter)
+            || (SyntaxKind::JSDocTypeExpression as u16..=SyntaxKind::JSDocImportTag as u16)
+                .contains(&(last_kind as u16))
+        {
+            return false;
+        }
+        let flags = self.symbols.get(self.merged_symbol(symbol)).flags;
+        if !meaning.intersects(flags & SymbolFlags::VARIABLE)
+            || !flags.contains(SymbolFlags::FUNCTION_SCOPED_VARIABLE)
+        {
+            return false;
+        }
+        if Self::function_like_body(location, node_map) == Some(last) {
+            return false;
+        }
+        if Self::function_like_return_type(location, node_map) == Some(last) {
+            let declarations = &self.symbols.get(self.merged_symbol(symbol)).declarations;
+            let in_parameter = declarations.iter().any(|&declaration| {
+                std::iter::once(declaration)
+                    .chain(nodes.ancestors(declaration))
+                    .any(|node| nodes.kind(node) == SyntaxKind::Parameter)
+            });
+            return !in_parameter;
+        }
+        true
+    }
+
+    /// A function-like node's body, as `location.Body()` (`nameresolver.go`).
+    fn function_like_body(location: NodeId, node_map: &NodeMap<'a>) -> Option<NodeId> {
+        match node_map.get(location) {
+            Some(tsr_ast::Node::FunctionDeclaration(f)) => f.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::FunctionExpression(f)) => f.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::ArrowFunction(f)) => f.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::MethodDeclaration(m)) => m.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::ConstructorDeclaration(c)) => c.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::GetAccessorDeclaration(a)) => a.body.and_then(|b| b.node_id()),
+            Some(tsr_ast::Node::SetAccessorDeclaration(a)) => a.body.and_then(|b| b.node_id()),
+            _ => None,
+        }
+    }
+
+    /// A function-like node's return type node, as `location.Type()`.
+    fn function_like_return_type(location: NodeId, node_map: &NodeMap<'a>) -> Option<NodeId> {
+        let annotation = match node_map.get(location) {
+            Some(tsr_ast::Node::FunctionDeclaration(f)) => f.r#type,
+            Some(tsr_ast::Node::FunctionExpression(f)) => f.r#type,
+            Some(tsr_ast::Node::ArrowFunction(f)) => f.r#type,
+            Some(tsr_ast::Node::MethodDeclaration(m)) => m.r#type,
+            Some(tsr_ast::Node::MethodSignatureDeclaration(m)) => m.r#type,
+            Some(tsr_ast::Node::GetAccessorDeclaration(a)) => a.r#type,
+            Some(tsr_ast::Node::SetAccessorDeclaration(a)) => a.r#type,
+            Some(tsr_ast::Node::CallSignatureDeclaration(c)) => c.r#type,
+            Some(tsr_ast::Node::ConstructSignatureDeclaration(c)) => c.r#type,
+            Some(tsr_ast::Node::IndexSignatureDeclaration(i)) => i.r#type,
+            Some(tsr_ast::Node::FunctionTypeNode(f)) => f.r#type,
+            Some(tsr_ast::Node::ConstructorTypeNode(c)) => c.r#type,
+            Some(tsr_ast::Node::ConstructorDeclaration(c)) => c.r#type,
+            _ => None,
+        };
+        annotation.and_then(|t| tsr_ast::Node::from(t).node_id())
+    }
+
     /// `useResult`'s type arm (`binder/nameresolver.go:61`): *"local types are
     /// only in scope in the function body"*. A type found in a function's
     /// `locals` while the walk arrives from anywhere but the body is the answer
@@ -1682,6 +1796,9 @@ impl<'a> BindResult<'a> {
                 && !self.symbol_is_declared_within(found, exclude, nodes)
                 && !self.parameter_hidden_from_type_parameter_list(found, node, last, nodes)
                 && !self.local_type_hidden_outside_body(found, node, last, meaning, nodes, node_map)
+                && !self.function_scoped_variable_hidden_outside_body(
+                    found, node, last, meaning, nodes, node_map,
+                )
                 // `useOuterVariableScopeInParameter` (`nameresolver.go:74`),
                 // whose first test (`IsParameterDeclaration(lastLocation)`)
                 // stays inline: the rest runs on almost no lookup. Without

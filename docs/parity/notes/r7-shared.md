@@ -826,3 +826,27 @@ named `prototype` whose parent node is a class) and answers
 itself, and computed names that late-bind to `prototype`
 (`[FunctionPropertyNames.prototype]`, `staticPropertyNameConflicts` 65/195/330),
 which `lateBindMember` resolves against the early prototype symbol.
+
+## 23. Parameters and body variables are not visible from outside a function's body (RESOLVE-NAME-FUNCTION-LIKE-PARAMETER-SCOPE)
+
+`resolveNameHelper`'s `useResult` block (binder/nameresolver.go:61-80) for a
+function-like `location` reached from anything but its body: a type found in
+its locals is visible only if it is a type parameter seen from the parameter
+list or return type (§842, ported); a function-scoped *variable* (a
+parameter or a `var` in the body) only from a parameter, or from the return
+type when it is declared in a parameter. Only the type-parameter-list case of
+the variable arm existed (§838), so `function bar(): typeof b { var b }`
+resolved `b` (native TS2304) and a member's computed name `[foo<T>(a)]<T>(a:
+T)` resolved `a` to the member's own parameter (native `any`, TS2552).
+`function_scoped_variable_hidden_outside_body` is the arm; a JSDoc-kind
+arrival is treated as native's synthesized reparsed node, which sees the
+parameters. `useOuterVariableScopeInParameter` stays the caller's.
+`functionVariableInReturnTypeAnnotation` converts (diagnostics);
+`typeParametersAndParametersInComputedNames` now reads `a : any` and reports
+TS2552, still missing TS2304 for the type argument `T`.
+
+Perf: the arm runs on every successful local lookup at check time. As a plain
+call it cost +0.28% Ir on domain-model; an always-inlined prelude (arrival
+present and a function-like location) in front of an out-of-line remainder
+that tests `Block`/`Parameter`/the JSDoc kind range before any table read
+brings it to domain-model 1.0011, generic-imports 1.0000.
