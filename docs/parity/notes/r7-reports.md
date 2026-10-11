@@ -925,3 +925,38 @@ through parentheses and refuses a spread child.
 
 **Measured** (diagnostics, unfiltered, against batch 19 with §17–§19 on
 top): +3 cases, 0 lost.
+
+## 21. A union JSX attributes target's excess check, and discriminated intersections
+
+**Forcing case.** `tsxSpreadAttributesResolution6` (15,10). `<TextComponent
+editable={true} />` against `IntrinsicAttributes & IntrinsicClassAttributes<…>
+& TextProps & { children?: ReactNode }` is false natively, with
+`TextProps = { editable: false } | { editable: true, onEdit: … }`. Two
+undecided steps hid the line.
+
+1. **`jsx_excess_attribute` declined every union target.** `hasExcessProperties`
+   (`relater.go:2714`) reduces a union target by `findMatchingDiscriminantType`,
+   else by `filterPrimitivesIfContainsNonPrimitive`. Each written attribute
+   must then be `isKnownProperty` in the reduced target, and its type must
+   relate to `getTypeOfPropertyInTypes` over the reduced constituents
+   (`checkTypes`). The JSX check now runs that arm. It reuses
+   `assignreport.rs`'s `find_matching_discriminant_type`,
+   `filter_primitives_if_contains_non_primitive` and
+   `type_of_property_in_types`, which are now `pub(crate)`.
+   - An unknown attribute is reported against the reduced target, as
+     native's error target is.
+   - A failed property relation is `JsxExcess::Incompatible`, and the
+     relation fails with it (native's `hasExcessProperties` returning true).
+2. **`type_related_to_discriminated_type` answered Unknown for an
+   intersection match.** The combination `editable: true` matches the
+   second constituent. Native then relates the remaining members of that
+   intersection (`propertiesRelatedTo(source, type, excluded)`), and the
+   missing `onEdit` fails it. This port could not enumerate the
+   intersection's combined member list (`IntrinsicClassAttributes<T>`).
+   Each property of an intersection is the intersection of its
+   constituents' properties, so a constituent whose remaining members fail
+   (a required member the source lacks, or one it mistypes) fails the
+   whole. The arm now asks each constituent when the whole is undecided.
+
+**Measured** (diagnostics and types, unfiltered, against batch 19 with
+§17–§20 on top): +1 case, 0 lost, types unchanged.

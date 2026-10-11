@@ -3898,7 +3898,7 @@ impl<'a> Checker<'a, '_> {
 
     /// `filterPrimitivesIfContainsNonPrimitive` (`relater.go`): only a union
     /// containing `object` drops its primitive constituents.
-    fn filter_primitives_if_contains_non_primitive(&mut self, union: TypeId) -> TypeId {
+    pub(crate) fn filter_primitives_if_contains_non_primitive(&mut self, union: TypeId) -> TypeId {
         if self.maybe_type_of_kind(union, TypeFlags::NON_PRIMITIVE) {
             let result = self.filter_type(union, |checker, t| {
                 !checker.type_of(t).flags.intersects(TypeFlags::PRIMITIVE)
@@ -4196,7 +4196,11 @@ impl<'a> Checker<'a, '_> {
     /// type's `getTypeOfPropertyInType` — its property, else its applicable
     /// index signature's value, else `undefined`. `None` where a type lacking
     /// the property has an uncertified member table.
-    fn type_of_property_in_types(&mut self, types: &[TypeId], name: &str) -> Option<TypeId> {
+    pub(crate) fn type_of_property_in_types(
+        &mut self,
+        types: &[TypeId],
+        name: &str,
+    ) -> Option<TypeId> {
         let mut found = Vec::with_capacity(types.len());
         for &t in types {
             found.push(
@@ -4253,7 +4257,7 @@ impl<'a> Checker<'a, '_> {
     /// `getMatchingUnionConstituentForType` answers only for unions of ten or
     /// more object constituents (`computeKeyPropertyNameAndMap`); that key map
     /// is not ported, so such unions are undecidable.
-    fn find_matching_discriminant_type(
+    pub(crate) fn find_matching_discriminant_type(
         &mut self,
         source: TypeId,
         target: TypeId,

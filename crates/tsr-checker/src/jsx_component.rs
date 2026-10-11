@@ -21,7 +21,16 @@ use crate::types::TypeId;
 /// the first one (`at` is `None` for the synthesized `children`).
 enum JsxExcess {
     None,
-    Member { at: Option<NodeId>, name: String },
+    /// An attribute `isKnownProperty` rejects in `within` (the target, or a
+    /// union target's reduced form).
+    Member {
+        at: Option<NodeId>,
+        name: String,
+        within: TypeId,
+    },
+    /// A union target's `checkTypes` arm: an attribute whose type does not
+    /// relate to `getTypeOfPropertyInTypes`.
+    Incompatible,
 }
 
 /// `JsxReferenceKind` (`jsx.go`).
@@ -547,6 +556,7 @@ impl Checker<'_, '_> {
         let excess = self.jsx_excess_attribute(attributes_id, source, target)?;
         let related = self.relate_ternary(source, target, relation);
         if related == Ternary::NotRelated
+            || matches!(excess, JsxExcess::Incompatible)
             || matches!(excess, JsxExcess::Member { .. })
                 && self.jsx_target_members_complete(target)
         {
@@ -554,7 +564,7 @@ impl Checker<'_, '_> {
         }
         match excess {
             JsxExcess::None => Some((related, excess)),
-            JsxExcess::Member { .. } => Some((Ternary::Unknown, excess)),
+            JsxExcess::Member { .. } | JsxExcess::Incompatible => Some((Ternary::Unknown, excess)),
         }
     }
 
@@ -581,8 +591,8 @@ impl Checker<'_, '_> {
         if self.elaborate_jsx_components(attributes_id, source, target) != Some(false) {
             return;
         }
-        if let JsxExcess::Member { at, name } = excess {
-            self.report_jsx_excess_attribute(at.unwrap_or(tag_id), &name, source, target);
+        if let JsxExcess::Member { at, name, within } = excess {
+            self.report_jsx_excess_attribute(at.unwrap_or(tag_id), &name, source, within);
             return;
         }
         let span = self.error_span(tag_id);
@@ -1160,9 +1170,25 @@ impl Checker<'_, '_> {
         if !self.is_excess_property_check_target(target) {
             return Some(JsxExcess::None);
         }
-        if self.store.get(target).flags.intersects(TypeFlags::UNION) {
-            return None;
-        }
+        // A union target is reduced by `findMatchingDiscriminantType`, else
+        // by `filterPrimitivesIfContainsNonPrimitive`, and its constituents
+        // are the `checkTypes` each attribute's type must relate to
+        // (`hasExcessProperties`, `relater.go:2714`; r7-reports §21).
+        let (reduced, check_types) = if self.store.get(target).flags.intersects(TypeFlags::UNION) {
+            let discriminated = self.find_matching_discriminant_type(source, target)?;
+            let reduced = if discriminated == target {
+                self.filter_primitives_if_contains_non_primitive(target)
+            } else {
+                discriminated
+            };
+            let check_types = match &self.store.get(reduced).data {
+                crate::types::TypeData::Union { types, .. } => types.clone(),
+                _ => vec![reduced],
+            };
+            (reduced, Some(check_types))
+        } else {
+            (target, None)
+        };
         if let Some(object) = self.global_type_symbol_with_arity("Object", 0)
             && self.get_declared_type_of_symbol(object) == target
         {
@@ -1185,8 +1211,16 @@ impl Checker<'_, '_> {
             written.push((None, children));
         }
         for (at, name) in written {
-            if !self.jsx_is_known_property(target, &name)? {
-                return Some(JsxExcess::Member { at, name });
+            if !self.jsx_is_known_property(reduced, &name)? {
+                return Some(JsxExcess::Member { at, name, within: reduced });
+            }
+            let Some(check_types) = &check_types else { continue };
+            let source_member = self.get_type_of_property_of_type(source, &name)?;
+            let target_member = self.type_of_property_in_types(check_types, &name)?;
+            match self.relate_ternary(source_member, target_member, Relation::Assignable) {
+                Ternary::Related => {}
+                Ternary::NotRelated => return Some(JsxExcess::Incompatible),
+                Ternary::Unknown => return None,
             }
         }
         Some(JsxExcess::None)

@@ -7656,6 +7656,21 @@ impl Relater<'_, '_, '_> {
             if properties == RelationResult::NotRelated {
                 return properties;
             }
+            // An intersection whose combined member list this port cannot
+            // enumerate: each of its properties is the intersection of its
+            // constituents' (`getPropertiesOfType`), so a member a
+            // constituent requires and the source lacks or mistypes fails
+            // the whole. A constituent's failure is the intersection's
+            // (r7-reports §21).
+            if properties == RelationResult::Unknown
+                && let Some(constituents) = self.intersection_constituents(t)
+                && constituents.into_iter().any(|part| {
+                    self.properties_related_to_excluding(source, part, false, &excluded)
+                        == RelationResult::NotRelated
+                })
+            {
+                return RelationResult::NotRelated;
+            }
             let signatures = if self.call_or_construct_bearing(t) {
                 self.related_signatures(source, t).unwrap_or(RelationResult::Unknown)
             } else {
