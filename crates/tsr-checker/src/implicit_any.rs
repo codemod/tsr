@@ -493,10 +493,57 @@ impl Checker<'_, '_> {
         }
         if self.parameter_assigned_without_context(parameter)
             || self.jsx_context_is_absent(function)
+            || self.return_context_is_absent(function, 0)
         {
             return true;
         }
         self.contextual_signature_types_no_parameter(function, parameter)
+    }
+
+    /// Is `function` an arrow's expression body (parentheses looked
+    /// through) whose arrow has a decided-absent contextual signature?
+    ///
+    /// `getContextualTypeForReturnExpression` → `getContextualReturnType`
+    /// (`checker.go:29665`): with no return annotation, the owner's
+    /// `getContextualSignatureForFunctionLikeDeclaration` supplies the
+    /// return context, and a nil signature leaves none (an IIFE owner reads
+    /// its call's context instead). `(a) => (b) => 0` passed to
+    /// `foo(...arg: any[])`: `any` has no signature, so `b` is implicitly
+    /// `any` (`fatarrowfunctionsOptionalArgs` (129,13); r7-reports §27). The
+    /// owner's absence is the same decision its own parameters' TS7006
+    /// reads, so a nested chain recurses one owner at a time.
+    fn return_context_is_absent(&mut self, function: NodeId, depth: usize) -> bool {
+        if depth > 8 {
+            return false;
+        }
+        let mut node = function;
+        let mut parent = self.nodes.parent(node);
+        while let Some(id) = parent
+            && self.nodes.kind(id) == SyntaxKind::ParenthesizedExpression
+        {
+            node = id;
+            parent = self.nodes.parent(id);
+        }
+        let Some(owner) = parent else { return false };
+        let Some(Node::ArrowFunction(arrow)) = self.node_map.get(owner) else { return false };
+        if arrow.body.and_then(|body| body.node_id()) != Some(node)
+            || arrow.r#type.is_some()
+            || self.jsdoc_return_annotation(owner).is_some()
+            || self.immediately_invoked_call(owner).is_some()
+        {
+            return false;
+        }
+        if self.has_no_reparsed_contextual_type(owner) {
+            return !self.returned_from_an_iife(owner);
+        }
+        match self.contextual_signature_result(owner) {
+            Some(ContextualSignature::Absent) => {
+                !self.within_generic_call_argument(owner)
+                    || self.contextual_signatures_all_too_short(owner)
+            }
+            Some(ContextualSignature::Present(_)) => false,
+            None => self.return_context_is_absent(owner, depth + 1),
+        }
     }
 
     /// Is `function` a JSX attribute's value or a JSX child whose contextual
