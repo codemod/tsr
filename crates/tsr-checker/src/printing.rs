@@ -1799,6 +1799,40 @@ mod tests {
         assert_eq!(checker.type_name_for_error_display(t_type), "T");
     }
 
+    /// `TypeToString` with no enclosing declaration (`printer.go:177`): no
+    /// symbol chain, so a written qualifier, a type argument's and an enum
+    /// member's enum all print by their own names (r7-printer §22; native
+    /// `qualify`, `IPromise<number>` in `ipromise4`, `boolean | Foo.B` in
+    /// `enumLiteralAssignableToEnumInsideUnion`).
+    #[test]
+    fn a_message_print_names_every_reference_by_its_own_name() {
+        let source = "namespace X { export namespace Y { export class C {} \
+            export class G<T> { t!: T } export enum Foo { A, B } } }
+            let c: X.Y.C; let g: X.Y.G<X.Y.C>; let e: boolean | X.Y.Foo.B;";
+        let arena = tsr_core::Arena::new();
+        let parsed = tsr_parser::parse(&arena, source);
+        assert!(parsed.diagnostics.is_empty());
+        let bound = tsr_binder::bind(
+            &arena,
+            parsed.source_file,
+            &parsed.nodes,
+            tsr_binder::FileInfo { name: "test.ts", text: source },
+        );
+        let root = parsed.source_file.node_id.unwrap();
+        let mut checker = crate::Checker::new(&bound, &parsed.nodes, &parsed.node_map);
+        for (name, site, message) in [
+            ("c", "X.Y.C", "C"),
+            ("g", "X.Y.G<X.Y.C>", "G<C>"),
+            ("e", "boolean | X.Y.Foo.B", "boolean | Foo.B"),
+        ] {
+            let symbol = checker.binder.lookup_local(root, name).unwrap();
+            let declaration = checker.binder.symbols().get(symbol).declarations[0];
+            let ty = checker.get_type_of_symbol(symbol);
+            assert_eq!(checker.type_to_string_at(ty, declaration).as_deref(), Some(site), "{name}");
+            assert_eq!(checker.type_to_string_for_message(ty, declaration), message, "{name}");
+        }
+    }
+
     #[test]
     fn an_unparseable_literal_keeps_its_text_rather_than_inventing_a_value() {
         assert_eq!(normalise_number("not-a-number"), "not-a-number");
