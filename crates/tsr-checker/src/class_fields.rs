@@ -693,4 +693,77 @@ impl Checker<'_, '_> {
             }
         }
     }
+
+    /// `getErrorRangeForArrowFunction` (`scanner.go:2542`): from the arrow's
+    /// start to its end, or, when its block body's full start (the end of
+    /// `=>`) and end are on different lines, to the end of that first line
+    /// (`GetECMAEndLinePosition(startLine) + 1`). Without source text, the
+    /// node's span.
+    pub(crate) fn arrow_function_error_span(
+        &self,
+        node: NodeId,
+        arrow: &tsr_ast::ArrowFunction<'_>,
+    ) -> tsr_core::Span {
+        let span = self.nodes.span(node);
+        let block = matches!(arrow.body, Some(tsr_ast::ConciseBody::Block(_)));
+        let body_full_start = arrow.equals_greater_than_token.and_then(|token| token.node_id);
+        let (true, Some(body_full_start)) = (block, body_full_start) else { return span };
+        let body_full_start = self.nodes.span(body_full_start).end as usize;
+        let Some(file) = self.source_file_of_for_diagnostics(node) else { return span };
+        let Some(text) = self.module_host.and_then(|host| host.source_text(file, self.nodes))
+        else {
+            return span;
+        };
+        let is_line_break = |ch: char| matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}');
+        let Some(between) = text.get(body_full_start..span.end as usize) else { return span };
+        let Some(offset) = between.find(is_line_break) else { return span };
+        // The first line's end: the line break after the body's full start,
+        // which is also the line break that makes the body multi-line.
+        let line_end = u32::try_from(body_full_start + offset).unwrap_or(span.end);
+        tsr_core::Span::new(span.start, line_end)
+    }
+
+    /// `ast.GetAssignedName` (`ast/utilities.go:1486`): the name an anonymous
+    /// function or class expression is assigned to through its parent: a
+    /// property assignment's or binding element's name, an identifier
+    /// variable name, or the left side of `=` (an identifier, a property
+    /// access's name, or a string/numeric literal element argument).
+    pub(crate) fn assigned_name_of(&self, node: NodeId) -> Option<NodeId> {
+        let parent = self.nodes.parent(node)?;
+        match self.node_map.get(parent)? {
+            Node::PropertyAssignment(property) => property.name.node_id(),
+            Node::BindingElement(element) => element.name.and_then(|name| name.node_id()),
+            Node::VariableDeclaration(declaration) => match declaration.name {
+                Some(tsr_ast::BindingName::Identifier(identifier)) => identifier.node_id,
+                _ => None,
+            },
+            Node::BinaryExpression(binary) => {
+                if binary.right.and_then(|right| right.node_id()) != Some(node) {
+                    return None;
+                }
+                match binary.left? {
+                    tsr_ast::Expression::Identifier(identifier) => identifier.node_id,
+                    tsr_ast::Expression::PropertyAccessExpression(access) => {
+                        access.name.and_then(|name| name.node_id())
+                    }
+                    tsr_ast::Expression::ElementAccessExpression(access) => {
+                        let mut argument = access.argument_expression?;
+                        while let tsr_ast::Expression::ParenthesizedExpression(inner) = argument {
+                            argument = inner.expression?;
+                        }
+                        matches!(
+                            argument,
+                            tsr_ast::Expression::StringLiteral(_)
+                                | tsr_ast::Expression::NumericLiteral(_)
+                                | tsr_ast::Expression::NoSubstitutionTemplateLiteral(_)
+                        )
+                        .then(|| argument.node_id())
+                        .flatten()
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
 }

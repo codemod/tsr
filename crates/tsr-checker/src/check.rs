@@ -13353,6 +13353,33 @@ impl Checker<'_, '_> {
     }
 
     pub(crate) fn error_span(&self, node: NodeId) -> tsr_core::Span {
+        // `GetErrorRangeForNode`'s arms (`scanner.go:2588`) that are not a
+        // declaration's own name (r7-grammar §38).
+        match self.node_map.get(node) {
+            // `KindConstructor` (`:2632`), unless reparsed.
+            Some(Node::ConstructorDeclaration(_))
+                if !self.nodes.flags(node).contains(tsr_ast::NodeFlags::REPARSED) =>
+            {
+                return self.constructor_error_span(node);
+            }
+            // `getErrorRangeForArrowFunction` (`:2542`).
+            Some(Node::ArrowFunction(arrow)) => return self.arrow_function_error_span(node, arrow),
+            // `GetNameOfDeclaration`'s assigned-name arm for an anonymous
+            // function expression, else the first token (`:2644`).
+            Some(Node::FunctionExpression(function)) if function.name.is_none() => {
+                if let Some(assigned) = self.assigned_name_of(node) {
+                    return self.error_span(assigned);
+                }
+                let span = self.nodes.span(node);
+                return self.first_token_span(node, span.start).unwrap_or(span);
+            }
+            // `KindClassExpression`: `node.Name()` only, else the first token.
+            Some(Node::ClassExpression(class)) if class.name.is_none() => {
+                let span = self.nodes.span(node);
+                return self.first_token_span(node, span.start).unwrap_or(span);
+            }
+            _ => {}
+        }
         if let Some(name) = self.declaration_name_of(node) {
             return self.error_span(name);
         }

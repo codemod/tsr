@@ -767,3 +767,29 @@ still describe the rule's own reading. Measured on the exact oracle (filter
 `parserWithStatement2` and `withStatements` convert, none lost.
 *Falsifier.* A native diagnostic inside a `with` body that is not from the
 parser or the binder.
+
+## §38 `error_span`'s missing `GetErrorRangeForNode` arms (needs check.rs grant (e))
+
+`GetErrorRangeForNode` (`scanner.go:2588`) has arms that the shared
+`error_span` (check.rs) lacked. Every report at these nodes therefore had the
+whole node's span.
+
+* `KindConstructor` (`:2632`, unless reparsed): from the first token,
+  modifiers included, to the end of the `constructor` keyword or a
+  string-literal name (`constructor_error_span`, class_fields.rs, §35).
+* `KindArrowFunction`: `getErrorRangeForArrowFunction` (`:2542`), from the
+  arrow's start to its end, or, when the block body's full start (the end of
+  `=>`) and end are on different lines, to that first line's end
+  (`arrow_function_error_span`).
+* `KindFunctionExpression`: `GetNameOfDeclaration`, whose assigned-name arm
+  (`GetAssignedName`, `ast/utilities.go:1486`) names an anonymous function
+  after the variable, property, binding element or assignment target it is
+  given to (`assigned_name_of`). With no name at all, the first token
+  (`:2644`, `GetRangeOfTokenAtPosition`).
+* `KindClassExpression`: its own name only, else the first token.
+
+These change the span of every report anchored at such a node: TS2377 and
+TS2392 at constructors, TS1356's related "Did you mean to mark this function
+as 'async'?" (`awaitInNonAsyncFunction`), implicit-any reports at function
+expressions, and others.
+*Falsifier.* A span-only oracle difference at one of these four node kinds.
