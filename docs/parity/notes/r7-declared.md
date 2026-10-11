@@ -662,3 +662,28 @@ tuples already). `.length` keeps its own arm.
 (variadicTuples2); diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0.
 Probe: `[string, ...any[]]`'s `slice(1)` is `any[]`, and `[string,
 ...number[]]`'s is `(string | number)[]`, as in tsgo.
+
+## 16. The `keyof X` origin keeps its operand (for r7-printer's site arm)
+
+**Forcing constraint.** getLiteralTypeFromProperties attaches `origin =
+newIndexType(t)` to a resolved key union. The node builder prints that
+origin's Index arm (`nodebuilderimpl.go:3472`) from the operand's own node at
+the print site, so the operand is qualified where the site needs it (`keyof
+Intl.NumberFormatOptionsStyleRegistry`). This port baked only the text
+`keyof <operand printed at creation>` (`union_with_origin_text`), so a site
+arm had nothing to print from (intlNumberFormatES2020/ES2023,
+es2018IntlAPIs, formatToPartsFractionalSecond: 10 lines, r7-printer's
+naming re-triage).
+
+**Port.** `union_with_keyof_origin` (`unions.rs`) builds the same text and
+records the operand beside it. Checker port convention: key the
+origin-carrying union (a distinct type from the bare union, minted there);
+owner `instantiation_expressions.keyof_origin_operands`; written once at
+mint, never invalidated; no receiver or alias context; no extra work. The
+three `keyof` origin sites in `declared.rs` (the deferred-keyof
+evaluation, the tuple key union, the index-key union) call it. The print-time
+arm is r7-printer's.
+
+**Measured** (unfiltered against the rebased `5e8714ed`): types 0 / 0,
+diagnostics 0 / 0, jsTyping new_false 0 / lost_true 0, callgrind Ir gi
+0.9999, dm 1.0000.

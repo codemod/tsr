@@ -711,8 +711,7 @@ impl<'a> Checker<'a, '_> {
                         // already computed the right key set and its own note
                         // records the printed form as the residue.
                         if self.keyof_origin_applies(target) {
-                            let text = format!("keyof {}", self.type_to_string(target));
-                            self.union_with_origin_text(union, text)
+                            self.union_with_keyof_origin(union, target)
                         } else {
                             union
                         }
@@ -11508,8 +11507,7 @@ impl<'a> Checker<'a, '_> {
             // Reference, so the key union carries `keyof [A, B]` as its
             // origin (`partiallyNamedTuples`).
             let union = self.get_union_type(&keys);
-            let text = format!("keyof {}", self.type_to_string(target));
-            return Some(self.union_with_origin_text(union, text));
+            return Some(self.union_with_keyof_origin(union, target));
         }
         if self.store.get(target).flags.contains(TypeFlags::UNKNOWN) {
             return Some(self.intrinsics.never);
@@ -11623,8 +11621,7 @@ impl<'a> Checker<'a, '_> {
                 self.binder.symbols().get(*symbol).flags.contains(SymbolFlags::TYPE_ALIAS)
             });
         Some(if aliased_object || self.keyof_origin_applies(target) {
-            let text = format!("keyof {}", self.type_to_string(target));
-            self.union_with_origin_text(union, text)
+            self.union_with_keyof_origin(union, target)
         } else {
             union
         })
