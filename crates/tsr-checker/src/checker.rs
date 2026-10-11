@@ -5368,7 +5368,7 @@ impl<'a, 'n> Checker<'a, 'n> {
     /// matches the module through it. The port has no clone symbol; the
     /// alias's value being a recorded clone (`module_value_clones`) is the
     /// stand-in (r7-printer §2).
-    fn alias_targets_module_clone(&mut self, alias: SymbolId) -> bool {
+    pub(crate) fn alias_targets_module_clone(&mut self, alias: SymbolId) -> bool {
         let value = self.get_type_of_symbol(alias);
         self.module_value_clones.contains_key(&value)
     }

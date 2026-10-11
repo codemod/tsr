@@ -1743,6 +1743,28 @@ impl<'a> Checker<'a, '_> {
         if same(self, at_site) != same(self, symbol) {
             return false;
         }
+        // `resolveSymbol` of a namespace import is `resolveESModuleSymbol`'s
+        // module clone (`cloneTypeAsModuleType`), never the module or its
+        // `export =` target, so `getSymbolIfSameReference` fails for a name
+        // written against the original: `moment.Moment` from `moment`'s own
+        // file is not reused where `moment` is an `esModuleInterop` namespace
+        // import (r7-printer §29).
+        // Only a namespace import resolves through that clone
+        // (`getTargetOfNamespaceImport`), so only one is asked, and typing
+        // any other alias here would be module-resolution work a
+        // source-view plan must not do.
+        if at_site != symbol
+            && self
+                .binder
+                .symbols()
+                .get(at_site)
+                .declarations
+                .iter()
+                .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::NamespaceImport)
+            && self.alias_targets_module_clone(at_site)
+        {
+            return false;
+        }
         // "If a parameter is resolvable in the current context it is also
         // visible"; anything else must also be accessible
         // (`IsSymbolAccessible`), whose declaration half is
