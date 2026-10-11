@@ -3628,7 +3628,15 @@ impl Checker<'_, '_> {
             .parent(call_node)
             .is_some_and(|parent| self.nodes.kind(parent) == SyntaxKind::ExpressionStatement);
         let func_type = if parent_is_statement {
-            self.get_type_of_dotted_name(callee_id)?
+            // `getEffectsSignature` publishes `unknownSignature` when
+            // `getTypeOfDottedName` answers nil (`flow.go:2060`, `:2080`).
+            let Some(func_type) = self.get_type_of_dotted_name(callee_id) else {
+                if self.effects_completion_context_is_original() {
+                    self.completed_no_effects_calls.insert(call_node);
+                }
+                return None;
+            };
+            func_type
         } else if self.nodes.kind(callee_id) == SyntaxKind::SuperKeyword {
             return None;
         } else {
