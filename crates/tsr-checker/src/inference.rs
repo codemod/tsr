@@ -3279,7 +3279,9 @@ impl<'a> Checker<'a, '_> {
     ///   arity, the `this` pair when the source declares one, and the return
     ///   pair are visited, so a parameter mentioned only in an unpaired
     ///   position (a callback written with fewer parameters, the target's
-    ///   `this` against a source without one) gets nothing (§18).
+    ///   `this` against a source without one) gets nothing (§18);
+    /// - a string literal that a template literal with text does not match
+    ///   (`inferToTemplateLiteralType`, §18).
     fn source_could_supply_candidate(
         &mut self,
         source: TypeId,
@@ -3304,6 +3306,15 @@ impl<'a> Checker<'a, '_> {
             return true;
         }
         if self.tuple_types_definitely_unrelated(source, target) {
+            return false;
+        }
+        // inferToTemplateLiteralType (`inference.go:566`): a string literal the
+        // template does not match infers nothing when the template has text.
+        if matches!(self.store.get(source).data, TypeData::StringLiteral(_))
+            && let Some(parts) = self.template_literal_parts.get(&target).cloned()
+            && !parts.texts.iter().all(String::is_empty)
+            && self.template_literal_inferences(source, &parts).is_none()
+        {
             return false;
         }
         let object_source = if self.store.get(source).flags.intersects(TypeFlags::PRIMITIVE) {
