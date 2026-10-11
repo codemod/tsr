@@ -567,7 +567,15 @@ impl<'a> Parser<'a> {
                 TypeNode::TypeReferenceNode(node)
             }
             _ => {
-                self.error_at_current(&messages::TYPE_EXPECTED);
+                // `parseTypeReference`'s `parseEntityName(…, Type_expected)` →
+                // `createIdentifierWithDiagnostic` (`parser.go:5841`): at end of
+                // file the report sits zero-width at the token's full start.
+                let span = if self.at(SyntaxKind::EndOfFile) {
+                    tsr_core::Span::at(self.node_end())
+                } else {
+                    self.token.span
+                };
+                self.error_at(&messages::TYPE_EXPECTED, span);
                 self.missing_type()
             }
         }

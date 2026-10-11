@@ -249,6 +249,14 @@ function whose recovery differed. Each landed as its own commit:
 | `parseElementAccessExpressionRest` (`:5436`) | `x[]` reported TS1109, not TS1011 | badArrayIndex, objectLitArrayDeclNoNew |
 | `nextTokenIsBindingIdentifierOrStartOfDestructuringOnSameLine` (`:6324`) | `for (using of …)` read as a declaration | usingDeclarationsInForOf.2 |
 | `tryParseTypeArgumentsInExpression` (`:5247`) | a type-argument list with any diagnostic was refused (a "complaint gate"), so `foo<>()`, `foo<?>` and `foo<string?>` were comparisons | expressionWithJSDocTypeArguments; emptyTypeArgumentList(WithNew) now wait only on TS1099 |
+| `parseLeftHandSideExpressionOrHigher` (`:5180`) | `import` without `(`/`<` taken as a keyword expression | importCallExpressionIncorrect2 |
+| `parseModuleSpecifier` (`:2320`) | the parser reported TS1141 itself (the checker's) | — (es6ImportNamedImportParsingError with the next row and a checker skip) |
+| `parseNamedImports` (`:2390`) | `import d, from` reported nothing | es6ImportNamedImportParsingError's parse errors |
+| `parseNameOfParameter` (`:3363`) | a missing name at a modifier keyword did not advance | reservedWords2 |
+| `parsePostfixTypeOrHigher` (`:2714`) | `C[#bar]` parsed an index type | privateNamesAndIndexedAccess's parse errors |
+| `canFollowGetOrSetKeyword` (`:4036`) | `get #foo()` in an object literal was a property | privateNameInObjectLiteral-3 |
+| `parseParameterWorker`'s `this` arm (`:3325`) | `this?:`/`this: C = …` parsed `?`/initializer | thisTypeInFunctionsNegative's parse errors |
+| `createIdentifierWithDiagnostic` at EOF (`:5841`) | a missing type at EOF reported over the EOF token | commonJsExportTypeDeclarationError |
 
 The type-argument list is now native's `parseDelimitedList(PCTypeArguments,
 parseType)`; its diagnostics stand when the list is accepted and the
