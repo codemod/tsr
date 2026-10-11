@@ -172,6 +172,13 @@ pub struct InMemoryFileSystem {
     symlinks: BTreeMap<String, String>,
     /// Canonical directory path to the set of names directly inside it.
     directories: BTreeMap<String, DirectoryEntries>,
+    /// Canonical path of every file and directory to the spelling it was
+    /// created with: vfstest's per-entry `sys.realpath`
+    /// (`internal/vfs/vfstest/vfstest.go`, pinned `5b1047d`), which
+    /// `Realpath` answers. Under `useCaseSensitiveFileNames: false` the
+    /// canonical key is lowercased and the spelling is not. The first path to
+    /// create an entry owns its spelling, as vfstest's `mkdirAll` does.
+    spellings: FxHashMap<String, String>,
     use_case_sensitive_file_names: bool,
 }
 
@@ -190,6 +197,7 @@ impl InMemoryFileSystem {
         for (path, contents) in files {
             let canonical = fs.canonical(&path);
             fs.record_directories(&canonical, /* is_directory */ false);
+            fs.record_spellings(&canonical, &path);
             fs.files.insert(canonical, contents);
         }
         for (link, target) in symlinks {
@@ -213,6 +221,25 @@ impl InMemoryFileSystem {
             normalized
         };
         get_canonical_file_name(&key, self.use_case_sensitive_file_names)
+    }
+
+    /// Record the creation spelling of `canonical` and of each ancestor
+    /// directory, from the matching prefixes of `path` (see `spellings`).
+    fn record_spellings(&mut self, canonical: &str, path: &str) {
+        let mut spelled = normalize_path(path);
+        if spelled.len() > get_root_length(&spelled) {
+            spelled = remove_trailing_directory_separator(&spelled);
+        }
+        let mut key = canonical.to_string();
+        loop {
+            self.spellings.entry(key.clone()).or_insert_with(|| spelled.clone());
+            let parent = get_directory_path(&key).to_string();
+            if parent == key {
+                break;
+            }
+            spelled = get_directory_path(&spelled).to_string();
+            key = parent;
+        }
     }
 
     /// Record every ancestor directory of `path`, and `path`'s own entry in its
@@ -301,8 +328,10 @@ impl FileSystem for InMemoryFileSystem {
         // Realpath preserves the *spelling* when nothing is symlinked, so a
         // case-insensitive host does not rewrite `/A/B.ts` to `/a/b.ts` — upstream
         // compares the two and prefers the original when they differ only by case.
+        // Through a link the answer is the real entry's creation spelling
+        // (vfstest's `sys.realpath`), not its lowercased canonical key.
         match self.resolve(&canonical) {
-            Some(real) if real != canonical => real,
+            Some(real) if real != canonical => self.spellings.get(&real).cloned().unwrap_or(real),
             _ => normalize_path(path),
         }
     }
@@ -349,6 +378,19 @@ mod tests {
         assert_eq!(fs.read_file("/link/index.d.ts").as_deref(), Some("x"));
         assert_eq!(fs.realpath("/link/index.d.ts"), "/real/pkg/index.d.ts");
         assert!(fs.directory_exists("/link"));
+    }
+
+    #[test]
+    fn realpath_through_a_link_keeps_the_real_spelling() {
+        // vfstest's `Realpath` answers the real file's creation spelling; only
+        // the comparison key is case-folded.
+        let fs = InMemoryFileSystem::new(
+            [("/Folder/Real/index.d.ts".to_string(), String::new())],
+            [("/Folder/link".to_string(), "/Folder/Real".to_string())],
+            false,
+        );
+        assert_eq!(fs.realpath("/folder/link/index.d.ts"), "/Folder/Real/index.d.ts");
+        assert_eq!(fs.realpath("/Folder/link"), "/Folder/Real");
     }
 
     #[test]

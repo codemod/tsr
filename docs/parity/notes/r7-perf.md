@@ -814,3 +814,64 @@ drifts by more than the 3% gate. Two things would separate the series
 from noise: callgrind Ir as the hot-path guard on the bench projects, and
 p10 rather than median CPU when two binaries' Ir agree. Nothing to fix or
 route.
+
+## §17 Refused: keeping the eager render for instantiable literal members
+
+The follow-up to `804c649f` that §15.1's first rebase called for:
+`holds_anonymous_object` also answering true for a
+`TypeFlags::INSTANTIABLE` member, so that such a member keeps the mint-time
+site render. It was held on `box/r7-perf-held` (`42a83a49`). It was measured
+on main `9acf69d7` and refused, because the jsTyping leg reported
+**new_false = 1**: `checker.ts(51501,41)` TS2345 `Argument of type
+'IndexSignatureDeclaration' is not assignable to parameter of type
+'never'`. tsgo does not report that line, and main does not either. It was
+one of §4's original false positives, gone since the deferral.
+
+That is the other direction of the same sensitivity. On batch-15 main,
+*deferring* `Debug[name]`'s render added a false TS2322 at
+`debug.ts(189,13)`. On batch-17 main, after r7-flow's
+`52706f75`/`02fb65bb`, *rendering* instantiable members eagerly adds a
+false TS2345. A mint-time render resolves constraints and lazy types in an
+order native never uses, because native renders nothing at the mint. So the
+anonymous-only rule on main (`804c649f`) stays as landed, and the remaining
+order dependence belongs to the lanes whose lazy evaluations answer
+differently by order (lazy returns, indexed-access constraints). Its other
+gates passed: CLI-message audit 0 of 36,308, and the corpus compare was
+not reached.
+
+## §18 The in-memory file system's realpath keeps the real entry's spelling
+
+**Routed by the integrator** from r7-printer on 2026-10-11: under
+`useCaseSensitiveFileNames: false`, a module reached through a symlink got
+a lowercased file name (`/.src/folder/…` for `Folder`). r7-printer
+compensated in `module_specifiers.rs` with native's case-folding
+`HasPrefix`. The corpus case is
+`compiler/symbolLinkDeclarationEmitModuleNamesImportRef`.
+
+**Root cause.** It is not the loader.
+`tsr_vfs::InMemoryFileSystem::realpath`, the test host's file system, which
+the conformance harness uses, answered the *canonical key* of the entry it
+resolved through a link. That key is lowercased on a case-insensitive host.
+Native vfstest's `MapFS.Realpath` (`internal/vfs/vfstest/vfstest.go:470`)
+answers `file.Sys.(*sys).realpath`, the spelling the entry was created with.
+It case-folds only the lookup key (`getCanonicalPath`). The resolver's
+`realPath` (`resolutionState.realPath`) and the loader stored that answer
+as the module's file name.
+
+**Change** (`crates/tsr-vfs/src/lib.rs`):
+
+- `InMemoryFileSystem` records `spellings`, the canonical path → creation
+  spelling of every file and of each ancestor directory, first creator
+  wins, as vfstest's `mkdirAll` does.
+- `realpath` through a link answers the real entry's spelling. A path
+  reached without a link keeps answering the caller's normalized spelling,
+  as before. The resolver's `getOriginalAndResolvedFileName` compares the
+  two case-insensitively and prefers the original.
+- The CLI's `OsFileSystem` is unaffected.
+
+This is not a cache of computed answers. The table is fixture data fixed
+at construction. A new test (`realpath_through_a_link_keeps_the_real_spelling`)
+pins the case. r7-printer's compensating `HasPrefix` fold can now be
+re-measured for removal; it is native's own fold
+(`tspath.HasPrefix(..., !useCaseSensitiveFileNames)`), so keeping it is
+also faithful.

@@ -521,6 +521,57 @@ genericConstructorFunction1, neverTypeErrors1, neverTypeErrors2), 0 lost;
 types 0/0; jsTyping 127 → 127, new_false 0, lost_true 0. Perf (21 samples):
 domain-model 0.975, generic-imports 1.025.
 
+## 11. The `new` head: incompatible construct unions and TS2350 over an overload set
+
+**Native.** `resolveNewExpression` (`checker.go:8576`) reports
+`invocationError` (TS2351) when neither list has signatures. When there are
+call signatures but no construct signatures, it `resolveCall`s them and,
+without `noImplicitAny`, reports TS2350 (`Only_a_void_function_can_be_called_with_the_new_keyword`)
+for a declared, non-`void` return.
+
+**Change.**
+
+- `check_new_expression_head`'s type-variable refusal is narrowed, as the
+  call head's was (§10), for a union every member of which has a decided,
+  non-empty construct list. `new ctorUnion2("")` over two generic construct
+  signatures with different type parameters reports TS2351 (the empty
+  composite is §10's `compareTypeParametersIdentical` verdict).
+- TS2350 read only a sole non-generic call signature.
+  `new_head_candidate` also answers for an overload set when the `new` has
+  no argument list and no type arguments. `hasCorrectArity` then passes only
+  a candidate whose minimum argument count is 0, and there is no argument to
+  check, so `chooseOverload` picks the first such candidate in
+  `reorderCandidates` order (declined when it is generic).
+
+**Measured** against `3c35fa53` on `4a5c81bf`: diagnostics +1 (intTypeCheck's two TS2350),
+0 lost; types 0/0; jsTyping new_false 0, lost_true 0. newOperator's
+TS2351 at 46:5 now matches; the case stays WRONG on a missing TS7053
+(56:20, an element access, outside this lane). Callgrind Ir (single-threaded):
+generic-imports 1.0001, domain-model 1.0000.
+
+## 12. A `new` over non-generic construct overloads reports like a call
+
+**Native.** `resolveNewExpression` (`checker.go:8576`) runs `resolveCall`
+over the construct signatures exactly as `resolveCallExpression` does over
+call signatures: `chooseOverload` per candidate, then
+`reportCallResolutionErrors` (TS2769 chained under
+`The_last_overload_gave_the_following_error`).
+
+**Before.** `check_candidates_arity` handed `CallArity::ApplicableOverloads`
+only to calls and tagged templates. A `new` fell to `Applicable(None)`, which
+reads the transcribed walk's verdicts; that walk does not run for an
+all-non-generic set, so `new Foo(f1)` over `constructor(s: string)` /
+`constructor(n: number)` was silent.
+
+**Change.** A `new` with an argument list takes the same arm, and
+`check_new_expression_diagnostics` runs `check_overload_candidates_arguments`
+over it (§8's per-candidate literal re-check and chained report; the call
+memo `contextual_type_for_argument` reads is shared by `new`).
+
+**Measured** against `f5bcfcd7`: diagnostics +1 (constructorOverloads1), 0
+lost; types 0/0; jsTyping new_false 0, lost_true 0; callgrind Ir
+generic-imports 0.9999, domain-model 0.9999.
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

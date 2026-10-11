@@ -482,3 +482,40 @@ checkIdentifier does). No suite's failure count rose.
 | `checker_types_configured` | 1,818 | 1,818 |
 | `diagnostics` | 4,968 | 4,976 |
 | `diagnostics_configured` | 1,005 | 1,005 |
+
+### Batch 20 — r7-calls `f58c43de`, r7-contextual `cb00835f`, r7-declared `b66cdba0`, r7-flow `52536a40`, r7-perf `2dff7977`, r7-printer `ec650c97`
+
+Merged onto main `41f3c70b`. Exact oracle 9,582 → **9,591 EXACT (74.95%)**,
+0 lost, 0 missing; legacy compare against the batch-19 freeze: types +20
+RIGHT / 0 lost / 0 missing, diagnostics +10 cases / 0 lost / 0 missing;
+jsTyping 125/125, new_false 0, lost_true 0; tests, fmt, strict clippy green;
+callgrind Ir generic-imports 0.9999, domain-model 1.0006. No suite's failure
+count rose.
+
+| Suite | Batch 19 | Batch 20 |
+|---|---|---|
+| `checker_types` | 8,845 | 8,851 |
+| `checker_types_configured` | 1,818 | 1,820 |
+| `diagnostics` | 4,976 | 4,984 |
+| `diagnostics_configured` | 1,005 | 1,005 |
+
+**Integration loop.** From batch 21 on, `scripts/integration/autoloop.sh`
+runs the gate continuously as a supervised orb service, so integration keeps
+going through session interruptions. It lands a batch only when every leg
+is green: legacy compare, exact oracle, jsTyping, clippy, tests, callgrind Ir
+≤ 1.005, and the all-suite failure count. Anything else blocks the loop for
+the integration owner to cut back or route. Records it writes are marked as
+loop-landed.
+
+### Batch 21 — r7-grammar `6f2dad2d`
+
+Landed by the integration loop (`scripts/integration/autoloop.sh`): every leg
+passed. Exact oracle **9597 / 12797 EXACT (74.99%)**, 6 gained, 0 lost, 0 missing. Legacy compare against the
+previous freeze: types +0 RIGHT / 0 lost / 0 missing, diagnostics +6 cases / 0 lost / 0 missing. jsTyping 125 → 125 unique lines (tsgo 86), new_false 0, lost_true 0. Tests, fmt and strict clippy green. Callgrind Ir: generic-imports 1.0000, domain-model 0.9999. No suite's failure count rose.
+
+| Suite | Before | Batch 21 |
+|---|---|---|
+| `checker_types` | 8,851 | 8,851 |
+| `checker_types_configured` | 1,820 | 1,820 |
+| `diagnostics` | 4,984 | 4,988 |
+| `diagnostics_configured` | 1,005 | 1,007 |

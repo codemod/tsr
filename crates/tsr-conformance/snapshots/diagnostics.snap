@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 4976/5502 (90.44%)
-Failed         : 526
+Passed         : 4988/5502 (90.66%)
+Failed         : 514
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 526 failures:
+First 100 of 514 failures:
 compiler/abstractClassUnionInstantiation
   5 missing (first TS2511 at abstractClassUnionInstantiation.ts(14,1))
 compiler/abstractPropertyInConstructor
@@ -122,8 +122,6 @@ compiler/consistentAliasVsNonAliasRecordBehavior
   4 unexpected (first TS2322 at consistentAliasVsNonAliasRecordBehavior.ts(18,5)), 4 missing
 compiler/constraintWithIndexedAccess
   9 missing (first TS2344 at constraintWithIndexedAccess.ts(23,90))
-compiler/constructorOverloads1
-  1 missing (first TS2769 at constructorOverloads1.ts(17,18))
 compiler/contextualPropertyOfGenericFilteringMappedType
   3 missing (first TS2353 at contextualPropertyOfGenericFilteringMappedType.ts(38,5))
 compiler/contextualTypeFunctionObjectPropertyIntersection
@@ -212,3 +210,5 @@ compiler/excessPropertyCheckIntersectionWithRecursiveType
   3 missing (first TS2353 at excessPropertyCheckIntersectionWithRecursiveType.ts(13,9))
 compiler/excessPropertyCheckWithMultipleDiscriminants
   1 missing (first TS2353 at excessPropertyCheckWithMultipleDiscriminants.ts(131,5))
+compiler/excessiveStackDepthFlatArray
+  1 missing (first TS2322 at index.tsx(35,13))

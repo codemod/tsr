@@ -712,3 +712,42 @@ moduleAugmentationDoesNamespaceMergeOfReexport 12 (the arm's own named
 falsifiers), umd-augmentation-1 2, and
 moduleAugmentationDoesNamespaceEnumMergeOfReexport 2. Diagnostics 0 / 0;
 jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm 1.0000.
+
+## 18. HELD: a type alias's declared type is resolved outside alias-evaluation frames
+
+`get_declared_type_of_type_alias` can be reached from inside another alias's
+body evaluation, under `alias_evaluation_bindings`. Those frames switch off
+the body's own alias naming, so in styledComponentsInstantiaionLimitNotReached
+`type ReactNode = ReactChild | ReactFragment | …`, first resolved under
+`ComponentType<P>`'s frame, was published without its alias, and every
+later `React.ReactNode` printed its constituents. getDeclaredTypeOfTypeAlias
+(`checker.go:23837`) resolves with no mapper. Setting the frames aside for
+the resolution fixes the print, but alone it measures types +1 / 0 and
+**diagnostics −1** (deeplyNestedMappedTypes: TypeBox's types change, and the
+relation then hits the gap r7-reports is fixing with `evaluation_start`).
+It is held until that fix is on main
+(`/tmp/r/iso.diff` on the box; it is a two-function wrapper).
+
+The wide union-alias slice (§10.1) on top of it measures types +51 / 0 and
+diagnostics +4 / −1, with the same deeplyNestedMappedTypes loss. Its
+ReactNode and HandlerRendererResult losses were this frame leak.
+
+## 19. The alias-cycle gate narrowed to targets that can close a cycle (conformance/enums)
+
+**Forcing constraint.** `qualified_type_reference`'s cycle gate answered
+`error` for any alias-rooted qualified reference written as a type alias's
+body while that alias's declared type was resolving. That is every such
+body (`type TypeFlag = SymbolFlags.Type` through `import type { SymbolFlags
+}`): conformance/enums printed `any` where tsgo prints `SymbolFlags.Type`.
+The gate exists for circular4 (`export type T = ns2.nested.T` across two
+importing files), where native reports the circularity and yields `any`. A
+declared-type cycle can only run through type aliases, or aliases that reach
+them: an enum member, class or interface target cannot close one.
+
+**Port.** The resolved-target arm of the gate applies only when the target
+(merged) is a type alias or an alias. The unresolved arm is unchanged.
+
+**Measured** (unfiltered against `9b77d498`): types **+5, 0 lost**
+(conformance/enums 4, checkerInitializationCrash 1; circular4 stays RIGHT);
+diagnostics 0 / 0; jsTyping new_false 0 / lost_true 0; Ir gi 1.0000, dm
+1.0000.
