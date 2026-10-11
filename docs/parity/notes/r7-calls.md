@@ -735,6 +735,37 @@ candidate's check is the published type (concatTuples:
 0 lost; diagnostics 0/0; jsTyping new_false 0, lost_true 0; Ir
 generic-imports 0.9999, domain-model 1.0000; exact +1, exact_lost 0.
 
+## 23. `invocationErrorDetails`' chain under TS2349/TS2351
+
+`invocation_error` emitted only the head (`This expression is not
+callable.`/`… constructable.`), so every such report missed native's text.
+It now builds `invocationErrorDetails`' chain (`checker.go:9940`) from the
+apparent type every caller already holds (call, `new`, tagged template and
+decorator heads):
+
+- a non-union: `Type '…' has no call signatures.` (or construct);
+- a union: the first constituent with no signatures, under
+  `Not all constituents of type '…' are callable.`;
+- every constituent without signatures: `No constituent of type '…' is
+  callable.`;
+- every constituent with signatures but no composite: `Each member of the
+  union type '…' has signatures, but none of those signatures are compatible
+  with each other.`
+
+A constituent whose signature list this port cannot decide leaves the head
+alone. `Did you forget to use 'await'?`'s related information and
+`invocationErrorRecovery`'s import-originated related information are not
+modelled (the checker's related diagnostics carry no file yet).
+
+**Measured** against `14511e3e` on `0c8b7f43`: diagnostics 0/0 (the
+diagnostics suite compares code and position), types 0/0; jsTyping
+new_false 0, lost_true 0; Ir generic-imports 0.9999, domain-model 1.0001;
+exact 0 gained, 0 lost. The chain text now matches native byte for byte on
+probe files, but the exact oracle still differs. Native's chain children
+carry the parent's file and span (`NewDiagnosticChain`); this port's
+`Diagnostic::new_chain` children have no file (reported to the integrator
+as shared infrastructure).
+
 ## Proposed issues (for the integrator to file)
 
 - **Decorator inference over synthetic arguments.** `resolveDecorator`'s

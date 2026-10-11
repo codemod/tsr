@@ -736,6 +736,7 @@ impl Checker<'_, '_> {
                 } else {
                     self.invocation_error(
                         callee_id,
+                        apparent,
                         call.arguments.is_empty(),
                         SignatureKind::Call,
                     );
@@ -907,7 +908,7 @@ impl Checker<'_, '_> {
         }
         if signatures.is_empty() {
             let before = self.diagnostics.len();
-            self.invocation_error(expression_id, false, SignatureKind::Call);
+            self.invocation_error(expression_id, apparent, false, SignatureKind::Call);
             self.chain_reports_under(before, head);
             return;
         }
@@ -2602,7 +2603,7 @@ impl Checker<'_, '_> {
             );
             return;
         }
-        self.invocation_error(tag_id, false, SignatureKind::Call);
+        self.invocation_error(tag_id, apparent, false, SignatureKind::Call);
     }
 
     /// `resolveTaggedTemplateExpression`'s `resolveCall` (`checker.go:8719`,
@@ -2691,6 +2692,7 @@ impl Checker<'_, '_> {
             [] => {
                 self.invocation_error(
                     callee_id,
+                    apparent,
                     new.arguments.is_empty(),
                     SignatureKind::Construct,
                 );
@@ -2939,12 +2941,21 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// `invocationError` (`checker.go:9996`) → `invocationErrorDetails`: the
-    /// head message on `target` (a property access's name). Only the head is
-    /// emitted; the detail chain is not modelled by this port's `Diagnostic`.
+    /// `invocationError` (`checker.go:9996`) → `invocationErrorDetails`
+    /// (`checker.go:9940`) on `target` (a property access's name under a
+    /// call): the head (`This_expression_is_not_callable` /
+    /// `…_constructable`, or the get-accessor head) over the detail chain
+    /// built from the apparent type. For a non-union, `Type_0_has_no_call_signatures`;
+    /// for a union, the first constituent with no signatures under
+    /// `Not_all_constituents_of_type_0_are_callable`, or
+    /// `No_constituent_of_type_0_is_callable`, or `Each_member_of_the_union_type_0_has_signatures_but_none_…`.
+    /// A union constituent whose list this port cannot decide leaves the head
+    /// without its detail. `Did_you_forget_to_use_await`'s related information
+    /// and `invocationErrorRecovery` are not modelled.
     pub(crate) fn invocation_error(
         &mut self,
         error_target: tsr_ast::NodeId,
+        apparent: TypeId,
         zero_arguments: bool,
         kind: SignatureKind,
     ) {
@@ -2974,7 +2985,87 @@ impl Checker<'_, '_> {
                 None => return,
             }
         }
-        self.report_at_node(target, Diagnostic::new(head, self.error_span(target)));
+        let span = self.error_span(target);
+        let detail = self.invocation_error_detail(apparent, kind, span);
+        let diagnostic = match detail {
+            Some(detail) => Diagnostic::new_chain(Some(detail), head, []),
+            None => Diagnostic::new(head, span),
+        };
+        self.report_at_node(target, diagnostic);
+    }
+
+    /// The detail chain of `invocationErrorDetails` (`checker.go:9940`), at
+    /// `span`; `None` when a union constituent's signature list is undecided.
+    fn invocation_error_detail(
+        &mut self,
+        apparent: TypeId,
+        kind: SignatureKind,
+        span: tsr_core::Span,
+    ) -> Option<Diagnostic> {
+        let is_call = kind == SignatureKind::Call;
+        let no_signatures = if is_call {
+            &messages::TYPE_0_HAS_NO_CALL_SIGNATURES
+        } else {
+            &messages::TYPE_0_HAS_NO_CONSTRUCT_SIGNATURES
+        };
+        let TypeData::Union { types, .. } = self.store.get(apparent).data.clone() else {
+            let printed = self.type_to_string(apparent);
+            return Some(Diagnostic::with_args(no_signatures, span, [printed]));
+        };
+        let mut lists = Vec::with_capacity(types.len());
+        for &constituent in &types {
+            lists.push(self.signatures_of_type_kind(constituent, kind)?.len());
+        }
+        let union_text = self.type_to_string(apparent);
+        let mut detail = None;
+        let mut has_signatures = false;
+        for (&constituent, &count) in types.iter().zip(&lists) {
+            if count != 0 {
+                has_signatures = true;
+                if detail.is_some() {
+                    break;
+                }
+            } else {
+                if detail.is_none() {
+                    let printed = self.type_to_string(constituent);
+                    let inner = Diagnostic::with_args(no_signatures, span, [printed]);
+                    detail = Some(Diagnostic::new_chain(
+                        Some(inner),
+                        if is_call {
+                            &messages::NOT_ALL_CONSTITUENTS_OF_TYPE_0_ARE_CALLABLE
+                        } else {
+                            &messages::NOT_ALL_CONSTITUENTS_OF_TYPE_0_ARE_CONSTRUCTABLE
+                        },
+                        [union_text.clone()],
+                    ));
+                }
+                if has_signatures {
+                    break;
+                }
+            }
+        }
+        if !has_signatures {
+            detail = Some(Diagnostic::with_args(
+                if is_call {
+                    &messages::NO_CONSTITUENT_OF_TYPE_0_IS_CALLABLE
+                } else {
+                    &messages::NO_CONSTITUENT_OF_TYPE_0_IS_CONSTRUCTABLE
+                },
+                span,
+                [union_text.clone()],
+            ));
+        }
+        Some(detail.unwrap_or_else(|| {
+            Diagnostic::with_args(
+                if is_call {
+                    &messages::EACH_MEMBER_OF_THE_UNION_TYPE_0_HAS_SIGNATURES_BUT_NONE_OF_THOSE_SIGNATURES_ARE_COMPATIBLE_WITH_EACH_OTHER
+                } else {
+                    &messages::EACH_MEMBER_OF_THE_UNION_TYPE_0_HAS_CONSTRUCT_SIGNATURES_BUT_NONE_OF_THOSE_SIGNATURES_ARE_COMPATIBLE_WITH_EACH_OTHER
+                },
+                span,
+                [union_text],
+            )
+        }))
     }
 
     /// `getResolvedSymbolOrNil(errorTarget).Flags & SymbolFlagsGetAccessor`
