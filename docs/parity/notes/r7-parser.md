@@ -403,3 +403,37 @@ read it through the host. Routed. The cases waiting on them are
 emptyTypeArgumentList(WithNew), parserConstructorDeclaration11/12,
 indexSignatureWithTrailingComma, trailingCommasInFunctionParametersAndArguments,
 and the importCallExpressionWithTypeArgument `<>` arm.
+
+## 11. JSDoc trivia cost
+
+Callgrind on generic-imports (`--singleThreaded`) put 11.3% of all
+instructions in `jsdoc_ranges_in` and another 2.3% in `mentions_tag`, nearly
+all of it inside the lib files' long comments:
+
+- `jsdoc_ranges_in` walked each comment's body a byte at a time to find its
+  `*/`. It now skips to each `*` with `memchr` (`str::find(char)`) and checks
+  the next byte. The old loop also let a line break inside a comment set
+  that comment's own `preceded_by_line_break`; the field means a break before
+  the comment, and nothing reads it.
+- In a `.ts` file (`JSDocMode::SeeOrLink`, ADR-0053) the parser keeps a
+  construct's comments only when one carries `@see`/`@link`, but
+  `leading_jsdoc_marker` asked only for *a* comment, so every commented
+  construct had its ranges found and then dropped. The scanner already sets
+  `PRECEDING_JSDOC_WITH_SEE_OR_LINK` with the same tag test as
+  `jsdoc_has_see_or_link`, so the marker asks for that flag in this mode.
+  The alternative — keep finding the ranges and test each — is what it did.
+  It would win back only if the scanner flag and the parser's test could
+  disagree. They apply one test to the same trivia, and the test in
+  `parse_jsdoc_at` stays as a second check.
+- `classify_block_comment` scanned each comment's `@`s twice, once per tag
+  set. It now does one pass and stops once both flags are set.
+
+| step | generic-imports Ir | domain-model Ir |
+|---|---|---|
+| `memchr` body skip | 0.924 | 0.981 |
+| marker asks for the see/link flag; one tag pass | 0.920 | 0.982 |
+| together | 0.850 | 0.963 |
+
+How it would be wrong: a `.ts` construct whose `@see`/`@link` comment is no
+longer attached, which shows up as lost `@link` references in the checker's
+JSDoc output (types suite) or in the exact oracle.

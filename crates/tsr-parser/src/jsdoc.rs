@@ -75,10 +75,20 @@ impl<'a> Parser<'a> {
     /// only in `withJSDoc`, once the node it documents is finished, so a
     /// speculative parse that rewinds (an arrow function that turns out to be
     /// a parenthesized expression) never parses a comment it does not keep.
+    ///
+    /// In [`crate::parser::JSDocMode::SeeOrLink`] the trivia must hold a
+    /// comment with `@see`/`@link`, which the scanner already flagged
+    /// (`classify_block_comment` applies the same tag test as
+    /// [`jsdoc_has_see_or_link`]). Asking only for a comment found the ranges
+    /// of every commented construct in a `.ts` file, the lib files' included,
+    /// just for [`Self::parse_jsdoc_at`] to drop them.
     pub(crate) fn leading_jsdoc_marker(&self) -> Option<(u32, u32)> {
-        if self.jsdoc_mode == crate::parser::JSDocMode::Off
-            || !self.token.flags.contains(TokenFlags::PRECEDING_JSDOC_COMMENT)
-        {
+        let wanted = match self.jsdoc_mode {
+            crate::parser::JSDocMode::Off => return None,
+            crate::parser::JSDocMode::All => TokenFlags::PRECEDING_JSDOC_COMMENT,
+            crate::parser::JSDocMode::SeeOrLink => TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK,
+        };
+        if !self.token.flags.contains(wanted) {
             return None;
         }
         Some((self.scanner.full_start(), self.pos()))

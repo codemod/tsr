@@ -406,14 +406,7 @@ impl<'a> Scanner<'a> {
         if !is_jsdoc_like_text(text) {
             return TokenFlags::empty();
         }
-        let mut flags = TokenFlags::PRECEDING_JSDOC_COMMENT;
-        if mentions_tag(text, &["deprecated"]) {
-            flags |= TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED;
-        }
-        if mentions_tag(text, &["see", "link", "linkcode", "linkplain"]) {
-            flags |= TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
-        }
-        flags
+        TokenFlags::PRECEDING_JSDOC_COMMENT | jsdoc_tag_flags(text)
     }
 
     fn error(&mut self, message: &'static tsr_diagnostics::Message, span: Span) {
@@ -2235,32 +2228,47 @@ pub fn tokenize(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
     (tokens, diagnostics)
 }
 
-/// Whether a JSDoc comment mentions any of `tags` as `@tag`.
+/// Which of `@deprecated` and `@see`/`@link`/`@linkcode`/`@linkplain` a
+/// JSDoc comment mentions, in one pass over its `@`s (two passes, one per
+/// set, were 2.5% of generic-imports' instructions).
 ///
 /// Deliberately approximate — it does not know about backticks, nesting, or code
 /// fences, so it over-reports. That is the safe direction: the flag only causes
 /// the comment to be parsed, and the parse settles the question.
-fn mentions_tag(text: &str, tags: &[&str]) -> bool {
+fn jsdoc_tag_flags(text: &str) -> TokenFlags {
+    const DEPRECATED: &[&str] = &["deprecated"];
+    const SEE_OR_LINK: &[&str] = &["see", "link", "linkcode", "linkplain"];
     let bytes = text.as_bytes();
-    let mut i = 0;
-    while let Some(offset) = text[i..].find('@') {
-        let after = i + offset + 1;
-        for tag in tags {
-            if text[after..].starts_with(tag) {
+    let mentions = |after: usize, tags: &[&str]| {
+        tags.iter().any(|tag| {
+            text[after..].starts_with(tag) && {
                 let terminator = bytes.get(after + tag.len());
                 // A tag name ends at whitespace, `}` (from `{@link x}`), `*`, or
                 // the end of the comment. Without this check `@seeder` matches
                 // `@see`.
                 // `scanner.hasJSDocTag` at 5b1047d: this is an explicit byte
                 // set, not ASCII whitespace (which would also admit form feed).
-                if terminator
-                    .is_none_or(|&b| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'}' | b'*'))
-                {
-                    return true;
-                }
+                terminator.is_none_or(|&b| matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'}' | b'*'))
             }
+        })
+    };
+    let mut flags = TokenFlags::empty();
+    let mut i = 0;
+    while let Some(offset) = text[i..].find('@') {
+        let after = i + offset + 1;
+        if mentions(after, DEPRECATED) {
+            flags |= TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED;
+        }
+        if mentions(after, SEE_OR_LINK) {
+            flags |= TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
+        }
+        if flags.contains(
+            TokenFlags::PRECEDING_JSDOC_WITH_DEPRECATED
+                | TokenFlags::PRECEDING_JSDOC_WITH_SEE_OR_LINK,
+        ) {
+            break;
         }
         i = after;
     }
-    false
+    flags
 }
