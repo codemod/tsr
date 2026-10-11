@@ -851,3 +851,19 @@ signature (bucket `TS2411 span-only MethodSignature`). `GetErrorRangeForNode`
 gives a method signature its whole node (method signatures are not in its
 name list), and the shared `error_span` gives the name. That is the same
 arm TS7010's 10-case span bucket needs, and it belongs with grant (e).
+
+## §44 TS2842's names as written and its TS2843
+
+`checkUnusedRenamedBindingElements` reports TS2842 with
+`DeclarationNameToString` of both names, so a property name keeps its
+spelling (`"a"`, `["a"]`, `[2]`, `[sym]`). When the wrapping parameter has no
+type annotation, it adds `We can only write a type for '{0}' by adding a type
+for the entire parameter here.` at the parameter's end (TS2843).
+`check_renamed_binding_element_in_signature` (check.rs, a declaration check)
+printed the property name only when it was an identifier, and never added
+the related entry. It now reads the name through
+`declaration_name_source_text` (§35), records the parameter its walk already
+finds, and attaches TS2843 at `Span::at(parameter.end)` with its file (§34).
+Converted (oracle): `excessPropertyCheckWithSpread`,
+`paramterDestrcuturingDeclaration`, `renamingDestructuredPropertyInFunctionType`
+(both variants).

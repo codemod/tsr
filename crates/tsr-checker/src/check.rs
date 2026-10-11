@@ -13172,20 +13172,18 @@ impl Checker<'_, '_> {
         // `IsPartOfParameterDeclaration` — the walk out of nested patterns ends
         // at a parameter — and `NodeIsMissing(GetContainingFunction(node).Body())`.
         let mut at = self.nodes.parent(node);
-        let mut in_parameter = false;
+        let mut parameter = None;
         while let Some(current) = at {
             match self.nodes.kind(current) {
                 SyntaxKind::BindingElement
                 | SyntaxKind::ObjectBindingPattern
                 | SyntaxKind::ArrayBindingPattern => {}
-                SyntaxKind::Parameter => in_parameter = true,
+                SyntaxKind::Parameter => parameter = Some(current),
                 _ => break,
             }
             at = self.nodes.parent(current);
         }
-        if !in_parameter {
-            return;
-        }
+        let Some(parameter) = parameter else { return };
         let Some(function) = at else { return };
         if !self.is_function_like_or_static_block(function) {
             return;
@@ -13212,19 +13210,37 @@ impl Checker<'_, '_> {
             return;
         }
         let span = self.nodes.span(name_id);
+        // `scanner.DeclarationNameToString(node.PropertyName())`: the name as
+        // written, so `"a"`, `["a"]` and `[sym]` keep their spelling.
         let original = property_name
             .node_id()
-            .and_then(|id| self.identifier_text(id))
-            .unwrap_or_default()
-            .to_string();
-        self.report(
-            file,
-            Diagnostic::with_args(
-                &messages::_0_IS_AN_UNUSED_RENAMING_OF_1_DID_YOU_INTEND_TO_USE_IT_AS_A_TYPE_ANNOTATION,
-                span,
-                [renamed, original],
-            ),
+            .and_then(|id| {
+                self.declaration_name_source_text(id)
+                    .or_else(|| self.identifier_text(id).map(str::to_string))
+            })
+            .unwrap_or_default();
+        let mut diagnostic = Diagnostic::with_args(
+            &messages::_0_IS_AN_UNUSED_RENAMING_OF_1_DID_YOU_INTEND_TO_USE_IT_AS_A_TYPE_ANNOTATION,
+            span,
+            [renamed, original.clone()],
         );
+        // `checkUnusedRenamedBindingElements` (`checker.go`): a parameter with
+        // no annotation gets `We can only write a type for '{0}' by adding a
+        // type for the entire parameter here.` at its end (r7-grammar §44).
+        let annotated = matches!(
+            self.node_map.get(parameter),
+            Some(Node::ParameterDeclaration(declaration)) if declaration.r#type.is_some()
+        );
+        if !annotated {
+            let end = self.nodes.span(parameter).end;
+            diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                parameter,
+                &messages::WE_CAN_ONLY_WRITE_A_TYPE_FOR_0_BY_ADDING_A_TYPE_FOR_THE_ENTIRE_PARAMETER_HERE,
+                tsr_core::Span::at(end),
+                vec![original],
+            )));
+        }
+        self.report(file, diagnostic);
     }
 
     /// Does this subtree mention `text` as an identifier, other than at
