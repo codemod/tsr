@@ -663,3 +663,20 @@ them, with the target read through its alias body. `g([[]] as [void[]])`
 against `B<T, U> = [T] | [T, U]` then certifies no candidate for U: `[T]`
 does not mention it, and `[T, U]` is arity-unrelated to a one-tuple
 (`tupleTypeInference2`).
+
+## 19. Binding elements over an `unknown` parent
+
+A binding element destructuring an `unknown` (a `catch` variable under
+`useUnknownInCatchVariables`, or a written `unknown`) is natively:
+- in an object pattern, `getIndexedAccessTypeEx(unknown, "x", …, name)`
+  (`checker.go:17741`): `getPropertyTypeForIndexType` finds no property on
+  the apparent `{}`, reports TS2339 at the name, and the access answers
+  `errorType`, printed `any`;
+- in an array pattern, `checkIteratedTypeOrElementType` (`:17766`): it
+  reports TS2488 and answers `anyType`.
+
+`get_binding_element_type` answered the gap for both. It now answers
+`native_error` and `any` respectively; rest elements keep their own arms.
+The two reports belong to `nonexistent_property.rs` /
+`index_access_reports.rs` (r7-flow) and are not emitted yet for an `unknown`
+parent (routed).

@@ -155,6 +155,20 @@ impl Checker<'_, '_> {
             return parent_type;
         }
         let parent_type = self.destructuring_parent_adjusted(declaration, holder, parent_type);
+        // An `unknown` parent (a `catch` variable under
+        // `useUnknownInCatchVariables`, or written): the object arm's
+        // getIndexedAccessTypeEx (`checker.go:17741`) finds no property on its
+        // apparent `{}`, reports TS2339 and answers `errorType` for the access
+        // node; the array arm's checkIteratedTypeOrElementType (`:17766`)
+        // reports TS2488 and answers `anyType`. A rest element keeps its own
+        // arms below (TS2700 / the iterated rest).
+        if parent_type == self.intrinsics.unknown && element.dot_dot_dot_token.is_none() {
+            return match self.nodes.kind(pattern_id) {
+                SyntaxKind::ObjectBindingPattern => self.intrinsics.native_error,
+                SyntaxKind::ArrayBindingPattern => self.intrinsics.any,
+                _ => self.intrinsics.error,
+            };
+        }
 
         let element_type = match self.nodes.kind(pattern_id) {
             SyntaxKind::ObjectBindingPattern => {
