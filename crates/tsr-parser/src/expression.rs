@@ -3181,16 +3181,24 @@ impl<'a> Parser<'a> {
                 Span::new(modifiers_full_start, end),
             );
         }
+        // A `this` parameter (`parseParameterWorker`'s `KindThisKeyword` arm,
+        // `parser.go:3325`) is the name and a type annotation — no `?`, no
+        // initializer, so `this?: C` and `this: C = …` leave the `?`/`=` to
+        // the list (`',' expected`). Only before a `...`: `...this` is a
+        // missing name plus TS1359 (`thisTypeInFunctionsNegative`).
+        if self.at(SyntaxKind::ThisKeyword) {
+            let name = BindingName::Identifier(self.parse_identifier_name());
+            let type_node = self.parse_type_annotation();
+            let modifiers = self.arena.alloc_slice(&modifiers);
+            return self.finish_node(
+                ParameterDeclaration::new(modifiers, None, Some(name), None, type_node, None),
+                SyntaxKind::Parameter,
+                start,
+            );
+        }
         let dot_dot_dot =
             if self.at(SyntaxKind::DotDotDotToken) { Some(self.take_token()) } else { None };
-        // A `this` parameter is the one reserved word a parameter name admits:
-        // upstream's `parseParameter` reads it with `parseIdentifierName`
-        // (`parser.go`, the `KindThisKeyword` arm).
-        // Only as the plain first parameter: `...this` is upstream's missing
-        // identifier plus an error (`thisTypeInFunctionsNegative`).
-        let name = if self.at(SyntaxKind::ThisKeyword) && dot_dot_dot.is_none() {
-            BindingName::Identifier(self.parse_identifier_name())
-        } else if self.at(SyntaxKind::PrivateIdentifier) {
+        let name = if self.at(SyntaxKind::PrivateIdentifier) {
             // Native parseParameterEx supplies this diagnostic to
             // createIdentifierWithDiagnostic, then consumes the private token
             // as an identifier rather than manufacturing a missing name.
