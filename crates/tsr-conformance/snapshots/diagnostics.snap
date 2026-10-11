@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 5014/5502 (91.13%)
-Failed         : 488
+Passed         : 5017/5502 (91.19%)
+Failed         : 485
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 488 failures:
+First 100 of 485 failures:
 compiler/abstractClassUnionInstantiation
   5 missing (first TS2511 at abstractClassUnionInstantiation.ts(14,1))
 compiler/abstractPropertyInConstructor
@@ -118,8 +118,6 @@ compiler/conflictingDeclarationsImportFromNamespace1
   1 missing (first TS7023 at index.ts(2,14))
 compiler/conflictingDeclarationsImportFromNamespace2
   1 missing (first TS7023 at index.ts(2,14))
-compiler/consistentAliasVsNonAliasRecordBehavior
-  4 unexpected (first TS2322 at consistentAliasVsNonAliasRecordBehavior.ts(18,5)), 4 missing
 compiler/constraintWithIndexedAccess
   9 missing (first TS2344 at constraintWithIndexedAccess.ts(23,90))
 compiler/contextualPropertyOfGenericFilteringMappedType
@@ -212,3 +210,5 @@ compiler/exportAsNamespaceConflict
   1 missing (first TS2303 at /a.d.ts(3,1))
 compiler/exportAssignmentImportMergeNoCrash
   3 missing (first TS2395 at user.ts(1,8))
+compiler/exportDefaultStripsFreshness
+  1 unexpected (first TS2345 at index.ts(12,6)), 1 missing
