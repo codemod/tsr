@@ -482,3 +482,28 @@ diagnostics verdicts identical). With the measurement-only wiring
 `r7-flow-ts2564-prototype.diff` (check.rs `check_property_initialization`,
 r7-grammar's to port), diagnostics **+1** (`detachedCommentAtStartOfConstructor2`),
 0 lost, jsTyping unchanged.
+
+## §16 TS2565: `this.x` used before being assigned in the constructor
+
+`getFlowTypeOfAccessExpression`'s `assumeUninitialized` arm
+(`checker.go:11411-11431`): under `strictNullChecks` and
+`strictPropertyInitialization`, a read of `this.x` (or `this["x"]`) whose
+property is a non-static, non-abstract `PropertyDeclaration` without an
+initializer or `!` (`isPropertyWithoutInitializer`, `:4956`), inside a
+constructor of the declaring class, walks its flow from
+`getOptionalType(propType)`; when `undefined` survives and `propType` does
+not contain it, native reports TS2565 at the name (the index of an element
+access). `check_property_used_before_assigned` (flow.rs) is that arm, run
+from the check walk's access arms through `check_nonexistent_property` (the
+same native function). The query road already answers the declared type
+there, which is what native returns after reporting. `contains_undefined_type`
+(check.rs) became `pub(crate)` for it. Not ported: the expando disjunct
+(`:11420`, a property declared by `this.x = …`).
+
+Measured on `42e0cbea`: diagnostics verdicts and types text unchanged (the
+TS2565 lines of `strictPropertyInitialization` 113-115 now match; the case
+stays WRONG on two TS2564 lines, r7-grammar's port), exact oracle 0 gained
+0 lost, jsTyping unchanged, Ir gi 1.0002 dm 1.0007.
+
+Checker port boundary: no cache; one flow walk per qualifying constructor
+read, the walk native runs on every such read anyway.
