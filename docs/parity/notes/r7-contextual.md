@@ -654,3 +654,12 @@ string literal that a template literal with text does not match infers
 nothing (`"hello"` against `` `*${V}*` ``, `templateLiteralTypes3`). For a
 string-literal source, `match_template_parts` is the direct port, so its
 `None` is a certain non-match.
+
+Commit 21 adds the union-target arm. From one non-union source, every
+inference road into a union target (`inferFromMatchingTypes`' pairs, the
+lower-priority remainder, `inferToMultipleTypes`) infers into some
+constituent. So the source supplies a candidate only if it could for one of
+them, with the target read through its alias body. `g([[]] as [void[]])`
+against `B<T, U> = [T] | [T, U]` then certifies no candidate for U: `[T]`
+does not mention it, and `[T, U]` is arity-unrelated to a one-tuple
+(`tupleTypeInference2`).
