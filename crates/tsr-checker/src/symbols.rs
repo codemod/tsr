@@ -3412,6 +3412,19 @@ impl<'a> Checker<'a, '_> {
         contains
     }
 
+    /// `resolveSymbol` (`checker.go:16258`, `resolveSymbolEx` with
+    /// `dontResolveAlias = false`): a pure alias (`IsNonLocalAlias`) is
+    /// [`Checker::resolve_alias`]'s answer; any other symbol, including an
+    /// alias merged with another meaning, is its own. Unlike
+    /// [`Checker::resolve_alias_fully`], it does not walk on through a merged
+    /// alias+type symbol (r6-modules4 §4, `docs/parity/notes/r7-shared.md` §5).
+    pub(crate) fn resolve_symbol(&mut self, symbol: SymbolId) -> SymbolId {
+        if !self.is_non_local_pure_alias(symbol) {
+            return symbol;
+        }
+        self.resolve_alias(symbol).unwrap_or(symbol)
+    }
+
     /// §501: `resolve_alias` iterated to a fixpoint — the terminal non-alias
     /// symbol a chain of aliases reaches, or the last resolvable link. The
     /// cap is the same policy as every bounded walk here; alias chains in the
