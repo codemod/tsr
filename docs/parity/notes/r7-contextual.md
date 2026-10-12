@@ -1394,3 +1394,24 @@ signature arm falls back to `binding_type_alias_body`. Reverse-mapped
 inference through `{ [K in keyof T]: PropValidator<T[K]> }` then finds
 `T[K] ← MyType` (reverseMappedPartiallyInferableTypes 39 → 14 non-RIGHT lines;
 no loss across 55,716 related verdict lines).
+
+## 53. Generic function arguments are inferred after the others (SkipGenericFunctions)
+
+`chooseOverload`'s first `inferTypeArguments` round runs under
+`SkipGenericFunctions`. An argument whose type has a single generic signature,
+meeting a contextual type with a single non-generic signature, is then
+`anyFunctionType` (`instantiateTypeWithSingleGenericCallSignature` →
+`skippedGenericFunction`). The next round instantiates it in context with
+the other arguments' candidates already collected. The port inferred
+positionally, so in `call(f16, "hello", 42)` with `call<T extends unknown[],
+U>(f: (...args: T) => U, ...args: T)`, `f16<A, B>` was instantiated before the
+rest arguments gave `T = [string, number]`, and `U` was `unknown` (native
+`string | number`). Such an argument now waits until the loop has finished
+(`skipped_generic_function`), then runs the same three arms
+(`infer_argument_in_context`: higher-order propagation, in-context
+instantiation, else `inferTypes`) into its own bucket, so SS140's candidate
+order holds. The `existing` inferences those arms read are now the buckets
+merged per parameter (`merge_info`, as the context merges them after the
+loop). The flattened list let an earlier argument's empty entry shadow a
+later candidate. genericRestParameters1 23 → 21 non-RIGHT lines; no loss
+across 51,566 related verdict lines.

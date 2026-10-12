@@ -1270,6 +1270,7 @@ impl<'a> Checker<'a, '_> {
             }
         }
         let mut inferred_type_parameters = Vec::new();
+        let mut generic_deferred: Vec<(usize, TypeId, TypeId)> = Vec::new();
         for (index, parameter) in signature.parameters.iter().enumerate() {
             // CheckModeSkipGenericFunctions produces anyFunctionType, an
             // ObjectFlagsNonInferrableType. The placeholder above preserves
@@ -1354,35 +1355,32 @@ impl<'a> Checker<'a, '_> {
             } else {
                 argument
             };
-            let mut existing: Vec<_> = buckets.iter().flatten().cloned().collect();
-            for info in &return_mapper {
-                if !existing.iter().any(|current| current.type_parameter == info.type_parameter) {
-                    existing.push(info.clone());
-                }
-            }
-            if !skip_context_sensitive
-                && self.infer_higher_order_argument(
-                    argument,
-                    parameter_type,
-                    returned,
-                    (signature, &parameters, &existing),
-                    &mut buckets[index],
-                    &mut inferred_type_parameters,
-                )
-            {
+            // inferTypeArguments' first round runs under SkipGenericFunctions:
+            // a generic function argument meeting a single non-generic
+            // contextual signature is `anyFunctionType` (skippedGenericFunction),
+            // and the second round instantiates it in context once the other
+            // arguments' candidates exist. `call(f16, "hello", 42)` with
+            // `call<T extends unknown[], U>(f: (...args: T) => U, ...args: T)`
+            // reads `T = [string, number]` from the rest before `f16`'s
+            // `A`/`B` (r7-contextual §53).
+            if !skip_context_sensitive && self.skipped_generic_function(argument, parameter_type) {
+                generic_deferred.push((index, argument, parameter_type));
                 continue;
             }
-            if !skip_context_sensitive
-                && self.infer_generic_function_in_context(
-                    argument,
-                    parameter_type,
-                    (signature, &parameters, &existing),
-                    &mut buckets[index],
-                )
-            {
-                continue;
-            }
-            self.infer_from_types(argument, parameter_type, &parameters, &mut buckets[index], 0);
+            self.infer_argument_in_context(
+                (index, argument, parameter_type),
+                (signature, &parameters, returned, &return_mapper, skip_context_sensitive),
+                &mut buckets,
+                &mut inferred_type_parameters,
+            );
+        }
+        for deferred_generic in std::mem::take(&mut generic_deferred) {
+            self.infer_argument_in_context(
+                deferred_generic,
+                (signature, &parameters, returned, &return_mapper, skip_context_sensitive),
+                &mut buckets,
+                &mut inferred_type_parameters,
+            );
         }
         if !deferred.is_empty()
             && let Some(call_id) = call
@@ -2803,6 +2801,87 @@ impl<'a> Checker<'a, '_> {
     /// The propagation branch of `instantiateTypeWithSingleGenericCallSignature`
     /// (`internal/checker/checker.go`). Adopt fresh candidates only when
     /// parameter inference contributes and does not overlap existing inferences.
+    /// `instantiateTypeWithSingleGenericCallSignature`'s skip test
+    /// (`checker.go`): under `SkipGenericFunctions` an argument whose type has
+    /// a single generic call or construct signature, meeting a contextual
+    /// type with a single non-generic signature of that kind, is
+    /// `skippedGenericFunction` (`anyFunctionType`) in the first round.
+    fn skipped_generic_function(&mut self, argument: TypeId, parameter_type: TypeId) -> bool {
+        let target = self.get_non_nullable_type(parameter_type);
+        let (Some(source), Some(target)) = (
+            self.single_call_or_construct_signature(argument, true),
+            self.single_call_or_construct_signature(target, false),
+        ) else {
+            return false;
+        };
+        !source.type_parameters.is_empty()
+            && target.type_parameters.is_empty()
+            && matches!(source.kind, crate::signatures::SignatureKind::Call)
+                == matches!(target.kind, crate::signatures::SignatureKind::Call)
+    }
+
+    /// One positional argument's inference: the higher-order propagation,
+    /// the generic-function-in-context instantiation, else `inferTypes`, read
+    /// against every candidate collected so far (all buckets plus the return
+    /// mapper). Results land in the argument's own bucket (SS140's order).
+    #[allow(clippy::type_complexity)]
+    fn infer_argument_in_context(
+        &mut self,
+        (index, argument, parameter_type): (usize, TypeId, TypeId),
+        (signature, parameters, returned, return_mapper, skip_context_sensitive): (
+            &Signature,
+            &[TypeId],
+            TypeId,
+            &[InferenceInfo],
+            bool,
+        ),
+        buckets: &mut [Vec<InferenceInfo>],
+        inferred_type_parameters: &mut Vec<crate::signatures::TypeParameter>,
+    ) {
+        // Both function arms need the argument's single call or construct
+        // signature; any other argument infers directly, without the merge.
+        if skip_context_sensitive
+            || self.single_call_or_construct_signature(argument, true).is_none()
+        {
+            self.infer_from_types(argument, parameter_type, parameters, &mut buckets[index], 0);
+            return;
+        }
+        // The buckets merged as the context merges them after the loop, so a
+        // parameter's candidates from every earlier argument are one entry.
+        let mut existing: Vec<InferenceInfo> = Vec::new();
+        for info in buckets.iter().flatten() {
+            merge_info(&mut existing, info);
+        }
+        for info in return_mapper {
+            if !existing.iter().any(|current| current.type_parameter == info.type_parameter) {
+                existing.push(info.clone());
+            }
+        }
+        if !skip_context_sensitive
+            && self.infer_higher_order_argument(
+                argument,
+                parameter_type,
+                returned,
+                (signature, parameters, &existing),
+                &mut buckets[index],
+                inferred_type_parameters,
+            )
+        {
+            return;
+        }
+        if !skip_context_sensitive
+            && self.infer_generic_function_in_context(
+                argument,
+                parameter_type,
+                (signature, parameters, &existing),
+                &mut buckets[index],
+            )
+        {
+            return;
+        }
+        self.infer_from_types(argument, parameter_type, parameters, &mut buckets[index], 0);
+    }
+
     fn infer_higher_order_argument(
         &mut self,
         source: TypeId,
