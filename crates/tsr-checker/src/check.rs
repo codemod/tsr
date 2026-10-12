@@ -2864,10 +2864,40 @@ impl Checker<'_, '_> {
             .unwrap_or_else(|| self.binder.symbols().get(symbol).name.to_string());
         let Some(file) = self.source_file_of_for_diagnostics(name) else { return };
         let span = self.error_span(name);
-        self.report(
-            file,
-            Diagnostic::with_args(&messages::MODULE_0_HAS_NO_DEFAULT_EXPORT, span, [printed]),
-        );
+        let mut diagnostic =
+            Diagnostic::with_args(&messages::MODULE_0_HAS_NO_DEFAULT_EXPORT, span, [printed]);
+        // `reportNonDefaultExport`'s `export *` arm (`checker.go:14596`): the
+        // first `export * from "m"` whose module has a `default` is related
+        // as `'export *' does not re-export a default.` (r7-grammar §77).
+        let star = self.binder.symbols().get(symbol).exports.get("__export").copied();
+        if let Some(star) = star {
+            let declarations = self.binder.symbols().get(star).declarations.clone();
+            let default_export = declarations.into_iter().find(|&star_declaration| {
+                let Some(Node::ExportDeclaration(export)) = self.node_map.get(star_declaration)
+                else {
+                    return false;
+                };
+                let Some(star_specifier) = export.module_specifier.and_then(|s| s.node_id()) else {
+                    return false;
+                };
+                self.resolve_external_module_name(star_declaration, star_specifier).is_some_and(
+                    |module| {
+                        let module = self.binder.merged_symbol(module);
+                        self.binder.symbols().get(module).exports.contains_key("default")
+                    },
+                )
+            });
+            if let Some(default_export) = default_export {
+                let related_span = self.error_span(default_export);
+                diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                    default_export,
+                    &messages::EXPORT_ASTERISK_DOES_NOT_RE_EXPORT_A_DEFAULT,
+                    related_span,
+                    Vec::new(),
+                )));
+            }
+        }
+        self.report(file, diagnostic);
     }
 
     /// `canHaveSyntheticDefault` (`checker.go:14818`), the two arms this port

@@ -1756,3 +1756,12 @@ fully-qualified names printed `"/.src/other.d"` for a declaration file
 (meaning_mismatch.rs) is the one reader for both. It takes a source file's
 name from the host's file path through `remove_file_extension`, and quotes
 a `declare module "x"`'s name.
+
+## §77 TS1192's `'export *' does not re-export a default.`
+
+`reportNonDefaultExport` (`checker.go:14591`) relates the first
+`export * from "m"` of the module (its `__export` declarations) whose target
+module has a `default` export. That is TS1195, at the export declaration.
+check.rs's `check_module_has_default_export` built the head alone. It now
+adds the related diagnostic, with its file (§34). Checked with `--pretty
+true` against `target/tsgo-pinned`: `exportStar` (es2015).
