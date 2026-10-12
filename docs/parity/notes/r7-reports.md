@@ -2161,3 +2161,26 @@ levels; the latter still differs on `(x?: string)`'s printed `| undefined`.
 
 A quick oracle over `destructuring`, `idening` and `wideningTuples`
 against base20 read 2 gained and 0 lost.
+
+## 75. Regression fix: a duplicated literal member relates its last value
+
+Routed by the integrator as a duplicate-property regression since batch 47.
+§35 made the per-member check read the last occurrence's value, as
+`elaborateObjectLiteral` does. That removed the per-member TS2322 and
+exposed the relation's own verdict: `test({ thunk: (num: number) => {},
+thunk: (str: string) => {} })` became a false TS2345 (with a chain naming
+`(num: number) => void`), and `lastPropertyInLiteralWins` stayed WRONG.
+
+**Cause.** checkObjectLiteral gives each member its own transient symbol,
+and the last one wins `propertiesTable[name]` (`checker.go:13331`). The
+port's literal type records the last member's resolved type, but its
+property list is marked incomplete while a context-sensitive member is
+pending. A read then takes the symbol road through the binder's merged
+symbol, whose `getTypeOfSymbol` answers the *first* declaration
+(contextual.md §17 keeps that answer for `.types`, as native does).
+
+**Fix** (`members.rs`, a grant request; one condition): a property-list
+entry whose binder symbol has more than one declaration, and whose type is
+already resolved from its own initializer, is read from the list even when
+the list is incomplete. `lastPropertyInLiteralWins` is EXACT. A quick
+oracle over every `uplicate` case reads 0 lost against base20.
