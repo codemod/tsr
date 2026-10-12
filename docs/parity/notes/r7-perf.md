@@ -1567,6 +1567,42 @@ JSDoc parses which the missing flags then skipped. This candidate saves
 4.67 M. The rest is the one inline word loop replacing `str::find`'s call
 and alignment prologue at every `/` and `@` stop.
 
+### §41.4 Item 5, token values borrowed from the source
+
+The scanner kept every decoded value as an `Option<String>`. That included
+the text inside the quotes of every string literal and every template part,
+even without escapes. The parser's `capture_value` copied it into a second
+`String` after every token. `Parser::token_value` copied it a third time,
+into the arena, at every read. The parser's `Option<String>` was also
+dropped at every token. Native's `tokenValue` is `s.text[start:pos]`, a
+substring with no copy.
+
+Now the scanner's value is an `Option<Cow<'a, str>>`, borrowed whenever the
+value is a slice of the source. The literal and template arms, the bigint
+`n` arm and the JSX attribute value arm borrow; an escape decodes into an
+owned `String` as before. The new accessor `Scanner::captured_value` hands
+the parser the `Cow`. The parser keeps `Option<&'a str>`: the borrowed slice,
+or the owned value copied once into the arena at capture. `token_value` is
+then a field read, and the speculation save and restore copy two words.
+`decoded_value` and `token_value` keep their signatures.
+
+A first version kept `Option<Cow<'a, str>>` in the parser and cloned it from
+the scanner out of line. That version measured **+2.4% Ir** on gi:
+`captured_value` alone was 1.4%, plus the `Cow` match in every
+`token_value`. The copy was the cost, not the representation.
+
+| measurement | before (item 4) | candidate |
+|---|---:|---:|
+| Ir gi / dm / dml | 185,885,030 / 793,675,043 / 3,400,003,118 | 180,797,035 (−2.74%) / 786,540,558 (−0.90%) / 3,384,490,330 (−0.46%) |
+| allocations on gi (`mi_malloc_aligned` calls, profiling build) | 46,514 | 41,600 |
+| scanner identity: kind, span, flags, `token_value`, `decoded_value` of every token, 19,686 files | — | identical |
+| lib parse (vs the build before it), run 1 / 2 | 1.000 | 0.983 / 0.953 |
+
+The Ir saving is mostly the per-token `Option<String>` drop and its branch.
+Only a few thousand tokens per program carry a value at all. Parser
+behaviour cannot change: every token's value is the same text, read from a
+different owner.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):

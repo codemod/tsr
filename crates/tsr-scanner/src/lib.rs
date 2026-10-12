@@ -29,6 +29,8 @@ pub use jsdoc::{CommentRange, is_jsdoc_like_text, jsdoc_ranges_in};
 pub use regexp::{RegExpError, scan_regular_expression_errors};
 pub use token::{Token, TokenFlags};
 
+use std::borrow::Cow;
+
 use tsr_ast::SyntaxKind;
 use tsr_core::Span;
 use tsr_diagnostics::{Diagnostic, messages};
@@ -202,9 +204,13 @@ pub struct Scanner<'a> {
     token: Token,
     /// Decoded value for identifiers, strings, and numbers.
     ///
-    /// Only populated when the raw text differs from the value (escapes, numeric
-    /// separators), so the common case allocates nothing.
-    value: Option<String>,
+    /// Only populated when the raw text differs from the value: escapes,
+    /// numeric separators, and the quotes around every string literal. A value
+    /// that is a slice of the source — a string or template part without
+    /// escapes, which is nearly all of them — borrows it, as native's
+    /// `tokenValue = s.text[start:pos]` does, so only a decoded escape
+    /// allocates (`r7-perf.md` §41.4).
+    value: Option<Cow<'a, str>>,
     /// Whether a template continuation should report an invalid escape.
     ///
     /// Set by [`Scanner::rescan_template`] and read by the continuation rescan,
@@ -277,6 +283,15 @@ impl<'a> Scanner<'a> {
     #[must_use]
     pub fn decoded_value(&self) -> Option<&str> {
         self.value.as_deref()
+    }
+
+    /// [`Scanner::decoded_value`] for a caller that keeps it past the next
+    /// token: `Borrowed` when the value is a slice of the source, so keeping
+    /// it needs no copy, and `Owned` only for a decoded escape.
+    #[must_use]
+    #[inline]
+    pub fn captured_value(&self) -> Option<&Cow<'a, str>> {
+        self.value.as_ref()
     }
 
     /// Diagnostics produced so far.
@@ -814,7 +829,7 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        let mut decoded: Option<String> = self.value.clone();
+        let mut decoded: Option<String> = self.value.as_deref().map(str::to_owned);
 
         while let Some(ch) = self.peek() {
             if ch == '\\' {
@@ -897,10 +912,10 @@ impl<'a> Scanner<'a> {
         // never a keyword") was exactly backwards.
         let lookup = decoded.as_deref().unwrap_or(text);
         if let Some(kind) = keyword_kind(lookup) {
-            self.value = decoded;
+            self.value = decoded.map(Cow::Owned);
             return kind;
         }
-        self.value = decoded;
+        self.value = decoded.map(Cow::Owned);
         SyntaxKind::Identifier
     }
 
@@ -1154,7 +1169,7 @@ impl<'a> Scanner<'a> {
             {
                 // The `n` stays part of the literal, as upstream's token
                 // value (`text[start:end]`) leaves it out.
-                self.value = Some(self.source[start as usize..end as usize].to_string());
+                self.value = Some(Cow::Borrowed(&self.source[start as usize..end as usize]));
                 if scientific {
                     self.error(
                         &messages::A_BIGINT_LITERAL_CANNOT_USE_EXPONENTIAL_NOTATION,
@@ -1238,7 +1253,7 @@ impl<'a> Scanner<'a> {
             *flags |= TokenFlags::SINGLE_QUOTE;
         }
         let start = self.pos;
-        let mut decoded: Option<String> = self.value.clone();
+        let mut decoded: Option<String> = self.value.as_deref().map(str::to_owned);
 
         loop {
             let Some(ch) = self.peek() else {
@@ -1283,14 +1298,12 @@ impl<'a> Scanner<'a> {
         // `scanString` (`scanner.go:1586`) writes `text[start:pos]` before
         // the closing quote is consumed; an unterminated literal keeps every
         // character up to the line break or end of text.
-        self.value = Some(decoded.unwrap_or_else(|| {
-            let end = if flags.contains(TokenFlags::UNTERMINATED) {
-                self.pos
-            } else {
-                self.pos.saturating_sub(1).max(start)
-            };
-            self.source[start as usize..end as usize].to_string()
-        }));
+        let end = if flags.contains(TokenFlags::UNTERMINATED) {
+            self.pos
+        } else {
+            self.pos.saturating_sub(1).max(start)
+        };
+        self.value = Some(self.decoded_or_source(decoded, start, end));
         SyntaxKind::StringLiteral
     }
 
@@ -1462,6 +1475,15 @@ impl<'a> Scanner<'a> {
         self.scan_template_body(flags, true, false)
     }
 
+    /// A string's or template part's value: what was decoded, or else the
+    /// source between `start` and `end`, borrowed.
+    fn decoded_or_source(&self, decoded: Option<String>, start: u32, end: u32) -> Cow<'a, str> {
+        match decoded {
+            Some(decoded) => Cow::Owned(decoded),
+            None => Cow::Borrowed(&self.source[start as usize..end as usize]),
+        }
+    }
+
     fn scan_template_body(
         &mut self,
         flags: &mut TokenFlags,
@@ -1469,7 +1491,7 @@ impl<'a> Scanner<'a> {
         report_escapes: bool,
     ) -> SyntaxKind {
         let start = self.pos;
-        let mut decoded: Option<String> = self.value.clone();
+        let mut decoded: Option<String> = self.value.as_deref().map(str::to_owned);
 
         loop {
             let Some(ch) = self.peek() else {
@@ -1482,10 +1504,7 @@ impl<'a> Scanner<'a> {
                 // unterminated-template case in the corpus: 12 cases, and TS1160
                 // was the *only* difference in all twelve.
                 self.error(&messages::UNTERMINATED_TEMPLATE_LITERAL, Span::new(self.pos, self.pos));
-                self.value =
-                    Some(decoded.unwrap_or_else(|| {
-                        self.source[start as usize..self.pos as usize].to_string()
-                    }));
+                self.value = Some(self.decoded_or_source(decoded, start, self.pos));
                 return if is_head {
                     SyntaxKind::NoSubstitutionTemplateLiteral
                 } else {
@@ -1496,10 +1515,7 @@ impl<'a> Scanner<'a> {
             if ch == '`' {
                 let end = self.pos;
                 self.bump();
-                self.value = Some(
-                    decoded
-                        .unwrap_or_else(|| self.source[start as usize..end as usize].to_string()),
-                );
+                self.value = Some(self.decoded_or_source(decoded, start, end));
                 return if is_head {
                     SyntaxKind::NoSubstitutionTemplateLiteral
                 } else {
@@ -1511,10 +1527,7 @@ impl<'a> Scanner<'a> {
                 let end = self.pos;
                 self.bump();
                 self.bump();
-                self.value = Some(
-                    decoded
-                        .unwrap_or_else(|| self.source[start as usize..end as usize].to_string()),
-                );
+                self.value = Some(self.decoded_or_source(decoded, start, end));
                 return if is_head { SyntaxKind::TemplateHead } else { SyntaxKind::TemplateMiddle };
             }
 
@@ -1844,7 +1857,7 @@ impl<'a> Scanner<'a> {
         // into two. The decoded value is rebuilt only when an escape appears —
         // or already appeared: upstream appends to the decoded `tokenValue`, so
         // `<\u0061-b>` is named `a-b` and matches `</a-b>`.
-        let mut decoded: Option<String> = self.value.clone();
+        let mut decoded: Option<String> = self.value.as_deref().map(str::to_owned);
         while let Some(ch) = self.peek() {
             if ch == '-' || is_identifier_part(ch) {
                 if let Some(value) = decoded.as_mut() {
@@ -1884,7 +1897,7 @@ impl<'a> Scanner<'a> {
             if decoded.is_some() {
                 flags |= TokenFlags::UNICODE_ESCAPE;
             }
-            self.value = decoded;
+            self.value = decoded.map(Cow::Owned);
             self.token = Token::new(SyntaxKind::Identifier, Span::new(start, self.pos), flags);
         }
         self.token
@@ -1921,7 +1934,7 @@ impl<'a> Scanner<'a> {
                 if !unterminated {
                     self.bump();
                 }
-                self.value = Some(self.source[start as usize..end as usize].to_string());
+                self.value = Some(Cow::Borrowed(&self.source[start as usize..end as usize]));
                 let mut flags = TokenFlags::empty();
                 if unterminated {
                     flags |= TokenFlags::UNTERMINATED;

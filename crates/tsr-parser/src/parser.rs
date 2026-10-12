@@ -1,5 +1,7 @@
 //! Parser state: the token cursor, error recovery, and node registration.
 
+use std::borrow::Cow;
+
 use tsr_ast::{
     HasNodeId, Identifier, NodeTable, SourceFile, Statement, SyntaxKind, Token as AstToken,
 };
@@ -372,7 +374,7 @@ pub struct Parser<'a> {
     /// The token under the cursor.
     pub(crate) token: Token,
     /// Decoded value of [`Self::token`], when it needed decoding.
-    token_value: Option<String>,
+    token_value: Option<&'a str>,
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) nodes: NodeTable,
     /// Every node, by id — see [`tsr_ast::NodeMap`]. Filled here because the
@@ -564,7 +566,7 @@ impl<'a> Parser<'a> {
         let mut scanner = Scanner::new(source);
         scanner.set_jsx_language_variant(script_kind.allows_jsx());
         let token = scanner.scan();
-        let token_value = capture_value(&scanner);
+        let token_value = capture_value(&scanner, arena);
         let mut parser = Self {
             arena,
             source,
@@ -671,7 +673,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn next_token_without_check(&mut self) -> Token {
         let previous = self.token;
         self.token = self.scanner.scan();
-        self.token_value = capture_value(&self.scanner);
+        self.token_value = capture_value(&self.scanner, self.arena);
         self.sync_scanner_diagnostics();
         previous
     }
@@ -709,12 +711,9 @@ impl<'a> Parser<'a> {
         &self.source[self.token.span.start as usize..self.token.span.end as usize]
     }
 
-    /// Decoded value of the current token, arena-allocated.
+    /// Decoded value of the current token.
     pub(crate) fn token_value(&self) -> &'a str {
-        match self.token_value.as_deref() {
-            Some(decoded) => self.arena.alloc_str(decoded),
-            None => self.token_text(),
-        }
+        self.token_value.unwrap_or_else(|| self.token_text())
     }
 
     /// Whether the cursor is on `kind`.
@@ -805,28 +804,28 @@ impl<'a> Parser<'a> {
     /// Re-scan a `/` as a regular expression literal.
     pub(crate) fn rescan_regular_expression(&mut self) {
         self.token = self.scanner.rescan_as_regular_expression();
-        self.token_value = capture_value(&self.scanner);
+        self.token_value = capture_value(&self.scanner, self.arena);
         self.sync_scanner_diagnostics();
     }
 
     /// Re-scan the current token as JSX child content.
     pub(crate) fn rescan_jsx_token(&mut self) {
         self.token = self.scanner.rescan_jsx_token();
-        self.token_value = capture_value(&self.scanner);
+        self.token_value = capture_value(&self.scanner, self.arena);
         self.sync_scanner_diagnostics();
     }
 
     /// Scan the next token as JSX child content.
     pub(crate) fn scan_jsx_token(&mut self) {
         self.token = self.scanner.scan_jsx_token();
-        self.token_value = capture_value(&self.scanner);
+        self.token_value = capture_value(&self.scanner, self.arena);
         self.sync_scanner_diagnostics();
     }
 
     /// Extend the current identifier with JSX's `-`.
     pub(crate) fn scan_jsx_identifier(&mut self) {
         self.token = self.scanner.scan_jsx_identifier();
-        self.token_value = capture_value(&self.scanner);
+        self.token_value = capture_value(&self.scanner, self.arena);
         self.sync_scanner_diagnostics();
     }
 
@@ -842,7 +841,7 @@ impl<'a> Parser<'a> {
             self.diagnostics.pop();
         }
         self.token = self.scanner.rescan_jsx_attribute_value();
-        self.token_value = capture_value(&self.scanner);
+        self.token_value = capture_value(&self.scanner, self.arena);
         self.sync_scanner_diagnostics();
     }
 
@@ -852,7 +851,7 @@ impl<'a> Parser<'a> {
     /// escape to its character (`scanEscapeSequence`, `scanner.go:1700`).
     pub(crate) fn rescan_template(&mut self, is_tagged: bool) {
         self.token = self.scanner.rescan_template(is_tagged);
-        self.token_value = capture_value(&self.scanner);
+        self.token_value = capture_value(&self.scanner, self.arena);
         self.sync_scanner_diagnostics();
     }
 
@@ -876,7 +875,7 @@ impl<'a> Parser<'a> {
     /// Re-scan a `}` as the continuation of a template literal.
     pub(crate) fn rescan_template_continuation(&mut self) {
         self.token = self.scanner.rescan_template_continuation();
-        self.token_value = capture_value(&self.scanner);
+        self.token_value = capture_value(&self.scanner, self.arena);
         self.sync_scanner_diagnostics();
     }
 
@@ -957,11 +956,11 @@ impl<'a> Parser<'a> {
         result
     }
 
-    fn save_state(&self) -> ParserState {
+    fn save_state(&self) -> ParserState<'a> {
         ParserState {
             scanner: self.scanner.save(),
             token: self.token,
-            token_value: self.token_value.clone(),
+            token_value: self.token_value,
             diagnostics: self.diagnostics.len(),
             nodes: self.nodes.len(),
             statement_has_await_identifier: self.statement_has_await_identifier,
@@ -969,7 +968,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn restore_state(&mut self, saved: ParserState) {
+    fn restore_state(&mut self, saved: ParserState<'a>) {
         self.scanner.restore(saved.scanner);
         self.token = saved.token;
         self.token_value = saved.token_value;
@@ -1463,7 +1462,7 @@ impl<'a> Parser<'a> {
         let mut scanner = Scanner::new(self.source);
         scanner.set_jsx_language_variant(self.script_kind.allows_jsx());
         self.token = scanner.scan();
-        self.token_value = capture_value(&scanner);
+        self.token_value = capture_value(&scanner, self.arena);
         self.scanner = scanner;
         self.sync_scanner_diagnostics();
         self.no_in = 0;
@@ -1483,10 +1482,11 @@ impl<'a> Parser<'a> {
 ///
 /// The diagnostic and node counts are lengths rather than saved contents: both
 /// vectors only grow during a speculative attempt, so truncating restores them.
-struct ParserState {
+#[derive(Clone, Copy)]
+struct ParserState<'a> {
     scanner: tsr_scanner::ScannerState,
     token: Token,
-    token_value: Option<String>,
+    token_value: Option<&'a str>,
     diagnostics: usize,
     nodes: usize,
     /// Part of native's `ParserState` (`parser.go:345`).
@@ -1495,11 +1495,22 @@ struct ParserState {
 }
 
 /// Capture the scanner's decoded value, if it differs from the raw text.
-fn capture_value(scanner: &Scanner<'_>) -> Option<String> {
+///
+/// A slice of the source when the value is one — every string literal and
+/// template part without an escape — as native's `tokenValue` substring is;
+/// only a decoded escape is copied, into the arena. This was a `String` copy
+/// of the scanner's own `String` for every such token, a third copy into the
+/// arena at each [`Parser::token_value`], and an `Option<String>` dropped at
+/// every token (`r7-perf.md` §41.4).
+#[inline]
+fn capture_value<'a>(scanner: &Scanner<'a>, arena: &'a Arena) -> Option<&'a str> {
     // Asking the scanner directly, rather than comparing `token_value` against
     // `token_text`: that comparison built both slices and compared pointers on
     // every token, to answer a question the scanner already knows the answer to.
-    scanner.decoded_value().map(str::to_string)
+    match scanner.captured_value()? {
+        Cow::Borrowed(value) => Some(value),
+        Cow::Owned(decoded) => Some(arena.alloc_str(decoded)),
+    }
 }
 
 /// Human-readable text for a token kind, for `'{0}' expected.` — native's
