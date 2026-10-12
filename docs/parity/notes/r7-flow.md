@@ -1181,3 +1181,17 @@ effects road now takes `getOptionalExpressionType` for an optional call and
 Measured on `ef353bb9` unfiltered: types **+6** (`controlFlowOptionalChain`),
 diagnostics unchanged, 0 lost; exact oracle 9680 → 9681, 0 lost; jsTyping 111
 → 111, new_false 0, lost_true 0; Ir gi 1.0001, dm 1.0000.
+
+## §44 Finding (routed): a union with a generic alias reference keeps it unflattened
+
+`narrowingTypeofDiscriminant`'s `booleanBad(wrapped: WrappedStringOr<boolean> |
+null)` does not narrow `wrapped` by `typeof wrapped?.value !== 'string'`: the
+discriminant test (`isDiscriminantProperty` over the declared type,
+`getDiscriminantPropertyAccess`) sees the union's constituents as `[null,
+WrappedStringOr<boolean>]`, the alias reference standing as one constituent,
+so `value` has one member type and is not a discriminant. Native unions are
+always flattened (`getUnionType` adds a union's constituents; the alias and
+origin only shape printing), so the constituents are `null`, `{ value?:
+string }`, `{ value?: boolean }`. The same declaration without `| null`, or a
+non-generic alias, narrows here. The union constructor is `unions.rs` /
+`declared.rs`' (r7-declared); not changed in this lane.
