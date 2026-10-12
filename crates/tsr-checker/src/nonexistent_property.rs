@@ -1035,6 +1035,25 @@ impl Checker<'_, '_> {
             // getApparentType's head: a type parameter reads through its base
             // constraint, `unknown` when it has none.
             let mut apparent = self.apparent_type(receiver);
+            // getConstraintFromTypeParameter (`checker.go:17085`): a written
+            // `any` constraint is `unknownType` outside a mapped type's key,
+            // so `T extends any` reads through `unknown` as an unconstrained
+            // parameter does (`typeParameterExplicitlyExtendsAny`).
+            let mapped_key = self.binder.symbols().get(symbol).declarations.iter().any(|&d| {
+                self.nodes
+                    .parent(d)
+                    .is_some_and(|owner| self.nodes.kind(owner) == SyntaxKind::MappedType)
+            });
+            if apparent == self.intrinsics.any
+                && !mapped_key
+                && self.type_parameter_constraint(receiver).is_some_and(|constraint| {
+                    !self.is_error(constraint)
+                        && !self.is_gap(constraint)
+                        && self.store.get(constraint).flags.intersects(TypeFlags::ANY)
+                })
+            {
+                apparent = receiver;
+            }
             if self.store.get(apparent).flags.intersects(TypeFlags::TYPE_PARAMETER) {
                 // No (or a circular) base constraint: `unknownType`, which is
                 // `{}` outside strictNullChecks (checker.go:21754-21759).

@@ -191,6 +191,10 @@ struct FlowState {
     /// ([`Checker::mentions_reference_root`]); the test is deferred to
     /// where an answer is published, and run only for a union answer.
     unchanged: Vec<NodeId>,
+    /// The condition nodes at which an arm decided that the input stands
+    /// (native's own early `return t`, not a decline): an unchanged answer
+    /// there is not recorded in `unchanged` (`r7-flow.md` §62).
+    decided: Vec<NodeId>,
 }
 
 /// The synthetic element access `getFlowTypeOfDestructuring` walks
@@ -469,6 +473,7 @@ impl Checker<'_, '_> {
             synthetic: None,
             declines: 0,
             unchanged: Vec::new(),
+            decided: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
@@ -646,6 +651,7 @@ impl Checker<'_, '_> {
             synthetic: None,
             declines: 0,
             unchanged: Vec::new(),
+            decided: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
@@ -734,6 +740,7 @@ impl Checker<'_, '_> {
             synthetic: None,
             declines: 0,
             unchanged: Vec::new(),
+            decided: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
@@ -795,6 +802,7 @@ impl Checker<'_, '_> {
             synthetic: Some(SyntheticAccess { owner: node, names, this_root: false }),
             declines: 0,
             unchanged: Vec::new(),
+            decided: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let result = self.finalize_evolving_array(&mut state, answer).t;
@@ -1029,6 +1037,7 @@ impl Checker<'_, '_> {
             synthetic: None,
             declines: 0,
             unchanged: Vec::new(),
+            decided: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         let answer = self.finalize_evolving_array(&mut state, answer).t;
@@ -1100,6 +1109,7 @@ impl Checker<'_, '_> {
             }),
             declines: 0,
             unchanged: Vec::new(),
+            decided: Vec::new(),
         };
         let answer = self.get_type_at_flow_node(&mut state, flow);
         self.shared_flows.truncate(state.shared_flow_start);
@@ -1222,7 +1232,7 @@ impl Checker<'_, '_> {
         after: TypeId,
         node: NodeId,
     ) {
-        if before == after {
+        if before == after && !state.decided.contains(&node) {
             state.unchanged.push(node);
         }
     }
@@ -6708,6 +6718,7 @@ impl Checker<'_, '_> {
             synthetic: None,
             declines: 0,
             unchanged: Vec::new(),
+            decided: Vec::new(),
         };
         let narrowed = self.narrow_type(&mut state, initial, condition, assume_true);
         self.record_flow_certainty(&state, reference, narrowed);
@@ -7408,6 +7419,16 @@ impl Checker<'_, '_> {
                             self.is_matching_constructor_reference(state, candidate)
                         });
                     if let Some((_, identifier)) = constructor_pair {
+                        // `flow.go:762`'s inequality arm keeps the type: an
+                        // equality in the false branch or an inequality in
+                        // the true one decides that nothing narrows.
+                        let equals = matches!(
+                            operator.kind,
+                            SyntaxKind::EqualsEqualsToken | SyntaxKind::EqualsEqualsEqualsToken
+                        );
+                        if assume_true != equals {
+                            state.decided.push(condition);
+                        }
                         return self.narrow_type_by_constructor(
                             t,
                             operator.kind,
