@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics Summary:
 What a pass means: every diagnostic in upstream's .errors.txt reproduced exactly — same file, line, column and code, no more and no fewer — for cases that expect at least one; syntactic, bind-and-check and isolatedDeclarations diagnostics collected as upstream's test runner collects them
-Passed         : 5101/5502 (92.71%)
-Failed         : 401
+Passed         : 5107/5502 (92.82%)
+Failed         : 395
 Skipped        : 6942 (excluded from the denominator)
 
   793  skipped: configuration-varied baseline, judged per configuration by diagnostics_configured
@@ -11,7 +11,7 @@ Skipped        : 6942 (excluded from the denominator)
   617  skipped: upstream recorded no output for this case
   464  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 401 failures:
+First 100 of 395 failures:
 compiler/abstractPropertyInConstructor
   10 missing (first TS2715 at abstractPropertyInConstructor.ts(4,24))
 compiler/accessorInferredReturnTypeErrorInReturnStatement
@@ -190,8 +190,6 @@ compiler/extendPrivateConstructorClass
   1 missing (first TS2675 at extendPrivateConstructorClass.ts(7,17))
 compiler/extractInferenceImprovement
   1 missing (first TS2345 at extractInferenceImprovement.ts(26,26))
-compiler/fallbackToBindingPatternForTypeInference
-  5 missing (first TS2345 at fallbackToBindingPatternForTypeInference.ts(2,7))
 compiler/flatArrayNoExcessiveStackDepth
   1 missing (first TS2322 at flatArrayNoExcessiveStackDepth.ts(20,5))
 compiler/functionExpressionInWithBlock
@@ -212,3 +210,5 @@ compiler/gettersAndSettersAccessibility
   2 missing (first TS2808 at gettersAndSettersAccessibility.ts(2,14))
 compiler/gettersAndSettersErrors
   2 missing (first TS2808 at gettersAndSettersErrors.ts(11,17))
+compiler/hugeDeclarationOutputGetsTruncatedWithError
+  1 missing (first TS7056 at hugeDeclarationOutputGetsTruncatedWithError.ts(5,14))
