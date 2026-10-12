@@ -3084,3 +3084,13 @@ which the retrace had produced through the union's best match
 for a fresh source against a union. When every member relates, the union
 arms explain as before. Quick oracles over `xcess`, `iscriminat`, `nion` and
 `bjectLiteral`: 0 lost.
+
+## 117. TS7008 and TS7031 names as `declarationNameToString` prints them
+
+- **TS7008** (`Member '{0}' implicitly has an 'any' type.`): a string-literal
+  member name prints as written, quotes included: `Member
+  ''string_named'' implicitly has an 'any' type.`. The port printed the
+  literal's text (`tsxElementResolution` is EXACT).
+- **TS7031** for a binding element with a missing name prints `(Missing)`,
+  as TS7006 does since §74 (`destructuringParameterDeclaration6` is EXACT).
+- Quick oracles over `mplicit`, `estructuring` and `oImplicitAny`: 0 lost.

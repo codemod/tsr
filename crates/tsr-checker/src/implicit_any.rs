@@ -168,10 +168,10 @@ impl Checker<'_, '_> {
         // took. §379 added the private-identifier arm; this one was never
         // there, and §800's removal of the wrong lines above it is what made
         // the absence legible. §801.
-        let text = match name {
-            tsr_ast::PropertyName::Identifier(name) => name.text,
-            tsr_ast::PropertyName::PrivateIdentifier(name) => name.text,
-            tsr_ast::PropertyName::StringLiteral(name) => name.text,
+        let (text, literal_id) = match name {
+            tsr_ast::PropertyName::Identifier(name) => (name.text, None),
+            tsr_ast::PropertyName::PrivateIdentifier(name) => (name.text, None),
+            tsr_ast::PropertyName::StringLiteral(name) => (name.text, name.node_id),
             _ => return,
         };
         // **A constructor assignment gives an *instance* member its type.**
@@ -208,12 +208,17 @@ impl Checker<'_, '_> {
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
         let span = self.error_span(node);
+        // `declarationNameToString`: a string-literal name prints as written,
+        // quotes included (`''string_named''`; r7-reports §117).
+        let printed = literal_id
+            .and_then(|id| self.declaration_name_source_text(id))
+            .unwrap_or_else(|| text.to_string());
         self.report(
             file,
             Diagnostic::with_args(
                 &messages::MEMBER_0_IMPLICITLY_HAS_AN_1_TYPE,
                 span,
-                [text.to_string(), "any".to_string()],
+                [printed, "any".to_string()],
             ),
         );
     }
@@ -1167,12 +1172,19 @@ impl Checker<'_, '_> {
                     let Some(name_id) = name.node_id else { continue };
                     let Some(file) = self.source_file_of_for_diagnostics(name_id) else { continue };
                     let span = self.error_span(name_id);
+                    // `declarationNameToString`: a missing name reads
+                    // `(Missing)` (r7-reports §117).
+                    let text = if name.text.is_empty() {
+                        "(Missing)".to_string()
+                    } else {
+                        name.text.to_string()
+                    };
                     self.report(
                         file,
                         Diagnostic::with_args(
                             &messages::BINDING_ELEMENT_0_IMPLICITLY_HAS_AN_1_TYPE,
                             span,
-                            [name.text.to_string(), "any".to_string()],
+                            [text, "any".to_string()],
                         ),
                     );
                 }
