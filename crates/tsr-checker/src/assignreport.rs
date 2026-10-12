@@ -3288,6 +3288,18 @@ impl<'a> Checker<'a, '_> {
         let TypeData::Intersection { types, .. } = self.type_of(target).data.clone() else {
             return self.report_relation_failure(at, span, None, source, target, None);
         };
+        // `reportErrorResults`' JSX arm (`relater.go:4724`) reads
+        // `ObjectFlagsJsxAttributes`, which only the attributes object type
+        // carries: a spread type parameter (`<C {...props} />` with `props:
+        // P`) or an intersection keeps the whole head (r7-reports §105).
+        if !self.type_of(source).flags.contains(TypeFlags::OBJECT)
+            || self
+                .type_of(source)
+                .flags
+                .intersects(TypeFlags::INTERSECTION | TypeFlags::INSTANTIABLE)
+        {
+            return self.report_relation_failure(at, span, None, source, target, None);
+        }
         let intrinsic = |checker: &mut Self, name: &str| {
             checker
                 .jsx_type_symbol(location, name)

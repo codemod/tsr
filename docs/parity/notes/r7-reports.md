@@ -2866,3 +2866,23 @@ every string-literal key. `symbol[] → number | ConcatArray<number>` picks
 `ConcatArray<number>` and explains through `slice(...)`
 (`iteratorSpreadInArray6`'s TS2769 argument chain). Quick oracles over
 `rray`, `pread`, `nion` and `terator`: 0 lost.
+
+## 105. JSX attributes heads: only the attributes object is decomposed
+
+`reportErrorResults`' JSX arm (`relater.go:4724`) drops the head when the
+source carries `ObjectFlagsJsxAttributes` and the target is an intersection
+holding `IntrinsicAttributes` or `IntrinsicClassAttributes`. In that case
+the failing constituent stands alone. `report_jsx_attributes_relation_failure`
+decomposed every such target. A spread type parameter (`<MyComponent
+{...props} />` with `props: P`) or an intersection source is not the
+attributes object, so native keeps the whole head: `Type 'P' is not
+assignable to type 'IntrinsicAttributes & P'.`, then its constituent line
+and the `extends` hints (`tsxNotUsingApparentTypeOfSFC`, whose remaining
+differences are the react16 lib's unresolved names). Such sources now go to
+`report_relation_failure`. Quick oracles over `tsx` and `jsx`: 0 lost.
+
+Refused here: in `contextuallyTypedStringLiteralsInJsxAttributes02`, `<MainButton
+{...{goTo: "home"}} extra />` prints `goTo: string` where native has the
+last candidate's contextual literal `"home"`. The spread operand's object
+literal is checked once and cached. Native re-checks it under each
+candidate's context, and the expression cache is not this lane's.
