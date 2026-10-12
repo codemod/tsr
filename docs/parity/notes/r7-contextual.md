@@ -1236,3 +1236,25 @@ type back as its context. A literal initializer can, and native breaks that
 cycle by pushing the context explicitly, so it keeps the implied-pattern
 fallback. No corpus line moved (no loss across 42,794 destructuring- and
 contextual-named verdict lines); the probe is §35's case 1.
+
+## 44. Refused: signature inference reading a `?` parameter with its optionality
+
+`applyToParameterTypes` pairs `getTypeAtPosition` of source and target, which
+reads `getTypeOfParameter`, including the `undefined` a `?` parameter takes
+under strictNullChecks. `signature_tuple_arguments` holds the slot's written
+type without it (`Parameter::question`), so `filter<T>(predicate: (value: T,
+index: number) => boolean)` called with `(pose?: number) => true` infers
+`T = number` where native infers `number | undefined`
+(contravariantOnlyInferenceWithAnnotatedOptionalParameter, 4 lines). Adding
+the optionality on both sides of `apply_to_parameter_types` fixed those lines
+with no loss across 71,801 related verdict lines. The corpus gate (vr1,
+against b71) still lost **2 diagnostics cases**:
+subtypingWith{Call,Construct}SignaturesWithOptionalParameters line 243, where
+`interface I14 extends Base2 { a4: <T>(x: T, y: T) => T }` against
+`a4: <T>(x: T, y?: T) => T` stops reporting TS2430 (tsgo reports it with
+`T | undefined` not assignable to `T`). The relater's signature instantiation
+reads this function, and its own treatment of optional parameter types
+compensated for the missing `undefined`. Adding the source side alone is
+worse: two false TS2430s (lines 205, 252). Not landed. It needs the relater's
+compareSignaturesRelated parameter reads (relater.rs) moved to the same
+optional-parameter contract in the same change.
