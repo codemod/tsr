@@ -2678,14 +2678,25 @@ impl<'a> Checker<'a, '_> {
         let file = self.source_file_of_for_diagnostics(specifier)?;
         let module_name = self.quoted_module_name(module_specifier);
         if let Some(suggestion) = suggestion {
-            self.report(
-                file,
-                Diagnostic::with_args(
-                    &messages::_0_HAS_NO_EXPORTED_MEMBER_NAMED_1_DID_YOU_MEAN_2,
-                    span,
-                    [module_name, text.to_string(), suggestion],
-                ),
+            let mut diagnostic = Diagnostic::with_args(
+                &messages::_0_HAS_NO_EXPORTED_MEMBER_NAMED_1_DID_YOU_MEAN_2,
+                span,
+                [module_name, text.to_string(), suggestion.clone()],
             );
+            // `errorNoModuleMemberSymbol`: `'{0}' is declared here.` at the
+            // suggestion's value declaration (`checker.go:14898`), r7-grammar §49.
+            let declaration = self
+                .get_export_of_module(target, &suggestion)
+                .and_then(|symbol| self.binder.symbols().get(symbol).value_declaration);
+            if let Some(declaration) = declaration {
+                diagnostic.add_related_information(Some(self.related_diagnostic_at(
+                    declaration,
+                    &messages::_0_IS_DECLARED_HERE,
+                    self.error_span(declaration),
+                    vec![suggestion],
+                )));
+            }
+            self.report(file, diagnostic);
             return None;
         }
         // `moduleSymbol.Exports[InternalSymbolNameDefault] != nil`: TS2614.
@@ -2739,29 +2750,45 @@ impl<'a> Checker<'a, '_> {
             // symbols, so `export { a as b }` — an alias — reaches the local.
             let exports: Vec<(&str, SymbolId)> =
                 entry.exports.iter().map(|(&name, &symbol)| (name, symbol)).collect();
+            let local_declarations = self.binder.symbols().get(local).declarations.to_vec();
             let local = self.same_reference_identity(local);
-            if let Some((exported_name, _)) = exports
+            let mut diagnostic = if let Some((exported_name, _)) = exports
                 .into_iter()
                 .find(|&(_, exported)| self.same_reference_identity(exported) == local)
             {
-                self.report(
-                    file,
-                    Diagnostic::with_args(
-                        &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_EXPORTED_AS_2,
-                        span,
-                        [module_name, text.to_string(), exported_name.to_string()],
-                    ),
-                );
-                return None;
-            }
-            self.report(
-                file,
+                Diagnostic::with_args(
+                    &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_EXPORTED_AS_2,
+                    span,
+                    [module_name, text.to_string(), exported_name.to_string()],
+                )
+            } else {
                 Diagnostic::with_args(
                     &messages::MODULE_0_DECLARES_1_LOCALLY_BUT_IT_IS_NOT_EXPORTED,
                     span,
                     [module_name, text.to_string()],
-                ),
-            );
+                )
+            };
+            // `'{0}' is declared here.` then `and here.` at each of the local
+            // symbol's declarations (`checker.go:14931`), r7-grammar §49.
+            for (index, declaration) in local_declarations.into_iter().enumerate() {
+                let related = if index == 0 {
+                    self.related_diagnostic_at(
+                        declaration,
+                        &messages::_0_IS_DECLARED_HERE,
+                        self.error_span(declaration),
+                        vec![text.to_string()],
+                    )
+                } else {
+                    self.related_diagnostic_at(
+                        declaration,
+                        &messages::AND_HERE,
+                        self.error_span(declaration),
+                        Vec::new(),
+                    )
+                };
+                diagnostic.add_related_information(Some(related));
+            }
+            self.report(file, diagnostic);
             return None;
         }
         self.report(
