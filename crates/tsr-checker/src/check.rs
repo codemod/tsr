@@ -9740,10 +9740,24 @@ impl Checker<'_, '_> {
         // `NodeIsMissing(GetContainingFunction(node).Body())`. An arrow and a
         // function expression always have a body, so only the declaration forms
         // can reach the report.
+        // `ast.NodeIsMissing`: absent, or a recovered body with no width
+        // (`{ foo(x = 1), }` in an object literal; r7-grammar §84).
+        let missing = |body: Option<NodeId>| {
+            body.is_none_or(|body| {
+                let span = self.nodes.span(body);
+                span.start == span.end
+            })
+        };
         let missing_body = match self.node_map.get(owner) {
-            Some(Node::FunctionDeclaration(function)) => function.body.is_none(),
-            Some(Node::MethodDeclaration(method)) => method.body.is_none(),
-            Some(Node::ConstructorDeclaration(constructor)) => constructor.body.is_none(),
+            Some(Node::FunctionDeclaration(function)) => {
+                missing(function.body.and_then(|body| body.node_id()))
+            }
+            Some(Node::MethodDeclaration(method)) => {
+                missing(method.body.and_then(|body| body.node_id()))
+            }
+            Some(Node::ConstructorDeclaration(constructor)) => {
+                missing(constructor.body.and_then(|body| body.node_id()))
+            }
             // **A signature has no body to be missing**, which is the strongest
             // case for this diagnostic rather than a kind to skip: `interface I
             // { fun(a = 3); }` and `var f: (a = 3) => number` are both TS2371.
@@ -9763,7 +9777,9 @@ impl Checker<'_, '_> {
             return;
         }
         let Some(file) = self.source_file_of_for_diagnostics(node) else { return };
-        let span = self.nodes.span(node);
+        // `c.error(node, …)`: a binding element's error range is its name
+        // (r7-grammar §84).
+        let span = self.error_span(node);
         self.report(
             file,
             Diagnostic::new(

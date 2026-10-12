@@ -1864,3 +1864,18 @@ qualified. No emitter existed. heritage_conformance.rs's
 declines, as native's call precedes the relation. Checked with `--pretty
 true` against `target/tsgo-pinned`: `extendPrivateConstructorClass`
 (`abc.XYZ`), `classConstructorAccessibility2`, and two controls.
+
+## §84 TS2371's span and a recovered body
+
+`checkVariableLikeDeclaration` reports TS2371, *A parameter initializer is
+only allowed in a function or constructor implementation*, with
+`c.error(node, …)`. For a binding element the error range is its name
+(`({ first = 0 }: …) => unknown` underlines `first`). check.rs's reporter
+used the node's whole span; it now uses `error_span`. Its test
+`NodeIsMissing(GetContainingFunction(node).Body())` also holds for a
+recovered body with no width, as in `{ foo(x = 1), }` in an object literal,
+where the parser expected a `{`. The reporter tested only `body.is_none()`
+and now also counts a zero-width body as missing. Checked with `--pretty
+true` against `target/tsgo-pinned`: `defaultValueInFunctionTypes`. The
+object-literal arm is in a file with parse errors, which the CLI does not
+show semantically, so the oracle measures `callSignaturesWithParameterInitializers2`.
