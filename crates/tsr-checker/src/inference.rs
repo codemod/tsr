@@ -821,9 +821,7 @@ impl<'a> Checker<'a, '_> {
                         argument,
                         Expression::ObjectLiteralExpression(_)
                             | Expression::ArrayLiteralExpression(_)
-                    ) && argument
-                        .node_id()
-                        .is_some_and(|id| !self.literal_subtree_holds_function(id))
+                    )
                     || return_literal_map.is_some()
                         && matches!(
                             argument,
@@ -1998,10 +1996,12 @@ impl<'a> Checker<'a, '_> {
         }
     }
 
-    /// [`Checker::literal_subtree_holds_function`] that does not descend into a
-    /// nested call, `new` or tagged template: §1's re-check reuses those
-    /// answers ([`Checker::evict_literal_subtree`] stops there), so a function
-    /// among their arguments is not re-derived.
+    /// Whether a literal's subtree holds a function, method, accessor or class
+    /// outside a nested call, `new` or tagged template: this port derives
+    /// such a member's function type from the context it is first checked in,
+    /// where native keeps the type the member's own symbol cached. §1's
+    /// re-check reuses nested call answers ([`Checker::evict_literal_subtree`]
+    /// stops there), so a function among their arguments is not re-derived.
     fn literal_subtree_holds_function_outside_calls(&self, root: NodeId) -> bool {
         use tsr_ast::SyntaxKind as K;
         let mut stack = vec![root];
@@ -2019,33 +2019,6 @@ impl<'a> Checker<'a, '_> {
                     continue;
                 }
                 _ => {}
-            }
-            if let Some(node) = self.node_map.get(id) {
-                tsr_ast::for_each_child_id(node, |child| stack.push(child));
-            }
-        }
-        false
-    }
-
-    /// Whether a literal's subtree holds a function, method, accessor or class:
-    /// this port derives such a member's function type (its return widening
-    /// included) from the context it is first checked in, where native keeps
-    /// the type the member's own symbol cached. §8 and §30 keep those literals
-    /// on their previous context.
-    fn literal_subtree_holds_function(&self, root: NodeId) -> bool {
-        use tsr_ast::SyntaxKind as K;
-        let mut stack = vec![root];
-        while let Some(id) = stack.pop() {
-            if matches!(
-                self.nodes.kind(id),
-                K::FunctionExpression
-                    | K::ArrowFunction
-                    | K::ClassExpression
-                    | K::MethodDeclaration
-                    | K::GetAccessor
-                    | K::SetAccessor
-            ) {
-                return true;
             }
             if let Some(node) = self.node_map.get(id) {
                 tsr_ast::for_each_child_id(node, |child| stack.push(child));
