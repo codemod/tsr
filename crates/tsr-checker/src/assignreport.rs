@@ -5982,6 +5982,17 @@ impl Checker<'_, '_> {
                 },
             };
         }
+        // A type-parameter target (`structuredTypeRelatedToWorker`'s target
+        // arm, `relater.go:3462`) relates only a mapped or generic source;
+        // anything else fails with nothing below its relation error, which
+        // names the constraint (r7-reports §46).
+        if target_flags.contains(TypeFlags::TYPE_PARAMETER)
+            && source_flags.intersects(TypeFlags::OBJECT | TypeFlags::PRIMITIVE)
+            && !source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
+            && !self.mapped_types.contains_key(&source)
+        {
+            return Some(());
+        }
         if source_flags.intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION)
             || target_flags
                 .intersects(TypeFlags::INSTANTIABLE | TypeFlags::INTERSECTION | TypeFlags::UNION)
@@ -6171,25 +6182,124 @@ impl Checker<'_, '_> {
                 }
             };
         }
-        // `indexSignaturesRelatedTo`: a target index signature the source
-        // has no applicable one for, on a source whose index is not
-        // inferable (a class or interface instance).
+        self.explain_index_signatures(stack, source, target, depth)
+    }
+
+    /// `indexSignaturesRelatedTo` (`relater.go:4578`): each target index
+    /// signature in order. A `string` index of `any` beside a string key
+    /// relates outright. An applicable source index relates its value
+    /// (`indexInfoRelatedTo`: `'K' index signatures are incompatible.`).
+    /// Otherwise an inferable-index source relates each applicable member
+    /// (`membersRelatedToIndexInfo`: `Property 'p' is incompatible with
+    /// index signature.`), and any other source misses the signature
+    /// (TS2329). A generic mapped source, a key other than `string` or
+    /// `number`, and an optional member decline (r7-reports §46).
+    fn explain_index_signatures(
+        &mut self,
+        stack: &mut ChainStack,
+        source: TypeId,
+        target: TypeId,
+        depth: usize,
+    ) -> Option<()> {
+        use crate::relater::Ternary;
         let target_infos = self.get_index_infos_of_type(target)?;
-        if let Some(info) = target_infos.first() {
-            if self.get_applicable_index_info(source, info.key).is_some()
-                || !self.chain_source_index_not_inferable(source)
-            {
+        let string = self.intrinsics.string;
+        let number = self.intrinsics.number;
+        let target_has_string = target_infos.iter().any(|info| info.key == string);
+        for info in &target_infos {
+            if target_has_string && self.type_of(info.value).flags.intersects(TypeFlags::ANY) {
+                continue;
+            }
+            if target_has_string && self.is_generic_mapped_type(source) {
                 return None;
             }
-            let key_text = self.type_to_string(info.key);
-            let source_text = self.type_to_string(source);
-            stack.push(ChainEntry {
-                message: &messages::INDEX_SIGNATURE_FOR_TYPE_0_IS_MISSING_IN_TYPE_1,
-                args: vec![key_text, source_text],
-            });
-            return Some(());
+            if let Some(source_info) = self.get_applicable_index_info(source, info.key) {
+                match self.chain_relate(stack, source_info.value, info.value) {
+                    Ternary::Related => continue,
+                    Ternary::Unknown => return None,
+                    Ternary::NotRelated => {
+                        return self.explain_index_info(stack, &source_info, info, depth);
+                    }
+                }
+            }
+            if self.chain_source_index_not_inferable(source) {
+                let key_text = self.type_to_string(info.key);
+                let source_text = self.type_to_string(source);
+                stack.push(ChainEntry {
+                    message: &messages::INDEX_SIGNATURE_FOR_TYPE_0_IS_MISSING_IN_TYPE_1,
+                    args: vec![key_text, source_text],
+                });
+                return Some(());
+            }
+            if info.key != string && info.key != number {
+                return None;
+            }
+            for name in self.get_property_names_of_type(source)? {
+                let numeric = crate::index_signatures::is_numeric_literal_name(&name);
+                if info.key == number && !numeric {
+                    continue;
+                }
+                if name.starts_with("__@") || name.starts_with("__#") {
+                    return None;
+                }
+                if self.chain_property_is_optional(source, &name)? {
+                    return None;
+                }
+                let member = self.get_type_of_property_of_type(source, &name)?;
+                match self.chain_relate(stack, member, info.value) {
+                    Ternary::Related => {}
+                    Ternary::Unknown => return None,
+                    Ternary::NotRelated => {
+                        self.explain_pair(stack, member, info.value, depth)?;
+                        stack.push(ChainEntry {
+                            message: &messages::PROPERTY_0_IS_INCOMPATIBLE_WITH_INDEX_SIGNATURE,
+                            args: vec![chain_property_display(&name)],
+                        });
+                        return Some(());
+                    }
+                }
+            }
+            let source_infos = self.get_index_infos_of_type(source)?;
+            for source_info in source_infos {
+                if !self.is_applicable_index_type(source_info.key, info.key) {
+                    continue;
+                }
+                match self.chain_relate(stack, source_info.value, info.value) {
+                    Ternary::Related => {}
+                    Ternary::Unknown => return None,
+                    Ternary::NotRelated => {
+                        return self.explain_index_info(stack, &source_info, info, depth);
+                    }
+                }
+            }
         }
         None
+    }
+
+    /// `indexInfoRelatedTo`'s report (`relater.go:4677`).
+    fn explain_index_info(
+        &mut self,
+        stack: &mut ChainStack,
+        source_info: &crate::index_signatures::IndexInfo,
+        target_info: &crate::index_signatures::IndexInfo,
+        depth: usize,
+    ) -> Option<()> {
+        self.explain_pair(stack, source_info.value, target_info.value, depth)?;
+        let source_key = self.type_to_string(source_info.key);
+        let entry = if source_info.key == target_info.key {
+            ChainEntry {
+                message: &messages::_0_INDEX_SIGNATURES_ARE_INCOMPATIBLE,
+                args: vec![source_key],
+            }
+        } else {
+            let target_key = self.type_to_string(target_info.key);
+            ChainEntry {
+                message: &messages::_0_AND_1_INDEX_SIGNATURES_ARE_INCOMPATIBLE,
+                args: vec![source_key, target_key],
+            }
+        };
+        stack.push(entry);
+        Some(())
     }
 
     /// `signaturesRelatedTo`' N×M arm (`relater.go:4495`): the first target

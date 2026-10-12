@@ -1668,3 +1668,25 @@ caller is a question for its owner; it is proposed rather than changed.
   chain's file goes through `attach_chain_file`, and `new_chain` copies
   the child's related information up. When the reporter declines, or
   produces anything but one diagnostic, the bare TS2786 stands as before.
+
+## 46. Index signatures in the chain; a type-parameter target
+
+- **`indexSignaturesRelatedTo`** (`relater.go:4578`). Each target index
+  signature is related in order. A `string` index of `any` beside a
+  string key relates outright. An applicable source index relates its
+  value (`indexInfoRelatedTo`): `'string' index signatures are
+  incompatible.`, or `'K' and 'L' index signatures…` when the keys
+  differ. A class or interface source with none misses it (TS2329, §37).
+  An inferable-index source (object literal, type literal) relates each
+  applicable member first (`membersRelatedToIndexInfo`): `Property 'one'
+  is incompatible with index signature.` Then it relates its own
+  applicable index infos. The arm declines for a generic mapped source,
+  a key other than `string`/`number`, a symbol-named member, and an
+  optional member. The optional member's `getNonMissingTypeOfSymbol` /
+  `NEUndefined` choice is not modelled.
+- **A type-parameter target** (`structuredTypeRelatedToWorker`,
+  `relater.go:3462`). Only a mapped source (`{ [P in Q]: X }` against
+  `T`) or a generic source has an arm there. Any other source fails with
+  nothing below the relation error, whose TS5075/TS5082 explanation
+  `chain_report_relation_error` already pushes. `Derived → T` under
+  `'number' index signatures are incompatible.` needed this.
