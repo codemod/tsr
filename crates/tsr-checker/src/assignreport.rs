@@ -8213,8 +8213,17 @@ impl Checker<'_, '_> {
         }
         // findMostOverlappyType: the last non-primitive constituent sharing
         // the most literal keys (ties go to the later one).
+        // `getIndexType` of each side: a `number` index adds `number`, which
+        // is not a unit type and meets no literal key, so only the shared
+        // literal names count; a `string` index meets every string literal
+        // key, which this count does not model (r7-reports §104).
+        let string = self.intrinsics.string;
         let source_names = self.get_property_names_of_type(source)?;
-        if !self.get_index_infos_of_type(source)?.is_empty() {
+        if self
+            .get_index_infos_of_type(source)?
+            .iter()
+            .any(|info| info.key != self.intrinsics.number)
+        {
             return None;
         }
         let mut best = None;
@@ -8223,7 +8232,7 @@ impl Checker<'_, '_> {
             if self.type_of(part).flags.intersects(TypeFlags::PRIMITIVE) {
                 continue;
             }
-            if !self.get_index_infos_of_type(part)?.is_empty() {
+            if self.get_index_infos_of_type(part)?.iter().any(|info| info.key == string) {
                 return None;
             }
             let names = self.get_property_names_of_type(part)?;

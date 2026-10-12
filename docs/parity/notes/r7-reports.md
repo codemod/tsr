@@ -2853,3 +2853,16 @@ The unnamed rule and the object/index arm now apply only when neither side
 is an alias instantiation, whether recorded in `alias_of` or as a reference
 target. `deeplyNestedMappedTypes`' types match again, and
 `indexedAccessConstraints` stays EXACT.
+
+## 104. `findMostOverlappyType` with a `number` index
+
+`getBestMatchingType`'s last arm intersects `getIndexType(source)` with
+`getIndexType(target)` and counts the unit types in the result. A `number`
+index signature adds `number`, which is not a unit type and meets no
+string-literal key, so for array sources the count is the shared literal
+property names. The retrace had declined any source or constituent with an
+index signature. It now declines only for a `string` index, which meets
+every string-literal key. `symbol[] → number | ConcatArray<number>` picks
+`ConcatArray<number>` and explains through `slice(...)`
+(`iteratorSpreadInArray6`'s TS2769 argument chain). Quick oracles over
+`rray`, `pread`, `nion` and `terator`: 0 lost.
