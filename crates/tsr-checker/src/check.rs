@@ -11007,6 +11007,7 @@ impl Checker<'_, '_> {
     ///
     /// `docs/architecture/checker-notes-diag2.md` §608.
     fn check_rest_element_is_last(&mut self, node: NodeId, typed: Node<'_>) {
+        self.check_rest_element_trailing_comma(node, typed);
         let offenders: Vec<NodeId> = match typed {
             // The binding-pattern form is `checkGrammarBindingElement`'s
             // `grammarErrorOnNode` (`grammarchecks.go:1540`), silent in a file
@@ -11086,6 +11087,76 @@ impl Checker<'_, '_> {
                 ),
             );
         }
+    }
+
+    /// TS1013 — `A rest parameter or binding pattern may not have a trailing
+    /// comma.` for a pattern whose last element is a rest:
+    /// `checkGrammarBindingElement` (`grammarchecks.go:1542`) for `var
+    /// [...a,]`, and the destructuring-assignment arms of
+    /// `checkObjectLiteralDestructuringPropertyAssignment` (`checker.go:12636`)
+    /// and `checkArrayLiteralDestructuringElementAssignment` (`:12690`, not
+    /// when the rest has an `= initializer`). Each is
+    /// `checkGrammarForDisallowedTrailingComma`, so `grammarErrorAtPos` over
+    /// the comma, behind the file's parse errors. The parser flags the list
+    /// (`HAS_TRAILING_COMMA`); the comma is the token after the last element.
+    fn check_rest_element_trailing_comma(&mut self, node: NodeId, typed: Node<'_>) {
+        if self.file_has_parse_errors
+            || !self.nodes.flags(node).contains(tsr_ast::NodeFlags::HAS_TRAILING_COMMA)
+        {
+            return;
+        }
+        let last = match typed {
+            Node::BindingPattern(pattern) => pattern
+                .elements
+                .last()
+                .filter(|element| element.dot_dot_dot_token.is_some())
+                .and_then(|element| element.node_id),
+            Node::ObjectLiteralExpression(literal) if self.is_assignment_target_literal(node) => {
+                match literal.properties.last() {
+                    Some(tsr_ast::ObjectLiteralElementLike::SpreadAssignment(spread)) => {
+                        spread.node_id
+                    }
+                    _ => None,
+                }
+            }
+            Node::ArrayLiteralExpression(literal) if self.is_assignment_target_literal(node) => {
+                match literal.elements.last() {
+                    Some(tsr_ast::Expression::SpreadElement(spread))
+                        if !matches!(
+                            spread.expression,
+                            Some(tsr_ast::Expression::BinaryExpression(binary))
+                                if binary.operator_token.is_some_and(|t| t.kind == SyntaxKind::EqualsToken)
+                        ) =>
+                    {
+                        spread.node_id
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        let Some(last) = last else { return };
+        let Some(file) = self.source_file_of_for_diagnostics(last) else { return };
+        let end = self.nodes.span(last).end;
+        let Some(rest) = self
+            .module_host
+            .and_then(|host| host.source_text(file, self.nodes))
+            .and_then(|text| text.get(end as usize..))
+        else {
+            return;
+        };
+        let comma = tsr_scanner::Scanner::new(rest).scan();
+        if comma.kind != SyntaxKind::CommaToken {
+            return;
+        }
+        let span = tsr_core::Span::new(end + comma.span.start, end + comma.span.end);
+        self.report(
+            file,
+            Diagnostic::new(
+                &messages::A_REST_PARAMETER_OR_BINDING_PATTERN_MAY_NOT_HAVE_A_TRAILING_COMMA,
+                span,
+            ),
+        );
     }
 
     /// Is this array literal the left-hand side of an assignment — a
