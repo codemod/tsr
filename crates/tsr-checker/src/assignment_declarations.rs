@@ -671,3 +671,108 @@ pub(crate) fn is_module_exports_access(expression: Expression<'_>) -> bool {
     matches!(target, Some(Expression::Identifier(name)) if name.text == "module")
         && name == Some("exports")
 }
+
+/// `ast.ExpressionIsAlias`, the binder's test (`binder.rs`) read back from the
+/// checker: an entity name or a class expression on the right of
+/// `module.exports =` binds the `export=` symbol as an alias.
+fn expression_is_alias(expression: Option<Expression<'_>>) -> bool {
+    match expression {
+        Some(Expression::Identifier(_) | Expression::ClassExpression(_)) => true,
+        Some(Expression::PropertyAccessExpression(access)) => {
+            expression_is_alias(access.expression)
+        }
+        _ => false,
+    }
+}
+
+impl Checker<'_, '_> {
+    /// `checkExternalModuleExports`' `export=` arm (`checker.go:5700`) for a
+    /// `CommonJS` JavaScript module: TS2309 when `module.exports = …` shares the
+    /// module with another value export (`exports.x = …`,
+    /// `module.exports.x = …`), at the assignment.
+    ///
+    /// The TypeScript `export =` arm is `check_export_assignment`'s syntactic
+    /// statement scan, which a `module.exports` assignment never reaches. This
+    /// arm reads the module symbol's exports instead, as upstream does:
+    /// `hasExportedMembersOfKind(moduleSymbol, Value)` over every export but
+    /// `export=`, or `hasShadowedNamespace`. The reported declaration is
+    /// `getDeclarationOfAliasSymbol(exportEquals)` (the last alias-shaped
+    /// assignment), else its value declaration. r7-calls §44.
+    pub(crate) fn check_commonjs_export_equals_conflict(&mut self, file: NodeId) {
+        let Some(module) = self.binder.symbol_of(file) else { return };
+        let module = self.binder.merged_symbol(module);
+        let Some(&export_equals) = self.binder.symbols().get(module).exports.get("export=") else {
+            return;
+        };
+        let record = self.binder.symbols().get(export_equals);
+        let declarations = record.declarations.to_vec();
+        let export_equals_flags = record.flags;
+        let value_declaration = record.value_declaration;
+        // A written `export =` is the statement scan's.
+        if declarations
+            .iter()
+            .any(|&declaration| self.nodes.kind(declaration) == SyntaxKind::ExportAssignment)
+        {
+            return;
+        }
+        let others: Vec<SymbolId> = self
+            .binder
+            .symbols()
+            .get(module)
+            .exports
+            .iter()
+            .filter(|(name, _)| **name != "export=")
+            .map(|(_, &symbol)| symbol)
+            .collect();
+        let mut conflict = false;
+        for symbol in others {
+            if self.get_symbol_flags(symbol).intersects(SymbolFlags::VALUE) {
+                conflict = true;
+                break;
+            }
+        }
+        // `hasShadowedNamespace` (`checker.go:5747`).
+        if !conflict
+            && export_equals_flags.contains(SymbolFlags::NAMESPACE_MODULE)
+            && export_equals_flags.intersects(SymbolFlags::ALIAS)
+            && let Some(target) = self.resolve_alias(export_equals)
+            && self.binder.symbols().get(target).flags.intersects(SymbolFlags::NAMESPACE)
+        {
+            let members: Vec<SymbolId> = self
+                .binder
+                .symbols()
+                .get(target)
+                .exports
+                .iter()
+                .filter(|(name, _)| **name != "export=")
+                .map(|(_, &symbol)| symbol)
+                .collect();
+            for symbol in members {
+                if self
+                    .get_symbol_flags(symbol)
+                    .intersects(SymbolFlags::TYPE | SymbolFlags::NAMESPACE)
+                {
+                    conflict = true;
+                    break;
+                }
+            }
+        }
+        if !conflict {
+            return;
+        }
+        let alias_declaration = declarations.iter().rev().copied().find(|&declaration| {
+            matches!(self.node_map.get(declaration),
+                Some(Node::BinaryExpression(binary)) if expression_is_alias(binary.right))
+        });
+        let Some(declaration) = alias_declaration.or(value_declaration) else { return };
+        let Some(source) = self.source_file_of_for_diagnostics(declaration) else { return };
+        let span = self.error_span(declaration);
+        self.report(
+            source,
+            tsr_diagnostics::Diagnostic::new(
+                &tsr_diagnostics::messages::AN_EXPORT_ASSIGNMENT_CANNOT_BE_USED_IN_A_MODULE_WITH_OTHER_EXPORTED_ELEMENTS,
+                span,
+            ),
+        );
+    }
+}

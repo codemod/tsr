@@ -156,6 +156,10 @@ impl Checker<'_, '_> {
         self.reset_unused_state();
         self.check_top_level_declare_modifiers(file, context.ambient);
         self.check_node(file, context.ambient, 0);
+        // `checkExternalModuleExports`' `export=` arm for `module.exports`.
+        if self.file_is_js {
+            self.check_commonjs_export_equals_conflict(file);
+        }
         // `checkExternalModuleExports`' `getExportsOfModule` (`checker.go:5672`).
         self.check_export_star_conflicts(file);
         // `checkSourceFile` (`checker.go:2220`) runs the unused-identifier pass

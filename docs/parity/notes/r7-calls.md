@@ -1395,6 +1395,55 @@ value and native reports nothing. That would mean tsgo kept a value-as-type
 path for that declaration kind. The CommonJS `require` class alias is the
 candidate, and the alias-chain test is what keeps it silent here.
 
+## 44. `module.exports =` beside another value export is TS2309
+
+`checkExternalModuleExports` (`checker.go:5693`) runs once per external or
+CommonJS module, from `checkSourceFile`. Its `export=` arm reports TS2309 at
+`getDeclarationOfAliasSymbol(exportEquals) ?? exportEquals.ValueDeclaration`
+when either of two things holds:
+
+- some other export carries a value meaning (`hasExportedMembersOfKind`
+  over `getSymbolFlags`);
+- the `export=` alias shadows a namespace that has type or namespace
+  exports (`hasShadowedNamespace`).
+
+This port had only `check_export_assignment`'s statement scan, which reads
+written `export` modifiers beside an `export =` statement. A CommonJS
+`module.exports = C` never reaches it. This was bucket 3 of the JS rank
+(TS2309 missing, 21 cases: the `moduleExportAlias*`,
+`moduleExportAssignment*` and `jsDeclarationsExport*` families).
+
+`check_commonjs_export_equals_conflict` (`assignment_declarations.rs`) is the
+symbol-based arm for JS files. It reads the module symbol's `export=` and
+other exports the way upstream does, and reports at the last alias-shaped
+`module.exports =` assignment, else the value declaration. A written
+`export =` declaration stays with the statement scan, so nothing is reported
+twice. The TypeScript half was not rewritten onto symbols: it is not in this
+bucket, and that rewrite is a larger change in `check.rs`.
+
+**The value declaration is the first assignment.** The binder overwrote
+`value_declaration` on every `module.exports =`. Native's
+`bindModuleExportsAssignment` calls `SetValueDeclaration`, which keeps the
+first, and `declare_into` had already done the same for a property-flagged
+assignment. `typedefCrossModule2` (two `module.exports = {…}`) reported at
+the second assignment until the binder hunk below.
+
+Consumer hunks under the default grant (same root):
+
+- `check.rs::check_source_file` calls the arm for JS files.
+- `tsr-binder` `binder.rs` `JsDeclaration::ModuleExports` sets
+  `value_declaration` only when it is empty.
+
+**Left.** `pushTypeGetTypeOfAlias` and `moduleExportAliasUnknown` are
+`exports.x = <unresolvable entity>`. Natively the alias resolves to
+`unknownSymbol`, whose flags (`SymbolFlagsAll`) make it a value export.
+`get_symbol_flags` declines an unresolved alias except in the CommonJS
+canonical-any shape, so these two stay silent rather than guess.
+
+**Falsifier.** A CommonJS baseline with `module.exports = x` beside a value
+`exports.y` and no TS2309, or a TS2309 placed at a later
+`module.exports =` that is not alias-shaped.
+
 ## Proposed issues (for the integrator to file)
 
 - **Chain children carry no file outside the call builders.**

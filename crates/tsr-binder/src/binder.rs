@@ -4067,7 +4067,13 @@ impl<'a, 'n> Binder<'a, 'n> {
                     SymbolFlags::empty(),
                     id,
                 );
-                self.symbols.get_mut(symbol).value_declaration = Some(id);
+                // `SetValueDeclaration(symbol, node)`: the first assignment
+                // keeps the slot (an alias-flagged declaration never took it
+                // in `declare_into`). r7-calls §44.
+                let entry = self.symbols.get_mut(symbol);
+                if entry.value_declaration.is_none() {
+                    entry.value_declaration = Some(id);
+                }
                 Some(symbol)
             }
             // `exports.x = 1` and `module.exports.x = 1` are named exports.
