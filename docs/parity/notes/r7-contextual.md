@@ -1113,3 +1113,24 @@ fallback no longer runs when the call's `call_inference_signatures` slot
 holds a resolved instance (type parameters cleared). `Promise.all([fa(),
 fb()])` keeps its tuple (its inferred `T` is the tuple itself), and the §31
 gains hold on the verdict dump.
+
+## 38. A dynamic import's options read the arity-0 `ImportCallOptions`
+
+`getContextualTypeForArgumentAtIndex`'s import-call arm (`checker.go:29773`)
+types `import(specifier, options)`'s second argument with
+`getGlobalImportCallOptionsType`, which is an arity-0 global. The port asked
+`global_type_symbol`, the arity-1 lookup, which never matches
+`ImportCallOptions`, so the options literal always read the empty-object
+fallback. `await import("./a", { with: { type: "not-json" } })` under an
+augmented `ImportAttributes { type: "json" }` now keeps `"not-json"` under
+its literal context (importAttributes 5 → 1 non-RIGHT lines on the verdict
+dump).
+
+Routed while triaging: an interface extending a mapped-type instance
+(`interface P extends Pick<R, "mode">`) inherits no members (`p.mode` is
+`error`). The lib's Temporal options are built that way, so their literals
+widen (temporal, 17 lines). An async arrow under a naked type-parameter
+context answers `error` (`h<T>(fn: T): T` with `h(async () => 1)`, while
+`m<T>(fn: () => T)` is fine; awaitedType 0:163–172; signatures.rs). A JSDoc
+`@satisfies {Object.<string, boolean>}` gives the literal no boolean context
+(checkJsdocSatisfiesTag8; jsdoc_annotations.rs).
