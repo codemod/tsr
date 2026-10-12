@@ -1603,6 +1603,68 @@ Only a few thousand tokens per program carry a value at all. Parser
 behaviour cannot change: every token's value is the same text, read from a
 different owner.
 
+### §41.5 Item 6, the binder's child walk through a callback
+
+`bind_each_child` (`bindEachChild`, `binder.go:1737`) appended a node's children
+to a shared `Vec<Node>` (`push_children`), then read them back one at a time
+and truncated the vector. That was a store and a load per child, a length
+check per frame, and a buffer that every level shared. Native's
+`ForEachChild` calls its visitor on each child directly. The generator now
+emits `for_each_child(node, f)` beside `push_children`, from the same field
+list through the same `child_push_call` with `f` in place of `out.push`.
+The child set and order are therefore identical by construction.
+`bind_each_child` calls it with `|child| self.bind(child)`, and the binder's
+`children` buffer is gone.
+
+**Stack.** In release, `for_each_child` inlines into `bind_inner`, whose frame
+is 0xf8 bytes plus six saved registers, about 300 bytes. Unoptimised, it
+reserves a slot per arm: 0x2f18 bytes, about 12 KiB. Thirty-two such levels,
+`STACK_CHECK_INTERVAL`, exceed the 100 KiB red zone, and
+`bind.rs::deeply_nested_parentheses_bind_without_overflowing` overflowed in
+the debug test build. Under `cfg!(debug_assertions)`, `bind_each_child`
+therefore runs the walk inside `ensure_sufficient` at every level. The
+measured build is unaffected, and both the debug and the `--release` test
+builds pass. The alternative was a dispatcher plus one small generated
+function per kind, which keeps debug frames small without a `cfg`. It costs
+about 190 more generated functions, and a call per node wherever LLVM
+declines to inline. It wins if a debug-only stack check is ever judged worse
+than that code.
+
+**Ownership.** `xtask/src/gen_nodes.rs` (`child_push_call` takes the sink,
+plus the new `for_each_child` emitter), `crates/tsr-ast/src/generated/visit.rs`
+(regenerated: +1,630 lines, one new function, nothing else changed) and the
+re-export in `crates/tsr-ast/src/lib.rs`. These are additive hunks in shared
+files for the same root cause, under the integrator's 2026-10-12 default
+grant.
+
+| measurement | before (item 5) | candidate |
+|---|---:|---:|
+| Ir gi / dm / dml | 180,818,510 / 786,540,558 / 3,384,490,330 | 176,711,473 (−2.27%) / 781,011,528 (−0.70%) / 3,373,440,498 (−0.33%) |
+| lib bind (vs the build before it), run 1 / 2 | 1.000 | 0.936 / 0.863 |
+| lib parse, run 1 / 2 (unchanged code) | 1.000 | 0.988 / 0.958 |
+
+### §41.6 The four commits gated together
+
+These commits are the stack on main `d7cb3d4b` (batch 73): §41.2, §41.3,
+§41.4 and §41.5. They were gated at the tip against a freeze of `d7cb3d4b`:
+
+- `parity_gate.sh compare`: types and diagnostics gained, lost and missing
+  all 0.
+- Exact oracle against `main-d7cb3d4b`: 11,036 → 11,036, with gained, lost
+  and missing all 0.
+- jsTyping: 104 → 104 lines, identical; `new_false=0`, `lost_true=0`.
+- fmt, strict clippy and `cargo test --workspace --release` all pass.
+- Whole-program median child CPU new/old, 21 samples: dm 0.993, gi 0.745
+  (wall 1.014 / 0.714). gi's figure is larger than the parts measured above,
+  so it is reported as read, not as the expected gain. On this VM two copies
+  of one binary read up to 1.04 apart.
+
+| Ir | base `d7cb3d4b` | stack | change |
+|---|---:|---:|---:|
+| gi | 191,031,756 | 176,737,272 | −7.48% |
+| dm | 798,913,799 | 781,019,961 | −2.24% |
+| dml | 3,405,828,450 | 3,373,206,034 | −0.96% |
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):
