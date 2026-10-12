@@ -650,8 +650,59 @@ impl<'a> Checker<'a, '_> {
                     node.types.iter().map(|&ty| self.mapped_constraint_type(ty)).collect();
                 self.get_intersection_type(&types, None)
             }
+            TypeNode::TypeReferenceNode(reference) => {
+                let written = self.get_type_from_type_node(node);
+                if !self.is_error(written) {
+                    return written;
+                }
+                self.renamed_import_key_constraint(reference).unwrap_or(written)
+            }
             _ => self.get_type_from_type_node(node),
         }
+    }
+
+    /// resolveTypeReferenceName resolves a renamed import (`import { key as
+    /// LocaleKey }`) to its target whatever its local name; only the PRINTED
+    /// name of such a reference depends on the site, which is why the
+    /// annotation road keeps it a written mint (§158). A mapped constraint
+    /// is never printed once its keys are concrete (the mapped type resolves
+    /// and prints its members), so a renamed reference to a non-generic alias
+    /// whose declared type is a literal key or a union of them answers that
+    /// declared type here: `{ [k in LocaleKey]?: CustomLocale }` over `type
+    /// key = "ar" | "bg"` has the members `ar?` and `bg?`
+    /// (declarationEmitAliasFromIndirectFile, r7-declared §49).
+    fn renamed_import_key_constraint(
+        &mut self,
+        reference: &tsr_ast::TypeReferenceNode<'a>,
+    ) -> Option<TypeId> {
+        use crate::{flags::TypeFlags, types::TypeData};
+        if !reference.type_arguments.is_empty() {
+            return None;
+        }
+        let alias = self.resolve_entity_name(reference.type_name?, SymbolFlags::ALIAS)?;
+        if !self.binder.symbols().get(alias).flags.contains(SymbolFlags::ALIAS) {
+            return None;
+        }
+        let target = self.resolve_alias_fully(alias);
+        let target = self.binder.merged_symbol(target);
+        if !self.binder.symbols().get(target).flags.contains(SymbolFlags::TYPE_ALIAS)
+            || !self.local_type_parameters_of(target).is_empty()
+        {
+            return None;
+        }
+        let declared = self.get_declared_type_of_symbol(target);
+        let literal = |checker: &Self, t: TypeId| {
+            checker
+                .store
+                .get(t)
+                .flags
+                .intersects(TypeFlags::STRING_LITERAL | TypeFlags::NUMBER_LITERAL)
+        };
+        let keys = match &self.store.get(declared).data {
+            TypeData::Union { types, .. } => types.iter().all(|&t| literal(self, t)),
+            _ => literal(self, declared),
+        };
+        keys.then_some(declared)
     }
 
     /// A mapped alias keeps its printed identity while its mapper supplies

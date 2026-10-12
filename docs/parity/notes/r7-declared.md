@@ -1359,6 +1359,24 @@ the first suspect) comes before either arm. Local probes: `ParentConfig` and
 `T[P] extends string ? (...args: Parameters<Required<T>[P]>) => 1 : 2` both
 print as native with either arm.
 
+### 40.1 Follow-up: a nested-capture guard ends the OOM, and the case then regresses
+
+The OOM traced to `capture_inline_conditional_constraint`: computing an inline
+conditional mint's distributive constraint at mint time reaches other
+aliases' branches (`capture_conditional_alias_branches`), whose own inline
+mints capture again, so `SimplifyPrivateSpec`'s mutually recursive alias set
+recursed through constraint captures without bound. Native computes that
+constraint lazily (getConstraintOfType on demand). A guard that skips a
+capture nested in another capture (a depth counter in
+`instantiation_expressions`; the inner mint publishes no constraint, as an
+undecidable one publishes none) removed the OOM under both §40 arms.
+
+**Refused all the same.** With the guard, `ParentConfig` resolves and
+thislessFunctionsNotContextSensitive3 goes from 3 to 35 probe diffs against
+native: the resolved mapped type reaches contextual-typing roads that answer
+differently from native's. Neither the arms nor the guard is committed; the next attempt
+starts from that contextual difference, not from the print.
+
 ## 41. An argument-less qualified reference to a fully defaulted generic is its defaults' instance
 
 **Forcing constraint.** fillMissingTypeArguments (`checker.go:19458`) fills
@@ -1536,3 +1554,63 @@ the origin is computed before the name. No state.
 **Measured** (unfiltered against `41565caf`): types 0 / 0, diagnostics 0 / 0,
 jsTyping 0 / 0, Ir gi 1.0001, dm 1.0002. Kept for its prints, which match
 native on every probe above; no corpus row has these shapes.
+
+## 49. A renamed import of a literal-key alias gives a mapped constraint its keys
+
+**Forcing constraint.** declarationEmitAliasFromIndirectFile 1:4:
+`import { key as LocaleKey } from "./locale"` over `export type key = "ar" |
+"bg"`, then `l10ns: {[k in LocaleKey]?: CustomLocale } & { default: Locale }`.
+Native records `{ ar?: CustomLocale | undefined; bg?: CustomLocale |
+undefined; } & { default: Locale; }`; TSR printed the mapped type from its
+parts, `{ [k in LocaleKey]?: CustomLocale; }`. resolveTypeReferenceName
+resolves the renamed specifier to `key` whatever its local name, so the
+constraint is the union and resolveMappedTypeMembers enumerates it. This
+port's annotation road keeps a renamed reference a written mint (only its
+printed name depends on the site), so the mapped producer met a mint it
+cannot enumerate.
+
+**Port.** `mapped_constraint_type` (mapped.rs) gains a TypeReference arm:
+when the written reference answers `error`, `renamed_import_key_constraint`
+resolves an argument-less ALIAS symbol fully; a non-generic TYPE_ALIAS target
+whose declared type is a string or number literal, or a union of them,
+answers that declared type. A mapped constraint is never printed once its
+keys are concrete (the mapped type prints its members), so the site-printed
+name the mint carries has no reader here. No state.
+
+**Alternatives.** Resolving every renamed import to its declared type on the
+annotation road is native's shape, but it moves every printed renamed
+reference, which is the printer's, not this lane's. Admitting any declared
+type (an object, a generic alias) would hand the producer constraints this
+arm has not been measured on; the literal-key slice is what the forcing row
+needs.
+
+**Measured** (unfiltered against `d87e190a`): types **+1, 0 lost**
+(declarationEmitAliasFromIndirectFile 1:4); diagnostics 0 / 0; jsTyping
+new_false 0 / lost_true 0; Ir gi 0.9999, dm 0.9998.
+
+**Not reached:** 2:6 and 2:8 print the same type in `app.ts`, where native
+qualifies the template, `import("./locale").CustomLocale | undefined`. A
+plain `CustomLocale | undefined` union read in another file already prints
+unqualified (probe: `d: CustomLocale | undefined` in an interface), so the
+residue is the union printer's qualification, not the mapped type.
+
+## 50. Routed, not ported: three roads met while looking for §49
+
+- **An interface extending a generic alias of an interface reference**
+  (`interface TaggedPair<T> extends Pair<T>` over `type Pair<T> = AB<T, T>`;
+  genericTypeAliases 0:80–0:87, `p.a : number`): `interface_heritage_type`
+  (base_types.rs) answers the alias reference, and the base is valid, but
+  members.rs's `generic_heritage_member` walks `base_symbol_of_heritage_entry`
+  and finds no class or interface behind the alias, so `p.a` is `error`.
+  Even a non-generic `interface X extends Pair<number>` misses. Members.rs's.
+- **`unknown` against a signature type under `strictNullChecks: false`**
+  (awaitedType 0:6, `Awaited<{ then(): void }>`, native `never`):
+  `relate_ternary(unknown, (value: number) => any)` answers `Unknown`, so
+  the conditional's false branch is not taken and the alias is `error`.
+  Strict mode decides it (unknown includes null). The relater's.
+- **Local and non-exported aliases printed structurally**
+  (genericTypeAliases 0:94–0:112, inlineMappedTypeModifierDeclarationEmit,
+  keyRemappingKeyofResult 0:62): native expands an alias the enclosing
+  declaration cannot name (`Foo : T | { x: T | any; }`). The printer's
+  accessibility arm.
+
