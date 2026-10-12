@@ -7009,6 +7009,40 @@ impl Checker<'_, '_> {
                 _ => None,
             };
         }
+        // An alias instantiation whose body is a tuple (`type T1<T> =
+        // [number, T1<{ x: T }>]`) is minted under its alias name; the
+        // structural walk reads the tuple it stands for (r7-reports §111).
+        let alias_tuple = |checker: &mut Self, ty: TypeId| -> Option<TypeId> {
+            if checker.tuple_element_lists.contains_key(&ty)
+                || checker.variadic_tuple_elements.contains_key(&ty)
+            {
+                return None;
+            }
+            let (symbol, arguments) = checker.type_reference_targets.get(&ty)?.clone();
+            if !checker.binder.symbols().get(symbol).flags.contains(SymbolFlags::TYPE_ALIAS) {
+                return None;
+            }
+            let body = checker.evaluate_alias_body(symbol, &arguments)?;
+            (checker.tuple_element_lists.contains_key(&body)
+                || checker.variadic_tuple_elements.contains_key(&body))
+            .then_some(body)
+        };
+        // Two instantiations of one alias relate its arguments first
+        // (alias variance, below); only distinct aliases are read here.
+        let same_alias = matches!(
+            (self.type_reference_targets.get(&source), self.type_reference_targets.get(&target)),
+            (Some((left, _)), Some((right, _))) if left == right
+        );
+        let (source_body, target_body) = if same_alias {
+            (None, None)
+        } else {
+            (alias_tuple(self, source), alias_tuple(self, target))
+        };
+        if source_body.is_some() || target_body.is_some() {
+            let source = source_body.unwrap_or(source);
+            let target = target_body.unwrap_or(target);
+            return self.explain_fixed_tuple_target(stack, source, target, depth);
+        }
         // Array and tuple pairs have arms of their own (tuple elements,
         // `tryElaborateArrayLikeErrors`), not retraced here. An array or
         // tuple against a plain object, or the reverse, is structural.
