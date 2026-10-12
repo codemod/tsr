@@ -1203,6 +1203,28 @@ impl Checker<'_, '_> {
         }
     }
 
+    /// `assignParameterType` (`checker.go:10419`): a binding-pattern
+    /// parameter whose contextual type came out `unknown` (inference found
+    /// nothing better) falls back to the pattern's own type
+    /// (`getTypeFromBindingPattern`, reportErrors off). Any other contextual
+    /// type, or a pattern this port cannot type, is kept (r7-reports §77).
+    pub(crate) fn binding_pattern_fallback_for_unknown(
+        &mut self,
+        parameter: NodeId,
+        contextual: crate::types::TypeId,
+    ) -> crate::types::TypeId {
+        if contextual != self.intrinsics.unknown {
+            return contextual;
+        }
+        let Some(Node::ParameterDeclaration(declaration)) = self.node_map.get(parameter) else {
+            return contextual;
+        };
+        let Some(tsr_ast::BindingName::BindingPattern(pattern)) = declaration.name else {
+            return contextual;
+        };
+        self.binding_pattern_implied_type(pattern).unwrap_or(contextual)
+    }
+
     /// The parameter nodes of a declaration this rule admits.
     fn implicit_any_candidates(&self, node: NodeId) -> Vec<NodeId> {
         let collect = |parameters: &[&tsr_ast::ParameterDeclaration<'_>]| -> Vec<NodeId> {
