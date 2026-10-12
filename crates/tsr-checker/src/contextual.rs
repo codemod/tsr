@@ -2941,7 +2941,7 @@ impl<'a> Checker<'a, '_> {
     /// unannotated non-empty binding pattern supplies
     /// `getTypeFromBindingPattern(name, true, false)`, unless the caller skips
     /// binding patterns.
-    fn initializer_binding_pattern_context(
+    pub(crate) fn initializer_binding_pattern_context(
         &mut self,
         name: Option<BindingName<'a>>,
         initializer: NodeId,

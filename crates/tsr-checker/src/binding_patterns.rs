@@ -434,6 +434,34 @@ fn binding_default_is_context_independent(expression: Expression<'_>) -> bool {
         // Only `as const` forwards the outer context to its operand.
         Expression::AsExpression(node) => node.r#type.is_some_and(|ty| !crate::assertions::is_const_type_reference(ty)),
         Expression::TypeAssertion(node) => node.r#type.is_some_and(|ty| !crate::assertions::is_const_type_reference(ty)),
+        // An arrow that is not context-sensitive (`isContextSensitive`'s
+        // function arm: every parameter annotated, or type parameters, and no
+        // context-sensitive concise body) reads no contextual signature, and
+        // its type is its symbol's in both checks. A function expression
+        // without an explicit `this` parameter is always context-sensitive
+        // (hasContextSensitiveParameters), so it stays refused.
+        Expression::ArrowFunction(arrow) => {
+            (!arrow.type_parameters.is_empty() || arrow.parameters.iter().all(|parameter| parameter.r#type.is_some()))
+                && arrow.body.is_some_and(|body| match tsr_ast::Expression::try_from(tsr_ast::Node::from(body)) {
+                    // A concise body is context-sensitive when it is itself a
+                    // function, literal, conditional, binary or parenthesized
+                    // form that may hold one; those stay refused.
+                    Ok(expression) => arrow.r#type.is_some() || !matches!(
+                        expression,
+                        Expression::ArrowFunction(_)
+                            | Expression::FunctionExpression(_)
+                            | Expression::ObjectLiteralExpression(_)
+                            | Expression::ArrayLiteralExpression(_)
+                            | Expression::ConditionalExpression(_)
+                            | Expression::BinaryExpression(_)
+                            | Expression::ParenthesizedExpression(_)
+                            | Expression::JsxElement(_)
+                            | Expression::JsxSelfClosingElement(_)
+                            | Expression::JsxFragment(_)
+                    ),
+                    Err(_) => true,
+                })
+        }
         _ => false,
     }
 }
