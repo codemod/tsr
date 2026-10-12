@@ -774,7 +774,8 @@ decorator heads):
 A constituent whose signature list this port cannot decide leaves the head
 alone. `Did you forget to use 'await'?`'s related information and
 `invocationErrorRecovery`'s import-originated related information are not
-modelled (the checker's related diagnostics carry no file yet).
+modelled (the checker's related diagnostics carry no file yet; §30 adds the
+first two).
 
 **Measured** against `14511e3e` on `0c8b7f43`: diagnostics 0/0 (the
 diagnostics suite compares code and position), types 0/0; jsTyping
@@ -921,7 +922,97 @@ gives over type variables where native fails the constraint. That would
 show up as a TS2345 (or other argument report) where native reports
 TS2344.
 
+## 30. Call resolution errors carry their related information
+
+The checker's related diagnostics can now carry their file
+(`related_diagnostic_at`, r7-grammar §34). That lifts the reason §23 and the
+TS2769 chain left their related information off. Three native attachments
+are ported:
+
+- **`getArgumentArityError`'s too-short arm** (`checker.go:9770`): the
+  closest signature (the first with the smallest `getMinArgumentCount`)
+  names its declared parameter at the argument count, past a `this`
+  parameter. The messages are `An_argument_for_0_was_not_provided` (TS6210),
+  `An_argument_matching_this_binding_pattern_was_not_provided` (TS6211) and
+  `Arguments_for_the_rest_parameter_0_were_not_provided` (TS6236). The
+  parameter comes from the declaration's written list (`parameters_of`), so a
+  synthetic or default signature, whose declaration lists no such
+  parameter, adds nothing, as native's nil declaration does. A decorator's
+  arity report gets it too and keeps it through `chain_reports_under`
+  (`NewDiagnosticChain` copies related information).
+- **`The_last_overload_is_declared_here`** (TS2771) on the TS2769 chain, at
+  the last candidate's declaration. It is added only when that declaration
+  is a signature declaration: this port's synthetic signatures borrow
+  another node as their declaration where native's is nil.
+- **`addImplementationSuccessElaboration`** (TS2793, `checker.go:9685`),
+  after every argument report: when the failed candidate's (unmerged)
+  symbol has several declarations and one is a function-like declaration
+  with a body, `chooseOverload` runs against that implementation alone. If
+  it would succeed, TS2793 is added at the implementation. The check is
+  `isSingleNonGenericCandidate`'s: written type arguments fail, then
+  `hasCorrectArity`, then `isSignatureApplicable` over the same plain
+  arguments the non-generic overload walk relates (literals re-checked
+  under the candidate and restored). That walk's per-candidate loop is now
+  `plain_overload_arguments` and `plain_candidate_applicable`, shared by
+  both. The binder binds no `__constructor` symbol, so a constructor's
+  declarations are read off its class's members.
+
+The invocation error (§23) gains its two related lines and its printer:
+
+- `Did_you_forget_to_use_await` (`invocationErrorDetails`,
+  `checker.go:9940`) when the awaited apparent type (`awaited_type`) has
+  signatures of the kind; an undecided awaited type adds nothing;
+- `Are_you_missing_a_semicolon` (`resolveCallExpression`,
+  `checker.go:8545`) at the callee of a one-argument call whose callee ends
+  its line (`SkipTriviaEx` with `StopAfterLineBreak`, ported byte for
+  byte);
+- the detail's types print through `type_to_string_for_message`, which
+  reduces before printing as native's node builder does
+  (`nodebuilderimpl.go:3228`): neverIntersectionNotCallable's apparent
+  intersection prints `never`.
+
+`GetErrorRangeForNode` (`scanner.go:2588`) places these related spans
+differently from this port's `error_span` in two cases, so
+`signature_declaration_error_span` handles them:
+
+- a method signature, call or construct signature, or function or
+  constructor type has no arm there and spans its whole node (this port's
+  `error_span` narrows a method signature to its name);
+- a constructor spans from its first token to the `constructor` keyword.
+
+**Chain children carry the reported file.** Native's `NewDiagnosticChain`
+(`ast/diagnostic.go:152`) builds each head from its child's file and
+location, so every level of a reported chain has the file. The exact oracle
+prints that file and position for each chain row. This port builds the
+children before `report` gives the head its file, so they printed without a
+location (§23's TS2349 detail, the TS2769 chain, the decorator heads).
+`set_chain_file` now gives every file-less child under the three chain
+builders (`chain_reports_under`, `chain_overload_failure`,
+`invocation_error`) the reported file's image. Chains built by the relation
+reporter (a lone TS2345's or TS2322's elaboration) are outside these
+builders and still print without one: the general fix belongs in `report`
+(proposed below).
+
+**Declines, stated:** TS2793 for a generic implementation, a spread
+argument, or any argument shape or relation the plain walk declines; the
+elaboration's own related information (`The expected type comes from
+property…`, TS6500) belongs to the relation reporter.
+
+**Falsifier:** an exact-oracle case gaining a related line native does not
+have. That would come from an implementation the plain relation accepts
+where native's `chooseOverload` rejects it, or from a synthetic
+signature's borrowed declaration passing `is_signature_declaration`.
+
 ## Proposed issues (for the integrator to file)
+
+- **Chain children carry no file outside the call builders.**
+  `Checker::report` (`check.rs`) stores a diagnostic's file beside it, but
+  its `message_chain` children keep `file: None` and print with no location
+  in the exact oracle; native's carry the head's file at every level
+  (`NewDiagnosticChain`). §30 fixes the call builders locally. Giving every
+  file-less chain child the reported file in `report` would fix the
+  relation reporter's chains as well. On base16 (main `57e45ae7`), 60 of
+  the first 400 `diag:chain` cases differ only in those rows.
 
 - **Decorator inference over synthetic arguments.** Done for a single
   candidate in §28; the overload walk over synthetic arguments (several
