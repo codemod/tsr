@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 1019/1091 (93.40%)
-Failed         : 72
+Passed         : 1020/1091 (93.49%)
+Failed         : 71
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -105,8 +105,6 @@ conformance/callWithMissingVoidUndefinedUnknownAnyInJs(strict=true)
   6 missing (first TS2554 at jsfile.js(6,1))
 conformance/classStaticBlock6(target=es2015)
   2 missing (first TS2815 at classStaticBlock6.ts(41,13))
-conformance/controlFlowAliasingCatchVariables(useunknownincatchvariables=true)
-  1 missing (first TS18046 at controlFlowAliasingCatchVariables.ts(20,9))
 conformance/decoratorMetadata-jsdoc(target=es2015)
   1 missing (first TS8020 at decoratorMetadata-jsdoc.ts(9,9))
 conformance/emitModuleCommonJS(module=commonjs)

@@ -2,9 +2,9 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 checker_types Summary:
 What a pass means: the type of every expression matches upstream's .types baseline, line for line, for every file of the case. The `lines` gradient beside it is the share of individual assertions that match; the walker feeding both agrees with upstream on 97.85% of assertion TEXT, so the residual is the checker rather than the walk
-Passed         : 8963/9538 (93.97%)
-Assertion lines: 475954/478853 (99.39%)  — a gradient, not a pass rate
-Failed         : 575
+Passed         : 8964/9538 (93.98%)
+Assertion lines: 475958/478853 (99.40%)  — a gradient, not a pass rate
+Failed         : 574
 Skipped        : 2906 (excluded from the denominator)
 
   1397  skipped: configuration-varied baseline, judged per configuration by checker_types_configured
@@ -12,7 +12,7 @@ Skipped        : 2906 (excluded from the denominator)
   924  skipped: upstream recorded no .types baseline
   450  skipped: upstream records a known divergence from TypeScript
 
-First 100 of 575 failures:
+First 100 of 574 failures:
 compiler/abstractClassInLocalScopeIsAbstract
   abstractClassInLocalScopeIsAbstract.ts: >new A() : any — expected >new A() : A
 compiler/aliasOfGenericFunctionWithRestBehavedSameAsUnaliased
