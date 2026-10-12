@@ -2840,3 +2840,16 @@ intersection targets decline. `stringMappingOverPatternLiterals` and
   `onstrain`, `nion`, `ntersection`, `ndex`): 0 lost. The relater change
   alters decisions, so the full gate's diagnostic comparison is the real
   test.
+
+## 103. Correction to §84: aliased indexed accesses keep their alias name
+
+Gate c68 found two TYPE_LOSS lines in `deeplyNestedMappedTypes`. The union
+`OptionalPropertyKeys<T> | ReadonlyOptionalPropertyKeys<T> |
+ReadonlyPropertyKeys<T>` is three alias instantiations whose bodies are
+indexed accesses. `getTypeNameSymbol` names them by their alias, so they
+sort by alias name. §84 treated every pair of deferred indexed accesses as
+unnamed and ordered them by object and index, which reordered this union.
+The unnamed rule and the object/index arm now apply only when neither side
+is an alias instantiation, whether recorded in `alias_of` or as a reference
+target. `deeplyNestedMappedTypes`' types match again, and
+`indexedAccessConstraints` stays EXACT.

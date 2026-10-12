@@ -1477,10 +1477,14 @@ impl Checker<'_, '_> {
         // An indexed access has no type-name symbol (`getTypeNameSymbol`
         // answers nil): two compare equal here and are ordered by their
         // object and index types below, never by printed text.
+        // An alias instantiation (recorded as a reference target) is named
+        // by its alias and keeps the name comparison below.
         if alias_a.is_none()
             && alias_b.is_none()
             && self.deferred_indexed_access_types.contains_key(&a)
             && self.deferred_indexed_access_types.contains_key(&b)
+            && !self.type_reference_targets.contains_key(&a)
+            && !self.type_reference_targets.contains_key(&b)
         {
             return Ordering::Equal;
         }
@@ -1826,6 +1830,15 @@ impl Checker<'_, '_> {
             // types" (`utilities.go:544`): `T[string] | T[number]` sorts by
             // the index's flags, not by which access was minted first.
             .then_with(|| {
+                // An aliased access is named by its alias (`getTypeNameSymbol`),
+                // and the name comparison above decides it.
+                if self.alias_of.contains_key(&a)
+                    || self.alias_of.contains_key(&b)
+                    || self.type_reference_targets.contains_key(&a)
+                    || self.type_reference_targets.contains_key(&b)
+                {
+                    return Ordering::Equal;
+                }
                 match (
                     self.deferred_indexed_access_types.get(&a),
                     self.deferred_indexed_access_types.get(&b),
