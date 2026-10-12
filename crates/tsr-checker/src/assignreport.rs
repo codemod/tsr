@@ -2496,7 +2496,7 @@ impl<'a> Checker<'a, '_> {
             signature_error.span = span;
             diagnostic.add_message_chain(Some(signature_error));
         }
-        diagnostic.add_message_chain(chain);
+        add_relation_chain(&mut diagnostic, chain);
         self.attach_chain_file(at, span, &mut diagnostic);
         self.report_relation_head_diagnostic(file, source, target, diagnostic);
     }
@@ -2883,7 +2883,7 @@ impl<'a> Checker<'a, '_> {
                 signature_error.span = span;
                 diagnostic.add_message_chain(Some(signature_error));
             }
-            diagnostic.add_message_chain(chain);
+            add_relation_chain(&mut diagnostic, chain);
             self.attach_chain_file(at, span, &mut diagnostic);
             self.report_relation_head_diagnostic(file, source, target, diagnostic);
             return;
@@ -2894,7 +2894,7 @@ impl<'a> Checker<'a, '_> {
             signature_error.span = span;
             diagnostic.add_message_chain(Some(signature_error));
         }
-        diagnostic.add_message_chain(chain);
+        add_relation_chain(&mut diagnostic, chain);
         self.attach_chain_file(at, span, &mut diagnostic);
         self.report_relation_head_diagnostic(file, source, target, diagnostic);
     }
@@ -5508,6 +5508,31 @@ const PRIMITIVE_TARGET: TypeFlags = TypeFlags::STRING
 /// the one thing `docs/conventions.md` forbids about a refusal.
 const REPORT_MISSING_REQUIRED_PROPERTY: bool = true;
 
+/// The retraced chain under a head. A type-parameter head target's
+/// `reportRelationError` has already put its explanation under the head:
+/// TS5082 resets the chain ("only report this error once"), so nothing
+/// follows it; TS5075 is pushed above the chain, so the chain goes under
+/// it (r7-reports §60).
+fn add_relation_chain(diagnostic: &mut Diagnostic, chain: Option<Diagnostic>) {
+    let Some(chain) = chain else { return };
+    let mut children = diagnostic.message_chain().to_vec();
+    if let Some(last) = children.last_mut() {
+        if last.message.code()
+            == messages::_0_COULD_BE_INSTANTIATED_WITH_AN_ARBITRARY_TYPE_WHICH_COULD_BE_UNRELATED_TO_1.code()
+        {
+            return;
+        }
+        if last.message.code()
+            == messages::_0_IS_ASSIGNABLE_TO_THE_CONSTRAINT_OF_TYPE_1_BUT_1_COULD_BE_INSTANTIATED_WITH_A_DIFFERENT_SUBTYPE_OF_CONSTRAINT_2.code()
+        {
+            last.add_message_chain(Some(chain));
+            diagnostic.set_message_chain(children);
+            return;
+        }
+    }
+    diagnostic.add_message_chain(Some(chain));
+}
+
 /// `isConversionOrInterfaceImplementationMessage` (`relater.go:4934`): a
 /// head `reportRelationError` keeps over the missing-property message below.
 fn is_conversion_or_interface_implementation_message(message: &tsr_diagnostics::Message) -> bool {
@@ -5622,15 +5647,6 @@ impl Checker<'_, '_> {
         source: TypeId,
         target: TypeId,
     ) -> Option<Diagnostic> {
-        // A type-parameter target's `reportRelationError` either drops the
-        // chain below ("only report this error once", TS5082) or puts its
-        // TS5075 above it; the head's own report adds that message, so the
-        // retraced chain has no place under it (r7-reports §55).
-        if self.type_of(target).flags.contains(TypeFlags::TYPE_PARAMETER)
-            && !self.variance_marker_types.contains(&target)
-        {
-            return None;
-        }
         let mut stack = ChainStack::default();
         stack.assumed.push((source, target, false));
         self.explain_relation(&mut stack, source, target, 0)?;

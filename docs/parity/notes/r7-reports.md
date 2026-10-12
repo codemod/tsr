@@ -1918,3 +1918,15 @@ The same applies to §46's member-to-index arm. A synthesized source
 member with no symbol (an import-attributes literal, `{ field: 0 }`
 against `ImportAttributes`) has no optionality answer. It is required,
 and the arm now relates it instead of declining.
+
+## 60. The chain under a type-parameter head (supersedes §55's decline)
+
+§55 dropped the retraced chain for every type-parameter head target.
+That is right after TS5082, because `reportRelationError` resets the error
+chain ("only report this error once"). After TS5075 it is wrong: TS5075
+is pushed *above* whatever the structural pass and `reportErrorResults`
+reported, so `Object → T` reads TS5075 and then `The 'Object' type is
+assignable to very few other types.…` beneath it
+(`typeParametersShouldNotBeEqual3`). `add_relation_chain` now places the
+chain by the head's own child: it is dropped under TS5082, nested under
+TS5075, and appended otherwise. Both heads (TS2322 and TS2345) use it.
