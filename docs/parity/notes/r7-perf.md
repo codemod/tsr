@@ -1523,6 +1523,50 @@ token identity on 19,686 files.
 dm and dml have no block comments of their own. Their Ir moves only through
 the libs and through `scan`'s inlining, within ±0.04%.
 
+### §41.3 Item 4, JSDoc tags tested during the comment walk
+
+After the comment was skipped, `classify_block_comment` searched every
+JSDoc comment a second time for `@` (`jsdoc_tag_flags`). This mirrors native's
+`scanJSDocCommentForTags` (`scanner.go:350`), which runs `IndexByte(text, '@')`
+over the finished comment. 66% of lib bytes are comment text, so the second
+pass read most of the libs again. Now `skip_block_comment` tests the tags at
+each `@` it meets: per byte on the first line, and after it through
+`find_slash_or_at`. That function is an eight-bytes-at-a-time zero-byte test,
+`core`'s `memchr` technique applied to `/` and `@` together. The standard
+library searches for one byte only, so a fused search needs its own loop. The
+lowest flagged byte is always a real match, because the test's false
+positives only sit above a real one. `jsdoc_tag_at` is native's
+`hasJSDocTag` for one `@` and skips a set already found, as native's loop
+does.
+
+The answer cannot differ. Native searches `text[tokenStart:pos]`, the
+comment, and the walk sees the same `@`s. A tag name is letters, so it
+cannot run past a closing `*/`. The terminator test (`bytes.get(after +
+len)`) therefore reads the same byte whether the slice ends at the comment
+or at the end of the text. For an unterminated comment both end at the text's
+end. Tags in a non-JSDoc `/*` comment are computed and then dropped by
+`classify_block_comment`, as before. Tests:
+`scan.rs::jsdoc_tags_are_found_on_every_line_at_every_offset` puts each tag
+form at 20 offsets across a word boundary on the first, second and third
+lines, plus an unterminated tag and a plain `/*` comment. Token identity on
+19,686 files.
+
+This is a deviation from native's structure, not its behaviour: two passes
+become one. The reason is measured. Native's second `IndexByte` is a
+vectorised scan, while ours was a `str::find` call per `@` and per comment.
+
+| measurement | before (item 2) | candidate |
+|---|---:|---:|
+| Ir gi / dm / dml | 190,553,747 / 798,441,148 / 3,405,073,545 | 185,885,030 (−2.45%) / 793,675,043 (−0.60%) / 3,400,003,118 (−0.15%) |
+| lib parse (vs the build before it), run 1 / 2 | 1.000 | 0.940 / 0.955 |
+| lib parse (vs base, items 1+2+4), run 1 / 2 | 1.000 | 0.874 / 0.922 |
+
+The Ir saving is larger than the second pass alone. A scratch build that
+skipped `jsdoc_tag_flags` entirely saved 3.35 M Ir on gi, and that includes
+JSDoc parses which the missing flags then skipped. This candidate saves
+4.67 M. The rest is the one inline word loop replacing `str::find`'s call
+and alignment prologue at every `/` and `@` stop.
+
 ## §21 Main at batch 25: ratios, jsTyping's remaining delta, the effects signature
 
 **Ratios** (`6fe05d64`, TSR/tsgo wall · CPU, 21 samples, jsTyping 5):

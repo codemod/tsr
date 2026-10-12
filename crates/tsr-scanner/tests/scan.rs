@@ -608,6 +608,44 @@ fn block_comments_still_record_jsdoc_in_the_token_flags() {
     assert!(!plain[0].flags.contains(tsr_scanner::TokenFlags::PRECEDING_JSDOC_COMMENT));
 }
 
+/// The tags are tested during the comment walk (`r7-perf.md` §41.3), on the
+/// first line byte by byte and after it eight bytes at a time: every offset
+/// across a word boundary finds the same tags and the same terminator.
+#[test]
+fn jsdoc_tags_are_found_on_every_line_at_every_offset() {
+    use tsr_scanner::TokenFlags as F;
+    let both = F::PRECEDING_JSDOC_WITH_DEPRECATED | F::PRECEDING_JSDOC_WITH_SEE_OR_LINK;
+    for pad in 0..20 {
+        let spaces = " ".repeat(pad);
+        for (body, want) in [
+            ("@deprecated", F::PRECEDING_JSDOC_WITH_DEPRECATED),
+            ("{@link x} / a", F::PRECEDING_JSDOC_WITH_SEE_OR_LINK),
+            ("@seeder @linked @deprecatedly", F::empty()),
+            ("@see\n * @deprecated", both),
+            ("x@deprecated**", F::PRECEDING_JSDOC_WITH_DEPRECATED),
+            ("a / b // c", F::empty()),
+        ] {
+            for source in [
+                format!("/**{spaces}{body} */\nlet a;"),
+                format!("/**\n *{spaces}{body} */\nlet a;"),
+                format!("/** x\n *\n{spaces}{body}\n */\nlet a;"),
+            ] {
+                let (tokens, diagnostics) = tsr_scanner::tokenize(&source);
+                assert!(diagnostics.is_empty(), "{source:?}");
+                assert_eq!(tokens[0].kind, SyntaxKind::LetKeyword, "{source:?}");
+                assert_eq!(tokens[0].flags & both, want, "{source:?}");
+                assert!(tokens[0].flags.contains(F::PRECEDING_JSDOC_COMMENT), "{source:?}");
+            }
+        }
+    }
+    // A tag running to the end of an unterminated comment still counts.
+    let (tokens, _) = tsr_scanner::tokenize("/**\n * @see");
+    assert!(tokens[0].flags.contains(F::PRECEDING_JSDOC_WITH_SEE_OR_LINK));
+    // Tags outside a `/**` comment are not recorded.
+    let (tokens, _) = tsr_scanner::tokenize("/* @deprecated\n @see */ let a;");
+    assert_eq!(tokens[0].flags & both, F::empty());
+}
+
 #[test]
 fn non_ascii_whitespace_is_still_trivia() {
     // NBSP, the BOM, and the paragraph separators are trivia but not ASCII, so
