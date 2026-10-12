@@ -112,7 +112,8 @@ or — the source's excludes hitting the resolved flags — reports
 `mergeSymbolTable` stores the return value (`target[id] = merged`,
 `:14117`), so the conflicting augmentation declaration displaces the alias
 in the module's exports. The binder declined every alias-target merge
-(`alias_merges`, "nothing here follows aliases", `bd tsr-y4u.12`); only the
+(`alias_merges`, whose comment read "nothing here follows aliases" and cited
+an issue id that does not exist in Beads); only the
 checker's TS2300/TS2451 report ran.
 
 Second, `mergeSymbolTable` inserts `getMergedSymbol(sourceSymbol)` for a name

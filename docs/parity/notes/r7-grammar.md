@@ -946,3 +946,13 @@ the heads alone. It now attaches them through `related_diagnostic_at` (§34);
 the suggestion's symbol is `get_export_of_module(target, suggestion)`.
 Converted (near-full oracle vs `02301e3b`): `importNonExportedMember`–`3`,
 `missingMemberErrorHasShortPath`, `exportSpellingSuggestion`; +6, 0 lost.
+
+## §51 TS1046 on the first token
+
+`checkGrammarTopLevelElementForRequiredDeclareModifier` reports TS1046 with
+`grammarErrorOnFirstToken`, i.e. the statement's first token (`var`,
+`namespace`, `function`). `check_top_level_declare_modifiers` (check.rs, a
+grammar check) reported the whole statement. It now takes
+`first_token_span`. Converted: `missingRequiredDeclare.d.ts`,
+`erasableSyntaxOnlyDeclaration` and seven `parser*.d.ts` cases (the
+`TS1046 span-only` buckets).

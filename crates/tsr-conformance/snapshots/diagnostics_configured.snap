@@ -2,8 +2,8 @@ commit: 5b1047d10d32e7d5b446be4de56b126ff42f82bb
 
 diagnostics_configured Summary:
 What a pass means: the diagnostics suite's judgement for each configuration upstream's runner compiles a configuration-varied case under (`// @target: es2015, esnext`), against that configuration's suffixed .errors.txt
-Passed         : 1020/1091 (93.49%)
-Failed         : 71
+Passed         : 1021/1091 (93.58%)
+Failed         : 70
 Skipped        : 3077 (excluded from the denominator)
 
   1331  skipped: the case expects no diagnostics (see parser_typescript)
@@ -81,8 +81,6 @@ compiler/intersectionsAndOptionalProperties3(exactoptionalpropertytypes=true)
   2 unexpected (first TS2322 at intersectionsAndOptionalProperties3.ts(19,1)), 2 missing
 compiler/jsxChildrenArrayWrongType(target=es2015)
   2 missing (first TS2769 at index.tsx(12,9))
-compiler/moduleAugmentationGlobal8_1(target=es2015)
-  1 missing (first TS2670 at moduleAugmentationGlobal8_1.ts(2,5))
 compiler/multipleBaseInterfaesWithIncompatibleProperties2(exactoptionalpropertytypes=true)
   1 missing (first TS2320 at multipleBaseInterfaesWithIncompatibleProperties2.ts(19,11))
 compiler/shorthandPropertyAssignmentsInDestructuring(target=es2015)

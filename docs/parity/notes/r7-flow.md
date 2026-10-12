@@ -1080,3 +1080,35 @@ unchanged (start positions do not move); exact oracle 9677 → 9682
 lost_true 0; Ir gi 1.0000, dm 1.0002. Approximation: the arrow's "first line" is the line of the body's
 `{` (native: of the body's full start, the end of `=>`); they differ only when
 `{` starts a new line.
+
+## §39 `getAssignedType`'s destructuring arms
+
+`getTypeAtFlowAssignment` narrows a union-typed reference assigned inside a
+destructuring target by `getAssignedType(node)` (`flow.go:2288`), which
+recurses through the target: an array literal element takes
+`getTypeOfDestructuredArrayElement` of its literal's assigned type (a
+tuple-like source's element, else the iterated element), a spread the array
+of the iterated element, a property assignment `getTypeOfDestructuredProperty`
+(the property, else an applicable index signature's value), a shorthand that
+with its default, and a destructuring default (`[x = d]`, `{ p: x = d }`)
+`getTypeWithDefault(getAssignedType(binary), d)` (`getAssignedTypeOfBinaryExpression`,
+`:2314`). The port answered `None` (the declared type) for every
+destructuring arm and read a default's `x = d` as the plain assignment `x =
+d`: `[k = "", v = false] of map` narrowed `v: boolean` to `false`
+(`for-of45`), and `[x] = [true]` left `x` at its declared union
+(`assignmentTypeNarrowing`, `controlFlowAssignmentPatternOrder`).
+
+`assigned_type` (flow.rs) is `getAssignedType` with those arms
+(`type_of_destructured_array_element`, `type_of_destructured_property`,
+`type_with_default`, `is_destructuring_assignment_target`); an arm this port
+cannot decide (an unresolvable element or property) still answers `None`, the
+declared type. No cache: the recursion is bounded by the target's nesting and
+runs at an assignment flow node, as native's.
+
+Measured on `6efc0ae6` unfiltered: types **+19** (`controlFlowAssignmentPatternOrder`
+12, `assignmentTypeNarrowing` 6, `for-of45` 1), diagnostics **+1**
+(`controlFlowAssignmentPatternOrder`), 0 lost; jsTyping 122 → **117**
+unique lines, new_false 0, lost_true 0 (five false TS2322/TS2365 lines in
+`program.ts`, `semver.ts` and `esDecorators.ts` gone); exact oracle 9677 → 9679, 0
+lost; Ir gi 1.0000, dm
+1.0000.
